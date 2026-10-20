@@ -290,3 +290,55 @@ async fn origin_is_bound_to_the_token_subject() {
     );
     h.stop().await;
 }
+
+struct Cfg;
+
+impl Link for Cfg {
+    const NAME: &'static str = "cfg";
+    const VERSION: &'static str = "0";
+    type Config = ();
+
+    async fn start(_: (), ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        ctx.declare_node("w", NodeMeta::number().writable(Writable::Write))
+            .await?;
+        ctx.declare_node("c", NodeMeta::number().writable(Writable::Config))
+            .await?;
+        Ok(Cfg)
+    }
+
+    async fn on_set(&mut self, _p: &str, _v: Value, _w: &Caller) -> wyrm_link_sdk::Result<()> {
+        Ok(())
+    }
+}
+
+/// A key trusted with a `write` cap (flow engine, AI agent) cannot give
+/// `config`, whatever its token claims.
+#[tokio::test(flavor = "multi_thread")]
+async fn limited_keys_are_capped() {
+    let agent = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
+    let vk = agent.verifying_key();
+    let h = TestHarness::<Cfg>::start_with((), move |c| {
+        c.limited_keys = vec![(vk, Perm::Write)];
+    })
+    .await;
+    let tok = |path: &str| {
+        let k = h.key(path, "~set");
+        let mut claims = h.claims(&[(&k, Perm::Config)]);
+        claims.max = Perm::Config;
+        let mut t = vec![wyrm_core::ptok::PTOK_VERSION];
+        t.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+        use ed25519_dalek::Signer;
+        let sig = agent.sign(&t);
+        t.extend(sig.to_bytes());
+        t
+    };
+    assert_eq!(
+        status(&h.set("w", 1.0, Some(tok("w"))).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(
+        status(&h.set("c", 1.0, Some(tok("c"))).await),
+        Some(Status::PermissionDenied)
+    );
+    h.stop().await;
+}

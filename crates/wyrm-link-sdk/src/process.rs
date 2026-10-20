@@ -105,7 +105,19 @@ impl Env {
 pub struct Hello {
     pub params: Value,
     pub admin_keys: Vec<VerifyingKey>,
+    /// `[[key, perm code], ...]`: keys trusted only up to a permission.
+    pub limited_keys: Vec<(VerifyingKey, wyrm_core::Perm)>,
     pub secrets: crate::SecretStore,
+}
+
+fn key_of(v: &Value) -> Result<VerifyingKey> {
+    match v {
+        Value::Bytes(b) => <[u8; 32]>::try_from(b.as_slice())
+            .ok()
+            .and_then(|b| VerifyingKey::from_bytes(&b).ok())
+            .ok_or_else(|| LinkError::new(Status::InvalidMessage, "bad admin key")),
+        _ => Err(LinkError::new(Status::InvalidMessage, "bad admin key")),
+    }
 }
 
 fn parse_hello(v: Value) -> Result<Hello> {
@@ -117,14 +129,22 @@ fn parse_hello(v: Value) -> Result<Hello> {
     };
     let params = m.remove("params").unwrap_or(Value::Map(Default::default()));
     let admin_keys = match m.remove("admin_keys") {
-        Some(Value::Array(keys)) => keys
-            .into_iter()
-            .map(|k| match k {
-                Value::Bytes(b) => <[u8; 32]>::try_from(b.as_slice())
-                    .ok()
-                    .and_then(|b| VerifyingKey::from_bytes(&b).ok())
-                    .ok_or_else(|| LinkError::new(Status::InvalidMessage, "bad admin key")),
-                _ => Err(LinkError::new(Status::InvalidMessage, "bad admin key")),
+        Some(Value::Array(keys)) => keys.iter().map(key_of).collect::<Result<_>>()?,
+        _ => Vec::new(),
+    };
+    let limited_keys = match m.remove("limited_keys") {
+        Some(Value::Array(pairs)) => pairs
+            .iter()
+            .map(|p| match p {
+                Value::Array(kv) if kv.len() == 2 => {
+                    let perm = kv[1]
+                        .as_f64()
+                        .and_then(|c| u8::try_from(c as u64).ok())
+                        .and_then(|c| wyrm_core::Perm::try_from(c).ok())
+                        .ok_or_else(|| LinkError::new(Status::InvalidMessage, "bad key cap"))?;
+                    Ok((key_of(&kv[0])?, perm))
+                }
+                _ => Err(LinkError::new(Status::InvalidMessage, "bad limited key")),
             })
             .collect::<Result<_>>()?,
         _ => Vec::new(),
@@ -142,6 +162,7 @@ fn parse_hello(v: Value) -> Result<Hello> {
     Ok(Hello {
         params,
         admin_keys,
+        limited_keys,
         secrets,
     })
 }
@@ -237,6 +258,7 @@ where
     let cfg = L::Config::from_params(&hello.params)?;
     let mut lcfg = LinkConfig::new(env.site.clone(), env.link.clone());
     lcfg.admin_keys = hello.admin_keys;
+    lcfg.limited_keys = hello.limited_keys;
     lcfg.secrets = hello.secrets;
     lcfg.republish_on = Some(format!("wy/{}/sys/broker", env.site));
     let handle = spawn::<L>(session.clone(), lcfg, cfg).await?;

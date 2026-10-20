@@ -44,7 +44,9 @@ pub const MAX_TOKEN_TTL_S: u64 = 15 * 60;
 
 #[derive(Debug)]
 pub struct Verifier {
-    keys: Vec<VerifyingKey>,
+    /// Trusted keys with the highest permission a token they sign can give
+    /// (`config` for admin keys; lower for e.g. the flow or agent key).
+    keys: Vec<(VerifyingKey, Perm)>,
     site: String,
     replay: Mutex<HashMap<[u8; 16], u64>>,
 }
@@ -53,10 +55,16 @@ impl Verifier {
     /// `keys`: the active admin key and optionally the previous one.
     pub fn new(keys: Vec<VerifyingKey>, site: impl Into<String>) -> Self {
         Self {
-            keys,
+            keys: keys.into_iter().map(|k| (k, Perm::Config)).collect(),
             site: site.into(),
             replay: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Also trust `keys`, each only up to its permission.
+    pub fn with_limited(mut self, keys: Vec<(VerifyingKey, Perm)>) -> Self {
+        self.keys.extend(keys);
+        self
     }
 
     /// Verify `token` for a request on `key`. `now` is Unix seconds.
@@ -69,13 +77,13 @@ impl Verifier {
     ) -> Result<(PtokClaims, Perm), Denied> {
         let parts = ptok::split(token).ok_or(Denied::Malformed)?;
         let sig = Signature::from_bytes(parts.sig);
-        if !self
+        let cap = self
             .keys
             .iter()
-            .any(|k| k.verify_strict(parts.signed, &sig).is_ok())
-        {
-            return Err(Denied::Signature);
-        }
+            .filter(|(k, _)| k.verify_strict(parts.signed, &sig).is_ok())
+            .map(|(_, cap)| *cap)
+            .max()
+            .ok_or(Denied::Signature)?;
         let claims: PtokClaims =
             wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         if claims.exp <= now {
@@ -95,7 +103,11 @@ impl Verifier {
             .iter()
             .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(key)))
             .ok_or(Denied::NoGrant)?;
-        let perm = grant.p.min(claims.max).min(maxperm.unwrap_or(Perm::Config));
+        let perm = grant
+            .p
+            .min(claims.max)
+            .min(maxperm.unwrap_or(Perm::Config))
+            .min(cap);
         Ok((claims, perm))
     }
 

@@ -61,7 +61,7 @@ pub struct ControlConfig {
     /// Extra keys trusted by links only, never by the admin itself (the flow
     /// engine signs flow commands with one: a flow may command devices, not
     /// the control plane).
-    pub link_keys: Vec<VerifyingKey>,
+    pub link_keys: Vec<(VerifyingKey, Perm)>,
     /// Certificate CNs with requester rights (engineering tools).
     pub operators: Vec<String>,
     /// `dev` profile: loopback sessions get full rights.
@@ -76,6 +76,10 @@ pub struct ControlConfig {
     pub link_exe: PathBuf,
     pub max_restarts: u32,
 }
+
+/// Driver name of the AI agent link (ADR 0005): its signing key is a link
+/// secret and every other link trusts it, capped at `write`.
+pub const AGENT_DRIVER: &str = "agent";
 
 /// Link id of the flow engine (rooted at `wy/<site>/flows`); reserved.
 pub const FLOWS_LINK: &str = "flows";
@@ -225,11 +229,61 @@ impl Control {
         }
     }
 
-    /// Keys a link verifies `ptok`s with: admin keys plus `link_keys`.
-    fn link_trust(&self) -> Vec<VerifyingKey> {
-        let mut keys = self.cfg.admin_keys.clone();
-        keys.extend(self.cfg.link_keys.iter().copied());
-        keys
+    /// Keys a link verifies `ptok`s with: the admin keys, and capped keys
+    /// (`link_keys` plus the signing key of every agent link, at `write`).
+    fn link_trust(&self) -> (Vec<VerifyingKey>, Vec<(VerifyingKey, Perm)>) {
+        let mut limited = self.cfg.link_keys.clone();
+        limited.extend(self.agent_keys().into_iter().map(|k| (k, Perm::Write)));
+        (self.cfg.admin_keys.clone(), limited)
+    }
+
+    /// Name of the secret that holds an agent link's signing key.
+    fn agent_key_name(def: &LinkDef) -> String {
+        match decode_params(&def.params) {
+            Value::Map(m) => match m.get("agent_key_ref") {
+                Some(Value::Str(s)) if !s.is_empty() => s.clone(),
+                _ => "agent_key".into(),
+            },
+            _ => "agent_key".into(),
+        }
+    }
+
+    /// Verifying keys of the agent links (driver `agent`) that have one.
+    pub fn agent_keys(&self) -> Vec<VerifyingKey> {
+        self.registry()
+            .links
+            .values()
+            .filter(|d| d.driver == AGENT_DRIVER)
+            .filter_map(|d| {
+                let secrets = self.secrets.for_link(&d.id);
+                let raw = secrets.get(&Self::agent_key_name(d))?;
+                let seed: [u8; 32] = match raw.len() {
+                    32 => raw[..].try_into().ok()?,
+                    _ => hex::decode(std::str::from_utf8(raw).ok()?.trim())
+                        .ok()?
+                        .try_into()
+                        .ok()?,
+                };
+                Some(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key())
+            })
+            .collect()
+    }
+
+    /// An agent link gets its signing key as a link secret (never in params
+    /// or the tree); created once, kept across restarts.
+    fn ensure_agent_key(&self, def: &LinkDef) -> Result<bool, Error> {
+        if def.driver != AGENT_DRIVER {
+            return Ok(false);
+        }
+        let name = Self::agent_key_name(def);
+        if self.secrets.names(&def.id).contains(&name) {
+            return Ok(false);
+        }
+        let mut seed = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
+        self.secrets.set(&def.id, &name, &seed[..])?;
+        info!(link = %def.id, "agent signing key created");
+        Ok(true)
     }
 
     /// Secrets of one link for the SDK (embedded start, `hello` reply).
@@ -464,6 +518,12 @@ impl Control {
     /// Run the admin responder, embedded links, process links and watchers
     /// on `session` (an in-process session of the router runtime).
     pub async fn attach(self: &Arc<Self>, session: Session) -> Result<Attached, Error> {
+        // Agent keys first: every link started below trusts them.
+        for def in self.registry().links.values() {
+            if let Err(e) = self.ensure_agent_key(def) {
+                warn!(link = %def.id, "agent key: {e}");
+            }
+        }
         let embedded: Running = Arc::new(AsyncMutex::new(HashMap::new()));
         let mut lcfg = LinkConfig::new(self.cfg.site.clone(), "admin");
         lcfg.root = Some(format!("wy/{}/sys", self.cfg.site));
@@ -549,7 +609,9 @@ async fn start_embedded(
         return Ok(());
     }
     let mut lcfg = LinkConfig::new(ctl.cfg.site.clone(), def.id.clone());
-    lcfg.admin_keys = ctl.link_trust();
+    let (admin_keys, limited_keys) = ctl.link_trust();
+    lcfg.admin_keys = admin_keys;
+    lcfg.limited_keys = limited_keys;
     lcfg.secrets = ctl.link_secrets(&def.id);
     let link = ctl
         .host
@@ -887,6 +949,12 @@ impl Admin {
             .map_err(|e| LinkError::internal(e.to_string()))?;
         ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
         ctl.record(sub, "install", &id, Status::Ok, mode.name());
+        if def.driver == AGENT_DRIVER {
+            // New trusted key: running links restart with the new trust list.
+            ctl.ensure_agent_key(&def)
+                .map_err(|e| LinkError::internal(e.to_string()))?;
+            ctl.schedule_reload();
+        }
         declare_link(&self.ctx, &def).await?;
         let mut reply = BTreeMap::new();
         if mode.is_remote() {
@@ -943,13 +1011,27 @@ impl Admin {
                     .collect(),
             ),
         );
+        let (admin_keys, limited_keys) = self.ctl.link_trust();
         reply.insert(
             "admin_keys".into(),
             Value::Array(
-                self.ctl
-                    .link_trust()
+                admin_keys
                     .iter()
                     .map(|k| Value::Bytes(k.to_bytes().to_vec()))
+                    .collect(),
+            ),
+        );
+        reply.insert(
+            "limited_keys".into(),
+            Value::Array(
+                limited_keys
+                    .iter()
+                    .map(|(k, p)| {
+                        Value::Array(vec![
+                            Value::Bytes(k.to_bytes().to_vec()),
+                            Value::UInt(p.code().into()),
+                        ])
+                    })
                     .collect(),
             ),
         );
@@ -976,6 +1058,7 @@ impl Admin {
             .set(id, name, &value)
             .map_err(|e| LinkError::internal(e.to_string()))?;
         self.ctl.record(sub, "set_secret", id, Status::Ok, name);
+        self.reload_if_agent(id);
         Ok(Some(self.secret_names(id)))
     }
 
@@ -996,7 +1079,21 @@ impl Admin {
             return Err(LinkError::not_found(name.to_owned()));
         }
         self.ctl.record(sub, "delete_secret", id, Status::Ok, name);
+        self.reload_if_agent(id);
         Ok(Some(self.secret_names(id)))
+    }
+
+    /// An agent key changed: links must reload their trust list.
+    fn reload_if_agent(&self, id: &str) {
+        if self
+            .ctl
+            .registry()
+            .links
+            .get(id)
+            .is_some_and(|d| d.driver == AGENT_DRIVER)
+        {
+            self.ctl.schedule_reload();
+        }
     }
 
     fn secret_names(&self, id: &str) -> Value {
@@ -1109,7 +1206,7 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
-        if def.mode.is_remote() {
+        if def.mode.is_remote() || def.driver == AGENT_DRIVER {
             self.ctl.schedule_reload();
         }
         Ok(())

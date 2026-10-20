@@ -896,3 +896,56 @@ async fn profiles_stored_served_and_inherited() {
     assert!(c.profile(SITE, "acme:temp", false).await.is_err());
     env.stop().await;
 }
+
+/// ADR 0005: an agent link gets a signing key as a link secret, and every
+/// other link trusts it capped at `write` (the `hello` reply carries it in
+/// `limited_keys`, not in `admin_keys`).
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_key_is_trusted_capped_at_write() {
+    let env = Env::start(
+        "agentkey",
+        r#"links: {
+            ai: { driver: "agent", params: { allowed_prefixes: ["wy/e2e/down/mock"] } },
+            ext: { driver: "x", mode: "external" },
+        },"#,
+    )
+    .await;
+    let keys = env.ctl.agent_keys();
+    assert_eq!(keys.len(), 1, "agent key created at start");
+    let dir = env.ctl.config().data_dir.join("links");
+    let tok = std::fs::read_to_string(dir.join("ext/token")).unwrap();
+    let s = env.tls_session("ext").await;
+    let mut args = BTreeMap::new();
+    args.insert("token".to_owned(), Value::Bytes(tok.as_bytes().to_vec()));
+    let r = s
+        .get(format!("wy/{SITE}/sys/links/ext/~act/hello"))
+        .payload(wyrm_core::codec::to_vec(&Value::Map(args)).unwrap())
+        .timeout(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let reply = r.recv_async().await.unwrap();
+    let Value::Map(m) =
+        wyrm_core::codec::from_slice::<Value>(&reply.result().unwrap().payload().to_bytes())
+            .unwrap()
+    else {
+        panic!("hello reply is a map")
+    };
+    let agent = Value::Bytes(keys[0].to_bytes().to_vec());
+    let Some(Value::Array(admin)) = m.get("admin_keys") else {
+        panic!("admin_keys")
+    };
+    assert!(!admin.contains(&agent), "the agent key is not an admin key");
+    let Some(Value::Array(limited)) = m.get("limited_keys") else {
+        panic!("limited_keys")
+    };
+    let write = Value::UInt(wyrm_core::Perm::Write.code().into());
+    assert!(
+        limited.contains(&Value::Array(vec![agent, write])),
+        "{limited:?}"
+    );
+    // the agent key never reaches the reply as a secret of another link
+    assert!(m
+        .get("secrets")
+        .is_none_or(|s| !matches!(s, Value::Map(x) if x.contains_key("agent_key"))));
+    env.stop().await;
+}

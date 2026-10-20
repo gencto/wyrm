@@ -20,6 +20,7 @@ use wyrm_admin::{
 use wyrm_core::Value;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
+use wyrm_link_agent::{Agent, AgentConfig};
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
@@ -495,6 +496,7 @@ impl EmbeddedHost for Drivers {
             Framework::<MockDev>::NAME,
             Modbus::NAME,
             Mqtt::NAME,
+            Agent::NAME,
         ]
     }
 
@@ -504,6 +506,7 @@ impl EmbeddedHost for Drivers {
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
             "mockdev" | "modbus" | "mqtt" => Tree::from_params(params).map(|_| ()),
+            "agent" => AgentConfig::from_params(params).map(|_| ()),
             d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
         }
     }
@@ -521,6 +524,7 @@ impl EmbeddedHost for Drivers {
                 "mockdev" => start_boxed::<Framework<MockDev>>(session, cfg, params).await,
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
                 "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
+                "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
             }
         })
@@ -534,6 +538,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "mockdev" => wyrm_link_sdk::process::run::<Framework<MockDev>>().await?,
         "modbus" => wyrm_link_sdk::process::run::<Modbus>().await?,
         "mqtt" => wyrm_link_sdk::process::run::<Mqtt>().await?,
+        "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())
@@ -785,8 +790,14 @@ impl Daemon {
         // The gateway signs one token per user request with that user's
         // grants. Links (and the flow engine) trust its key; the admin does
         // not, so the control plane stays with operator keys.
-        let mut link_keys = vec![flows.verifying_key()];
-        link_keys.extend(gateway.as_ref().map(|g| g.verifying_key()));
+        // Caps: flows never get config (spec 06); gateway tokens carry the
+        // user's grants, up to config on devices.
+        let mut link_keys = vec![(flows.verifying_key(), wyrm_core::Perm::Write)];
+        link_keys.extend(
+            gateway
+                .as_ref()
+                .map(|g| (g.verifying_key(), wyrm_core::Perm::Config)),
+        );
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),

@@ -48,6 +48,9 @@ pub struct LinkConfig {
     /// Admin `ptok` keys: the active one and optionally the previous one.
     /// Empty → every `set`/`invoke` is denied.
     pub admin_keys: Vec<VerifyingKey>,
+    /// More trusted keys, each capped at a permission (the flow engine and
+    /// agent keys at `write`): a stolen one cannot mint `config`.
+    pub limited_keys: Vec<(VerifyingKey, Perm)>,
     /// Bound on each driver call (overridden by `actions.*.timeout_ms`).
     /// Keep below the requester's 10 s `get` timeout.
     pub driver_timeout: Duration,
@@ -90,6 +93,7 @@ impl LinkConfig {
             site: site.into(),
             link: link.into(),
             admin_keys: Vec::new(),
+            limited_keys: Vec::new(),
             driver_timeout: Duration::from_secs(5),
             answer_val: false,
             secrets: SecretStore::default(),
@@ -211,7 +215,7 @@ pub async fn spawn<L: Link>(
     let (tx, rx) = mpsc::channel(QUEUE_DEPTH);
     let shared = Arc::new(Shared {
         ctx: ctx.clone(),
-        verifier: Verifier::new(cfg.admin_keys, cfg.site.clone()),
+        verifier: Verifier::new(cfg.admin_keys, cfg.site.clone()).with_limited(cfg.limited_keys),
         cmd: tx.clone(),
         driver_timeout: cfg.driver_timeout,
         answer_val: cfg.answer_val,

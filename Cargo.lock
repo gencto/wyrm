@@ -5940,6 +5940,7 @@ dependencies = [
  "wyrm-core",
  "wyrm-flow",
  "wyrm-gateway",
+ "wyrm-link-agent",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",
