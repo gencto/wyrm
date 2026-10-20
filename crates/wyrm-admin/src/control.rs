@@ -75,6 +75,10 @@ pub struct ControlConfig {
     /// Program that hosts a driver as a process: `<link_exe> link <driver>`.
     pub link_exe: PathBuf,
     pub max_restarts: u32,
+    /// Directory for the WAL head anchors of the registry and the audit
+    /// journal (`state.head`, `audit.head`), on another medium than
+    /// `data_dir`: detects records cut from the end of a WAL.
+    pub anchor_dir: Option<PathBuf>,
 }
 
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
@@ -157,8 +161,13 @@ impl Control {
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<()>), Error> {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let key = secret::load_or_create_key(&cfg.data_dir.join("state.key"))?;
-        let store = Store::<Registry>::open(cfg.data_dir.join("state"), &key)?;
-        let audit = Store::<AuditLog>::open(cfg.data_dir.join("audit"), &key)?;
+        let mut store = Store::<Registry>::open(cfg.data_dir.join("state"), &key)?;
+        let mut audit = Store::<AuditLog>::open(cfg.data_dir.join("audit"), &key)?;
+        if let Some(dir) = &cfg.anchor_dir {
+            std::fs::create_dir_all(dir)?;
+            store = store.with_anchor(dir.join("state.head"))?;
+            audit = audit.with_anchor(dir.join("audit.head"))?;
+        }
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
         let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;
         let (reload, rx) = mpsc::unbounded_channel();

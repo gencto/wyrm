@@ -76,6 +76,11 @@ pub struct Config {
     pub metrics_interval_ms: u64,
     #[serde(default = "default_restarts")]
     pub max_restarts: u32,
+    /// WAL head anchors of the control-plane state and the audit journal,
+    /// on another medium than `data_dir` (e.g. a separate mount): a WAL cut
+    /// at the end or rolled back is refused at start.
+    #[serde(default)]
+    pub state_anchor_dir: Option<PathBuf>,
     /// Router-to-router links to other sites (iteration 4), QUIC + mTLS.
     #[serde(default)]
     pub peers: PeersSection,
@@ -331,6 +336,15 @@ impl Config {
             }
         }
         cfg.peers.validate(&cfg.site)?;
+        if let Some(a) = &cfg.state_anchor_dir {
+            if a.starts_with(&cfg.data_dir) {
+                return Err(format!(
+                    "state_anchor_dir {}: must be outside data_dir (another medium)",
+                    a.display()
+                )
+                .into());
+            }
+        }
         if let Some(g) = &cfg.gateway {
             match (&g.tls_cert, &g.tls_key) {
                 (Some(_), Some(_)) => {}
@@ -815,6 +829,7 @@ impl Daemon {
             metrics_interval: Duration::from_millis(cfg.metrics_interval_ms.max(100)),
             link_exe,
             max_restarts: cfg.max_restarts,
+            anchor_dir: cfg.state_anchor_dir.clone(),
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());

@@ -52,6 +52,8 @@ pub enum StateError {
     Codec(String),
     #[error("{0} is in use by another process")]
     InUse(String),
+    #[error("anchor {anchor}: {why} (WAL truncated or replaced?)")]
+    Anchor { anchor: String, why: String },
 }
 
 pub type Result<T, E = StateError> = core::result::Result<T, E>;
@@ -76,6 +78,8 @@ pub struct Store<S: State> {
     /// Exclusive lock on `dir/LOCK` for the life of the store: one writer
     /// per WAL (a second process would interleave records).
     _lock: File,
+    /// Head record (`<lsn> <hex mac>`) kept outside the store directory.
+    anchor: Option<PathBuf>,
     since_snapshot: usize,
     snapshot_every: usize,
 }
@@ -97,6 +101,10 @@ fn snapshot_name(lsn: u64) -> String {
 }
 
 /// `fsync` the directory so new or renamed entries survive power loss.
+fn hex_of(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
 fn sync_dir(dir: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
@@ -194,9 +202,68 @@ impl<S: State> Store<S> {
             chain,
             wal,
             _lock: lock,
+            anchor: None,
             since_snapshot: replayed,
             snapshot_every: SNAPSHOT_EVERY,
         })
+    }
+
+    /// Keep the head (LSN and chain MAC) in `path`, on another medium than
+    /// the store. The HMAC chain finds edited records but not records cut
+    /// from the end; the anchor does. On open: an anchor ahead of the WAL,
+    /// or the same LSN with another MAC, is an error; an anchor one record
+    /// behind (crash between the WAL write and the anchor write) is accepted.
+    pub fn with_anchor(mut self, path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let bad = |why: String| StateError::Anchor {
+            anchor: path.display().to_string(),
+            why,
+        };
+        match fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+            Ok(text) => {
+                let mut it = text.split_whitespace();
+                let lsn: u64 = it
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or_else(|| bad("unreadable".into()))?;
+                let mac_hex = it.next().unwrap_or_default();
+                if lsn > self.lsn {
+                    return Err(bad(format!(
+                        "anchor is at lsn {lsn}, the WAL ends at {}",
+                        self.lsn
+                    )));
+                }
+                if lsn == self.lsn && mac_hex != hex_of(&self.chain) {
+                    return Err(bad(format!("chain at lsn {lsn} differs")));
+                }
+                if lsn + 1 < self.lsn {
+                    return Err(bad(format!(
+                        "anchor is at lsn {lsn}, {} records behind the WAL",
+                        self.lsn - lsn
+                    )));
+                }
+            }
+        }
+        self.anchor = Some(path);
+        self.write_anchor()?;
+        Ok(self)
+    }
+
+    fn write_anchor(&self) -> Result<()> {
+        let Some(path) = &self.anchor else {
+            return Ok(());
+        };
+        let tmp = path.with_extension("tmp");
+        let mut f = File::create(&tmp)?;
+        f.write_all(format!("{} {}\n", self.lsn, hex_of(&self.chain)).as_bytes())?;
+        f.sync_all()?;
+        fs::rename(&tmp, path)?;
+        if let Some(dir) = path.parent() {
+            sync_dir(dir)?;
+        }
+        Ok(())
     }
 
     /// Test hook: snapshot more often.
@@ -231,6 +298,10 @@ impl<S: State> Store<S> {
         self.state = next;
         self.lsn = lsn;
         self.chain = m;
+        if let Err(e) = self.write_anchor() {
+            // The record is durable; a stale anchor is caught on next open.
+            warn!("anchor write failed: {e}");
+        }
         self.since_snapshot += 1;
         if self.since_snapshot >= self.snapshot_every {
             if let Err(e) = self.snapshot() {

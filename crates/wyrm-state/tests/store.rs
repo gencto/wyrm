@@ -172,3 +172,62 @@ fn one_writer_per_store() {
     drop(a);
     assert!(Store::<Kv>::open(&d, KEY).is_ok(), "free again after drop");
 }
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    let _ = std::fs::remove_dir_all(to);
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        if e.file_name() != "LOCK" {
+            std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        }
+    }
+}
+
+/// T11: the HMAC chain cannot see records cut from the end; an anchor kept
+/// outside the store can.
+#[test]
+fn anchor_detects_a_cut_wal() {
+    let d = dir("anchor");
+    let backup = dir("anchor-backup");
+    let anchor_dir = dir("anchor-head");
+    std::fs::create_dir_all(&anchor_dir).unwrap();
+    let anchor = anchor_dir.join("state.head");
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        s.apply(Op::Put("a".into(), 1)).unwrap();
+        s.apply(Op::Put("b".into(), 2)).unwrap();
+    }
+    copy_dir(&d, &backup); // two records
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        s.apply(Op::Put("c".into(), 3)).unwrap();
+        assert_eq!(s.lsn(), 3);
+    }
+    // normal reopen with the anchor
+    drop(
+        Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap(),
+    );
+    // the attacker rolls the store back to two records: refused
+    let e = Store::<Kv>::open(&backup, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .err()
+        .expect("cut WAL refused");
+    assert!(matches!(e, StateError::Anchor { .. }), "{e}");
+    // an anchor one record behind (crash between WAL and anchor) is accepted
+    std::fs::write(&anchor, format!("2 {}\n", "00".repeat(32))).unwrap();
+    assert!(Store::<Kv>::open(&d, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .is_ok());
+}

@@ -1011,3 +1011,35 @@ async fn link_process_exits_without_its_parent() {
     assert!(exited, "exits when its parent is gone");
     env.stop().await;
 }
+
+/// T11: with `state_anchor_dir` the control-plane WALs keep their head on
+/// another medium; a WAL that is shorter than its anchor is refused.
+#[test]
+fn state_anchor_refuses_a_cut_wal() {
+    let dir = temp_dir("anchor");
+    let anchors = temp_dir("anchor-heads");
+    let cfg = |anchor: &std::path::Path| {
+        Config::from_json5(&format!(
+            r#"{{ site: "{SITE}", data_dir: "{}", listen: ["tcp/127.0.0.1:{}"],
+                 state_anchor_dir: "{}", {MOCK} }}"#,
+            dir.display(),
+            free_port(),
+            anchor.display()
+        ))
+    };
+    // an anchor inside data_dir protects nothing
+    assert!(cfg(&dir.join("heads")).is_err());
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
+    drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
+    // the anchor says the registry WAL was longer than it is now
+    std::fs::write(
+        anchors.join("state.head"),
+        format!("999 {}\n", "00".repeat(32)),
+    )
+    .unwrap();
+    let e = Daemon::open(cfg(&anchors).unwrap(), exe)
+        .err()
+        .expect("refused");
+    assert!(e.to_string().contains("anchor"), "{e}");
+}

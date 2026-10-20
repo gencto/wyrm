@@ -4,6 +4,9 @@
   // prod: loopback sessions are requesters only; dev: loopback may do everything.
   profile: "prod",
   data_dir: "./data",
+  // WAL head anchors of the control-plane state and the audit journal, on
+  // another medium than data_dir: a WAL cut at the end is refused at start.
+  // state_anchor_dir: "/var/lib/wyrm-anchor",
   // Plain tcp only on loopback (principle 6). The tls/ listener serves
   // process links and remote devices with CA-issued certificates (mTLS).
   listen: ["tcp/127.0.0.1:7447", "tls/127.0.0.1:7448"],
