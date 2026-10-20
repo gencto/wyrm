@@ -271,11 +271,14 @@ impl Control {
             if !self.host.drivers().contains(&l.driver.as_str()) && l.mode != Mode::External {
                 return Err(format!("{}: driver {} is not compiled in", l.id, l.driver).into());
             }
+            crate::secrets::lint_params(&l.params, &format!("links.{}.params", l.id))?;
             if l.mode != Mode::External {
                 self.host.validate(&l.driver, &l.params)?;
             }
             match reg.links.get(&l.id) {
                 None => {
+                    // A new link never inherits secrets of an earlier one.
+                    self.secrets.drop_link(&l.id)?;
                     let (token_hash, _) = self.new_token_for(&l.id, l.mode)?;
                     self.apply(Op::Install(LinkDef {
                         id: l.id.clone(),
@@ -319,6 +322,7 @@ impl Control {
         let wanted: HashSet<&str> = links.iter().map(|l| l.id.as_str()).collect();
         for d in reg.links.values() {
             if d.origin == Origin::Config && !wanted.contains(d.id.as_str()) {
+                self.secrets.drop_link(&d.id)?;
                 self.apply(Op::Remove(d.id.clone()))?;
                 if let Ok(dir) = self.link_dir(&d.id) {
                     let _ = std::fs::remove_dir_all(dir);
@@ -837,6 +841,9 @@ impl Admin {
             origin: Origin::Runtime,
             created: now_s(),
         };
+        ctl.secrets
+            .drop_link(&id)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
         ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
         ctl.record(sub, "install", &id, Status::Ok, mode.name());
         declare_link(&self.ctx, &def).await?;
@@ -1016,13 +1023,14 @@ impl Admin {
             self.stop_link(id, sub).await?;
         }
         self.ctl
+            .secrets
+            .drop_link(id)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
+        self.ctl
             .apply(Op::Remove(id.to_owned()))
             .map_err(rejected)?;
         if let Ok(dir) = self.ctl.link_dir(id) {
             let _ = std::fs::remove_dir_all(dir);
-        }
-        if let Err(e) = self.ctl.secrets.drop_link(id) {
-            warn!("secrets of {id}: {e}");
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
@@ -1059,6 +1067,10 @@ impl Admin {
             origin: Origin::Runtime,
             created: now_s(),
         };
+        self.ctl
+            .secrets
+            .drop_link(cn)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
         self.ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
         self.ctl.record(sub, "approve", cn, Status::Ok, "");
         self.ctx.remove_node(&format!("quarantine/{cn}")).await?;

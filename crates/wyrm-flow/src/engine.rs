@@ -1,7 +1,8 @@
 //! The engine: flows as nodes under `wy/<site>/flows` (an SDK link rooted
 //! there). Root actions `deploy {def}` / `validate {def}`; per flow
-//! `start | stop | reload | remove`; a `put` on `flows/<id>/~def` (as the
-//! ACL allows) deploys too. A failed compile leaves the previous version
+//! `start | stop | reload | remove`. `flows/<id>/~def` is read-only: a bare
+//! `put` carries no verified caller, so deploying goes through the `deploy`
+//! action only (ptok, `maxperm` cap, audit). A failed compile leaves the previous version
 //! running and shows the error in `flows/<id>/~val` (spec 06).
 //!
 //! Hot swap: the old run stops (drains ≤ 1 s) and the new one starts with
@@ -530,7 +531,6 @@ pub struct EngineStart {
 /// The `wy/<site>/flows/**` responder.
 pub struct Engine {
     shared: Shared,
-    watcher: Option<JoinHandle<()>>,
 }
 
 fn def_param() -> ParamMeta {
@@ -579,30 +579,7 @@ impl Link for Engine {
                 }
             }
         }
-        // `put flows/<id>/~def` deploys (who may put is the ACL's business).
-        let key = ctx.key("*", "~def");
-        let (sh, session) = (shared.clone(), ctx.client().clone());
-        let watcher = tokio::spawn(async move {
-            let Ok(sub) = session.declare_subscriber(&key).await else {
-                return;
-            };
-            while let Ok(s) = sub.recv_async().await {
-                if s.kind() != zenoh::sample::SampleKind::Put {
-                    continue;
-                }
-                let Ok(v) = wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes()) else {
-                    continue;
-                };
-                let mut st = sh.lock().await;
-                if let Err(e) = st.deploy(v, true, &sh).await {
-                    warn!("put ~def rejected: {e}");
-                }
-            }
-        });
-        Ok(Engine {
-            shared,
-            watcher: Some(watcher),
-        })
+        Ok(Engine { shared })
     }
 
     async fn on_invoke(
@@ -681,9 +658,6 @@ impl Link for Engine {
     }
 
     async fn stop(&mut self) {
-        if let Some(w) = self.watcher.take() {
-            w.abort();
-        }
         let mut st = self.shared.lock().await;
         let ids: Vec<String> = st.flows.keys().cloned().collect();
         for id in ids {
