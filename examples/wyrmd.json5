@@ -20,6 +20,9 @@
   // peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.pem" }] },
   // User gateway; first admin password from WYRM_GATEWAY_ADMIN_PASSWORD.
   // gateway: { listen: "127.0.0.1:8080", admin_user: "admin" },
+  // Hard rlimits each process link sets on itself (0 = none; core dumps are
+  // always off). memory_mb is applied on Linux only.
+  // link_limits: { memory_mb: 1024, open_files: 4096 },
   links: {
     // Embedded mock connector: wy/local/down/mock/**
     mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },

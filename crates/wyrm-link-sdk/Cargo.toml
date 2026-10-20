@@ -31,6 +31,9 @@ sha2.workspace = true
 zenoh-ext = { workspace = true, optional = true }
 wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }
 
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["resource", "process"] }
+
 [dev-dependencies]
 wyrm-link-sdk = { path = ".", features = ["harness", "advanced", "process"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

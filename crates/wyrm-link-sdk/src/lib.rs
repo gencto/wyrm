@@ -18,6 +18,7 @@ pub mod error;
 pub mod guard;
 #[cfg(feature = "harness")]
 pub mod harness;
+pub mod limits;
 pub mod link;
 pub mod params;
 #[cfg(feature = "process")]

@@ -279,6 +279,8 @@ pub async fn run<L: Link>() -> Result<()>
 where
     L::Config: FromParams,
 {
+    // Before any network input: limits set by the supervisor (fail closed).
+    crate::limits::Limits::from_env()?.apply()?;
     // Also while waiting for the first `hello`: an orphan never lingers.
     tokio::select! {
         _ = parent_gone() => Ok(()),

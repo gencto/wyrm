@@ -76,6 +76,9 @@ pub struct Config {
     pub metrics_interval_ms: u64,
     #[serde(default = "default_restarts")]
     pub max_restarts: u32,
+    /// Resource limits of process links (see `wyrm_link_sdk::limits`).
+    #[serde(default)]
+    pub link_limits: LinkLimits,
     /// WAL head anchors of the control-plane state and the audit journal,
     /// on another medium than `data_dir` (e.g. a separate mount): a WAL cut
     /// at the end or rolled back is refused at start.
@@ -255,6 +258,33 @@ fn default_metrics_ms() -> u64 {
 }
 fn default_restarts() -> u32 {
     10
+}
+
+/// `link_limits` in `wyrmd.json5`; 0 = no limit. Core dumps are always off.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LinkLimits {
+    /// Heap and private mappings per link process (Linux only).
+    #[serde(default = "default_link_memory_mb")]
+    pub memory_mb: u64,
+    #[serde(default = "default_link_open_files")]
+    pub open_files: u64,
+}
+
+impl Default for LinkLimits {
+    fn default() -> Self {
+        Self {
+            memory_mb: default_link_memory_mb(),
+            open_files: default_link_open_files(),
+        }
+    }
+}
+
+fn default_link_memory_mb() -> u64 {
+    1024
+}
+fn default_link_open_files() -> u64 {
+    4096
 }
 
 pub use wyrm_client::endpoint::plaintext_off_loopback;
@@ -915,6 +945,10 @@ impl Daemon {
             metrics_interval: Duration::from_millis(cfg.metrics_interval_ms.max(100)),
             link_exe,
             max_restarts: cfg.max_restarts,
+            link_limits: wyrm_link_sdk::limits::Limits {
+                memory_mb: cfg.link_limits.memory_mb,
+                open_files: cfg.link_limits.open_files,
+            },
             anchor_dir: cfg.state_anchor_dir.clone(),
             anchor_init: cfg.init_anchors,
         };

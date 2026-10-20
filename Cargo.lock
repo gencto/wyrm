@@ -5855,6 +5855,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "minicbor",
+ "nix",
  "sha2",
  "thiserror 2.0.21",
  "tokio",

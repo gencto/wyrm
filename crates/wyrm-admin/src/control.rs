@@ -75,6 +75,8 @@ pub struct ControlConfig {
     /// Program that hosts a driver as a process: `<link_exe> link <driver>`.
     pub link_exe: PathBuf,
     pub max_restarts: u32,
+    /// Resource limits of every process link.
+    pub link_limits: wyrm_link_sdk::limits::Limits,
     /// Directory for the WAL head anchors of the registry and the audit
     /// journal (`state.head`, `audit.head`), on another medium than
     /// `data_dir`: detects records cut from the end of a WAL.
@@ -576,7 +578,10 @@ impl Control {
                     dir.join("token").display().to_string(),
                 ),
                 ("WYRM_DATA_DIR".into(), data.display().to_string()),
-            ],
+            ]
+            .into_iter()
+            .chain(self.cfg.link_limits.to_env())
+            .collect(),
             max_restarts: self.cfg.max_restarts,
         })
     }
