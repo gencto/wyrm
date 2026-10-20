@@ -13,6 +13,7 @@
 
 pub mod auth;
 pub mod ctx;
+pub mod driver;
 pub mod error;
 #[cfg(feature = "harness")]
 pub mod harness;
@@ -35,3 +36,5 @@ pub use link::{Link, ReplySink};
 pub use params::{Fields, FromParams};
 pub use runtime::{spawn, LinkConfig, LinkHandle};
 pub use support::{Metrics, Secret, SecretStore};
+/// `#[derive(Params)]` / `#[derive(ParamEnum)]` for driver parameters (ADR 0004).
+pub use wyrm_link_sdk_derive::{ParamEnum, Params};

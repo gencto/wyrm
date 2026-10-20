@@ -474,6 +474,20 @@ enum PubInner {
 }
 
 impl PointPublisher {
+    /// Whether any subscriber matches this point's `~val` (a `~val` storage
+    /// counts). Advanced publishers always report `true`.
+    pub async fn has_subscribers(&self) -> bool {
+        match &self.inner {
+            PubInner::Plain(p) => p
+                .matching_status()
+                .await
+                .map(|s| s.matching())
+                .unwrap_or(true),
+            #[cfg(feature = "advanced")]
+            PubInner::Reliable(_) => true,
+        }
+    }
+
     pub async fn put(&self, v: impl Into<Value>, q: Quality, t: u64) -> Result<()> {
         self.ctx.ensure_open()?;
         let s = Sample { v: v.into(), q, t };

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,9 @@ repository = "https://github.com/gencto/wyrm"
 authors = ["Mykhailo <info@gencto.uk>"]
 
 [workspace.dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
 minicbor = { version = "0.26", features = ["derive", "std", "half"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

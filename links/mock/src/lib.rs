@@ -10,6 +10,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod df;
+
 use std::collections::HashMap;
 use std::f64::consts::TAU;
 use std::sync::{Arc, Mutex};

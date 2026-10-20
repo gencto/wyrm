@@ -178,7 +178,9 @@ impl wyrm_state::State for Registry {
                     .links
                     .remove(id)
                     .ok_or_else(|| format!("no link {id}"))?;
-                if def.mode.is_remote() {
+                // A token hash exists iff the link was ever remote, i.e. a
+                // certificate was issued (Update to embedded keeps it).
+                if def.mode.is_remote() || !def.token_hash.is_empty() {
                     self.retired.insert(id.clone());
                 }
             }
@@ -279,5 +281,15 @@ mod tests {
         r.apply(&Op::Remove("emb".into())).unwrap();
         r.apply(&Op::Install(e)).unwrap();
         assert!(r.apply(&Op::Install(def("..", Mode::External))).is_err());
+        // remote, then switched to embedded: the certificate still exists
+        r.apply(&Op::Install(def("sw", Mode::Process))).unwrap();
+        r.apply(&Op::Update {
+            id: "sw".into(),
+            mode: Mode::Embedded,
+            params: vec![0xa0],
+        })
+        .unwrap();
+        r.apply(&Op::Remove("sw".into())).unwrap();
+        assert!(r.retired.contains("sw"));
     }
 }

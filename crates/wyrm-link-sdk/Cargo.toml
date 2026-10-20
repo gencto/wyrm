@@ -27,6 +27,7 @@ thiserror.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
 zenoh-ext = { workspace = true, optional = true }
+wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }
 
 [dev-dependencies]
 wyrm-link-sdk = { path = ".", features = ["harness", "advanced", "process"] }

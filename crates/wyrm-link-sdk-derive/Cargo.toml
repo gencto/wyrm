@@ -1,0 +1,17 @@
+[package]
+name = "wyrm-link-sdk-derive"
+description = "#[derive(Params)] and #[derive(ParamEnum)] for wyrm-link-sdk driver parameters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
