@@ -230,6 +230,9 @@ impl State {
         }
         m.insert("version".into(), Value::UInt(f.def.version));
         m.insert("since".into(), Value::UInt(f.since));
+        if let Some(by) = self.host.store().state().deployers.get(id) {
+            m.insert("deployed_by".into(), Value::Str(by.clone()));
+        }
         let s = Sample {
             v: Value::Map(m),
             q: Quality::Good,
@@ -409,12 +412,15 @@ impl State {
     }
 
     /// Compile and (re)deploy. A compile error keeps the running version.
+    /// `by`: the deployer's subject (persisted with the definition).
     async fn deploy(
         &mut self,
         raw: Value,
-        persist: bool,
+        persist: Option<Option<String>>,
         shared: &Shared,
     ) -> Result<(), LinkError> {
+        let by = persist.clone().flatten();
+        let persist = persist.is_some();
         let (def, ports) = match compile(&raw, &self.host.artifacts) {
             Ok(x) => x,
             Err(e) => {
@@ -453,6 +459,7 @@ impl State {
             self.host.apply(Op::PutDef {
                 id: id.clone(),
                 cbor,
+                by,
             })?;
         }
         // Hot swap: keep state of unchanged nodes (same id and config hash).
@@ -613,6 +620,13 @@ fn caller_covers(raw: &Value, who: &Caller) -> Result<(), LinkError> {
     Ok(())
 }
 
+/// The deployer's subject: the token-bound `origin`, else the token subject.
+fn deployer(who: &Caller) -> Option<String> {
+    who.origin
+        .clone()
+        .or_else(|| who.claims.as_ref().map(|c| c.sub.clone()))
+}
+
 /// The deployer proves rights on every command target: the flow key is
 /// trusted by links, so without this a `config` right on `flows/**` would
 /// become a `write` right on every device.
@@ -724,7 +738,7 @@ impl Link for Engine {
             for cbor in stored {
                 match wyrm_core::codec::from_slice::<Value>(&cbor) {
                     Ok(v) => {
-                        if let Err(e) = st.deploy(v, false, &shared).await {
+                        if let Err(e) = st.deploy(v, None, &shared).await {
                             warn!("stored flow does not compile: {e}");
                         }
                     }
@@ -761,7 +775,7 @@ impl Link for Engine {
                 let raw = def_arg()?;
                 caller_covers(&raw, who)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
-                st.deploy(raw, true, &shared).await?
+                st.deploy(raw, Some(deployer(who)), &shared).await?
             }
             ("", "put_artifact") => {
                 let Value::Map(m) = &args else {
@@ -869,7 +883,7 @@ impl Link for Engine {
                 let raw = Value::Map(m);
                 caller_covers(&raw, who)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
-                st.deploy(raw, true, &shared).await?
+                st.deploy(raw, Some(deployer(who)), &shared).await?
             }
             (id, "remove") => {
                 st.halt(id).await;

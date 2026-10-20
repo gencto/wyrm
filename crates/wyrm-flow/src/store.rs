@@ -30,6 +30,10 @@ pub enum Op {
         #[n(1)]
         #[cbor(with = "minicbor::bytes")]
         cbor: Vec<u8>,
+        /// Subject of the deployer (`origin` of the deploy request); absent
+        /// in records written before it was kept.
+        #[n(2)]
+        by: Option<String>,
     },
     #[n(1)]
     RemoveDef(#[n(0)] String),
@@ -57,18 +61,26 @@ pub struct FlowStore {
     pub states: BTreeMap<String, Vec<NodeStateRec>>,
     /// Replaced definitions per flow, oldest first, at most [`HISTORY`].
     pub history: BTreeMap<String, Vec<Vec<u8>>>,
+    /// Who deployed the current definition. A flow keeps running when its
+    /// deployer loses rights (owner decision, ADR 0008); this tells an
+    /// operator whose flows to review.
+    pub deployers: BTreeMap<String, String>,
 }
 
 /// Replaced definitions kept per flow (for `history` and `rollback`).
 pub const HISTORY: usize = 10;
 
 impl wyrm_state::State for FlowStore {
-    const SCHEMA: u32 = 2;
+    const SCHEMA: u32 = 3;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
         match op {
-            Op::PutDef { id, cbor } => {
+            Op::PutDef { id, cbor, by } => {
+                match by {
+                    Some(b) => self.deployers.insert(id.clone(), b.clone()),
+                    None => self.deployers.remove(id),
+                };
                 if let Some(old) = self.defs.insert(id.clone(), cbor.clone()) {
                     let h = self.history.entry(id.clone()).or_default();
                     h.push(old);
@@ -84,6 +96,7 @@ impl wyrm_state::State for FlowStore {
                 self.states.remove(id);
                 self.history.remove(id);
                 self.stopped.remove(id);
+                self.deployers.remove(id);
             }
             Op::SetEnabled { id, on } => {
                 if !self.defs.contains_key(id) {

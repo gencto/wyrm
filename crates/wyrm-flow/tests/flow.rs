@@ -605,6 +605,24 @@ fn wasm_config_checks() {
 #[tokio::test(flavor = "multi_thread")]
 async fn history_and_rollback() {
     let env = Env::start("history").await;
+    // The flow's `~val` names its deployer (ADR 0008: flows outlive their
+    // deployer's rights, so operators need to find them).
+    let by = Arc::new(std::sync::Mutex::new(None));
+    let mut sub = env
+        .client
+        .subscribe(&format!("wy/{SITE}/flows/peak"))
+        .await
+        .unwrap();
+    let by2 = by.clone();
+    tokio::spawn(async move {
+        while let Some(ev) = sub.next().await {
+            if let ValEvent::Sample { sample, .. } = ev {
+                if let Value::Map(m) = sample.v {
+                    *by2.lock().unwrap() = m.get("deployed_by").cloned();
+                }
+            }
+        }
+    });
     env.deploy(peak(1, "a.v + b.v")).await.unwrap();
     env.deploy(peak(2, "a.v - b.v")).await.unwrap();
     let flow = format!("wy/{SITE}/flows/peak");
@@ -617,6 +635,8 @@ async fn history_and_rollback() {
         panic!("history is an array: {h:?}")
     };
     assert_eq!(defs.len(), 2, "v1 and the current v2");
+    wait("deployed_by", || by.lock().unwrap().clone()).await;
+    assert_eq!(*by.lock().unwrap(), Some(s("svc:wyr")));
     // rollback without proofs is refused (the flow has an invoke sink)
     let e = env
         .client

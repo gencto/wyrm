@@ -22,4 +22,6 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 Помилка → `flows/<id>/~val = {state: 2 (error), error: "<path>: <msg>"}`; стара версія працює.
 
 ## `~val` флоу
-`{0: {"state": 0 running | 1 stopped | 2 error, "error": tstr?, "version": uint, "since": uint}, 1: q, 2: t}`
+`{0: {"state": 0 running | 1 stopped | 2 error, "error": tstr?, "version": uint, "since": uint, "deployed_by": tstr?}, 1: q, 2: t}`
+
+`deployed_by` — суб'єкт, що задеплоїв поточну версію (`origin` запиту або `sub` токена). Флоу працює далі, навіть якщо деплоєр втратив права (ADR 0008); поле дає оператору знайти такі флоу.

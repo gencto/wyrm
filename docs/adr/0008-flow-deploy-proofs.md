@@ -23,7 +23,7 @@ The flow engine (`crates/wyrm-flow`, responder for `wy/<site>/flows/**`) runs `i
 ## Consequences
 - A flow can do on a device only what its deployer could do there at deploy time, and only on the keys the definition names.
 - Command targets are static. A flow cannot compute target keys at run time or use patterns; a fan-out needs one sink per key.
-- **Proofs are checked at deploy time only.** Stored flows redeploy on every engine start (every broker build, ADR 0006) without proofs. Revoking a deployer's rights does not stop or re-check a running flow; an operator must `stop`/`remove` it.
+- **Proofs are checked at deploy time only.** Stored flows redeploy on every engine start (every broker build, ADR 0006) without proofs. Revoking a deployer's rights does not stop or re-check a running flow; an operator must `stop`/`remove` it. **Accepted (owner decision 2026-10-21):** flows are infrastructure, like a PLC program, and keep running until an operator stops them. The flow store keeps the deployer's subject with each definition (`PutDef.by`, `FlowStore.deployers`, schema 3), and the flow `~val` shows it as `deployed_by` (spec 06, 0.1.4), so an operator can find the flows of a removed user.
 - **Gateway users cannot deploy flows with command sinks yet.** The gateway mints a ptok per request and never hands tokens to the user, so a gateway user has no way to send `proofs`. Flows without command sinks need no proofs. Deploying with sinks currently needs a key holder (`wyr --key`).
 - `caller_covers` is weak by itself (the deploy action already needs `config`); the per-target proofs carry the real check.
 
