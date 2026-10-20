@@ -434,7 +434,13 @@ impl LinkCtx {
 
     /// `put ~meta` with the full meta of `path` (DataHigh + Block).
     pub(crate) async fn publish_meta(&self, path: &str) -> Result<()> {
-        let Some(meta) = self.meta(path) else {
+        // Restricted nodes are never broadcast: `~meta` only on an authorized get.
+        let Some(meta) = ({
+            let tree = self.tree();
+            (!tree.restricted(path))
+                .then(|| tree.full(path, false))
+                .flatten()
+        }) else {
             return Ok(());
         };
         self.0

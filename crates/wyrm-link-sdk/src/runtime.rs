@@ -461,8 +461,8 @@ impl<C: Send + 'static> Shared<C> {
             let tree = self.ctx.tree();
             for (path, node) in tree.iter() {
                 let k = self.ctx.key(path, SUFFIX_META);
-                if !node.is_restricted() && hits(&k) {
-                    if let Ok(p) = encode(&node.full()) {
+                if !tree.restricted(path) && hits(&k) {
+                    if let Ok(p) = encode(&tree.full(path, false).unwrap_or_default()) {
                         let mut att = status_att(Status::Ok);
                         att.rev = Some(node.rev);
                         out.push((k, p, Some(att)));
@@ -523,18 +523,24 @@ impl<C: Send + 'static> Shared<C> {
                 })
                 .transpose()
         };
-        let restricted = self
-            .ctx
-            .tree()
-            .get(path)
-            .ok_or_else(|| LinkError::not_found(path.to_owned()))?
-            .is_restricted();
-        if restricted {
-            let att = self.attachment(q)?;
-            if self.authorize(q, &att)?.perm < Perm::List {
+        let restricted = {
+            let tree = self.ctx.tree();
+            tree.get(path)
+                .ok_or_else(|| LinkError::not_found(path.to_owned()))?;
+            tree.restricted(path)
+        };
+        // Restricted nodes (inherited) need `list`; for open nodes a valid
+        // token only reveals restricted children.
+        let att = self.attachment(q)?;
+        let authorized = if restricted || att.ptok.is_some() {
+            let ok = self.authorize(q, &att)?.perm >= Perm::List;
+            if restricted && !ok {
                 return Err(denied());
             }
-        }
+            ok
+        } else {
+            false
+        };
         let tree = self.ctx.tree();
         let node = tree
             .get(path)
@@ -545,18 +551,20 @@ impl<C: Send + 'static> Shared<C> {
             return Ok((Vec::new(), att));
         }
         let payload = match param(q, "view").unwrap_or("full") {
-            "full" => encode(&node.full())?,
+            "full" => encode(&tree.full(path, authorized).unwrap_or_default())?,
             "list" => {
                 let from = parse("from")?.unwrap_or(0);
                 let limit = parse("limit")?
                     .unwrap_or(LIST_LIMIT_MAX)
                     .min(LIST_LIMIT_MAX);
-                encode(&tree.list(path, from, limit).unwrap_or_default())?
+                encode(&tree.list(path, from, limit, authorized).unwrap_or_default())?
             }
             "keys" => {
                 let filter = crate::tree::KeyFilter::parse(param(q, "match").unwrap_or(""))?;
                 let depth = parse("depth")?.unwrap_or(usize::MAX);
-                let keys = tree.keys(path, &filter, depth).unwrap_or_default();
+                let keys = tree
+                    .keys(path, &filter, depth, authorized)
+                    .unwrap_or_default();
                 encode(&keyspace::compress_keys(keys))?
             }
             v => return Err(LinkError::invalid_parameter(format!("bad view {v}"))),

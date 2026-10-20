@@ -138,10 +138,15 @@ async fn root_meta_and_list_order() {
     let (att, root) = h.meta("").await;
     assert_eq!(status(&att), Status::Ok);
     let root = root.unwrap();
-    assert_eq!(
-        root.children.as_deref(),
-        Some(&["ahu1".into(), "vault".into()][..])
-    );
+    // `vault` is restricted: hidden from anonymous callers
+    assert_eq!(root.children.as_deref(), Some(&["ahu1".into()][..]));
+    let att = wyrm_core::Attachment {
+        ptok: Some(h.ptok(Perm::List)),
+        ..Default::default()
+    };
+    let r = h.query(&h.key("", "~meta"), None, att).await;
+    let full: NodeMeta = wyrm_core::codec::from_slice(&r[0].payload).unwrap();
+    assert_eq!(full.children.unwrap(), ["ahu1", "vault"]);
     assert_eq!(root.attr_value("driver"), Some(&Value::from("demo")));
 
     let (att, list) = h.list("ahu1").await;
@@ -204,7 +209,6 @@ async fn keys_compressed_and_filtered() {
             "ahu1/fan",
             "ahu1/setpoint_cfg",
             "ahu1/ro",
-            "vault"
         ]
     );
     let (_, temps) = h.keys("", "match=tag:hvac").await;
@@ -214,7 +218,7 @@ async fn keys_compressed_and_filtered() {
     let (_, none) = h.keys("", "match=type:1;tag:hvac&depth=1").await;
     assert!(none.is_empty());
     let (_, top) = h.keys("", "depth=1").await;
-    assert_eq!(top, ["ahu1", "vault"]);
+    assert_eq!(top, ["ahu1"], "restricted vault is not listed");
     h.stop().await;
 }
 
@@ -596,7 +600,10 @@ async fn remove_node_deletes_and_updates_parent() {
     );
     let parent_meta = parent_meta.expect("parent ~meta republished");
     assert_eq!(parent_meta.rev, Some(rev + 1));
-    assert_eq!(parent_meta.children.unwrap(), ["vault"]);
+    assert!(
+        parent_meta.children.unwrap().is_empty(),
+        "published ~meta hides restricted vault"
+    );
     let (att, _) = h.meta("ahu1/fan").await;
     assert_eq!(status(&att), Status::NotFound);
     h.stop().await;

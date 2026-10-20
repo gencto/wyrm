@@ -9,8 +9,9 @@
 //! * requesters — loopback `tcp`/`unixsock-stream` in `prod`, and operator
 //!   CNs: they may ask (query, subscribe, liveliness) and receive (put,
 //!   delete, reply, liveliness token) on `wy/S/**`, but never publish, serve
-//!   queries or declare tokens outside `**/@adv/**` (advanced subscriber
-//!   bookkeeping). A local process therefore cannot pose as a link.
+//!   queries or declare tokens outside `**/@adv/sub/**` (advanced
+//!   subscriber bookkeeping, `@adv/sub`). A local process therefore cannot
+//!   pose as a link or as a link's advanced publisher (`@adv/pub`).
 //! * `dev` profile: loopback may do everything (external mock, benchmarks).
 //! * In-process sessions (admin, embedded links, flows) never pass the ACL.
 
@@ -58,7 +59,7 @@ pub fn access_control(site: &str, reg: &Registry, operators: &[String], dev: boo
             "requester-adv",
             &["ingress", "egress"],
             ALL,
-            &[format!("wy/{site}/**/@adv/**")],
+            &[format!("wy/{site}/**/@adv/sub/**")],
         ),
         rule(
             "broker-watch",

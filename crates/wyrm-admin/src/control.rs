@@ -203,13 +203,15 @@ impl Control {
         }
     }
 
-    fn link_dir(&self, id: &str) -> PathBuf {
-        self.cfg.data_dir.join("links").join(id)
+    /// `data_dir/links/<id>`; refuses ids that could leave that directory.
+    fn link_dir(&self, id: &str) -> Result<PathBuf, LinkError> {
+        crate::registry::validate_link_id(id).map_err(LinkError::invalid_parameter)?;
+        Ok(self.cfg.data_dir.join("links").join(id))
     }
 
     /// Certificate for a remote link (CN = id) under `links/<id>/`.
     pub fn link_cert(&self, id: &str) -> Result<CertFiles, Error> {
-        self.pki.issue(id, &[], false, &self.link_dir(id), "link")
+        self.pki.issue(id, &[], false, &self.link_dir(id)?, "link")
     }
 
     /// Certificate for an operator tool (CN = `cn`) under `operators/`.
@@ -228,7 +230,7 @@ impl Control {
         let hash = secret::hash_token(&token).map_err(|e| LinkError::internal(e.to_string()))?;
         // 0600 file: the supervisor passes it to a process link; for an
         // external link the operator copies it to the device.
-        secret::write_private(&self.link_dir(id).join("token"), token.as_bytes())
+        secret::write_private(&self.link_dir(id)?.join("token"), token.as_bytes())
             .map_err(|e| LinkError::internal(e.to_string()))?;
         if mode == Mode::Process {
             return Ok((hash, None));
@@ -296,7 +298,9 @@ impl Control {
         for d in reg.links.values() {
             if d.origin == Origin::Config && !wanted.contains(d.id.as_str()) {
                 self.apply(Op::Remove(d.id.clone()))?;
-                let _ = std::fs::remove_dir_all(self.link_dir(&d.id));
+                if let Ok(dir) = self.link_dir(&d.id) {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
                 self.record(
                     "system",
                     "remove",
@@ -347,7 +351,7 @@ impl Control {
 
     fn proc_spec(&self, def: &LinkDef) -> Option<ProcSpec> {
         let endpoint = self.cfg.link_endpoint.clone()?;
-        let dir = self.link_dir(&def.id);
+        let dir = self.link_dir(&def.id).ok()?;
         let cert = self.link_cert(&def.id).ok()?;
         Some(ProcSpec {
             id: def.id.clone(),
@@ -712,7 +716,7 @@ impl Admin {
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
-        wyrm_core::keyspace::validate_segment(&id)?;
+        crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
         if mode != Mode::External {
             if !compiled {
                 return Err(LinkError::invalid_parameter(format!(
@@ -854,7 +858,9 @@ impl Admin {
         self.ctl
             .apply(Op::Remove(id.to_owned()))
             .map_err(rejected)?;
-        let _ = std::fs::remove_dir_all(self.ctl.link_dir(id));
+        if let Ok(dir) = self.ctl.link_dir(id) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
         if def.mode.is_remote() {
@@ -1007,9 +1013,10 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
         let reg = ctl.registry();
         let known = reg.links.contains_key(&cn)
             || reg.blocklist.contains(&cn)
+            || reg.retired.contains(&cn)
             || ctl.cfg.operators.contains(&cn)
             || cn == "broker";
-        if known || wyrm_core::keyspace::validate_segment(&cn).is_err() {
+        if known || crate::registry::validate_link_id(&cn).is_err() {
             continue;
         }
         if ctl

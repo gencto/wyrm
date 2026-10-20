@@ -222,12 +222,61 @@ impl NodeTree {
         Ok(())
     }
 
+    /// `cfg.restricted` on the node or any ancestor: restriction is inherited.
+    pub fn restricted(&self, path: &str) -> bool {
+        let mut p = path;
+        loop {
+            if self.nodes.get(p).is_some_and(Node::is_restricted) {
+                return true;
+            }
+            match split_parent(p) {
+                Some((parent, _)) => p = parent,
+                None => return false,
+            }
+        }
+    }
+
+    /// Children of `path` a caller may see: restricted children are hidden
+    /// unless `authorized`.
+    fn visible_children<'a>(
+        &'a self,
+        path: &'a str,
+        authorized: bool,
+    ) -> impl Iterator<Item = &'a String> + 'a {
+        let node = self.nodes.get(path);
+        node.into_iter()
+            .flat_map(|n| n.children.iter())
+            .filter(move |c| {
+                authorized
+                    || !self
+                        .nodes
+                        .get(&join(path, c))
+                        .is_some_and(Node::is_restricted)
+            })
+    }
+
+    /// `view=full` for a caller; `children` hides restricted ones unless `authorized`.
+    pub fn full(&self, path: &str, authorized: bool) -> Option<NodeMeta> {
+        let mut m = self.nodes.get(path)?.full();
+        if m.children.is_some() {
+            let kids: Vec<String> = self.visible_children(path, authorized).cloned().collect();
+            m.children_count = Some(kids.len() as u32);
+            m.children = Some(kids);
+        }
+        Some(m)
+    }
+
     /// `view=list`: child summaries in `children` order, paginated.
-    pub fn list(&self, path: &str, from: usize, limit: usize) -> Option<Vec<NodeMeta>> {
-        let node = self.nodes.get(path)?;
+    pub fn list(
+        &self,
+        path: &str,
+        from: usize,
+        limit: usize,
+        authorized: bool,
+    ) -> Option<Vec<NodeMeta>> {
+        self.nodes.get(path)?;
         Some(
-            node.children
-                .iter()
+            self.visible_children(path, authorized)
                 .skip(from)
                 .take(limit)
                 .filter_map(|c| self.nodes.get(&join(path, c)).map(Node::summary))
@@ -237,7 +286,13 @@ impl NodeTree {
 
     /// `view=keys`: descendant paths relative to `path`, depth-first in
     /// `children` order, filtered by `filter`, not deeper than `depth`.
-    pub fn keys(&self, path: &str, filter: &KeyFilter, depth: usize) -> Option<Vec<String>> {
+    pub fn keys(
+        &self,
+        path: &str,
+        filter: &KeyFilter,
+        depth: usize,
+        authorized: bool,
+    ) -> Option<Vec<String>> {
         let root = self.nodes.get(path)?;
         let mut out = Vec::new();
         // (relative path, absolute path, depth), pushed in reverse to keep order
@@ -251,6 +306,10 @@ impl NodeTree {
             let Some(n) = self.nodes.get(&abs) else {
                 continue;
             };
+            // A restricted subtree is skipped as a whole.
+            if !authorized && n.is_restricted() {
+                continue;
+            }
             if filter.matches(&n.meta) {
                 out.push(rel.clone());
             }
@@ -415,7 +474,9 @@ mod tests {
     #[test]
     fn keys_with_filter_and_depth() {
         let t = tree();
-        let all = t.keys("", &KeyFilter::default(), usize::MAX).unwrap();
+        let all = t
+            .keys("", &KeyFilter::default(), usize::MAX, false)
+            .unwrap();
         assert_eq!(
             all,
             [
@@ -426,27 +487,50 @@ mod tests {
                 "ahu2/supply_temp"
             ]
         );
-        let top = t.keys("", &KeyFilter::default(), 1).unwrap();
+        let top = t.keys("", &KeyFilter::default(), 1, false).unwrap();
         assert_eq!(top, ["ahu1", "ahu2"]);
         let f = KeyFilter::parse("type:1;unit:°C").unwrap();
         assert_eq!(
-            t.keys("", &f, usize::MAX).unwrap(),
+            t.keys("", &f, usize::MAX, false).unwrap(),
             ["ahu1/supply_temp", "ahu2/supply_temp"]
         );
         let f = KeyFilter::parse("tag:hvac").unwrap();
-        assert_eq!(t.keys("", &f, usize::MAX).unwrap(), ["ahu1/supply_temp"]);
+        assert_eq!(
+            t.keys("", &f, usize::MAX, false).unwrap(),
+            ["ahu1/supply_temp"]
+        );
         let f = KeyFilter::parse("is:1").unwrap();
-        assert_eq!(t.keys("", &f, usize::MAX).unwrap(), ["ahu1", "ahu2"]);
+        assert_eq!(t.keys("", &f, usize::MAX, false).unwrap(), ["ahu1", "ahu2"]);
         assert!(KeyFilter::parse("bogus:1").is_err());
+    }
+
+    #[test]
+    fn restriction_is_inherited_and_hidden() {
+        let mut t = tree();
+        t.declare("vault", NodeMeta::folder().cfg("restricted", true))
+            .unwrap();
+        t.declare("vault/key", NodeMeta::number()).unwrap();
+        assert!(t.restricted("vault/key"));
+        assert!(!t.restricted("ahu1/fan"));
+        let root = t.full("", false).unwrap();
+        assert_eq!(root.children.unwrap(), ["ahu1", "ahu2"]);
+        assert_eq!(t.full("", true).unwrap().children.unwrap().len(), 3);
+        assert_eq!(t.list("", 0, 100, false).unwrap().len(), 2);
+        let keys = t
+            .keys("", &KeyFilter::default(), usize::MAX, false)
+            .unwrap();
+        assert!(keys.iter().all(|k| !k.starts_with("vault")));
+        let keys = t.keys("", &KeyFilter::default(), usize::MAX, true).unwrap();
+        assert!(keys.contains(&"vault/key".to_owned()));
     }
 
     #[test]
     fn list_pagination() {
         let t = tree();
-        let l = t.list("ahu1", 0, 1000).unwrap();
+        let l = t.list("ahu1", 0, 1000, false).unwrap();
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].ty, Some(wyrm_core::TypeCode::Number));
         assert_eq!(l[0].has_children, Some(false));
-        assert_eq!(t.list("ahu1", 1, 1).unwrap().len(), 1);
+        assert_eq!(t.list("ahu1", 1, 1, false).unwrap().len(), 1);
     }
 }

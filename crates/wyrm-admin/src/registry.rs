@@ -5,6 +5,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use wyrm_core::keyspace::validate_segment;
 
+/// A link id is a key segment, a certificate CN and a directory name under
+/// `data_dir/links`: no leading `.` (rejects `.` and `..`), no reserved names.
+pub fn validate_link_id(id: &str) -> Result<(), String> {
+    validate_segment(id).map_err(|e| format!("link id: {e}"))?;
+    if id.starts_with('.') {
+        return Err(format!("link id {id:?} may not start with '.'"));
+    }
+    if matches!(id, "admin" | "broker") {
+        return Err(format!("link id {id:?} is reserved"));
+    }
+    Ok(())
+}
+
 /// How a link runs (wiki "Режими розгортання").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 #[cbor(index_only)]
@@ -131,16 +144,26 @@ pub struct Registry {
     pub links: BTreeMap<String, LinkDef>,
     pub quarantine: BTreeMap<String, QuarantineEntry>,
     pub blocklist: BTreeSet<String>,
+    /// Ids of removed links. Their certificates stay valid until expiry (no
+    /// CRL yet), so an id is never handed out again.
+    #[serde(default)]
+    pub retired: BTreeSet<String>,
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 1;
+    const SCHEMA: u32 = 2;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
         match op {
             Op::Install(def) => {
-                validate_segment(&def.id).map_err(|e| format!("link id: {e}"))?;
+                validate_link_id(&def.id)?;
+                if self.retired.contains(&def.id) {
+                    return Err(format!(
+                        "link id {} was removed before; its certificate may still be valid, choose a new id",
+                        def.id
+                    ));
+                }
                 if self.links.contains_key(&def.id) {
                     return Err(format!("link {} already installed", def.id));
                 }
@@ -151,9 +174,13 @@ impl wyrm_state::State for Registry {
                 self.links.insert(def.id.clone(), def.clone());
             }
             Op::Remove(id) => {
-                self.links
+                let def = self
+                    .links
                     .remove(id)
                     .ok_or_else(|| format!("no link {id}"))?;
+                if def.mode.is_remote() {
+                    self.retired.insert(id.clone());
+                }
             }
             Op::Update { id, mode, params } => {
                 let def = self
@@ -174,7 +201,11 @@ impl wyrm_state::State for Registry {
                     .token_hash = hash.clone();
             }
             Op::Quarantine { cn, seen } => {
-                if self.links.contains_key(cn) || self.blocklist.contains(cn) {
+                validate_link_id(cn)?;
+                if self.links.contains_key(cn)
+                    || self.blocklist.contains(cn)
+                    || self.retired.contains(cn)
+                {
                     return Err(format!("{cn} is known"));
                 }
                 let e = self
@@ -200,5 +231,53 @@ impl wyrm_state::State for Registry {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wyrm_state::State;
+
+    fn def(id: &str, mode: Mode) -> LinkDef {
+        LinkDef {
+            id: id.into(),
+            driver: "d".into(),
+            mode,
+            params: vec![0xa0],
+            token_hash: "h".into(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 0,
+        }
+    }
+
+    #[test]
+    fn link_ids() {
+        assert!(validate_link_id("plc1").is_ok());
+        for bad in [".", "..", ".hidden", "a/b", "admin", "broker", "~x", ""] {
+            assert!(validate_link_id(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn removed_remote_ids_are_retired() {
+        let mut r = Registry::default();
+        r.apply(&Op::Install(def("plc1", Mode::Process))).unwrap();
+        r.apply(&Op::Remove("plc1".into())).unwrap();
+        assert!(r.apply(&Op::Install(def("plc1", Mode::Process))).is_err());
+        assert!(r
+            .apply(&Op::Quarantine {
+                cn: "plc1".into(),
+                seen: 1
+            })
+            .is_err());
+        // embedded links have no certificate: the id may come back
+        let mut e = def("emb", Mode::Embedded);
+        e.token_hash.clear();
+        r.apply(&Op::Install(e.clone())).unwrap();
+        r.apply(&Op::Remove("emb".into())).unwrap();
+        r.apply(&Op::Install(e)).unwrap();
+        assert!(r.apply(&Op::Install(def("..", Mode::External))).is_err());
     }
 }
