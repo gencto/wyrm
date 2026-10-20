@@ -2,6 +2,7 @@
 //! one bounded inbox per node fed by its incoming edges, push model,
 //! overflow policy per flow, panics isolated to the flow.
 
+use crate::artifacts::Artifacts;
 use crate::def::{FlowDef, Overflow};
 use crate::nodes::{self, Io, Msg, Node, Out, Ports};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -127,13 +128,14 @@ impl Running {
 
 /// Start `def`. `restored`: states of unchanged nodes (same id and hash).
 /// `io_for(node)` builds each node's I/O handle. A node panic is reported
-/// on `panics` and stops this run.
+/// on `panics` and stops this run. `wasm` nodes load from `artifacts`.
 pub fn start(
     def: &FlowDef,
     ports: &BTreeMap<String, Ports>,
     restored: &BTreeMap<String, (u32, Value)>,
     io_for: impl Fn(&str, nodes::Inject) -> Io,
     panics: mpsc::UnboundedSender<String>,
+    artifacts: Option<&Artifacts>,
 ) -> Result<Running, String> {
     let inboxes: BTreeMap<String, Arc<Inbox>> = def
         .nodes
@@ -160,7 +162,7 @@ pub fn start(
     let (flush, flush_rx) = watch::channel(0u64);
     let mut built: Vec<(String, u32, Box<dyn Node>)> = Vec::new();
     for (id, n) in &def.nodes {
-        let mut node = nodes::build(&n.ty, &def.id, id, &n.cfg)?;
+        let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts)?;
         if let Some((hash, st)) = restored.get(id) {
             if *hash == n.hash {
                 node.restore(st);

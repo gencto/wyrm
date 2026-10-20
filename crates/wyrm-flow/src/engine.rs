@@ -14,7 +14,15 @@
 //! (admin or gateway), with the deployer's subject and at least
 //! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/down/`
 //! (ADR 0008).
+//!
+//! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
+//! `wyrm:flow/node` component under `<dir>/artifacts/<sha256>.wasm` and
+//! returns `{artifact: <sha256>}`; a `~def` uses it as
+//! `{type: "wasm", artifact: <sha256>}`. Deploy and validate load the
+//! artifact and run its `init`, so a missing or broken component keeps the
+//! running version. Hot load = `put_artifact` + `deploy`, no restart.
 
+use crate::artifacts::Artifacts;
 use crate::def::{self, FlowDef};
 use crate::nodes::{Io, Ports};
 use crate::runtime::{self, Running};
@@ -48,10 +56,12 @@ pub struct FlowHost {
     site: String,
     store: Mutex<Store<FlowStore>>,
     signer: SigningKey,
+    artifacts: Artifacts,
 }
 
 impl FlowHost {
-    /// Store under `dir/state`, signing key in `dir/flow.key` (0600).
+    /// Store under `dir/state`, signing key in `dir/flow.key` (0600), WASM
+    /// artifacts under `dir/artifacts`.
     pub fn open(dir: &Path, hmac_key: &[u8], site: &str) -> Result<Arc<Self>, Error> {
         std::fs::create_dir_all(dir)?;
         let store = Store::<FlowStore>::open(dir.join("state"), hmac_key)?;
@@ -69,12 +79,18 @@ impl FlowHost {
             site: site.to_owned(),
             store: Mutex::new(store),
             signer: SigningKey::from_bytes(&seed),
+            artifacts: Artifacts::new(dir.join("artifacts")),
         }))
     }
 
     /// Links must trust this key so flow commands pass their `ptok` check.
     pub fn verifying_key(&self) -> VerifyingKey {
         self.signer.verifying_key()
+    }
+
+    /// WASM flow-node components by SHA-256.
+    pub fn artifacts(&self) -> &Artifacts {
+        &self.artifacts
     }
 
     fn store(&self) -> std::sync::MutexGuard<'_, Store<FlowStore>> {
@@ -336,6 +352,7 @@ impl State {
                 inject,
             },
             ptx,
+            Some(&self.host.artifacts),
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
@@ -362,7 +379,7 @@ impl State {
         persist: bool,
         shared: &Shared,
     ) -> Result<(), LinkError> {
-        let (def, ports) = match def::compile(&raw) {
+        let (def, ports) = match compile(&raw, &self.host.artifacts) {
             Ok(x) => x,
             Err(e) => {
                 // Show the error on the flow if it exists; old version keeps running.
@@ -434,6 +451,18 @@ impl State {
         info!(flow = %id, version = self.flows[&id].def.version, "flow deployed");
         Ok(())
     }
+}
+
+/// [`def::compile`] plus the checks that need the host: every `wasm` node's
+/// artifact loads and its `init` succeeds.
+fn compile(raw: &Value, artifacts: &Artifacts) -> def::Result<(FlowDef, BTreeMap<String, Ports>)> {
+    let (d, p) = def::compile(raw)?;
+    for (id, n) in d.nodes.iter().filter(|(_, n)| n.ty == "wasm") {
+        crate::nodes::WasmCfg::parse(&n.cfg)
+            .and_then(|w| w.check(artifacts))
+            .map_err(|e| def::DefError(format!("nodes.{id}.{e}")))?;
+    }
+    Ok((d, p))
 }
 
 /// Per run: periodic state flush; on a node panic mark the flow `error`,
@@ -621,6 +650,15 @@ impl Link for Engine {
         .await?;
         ctx.declare_action(
             "",
+            "put_artifact",
+            ActionMeta::new()
+                .param("bytes", ParamMeta::of(TypeCode::Binary).required(true))
+                .result(ActionResult::Type(TypeCode::Map))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
             "validate",
             ActionMeta::new()
                 .param("def", def_param())
@@ -678,9 +716,29 @@ impl Link for Engine {
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, true, &shared).await?
             }
+            ("", "put_artifact") => {
+                let Value::Map(m) = &args else {
+                    return Err(LinkError::invalid_parameter("bytes: required"));
+                };
+                let Some(Value::Bytes(b)) = m.get("bytes") else {
+                    return Err(LinkError::invalid_parameter("bytes: required binary"));
+                };
+                let host = st.host.clone();
+                drop(st);
+                // Compiling a component takes milliseconds to seconds.
+                let b = b.clone();
+                let sha = tokio::task::spawn_blocking(move || host.artifacts.put(&b))
+                    .await
+                    .map_err(|e| LinkError::internal(e.to_string()))?
+                    .map_err(|e| LinkError::invalid_parameter(format!("bytes: {e}")))?;
+                info!(artifact = %sha, "wasm artifact stored");
+                let mut r = BTreeMap::new();
+                r.insert("artifact".into(), Value::Str(sha));
+                return out.reply(Value::Map(r)).await;
+            }
             ("", "validate") => {
                 let mut m = BTreeMap::new();
-                match def::compile(&def_arg()?) {
+                match compile(&def_arg()?, &st.host.artifacts) {
                     Ok(_) => {
                         m.insert("ok".into(), Value::Bool(true));
                     }

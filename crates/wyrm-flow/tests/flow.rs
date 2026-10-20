@@ -13,6 +13,9 @@ use wyrm_link_sdk::{LinkConfig, LinkHandle};
 
 const SITE: &str = "test";
 
+#[path = "../../wyrm-wasm-host/tests/guests/mod.rs"]
+mod guests;
+
 fn map(kv: &[(&str, Value)]) -> Value {
     Value::Map(
         kv.iter()
@@ -463,4 +466,136 @@ async fn deploy_needs_proofs_for_targets() {
     }
     assert!(env.deploy(peak(1, "a.v + b.v")).await.is_ok());
     env.stop().await;
+}
+
+/// `const 5 → wasm(artifact) → publish w` (+ an optional spinning wasm node).
+fn wasm_flow(version: u64, artifact: &str, spin: Option<&str>) -> Value {
+    let mut nodes = vec![
+        ("c", map(&[("type", s("const")), ("value", Value::UInt(5))])),
+        (
+            "x",
+            map(&[
+                ("type", s("wasm")),
+                ("artifact", s(artifact)),
+                ("config", map(&[("k", Value::UInt(1))])),
+            ]),
+        ),
+        ("w", map(&[("type", s("publish")), ("node", s("w"))])),
+    ];
+    let mut edges = vec![edge("c.out", "x.in"), edge("x.out", "w.in")];
+    if let Some(a) = spin {
+        nodes.push((
+            "spin",
+            map(&[
+                ("type", s("wasm")),
+                ("artifact", s(a)),
+                ("fuel", Value::UInt(100_000)),
+            ]),
+        ));
+        edges.push(edge("c.out", "spin.in"));
+    }
+    map(&[
+        ("id", s("wf")),
+        ("version", Value::UInt(version)),
+        ("nodes", map(&nodes)),
+        ("edges", arr(&edges)),
+    ])
+}
+
+async fn put_artifact(env: &Env, bytes: Vec<u8>) -> Result<String, wyrm_client::ClientError> {
+    let r = env
+        .client
+        .invoke_one(
+            &format!("wy/{SITE}/flows"),
+            "put_artifact",
+            map(&[("bytes", Value::Bytes(bytes))]),
+        )
+        .await?;
+    match r {
+        Some(Value::Map(m)) => match m.get("artifact") {
+            Some(Value::Str(a)) => Ok(a.clone()),
+            other => panic!("artifact: {other:?}"),
+        },
+        other => panic!("put_artifact: {other:?}"),
+    }
+}
+
+/// Iteration 8 criterion: a `.wasm` node is loaded and replaced without a
+/// restart; a fuel trap in one node does not stop the flow.
+#[tokio::test(flavor = "multi_thread")]
+async fn wasm_node_hot_load() {
+    let mut env = Env::start("wasm").await;
+    let a = put_artifact(&env, guests::add(1)).await.unwrap();
+    assert_eq!(a, wyrm_wasm_host::sha256_hex(&guests::add(1)));
+    let spin = put_artifact(&env, guests::spin()).await.unwrap();
+    // flow `~val` states (no storage here: watch the publications)
+    let states = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut sub = env
+        .client
+        .subscribe(&format!("wy/{SITE}/flows/wf"))
+        .await
+        .unwrap();
+    let st2 = states.clone();
+    tokio::spawn(async move {
+        while let Some(ev) = sub.next().await {
+            if let ValEvent::Sample { sample, .. } = ev {
+                if let Value::Map(m) = sample.v {
+                    st2.lock().unwrap().push(m.get("state").cloned());
+                }
+            }
+        }
+    });
+    env.deploy(wasm_flow(1, &a, Some(&spin))).await.unwrap();
+    let v = wait("wasm output", || env.last("wf/nodes/w")).await;
+    assert_eq!(v.v, Value::UInt(6));
+    // the spinning node ran out of fuel; the flow never left `running`
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let seen = states.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|s| *s == Some(Value::UInt(0))), "{seen:?}");
+
+    // hot load: a new artifact and a new definition, same engine
+    let b = put_artifact(&env, guests::add(10)).await.unwrap();
+    env.deploy(wasm_flow(2, &b, None)).await.unwrap();
+    wait("new code", || {
+        env.last("wf/nodes/w").filter(|s| s.v == Value::UInt(15))
+    })
+    .await;
+
+    // unknown artifact, sandbox violation, wrong world: refused, v2 keeps running
+    let missing = "0".repeat(64);
+    let e = env.deploy(wasm_flow(3, &missing, None)).await.unwrap_err();
+    assert!(e.message.contains("nodes.x.artifact: no artifact"), "{e}");
+    let e = put_artifact(&env, guests::importing("wasi:filesystem/types@0.2.0"))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("wasi:filesystem/types@0.2.0"), "{e}");
+    assert!(put_artifact(&env, guests::register()).await.is_err());
+    assert!(put_artifact(&env, b"not wasm".to_vec()).await.is_err());
+
+    // artifacts and the flow survive an engine restart
+    env.restart_engine().await;
+    wait("after restart", || {
+        env.last("wf/nodes/w").filter(|s| s.v == Value::UInt(15))
+    })
+    .await;
+    env.stop().await;
+}
+
+#[test]
+fn wasm_config_checks() {
+    let ok = |cfg: Value| def::compile(&cfg).map(|_| ()).map_err(|e| e.0);
+    let a = "ab".repeat(32);
+    assert!(ok(wasm_flow(1, &a, None)).is_ok());
+    let e = ok(wasm_flow(1, "sha256:abc", None)).unwrap_err();
+    assert!(e.contains("nodes.x: artifact"), "{e}");
+    let mut d = wasm_flow(1, &a, None);
+    if let Value::Map(m) = &mut d {
+        if let Some(Value::Map(nodes)) = m.get_mut("nodes") {
+            if let Some(Value::Map(x)) = nodes.get_mut("x") {
+                x.insert("memory_mb".into(), Value::UInt(4096));
+            }
+        }
+    }
+    assert!(ok(d).unwrap_err().contains("memory_mb"));
 }

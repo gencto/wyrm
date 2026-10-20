@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host"]
 
 [workspace.package]
 version = "0.1.0"
@@ -68,6 +68,10 @@ rustls-native-certs = "0.8"
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
 rumqttd = { version = "0.20", default-features = false }
 wyrm-link-mqtt = { path = "links/mqtt" }
+# WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
+wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
+wat = "1"
+wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 
 [profile.release]
 lto = "thin"

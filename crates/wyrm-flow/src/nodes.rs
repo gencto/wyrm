@@ -1,13 +1,15 @@
 //! Node types of the first iteration (wiki "Типи нод"): sources `subscribe`,
 //! `timer`, `const`, `liveliness`; operators `expression`, `scale`,
 //! `deadband`, `window`, `alarm`, `latch`, `delay`, `filter`; sinks
-//! `publish`, `invoke`, `set`.
+//! `publish`, `invoke`, `set`; `wasm` (a `wyrm:flow/node` component from
+//! the artifact store, iteration 8).
 //!
 //! Quality: one-input operators pass `q` through; `expression` uses
 //! `quality: worst|ignore|custom`. Time: an operator's `t` is the max `t` of
 //! the inputs it used. `invoke`/`set` never act on a `bad` input unless
 //! `allow_bad: true`.
 
+use crate::artifacts::Artifacts;
 use crate::def::Map;
 use crate::script;
 use std::collections::{BTreeMap, VecDeque};
@@ -320,6 +322,13 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             f(cfg, "deadband")?;
             b(cfg, "allow_bad", false)?;
             Ports::new(&[("in", Any)], &[])
+        }
+        "wasm" => {
+            let w = WasmCfg::parse(cfg)?;
+            Ports {
+                inputs: w.inputs.into_iter().map(|n| (n, Any)).collect(),
+                outputs: w.outputs.into_iter().map(|n| (n, Any)).collect(),
+            }
         }
         other => return Err(format!("type: unknown node type {other}")),
     })
@@ -1075,6 +1084,17 @@ impl Node for Set {
 
 /// Build a node (config already checked by [`ports`]).
 pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
+    build_with(ty, flow, id, cfg, None)
+}
+
+/// [`build`] with the artifact store that `wasm` nodes load from.
+pub fn build_with(
+    ty: &str,
+    flow: &str,
+    id: &str,
+    cfg: &Map,
+    artifacts: Option<&Artifacts>,
+) -> Result<Box<dyn Node>, String> {
     let num = |k: &str, d: f64| f(cfg, k).map(|x| x.unwrap_or(d));
     Ok(match ty {
         "subscribe" => Box::new(Subscribe {
@@ -1174,6 +1194,206 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>,
             allow_bad: b(cfg, "allow_bad", false)?,
             last: None,
         }),
+        "wasm" => {
+            let store = artifacts.ok_or("wasm: no artifact store")?;
+            Box::new(Wasm::new(WasmCfg::parse(cfg)?, store)?)
+        }
         other => return Err(format!("{id}: unknown node type {other}")),
     })
+}
+
+// ---------- wasm ----------
+
+/// `wasm` node config: `artifact` (hex SHA-256 in the artifact store),
+/// `inputs`/`outputs` (port names, default `["in"]`/`["out"]`), `config`
+/// (any value, given to the guest's `init` as CBOR), `fuel` (per call),
+/// `memory_mb`.
+#[derive(Clone)]
+pub struct WasmCfg {
+    pub artifact: String,
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub config: Value,
+    pub limits: wyrm_wasm_host::Limits,
+}
+
+fn port_names(cfg: &Map, k: &str, default: &str) -> Result<Vec<String>, String> {
+    let ok = |n: &str| {
+        !n.is_empty()
+            && !n.starts_with("__")
+            && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    match cfg.get(k) {
+        None => Ok(vec![default.to_owned()]),
+        Some(Value::Array(a)) if !a.is_empty() && a.len() <= 16 => {
+            let mut out: Vec<String> = Vec::new();
+            for v in a {
+                match v {
+                    Value::Str(n) if ok(n) && !out.contains(n) => out.push(n.clone()),
+                    _ => return Err(format!("{k}: unique names [A-Za-z0-9_]+")),
+                }
+            }
+            Ok(out)
+        }
+        Some(_) => Err(format!("{k}: 1..=16 port names")),
+    }
+}
+
+fn uint_in(cfg: &Map, k: &str, lo: u64, hi: u64, default: u64) -> Result<u64, String> {
+    match cfg.get(k) {
+        None => Ok(default),
+        Some(Value::UInt(u)) if (lo..=hi).contains(u) => Ok(*u),
+        Some(Value::Float(x)) if x.fract() == 0.0 && (lo as f64..=hi as f64).contains(x) => {
+            Ok(*x as u64)
+        }
+        Some(_) => Err(format!("{k}: integer {lo}..={hi}")),
+    }
+}
+
+impl WasmCfg {
+    pub fn parse(cfg: &Map) -> Result<Self, String> {
+        use wyrm_wasm_host::Limits;
+        only(
+            cfg,
+            &[
+                "artifact",
+                "inputs",
+                "outputs",
+                "config",
+                "fuel",
+                "memory_mb",
+            ],
+        )?;
+        let artifact = req_s(cfg, "artifact")?;
+        if !wyrm_wasm_host::is_sha256_hex(artifact) {
+            return Err("artifact: 64 lowercase hex characters (SHA-256)".into());
+        }
+        let d = Limits::default();
+        let fuel = uint_in(cfg, "fuel", 1_000, Limits::MAX.fuel, d.fuel)?;
+        let mb = uint_in(
+            cfg,
+            "memory_mb",
+            1,
+            (Limits::MAX.memory_bytes >> 20) as u64,
+            (d.memory_bytes >> 20) as u64,
+        )?;
+        Ok(Self {
+            artifact: artifact.to_owned(),
+            inputs: port_names(cfg, "inputs", "in")?,
+            outputs: port_names(cfg, "outputs", "out")?,
+            config: cfg.get("config").cloned().unwrap_or(Value::Null),
+            limits: Limits {
+                fuel,
+                memory_bytes: (mb as usize) << 20,
+                ..d
+            },
+        })
+    }
+
+    /// Load the artifact, instantiate and run the guest's `init` (deploy
+    /// check).
+    pub fn check(&self, artifacts: &Artifacts) -> Result<(), String> {
+        Wasm::new(self.clone(), artifacts).map(|_| ())
+    }
+}
+
+/// Most samples one `process` call may emit.
+const WASM_MAX_EMITS: u64 = 256;
+
+struct Wasm {
+    node: wyrm_wasm_host::FlowNode,
+    outputs: Vec<String>,
+    state: Vec<u8>,
+    errors: u64,
+}
+
+impl Wasm {
+    fn new(cfg: WasmCfg, artifacts: &Artifacts) -> Result<Self, String> {
+        let art = artifacts.get(&cfg.artifact)?;
+        let config = wyrm_core::codec::to_vec(&cfg.config).map_err(|e| format!("config: {e}"))?;
+        let mut node =
+            wyrm_wasm_host::FlowNode::new(wyrm_wasm_host::Slot::new(art), config, cfg.limits);
+        node.start().map_err(|e| format!("artifact: {e}"))?;
+        Ok(Self {
+            node,
+            outputs: cfg.outputs,
+            state: Vec::new(),
+            errors: 0,
+        })
+    }
+}
+
+/// `[[port, sample], …]` from the guest.
+fn decode_emits(b: &[u8]) -> Result<Vec<(String, wyrm_core::Sample)>, String> {
+    let mut d = minicbor::Decoder::new(b);
+    let n = d
+        .array()
+        .map_err(|e| e.to_string())?
+        .ok_or("emits: indefinite array")?;
+    if n > WASM_MAX_EMITS {
+        return Err(format!("emits: more than {WASM_MAX_EMITS}"));
+    }
+    let mut out = Vec::new();
+    for _ in 0..n {
+        if d.array().map_err(|e| e.to_string())? != Some(2) {
+            return Err("emits: expected [port, sample]".into());
+        }
+        let port = d.str().map_err(|e| e.to_string())?.to_owned();
+        let s: wyrm_core::Sample = d.decode().map_err(|e| e.to_string())?;
+        out.push((port, s));
+    }
+    if d.position() != b.len() {
+        return Err("emits: trailing bytes".into());
+    }
+    Ok(out)
+}
+
+impl Node for Wasm {
+    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if port.starts_with("__") {
+            return;
+        }
+        let sample = wyrm_core::Sample {
+            v: m.v,
+            q: m.q,
+            t: m.t,
+        };
+        let Ok(bytes) = wyrm_core::codec::to_vec(&sample) else {
+            self.errors += 1;
+            return;
+        };
+        let r = self
+            .node
+            .process(port, &bytes, &self.state)
+            .map_err(|e| e.to_string())
+            .and_then(|(emits, state)| Ok((decode_emits(&emits)?, state)));
+        match r {
+            Ok((emits, state)) => {
+                self.state = state;
+                for (p, s) in emits {
+                    if self.outputs.contains(&p) {
+                        out.emit(&p, Msg::new(s.v, s.q, s.t));
+                    } else {
+                        self.errors += 1;
+                        debug!("wasm: emit on undeclared port {p}");
+                    }
+                }
+            }
+            Err(e) => {
+                // Like `expression`: no sample, no panic, the flow keeps running.
+                self.errors += 1;
+                debug!(errors = self.errors, "wasm node error: {e}");
+            }
+        }
+    }
+
+    fn state(&self) -> Option<Value> {
+        (!self.state.is_empty()).then(|| Value::Bytes(self.state.clone()))
+    }
+
+    fn restore(&mut self, state: &Value) {
+        if let Value::Bytes(b) = state {
+            self.state = b.clone();
+        }
+    }
 }

@@ -1,0 +1,24 @@
+/// WYRM flow node as a WebAssembly component (wiki "04 Дата-флоу/Скриптинг
+/// rhai і WASM-ноди"). A node has no I/O: the world imports nothing, so the
+/// host links nothing (no WASI, no clocks, no random, no network, no files).
+///
+/// Data on the boundary is canonical CBOR, the one wire codec of WYRM:
+/// - a sample is the `~val` payload `{0: v, 1: q, 2: t}` (spec 03);
+/// - `emits` is a CBOR array of `[port: tstr, sample]` pairs.
+///
+/// State is owned by the host: the guest receives the state blob with each
+/// sample and returns the new one. The host persists it with the flow
+/// (`state_flush_s`) and keeps it when it re-instantiates the guest after a
+/// trap, so a fuel or memory trap never loses state.
+package wyrm:flow@0.1.0;
+
+world node {
+  /// Called once per instance, before the first `process`, with the
+  /// node's `config` value as canonical CBOR (`null` when absent).
+  export init: func(config: list<u8>) -> result<_, string>;
+
+  /// One input sample on input `port`. `state` is empty before the first
+  /// call. Returns `(emits, new-state)`. An `err` emits nothing and keeps
+  /// the previous state.
+  export process: func(port: string, sample: list<u8>, state: list<u8>) -> result<tuple<list<u8>, list<u8>>, string>;
+}

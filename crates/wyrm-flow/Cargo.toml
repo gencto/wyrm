@@ -22,9 +22,11 @@ crc32c.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 thiserror.workspace = true
+wyrm-wasm-host.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+wat.workspace = true

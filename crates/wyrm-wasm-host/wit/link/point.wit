@@ -1,0 +1,21 @@
+/// WYRM point driver as a WebAssembly component: the read/write surface of
+/// one `Point` kind (ADR 0004), without its own transport. The world
+/// imports nothing; network access will come only as explicit host imports
+/// gated by `~def.capabilities` (`net:tcp:<cidr>:<port>`), never as WASI.
+///
+/// Data on the boundary is canonical CBOR: `point` is the point's
+/// `~meta.cfg` map, a value is a WYRM `Value`, a reading is the `~val`
+/// payload `{0: v, 1: q, 2: t}` (spec 03).
+package wyrm:link@0.1.0;
+
+world point {
+  /// Called once per instance with the driver config as canonical CBOR.
+  export init: func(config: list<u8>) -> result<_, string>;
+
+  /// Read one point.
+  export read: func(point: list<u8>) -> result<list<u8>, string>;
+
+  /// Write one value to a point. No optimistic update: the framework reads
+  /// the point back (ADR 0004).
+  export write: func(point: list<u8>, value: list<u8>) -> result<_, string>;
+}
