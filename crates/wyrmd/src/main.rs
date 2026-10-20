@@ -17,6 +17,95 @@ enum Cmd {
     Check,
     /// Host one driver as a supervised link process (started by wyrmd).
     Link { driver: String },
+    /// Gateway users (wyrmd stopped; passwords are read from stdin).
+    #[command(subcommand)]
+    User(UserCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum UserCmd {
+    /// Users with roles and state.
+    List,
+    /// Add a user; the password is read from stdin.
+    Add {
+        name: String,
+        /// Comma-separated roles (viewer, operator, engineer, admin, …).
+        #[arg(long, value_delimiter = ',', required = true)]
+        roles: Vec<String>,
+    },
+    /// Set a new password (from stdin); ends the user's sessions.
+    Passwd {
+        name: String,
+    },
+    /// Replace the roles.
+    Roles {
+        name: String,
+        #[arg(value_delimiter = ',', required = true)]
+        roles: Vec<String>,
+    },
+    /// Disable (ends sessions) or enable a user.
+    Disable {
+        name: String,
+    },
+    Enable {
+        name: String,
+    },
+    Remove {
+        name: String,
+    },
+}
+
+/// One line from stdin, without the line end; never echoed or logged.
+fn read_password() -> Result<zeroize::Zeroizing<String>, Error> {
+    let mut pw = zeroize::Zeroizing::new(String::new());
+    std::io::stdin().read_line(&mut pw)?;
+    let trimmed = zeroize::Zeroizing::new(pw.trim_end_matches(['\r', '\n']).to_owned());
+    if trimmed.is_empty() {
+        return Err("empty password on stdin".into());
+    }
+    Ok(trimmed)
+}
+
+fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
+    let ua = wyrmd::UserAdmin::open(cfg)?;
+    let gw = ua.gateway();
+    match cmd {
+        UserCmd::List => {
+            for (name, roles, disabled) in gw.list_users() {
+                let state = if disabled { "disabled" } else { "active" };
+                println!("{name:<24} {state:<9} {}", roles.join(","));
+            }
+            return Ok(());
+        }
+        UserCmd::Add { name, roles } => {
+            let pw = read_password()?;
+            gw.add_user(&name, &pw, roles.clone())?;
+            ua.record("user", &name, &format!("add roles={}", roles.join(",")))?;
+        }
+        UserCmd::Passwd { name } => {
+            let pw = read_password()?;
+            gw.set_password(&name, &pw)?;
+            ua.record("user", &name, "password")?;
+        }
+        UserCmd::Roles { name, roles } => {
+            gw.set_roles(&name, roles.clone())?;
+            ua.record("user", &name, &format!("roles={}", roles.join(",")))?;
+        }
+        UserCmd::Disable { name } => {
+            gw.set_disabled(&name, true)?;
+            ua.record("user", &name, "disabled")?;
+        }
+        UserCmd::Enable { name } => {
+            gw.set_disabled(&name, false)?;
+            ua.record("user", &name, "enabled")?;
+        }
+        UserCmd::Remove { name } => {
+            gw.remove_user(&name)?;
+            ua.record("user", &name, "remove")?;
+        }
+    }
+    println!("ok");
+    Ok(())
 }
 
 #[tokio::main]
@@ -34,9 +123,13 @@ async fn main() -> Result<(), Error> {
     let text = std::fs::read_to_string(&args.config)
         .map_err(|e| format!("{}: {e}", args.config.display()))?;
     let cfg = Config::from_json5(&text)?;
-    if matches!(args.cmd, Some(Cmd::Check)) {
-        println!("ok");
-        return Ok(());
+    match args.cmd {
+        Some(Cmd::Check) => {
+            println!("ok");
+            return Ok(());
+        }
+        Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
+        _ => {}
     }
     if cfg.admin_keys.is_empty() {
         tracing::warn!("no admin_keys: every set/invoke will be denied");

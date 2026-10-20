@@ -4622,6 +4622,7 @@ dependencies = [
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-sdk",
+ "wyrm-state",
  "zenoh",
  "zenoh-plugin-rest",
  "zenoh-plugin-storage-manager",

@@ -12,6 +12,7 @@ authors.workspace = true
 wyrm-core.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["advanced", "process"] }
 wyrm-admin.workspace = true
+wyrm-state.workspace = true
 wyrm-flow.workspace = true
 wyrm-gateway.workspace = true
 zeroize.workspace = true

@@ -632,7 +632,60 @@ impl Broker {
     }
 }
 
-fn open_gateway(cfg: &Config, g: &GatewaySection) -> Result<Arc<Gateway>, Error> {
+/// Gateway user management from the command line (`wyrmd user …`). The
+/// stores are locked while wyrmd runs, so this works on a stopped broker;
+/// a running one is managed through the gateway's HTTP API.
+pub struct UserAdmin {
+    gw: Arc<Gateway>,
+    audit: std::sync::Mutex<wyrm_state::Store<wyrm_admin::audit::AuditLog>>,
+}
+
+impl UserAdmin {
+    pub fn open(cfg: &Config) -> Result<Self, Error> {
+        let g = cfg
+            .gateway
+            .as_ref()
+            .ok_or("no gateway section in the config")?;
+        let in_use = |e: String| -> Error {
+            if e.contains("in use") {
+                format!("{e} (stop wyrmd, or use the gateway HTTP API)").into()
+            } else {
+                e.into()
+            }
+        };
+        let gw = open_gateway(cfg, g, false).map_err(|e| in_use(e.to_string()))?;
+        let key = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("state.key"))?;
+        let audit = wyrm_state::Store::open(cfg.data_dir.join("audit"), &key)
+            .map_err(|e| in_use(e.to_string()))?;
+        Ok(Self {
+            gw,
+            audit: std::sync::Mutex::new(audit),
+        })
+    }
+
+    pub fn gateway(&self) -> &Gateway {
+        &self.gw
+    }
+
+    /// An audit record for a change made here (`sub` = `local:cli`).
+    pub fn record(&self, op: &str, user: &str, detail: &str) -> Result<(), Error> {
+        let rec = wyrm_admin::audit::AuditRecord {
+            t: wyrm_link_sdk::now_us(),
+            sub: "local:cli".into(),
+            op: op.into(),
+            key: user.into(),
+            status: wyrm_core::Status::Ok.code(),
+            detail: detail.into(),
+        };
+        self.audit
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .apply(rec)?;
+        Ok(())
+    }
+}
+
+fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc<Gateway>, Error> {
     let dir = cfg.data_dir.join("gateway");
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
@@ -644,6 +697,9 @@ fn open_gateway(cfg: &Config, g: &GatewaySection) -> Result<Arc<Gateway>, Error>
         gc.session_ttl = Duration::from_secs(s.clamp(60, 7 * 86_400));
     }
     let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
+    if !bootstrap {
+        return Ok(gw);
+    }
     if let Ok(pw) = std::env::var(GATEWAY_ADMIN_PASSWORD_ENV) {
         let pw = zeroize::Zeroizing::new(pw);
         // Child processes get a cleared environment as well (supervisor).
@@ -707,7 +763,7 @@ impl Daemon {
         let flows = FlowHost::open(&cfg.data_dir.join("flows"), &hmac, &cfg.site)?;
         let gateway = match &cfg.gateway {
             None => None,
-            Some(g) => Some(open_gateway(&cfg, g)?),
+            Some(g) => Some(open_gateway(&cfg, g, true)?),
         };
         // The gateway signs one token per user request with that user's
         // grants. Links (and the flow engine) trust its key; the admin does

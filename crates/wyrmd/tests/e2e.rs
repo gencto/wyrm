@@ -697,3 +697,63 @@ async fn gateway_in_wyrmd() {
         .any(|r| r.op == "login" && r.sub == "user:root"));
     env.stop().await;
 }
+
+/// `wyrmd user …` manages gateway users on a stopped broker (password from
+/// stdin) and is refused while the broker holds the stores.
+#[tokio::test(flavor = "multi_thread")]
+async fn user_cli_offline_only() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let dir = temp_dir("usercli");
+    std::fs::create_dir_all(&dir).unwrap();
+    let cfg_path = dir.join("wyrmd.json5");
+    std::fs::write(
+        &cfg_path,
+        format!(
+            r#"{{ site: "{SITE}", data_dir: "{}", listen: ["tcp/127.0.0.1:{}"],
+                 gateway: {{ listen: "127.0.0.1:{}" }} }}"#,
+            dir.join("data").display(),
+            free_port(),
+            free_port()
+        ),
+    )
+    .unwrap();
+    let wyrmd = |args: &[&str], stdin: Option<&str>| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+            .arg("-c")
+            .arg(&cfg_path)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if let Some(s) = stdin {
+            c.stdin.take().unwrap().write_all(s.as_bytes()).unwrap();
+        }
+        c.wait_with_output().unwrap()
+    };
+    let out = wyrmd(
+        &["user", "add", "bob", "--roles", "viewer"],
+        Some("long enough pw\n"),
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = wyrmd(&["user", "list"], None);
+    let list = String::from_utf8_lossy(&out.stdout);
+    assert!(list.contains("bob") && list.contains("viewer"), "{list}");
+
+    // While the broker runs, the stores are locked.
+    let cfg = Config::from_json5(&std::fs::read_to_string(&cfg_path).unwrap()).unwrap();
+    let daemon = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let gw = daemon.gateway().unwrap();
+    assert!(gw.list_users().iter().any(|(n, _, _)| n == "bob"));
+    let out = wyrmd(&["user", "list"], None);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("in use"));
+    drop(gw);
+    drop(daemon);
+}
