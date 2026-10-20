@@ -62,6 +62,10 @@ pub struct LinkConfig {
     /// Liveliness key of the broker (`wy/<site>/sys/broker`): when it comes
     /// back (router restart), re-publish all `~meta` and last values.
     pub republish_on: Option<String>,
+    /// `set`/`invoke` per caller: `(requests per second, burst)`; `None` = off.
+    pub rate_limit: Option<(f64, f64)>,
+    /// Put an audit record for every `set`/`invoke` on `wy/<site>/sys/audit/<link>`.
+    pub audit: bool,
 }
 
 impl LinkConfig {
@@ -76,6 +80,8 @@ impl LinkConfig {
             root: None,
             open_actions: Vec::new(),
             republish_on: None,
+            rate_limit: Some((50.0, 100.0)),
+            audit: true,
         }
     }
 }
@@ -193,6 +199,12 @@ pub async fn spawn<L: Link>(
         driver_timeout: cfg.driver_timeout,
         answer_val: cfg.answer_val,
         open_actions: cfg.open_actions,
+        limiter: cfg
+            .rate_limit
+            .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
+        audit_key: cfg
+            .audit
+            .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
         next_rid: AtomicU32::new(1),
     });
     let query_task = tokio::spawn(serve(shared, queryable));
@@ -298,6 +310,8 @@ struct Shared<C> {
     driver_timeout: Duration,
     answer_val: bool,
     open_actions: Vec<String>,
+    limiter: Option<crate::guard::RateLimiter>,
+    audit_key: Option<String>,
     next_rid: AtomicU32,
 }
 
@@ -595,10 +609,83 @@ impl<C: Send + 'static> Shared<C> {
         Ok((payload, att))
     }
 
+    /// Over the per-caller budget → `rate_limited`.
+    fn limit(&self, caller: &Caller) -> Result<()> {
+        let Some(l) = &self.limiter else {
+            return Ok(());
+        };
+        let who = caller
+            .claims
+            .as_ref()
+            .map(|c| c.sub.as_str())
+            .unwrap_or("anonymous");
+        if l.allow(who) {
+            Ok(())
+        } else {
+            Err(LinkError::new(Status::RateLimited, "too many requests"))
+        }
+    }
+
+    /// Audit record of one `set`/`invoke` (args as SHA-256, never the values).
+    async fn audit(&self, q: &Query, op: &str, sub: &str, args: &[u8], r: &Result<()>) {
+        let Some(key) = &self.audit_key else {
+            return;
+        };
+        use sha2::Digest;
+        let status = match r {
+            Ok(()) => Status::Ok,
+            Err(e) => e.status,
+        };
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("t".to_owned(), Value::UInt(crate::ctx::now_us()));
+        m.insert("sub".to_owned(), Value::Str(sub.to_owned()));
+        m.insert("op".to_owned(), Value::Str(op.to_owned()));
+        m.insert(
+            "key".to_owned(),
+            Value::Str(q.key_expr().as_str().to_owned()),
+        );
+        m.insert(
+            "args_hash".to_owned(),
+            Value::Bytes(sha2::Sha256::digest(args).to_vec()),
+        );
+        m.insert("status".to_owned(), Value::UInt(status.code().into()));
+        if let Ok(p) = encode(&Value::Map(m)) {
+            let _ = self
+                .ctx
+                .client()
+                .put(key, p)
+                .priority(zenoh::qos::Priority::Background)
+                .congestion_control(zenoh::qos::CongestionControl::Block)
+                .await;
+        }
+    }
+
     async fn set(&self, q: &Query, path: &str) -> Result<()> {
         Metrics::inc(&self.ctx.0.metrics.sets_in);
-        let att = self.attachment(q)?;
-        let caller = self.authorize(q, &att)?;
+        let args = q
+            .payload()
+            .map(|p| p.to_bytes().to_vec())
+            .unwrap_or_default();
+        let (sub, r) = match self.attachment(q).and_then(|att| self.authorize(q, &att)) {
+            Err(e) => ("unauthenticated".to_owned(), Err(e)),
+            Ok(caller) => {
+                let sub = caller
+                    .claims
+                    .as_ref()
+                    .map(|c| c.sub.clone())
+                    .unwrap_or_else(|| "anonymous".into());
+                let r = match self.limit(&caller) {
+                    Ok(()) => self.set_authorized(q, path, caller).await,
+                    Err(e) => Err(e),
+                };
+                (sub, r)
+            }
+        };
+        self.audit(q, "set", &sub, &args, &r).await;
+        r
+    }
+
+    async fn set_authorized(&self, q: &Query, path: &str, caller: Caller) -> Result<()> {
         let meta = self
             .ctx
             .tree()
@@ -642,8 +729,40 @@ impl<C: Send + 'static> Shared<C> {
     /// Replies itself on success; `Err` → the caller sends one error reply.
     async fn invoke(&self, q: &Query, path: &str, action: &str) -> Result<()> {
         Metrics::inc(&self.ctx.0.metrics.invokes_in);
-        let att = self.attachment(q)?;
-        let caller = self.authorize(q, &att)?;
+        let args = q
+            .payload()
+            .map(|p| p.to_bytes().to_vec())
+            .unwrap_or_default();
+        let (sub, r) = match self
+            .attachment(q)
+            .and_then(|att| self.authorize(q, &att).map(|c| (att, c)))
+        {
+            Err(e) => ("unauthenticated".to_owned(), Err(e)),
+            Ok((att, caller)) => {
+                let sub = caller
+                    .claims
+                    .as_ref()
+                    .map(|c| c.sub.clone())
+                    .unwrap_or_else(|| "anonymous".into());
+                let r = match self.limit(&caller) {
+                    Ok(()) => self.invoke_authorized(q, path, action, att, caller).await,
+                    Err(e) => Err(e),
+                };
+                (sub, r)
+            }
+        };
+        self.audit(q, "invoke", &sub, &args, &r).await;
+        r
+    }
+
+    async fn invoke_authorized(
+        &self,
+        q: &Query,
+        path: &str,
+        action: &str,
+        att: Attachment,
+        caller: Caller,
+    ) -> Result<()> {
         let (act, invokable) = {
             let tree = self.ctx.tree();
             let node = tree

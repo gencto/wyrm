@@ -26,6 +26,7 @@ minicbor.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
+sha2.workspace = true
 zenoh-ext = { workspace = true, optional = true }
 wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }
 

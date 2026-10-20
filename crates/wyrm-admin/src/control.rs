@@ -106,7 +106,7 @@ pub struct Control {
 #[derive(Debug, Clone, Default)]
 pub struct PeerConfig {
     pub peers: acl::Peers,
-    /// CA certificates of peer sites, added to the TLS trust bundle.
+    /// CA certificates of peer sites; trusted only on the QUIC broker listener.
     pub trusted_cas: Vec<PathBuf>,
 }
 
@@ -325,6 +325,12 @@ impl Control {
 
     /// TLS (broker certificate, mTLS) when `tls`, admin space (read-only,
     /// in-process only through the ACL) and the generated `access_control`.
+    /// CA bundle of peer sites, for the QUIC broker listener's
+    /// `#root_ca_certificate_file=` endpoint parameter.
+    pub fn peer_trust_path(&self) -> PathBuf {
+        self.cfg.data_dir.join("pki").join("peer-trust.pem")
+    }
+
     /// Set peer brokers (takes effect on the next broker build).
     pub fn set_peers(&self, p: PeerConfig) {
         *self.peers.lock().unwrap_or_else(|e| e.into_inner()) = p;
@@ -336,25 +342,31 @@ impl Control {
             let pki_dir = self.cfg.data_dir.join("pki");
             let cn = format!("broker:{}", self.cfg.site);
             // Server side (listeners) and client side (outbound to upstreams).
-            let server = self.pki.issue(&cn, &self.cfg.tls_names, true, &pki_dir, "broker-server")?;
+            let server =
+                self.pki
+                    .issue(&cn, &self.cfg.tls_names, true, &pki_dir, "broker-server")?;
             let client = self.pki.issue(&cn, &[], false, &pki_dir, "broker-client")?;
-            // Own CA plus the CAs of peer sites.
-            let mut bundle = std::fs::read_to_string(self.pki.ca_path())?;
-            for ca in &peers.trusted_cas {
-                let pem = std::fs::read_to_string(ca)
-                    .map_err(|e| format!("trusted CA {}: {e}", ca.display()))?;
-                if !pem.contains("BEGIN CERTIFICATE") {
-                    return Err(format!("trusted CA {}: not a PEM certificate", ca.display()).into());
+            // Peer CAs are trusted only on the QUIC broker listener (see
+            // `peer_trust_path`); the global root is our own CA alone.
+            if !peers.trusted_cas.is_empty() {
+                let mut bundle = String::new();
+                for ca in &peers.trusted_cas {
+                    let pem = std::fs::read_to_string(ca)
+                        .map_err(|e| format!("trusted CA {}: {e}", ca.display()))?;
+                    if !pem.contains("BEGIN CERTIFICATE") {
+                        return Err(
+                            format!("trusted CA {}: not a PEM certificate", ca.display()).into(),
+                        );
+                    }
+                    bundle.push_str(&pem);
+                    bundle.push('\n');
                 }
-                bundle.push('\n');
-                bundle.push_str(&pem);
+                std::fs::write(self.peer_trust_path(), bundle)?;
             }
-            let trust = pki_dir.join("trust.pem");
-            std::fs::write(&trust, bundle)?;
             c.insert_json5(
                 "transport/link/tls",
                 &serde_json::json!({
-                    "root_ca_certificate": trust,
+                    "root_ca_certificate": self.pki.ca_path(),
                     "listen_certificate": server.cert,
                     "listen_private_key": server.key,
                     "connect_certificate": client.cert,
@@ -425,6 +437,7 @@ impl Control {
         lcfg.root = Some(format!("wy/{}/sys", self.cfg.site));
         lcfg.admin_keys = self.cfg.admin_keys.clone();
         lcfg.open_actions = vec!["hello".into()];
+        lcfg.audit = false; // the admin writes its own journal directly
         let admin = wyrm_link_sdk::spawn::<Admin>(
             session.clone(),
             lcfg,
@@ -453,6 +466,7 @@ impl Control {
             tokio::spawn(watch_states(self.clone(), ctx.clone(), embedded.clone())),
             tokio::spawn(watch_quarantine(self.clone(), ctx.clone())),
             tokio::spawn(watch_metrics(self.clone(), ctx.clone())),
+            tokio::spawn(watch_audit(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         Ok(Attached {
@@ -1070,6 +1084,55 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
             if let Err(e) = declare_quarantined(&ctx, &cn, e).await {
                 debug!("quarantine node: {e}");
             }
+        }
+    }
+}
+
+/// `set`/`invoke` records put by links on `wy/<site>/sys/audit/<link>`; the
+/// ACL lets only CN `<link>` write that key, so the origin is the key.
+async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
+    let key = format!("wy/{}/sys/audit/*", ctl.cfg.site);
+    let Ok(sub) = ctx.client().declare_subscriber(&key).await else {
+        return;
+    };
+    while let Ok(s) = sub.recv_async().await {
+        let Some(link) = s.key_expr().as_str().rsplit('/').next().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(Value::Map(m)) = wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes())
+        else {
+            continue;
+        };
+        let text = |k: &str| match m.get(k) {
+            Some(Value::Str(v)) => v.clone(),
+            _ => String::new(),
+        };
+        let status = match m.get("status") {
+            Some(Value::UInt(u)) => u8::try_from(*u).unwrap_or(u8::MAX),
+            _ => u8::MAX,
+        };
+        let hash = match m.get("args_hash") {
+            Some(Value::Bytes(b)) => hex::encode(b),
+            _ => String::new(),
+        };
+        let rec = AuditRecord {
+            t: match m.get("t") {
+                Some(Value::UInt(t)) => *t,
+                _ => now_us(),
+            },
+            sub: text("sub"),
+            op: text("op"),
+            key: text("key"),
+            status,
+            detail: format!("link:{link} args_sha256:{hash}"),
+        };
+        if let Err(e) = ctl
+            .audit
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .apply(rec)
+        {
+            warn!("audit write failed: {e}");
         }
     }
 }

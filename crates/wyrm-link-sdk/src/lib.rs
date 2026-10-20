@@ -15,6 +15,7 @@ pub mod auth;
 pub mod ctx;
 pub mod driver;
 pub mod error;
+pub mod guard;
 #[cfg(feature = "harness")]
 pub mod harness;
 pub mod link;

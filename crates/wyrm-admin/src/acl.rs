@@ -35,7 +35,9 @@ fn rule(id: &str, flows: &[&str], messages: &[&str], keys: &[String]) -> Value {
 }
 
 /// Other brokers this one talks to (wiki "Два брокери"), by site name.
-/// Broker certificates carry CN `broker:<site>`.
+/// Broker certificates carry CN `broker:<site>`; brokers talk over QUIC,
+/// links and operators over TLS, so a peer CA cannot mint a link identity
+/// that matches a link rule.
 #[derive(Debug, Clone, Default)]
 pub struct Peers {
     /// Sites this broker connects to; they may only read our `down/**` and
@@ -104,7 +106,9 @@ pub fn access_control_with_peers(
         policies.push(json!({ "rules": requester_rules, "subjects": ["local"] }));
     }
     if !operators.is_empty() {
-        subjects.push(json!({ "id": "operators", "cert_common_names": operators }));
+        subjects.push(
+            json!({ "id": "operators", "cert_common_names": operators, "link_protocols": ["tls"] }),
+        );
         policies.push(json!({ "rules": requester_rules, "subjects": ["operators"] }));
     }
     for def in reg.links.values().filter(|d| d.mode.is_remote()) {
@@ -121,9 +125,17 @@ pub fn access_control_with_peers(
             &["query", "reply"],
             &[format!("wy/{site}/sys/links/{id}/~act/hello")],
         ));
-        subjects.push(json!({ "id": format!("cn-{id}"), "cert_common_names": [id] }));
+        rules.push(rule(
+            &format!("audit-{id}"),
+            &["ingress"],
+            &["put"],
+            &[format!("wy/{site}/sys/audit/{id}")],
+        ));
+        // TLS only: the main listener trusts our own CA alone; peer CAs are
+        // trusted only on the QUIC broker listener.
+        subjects.push(json!({ "id": format!("cn-{id}"), "cert_common_names": [id], "link_protocols": ["tls"] }));
         policies.push(json!({
-            "rules": [format!("link-{id}"), format!("hello-{id}"), "broker-watch"],
+            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch"],
             "subjects": [format!("cn-{id}")],
         }));
     }
@@ -132,23 +144,52 @@ pub fn access_control_with_peers(
         rules.push(rule(
             "upstream-in",
             &["ingress"],
-            &["query", "declare_subscriber", "declare_liveliness_subscriber", "liveliness_query"],
+            &[
+                "query",
+                "declare_subscriber",
+                "declare_liveliness_subscriber",
+                "liveliness_query",
+            ],
             &readable,
         ));
         rules.push(rule(
             "upstream-out",
             &["egress"],
-            &["put", "delete", "reply", "liveliness_token", "declare_queryable", "declare_subscriber"],
+            &[
+                "put",
+                "delete",
+                "reply",
+                "liveliness_token",
+                "declare_queryable",
+                "declare_subscriber",
+            ],
             &readable,
         ));
-        let cns: Vec<String> = peers.upstream.iter().map(|u| format!("broker:{u}")).collect();
-        subjects.push(json!({ "id": "upstream", "cert_common_names": cns }));
-        policies.push(json!({ "rules": ["upstream-in", "upstream-out"], "subjects": ["upstream"] }));
+        let cns: Vec<String> = peers
+            .upstream
+            .iter()
+            .map(|u| format!("broker:{u}"))
+            .collect();
+        subjects.push(
+            json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
+        );
+        policies
+            .push(json!({ "rules": ["upstream-in", "upstream-out"], "subjects": ["upstream"] }));
     }
     for d in &peers.downstream {
-        rules.push(rule(&format!("site-{d}"), &["ingress", "egress"], ALL, &[format!("wy/{d}/**")]));
-        subjects.push(json!({ "id": format!("broker-{d}"), "cert_common_names": [format!("broker:{d}")] }));
-        policies.push(json!({ "rules": [format!("site-{d}")], "subjects": [format!("broker-{d}")] }));
+        rules.push(rule(
+            &format!("site-{d}"),
+            &["ingress", "egress"],
+            ALL,
+            &[format!("wy/{d}/**")],
+        ));
+        subjects.push(json!({
+            "id": format!("broker-{d}"),
+            "cert_common_names": [format!("broker:{d}")],
+            "link_protocols": ["quic"],
+        }));
+        policies
+            .push(json!({ "rules": [format!("site-{d}")], "subjects": [format!("broker-{d}")] }));
     }
     json!({
         "enabled": true,
@@ -187,7 +228,10 @@ mod tests {
         let text = acl.to_string();
         assert!(text.contains(r#""cert_common_names":["broker:cloud"]"#));
         assert!(text.contains("wy/plant-a/down/**"));
-        assert!(!text.contains("wy/plant-a/sys/**"), "upstream never reads sys");
+        assert!(
+            !text.contains("wy/plant-a/sys/**"),
+            "upstream never reads sys"
+        );
         assert!(text.contains(r#""key_exprs":["wy/plant-b/**"]"#));
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &text).unwrap();
