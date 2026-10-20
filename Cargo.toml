@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent"]
 
 [workspace.package]
 version = "0.1.0"
@@ -75,6 +75,13 @@ wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 # MCP (ADR 0005): server side only; no reqwest/auth features (no aws-lc).
 rmcp = { version = "=3.6.0", default-features = false }
 schemars = "1"
+wyrm-mcp = { path = "tools/wyrm-mcp", default-features = false }
+# LLM client of links/agent: plain hyper over tokio-rustls (ring provider).
+hyper = { version = "1", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
+http-body-util = "0.1"
+bytes = "1"
+webpki-roots = "1"
 
 [profile.release]
 lto = "thin"

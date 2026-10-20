@@ -1,0 +1,45 @@
+[package]
+name = "wyrm-link-agent"
+description = "WYRM AI agent connector: tasks as nodes, LLM planning, human approval by ptok (ADR 0005)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# Process-mode binary (`wyrm-link-agent`), started by the admin supervisor.
+bin = ["wyrm-link-sdk/process", "tokio/rt-multi-thread", "dep:tracing-subscriber"]
+
+[[bin]]
+name = "wyrm-link-agent"
+required-features = ["bin"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-client.workspace = true
+wyrm-mcp.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+hex.workspace = true
+ed25519-dalek.workspace = true
+zeroize.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types.workspace = true
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+webpki-roots.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+bytes.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-mock.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

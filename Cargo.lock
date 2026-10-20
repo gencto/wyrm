@@ -1840,6 +1840,7 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
+ "want",
 ]
 
 [[package]]
@@ -5763,6 +5764,34 @@ dependencies = [
  "wyrm-link-mock",
  "wyrm-link-sdk",
  "wyrm-state",
+ "zenoh",
+ "zeroize",
+]
+
+[[package]]
+name = "wyrm-link-agent"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "ed25519-dalek",
+ "hex",
+ "http-body-util",
+ "hyper 1.12.0",
+ "hyper-util",
+ "rustls",
+ "rustls-pki-types",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "webpki-roots",
+ "wyrm-client",
+ "wyrm-core",
+ "wyrm-link-mock",
+ "wyrm-link-sdk",
+ "wyrm-mcp",
  "zenoh",
  "zeroize",
 ]
