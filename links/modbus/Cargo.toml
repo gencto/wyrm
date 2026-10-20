@@ -1,0 +1,31 @@
+[package]
+name = "wyrm-link-modbus"
+description = "WYRM Modbus TCP connector on tokio-modbus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process Modbus TCP simulator for tests and demos (`diagslave` stand-in).
+sim = ["tokio-modbus/tcp-server"]
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+
+[[bin]]
+name = "wyrm-modbus-sim"
+required-features = ["bin"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tokio-modbus = { workspace = true, features = ["tcp"] }
+tracing.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-modbus = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

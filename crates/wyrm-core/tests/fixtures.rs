@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::meta::MetaPatch;
-use wyrm_core::{Attachment, NodeMeta, Sample, Value};
+use wyrm_core::{Attachment, NodeMeta, PtokClaims, Sample, Value};
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -112,6 +112,15 @@ fn ptok_claims_structure_matches_json() {
         }
     }
     assert_eq!(v, expected);
+
+    // typed decode: exact canonical re-encode
+    roundtrip::<PtokClaims>(&f.name, &hex::decode(&f.hex).unwrap());
+    let c: PtokClaims = from_slice(&hex::decode(&f.hex).unwrap()).unwrap();
+    assert_eq!(c.site, "plant-a");
+    assert_eq!(c.grants.len(), 3);
+    assert_eq!(c.grants[1].k, "wy/plant-a/down/bacnet/**");
+    assert_eq!(c.grants[1].p, wyrm_core::Perm::Write);
+    assert_eq!(c.jti, [0x11; 16]);
 }
 
 #[test]
@@ -148,4 +157,57 @@ fn keys_compress_matches_fixture() {
         ]
     );
     assert_eq!(wyrm_core::keyspace::compress_keys(&expanded), compressed);
+}
+
+/// Every `wire_enum!` table must equal its table in `spec/tables.json`:
+/// same codes, same names, nothing missing on either side.
+#[test]
+fn wire_enums_match_spec_tables() {
+    use std::collections::BTreeSet;
+    use wyrm_core::meta::{TypeCode, Writable};
+    use wyrm_core::{Perm, Quality, Status};
+
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/tables.json");
+    let tables: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("tables.json")).unwrap();
+
+    fn spec(tables: &serde_json::Value, name: &str) -> BTreeSet<(u8, String)> {
+        tables[name]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {name} missing in tables.json"))
+            .iter()
+            .map(|(k, v)| {
+                let code = match k.strip_prefix("0x") {
+                    Some(hex) => u8::from_str_radix(hex, 16).unwrap(),
+                    None => k.parse().unwrap(),
+                };
+                (code, v.as_str().unwrap().to_owned())
+            })
+            .collect()
+    }
+
+    macro_rules! check {
+        ($ty:ty, $table:literal) => {{
+            let rust: BTreeSet<(u8, String)> = <$ty>::ALL
+                .iter()
+                .map(|v| (v.code(), v.name().to_owned()))
+                .collect();
+            assert_eq!(
+                rust,
+                spec(&tables, $table),
+                "{} vs tables.json/{}",
+                stringify!($ty),
+                $table
+            );
+            for v in <$ty>::ALL {
+                assert_eq!(<$ty>::try_from(v.code()), Ok(*v));
+            }
+        }};
+    }
+
+    check!(TypeCode, "type_codes");
+    check!(Perm, "perm_levels");
+    check!(Writable, "writable_codes");
+    check!(Quality, "quality_codes");
+    check!(Status, "status_codes");
 }

@@ -1,0 +1,30 @@
+[package]
+name = "wyrm-link-mock"
+description = "WYRM mock connector: N points x F Hz on a configurable tree, for tests and benchmarks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+bin = ["dep:clap", "dep:hex", "dep:tracing-subscriber", "zenoh/transport_tcp", "zenoh/transport_unixsock-stream", "tokio/rt-multi-thread", "tokio/signal"]
+
+[[bin]]
+name = "wyrm-link-mock"
+required-features = ["bin"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+tracing.workspace = true
+clap = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

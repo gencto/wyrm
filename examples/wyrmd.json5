@@ -1,0 +1,38 @@
+// wyrmd example config. Run: cargo run -p wyrmd -- -c examples/wyrmd.json5
+{
+  site: "local",
+  // prod: loopback sessions are requesters only; dev: loopback may do everything.
+  profile: "prod",
+  data_dir: "./data",
+  // Plain tcp only on loopback (principle 6). The tls/ listener serves
+  // process links and remote devices with CA-issued certificates (mTLS).
+  listen: ["tcp/127.0.0.1:7447", "tls/127.0.0.1:7448"],
+  // Public key printed by `wyr keygen`. Without it every set/invoke is denied.
+  admin_keys: [],
+  // Certificate CNs of engineering tools with requester rights over TLS.
+  operators: [],
+  links: {
+    // Embedded mock connector: wy/local/down/mock/**
+    mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
+    // Modbus TCP as a supervised process (`wyrmd link modbus`), mTLS CN = plc1.
+    // Simulator: cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim
+    plc1: {
+      driver: "modbus",
+      mode: "process",
+      params: {
+        host: "127.0.0.1",
+        port: 5020,
+        unit: 1,
+        poll_ms: 1000,
+        timeout_ms: 1000,
+        stale_cycles: 3,
+        points: [
+          { path: "ahu1/supply_temp", table: "input", address: 1, kind: "i16", scale: 0.1, unit: "°C" },
+          { path: "ahu1/counter", table: "holding", address: 0, kind: "u16" },
+          { path: "ahu1/setpoint", table: "holding", address: 10, kind: "f32", writable: true, unit: "°C" },
+          { path: "ahu1/fan", table: "coil", address: 3, kind: "bool", writable: true },
+        ],
+      },
+    },
+  },
+}

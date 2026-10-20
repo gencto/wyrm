@@ -21,21 +21,25 @@ Broker with IOT-DSA semantics (node tree, reactive list/subscribe/invoke, manage
 ## Workspace layout (target)
 ```
 crates/wyrm-core        ✅ types + codec + fixture test
-crates/wyrm-link-sdk    trait Link, LinkCtx, NodeTree, one queryable per link, liveliness, TestHarness
-crates/wyrm-client      list()/subscribe()/set()/invoke() as Streams
-crates/wyrm-state       WAL (CBOR, HMAC-chain, CRC/record) + postcard snapshot
+crates/wyrm-link-sdk    ✅ trait Link, LinkCtx, NodeTree, one queryable per link, liveliness, TestHarness
+crates/wyrm-client      ✅ list()/subscribe()/set()/invoke() as Streams
+crates/wyrm-state       ✅ WAL (CBOR, HMAC-chain, CRC/record) + postcard snapshot
 crates/wyrm-history     trait HistoryStore + host; history/{rocksdb,influxdb}
 crates/wyrm-flow        engine: compiler, node registry, rhai, runtime
-crates/wyrm-admin       registry, supervisor, tokens, CA, quarantine, ACL generator, gateway
-crates/wyrmd            binary
-links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin")
-tools/wyr               CLI (ops + dev: new/dev/sim/replay/ai/mcp)
+crates/wyrm-admin       ◐ registry, supervisor, tokens, CA, quarantine, ACL generator, audit (gateway: iteration 5)
+crates/wyrmd            ✅ binary (router, storage + rest plugins, admin, links; rebuild on ACL change)
+links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin"); mock, modbus on the raw layer (framework port pending)
+tools/wyr               ✅ CLI ops part (dev commands: iteration 9)
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
 ```
 
 ## Current state
-Iteration 0 done (2026-10-20): spec v0.1, `wyrm-core`, 22 fixtures green, CI config in `docs/ci.yml.pending` (move to `.github/workflows/ci.yml`).
+Iteration 0 done (2026-10-20): spec v0.1, `wyrm-core`, 22 fixtures green. CI in `.github/workflows/ci.yml`.
+Iteration 1 (2026-10-20): raw-layer steps 1, 2–6 done plus wiki items `rest` plugin (loopback only; cannot carry a ptok) and Advanced Pub/Sub (zenoh-ext 1.10.1: `cfg.qos >= 2` → AdvancedPublisher cache, `subscribe_reliable`, feature `advanced`). Open: step 1b driver framework (ADR 0004) and porting `mock`/`modbus` onto it. Measured on Apple M4 Max (ARM64), loopback, release: list of 1000 children p99 0.57 ms; 50k samples/s at ~17 % of one core; one-point subscribe p99 1.2 ms under 50k/s. Missing: LAN run on the reference board (4-core ARM64, 2 GB).
+Iteration 2 (in progress): `wyrm-state`, `wyrm-admin` (registry, argon2id link tokens, rcgen CA, generated ACL, supervisor, quarantine via link events, `acl_denied_total` from router metrics, audit), `wyrmd link <driver>` process mode; all three wiki criteria pass in `crates/wyrmd/tests/e2e.rs`. Zenoh 1.10 has no live ACL reload, so ACL changes rebuild the router runtime (ADR 0006, to write).
+Zenoh ≥ 1.10 facts: reply QoS follows the query (requester sets `~set/~act` QoS); default `get` consolidation drops stream replies (use `ConsolidationMode::None`); `Parameters` split on `;` — spec 01 uses `&`, so the SDK parses the raw selector string (verified through a router hop); the storage manager loads only `memory` statically — the rocksdb volume exists only as a dynamic `.so`.
+Open owner decisions: (1) selector separator in spec 01; (2) ADR for requester-side QoS; (3) single-use `jti` reading of spec 04; (4) persistence of `{flows,pub,sys}/**`: rocksdb volume (needs a `.so`, conflicts with principle 2) vs `wyrm-state` WAL (ADR 0003) — step 4 runs `mem` on `~val` only; (5) `diagslave` check of `links/modbus` (tests use the built-in simulator). `wyrmd` refuses plaintext non-loopback endpoints unless `insecure_plaintext: true` (until TLS).
 
 ## Next: Iteration 1 — core (in this order)
 1. `wyrm-link-sdk` raw layer: `trait Link { start, reconfigure, on_set, on_invoke, stop }`, `LinkCtx { declare_node, declare_action, update, publisher, remove_node, set_dynamic, mark_all, client, secrets, metrics, subscriber_count }`; SDK declares ONE queryable on `wy/<site>/down/<link>/**`, routes by suffix, answers `~meta?view=list|keys|full`, checks `ptok` before calling the driver, sets liveliness; `TestHarness` with in-memory Zenoh runtime (`zenoh::Config` mode peer, no network).
@@ -56,3 +60,4 @@ Iteration 1 is done when `wyr bench` prints numbers on ARM64 against targets in 
 - Drivers: all I/O with timeouts, no `unwrap` on network paths, honest quality (`uncertain/stale` → `bad/comm_fail`), profiles declared before nodes.
 - QoS: `~set/~act` → Priority InteractiveHigh + Block + express; `~val` → Data + Drop; `~meta` → DataHigh + Block.
 - Never log secrets, `ptok`, or `~val` values above `trace`.
+- Code tables (`tables.json`) are declared once with `wyrm_core::wire_enum!`; logic uses the typed enum, `u8` only at the codec edge via `.code()` / `try_from`. No `as u8`, no hand-written `TryFrom<u8>`, no bare range numbers (use `StatusGroup`). Details: `CONTRIBUTING.md` → Wire enums.

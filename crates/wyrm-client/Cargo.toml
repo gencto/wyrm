@@ -1,0 +1,31 @@
+[package]
+name = "wyrm-client"
+description = "WYRM requester SDK: list/subscribe as streams, set/invoke/meta/resolve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# DSA QoS 2/3 subscriptions (zenoh-ext AdvancedSubscriber: history + recovery).
+advanced = ["dep:zenoh-ext"]
+
+[dependencies]
+wyrm-core.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+futures-core.workspace = true
+minicbor.workspace = true
+zenoh-ext = { workspace = true, optional = true }
+ed25519-dalek.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness", "advanced"] }
+wyrm-client = { path = ".", features = ["advanced"] }
+wyrm-link-mock.workspace = true
+ed25519-dalek.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

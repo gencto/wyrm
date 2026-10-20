@@ -6,85 +6,42 @@ use minicbor::data::Type;
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use std::collections::BTreeMap;
 
-/// Permission level: 0 none, 1 list, 2 read, 3 write, 4 config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-#[repr(u8)]
-pub enum Perm {
-    #[default]
-    None = 0,
-    List = 1,
-    Read = 2,
-    Write = 3,
-    Config = 4,
-}
-
-impl TryFrom<u8> for Perm {
-    type Error = u8;
-    fn try_from(v: u8) -> Result<Self, u8> {
-        Ok(match v {
-            0 => Perm::None,
-            1 => Perm::List,
-            2 => Perm::Read,
-            3 => Perm::Write,
-            4 => Perm::Config,
-            x => return Err(x),
-        })
+crate::wire_enum! {
+    /// Permission level (spec 04). Ordered: `None < List < … < Config`.
+    #[derive(PartialOrd, Ord, Default)]
+    pub enum Perm {
+        #[default]
+        None = 0 => "none",
+        List = 1 => "list",
+        Read = 2 => "read",
+        Write = 3 => "write",
+        Config = 4 => "config",
     }
 }
 
-/// Writable: 0 never, 1 config, 2 write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
-pub enum Writable {
-    #[default]
-    Never = 0,
-    Config = 1,
-    Write = 2,
-}
-
-impl TryFrom<u8> for Writable {
-    type Error = u8;
-    fn try_from(v: u8) -> Result<Self, u8> {
-        Ok(match v {
-            0 => Writable::Never,
-            1 => Writable::Config,
-            2 => Writable::Write,
-            x => return Err(x),
-        })
+crate::wire_enum! {
+    /// `~meta.writable` (spec 02, key 4).
+    #[derive(Default)]
+    pub enum Writable {
+        #[default]
+        Never = 0 => "never",
+        Config = 1 => "config",
+        Write = 2 => "write",
     }
 }
 
-/// Value type code (spec 02, key 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum TypeCode {
-    Null = 0,
-    Number = 1,
-    String = 2,
-    Bool = 3,
-    Enum = 4,
-    Map = 5,
-    Array = 6,
-    Binary = 7,
-    Dynamic = 8,
-}
-
-impl TryFrom<u8> for TypeCode {
-    type Error = u8;
-    fn try_from(v: u8) -> Result<Self, u8> {
-        use TypeCode::*;
-        Ok(match v {
-            0 => Null,
-            1 => Number,
-            2 => String,
-            3 => Bool,
-            4 => Enum,
-            5 => Map,
-            6 => Array,
-            7 => Binary,
-            8 => Dynamic,
-            x => return Err(x),
-        })
+crate::wire_enum! {
+    /// Value type code (spec 02, key 1).
+    pub enum TypeCode {
+        Null = 0 => "null",
+        Number = 1 => "number",
+        String = 2 => "string",
+        Bool = 3 => "bool",
+        Enum = 4 => "enum",
+        Map = 5 => "map",
+        Array = 6 => "array",
+        Binary = 7 => "binary",
+        Dynamic = 8 => "dynamic",
     }
 }
 
@@ -210,7 +167,7 @@ impl<C> Encode<C> for ParamMeta {
         .count() as u64;
         e.map(n)?;
         if let Some(t) = self.ty {
-            e.u8(1)?.u8(t as u8)?;
+            e.u8(1)?.u8(t.code())?;
         }
         if let Some(u) = &self.unit {
             e.u8(2)?;
@@ -246,7 +203,7 @@ impl<C> Encode<C> for ActionMeta {
         n += self.timeout_ms.is_some() as u64;
         e.map(n)?;
         if let Some(l) = self.level {
-            e.str("level")?.u8(l as u8)?;
+            e.str("level")?.u8(l.code())?;
         }
         e.str("params")?;
         let mut keys: Vec<&String> = self.params.keys().collect();
@@ -259,7 +216,7 @@ impl<C> Encode<C> for ActionMeta {
         if let Some(r) = &self.result {
             e.str("result")?;
             match r {
-                ActionResult::Type(t) => e.u8(*t as u8)?,
+                ActionResult::Type(t) => e.u8(t.code())?,
                 ActionResult::Stream => e.str("stream")?,
                 ActionResult::Void => e.str("void")?,
             };
@@ -307,7 +264,7 @@ impl<C> Encode<C> for NodeMeta {
             enc_profile(e, v)?;
         }
         if let Some(v) = self.ty {
-            e.u8(1)?.u8(v as u8)?;
+            e.u8(1)?.u8(v.code())?;
         }
         if let Some(v) = &self.unit {
             e.u8(2)?;
@@ -318,10 +275,10 @@ impl<C> Encode<C> for NodeMeta {
             enc_str_array(e, v)?;
         }
         if let Some(v) = self.writable {
-            e.u8(4)?.u8(v as u8)?;
+            e.u8(4)?.u8(v.code())?;
         }
         if let Some(v) = self.invokable {
-            e.u8(5)?.u8(v as u8)?;
+            e.u8(5)?.u8(v.code())?;
         }
         if let Some(v) = &self.cfg {
             e.u8(6)?;
@@ -550,4 +507,151 @@ impl<'b, C> Decode<'b, C> for MetaPatch {
 
 fn bad(what: &'static str) -> impl Fn(u8) -> decode::Error {
     move |x| decode::Error::message(format!("bad {what} code {x}"))
+}
+
+/// Interned profile codes (spec `tables.json`, `is_codes`).
+pub mod is_code {
+    pub const NODE: u32 = 0;
+    pub const FOLDER: u32 = 1;
+    pub const NUMBER: u32 = 2;
+    pub const STRING: u32 = 3;
+    pub const BOOL: u32 = 4;
+    pub const ENUM: u32 = 5;
+    pub const LINK: u32 = 6;
+}
+
+// ---------- builders ----------
+
+impl NodeMeta {
+    /// Container node (`is = wy:folder`).
+    pub fn folder() -> Self {
+        Self {
+            is: Some(Profile::Code(is_code::FOLDER)),
+            ..Default::default()
+        }
+    }
+
+    /// Leaf node of the given type with the matching base profile.
+    pub fn leaf(ty: TypeCode) -> Self {
+        let is = match ty {
+            TypeCode::Number => is_code::NUMBER,
+            TypeCode::String => is_code::STRING,
+            TypeCode::Bool => is_code::BOOL,
+            TypeCode::Enum => is_code::ENUM,
+            _ => is_code::NODE,
+        };
+        Self {
+            is: Some(Profile::Code(is)),
+            ty: Some(ty),
+            ..Default::default()
+        }
+    }
+
+    pub fn number() -> Self {
+        Self::leaf(TypeCode::Number)
+    }
+
+    pub fn is(mut self, profile: impl Into<String>) -> Self {
+        self.is = Some(Profile::Name(profile.into()));
+        self
+    }
+
+    pub fn unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = Some(TextOrCode::Text(unit.into()));
+        self
+    }
+
+    pub fn enum_values<I: IntoIterator<Item = S>, S: Into<String>>(mut self, values: I) -> Self {
+        self.enum_values = Some(values.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn writable(mut self, w: Writable) -> Self {
+        self.writable = Some(w);
+        self
+    }
+
+    pub fn invokable(mut self, p: Perm) -> Self {
+        self.invokable = Some(p);
+        self
+    }
+
+    pub fn display(mut self, name: impl Into<String>) -> Self {
+        self.attr
+            .get_or_insert_with(BTreeMap::new)
+            .insert("display".into(), Value::Str(name.into()));
+        self
+    }
+
+    pub fn cfg(mut self, key: impl Into<String>, v: impl Into<Value>) -> Self {
+        self.cfg
+            .get_or_insert_with(BTreeMap::new)
+            .insert(key.into(), v.into());
+        self
+    }
+
+    pub fn attr(mut self, key: impl Into<String>, v: impl Into<Value>) -> Self {
+        self.attr
+            .get_or_insert_with(BTreeMap::new)
+            .insert(key.into(), v.into());
+        self
+    }
+
+    pub fn cfg_value(&self, key: &str) -> Option<&Value> {
+        self.cfg.as_ref()?.get(key)
+    }
+
+    pub fn attr_value(&self, key: &str) -> Option<&Value> {
+        self.attr.as_ref()?.get(key)
+    }
+}
+
+impl ActionMeta {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn param(mut self, name: impl Into<String>, p: ParamMeta) -> Self {
+        self.params.insert(name.into(), p);
+        self
+    }
+
+    pub fn result(mut self, r: ActionResult) -> Self {
+        self.result = Some(r);
+        self
+    }
+
+    pub fn stream(mut self, s: bool) -> Self {
+        self.stream = Some(s);
+        self
+    }
+
+    pub fn level(mut self, p: Perm) -> Self {
+        self.level = Some(p);
+        self
+    }
+
+    pub fn timeout_ms(mut self, ms: u32) -> Self {
+        self.timeout_ms = Some(ms);
+        self
+    }
+}
+
+impl ParamMeta {
+    pub fn of(ty: TypeCode) -> Self {
+        Self {
+            ty: Some(ty),
+            ..Default::default()
+        }
+    }
+
+    pub fn required(mut self, r: bool) -> Self {
+        self.required = Some(r);
+        self
+    }
+
+    pub fn enum_values<I: IntoIterator<Item = S>, S: Into<String>>(mut self, values: I) -> Self {
+        self.enum_values = Some(values.into_iter().map(Into::into).collect());
+        self
+    }
 }

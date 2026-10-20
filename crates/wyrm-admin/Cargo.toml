@@ -1,0 +1,34 @@
+[package]
+name = "wyrm-admin"
+description = "WYRM control plane: link registry, tokens, internal CA, ACL generation, supervisor, quarantine, audit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-state.workspace = true
+wyrm-link-sdk.workspace = true
+zenoh = { workspace = true, features = ["unstable"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs"] }
+minicbor.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+hex.workspace = true
+getrandom.workspace = true
+argon2.workspace = true
+rcgen.workspace = true
+flate2.workspace = true
+ed25519-dalek.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

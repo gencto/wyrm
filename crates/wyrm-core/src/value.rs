@@ -5,25 +5,14 @@ use minicbor::data::Type;
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use std::collections::BTreeMap;
 
-/// Value quality (spec 03-val, key 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
-pub enum Quality {
-    #[default]
-    Good = 0,
-    Uncertain = 1,
-    Bad = 2,
-}
-
-impl TryFrom<u8> for Quality {
-    type Error = u8;
-    fn try_from(v: u8) -> Result<Self, u8> {
-        match v {
-            0 => Ok(Self::Good),
-            1 => Ok(Self::Uncertain),
-            2 => Ok(Self::Bad),
-            x => Err(x),
-        }
+crate::wire_enum! {
+    /// Value quality (spec 03-val, key 1).
+    #[derive(Default)]
+    pub enum Quality {
+        #[default]
+        Good = 0 => "good",
+        Uncertain = 1 => "uncertain",
+        Bad = 2 => "bad",
     }
 }
 
@@ -221,7 +210,7 @@ impl<C> Encode<C> for Sample {
         e.map(3)?;
         e.u8(0)?;
         self.v.encode(e, ctx)?;
-        e.u8(1)?.u8(self.q as u8)?;
+        e.u8(1)?.u8(self.q.code())?;
         e.u8(2)?.u64(self.t)?;
         Ok(())
     }
@@ -247,5 +236,52 @@ impl<'b, C> Decode<'b, C> for Sample {
             }
         }
         Ok(Sample { v, q, t })
+    }
+}
+
+/// `~set` request payload: `{0: v}` (spec 05-methods).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetRequest {
+    pub v: Value,
+}
+
+impl<C> Encode<C> for SetRequest {
+    fn encode<W: encode::Write>(
+        &self,
+        e: &mut Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), encode::Error<W::Error>> {
+        e.map(1)?.u8(0)?;
+        self.v.encode(e, ctx)
+    }
+}
+
+impl<'b, C> Decode<'b, C> for SetRequest {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, decode::Error> {
+        let mut v = None;
+        for _ in 0..d
+            .map()?
+            .ok_or_else(|| decode::Error::message("indefinite ~set map"))?
+        {
+            match d.u32()? {
+                0 => v = Some(Value::decode(d, ctx)?),
+                _ => d.skip()?,
+            }
+        }
+        Ok(SetRequest {
+            v: v.ok_or_else(|| decode::Error::message("~set without v"))?,
+        })
+    }
+}
+
+impl Value {
+    /// Numeric view for range checks; `None` for non-numbers.
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Int(i) => Some(*i as f64),
+            Value::UInt(u) => Some(*u as f64),
+            Value::Float(f) => Some(*f),
+            _ => None,
+        }
     }
 }

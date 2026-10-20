@@ -1,10 +1,8 @@
 //! Zenoh attachment carried with every WYRM sample/query. Spec: 04-attachment.
 
+use crate::meta::Perm;
 use crate::status::StatusCode;
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-
-/// Permission level (spec 04 / 05): 0 none, 1 list, 2 read, 3 write, 4 config.
-pub type PermLevel = u8;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Attachment {
@@ -13,7 +11,7 @@ pub struct Attachment {
     pub ts: Option<u64>,
     pub refreshed: Option<bool>,
     pub ptok: Option<Vec<u8>>,
-    pub maxperm: Option<PermLevel>,
+    pub maxperm: Option<Perm>,
     pub audit: Option<String>,
     pub err: Option<String>,
     pub rev: Option<u32>,
@@ -85,7 +83,7 @@ impl<C> Encode<C> for Attachment {
             e.u8(4)?.bytes(v)?;
         }
         if let Some(v) = self.maxperm {
-            e.u8(5)?.u8(v)?;
+            e.u8(5)?.u8(v.code())?;
         }
         if let Some(v) = &self.audit {
             e.u8(6)?.str(v)?;
@@ -131,7 +129,13 @@ impl<'b, C> Decode<'b, C> for Attachment {
                 2 => a.ts = Some(d.u64()?),
                 3 => a.refreshed = Some(d.bool()?),
                 4 => a.ptok = Some(d.bytes()?.to_vec()),
-                5 => a.maxperm = Some(d.u8()?),
+                5 => {
+                    let c = d.u8()?;
+                    a.maxperm = Some(
+                        Perm::try_from(c)
+                            .map_err(|c| decode::Error::message(format!("bad maxperm {c}")))?,
+                    )
+                }
                 6 => a.audit = Some(d.str()?.to_owned()),
                 7 => a.err = Some(d.str()?.to_owned()),
                 8 => a.rev = Some(d.u32()?),

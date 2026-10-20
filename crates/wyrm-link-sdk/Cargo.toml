@@ -1,0 +1,33 @@
+[package]
+name = "wyrm-link-sdk"
+description = "WYRM connector SDK: trait Link, LinkCtx, NodeTree, single-queryable responder, ptok checks, TestHarness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-memory Zenoh runtime + test signing key for driver tests. Never enable in production builds.
+harness = []
+# DSA QoS 2/3: nodes with `cfg.qos >= 2` publish through a zenoh-ext
+# AdvancedPublisher (cache + miss detection) for late/recovering subscribers.
+advanced = ["dep:zenoh-ext"]
+# Process mode host: `process::run::<L>()` (mTLS client, hello, signals).
+process = ["tokio/signal", "zenoh/transport_tls", "zenoh/transport_tcp"]
+
+[dependencies]
+wyrm-core.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+ed25519-dalek.workspace = true
+minicbor.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+zenoh-ext = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-sdk = { path = ".", features = ["harness", "advanced", "process"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

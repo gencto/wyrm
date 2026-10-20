@@ -1,0 +1,34 @@
+[package]
+name = "wyrmd"
+description = "WYRM broker: Zenoh router + static plugins + embedded connectors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["advanced", "process"] }
+wyrm-admin.workspace = true
+wyrm-link-mock.workspace = true
+wyrm-link-modbus.workspace = true
+# Static plugins need the internal runtime API; this crate is the only one
+# that enables `internal`/`plugins`/`unstable`.
+zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_unixsock-stream"] }
+zenoh-plugin-storage-manager.workspace = true
+zenoh-plugin-rest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
+serde.workspace = true
+serde_json.workspace = true
+json5.workspace = true
+clap.workspace = true
+hex.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+wyrm-link-modbus = { workspace = true, features = ["sim"] }
+wyrm-client.workspace = true
+ed25519-dalek.workspace = true

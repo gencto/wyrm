@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +16,36 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
+wyrm-core = { path = "crates/wyrm-core" }
+wyrm-link-sdk = { path = "crates/wyrm-link-sdk" }
+# Pinned exactly; upgrade quarterly together with the fixture suite.
+zenoh = { version = "=1.10.1", default-features = false }
+tokio = { version = "1", default-features = false }
+ed25519-dalek = "2"
+tracing = "0.1"
+zeroize = "1"
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wyrm-link-mock = { path = "links/mock" }
+wyrm-client = { path = "crates/wyrm-client" }
+futures-core = "0.3"
+json5 = "0.4"
+getrandom = "0.3"
+crc32c = "0.6"
+hmac = "0.12"
+sha2 = "0.10"
+postcard = { version = "1", features = ["use-std"] }
+argon2 = "0.5"
+flate2 = "1"
+rcgen = { version = "0.14", features = ["x509-parser"] }
+wyrm-state = { path = "crates/wyrm-state" }
+wyrm-admin = { path = "crates/wyrm-admin" }
+nix = { version = "0.29", features = ["signal"] }
+tokio-modbus = { version = "0.17", default-features = false }
+wyrm-link-modbus = { path = "links/modbus" }
+zenoh-plugin-storage-manager = { version = "=1.10.1", default-features = false }
+zenoh-ext = { version = "=1.10.1", default-features = false, features = ["unstable"] }
+zenoh-plugin-rest = { version = "=1.10.1", default-features = false, features = ["static_plugin"] }
 
 [profile.release]
 lto = "thin"

@@ -1,0 +1,22 @@
+[package]
+name = "wyrm-state"
+description = "WYRM control-plane state: WAL (CBOR, CRC32C per record, HMAC chain) + postcard snapshot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+minicbor.workspace = true
+serde.workspace = true
+postcard.workspace = true
+crc32c.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+crc32c.workspace = true

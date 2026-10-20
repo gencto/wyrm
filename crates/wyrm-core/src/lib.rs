@@ -9,13 +9,16 @@ pub mod attachment;
 pub mod codec;
 pub mod keyspace;
 pub mod meta;
+pub mod ptok;
 pub mod status;
 pub mod value;
+pub mod wire;
 
 pub use attachment::Attachment;
-pub use meta::{NodeMeta, Perm, Writable};
-pub use status::Status;
-pub use value::{Quality, Sample, Value};
+pub use meta::{ActionMeta, NodeMeta, Perm, TypeCode, Writable};
+pub use ptok::PtokClaims;
+pub use status::{Status, StatusGroup};
+pub use value::{Quality, Sample, SetRequest, Value};
 
 /// Protocol major version published at `wy/<site>/sys/broker/~meta.proto`.
 pub const PROTO_VERSION: u8 = 1;
