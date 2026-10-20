@@ -59,7 +59,8 @@ fn state(h: &H, base: &str) -> Option<String> {
 }
 
 async fn wait(what: &str, mut f: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // Generous: the full workspace suite runs many brokers in parallel.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     while !f() {
         assert!(tokio::time::Instant::now() < deadline, "timeout: {what}");
         tokio::time::sleep(Duration::from_millis(20)).await;
