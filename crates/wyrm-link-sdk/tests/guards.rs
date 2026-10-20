@@ -133,3 +133,24 @@ async fn unauthenticated_flood_is_limited_and_not_audited() {
     assert_eq!(m["suppressed"], Value::UInt(2));
     h.stop().await;
 }
+
+/// The replay cache lives in memory, so a responder refuses tokens that
+/// stay valid longer than MAX_TOKEN_TTL_S, whatever the issuer set.
+#[tokio::test(flavor = "multi_thread")]
+async fn long_lived_tokens_are_refused() {
+    let h = TestHarness::<W>::start(()).await;
+    let k = h.key("**", "");
+    let mut c = h.claims(&[(&k, Perm::Write)]);
+    c.exp = c.iat + wyrm_link_sdk::auth::MAX_TOKEN_TTL_S + 120;
+    assert_eq!(
+        status(&h.set("p", 1.0, Some(h.sign(&c))).await),
+        Some(Status::PermissionDenied)
+    );
+    let mut c = h.claims(&[(&k, Perm::Write)]);
+    c.exp = c.iat + 600;
+    assert_eq!(
+        status(&h.set("p", 1.0, Some(h.sign(&c))).await),
+        Some(Status::Ok)
+    );
+    h.stop().await;
+}

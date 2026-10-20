@@ -35,7 +35,12 @@ pub enum Denied {
     Replayed,
     NoGrant,
     ReplayCacheFull,
+    /// `exp` further ahead than [`MAX_TOKEN_TTL_S`].
+    TooLong,
 }
+
+/// Longest token lifetime a responder accepts (seconds).
+pub const MAX_TOKEN_TTL_S: u64 = 15 * 60;
 
 #[derive(Debug)]
 pub struct Verifier {
@@ -75,6 +80,11 @@ impl Verifier {
             wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         if claims.exp <= now {
             return Err(Denied::Expired);
+        }
+        // The replay cache is in memory: a long-lived token could be replayed
+        // after a restart. Bound the window regardless of what the issuer set.
+        if claims.exp > now + MAX_TOKEN_TTL_S {
+            return Err(Denied::TooLong);
         }
         if claims.site != self.site {
             return Err(Denied::WrongSite);

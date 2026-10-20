@@ -238,7 +238,13 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         let pm = as_map(pv, "permissions")?;
         for (k, v) in pm {
             match k.as_str() {
-                "maxperm" => maxperm = perm(v, "permissions.maxperm")?,
+                "maxperm" => {
+                    maxperm = perm(v, "permissions.maxperm")?;
+                    // spec 06 step 7: flows never do config operations
+                    if maxperm > Perm::Write {
+                        return err("permissions.maxperm: at most write");
+                    }
+                }
                 "token" => {}
                 _ => return err(format!("permissions.{k}: unknown field")),
             }

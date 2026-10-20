@@ -420,6 +420,10 @@ fn plaintext_off_loopback_is_refused() {
     )
     .is_ok());
     assert!(Config::from_json5(r#"{ site: "x", rest: "0.0.0.0:8000" }"#).is_err());
+    // REST bypasses the ACL: refused in prod even on loopback
+    let e = Config::from_json5(r#"{ site: "x", rest: "127.0.0.1:8000" }"#).unwrap_err();
+    assert!(e.to_string().contains("bypasses the ACL"), "{e}");
+    assert!(Config::from_json5(r#"{ site: "x", profile: "dev", rest: "127.0.0.1:8000" }"#).is_ok());
     assert!(
         Config::from_json5(r#"{ site: "x", links: { a: { driver: "mock", bogus: 1 } } }"#).is_err()
     );

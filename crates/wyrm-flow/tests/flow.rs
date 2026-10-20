@@ -249,6 +249,12 @@ fn compiler_checks() {
     }
     let e = def::compile(&d).unwrap_err();
     assert!(e.0.starts_with("permissions.maxperm"), "{e}");
+    // flows never get config (spec 06 step 7)
+    if let Value::Map(m) = &mut d {
+        m.insert("permissions".into(), map(&[("maxperm", s("config"))]));
+    }
+    let e = def::compile(&d).unwrap_err();
+    assert!(e.0.contains("at most write"), "{e}");
     // cycle without delay, then through delay
     let cyc = |via_delay: bool| {
         map(&[

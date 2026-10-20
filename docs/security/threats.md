@@ -131,3 +131,9 @@ Most severe first. Each line names the threat and the ADR when the gap is alread
 14. **No `transport/link/protocols` whitelist (T1).** Only the listen endpoints limit the protocols.
 15. **No certificate revocation (T3, ADR 0006).** Certificates live 1 year; retired ids compensate for removed links only. Process links are not adopted by PID after a broker restart (ADR 0006).
 16. **Gateway users cannot deploy flows with command sinks (ADR 0008, 0009).** Not a security hole, but it pushes such deploys to key holders (`wyr --key`).
+
+## Fixed since this review
+- **REST bypass (T2, T11):** `rest` is refused unless `profile: "dev"` (the plugin runs inside the router, outside the ACL). Test: `plaintext_off_loopback_is_refused` in `crates/wyrmd/tests/e2e.rs`.
+- **Flows with `config` (T5):** `permissions.maxperm` ≤ `write` (spec 06 step 7, spec 0.1.1). Test: `compiler_checks` in `crates/wyrm-flow/tests/flow.rs`.
+- **Replay window (T9):** responders refuse tokens with `exp` more than `MAX_TOKEN_TTL_S` (15 min) ahead, which bounds replay after a restart clears the `jti` cache. Test: `long_lived_tokens_are_refused` in `crates/wyrm-link-sdk/tests/guards.rs`.
+- **Flows from gateway users (ADR 0009):** the gateway signs per-target proofs with the user's grants. Test: `flow_deploy_proofs_come_from_the_user`.

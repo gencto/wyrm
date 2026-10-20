@@ -301,6 +301,14 @@ impl Config {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
         if let Some(addr) = cfg.rest {
+            // The REST plugin runs inside the router: the ACL never sees its
+            // requests, so it could put into `down/**` and `sys/**`.
+            if cfg.profile != Profile::Dev {
+                return Err(format!(
+                    "rest {addr}: the REST plugin bypasses the ACL; only in profile dev"
+                )
+                .into());
+            }
             if !addr.ip().is_loopback() && !cfg.insecure_plaintext {
                 return Err(format!(
                     "rest {addr}: HTTP without auth off loopback (set insecure_plaintext: true to allow)"
