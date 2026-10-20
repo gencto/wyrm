@@ -1271,13 +1271,20 @@ async fn run_op(
 ) -> std::result::Result<String, String> {
     policy.may_touch(&op.node)?;
     let (client, by) = match approval {
-        Some(tok) => (
-            sh.plain.clone().with_tokens(Arc::new(OneKey {
+        Some(tok) => {
+            // Audited as `<human>/ai:<link>`: approved by a person, sent by
+            // the agent.
+            let origin = wyrm_mcp::check::token_subject(&tok)
+                .map(|sub| format!("{sub}/ai:{}", sh.ctx.link()));
+            let mut c = sh.plain.clone().with_tokens(Arc::new(OneKey {
                 key: op.key.clone(),
                 tok,
-            })),
-            "approval",
-        ),
+            }));
+            if let Some(o) = origin {
+                c = c.with_origin(o);
+            }
+            (c, "approval")
+        }
         None if op.requires_approval(policy) => return Err("no approval for this step".into()),
         None => match &sh.service {
             Some(c) => (c.clone(), "service token"),

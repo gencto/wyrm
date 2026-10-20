@@ -342,3 +342,35 @@ async fn limited_keys_are_capped() {
     );
     h.stop().await;
 }
+
+/// A human-approved call made by an AI is audited as `<human>/ai:<agent>`
+/// (the bound origin), so the journal shows both.
+#[tokio::test(flavor = "multi_thread")]
+async fn audit_names_the_bound_origin() {
+    let h = TestHarness::<W>::start(()).await;
+    let sub = h
+        .session()
+        .declare_subscriber(format!("wy/{SITE}/sys/audit/w"))
+        .await
+        .unwrap();
+    let payload = wyrm_core::codec::to_vec(&wyrm_core::SetRequest {
+        v: Value::Float(1.0),
+    })
+    .unwrap();
+    let att = wyrm_core::Attachment {
+        ptok: Some(h.ptok(Perm::Write)),
+        origin: Some("user:test/ai:claude".into()),
+        ..Default::default()
+    };
+    h.query(&h.key("p", "~set"), Some(payload), att).await;
+    let s = tokio::time::timeout(Duration::from_secs(2), sub.recv_async())
+        .await
+        .expect("audit record")
+        .unwrap();
+    let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes()).unwrap()
+    else {
+        panic!("record is a map")
+    };
+    assert_eq!(m["sub"], Value::from("user:test/ai:claude"));
+    h.stop().await;
+}

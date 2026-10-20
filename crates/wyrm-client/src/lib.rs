@@ -119,6 +119,7 @@ pub struct WyrmClient {
     session: Session,
     tokens: Option<Arc<dyn TokenSource>>,
     timeout: Duration,
+    origin: Option<String>,
 }
 
 /// `wy/<site>/down/<link>` that owns `key`, if any.
@@ -143,7 +144,16 @@ impl WyrmClient {
             session,
             tokens: None,
             timeout: DEFAULT_TIMEOUT,
+            origin: None,
         }
+    }
+
+    /// `attachment.origin` on requests that carry a token. Responders keep
+    /// it only if it is the token's subject or `<subject>/...` (spec 04), e.g.
+    /// `user:alice/ai:claude` for a human-approved call made by an AI.
+    pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
+        self.origin = Some(origin.into());
+        self
     }
 
     pub fn with_tokens(mut self, tokens: Arc<dyn TokenSource>) -> Self {
@@ -167,8 +177,10 @@ impl WyrmClient {
     }
 
     fn token_att(&self, key: &str) -> Attachment {
+        let ptok = self.tokens.as_ref().and_then(|t| t.token(key));
         Attachment {
-            ptok: self.tokens.as_ref().and_then(|t| t.token(key)),
+            origin: ptok.as_ref().and(self.origin.clone()),
+            ptok,
             ..Default::default()
         }
     }

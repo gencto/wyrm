@@ -367,10 +367,20 @@ impl WyrmMcp {
     /// the service account.
     fn sender(&self, approval: Option<(Vec<u8>, String)>) -> Result<WyrmClient, String> {
         match approval {
-            Some((tok, key)) => Ok(self
-                .client()
-                .clone()
-                .with_tokens(Arc::new(OneKey { key, tok }))),
+            Some((tok, key)) => {
+                // Audited as `<human>/ai:<agent>`: approved by a person,
+                // requested by the AI.
+                let origin =
+                    check::token_subject(&tok).map(|sub| format!("{sub}/{}", self.inner.agent_sub));
+                let mut c = self
+                    .client()
+                    .clone()
+                    .with_tokens(Arc::new(OneKey { key, tok }));
+                if let Some(o) = origin {
+                    c = c.with_origin(o);
+                }
+                Ok(c)
+            }
             None if self.inner.can_sign => Ok(self.client().clone()),
             None => Err("this server has no signing key (--key); it can only read".into()),
         }

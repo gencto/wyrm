@@ -162,6 +162,14 @@ pub struct ApprovalInfo {
     pub expires_in_s: u64,
 }
 
+/// The subject of a token, without verifying it (for `origin` marking).
+pub fn token_subject(tok: &[u8]) -> Option<String> {
+    let parts = ptok::split(tok)?;
+    wyrm_core::codec::from_slice::<PtokClaims>(parts.claims)
+        .ok()
+        .map(|c| c.sub)
+}
+
 /// Decode a base64 `ptok` (standard or URL-safe alphabet, padding optional).
 pub fn decode_token(b64: &str) -> Result<Vec<u8>, String> {
     use base64::Engine as _;

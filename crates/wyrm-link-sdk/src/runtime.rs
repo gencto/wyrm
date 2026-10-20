@@ -920,10 +920,11 @@ impl<C: Send + 'static> Shared<C> {
                 self.limit(None, path).and(Err(e)),
             ),
             Ok(caller) => {
+                // The bound origin (`sub` or `<sub>/...`) names who acted.
                 let sub = caller
-                    .claims
-                    .as_ref()
-                    .map(|c| c.sub.clone())
+                    .origin
+                    .clone()
+                    .or_else(|| caller.claims.as_ref().map(|c| c.sub.clone()))
                     .unwrap_or_else(|| "anonymous".into());
                 let r = match self.limit(Some(&caller), path) {
                     Ok(()) => self.set_authorized(q, path, caller).await,
@@ -993,10 +994,11 @@ impl<C: Send + 'static> Shared<C> {
                 self.limit(None, path).and(Err(e)),
             ),
             Ok((att, caller)) => {
+                // The bound origin (`sub` or `<sub>/...`) names who acted.
                 let sub = caller
-                    .claims
-                    .as_ref()
-                    .map(|c| c.sub.clone())
+                    .origin
+                    .clone()
+                    .or_else(|| caller.claims.as_ref().map(|c| c.sub.clone()))
                     .unwrap_or_else(|| "anonymous".into());
                 let r = match self.limit(Some(&caller), path) {
                     Ok(()) => self.invoke_authorized(q, path, action, att, caller).await,
