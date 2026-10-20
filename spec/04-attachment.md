@@ -16,7 +16,7 @@ CBOR map з цілими ключами. Відсутній attachment = `{}`.
 | 9 | `rid` | uint | both | кореляція стріму |
 | 10 | `seq` | uint | reply | |
 | 11 | `last` | bool | reply | |
-| 12 | `origin` | tstr | both | `user:<id>` \| `flow:<id>` \| `link:<id>` \| `svc:<id>` \| `broker:<site>` — довіряється лише при валідному `ptok` або CN-сесії |
+| 12 | `origin` | tstr | both | `user:<id>` \| `flow:<id>` \| `link:<id>` \| `svc:<id>` \| `broker:<site>` — довіряється лише при валідному `ptok` або CN-сесії; з `ptok` responder приймає лише `origin == sub` або `<sub>/...`, інакше підставляє `sub` |
 | 13 | `trace` | bstr(16) | both | |
 | 14 | `enc` | tstr | reply | `zstd` — payload стиснуто |
 

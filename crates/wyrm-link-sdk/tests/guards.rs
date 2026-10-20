@@ -236,3 +236,57 @@ async fn driver_panic_closes_the_link() {
     assert!(h.ctx().is_closed());
     h.stop().await;
 }
+
+static ORIGINS: std::sync::Mutex<Vec<Option<String>>> = std::sync::Mutex::new(Vec::new());
+
+struct Recorder;
+
+impl Link for Recorder {
+    const NAME: &'static str = "rec";
+    const VERSION: &'static str = "0";
+    type Config = ();
+
+    async fn start(_: (), ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        ctx.declare_node("p", NodeMeta::number().writable(Writable::Write))
+            .await?;
+        Ok(Recorder)
+    }
+
+    async fn on_set(&mut self, _p: &str, _v: Value, who: &Caller) -> wyrm_link_sdk::Result<()> {
+        ORIGINS.lock().unwrap().push(who.origin.clone());
+        Ok(())
+    }
+}
+
+/// T10 / P27: a claimed `origin` is bound to the token's subject; only a
+/// sub-identity of the subject is kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn origin_is_bound_to_the_token_subject() {
+    let h = TestHarness::<Recorder>::start(()).await;
+    let set = |origin: &'static str| {
+        let h = &h;
+        async move {
+            let payload = wyrm_core::codec::to_vec(&wyrm_core::SetRequest {
+                v: Value::Float(1.0),
+            })
+            .unwrap();
+            let att = wyrm_core::Attachment {
+                ptok: Some(h.ptok(Perm::Write)),
+                origin: Some(origin.into()),
+                ..Default::default()
+            };
+            h.query(&h.key("p", "~set"), Some(payload), att).await
+        }
+    };
+    set("user:root").await;
+    set("user:test/session-1").await;
+    let seen = ORIGINS.lock().unwrap().clone();
+    assert_eq!(
+        seen,
+        [
+            Some("user:test".to_owned()),
+            Some("user:test/session-1".to_owned())
+        ]
+    );
+    h.stop().await;
+}

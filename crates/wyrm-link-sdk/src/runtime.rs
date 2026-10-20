@@ -472,6 +472,18 @@ async fn follow_profiles(session: Session, site: String, cache: Profiles) {
     }
 }
 
+/// Spec 04: `origin` is trusted only with a valid token. It must be the
+/// token's subject or a sub-identity of it (`<sub>/...`, e.g. a gateway
+/// session acting for `user:x`); anything else is replaced by the subject.
+fn bound_origin(claimed: Option<&str>, sub: &str) -> String {
+    match claimed {
+        Some(o) if o == sub || o.strip_prefix(sub).is_some_and(|r| r.starts_with('/')) => {
+            o.to_owned()
+        }
+        _ => sub.to_owned(),
+    }
+}
+
 fn now_s() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -699,6 +711,7 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     /// No token → anonymous caller (`perm = none`). Invalid token → denied.
+    /// With a token, `origin` is bound to its subject (see [`bound_origin`]).
     fn authorize(&self, q: &Query, att: &Attachment) -> Result<Caller> {
         let Some(tok) = att.ptok.as_deref() else {
             return Ok(Caller::default());
@@ -708,7 +721,7 @@ impl<C: Send + 'static> Shared<C> {
             .verify(tok, q.key_expr(), att.maxperm, now_s())
         {
             Ok((claims, perm)) => Ok(Caller {
-                origin: att.origin.clone(),
+                origin: Some(bound_origin(att.origin.as_deref(), &claims.sub)),
                 perm,
                 claims: Some(claims),
             }),
