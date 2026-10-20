@@ -786,6 +786,15 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());
+        let p = &cfg.peers;
+        if p.downstream.len() > 1 || (!p.downstream.is_empty() && !p.upstream.is_empty()) {
+            // ADR 0007: the ACL matches certificate CNs only, so every CA in
+            // peer-trust.pem can issue `broker:<any site>` certificates.
+            tracing::warn!(
+                "peers: the QUIC listener trusts several CAs; each of them can impersonate \
+                 the other peer sites (ADR 0007). Trust only CAs you control."
+            );
+        }
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
             gw.set_audit(move |e| gateway_audit(&audit, e));
