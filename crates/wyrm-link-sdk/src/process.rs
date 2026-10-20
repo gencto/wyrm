@@ -276,34 +276,55 @@ where
     lcfg.limited_keys = hello.limited_keys;
     lcfg.secrets = hello.secrets;
     let broker = format!("wy/{}/sys/broker", env.site);
+    lcfg.republish_on = Some(broker.clone());
     // Watch before the link starts, so no broker restart is missed.
     let watch = session.liveliness().declare_subscriber(&broker).await?;
     let handle = spawn::<L>(session.clone(), lcfg, cfg).await?;
     info!(link = %env.link, driver = L::NAME, "link process up");
     // A broker that comes back may hand out another trust list (ACL rebuild,
-    // agent key rotation): exit so the supervisor restarts us with a fresh
-    // `hello` instead of verifying tokens against stale keys.
-    let restarted = async {
-        let mut gone = false;
+    // agent key rotation). Fail closed: while the broker is away the link
+    // trusts no key; when it is back, `hello` is retried until it succeeds,
+    // and only then are the new keys used. Secrets and params still need a
+    // restart of the link.
+    let refresh = async {
         while let Ok(s) = watch.recv_async().await {
             match s.kind() {
-                zenoh::sample::SampleKind::Delete => gone = true,
-                zenoh::sample::SampleKind::Put if gone => return,
-                zenoh::sample::SampleKind::Put => {}
+                zenoh::sample::SampleKind::Delete => {
+                    handle.set_trust(Vec::new(), Vec::new());
+                    info!("broker gone: trusting no key until a new hello");
+                }
+                zenoh::sample::SampleKind::Put => {
+                    let mut backoff = Duration::from_millis(500);
+                    loop {
+                        match self::hello(&session, &env).await {
+                            Ok(h) => {
+                                handle.set_trust(h.admin_keys, h.limited_keys);
+                                info!("broker back: trust list refreshed");
+                                break;
+                            }
+                            Err(e) if e.status == Status::PermissionDenied => {
+                                return Err(LinkError::new(
+                                    Status::PermissionDenied,
+                                    "hello refused after broker restart",
+                                ));
+                            }
+                            Err(e) => {
+                                warn!("re-hello failed ({e}); retry in {backoff:?}");
+                                tokio::time::sleep(backoff).await;
+                                backoff = (backoff * 2).min(Duration::from_secs(30));
+                            }
+                        }
+                    }
+                }
             }
         }
-        std::future::pending::<()>().await
+        std::future::pending::<Result<()>>().await
     };
     let r = tokio::select! {
-        _ = signal() => {
-            info!("stopping");
-            Ok(())
-        }
-        _ = restarted => {
-            info!("broker restarted: exiting for a fresh hello");
-            Err(LinkError::new(Status::Disconnected, "broker restarted; restart for a fresh hello"))
-        }
+        _ = signal() => Ok(()),
+        r = refresh => r,
     };
+    info!("stopping");
     handle.stop().await;
     let _ = session.close().await;
     r

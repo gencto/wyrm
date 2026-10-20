@@ -135,6 +135,7 @@ enum Cmd<C> {
 /// A running link. Dropping it aborts the tasks; prefer [`stop`](Self::stop).
 pub struct LinkHandle<L: Link> {
     ctx: LinkCtx,
+    verifier: Arc<Verifier>,
     cmd: mpsc::Sender<Cmd<L::Config>>,
     query_task: JoinHandle<()>,
     actor: JoinHandle<()>,
@@ -145,6 +146,12 @@ pub struct LinkHandle<L: Link> {
 impl<L: Link> LinkHandle<L> {
     pub fn ctx(&self) -> &LinkCtx {
         &self.ctx
+    }
+
+    /// Replace the keys this link trusts (process links: after a new
+    /// `hello`, e.g. when the broker comes back with another trust list).
+    pub fn set_trust(&self, admin_keys: Vec<VerifyingKey>, limited: Vec<crate::auth::LimitedKey>) {
+        self.verifier.set_trust(admin_keys, limited);
     }
 
     pub async fn reconfigure(&self, cfg: L::Config) -> Result<()> {
@@ -213,9 +220,11 @@ pub async fn spawn<L: Link>(
     ctx.publish_meta("").await?;
 
     let (tx, rx) = mpsc::channel(QUEUE_DEPTH);
+    let verifier =
+        Arc::new(Verifier::new(cfg.admin_keys, cfg.site.clone()).with_limited(cfg.limited_keys));
     let shared = Arc::new(Shared {
         ctx: ctx.clone(),
-        verifier: Verifier::new(cfg.admin_keys, cfg.site.clone()).with_limited(cfg.limited_keys),
+        verifier: verifier.clone(),
         cmd: tx.clone(),
         driver_timeout: cfg.driver_timeout,
         answer_val: cfg.answer_val,
@@ -272,6 +281,7 @@ pub async fn spawn<L: Link>(
         .map(|key| tokio::spawn(republish_on(ctx.clone(), key)));
     Ok(LinkHandle {
         ctx,
+        verifier,
         cmd: tx,
         query_task,
         actor,
@@ -397,7 +407,7 @@ async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<C
 
 struct Shared<C> {
     ctx: LinkCtx,
-    verifier: Verifier,
+    verifier: Arc<Verifier>,
     cmd: mpsc::Sender<Cmd<C>>,
     driver_timeout: Duration,
     answer_val: bool,

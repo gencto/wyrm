@@ -66,9 +66,9 @@ impl LimitedKey {
 
 #[derive(Debug)]
 pub struct Verifier {
-    /// Admin keys: up to `config`, everywhere.
-    keys: Vec<VerifyingKey>,
-    limited: Vec<LimitedKey>,
+    /// Admin keys (up to `config`, everywhere) and limited keys; replaced
+    /// as a whole by [`set_trust`](Self::set_trust), the replay cache stays.
+    trust: std::sync::RwLock<(Vec<VerifyingKey>, Vec<LimitedKey>)>,
     site: String,
     replay: Mutex<HashMap<[u8; 16], u64>>,
 }
@@ -77,17 +77,25 @@ impl Verifier {
     /// `keys`: the active admin key and optionally the previous one.
     pub fn new(keys: Vec<VerifyingKey>, site: impl Into<String>) -> Self {
         Self {
-            keys,
-            limited: Vec::new(),
+            trust: std::sync::RwLock::new((keys, Vec::new())),
             site: site.into(),
             replay: Mutex::new(HashMap::new()),
         }
     }
 
     /// Also trust `keys`, each only up to its cap and within its scopes.
-    pub fn with_limited(mut self, keys: Vec<LimitedKey>) -> Self {
-        self.limited.extend(keys);
+    pub fn with_limited(self, keys: Vec<LimitedKey>) -> Self {
+        self.trust
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .1
+            .extend(keys);
         self
+    }
+
+    /// Replace the trusted keys (a new trust list after a broker restart).
+    pub fn set_trust(&self, keys: Vec<VerifyingKey>, limited: Vec<LimitedKey>) {
+        *self.trust.write().unwrap_or_else(|p| p.into_inner()) = (keys, limited);
     }
 
     /// Verify `token` for a request on `key`. `now` is Unix seconds.
@@ -100,15 +108,15 @@ impl Verifier {
     ) -> Result<(PtokClaims, Perm), Denied> {
         let parts = ptok::split(token).ok_or(Denied::Malformed)?;
         let sig = Signature::from_bytes(parts.sig);
-        let cap = if self
-            .keys
+        let trust = self.trust.read().unwrap_or_else(|p| p.into_inner());
+        let (keys, limited) = &*trust;
+        let cap = if keys
             .iter()
             .any(|k| k.verify_strict(parts.signed, &sig).is_ok())
         {
             Perm::Config
         } else {
-            let signers: Vec<&LimitedKey> = self
-                .limited
+            let signers: Vec<&LimitedKey> = limited
                 .iter()
                 .filter(|l| l.key.verify_strict(parts.signed, &sig).is_ok())
                 .collect();
@@ -122,6 +130,7 @@ impl Verifier {
                 .max()
                 .ok_or(Denied::NoGrant)?
         };
+        drop(trust);
         let claims: PtokClaims =
             wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         if claims.exp <= now {
