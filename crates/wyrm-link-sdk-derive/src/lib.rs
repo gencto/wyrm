@@ -2,7 +2,8 @@
 //! `wyrm_link_sdk::driver::params` (ADR 0004).
 //!
 //! Field attributes: `#[param(default = <lit>, min = <num>, max = <num>,
-//! secret, desc = "...", name = "...", enum)]`.
+//! secret, dest, desc = "...", name = "...", enum)]` (`dest`: a field that
+//! says where secrets go; see `ParamSpec::dest`).
 //!
 //! * Types: `String`, `bool`, integers (`u8`..`u64`, `i8`..`i64`, `usize`,
 //!   `isize`), `f32`/`f64`, and any `ParamEnum` type marked `#[param(enum)]`.
