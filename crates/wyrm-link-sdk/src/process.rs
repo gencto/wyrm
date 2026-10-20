@@ -105,8 +105,9 @@ impl Env {
 pub struct Hello {
     pub params: Value,
     pub admin_keys: Vec<VerifyingKey>,
-    /// `[[key, perm code], ...]`: keys trusted only up to a permission.
-    pub limited_keys: Vec<(VerifyingKey, wyrm_core::Perm)>,
+    /// `[[key, perm code, [scope, ...]], ...]`: keys trusted only up to a
+    /// permission and only under their scopes.
+    pub limited_keys: Vec<crate::auth::LimitedKey>,
     pub secrets: crate::SecretStore,
 }
 
@@ -136,13 +137,27 @@ fn parse_hello(v: Value) -> Result<Hello> {
         Some(Value::Array(pairs)) => pairs
             .iter()
             .map(|p| match p {
-                Value::Array(kv) if kv.len() == 2 => {
-                    let perm = kv[1]
+                Value::Array(kv) if kv.len() == 3 => {
+                    let cap = kv[1]
                         .as_f64()
                         .and_then(|c| u8::try_from(c as u64).ok())
                         .and_then(|c| wyrm_core::Perm::try_from(c).ok())
                         .ok_or_else(|| LinkError::new(Status::InvalidMessage, "bad key cap"))?;
-                    Ok((key_of(&kv[0])?, perm))
+                    let Value::Array(sc) = &kv[2] else {
+                        return Err(LinkError::new(Status::InvalidMessage, "bad key scopes"));
+                    };
+                    let scopes = sc
+                        .iter()
+                        .map(|s| match s {
+                            Value::Str(s) => Ok(s.clone()),
+                            _ => Err(LinkError::new(Status::InvalidMessage, "bad key scope")),
+                        })
+                        .collect::<Result<_>>()?;
+                    Ok(crate::auth::LimitedKey {
+                        key: key_of(&kv[0])?,
+                        cap,
+                        scopes,
+                    })
                 }
                 _ => Err(LinkError::new(Status::InvalidMessage, "bad limited key")),
             })
@@ -260,12 +275,36 @@ where
     lcfg.admin_keys = hello.admin_keys;
     lcfg.limited_keys = hello.limited_keys;
     lcfg.secrets = hello.secrets;
-    lcfg.republish_on = Some(format!("wy/{}/sys/broker", env.site));
+    let broker = format!("wy/{}/sys/broker", env.site);
+    // Watch before the link starts, so no broker restart is missed.
+    let watch = session.liveliness().declare_subscriber(&broker).await?;
     let handle = spawn::<L>(session.clone(), lcfg, cfg).await?;
     info!(link = %env.link, driver = L::NAME, "link process up");
-    signal().await;
-    info!("stopping");
+    // A broker that comes back may hand out another trust list (ACL rebuild,
+    // agent key rotation): exit so the supervisor restarts us with a fresh
+    // `hello` instead of verifying tokens against stale keys.
+    let restarted = async {
+        let mut gone = false;
+        while let Ok(s) = watch.recv_async().await {
+            match s.kind() {
+                zenoh::sample::SampleKind::Delete => gone = true,
+                zenoh::sample::SampleKind::Put if gone => return,
+                zenoh::sample::SampleKind::Put => {}
+            }
+        }
+        std::future::pending::<()>().await
+    };
+    let r = tokio::select! {
+        _ = signal() => {
+            info!("stopping");
+            Ok(())
+        }
+        _ = restarted => {
+            info!("broker restarted: exiting for a fresh hello");
+            Err(LinkError::new(Status::Disconnected, "broker restarted; restart for a fresh hello"))
+        }
+    };
     handle.stop().await;
     let _ = session.close().await;
-    Ok(())
+    r
 }

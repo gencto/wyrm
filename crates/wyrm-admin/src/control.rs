@@ -61,7 +61,7 @@ pub struct ControlConfig {
     /// Extra keys trusted by links only, never by the admin itself (the flow
     /// engine signs flow commands with one: a flow may command devices, not
     /// the control plane).
-    pub link_keys: Vec<(VerifyingKey, Perm)>,
+    pub link_keys: Vec<wyrm_link_sdk::LimitedKey>,
     /// Certificate CNs with requester rights (engineering tools).
     pub operators: Vec<String>,
     /// `dev` profile: loopback sessions get full rights.
@@ -231,10 +231,40 @@ impl Control {
 
     /// Keys a link verifies `ptok`s with: the admin keys, and capped keys
     /// (`link_keys` plus the signing key of every agent link, at `write`).
-    fn link_trust(&self) -> (Vec<VerifyingKey>, Vec<(VerifyingKey, Perm)>) {
+    fn link_trust(&self) -> (Vec<VerifyingKey>, Vec<wyrm_link_sdk::LimitedKey>) {
         let mut limited = self.cfg.link_keys.clone();
-        limited.extend(self.agent_keys().into_iter().map(|k| (k, Perm::Write)));
+        limited.extend(self.agent_limited_keys());
         (self.cfg.admin_keys.clone(), limited)
+    }
+
+    /// Agent keys at `write`, each only under its link's `allowed_prefixes`.
+    fn agent_limited_keys(&self) -> Vec<wyrm_link_sdk::LimitedKey> {
+        let reg = self.registry();
+        reg.links
+            .values()
+            .filter(|d| d.driver == AGENT_DRIVER)
+            .filter_map(|d| {
+                let key = self.agent_key_of(d)?;
+                let scopes = match decode_params(&d.params) {
+                    Value::Map(m) => match m.get("allowed_prefixes") {
+                        Some(Value::Array(a)) => a
+                            .iter()
+                            .filter_map(|v| match v {
+                                Value::Str(s) => Some(s.trim_end_matches('/').to_owned()),
+                                _ => None,
+                            })
+                            .collect(),
+                        _ => Vec::new(),
+                    },
+                    _ => Vec::new(),
+                };
+                Some(wyrm_link_sdk::LimitedKey {
+                    key,
+                    cap: Perm::Write,
+                    scopes,
+                })
+            })
+            .collect()
     }
 
     /// Name of the secret that holds an agent link's signing key.
@@ -248,24 +278,26 @@ impl Control {
         }
     }
 
+    fn agent_key_of(&self, d: &LinkDef) -> Option<VerifyingKey> {
+        let secrets = self.secrets.for_link(&d.id);
+        let raw = secrets.get(&Self::agent_key_name(d))?;
+        let seed: [u8; 32] = match raw.len() {
+            32 => raw[..].try_into().ok()?,
+            _ => hex::decode(std::str::from_utf8(raw).ok()?.trim())
+                .ok()?
+                .try_into()
+                .ok()?,
+        };
+        Some(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key())
+    }
+
     /// Verifying keys of the agent links (driver `agent`) that have one.
     pub fn agent_keys(&self) -> Vec<VerifyingKey> {
         self.registry()
             .links
             .values()
             .filter(|d| d.driver == AGENT_DRIVER)
-            .filter_map(|d| {
-                let secrets = self.secrets.for_link(&d.id);
-                let raw = secrets.get(&Self::agent_key_name(d))?;
-                let seed: [u8; 32] = match raw.len() {
-                    32 => raw[..].try_into().ok()?,
-                    _ => hex::decode(std::str::from_utf8(raw).ok()?.trim())
-                        .ok()?
-                        .try_into()
-                        .ok()?,
-                };
-                Some(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key())
-            })
+            .filter_map(|d| self.agent_key_of(d))
             .collect()
     }
 
@@ -337,6 +369,9 @@ impl Control {
             let params = encode_params(&l.params)?;
             if l.mode == Mode::Process && self.cfg.link_endpoint.is_none() {
                 return Err(format!("{}: process mode needs a tls/ listener", l.id).into());
+            }
+            if l.driver == AGENT_DRIVER && l.mode == Mode::External {
+                return Err(format!("{}: agent links cannot be external", l.id).into());
             }
             if !self.host.drivers().contains(&l.driver.as_str()) && l.mode != Mode::External {
                 return Err(format!("{}: driver {} is not compiled in", l.id, l.driver).into());
@@ -930,6 +965,11 @@ impl Admin {
                 "process mode needs a tls/ listener",
             ));
         }
+        if driver == AGENT_DRIVER && mode == Mode::External {
+            return Err(LinkError::invalid_parameter(
+                "an agent link runs embedded or as a supervised process: its key is trusted by every link",
+            ));
+        }
         if ctl.cfg.operators.contains(&id) {
             return Err(LinkError::invalid_parameter("id is an operator CN"));
         }
@@ -1026,10 +1066,11 @@ impl Admin {
             Value::Array(
                 limited_keys
                     .iter()
-                    .map(|(k, p)| {
+                    .map(|l| {
                         Value::Array(vec![
-                            Value::Bytes(k.to_bytes().to_vec()),
-                            Value::UInt(p.code().into()),
+                            Value::Bytes(l.key.to_bytes().to_vec()),
+                            Value::UInt(l.cap.code().into()),
+                            Value::Array(l.scopes.iter().cloned().map(Value::Str).collect()),
                         ])
                     })
                     .collect(),
@@ -1222,6 +1263,11 @@ impl Admin {
             return Err(LinkError::not_found(cn.to_owned()));
         }
         let driver = arg_str(args, "driver").unwrap_or("unknown").to_owned();
+        if driver == AGENT_DRIVER {
+            return Err(LinkError::invalid_parameter(
+                "an approved certificate is an external link; agent links cannot be external",
+            ));
+        }
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));

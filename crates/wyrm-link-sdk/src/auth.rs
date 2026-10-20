@@ -42,11 +42,33 @@ pub enum Denied {
 /// Longest token lifetime a responder accepts (seconds).
 pub const MAX_TOKEN_TTL_S: u64 = 15 * 60;
 
+/// A key trusted only up to `cap` and only for request keys under one of
+/// `scopes` (`<prefix>` itself or `<prefix>/...`): the flow engine, the
+/// gateway and AI agent keys. A stolen one cannot mint `config` or reach
+/// beyond its scopes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LimitedKey {
+    pub key: VerifyingKey,
+    pub cap: Perm,
+    pub scopes: Vec<String>,
+}
+
+impl LimitedKey {
+    fn covers(&self, key: &str) -> bool {
+        self.scopes.iter().any(|s| {
+            key == s
+                || key
+                    .strip_prefix(s.as_str())
+                    .is_some_and(|r| r.starts_with('/'))
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Verifier {
-    /// Trusted keys with the highest permission a token they sign can give
-    /// (`config` for admin keys; lower for e.g. the flow or agent key).
-    keys: Vec<(VerifyingKey, Perm)>,
+    /// Admin keys: up to `config`, everywhere.
+    keys: Vec<VerifyingKey>,
+    limited: Vec<LimitedKey>,
     site: String,
     replay: Mutex<HashMap<[u8; 16], u64>>,
 }
@@ -55,15 +77,16 @@ impl Verifier {
     /// `keys`: the active admin key and optionally the previous one.
     pub fn new(keys: Vec<VerifyingKey>, site: impl Into<String>) -> Self {
         Self {
-            keys: keys.into_iter().map(|k| (k, Perm::Config)).collect(),
+            keys,
+            limited: Vec::new(),
             site: site.into(),
             replay: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Also trust `keys`, each only up to its permission.
-    pub fn with_limited(mut self, keys: Vec<(VerifyingKey, Perm)>) -> Self {
-        self.keys.extend(keys);
+    /// Also trust `keys`, each only up to its cap and within its scopes.
+    pub fn with_limited(mut self, keys: Vec<LimitedKey>) -> Self {
+        self.limited.extend(keys);
         self
     }
 
@@ -77,13 +100,28 @@ impl Verifier {
     ) -> Result<(PtokClaims, Perm), Denied> {
         let parts = ptok::split(token).ok_or(Denied::Malformed)?;
         let sig = Signature::from_bytes(parts.sig);
-        let cap = self
+        let cap = if self
             .keys
             .iter()
-            .filter(|(k, _)| k.verify_strict(parts.signed, &sig).is_ok())
-            .map(|(_, cap)| *cap)
-            .max()
-            .ok_or(Denied::Signature)?;
+            .any(|k| k.verify_strict(parts.signed, &sig).is_ok())
+        {
+            Perm::Config
+        } else {
+            let signers: Vec<&LimitedKey> = self
+                .limited
+                .iter()
+                .filter(|l| l.key.verify_strict(parts.signed, &sig).is_ok())
+                .collect();
+            if signers.is_empty() {
+                return Err(Denied::Signature);
+            }
+            signers
+                .iter()
+                .filter(|l| l.covers(key.as_str()))
+                .map(|l| l.cap)
+                .max()
+                .ok_or(Denied::NoGrant)?
+        };
         let claims: PtokClaims =
             wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         if claims.exp <= now {

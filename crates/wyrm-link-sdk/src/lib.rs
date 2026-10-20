@@ -26,7 +26,7 @@ pub mod runtime;
 pub mod support;
 pub mod tree;
 
-pub use auth::Caller;
+pub use auth::{Caller, LimitedKey};
 pub use ctx::{now_us, LinkCtx, PointPublisher};
 /// Admin `ptok` public key type (Ed25519).
 pub use ed25519_dalek::VerifyingKey;

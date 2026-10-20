@@ -318,7 +318,14 @@ async fn limited_keys_are_capped() {
     let agent = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
     let vk = agent.verifying_key();
     let h = TestHarness::<Cfg>::start_with((), move |c| {
-        c.limited_keys = vec![(vk, Perm::Write)];
+        c.limited_keys = vec![wyrm_link_sdk::LimitedKey {
+            key: vk,
+            cap: Perm::Write,
+            scopes: vec![
+                format!("wy/{SITE}/down/cfg/w"),
+                format!("wy/{SITE}/down/cfg/c"),
+            ],
+        }];
     })
     .await;
     let tok = |path: &str| {
@@ -372,5 +379,40 @@ async fn audit_names_the_bound_origin() {
         panic!("record is a map")
     };
     assert_eq!(m["sub"], Value::from("user:test/ai:claude"));
+    h.stop().await;
+}
+
+/// A limited key is valid only under its scopes.
+#[tokio::test(flavor = "multi_thread")]
+async fn limited_keys_are_scoped() {
+    let agent = ed25519_dalek::SigningKey::from_bytes(&[43; 32]);
+    let vk = agent.verifying_key();
+    let h = TestHarness::<Cfg>::start_with((), move |c| {
+        c.limited_keys = vec![wyrm_link_sdk::LimitedKey {
+            key: vk,
+            cap: Perm::Write,
+            scopes: vec![format!("wy/{SITE}/down/cfg/w")],
+        }];
+    })
+    .await;
+    let tok = |path: &str| {
+        let k = h.key(path, "~set");
+        let claims = h.claims(&[(&k, Perm::Write)]);
+        let mut t = vec![wyrm_core::ptok::PTOK_VERSION];
+        t.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+        use ed25519_dalek::Signer;
+        let sig = agent.sign(&t);
+        t.extend(sig.to_bytes());
+        t
+    };
+    assert_eq!(
+        status(&h.set("w", 1.0, Some(tok("w"))).await),
+        Some(Status::Ok)
+    );
+    // `c` is outside the key's scope (it would also need config)
+    assert_eq!(
+        status(&h.set("c", 1.0, Some(tok("c"))).await),
+        Some(Status::PermissionDenied)
+    );
     h.stop().await;
 }

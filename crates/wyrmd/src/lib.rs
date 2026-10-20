@@ -792,12 +792,17 @@ impl Daemon {
         // not, so the control plane stays with operator keys.
         // Caps: flows never get config (spec 06); gateway tokens carry the
         // user's grants, up to config on devices.
-        let mut link_keys = vec![(flows.verifying_key(), wyrm_core::Perm::Write)];
-        link_keys.extend(
-            gateway
-                .as_ref()
-                .map(|g| (g.verifying_key(), wyrm_core::Perm::Config)),
-        );
+        let devices = vec![format!("wy/{}/down", cfg.site)];
+        let mut link_keys = vec![wyrm_link_sdk::LimitedKey {
+            key: flows.verifying_key(),
+            cap: wyrm_core::Perm::Write,
+            scopes: devices.clone(),
+        }];
+        link_keys.extend(gateway.as_ref().map(|g| wyrm_link_sdk::LimitedKey {
+            key: g.verifying_key(),
+            cap: wyrm_core::Perm::Config,
+            scopes: devices.clone(),
+        }));
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),

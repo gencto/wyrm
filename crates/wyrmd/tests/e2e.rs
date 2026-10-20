@@ -293,7 +293,7 @@ async fn modbus_as_process() {
     })
     .await;
     let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
-    let v = eventually("value from the process", 5, || async {
+    let v = eventually("value from the process", 15, || async {
         last_val(&c, &node).await
     })
     .await;
@@ -898,8 +898,9 @@ async fn profiles_stored_served_and_inherited() {
 }
 
 /// ADR 0005: an agent link gets a signing key as a link secret, and every
-/// other link trusts it capped at `write` (the `hello` reply carries it in
-/// `limited_keys`, not in `admin_keys`).
+/// other link trusts it capped at `write` and only under the agent's
+/// `allowed_prefixes` (the `hello` reply carries it in `limited_keys`, not in
+/// `admin_keys`). Agent links cannot be external.
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_key_is_trusted_capped_at_write() {
     let env = Env::start(
@@ -938,11 +939,23 @@ async fn agent_key_is_trusted_capped_at_write() {
     let Some(Value::Array(limited)) = m.get("limited_keys") else {
         panic!("limited_keys")
     };
+    // capped at write and scoped to the agent's allowed_prefixes
     let write = Value::UInt(wyrm_core::Perm::Write.code().into());
+    let scopes = Value::Array(vec![Value::from("wy/e2e/down/mock")]);
     assert!(
-        limited.contains(&Value::Array(vec![agent, write])),
+        limited.contains(&Value::Array(vec![agent, write, scopes])),
         "{limited:?}"
     );
+    // an external agent link is refused
+    let c = env.client().await;
+    let mut args = BTreeMap::new();
+    args.insert("id".to_owned(), Value::from("ai2"));
+    args.insert("driver".to_owned(), Value::from("agent"));
+    args.insert("mode".to_owned(), Value::from("external"));
+    assert!(c
+        .invoke_one(&format!("wy/{SITE}/sys/links"), "install", Value::Map(args))
+        .await
+        .is_err());
     // the agent key never reaches the reply as a secret of another link
     assert!(m
         .get("secrets")

@@ -50,7 +50,7 @@ pub struct LinkConfig {
     pub admin_keys: Vec<VerifyingKey>,
     /// More trusted keys, each capped at a permission (the flow engine and
     /// agent keys at `write`): a stolen one cannot mint `config`.
-    pub limited_keys: Vec<(VerifyingKey, Perm)>,
+    pub limited_keys: Vec<crate::auth::LimitedKey>,
     /// Bound on each driver call (overridden by `actions.*.timeout_ms`).
     /// Keep below the requester's 10 s `get` timeout.
     pub driver_timeout: Duration,
