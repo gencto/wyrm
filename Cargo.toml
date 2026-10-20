@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway"]
 
 [workspace.package]
 version = "0.1.0"
@@ -52,6 +52,16 @@ wyrm-link-modbus = { path = "links/modbus" }
 zenoh-plugin-storage-manager = { version = "=1.10.1", default-features = false }
 zenoh-ext = { version = "=1.10.1", default-features = false, features = ["unstable"] }
 zenoh-plugin-rest = { version = "=1.10.1", default-features = false, features = ["static_plugin"] }
+axum = { version = "0.8.9", default-features = false }
+axum-server = { version = "0.8", default-features = false }
+# ring only: the rustls defaults pull in aws-lc.
+rustls = { version = "0.23", default-features = false }
+rustls-pki-types = "1.9"
+base64 = "0.22"
+tokio-tungstenite = "0.29"
+tokio-rustls = { version = "0.26", default-features = false }
+futures-util = { version = "0.3", default-features = false }
+wyrm-gateway = { path = "crates/wyrm-gateway" }
 
 [profile.release]
 lto = "thin"

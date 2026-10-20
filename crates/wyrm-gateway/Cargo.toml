@@ -1,0 +1,41 @@
+[package]
+name = "wyrm-gateway"
+description = "WYRM user gateway: logins, sessions, roles to ptok, WebSocket proxy with per-point filtering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-client.workspace = true
+wyrm-state.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net"] }
+axum = { workspace = true, features = ["http1", "tokio", "ws"] }
+axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+futures-util = { workspace = true, features = ["sink", "std"] }
+minicbor.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ed25519-dalek.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+argon2.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-mock.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util"] }
+tokio-tungstenite.workspace = true
+futures-util = { workspace = true, features = ["sink", "std"] }
+rcgen.workspace = true
+tokio-rustls = { workspace = true, features = ["ring"] }

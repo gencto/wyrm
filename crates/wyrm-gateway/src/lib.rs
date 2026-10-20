@@ -1,0 +1,451 @@
+//! WYRM user gateway (wiki "Користувачі — gateway чи mTLS"): HTTP(S) + WS
+//! server that holds user sessions, mints a fresh `ptok` per request from
+//! the user's roles, proxies list/subscribe/set/invoke into Zenoh and
+//! filters every sample and child by the user's grants.
+//!
+//! Bodies and frames are canonical CBOR (`wyrm_core::Value`), never JSON.
+//!
+//! * `POST /api/login` `{user, password}` → `{session, exp}`
+//! * `GET /api/me` → `{sub, roles, grants}`
+//! * `GET /api/ws?session=…` — binary CBOR frames, see [`ws`]
+//! * user management (`config` on `wy/<site>/sys/**`): `GET|POST /api/users`,
+//!   `POST /api/users/{name}/password|roles|disabled`, `DELETE /api/users/{name}`
+
+#![forbid(unsafe_code)]
+
+mod http;
+mod limit;
+pub mod roles;
+pub mod session;
+pub mod users;
+pub mod ws;
+
+pub use roles::{Grants, RoleTable};
+pub use session::SessionClaims;
+
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use session::SessionKey;
+use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
+use tokio::sync::{watch, Semaphore};
+use tracing::info;
+use users::{Op, User, UserDb};
+use wyrm_core::Perm;
+use wyrm_state::Store;
+use zeroize::Zeroizing;
+
+/// Lifetime of a minted `ptok` (wiki: 5 min).
+pub const PTOK_TTL: Duration = Duration::from_secs(300);
+/// Default session lifetime.
+pub const SESSION_TTL: Duration = Duration::from_secs(8 * 3600);
+/// Failed logins per user and address in [`LOGIN_WINDOW`].
+pub const LOGIN_FAILURES: usize = 5;
+pub const LOGIN_WINDOW: Duration = Duration::from_secs(60);
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("state: {0}")]
+    State(#[from] wyrm_state::StateError),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("config: {0}")]
+    Config(String),
+    #[error("{0}")]
+    Rejected(String),
+}
+
+pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+#[derive(Debug, Clone)]
+pub struct GatewayConfig {
+    pub site: String,
+    /// Holds `users/` (WAL + snapshot) and `gateway.key`.
+    pub dir: PathBuf,
+    pub listen: SocketAddr,
+    /// `(certificate chain PEM, private key PEM)`. Required unless `listen`
+    /// is a loopback address.
+    pub tls: Option<(PathBuf, PathBuf)>,
+    pub session_ttl: Duration,
+    pub roles: RoleTable,
+}
+
+impl GatewayConfig {
+    /// Defaults: no TLS, 8 h sessions, the wiki's example roles.
+    pub fn new(site: impl Into<String>, dir: impl Into<PathBuf>, listen: SocketAddr) -> Self {
+        Self {
+            site: site.into(),
+            dir: dir.into(),
+            listen,
+            tls: None,
+            session_ttl: SESSION_TTL,
+            roles: RoleTable::default(),
+        }
+    }
+}
+
+/// Security events for the audit trail. Never carries passwords or tokens.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum AuditEvent {
+    LoginOk {
+        user: String,
+        ip: IpAddr,
+    },
+    /// `reason`: `bad_credentials`, `disabled` or `rate_limited`.
+    LoginFailed {
+        user: String,
+        ip: IpAddr,
+        reason: &'static str,
+    },
+    /// `change`: `add`, `password`, `roles`, `disabled`, `enabled`, `remove`.
+    UserChanged {
+        by: String,
+        user: String,
+        change: &'static str,
+    },
+    /// Refused by the gateway's own grant check (before Zenoh).
+    Denied {
+        user: String,
+        op: String,
+        key: String,
+    },
+}
+
+type AuditHook = Arc<dyn Fn(AuditEvent) + Send + Sync>;
+
+/// An authenticated user, resolved against the store on every request.
+#[derive(Debug, Clone)]
+pub struct Principal {
+    pub name: String,
+    pub roles: Vec<String>,
+    pub grants: Grants,
+    pub claims: SessionClaims,
+}
+
+pub struct Gateway {
+    cfg: GatewayConfig,
+    users: Mutex<Store<UserDb>>,
+    session_key: SessionKey,
+    signing: SigningKey,
+    limiter: limit::LoginLimiter,
+    /// Bounds concurrent argon2 runs (CPU and ~19 MiB each).
+    hashing: Semaphore,
+    audit: RwLock<Option<AuditHook>>,
+    addr: watch::Sender<Option<SocketAddr>>,
+}
+
+impl Gateway {
+    /// Open the user store and the signing key (`<dir>/gateway.key`, 0600,
+    /// created on first start). `hmac_key` keys the WAL chain; the session
+    /// MAC key is derived from it.
+    pub fn open(cfg: GatewayConfig, hmac_key: &[u8]) -> Result<Arc<Self>> {
+        wyrm_core::keyspace::validate_segment(&cfg.site)
+            .map_err(|e| Error::Config(format!("site: {e}")))?;
+        cfg.roles.validate(&cfg.site).map_err(Error::Config)?;
+        if cfg.tls.is_none() && !cfg.listen.ip().is_loopback() {
+            return Err(Error::Config(format!(
+                "gateway on {} needs TLS (plain HTTP only on loopback)",
+                cfg.listen
+            )));
+        }
+        let users = Store::<UserDb>::open(cfg.dir.join("users"), hmac_key)?;
+        let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
+        Ok(Arc::new(Self {
+            session_key: SessionKey::derive(hmac_key),
+            signing,
+            users: Mutex::new(users),
+            limiter: limit::LoginLimiter::new(LOGIN_FAILURES, LOGIN_WINDOW),
+            hashing: Semaphore::new(4),
+            audit: RwLock::new(None),
+            addr: watch::channel(None).0,
+            cfg,
+        }))
+    }
+
+    pub fn site(&self) -> &str {
+        &self.cfg.site
+    }
+
+    /// Key that links must trust (`LinkConfig::admin_keys`) for gateway ptoks.
+    pub fn verifying_key(&self) -> VerifyingKey {
+        self.signing.verifying_key()
+    }
+
+    pub fn set_audit(&self, hook: impl Fn(AuditEvent) + Send + Sync + 'static) {
+        *self.audit.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(hook));
+    }
+
+    fn audit(&self, ev: AuditEvent) {
+        let hook = self.audit.read().unwrap_or_else(|p| p.into_inner()).clone();
+        if let Some(h) = hook {
+            h(ev);
+        }
+    }
+
+    /// Address the server is bound to, once [`Gateway::serve`] has bound it.
+    pub fn bound_addr(&self) -> Option<SocketAddr> {
+        *self.addr.borrow()
+    }
+
+    /// Wait until [`Gateway::serve`] has bound its listener.
+    pub async fn local_addr(&self) -> SocketAddr {
+        let mut rx = self.addr.subscribe();
+        loop {
+            if let Some(a) = *rx.borrow_and_update() {
+                return a;
+            }
+            if rx.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+    }
+
+    fn store(&self) -> std::sync::MutexGuard<'_, Store<UserDb>> {
+        self.users.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn user(&self, name: &str) -> Option<User> {
+        self.store().state().users.get(name).cloned()
+    }
+
+    /// `(name, roles, disabled)` of every user.
+    pub fn list_users(&self) -> Vec<(String, Vec<String>, bool)> {
+        self.store()
+            .state()
+            .users
+            .iter()
+            .map(|(n, u)| (n.clone(), u.roles.clone(), u.disabled))
+            .collect()
+    }
+
+    /// Bootstrap: create `name` with the `admin` role if no such user exists.
+    /// Returns `true` if it was created. Blocking (argon2).
+    pub fn ensure_admin(&self, name: &str, password: &str) -> Result<bool> {
+        if self.user(name).is_some() {
+            return Ok(false);
+        }
+        if !self.cfg.roles.contains("admin") {
+            return Err(Error::Config("no `admin` role in the role table".into()));
+        }
+        self.add_user(name, password, vec!["admin".into()])?;
+        info!(user = name, "gateway: bootstrap admin created");
+        Ok(true)
+    }
+
+    fn check_roles(&self, roles: &[String]) -> Result<()> {
+        match roles.iter().find(|r| !self.cfg.roles.contains(r)) {
+            Some(r) => Err(Error::Rejected(format!("unknown role {r}"))),
+            None => Ok(()),
+        }
+    }
+
+    /// Blocking (argon2).
+    pub fn add_user(&self, name: &str, password: &str, roles: Vec<String>) -> Result<()> {
+        if !users::valid_name(name) {
+            return Err(Error::Rejected(format!("invalid user name {name:?}")));
+        }
+        users::check_password(password).map_err(Error::Rejected)?;
+        self.check_roles(&roles)?;
+        let hash = users::hash_password(password).map_err(Error::Rejected)?;
+        self.store().apply(Op::AddUser {
+            name: name.into(),
+            hash,
+            roles,
+        })?;
+        Ok(())
+    }
+
+    /// Blocking (argon2). Ends the user's sessions.
+    pub fn set_password(&self, name: &str, password: &str) -> Result<()> {
+        users::check_password(password).map_err(Error::Rejected)?;
+        let hash = users::hash_password(password).map_err(Error::Rejected)?;
+        self.store().apply(Op::SetPassword {
+            name: name.into(),
+            hash,
+        })?;
+        Ok(())
+    }
+
+    pub fn set_roles(&self, name: &str, roles: Vec<String>) -> Result<()> {
+        self.check_roles(&roles)?;
+        self.store().apply(Op::SetRoles {
+            name: name.into(),
+            roles,
+        })?;
+        Ok(())
+    }
+
+    /// Disabling ends the user's sessions.
+    pub fn set_disabled(&self, name: &str, disabled: bool) -> Result<()> {
+        self.store().apply(Op::Disable {
+            name: name.into(),
+            disabled,
+        })?;
+        Ok(())
+    }
+
+    pub fn remove_user(&self, name: &str) -> Result<()> {
+        self.store().apply(Op::RemoveUser(name.into()))?;
+        Ok(())
+    }
+
+    pub fn grants_of(&self, roles: &[String]) -> Grants {
+        self.cfg.roles.grants(&self.cfg.site, roles)
+    }
+
+    /// Verify a session token and resolve it against the store: the user
+    /// must exist, be enabled and have the same generation as at login.
+    /// Grants come from the roles in the store now, not from the token.
+    pub fn authenticate(&self, token: &str) -> Option<Principal> {
+        let claims = self.session_key.verify(token, session::now_s())?;
+        self.resolve(claims)
+    }
+
+    fn resolve(&self, claims: SessionClaims) -> Option<Principal> {
+        let u = self.user(&claims.sub)?;
+        if u.disabled || u.gen != claims.gen || session::now_s() >= claims.exp {
+            return None;
+        }
+        Some(Principal {
+            name: claims.sub.clone(),
+            grants: self.grants_of(&u.roles),
+            roles: u.roles,
+            claims,
+        })
+    }
+
+    /// Check `user`/`password` (rate limited per user and address) and mint
+    /// a session. The caller runs this on a blocking thread.
+    fn login(
+        &self,
+        user: &str,
+        password: Zeroizing<String>,
+        ip: IpAddr,
+    ) -> Result<(String, u64), LoginError> {
+        if !self.limiter.allowed(user, ip) {
+            self.audit(AuditEvent::LoginFailed {
+                user: user.into(),
+                ip,
+                reason: "rate_limited",
+            });
+            return Err(LoginError::RateLimited);
+        }
+        let rec = self.user(user);
+        let ok = users::verify_password(&password, rec.as_ref().map(|u| u.hash.as_str()));
+        let rec = match rec {
+            Some(u) if ok && !u.disabled => u,
+            other => {
+                self.limiter.failed(user, ip);
+                let reason = match other {
+                    Some(u) if ok && u.disabled => "disabled",
+                    _ => "bad_credentials",
+                };
+                self.audit(AuditEvent::LoginFailed {
+                    user: user.into(),
+                    ip,
+                    reason,
+                });
+                return Err(LoginError::Invalid);
+            }
+        };
+        self.limiter.succeeded(user, ip);
+        let iat = session::now_s();
+        let exp = iat + self.cfg.session_ttl.as_secs().max(1);
+        let claims = SessionClaims {
+            sub: user.into(),
+            roles: rec.roles.clone(),
+            exp,
+            iat,
+            jti: session::new_jti(),
+            gen: rec.gen,
+        };
+        self.audit(AuditEvent::LoginOk {
+            user: user.into(),
+            ip,
+        });
+        Ok((self.session_key.mint(&claims), exp))
+    }
+
+    /// A ptok source for `p`: subject `user:<name>`, the user's grants and
+    /// max, 5 min lifetime, one token per request scoped to its key.
+    pub fn tokens_for(&self, p: &Principal) -> wyrm_client::SigningTokens {
+        wyrm_client::SigningTokens::new(self.signing.clone(), &self.cfg.site)
+            .subject(format!("user:{}", p.name))
+            .grants(p.grants.list.clone())
+            .max(p.grants.max)
+            .ttl(PTOK_TTL)
+    }
+
+    /// May `p` manage users: `config` on all of `wy/<site>/sys/**`.
+    pub fn is_admin(&self, p: &Principal) -> bool {
+        p.grants
+            .covers(&format!("wy/{}/sys/**", self.cfg.site), Perm::Config)
+    }
+
+    /// Serve until `shutdown` resolves. Binds `cfg.listen` (see
+    /// [`Gateway::local_addr`]); TLS uses rustls with the ring provider.
+    pub async fn serve(
+        self: Arc<Self>,
+        session: zenoh::Session,
+        shutdown: impl Future + Send,
+    ) -> Result<()> {
+        http::serve(self, session, shutdown).await
+    }
+}
+
+#[derive(Debug)]
+enum LoginError {
+    Invalid,
+    RateLimited,
+}
+
+/// Read the 32-byte Ed25519 seed, or create it (0600) if the file is absent.
+/// An unreadable or malformed file is an error: a silent new key would break
+/// trust with every link.
+fn load_or_create_key(path: &Path) -> Result<SigningKey> {
+    match std::fs::read(path) {
+        Ok(raw) => {
+            let raw = Zeroizing::new(raw);
+            let seed: [u8; 32] = raw
+                .as_slice()
+                .try_into()
+                .map_err(|_| Error::Config(format!("{}: expected 32 bytes", path.display())))?;
+            Ok(SigningKey::from_bytes(&seed))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let mut seed = Zeroizing::new([0u8; 32]);
+            getrandom::fill(seed.as_mut())
+                .map_err(|e| Error::Config(format!("no randomness: {e}")))?;
+            write_private(path, seed.as_ref())?;
+            info!(path = %path.display(), "gateway: new signing key");
+            Ok(SigningKey::from_bytes(&seed))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Write a file readable by the owner only (created fresh, 0600 on unix).
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    let _ = std::fs::remove_file(&tmp);
+    {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
+}
