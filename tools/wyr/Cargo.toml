@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+zeroize.workspace = true
 wyrm-core.workspace = true
 wyrm-client = { workspace = true, features = ["advanced"] }
 zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_unixsock-stream"] }

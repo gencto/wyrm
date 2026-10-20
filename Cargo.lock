@@ -3951,6 +3951,7 @@ dependencies = [
  "wyrm-client",
  "wyrm-core",
  "zenoh",
+ "zeroize",
 ]
 
 [[package]]

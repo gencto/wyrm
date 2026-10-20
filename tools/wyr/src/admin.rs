@@ -27,6 +27,19 @@ pub enum AdminCmd {
     Stop { site: String, id: String },
     /// Remove a runtime-installed link.
     Remove { site: String, id: String },
+    /// Store a link secret; the value is read from stdin (never argv, so it
+    /// stays out of shell history). The link sees it on its next start.
+    SetSecret {
+        site: String,
+        id: String,
+        name: String,
+    },
+    /// Delete a link secret.
+    DeleteSecret {
+        site: String,
+        id: String,
+        name: String,
+    },
     /// Sessions with unknown certificates.
     Quarantine { site: String },
     /// Admit a quarantined certificate as an external link.
@@ -63,6 +76,8 @@ impl AdminCmd {
             | AdminCmd::Start { site, .. }
             | AdminCmd::Stop { site, .. }
             | AdminCmd::Remove { site, .. }
+            | AdminCmd::SetSecret { site, .. }
+            | AdminCmd::DeleteSecret { site, .. }
             | AdminCmd::Quarantine { site }
             | AdminCmd::Approve { site, .. }
             | AdminCmd::Reject { site, .. }
@@ -186,6 +201,29 @@ pub async fn run(c: &WyrmClient, cmd: AdminCmd) -> Result<(), Error> {
                 &sys(&site, &format!("links/{id}")),
                 "remove",
                 BTreeMap::new(),
+            )
+            .await
+        }
+        AdminCmd::SetSecret { site, id, name } => {
+            let mut value = zeroize::Zeroizing::new(String::new());
+            std::io::stdin().read_line(&mut value)?;
+            let value = value.trim_end_matches(['\r', '\n']);
+            if value.is_empty() {
+                return Err("empty secret on stdin".into());
+            }
+            let mut args = BTreeMap::new();
+            args.insert("name".to_owned(), Value::Str(name));
+            args.insert("value".to_owned(), Value::Bytes(value.as_bytes().to_vec()));
+            invoke(c, &sys(&site, &format!("links/{id}")), "set_secret", args).await
+        }
+        AdminCmd::DeleteSecret { site, id, name } => {
+            let mut args = BTreeMap::new();
+            args.insert("name".to_owned(), Value::Str(name));
+            invoke(
+                c,
+                &sys(&site, &format!("links/{id}")),
+                "delete_secret",
+                args,
             )
             .await
         }
