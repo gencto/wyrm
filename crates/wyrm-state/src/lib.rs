@@ -484,3 +484,108 @@ impl<S: State> Store<S> {
         Ok(())
     }
 }
+
+/// Result of [`verify`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    /// Records with a valid CRC and HMAC chain.
+    pub records: u64,
+    /// LSN of the last valid record (0 = empty).
+    pub last_lsn: u64,
+    /// The last segment ends in an incomplete record (a torn write; `open`
+    /// drops it). Not an attack sign by itself.
+    pub torn_tail: bool,
+    /// `Some(true)`: the anchor matches the head; `None`: no anchor given.
+    pub anchor_ok: Option<bool>,
+}
+
+/// Check a store offline without changing it: every record's CRC and the
+/// HMAC chain from the first record, and the anchor if given. Fails with
+/// `InUse` while a process holds the store.
+pub fn verify(dir: &Path, key: &[u8], anchor: Option<&Path>) -> Result<Report> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("LOCK"))?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            return Err(StateError::InUse(dir.display().to_string()))
+        }
+        Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+    }
+    let segs = segments(dir)?;
+    let mut prev = [0u8; 32];
+    let mut lsn = 0u64;
+    let mut records = 0u64;
+    let mut torn_tail = false;
+    for (i, (first, path)) in segs.iter().enumerate() {
+        let file = path.display().to_string();
+        let is_last = i + 1 == segs.len();
+        let mut data = Vec::new();
+        File::open(path)?.read_to_end(&mut data)?;
+        let mut off = 0usize;
+        let mut at = *first;
+        while off < data.len() {
+            let left = data.len() - off;
+            let len = if left >= HEADER {
+                u32::from_le_bytes(data[off..off + 4].try_into().unwrap_or_default()) as usize
+            } else {
+                usize::MAX
+            };
+            if left < HEADER || len > MAX_RECORD || left - HEADER < len {
+                if is_last {
+                    torn_tail = true;
+                    break;
+                }
+                return Err(StateError::Corrupt {
+                    file,
+                    offset: off as u64,
+                    why: "incomplete record inside the log".into(),
+                });
+            }
+            let crc = u32::from_le_bytes(data[off + 4..off + 8].try_into().unwrap_or_default());
+            let stored: [u8; 32] = data[off + 8..off + 40].try_into().unwrap_or([0; 32]);
+            let payload = &data[off + HEADER..off + HEADER + len];
+            if crc32c::crc32c(payload) != crc {
+                if is_last && off + HEADER + len == data.len() {
+                    torn_tail = true;
+                    break;
+                }
+                return Err(StateError::Corrupt {
+                    file,
+                    offset: off as u64,
+                    why: "CRC mismatch".into(),
+                });
+            }
+            if mac(key, &prev, at, payload) != stored {
+                return Err(StateError::Tampered { lsn: at, file });
+            }
+            prev = stored;
+            lsn = at;
+            records += 1;
+            off += HEADER + len;
+            at += 1;
+        }
+    }
+    let anchor_ok = anchor.map(|a| match fs::read_to_string(a) {
+        Ok(t) => {
+            let mut it = t.split_whitespace();
+            let alsn: Option<u64> = it.next().and_then(|v| v.parse().ok());
+            let amac = it.next().unwrap_or_default();
+            match alsn {
+                Some(n) if n == lsn => amac == hex_of(&prev),
+                Some(n) => n + 1 == lsn,
+                None => false,
+            }
+        }
+        Err(_) => lsn == 0,
+    });
+    Ok(Report {
+        records,
+        last_lsn: lsn,
+        torn_tail,
+        anchor_ok,
+    })
+}

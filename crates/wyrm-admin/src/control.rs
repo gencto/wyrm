@@ -779,7 +779,8 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         &p,
         "history",
         ActionMeta::new()
-            .level(Perm::Read)
+            // params are control-plane config: same level as update/rollback
+            .level(Perm::Config)
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;

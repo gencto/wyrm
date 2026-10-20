@@ -19,6 +19,9 @@ enum Cmd {
     /// stores, after moving or creating that directory. Run with wyrmd
     /// stopped, only on stores you trust.
     InitAnchors,
+    /// Check every control-plane store offline (CRC, HMAC chain, anchors)
+    /// without changing it; wyrmd must be stopped. Exit code 1 on a problem.
+    Verify,
     /// Host one driver as a supervised link process (started by wyrmd).
     Link { driver: String },
     /// Gateway users (wyrmd stopped; passwords are read from stdin).
@@ -133,6 +136,36 @@ async fn main() -> Result<(), Error> {
             return Ok(());
         }
         Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
+        Some(Cmd::Verify) => {
+            let checks = wyrmd::verify_state(&cfg);
+            let mut bad = false;
+            for c in &checks {
+                match &c.result {
+                    Ok(r) => {
+                        let anchor = match r.anchor_ok {
+                            None => "no anchor",
+                            Some(true) => "anchor ok",
+                            Some(false) => "ANCHOR MISMATCH",
+                        };
+                        let torn = if r.torn_tail {
+                            ", TORN LAST RECORD (crash or tampering; open drops it)"
+                        } else {
+                            ""
+                        };
+                        println!(
+                            "{:<20} ok: {} records, lsn {}, {anchor}{torn}",
+                            c.name, r.records, r.last_lsn
+                        );
+                    }
+                    Err(e) => println!("{:<20} FAILED: {e}", c.name),
+                }
+                bad |= !c.ok();
+            }
+            if bad {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
         Some(Cmd::InitAnchors) => {
             if cfg.state_anchor_dir.is_none() {
                 return Err("state_anchor_dir is not set in the config".into());

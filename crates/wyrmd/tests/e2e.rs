@@ -1125,3 +1125,37 @@ async fn link_params_update_history_rollback() {
         .is_err());
     env.stop().await;
 }
+
+/// `wyrmd verify`: every store checks out after a normal run; one flipped
+/// byte in the audit WAL is reported (T11, P29).
+#[test]
+fn verify_state_finds_a_tampered_wal() {
+    let dir = temp_dir("verify");
+    let cfg = || {
+        Config::from_json5(&format!(
+            r#"{{ site: "{SITE}", data_dir: "{}", listen: ["tcp/127.0.0.1:{}"], {MOCK} }}"#,
+            dir.display(),
+            free_port()
+        ))
+        .unwrap()
+    };
+    drop(Daemon::open(cfg(), env!("CARGO_BIN_EXE_wyrmd").into()).unwrap());
+    let checks = wyrmd::verify_state(&cfg());
+    assert!(checks.iter().any(|c| c.name == "registry"));
+    assert!(checks.iter().all(|c| c.ok()), "clean stores");
+    // flip one byte of the first audit WAL record's payload
+    let wal = std::fs::read_dir(dir.join("audit"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "wyw"))
+        .unwrap();
+    let mut b = std::fs::read(&wal).unwrap();
+    if b.len() > 50 {
+        b[45] ^= 1;
+        std::fs::write(&wal, b).unwrap();
+        let checks = wyrmd::verify_state(&cfg());
+        let audit = checks.iter().find(|c| c.name == "audit").unwrap();
+        assert!(!audit.ok(), "tampering found");
+    }
+}

@@ -671,6 +671,89 @@ impl Broker {
     }
 }
 
+/// One store checked by [`verify_state`].
+pub struct StoreCheck {
+    pub name: String,
+    pub result: Result<wyrm_state::Report, String>,
+}
+
+impl StoreCheck {
+    /// A torn last record counts as a problem here: without an anchor a
+    /// crash and an edited last record look the same (open drops it).
+    pub fn ok(&self) -> bool {
+        matches!(&self.result, Ok(r) if r.anchor_ok != Some(false) && !r.torn_tail)
+    }
+}
+
+/// Existing hex key file; never creates one.
+fn read_key(path: &std::path::Path) -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let k = zeroize::Zeroizing::new(
+        hex::decode(text.trim()).map_err(|_| format!("{}: not hex", path.display()))?,
+    );
+    if k.len() != 32 {
+        return Err(format!("{}: expected 32 bytes", path.display()));
+    }
+    Ok(k)
+}
+
+/// `wyrmd verify`: every control-plane store (and each agent store) checked
+/// offline — CRC, HMAC chain, anchor — without changing anything. wyrmd
+/// must be stopped (the stores are locked while it runs).
+pub fn verify_state(cfg: &Config) -> Vec<StoreCheck> {
+    let d = &cfg.data_dir;
+    let anchor = |n: &str| cfg.state_anchor_dir.as_ref().map(|a| a.join(n));
+    let mut stores: Vec<(String, PathBuf, PathBuf, Option<PathBuf>)> = vec![
+        (
+            "registry".into(),
+            d.join("state"),
+            d.join("state.key"),
+            anchor("state.head"),
+        ),
+        (
+            "audit".into(),
+            d.join("audit"),
+            d.join("state.key"),
+            anchor("audit.head"),
+        ),
+        (
+            "flows".into(),
+            d.join("flows/state"),
+            d.join("flows.key"),
+            anchor("flows.head"),
+        ),
+        (
+            "gateway users".into(),
+            d.join("gateway/users"),
+            d.join("gateway/hmac.key"),
+            anchor("users.head"),
+        ),
+    ];
+    if let Ok(links) = std::fs::read_dir(d.join("links")) {
+        for e in links.flatten() {
+            let data = e.path().join("data");
+            if data.join("agent").is_dir() {
+                stores.push((
+                    format!("agent {}", e.file_name().to_string_lossy()),
+                    data.join("agent"),
+                    data.join("agent.key"),
+                    None,
+                ));
+            }
+        }
+    }
+    stores
+        .into_iter()
+        .filter(|(_, dir, _, _)| dir.is_dir())
+        .map(|(name, dir, key, anchor)| {
+            let result = read_key(&key).and_then(|k| {
+                wyrm_state::verify(&dir, &k, anchor.as_deref()).map_err(|e| e.to_string())
+            });
+            StoreCheck { name, result }
+        })
+        .collect()
+}
+
 /// Gateway user management from the command line (`wyrmd user …`). The
 /// stores are locked while wyrmd runs, so this works on a stopped broker;
 /// a running one is managed through the gateway's HTTP API.

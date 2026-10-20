@@ -250,3 +250,43 @@ fn anchor_detects_a_cut_wal() {
         .with_anchor(&anchor)
         .is_ok());
 }
+
+#[test]
+fn verify_reports_without_changing() {
+    let d = dir("verify");
+    let heads = dir("verify-heads");
+    std::fs::create_dir_all(&heads).unwrap();
+    let anchor = heads.join("v.head");
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        for i in 0..3 {
+            s.apply(Op::Put(format!("k{i}"), i)).unwrap();
+        }
+        // held by a process: refused
+        assert!(matches!(
+            wyrm_state::verify(&d, KEY, Some(&anchor)),
+            Err(StateError::InUse(_))
+        ));
+    }
+    let r = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
+    assert_eq!(
+        (r.records, r.last_lsn, r.torn_tail, r.anchor_ok),
+        (3, 3, false, Some(true))
+    );
+    // a wrong key shows tampering
+    assert!(matches!(
+        wyrm_state::verify(&d, b"another-key-0123456789abcdef!!!!", None),
+        Err(StateError::Tampered { .. })
+    ));
+    // an anchor ahead of the WAL is reported
+    std::fs::write(&anchor, format!("9 {}\n", "00".repeat(32))).unwrap();
+    assert_eq!(
+        wyrm_state::verify(&d, KEY, Some(&anchor))
+            .unwrap()
+            .anchor_ok,
+        Some(false)
+    );
+}
