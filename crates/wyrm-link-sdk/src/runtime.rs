@@ -245,14 +245,20 @@ pub async fn spawn<L: Link>(
             follow_profiles(psession, psite, profiles)
         );
     });
-    let link = match L::start(link_cfg, ctx.clone()).await {
-        Ok(l) => l,
-        Err(e) => {
+    let link = match guarded(L::start(link_cfg, ctx.clone())).await {
+        Ok(Ok(l)) => l,
+        Ok(Err(e)) => {
             query_task.abort();
             return Err(e);
         }
+        Err(()) => {
+            query_task.abort();
+            ctx.close();
+            tracing::error!(link = %ctx.link(), "driver panicked in start");
+            return Err(LinkError::internal("driver panicked in start"));
+        }
     };
-    let actor = tokio::spawn(run_driver(link, rx));
+    let actor = tokio::spawn(run_driver(ctx.clone(), link, rx));
     let token = session
         .liveliness()
         .declare_token(ctx.0.prefix.clone())
@@ -289,7 +295,32 @@ async fn republish_on(ctx: LinkCtx, key: String) {
     }
 }
 
-async fn run_driver<L: Link>(mut link: L, mut rx: mpsc::Receiver<Cmd<L::Config>>) {
+/// A driver call that may panic: `Err(())` if it did.
+async fn guarded<F: std::future::Future>(f: F) -> std::result::Result<F::Output, ()> {
+    use futures_util::FutureExt;
+    std::panic::AssertUnwindSafe(f)
+        .catch_unwind()
+        .await
+        .map_err(|_| ())
+}
+
+fn panicked() -> LinkError {
+    LinkError::internal("driver panicked; the link stopped")
+}
+
+async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<Cmd<L::Config>>) {
+    // A panic leaves the driver in an unknown state: answer, mark every
+    // value bad, close the link (no new requests) and stop the actor.
+    let fail = |what: &str| {
+        tracing::error!(link = %ctx.link(), "driver panicked in {what}; link stopped");
+        let ctx = ctx.clone();
+        async move {
+            let _ = ctx
+                .mark_all(wyrm_core::Quality::Bad, Some("bad/driver_panic"))
+                .await;
+            ctx.close();
+        }
+    };
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Cmd::Set {
@@ -299,10 +330,18 @@ async fn run_driver<L: Link>(mut link: L, mut rx: mpsc::Receiver<Cmd<L::Config>>
                 timeout,
                 tx,
             } => {
-                let r = tokio::time::timeout(timeout, link.on_set(&path, value, &caller))
-                    .await
-                    .unwrap_or_else(|_| Err(LinkError::timeout("driver did not answer")));
-                let _ = tx.send(r);
+                let r = guarded(tokio::time::timeout(
+                    timeout,
+                    link.on_set(&path, value, &caller),
+                ))
+                .await;
+                let Ok(r) = r else {
+                    let _ = tx.send(Err(panicked()));
+                    fail("on_set").await;
+                    return;
+                };
+                let _ =
+                    tx.send(r.unwrap_or_else(|_| Err(LinkError::timeout("driver did not answer"))));
             }
             Cmd::Invoke {
                 path,
@@ -313,25 +352,37 @@ async fn run_driver<L: Link>(mut link: L, mut rx: mpsc::Receiver<Cmd<L::Config>>
                 sink,
             } => {
                 let errs = sink.clone();
-                let r = tokio::time::timeout(
+                let r = guarded(tokio::time::timeout(
                     timeout,
                     link.on_invoke(&path, &action, args, &caller, sink),
-                )
-                .await
-                .unwrap_or_else(|_| Err(LinkError::timeout("driver did not answer")));
-                if let Err(e) = r {
+                ))
+                .await;
+                let Ok(r) = r else {
+                    let _ = errs.error(panicked()).await;
+                    fail("on_invoke").await;
+                    return;
+                };
+                if let Err(e) =
+                    r.unwrap_or_else(|_| Err(LinkError::timeout("driver did not answer")))
+                {
                     let _ = errs.error(e).await;
                 }
             }
-            Cmd::Reconfigure { cfg, tx } => {
-                let _ = tx.send(link.reconfigure(cfg).await);
-            }
+            Cmd::Reconfigure { cfg, tx } => match guarded(link.reconfigure(cfg)).await {
+                Ok(r) => {
+                    let _ = tx.send(r);
+                }
+                Err(()) => {
+                    let _ = tx.send(Err(panicked()));
+                    fail("reconfigure").await;
+                    return;
+                }
+            },
             Cmd::Stop { tx } => {
-                if tokio::time::timeout(STOP_TIMEOUT, link.stop())
-                    .await
-                    .is_err()
-                {
-                    warn!("link stop timed out");
+                match guarded(tokio::time::timeout(STOP_TIMEOUT, link.stop())).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => warn!("link stop timed out"),
+                    Err(()) => warn!("link stop panicked"),
                 }
                 let _ = tx.send(());
                 return;

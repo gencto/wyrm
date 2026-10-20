@@ -20,6 +20,7 @@ process = ["tokio/signal", "zenoh/transport_tls", "zenoh/transport_tcp"]
 [dependencies]
 wyrm-core.workspace = true
 zenoh.workspace = true
+futures-util = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 ed25519-dalek.workspace = true
 minicbor.workspace = true

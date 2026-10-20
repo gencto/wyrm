@@ -200,3 +200,39 @@ async fn read_flood_on_one_key_spares_others() {
     assert_eq!(meta("").await, Some(Status::Ok), "another node still reads");
     h.stop().await;
 }
+
+struct Panicky;
+
+impl Link for Panicky {
+    const NAME: &'static str = "panicky";
+    const VERSION: &'static str = "0";
+    type Config = ();
+
+    async fn start(_: (), ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        ctx.declare_node("p", NodeMeta::number().writable(Writable::Write))
+            .await?;
+        Ok(Panicky)
+    }
+
+    async fn on_set(&mut self, _p: &str, _v: Value, _w: &Caller) -> wyrm_link_sdk::Result<()> {
+        panic!("driver bug");
+    }
+}
+
+/// A driver panic does not take the broker down or hang callers: the
+/// request fails, the link closes, later requests fail fast.
+#[tokio::test(flavor = "multi_thread")]
+async fn driver_panic_closes_the_link() {
+    let h = TestHarness::<Panicky>::start(()).await;
+    let first = status(&h.set("p", 1.0, Some(h.ptok(Perm::Write))).await);
+    assert_eq!(first, Some(Status::InternalError));
+    let second = tokio::time::timeout(
+        Duration::from_secs(5),
+        h.set("p", 2.0, Some(h.ptok(Perm::Write))),
+    )
+    .await
+    .expect("no hang after a panic");
+    assert_ne!(status(&second), Some(Status::Ok));
+    assert!(h.ctx().is_closed());
+    h.stop().await;
+}
