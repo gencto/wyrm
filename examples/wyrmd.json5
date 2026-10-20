@@ -11,6 +11,11 @@
   admin_keys: [],
   // Certificate CNs of engineering tools with requester rights over TLS.
   operators: [],
+  // Other sites (QUIC + mTLS, CN broker:<site>). Uncomment one side:
+  // peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "central-ca.pem" }], upstream_val_hz: 1 },
+  // peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.pem" }] },
+  // User gateway; first admin password from WYRM_GATEWAY_ADMIN_PASSWORD.
+  // gateway: { listen: "127.0.0.1:8080", admin_user: "admin" },
   links: {
     // Embedded mock connector: wy/local/down/mock/**
     mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
