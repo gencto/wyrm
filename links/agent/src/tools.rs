@@ -174,6 +174,12 @@ pub struct PlanOp {
 }
 
 impl PlanOp {
+    /// The stricter of the value recorded at planning time and the current
+    /// policy: a policy change during planning never lowers the bar.
+    pub fn requires_approval(&self, policy: &Policy) -> bool {
+        self.needs_approval || policy.mode.needs_approval(self.level)
+    }
+
     pub fn to_value(&self) -> Value {
         let mut m = BTreeMap::new();
         m.insert("op".to_owned(), Value::from(self.op.name()));
@@ -542,6 +548,29 @@ fn spec(input: &Json) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approval_bar_never_drops_after_planning() {
+        let op = PlanOp {
+            op: OpKind::Set,
+            node: "wy/s/down/m/p".into(),
+            key: "wy/s/down/m/p/~set".into(),
+            action: None,
+            payload: Value::Float(1.0),
+            level: Perm::Write,
+            needs_approval: false, // planned under mode `config`
+            reason: None,
+        };
+        assert!(!op.requires_approval(&policy(&[], ApprovalMode::Config)));
+        // the policy became stricter while the task was planning
+        assert!(op.requires_approval(&policy(&[], ApprovalMode::Write)));
+        // a recorded requirement stays even if the policy relaxes
+        let strict = PlanOp {
+            needs_approval: true,
+            ..op
+        };
+        assert!(strict.requires_approval(&policy(&[], ApprovalMode::Never)));
+    }
 
     fn policy(allowed: &[&str], mode: ApprovalMode) -> Policy {
         Policy {

@@ -843,6 +843,7 @@ impl Agent {
             toks.insert(k.clone(), tok);
         }
         let site = sh.ctx.site().to_owned();
+        let policy = sh.policy();
         // Check everything before anything changes; a failure keeps the task
         // in awaiting_approval and sends nothing.
         let per_op = {
@@ -857,17 +858,18 @@ impl Agent {
                     t.state.name()
                 )));
             }
-            if let Some(k) = toks
-                .keys()
-                .find(|k| !t.plan.iter().any(|op| op.needs_approval && &op.key == *k))
-            {
+            if let Some(k) = toks.keys().find(|k| {
+                !t.plan
+                    .iter()
+                    .any(|op| op.requires_approval(&policy) && &op.key == *k)
+            }) {
                 return Err(LinkError::invalid_parameter(format!(
                     "approval for {k}, which is not a plan step that needs one"
                 )));
             }
             let mut per_op = Vec::with_capacity(t.plan.len());
             for op in &t.plan {
-                if !op.needs_approval {
+                if !op.requires_approval(&policy) {
                     per_op.push(None);
                     continue;
                 }
@@ -1207,7 +1209,7 @@ async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
             } else if t.plan.is_empty() {
                 t.push_log("no changes proposed");
                 t.state = TaskState::Done;
-            } else if t.plan.iter().any(|op| op.needs_approval) {
+            } else if t.plan.iter().any(|op| op.requires_approval(&policy)) {
                 t.push_log(format!("plan of {} step(s) awaits approval", t.plan.len()));
                 t.state = TaskState::AwaitingApproval;
             } else {
@@ -1276,7 +1278,7 @@ async fn run_op(
             })),
             "approval",
         ),
-        None if op.needs_approval => return Err("no approval for this step".into()),
+        None if op.requires_approval(policy) => return Err("no approval for this step".into()),
         None => match &sh.service {
             Some(c) => (c.clone(), "service token"),
             None => return Err("no agent key: cannot send without approval".into()),
