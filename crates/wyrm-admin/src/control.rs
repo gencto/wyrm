@@ -813,6 +813,10 @@ impl Admin {
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
         crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
+        // Before any side effect (token, secret purge) on an existing id.
+        if ctl.registry().links.contains_key(&id) {
+            return Err(LinkError::invalid_parameter(format!("link {id} exists")));
+        }
         crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
         if mode != Mode::External {
             if !compiled {
@@ -1053,6 +1057,10 @@ impl Admin {
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
+        if self.ctl.registry().links.contains_key(cn) {
+            return Err(LinkError::invalid_parameter(format!("link {cn} exists")));
+        }
+        crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
         let (token_hash, token) = self.ctl.new_token_for(cn, Mode::External)?;
         self.ctl
             .apply(Op::Approve(cn.to_owned()))
