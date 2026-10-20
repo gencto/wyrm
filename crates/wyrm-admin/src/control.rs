@@ -522,6 +522,8 @@ impl Control {
             args: vec!["link".into(), def.driver.clone()],
             env: vec![
                 ("WYRM_SITE".into(), self.cfg.site.clone()),
+                // see wyrm_link_sdk::process::PARENT_PID_ENV
+                ("WYRM_PARENT_PID".into(), std::process::id().to_string()),
                 ("WYRM_LINK_ID".into(), def.id.clone()),
                 ("WYRM_ENDPOINT".into(), endpoint),
                 ("WYRM_CA".into(), self.pki.ca_path().display().to_string()),

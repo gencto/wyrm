@@ -962,3 +962,52 @@ async fn agent_key_is_trusted_capped_at_write() {
         .is_none_or(|s| !matches!(s, Value::Map(x) if x.contains_key("agent_key"))));
     env.stop().await;
 }
+
+/// A supervised link process exits when its broker process is gone
+/// (`WYRM_PARENT_PID`), so a crashed wyrmd leaves no orphan links.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_process_exits_without_its_parent() {
+    let env = Env::start(
+        "orphan",
+        r#"links: { pp: { driver: "mock", mode: "external" } },"#,
+    )
+    .await;
+    let token = env.ctl.config().data_dir.join("links/pp/token");
+    let spawn = |parent: u32| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+            .args(["link", "mock"])
+            .env("WYRM_SITE", SITE)
+            .env("WYRM_LINK_ID", "pp")
+            .env("WYRM_ENDPOINT", format!("tcp/127.0.0.1:{}", env.port))
+            .env("WYRM_TOKEN_FILE", &token)
+            .env("WYRM_PARENT_PID", parent.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    // our own pid is its parent: it keeps running
+    let mut alive = spawn(std::process::id());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(
+        alive.try_wait().unwrap().is_none(),
+        "runs while the parent lives"
+    );
+    let _ = alive.kill();
+    let _ = alive.wait();
+    // a parent pid that is not its parent: it exits on its own
+    let mut orphan = spawn(1);
+    let mut exited = false;
+    for _ in 0..50 {
+        if orphan.try_wait().unwrap().is_some() {
+            exited = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if !exited {
+        let _ = orphan.kill();
+    }
+    assert!(exited, "exits when its parent is gone");
+    env.stop().await;
+}

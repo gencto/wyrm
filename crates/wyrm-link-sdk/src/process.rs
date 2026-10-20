@@ -231,6 +231,28 @@ pub async fn hello(session: &Session, env: &Env) -> Result<Hello> {
     parse_hello(v)
 }
 
+/// Supervised links get `WYRM_PARENT_PID` (the broker's pid): when the
+/// broker process is gone (crash, kill -9), the link exits too, so a new
+/// broker never runs a second copy next to an orphan.
+pub const PARENT_PID_ENV: &str = "WYRM_PARENT_PID";
+
+async fn parent_gone() {
+    #[cfg(unix)]
+    if let Some(pid) = std::env::var(PARENT_PID_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+    {
+        loop {
+            if std::os::unix::process::parent_id() != pid {
+                warn!("supervising broker (pid {pid}) is gone: exiting");
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+    std::future::pending::<()>().await
+}
+
 async fn signal() {
     #[cfg(unix)]
     {
@@ -248,6 +270,17 @@ async fn signal() {
 
 /// Run `L` as a supervised process until SIGTERM/SIGINT.
 pub async fn run<L: Link>() -> Result<()>
+where
+    L::Config: FromParams,
+{
+    // Also while waiting for the first `hello`: an orphan never lingers.
+    tokio::select! {
+        _ = parent_gone() => Ok(()),
+        r = run_inner::<L>() => r,
+    }
+}
+
+async fn run_inner<L: Link>() -> Result<()>
 where
     L::Config: FromParams,
 {
