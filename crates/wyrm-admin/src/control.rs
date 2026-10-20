@@ -99,6 +99,15 @@ pub struct Control {
     supervisor: Arc<Supervisor>,
     host: Arc<dyn EmbeddedHost>,
     reload: mpsc::UnboundedSender<()>,
+    peers: Mutex<PeerConfig>,
+}
+
+/// Router-to-router setup (iteration 4): peer sites and their CA files.
+#[derive(Debug, Clone, Default)]
+pub struct PeerConfig {
+    pub peers: acl::Peers,
+    /// CA certificates of peer sites, added to the TLS trust bundle.
+    pub trusted_cas: Vec<PathBuf>,
 }
 
 fn now_s() -> u64 {
@@ -149,6 +158,7 @@ impl Control {
                 supervisor: Supervisor::new(),
                 host,
                 reload,
+                peers: Mutex::new(PeerConfig::default()),
             }),
             rx,
         ))
@@ -315,21 +325,40 @@ impl Control {
 
     /// TLS (broker certificate, mTLS) when `tls`, admin space (read-only,
     /// in-process only through the ACL) and the generated `access_control`.
+    /// Set peer brokers (takes effect on the next broker build).
+    pub fn set_peers(&self, p: PeerConfig) {
+        *self.peers.lock().unwrap_or_else(|e| e.into_inner()) = p;
+    }
+
     pub fn configure_zenoh(&self, c: &mut zenoh::Config, tls: bool) -> Result<(), Error> {
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if tls {
-            let b = self.pki.issue(
-                "broker",
-                &self.cfg.tls_names,
-                true,
-                &self.cfg.data_dir.join("pki"),
-                "broker",
-            )?;
+            let pki_dir = self.cfg.data_dir.join("pki");
+            let cn = format!("broker:{}", self.cfg.site);
+            // Server side (listeners) and client side (outbound to upstreams).
+            let server = self.pki.issue(&cn, &self.cfg.tls_names, true, &pki_dir, "broker-server")?;
+            let client = self.pki.issue(&cn, &[], false, &pki_dir, "broker-client")?;
+            // Own CA plus the CAs of peer sites.
+            let mut bundle = std::fs::read_to_string(self.pki.ca_path())?;
+            for ca in &peers.trusted_cas {
+                let pem = std::fs::read_to_string(ca)
+                    .map_err(|e| format!("trusted CA {}: {e}", ca.display()))?;
+                if !pem.contains("BEGIN CERTIFICATE") {
+                    return Err(format!("trusted CA {}: not a PEM certificate", ca.display()).into());
+                }
+                bundle.push('\n');
+                bundle.push_str(&pem);
+            }
+            let trust = pki_dir.join("trust.pem");
+            std::fs::write(&trust, bundle)?;
             c.insert_json5(
                 "transport/link/tls",
                 &serde_json::json!({
-                    "root_ca_certificate": self.pki.ca_path(),
-                    "listen_certificate": b.cert,
-                    "listen_private_key": b.key,
+                    "root_ca_certificate": trust,
+                    "listen_certificate": server.cert,
+                    "listen_private_key": server.key,
+                    "connect_certificate": client.cert,
+                    "connect_private_key": client.key,
                     "enable_mtls": true,
                 })
                 .to_string(),
@@ -339,11 +368,12 @@ impl Control {
             "adminspace",
             r#"{ enabled: true, permissions: { read: true, write: false } }"#,
         )?;
-        let acl = acl::access_control(
+        let acl = acl::access_control_with_peers(
             &self.cfg.site,
             &self.registry(),
             &self.cfg.operators,
             self.cfg.dev,
+            &peers.peers,
         );
         c.insert_json5("access_control", &acl.to_string())?;
         Ok(())

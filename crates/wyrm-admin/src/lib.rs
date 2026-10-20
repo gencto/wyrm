@@ -9,5 +9,7 @@ pub mod registry;
 pub mod secret;
 pub mod supervisor;
 
-pub use control::{Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, RunningLink};
+pub use control::{
+    Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, PeerConfig, RunningLink,
+};
 pub use registry::Mode;

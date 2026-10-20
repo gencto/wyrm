@@ -34,8 +34,30 @@ fn rule(id: &str, flows: &[&str], messages: &[&str], keys: &[String]) -> Value {
     json!({ "id": id, "permission": "allow", "flows": flows, "messages": messages, "key_exprs": keys })
 }
 
+/// Other brokers this one talks to (wiki "Два брокери"), by site name.
+/// Broker certificates carry CN `broker:<site>`.
+#[derive(Debug, Clone, Default)]
+pub struct Peers {
+    /// Sites this broker connects to; they may only read our `down/**` and
+    /// `flows/**` (queries reach links, whose commands still need a `ptok`).
+    pub upstream: Vec<String>,
+    /// Sites that connect to this broker; they serve their own `wy/<site>/**`.
+    pub downstream: Vec<String>,
+}
+
 /// The `access_control` section for the router config.
 pub fn access_control(site: &str, reg: &Registry, operators: &[String], dev: bool) -> Value {
+    access_control_with_peers(site, reg, operators, dev, &Peers::default())
+}
+
+/// [`access_control`] plus router-to-router rules for `peers`.
+pub fn access_control_with_peers(
+    site: &str,
+    reg: &Registry,
+    operators: &[String],
+    dev: bool,
+    peers: &Peers,
+) -> Value {
     let all_site = vec![format!("wy/{site}/**")];
     let mut rules = vec![
         rule(
@@ -105,6 +127,29 @@ pub fn access_control(site: &str, reg: &Registry, operators: &[String], dev: boo
             "subjects": [format!("cn-{id}")],
         }));
     }
+    if !peers.upstream.is_empty() {
+        let readable = vec![format!("wy/{site}/down/**"), format!("wy/{site}/flows/**")];
+        rules.push(rule(
+            "upstream-in",
+            &["ingress"],
+            &["query", "declare_subscriber", "declare_liveliness_subscriber", "liveliness_query"],
+            &readable,
+        ));
+        rules.push(rule(
+            "upstream-out",
+            &["egress"],
+            &["put", "delete", "reply", "liveliness_token", "declare_queryable", "declare_subscriber"],
+            &readable,
+        ));
+        let cns: Vec<String> = peers.upstream.iter().map(|u| format!("broker:{u}")).collect();
+        subjects.push(json!({ "id": "upstream", "cert_common_names": cns }));
+        policies.push(json!({ "rules": ["upstream-in", "upstream-out"], "subjects": ["upstream"] }));
+    }
+    for d in &peers.downstream {
+        rules.push(rule(&format!("site-{d}"), &["ingress", "egress"], ALL, &[format!("wy/{d}/**")]));
+        subjects.push(json!({ "id": format!("broker-{d}"), "cert_common_names": [format!("broker:{d}")] }));
+        policies.push(json!({ "rules": [format!("site-{d}")], "subjects": [format!("broker-{d}")] }));
+    }
     json!({
         "enabled": true,
         "default_permission": "deny",
@@ -130,6 +175,22 @@ mod tests {
             origin: Origin::Runtime,
             created: 0,
         }
+    }
+
+    #[test]
+    fn peer_brokers() {
+        let peers = Peers {
+            upstream: vec!["cloud".into()],
+            downstream: vec!["plant-b".into()],
+        };
+        let acl = access_control_with_peers("plant-a", &Registry::default(), &[], false, &peers);
+        let text = acl.to_string();
+        assert!(text.contains(r#""cert_common_names":["broker:cloud"]"#));
+        assert!(text.contains("wy/plant-a/down/**"));
+        assert!(!text.contains("wy/plant-a/sys/**"), "upstream never reads sys");
+        assert!(text.contains(r#""key_exprs":["wy/plant-b/**"]"#));
+        let mut c = zenoh::Config::default();
+        c.insert_json5("access_control", &text).unwrap();
     }
 
     #[test]
