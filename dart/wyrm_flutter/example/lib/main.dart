@@ -1,0 +1,128 @@
+// Minimal WYRM tree browser. Connects either through the user gateway
+// (HTTP login + WebSocket) or directly to a Zenoh endpoint through the
+// wyrm-ffi library (set WYRM_FFI_LIB or bundle libwyrm_ffi with the app).
+//
+// Platform folders are not checked in: run `flutter create .` here once.
+
+import 'package:flutter/material.dart';
+import 'package:wyrm_ffi/wyrm_ffi.dart';
+import 'package:wyrm_flutter/wyrm_flutter.dart';
+
+void main() => runApp(const MaterialApp(title: 'WYRM', home: ConnectPage()));
+
+class ConnectPage extends StatefulWidget {
+  const ConnectPage({super.key});
+
+  @override
+  State<ConnectPage> createState() => _ConnectPageState();
+}
+
+class _ConnectPageState extends State<ConnectPage> {
+  final _url = TextEditingController(text: 'http://127.0.0.1:8443');
+  final _user = TextEditingController(text: 'admin');
+  final _password = TextEditingController();
+  final _endpoint = TextEditingController(text: 'tcp/127.0.0.1:7447');
+  final _root = TextEditingController(text: 'wy/local/down');
+
+  /// Direct mode: hex seed of a key in `admin_keys` (`wyr keygen`), for
+  /// set/invoke. Empty = read only.
+  final _seed = TextEditingController();
+  final _site = TextEditingController(text: 'local');
+  bool _direct = false;
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _connect() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final WyrmApi api;
+      if (_direct) {
+        final seed = _seed.text.trim();
+        api = await WyrmFfi.open(_endpoint.text,
+            seed: seed.isEmpty ? null : hexDecode(seed), site: seed.isEmpty ? null : _site.text);
+      } else {
+        final gw = await WyrmGateway.login(Uri.parse(_url.text), user: _user.text, password: _password.text);
+        api = await gw.connect();
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => TreePage(api: api, rootKey: _root.text),
+      ));
+      await api.close();
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('WYRM')),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          SwitchListTile(
+            title: const Text('Direct (FFI) instead of the gateway'),
+            value: _direct,
+            onChanged: (v) => setState(() => _direct = v),
+          ),
+          if (_direct) ...[
+            TextField(controller: _endpoint, decoration: const InputDecoration(labelText: 'Zenoh endpoint')),
+            TextField(
+                controller: _seed,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Key seed (hex, optional; empty = read only)')),
+            TextField(controller: _site, decoration: const InputDecoration(labelText: 'Site')),
+          ] else ...[
+            TextField(controller: _url, decoration: const InputDecoration(labelText: 'Gateway URL')),
+            TextField(controller: _user, decoration: const InputDecoration(labelText: 'User')),
+            TextField(
+                controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+          ],
+          TextField(controller: _root, decoration: const InputDecoration(labelText: 'Root key')),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _connect, child: const Text('Connect')),
+          if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ]),
+      );
+}
+
+class TreePage extends StatelessWidget {
+  final WyrmApi api;
+  final String rootKey;
+  const TreePage({super.key, required this.api, required this.rootKey});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(rootKey)),
+        body: WyrmTree(
+          api: api,
+          rootKey: rootKey,
+          onLeafTap: (key, child) => _write(context, key, child),
+        ),
+      );
+
+  Future<void> _write(BuildContext context, String key, Child child) async {
+    if (!child.meta.isWritable) return;
+    final ctl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Set $key'),
+        content: TextField(controller: ctl, autofocus: true),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx, ctl.text), child: const Text('Set'))],
+      ),
+    );
+    if (text == null) return;
+    final n = double.tryParse(text);
+    try {
+      await api.set(key, n != null ? VFloat(n) : VStr(text));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+}

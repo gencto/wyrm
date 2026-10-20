@@ -1,0 +1,19 @@
+name: wyrm_flutter_example
+description: Minimal WYRM tree browser — via the gateway (WebSocket) or directly (FFI).
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  wyrm_flutter:
+    path: ..
+  wyrm_ffi:
+    path: ../../wyrm_ffi
+
+dev_dependencies:
+  flutter_lints: ^6.0.0

@@ -1,0 +1,11 @@
+name: wyrm_core
+description: WYRM wire types and canonical CBOR codec (spec 02/03/04), checked against spec/fixtures.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

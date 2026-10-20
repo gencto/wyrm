@@ -21,3 +21,15 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install cbor2
       - run: python spec/fixtures/gen.py --check
+  dart-fixtures:
+    # spec rule: every SDK must pass the CBOR fixture test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+        working-directory: dart/wyrm_core
+      - run: dart analyze
+        working-directory: dart/wyrm_core
+      - run: dart test
+        working-directory: dart/wyrm_core

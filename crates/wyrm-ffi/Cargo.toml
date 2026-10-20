@@ -1,0 +1,35 @@
+[package]
+name = "wyrm-ffi"
+description = "WYRM C ABI over wyrm-client (Dart FFI and C): open, list/subscribe/set/invoke, polled CBOR events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# `wyrm_open_test_mock`: an isolated in-process Zenoh session with the mock
+# link and a trusted test key. For SDK tests only; never ship it.
+test-harness = ["dep:wyrm-link-sdk", "dep:wyrm-link-mock", "wyrm-link-sdk/harness"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-client.workspace = true
+zenoh = { workspace = true, features = ["transport_tcp"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+ed25519-dalek.workspace = true
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-mock = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-ffi = { path = ".", features = ["test-harness"] }
+wyrm-core.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-mock.workspace = true
+ed25519-dalek.workspace = true
+zenoh = { workspace = true, features = ["transport_tcp"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
