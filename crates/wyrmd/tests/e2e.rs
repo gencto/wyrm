@@ -272,9 +272,10 @@ async fn modbus_as_process() {
     let env = Env::start(
         "process",
         &format!(
-            // poll_unsubscribed: under the ACL a process link never sees the
-            // storage's `wy/**/~val` subscription, so the subscriber gate
-            // would never open (framework issue, reported).
+            // poll_unsubscribed: the test reads values with `get` (the
+            // storage), not a subscription; under the ACL a process link
+            // sees only real subscribers (see
+            // `process_link_polls_only_while_subscribed`).
             r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ poll_unsubscribed: true, connections: {{ c1: {{
                 host: "127.0.0.1", port: {},
                 devices: {{ ahu1: {{ unit: 1, points: {{
@@ -1158,4 +1159,55 @@ fn verify_state_finds_a_tampered_wal() {
         let audit = checks.iter().find(|c| c.name == "audit").unwrap();
         assert!(!audit.ok(), "tampering found");
     }
+}
+
+/// The subscriber gate of a process link: the `~val` storage subscribes to
+/// `wy/**/~val`, which the link ACL (`wy/S/down/L/**`) does not pass on, so
+/// the link polls only while a real subscriber (one point or a pattern
+/// under `down/**`) exists. Embedded links share the router with the
+/// storage and therefore always poll (open owner decision 6).
+#[tokio::test(flavor = "multi_thread")]
+async fn process_link_polls_only_while_subscribed() {
+    let (addr, dev, _task) = wyrm_link_modbus::sim::spawn("127.0.0.1:0").await.unwrap();
+    let env = Env::start(
+        "gate",
+        &format!(
+            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ connections: {{ c1: {{
+                host: "127.0.0.1", port: {},
+                devices: {{ ahu1: {{ unit: 1, points: {{
+                  supply_temp: {{ table: "input", addr: 1, dtype: "i16", scale: 0.1, poll_s: 0.05 }},
+                }} }} }},
+            }} }} }} }} }},"#,
+            addr.port()
+        ),
+    )
+    .await;
+    let c = env.client().await;
+    let state = format!("wy/{SITE}/sys/links/plc1/state");
+    eventually("plc1 connected", 15, || async {
+        (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
+    })
+    .await;
+    let reqs = || dev.lock().unwrap().requests;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let r0 = reqs();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let idle = reqs() - r0;
+    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
+    let _s = c.subscribe(&node).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let r1 = reqs();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let exact = reqs() - r1;
+    let pat = format!("wy/{SITE}/down/**");
+    drop(_s);
+    let _p = c.subscribe(&pat).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let r2 = reqs();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let pattern = reqs() - r2;
+    assert_eq!(idle, 0, "no subscriber, no polling");
+    assert!(exact >= 5, "one point subscribed: {exact} requests/s");
+    assert!(pattern >= 5, "down/** subscribed: {pattern} requests/s");
+    env.stop().await;
 }
