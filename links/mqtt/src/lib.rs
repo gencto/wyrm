@@ -59,14 +59,18 @@ tokio::task_local! {
     static BINDINGS: Bindings;
 }
 
-/// Where a password goes: host, port, tls, CA file.
-type Dest = (String, u16, bool, String);
+/// Where a password goes: host, port, tls, CA file, CA PEM (the same
+/// fields as the `dest` params of [`Conn`]).
+type Dest = (String, u16, bool, String, String);
 
 /// Each `auth_ref` is bound to the destinations of the connections that
-/// use it in the bootstrap tree (`~def`, set by the admin at install).
-/// Connections added or edited at runtime (`config` on the link's tree,
-/// a lower bar) may use a secret only for one of those destinations, so
-/// a tree edit cannot redirect the password to another host.
+/// use it in the tree the link starts with: the install params (`~def`,
+/// set by the admin), or the sealed tree in `data_dir` when it was saved
+/// for those same params; every entry of that tree passed this check when
+/// it was edited, and a tampered file does not open. Connections added or
+/// edited at runtime (`config` on the link's tree, a lower bar) may use a
+/// secret only for one of those destinations, so a tree edit cannot
+/// redirect the password to another host or a CA of the caller's choice.
 #[derive(Clone, Default)]
 struct Bindings {
     /// `true` while the bootstrap tree is parsed: record instead of check.
@@ -87,7 +91,7 @@ impl Bindings {
             Err(bad(
                 "auth_ref",
                 "this secret is bound to the destinations in the link's install \
-                 params; change host/port/tls/ca_file there",
+                 params; change host/port/tls/ca_file/ca_pem there",
             ))
         }
     }
@@ -285,7 +289,13 @@ impl Params for Conn {
                     "a password is never sent in plaintext to a non-loopback host",
                 ));
             }
-            let dest = (c.host.clone(), c.port, c.tls, c.ca_file.clone());
+            let dest = (
+                c.host.clone(),
+                c.port,
+                c.tls,
+                c.ca_file.clone(),
+                c.ca_pem.clone(),
+            );
             match BINDINGS.try_with(|b| b.admit(&c.auth_ref, dest)) {
                 Ok(r) => r?,
                 Err(_) => return Err(bad("auth_ref", "no secret bindings in this context")),
@@ -1176,7 +1186,7 @@ mod tests {
         // at runtime the secret goes only where the install params sent it
         let runtime = Bindings {
             recording: false,
-            map: rec.map,
+            map: rec.map.clone(),
         };
         let parse = |v: Value| {
             SECRETS.scope(
@@ -1192,6 +1202,35 @@ mod tests {
             ("auth_ref", "broker".into()),
         ]);
         let e = parse(moved).await.unwrap_err();
+        assert!(e.message.contains("bound"), "{}", e.message);
+
+        // Same host, port and tls, but a CA of the caller's choice: refused.
+        let ca = |cn: &str| {
+            let k = rcgen::KeyPair::generate().unwrap();
+            let mut p = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            p.distinguished_name.push(rcgen::DnType::CommonName, cn);
+            p.self_signed(&k).unwrap().pem()
+        };
+        let tls_args = |pem: &str| {
+            map(&[
+                ("host", "broker.example".into()),
+                ("tls", true.into()),
+                ("ca_pem", pem.into()),
+                ("username", "u".into()),
+                ("auth_ref", "broker".into()),
+            ])
+        };
+        let (ours, theirs) = (ca("ours"), ca("theirs"));
+        SECRETS
+            .scope(
+                store.clone(),
+                BINDINGS.scope(rec.clone(), async { Conn::from_value(&tls_args(&ours)) }),
+            )
+            .await
+            .unwrap();
+        assert!(parse(tls_args(&ours)).await.is_ok(), "bound CA");
+        let e = parse(tls_args(&theirs)).await.unwrap_err();
         assert!(e.message.contains("bound"), "{}", e.message);
     }
 
