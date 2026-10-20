@@ -28,7 +28,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrm-ffi` | C ABI over `wyrm-client` (`include/wyrm.h`) for Dart and other languages |
 | `dart/` | `wyrm_core` (CBOR codec, 23 fixtures), `wyrm_client` (gateway WebSocket), `wyrm_ffi` (direct, via `wyrm-ffi`), `wyrm_flutter` (tree widget + example app) |
 | `tools/wyrm-mcp` | MCP server over the tree for AI tools: browse, read, dry-run first, human approval for config-level changes (`docs/mcp.md`, ADR 0005) |
-| `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`, `set`, `invoke`, `bench`, `keygen`, `admin …` |
+| `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`/`watch`, `tree`, `set`, `invoke`, `bench`, `keygen`, `token` (human approval), `admin …`, `flow …`, and dev commands `new link\|flow`, `dev`, `sim`, `record`, `replay` (`tools/wyr/README.md`) |
 
 Planned: `wyrm-history`, `wyrm-mcp`, more links.
 

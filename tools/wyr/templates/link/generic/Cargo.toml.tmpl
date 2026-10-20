@@ -1,0 +1,24 @@
+[package]
+name = "__CRATE__"
+description = "WYRM __NAME__ connector on the driver framework (ADR 0004)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process device simulator for tests and demos.
+sim = []
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net", "io-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+__CRATE__ = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

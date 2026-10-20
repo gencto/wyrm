@@ -1,0 +1,140 @@
+//! The `__NAME__` driver against its in-process simulator, through the
+//! real wire format (`TestHarness`: in-memory Zenoh session, no network).
+
+use std::time::Duration;
+use wyrm_core::{Perm, Quality, Status, Value};
+use wyrm_link_sdk::driver::Tree;
+use wyrm_link_sdk::TestHarness;
+
+use __LIB__::{sim, __TYPE__};
+
+type H = TestHarness<__TYPE__>;
+
+fn map(kv: &[(&str, Value)]) -> Value {
+    Value::Map(
+        kv.iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
+}
+
+fn point(addr: u64, extra: &[(&str, Value)]) -> Value {
+    let mut kv = vec![("addr", Value::UInt(addr)), ("poll_s", Value::Float(0.05))];
+    kv.extend_from_slice(extra);
+    map(&kv)
+}
+
+/// `c1/d1` on the simulator at `port` with points `temp`, `sp` and `bad`.
+fn tree(port: u16) -> Tree {
+    let points = map(&[
+        ("temp", point(10, &[("unit", "°C".into())])),
+        ("sp", point(11, &[("writable", Value::Bool(true))])),
+        ("bad", point(5000, &[])),
+    ]);
+    Tree(map(&[
+        // Tests have no subscribers; poll anyway.
+        ("poll_unsubscribed", Value::Bool(true)),
+        (
+            "connections",
+            map(&[(
+                "c1",
+                map(&[
+                    ("host", "127.0.0.1".into()),
+                    ("port", Value::UInt(port.into())),
+                    ("timeout_ms", Value::UInt(200)),
+                    (
+                        "devices",
+                        map(&[(
+                            "d1",
+                            map(&[
+                                ("station", Value::UInt(1)),
+                                ("ping_s", Value::Float(0.1)),
+                                ("points", points),
+                            ]),
+                        )]),
+                    ),
+                ]),
+            )]),
+        ),
+    ]))
+}
+
+fn state(h: &H, base: &str) -> Option<String> {
+    match h.ctx().last(&format!("{base}/status"))?.v {
+        Value::Map(m) => match m.get("state") {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+async fn wait(what: &str, mut f: impl FnMut() -> bool) {
+    // Generous: the workspace suite runs many sessions in parallel.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !f() {
+        assert!(tokio::time::Instant::now() < deadline, "timeout: {what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn status(a: &wyrm_core::Attachment) -> Option<Status> {
+    match a.status? {
+        wyrm_core::status::StatusCode::Known(s) => Some(s),
+        _ => None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn values_errors_and_writes() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().values.insert((1, 10), 21.5);
+    let h = H::start(tree(addr.port())).await;
+    wait("device connected", || {
+        state(&h, "c1/d1").as_deref() == Some("connected")
+    })
+    .await;
+    wait("temp polled", || h.ctx().last("c1/d1/temp").is_some()).await;
+    let temp = h.ctx().last("c1/d1/temp").unwrap();
+    assert_eq!((temp.v, temp.q), (Value::Float(21.5), Quality::Good));
+    // an error reply fails one point, not the device
+    wait("bad point", || {
+        h.ctx()
+            .last("c1/d1/bad")
+            .is_some_and(|s| s.q == Quality::Bad)
+    })
+    .await;
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+    // writes: request/response, the value comes from the read-back
+    let att = h.set("c1/d1/sp", 42.0, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Some(Status::Ok));
+    assert_eq!(dev.lock().unwrap().values.get(&(1, 11)), Some(&42.0));
+    wait("read back", || {
+        h.ctx().last("c1/d1/sp").map(|s| s.v) == Some(Value::Float(42.0))
+    })
+    .await;
+    // read-only point refuses the write
+    let att = h.set("c1/d1/temp", 1.0, Some(h.ptok(Perm::Write))).await;
+    assert_ne!(status(&att), Some(Status::Ok));
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn silent_device_degrades_quality() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let h = H::start(tree(addr.port())).await;
+    wait("good value", || {
+        h.ctx()
+            .last("c1/d1/temp")
+            .is_some_and(|s| s.q == Quality::Good)
+    })
+    .await;
+    dev.lock().unwrap().silent = true;
+    wait("uncertain/stale then bad/comm_fail", || {
+        h.ctx()
+            .last("c1/d1/temp")
+            .is_some_and(|s| s.q == Quality::Bad)
+    })
+    .await;
+    h.stop().await;
+}

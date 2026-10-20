@@ -136,8 +136,33 @@ async fn state_line(c: &WyrmClient, node: &str) -> String {
     s
 }
 
+/// Compile `def` with the engine's `validate` action (nothing is deployed).
+pub(crate) async fn validate(c: &WyrmClient, site: &str, def: Value) -> Result<(), Error> {
+    let mut args = BTreeMap::new();
+    args.insert("def".to_owned(), def);
+    match c
+        .invoke_one(&root(site), "validate", Value::Map(args))
+        .await?
+    {
+        Some(Value::Map(m)) if m.get("ok") == Some(&Value::Bool(true)) => Ok(()),
+        Some(Value::Map(m)) => {
+            let e = match m.get("error") {
+                Some(Value::Str(s)) => s.clone(),
+                Some(v) => fmt_value(v),
+                None => "invalid".into(),
+            };
+            Err(format!("invalid: {e}").into())
+        }
+        other => Err(format!(
+            "validate: unexpected reply {}",
+            other.map(|v| fmt_value(&v)).unwrap_or_default()
+        )
+        .into()),
+    }
+}
+
 /// `get <node>/~def` with a `ptok` (restricted nodes need `list`).
-async fn get_def(c: &WyrmClient, node: &str) -> Result<Value, Error> {
+pub(crate) async fn get_def(c: &WyrmClient, node: &str) -> Result<Value, Error> {
     let key = format!("{node}/~def");
     let att = Attachment {
         ptok: c.proof(&key),
@@ -198,23 +223,8 @@ pub async fn run(c: &WyrmClient, cmd: FlowCmd) -> Result<(), Error> {
             Ok(())
         }
         FlowCmd::Validate { site, file } => {
-            let mut args = BTreeMap::new();
-            args.insert("def".to_owned(), read_def(&file)?);
-            match c
-                .invoke_one(&root(&site), "validate", Value::Map(args))
-                .await?
-            {
-                Some(Value::Map(m)) if m.get("ok") == Some(&Value::Bool(true)) => out!("ok"),
-                Some(Value::Map(m)) => {
-                    let e = match m.get("error") {
-                        Some(Value::Str(s)) => s.clone(),
-                        Some(v) => fmt_value(v),
-                        None => "invalid".into(),
-                    };
-                    return Err(format!("invalid: {e}").into());
-                }
-                other => out!("{}", other.map(|v| fmt_value(&v)).unwrap_or_default()),
-            }
+            validate(c, &site, read_def(&file)?).await?;
+            out!("ok");
             Ok(())
         }
         FlowCmd::Deploy { site, file } => {

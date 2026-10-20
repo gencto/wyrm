@@ -1,0 +1,96 @@
+//! Device simulator (feature `sim`) for the placeholder line protocol in
+//! the crate docs: `SIZE` numeric registers per station, all zero at start.
+//! Addresses outside the table answer `ERR illegal address`; `silent`
+//! makes the simulator stop answering (device timeout). Replace it with a
+//! simulator of the real protocol.
+
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+
+pub const SIZE: u16 = 1000;
+
+#[derive(Debug, Default)]
+pub struct Registers {
+    /// `(station, addr)` → value.
+    pub values: HashMap<(u8, u16), f64>,
+    /// Requests served.
+    pub requests: u64,
+    /// Do not answer at all.
+    pub silent: bool,
+}
+
+pub type Device = Arc<Mutex<Registers>>;
+
+/// Listen on `addr` (`127.0.0.1:0` for a free port).
+pub async fn spawn(
+    addr: &str,
+) -> std::io::Result<(SocketAddr, Device, tokio::task::JoinHandle<()>)> {
+    let listener = TcpListener::bind(addr).await?;
+    let local = listener.local_addr()?;
+    let device = Device::default();
+    let dev = device.clone();
+    let task = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(serve(stream, dev.clone()));
+        }
+    });
+    Ok((local, device, task))
+}
+
+async fn serve(stream: TcpStream, dev: Device) {
+    let mut io = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match io.read_line(&mut line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        let Some(reply) = answer(&dev, line.trim_end()) else {
+            continue;
+        };
+        if io.write_all(reply.as_bytes()).await.is_err() {
+            return;
+        }
+    }
+}
+
+fn answer(dev: &Device, req: &str) -> Option<String> {
+    let mut t = dev.lock().unwrap_or_else(|p| p.into_inner());
+    t.requests += 1;
+    if t.silent {
+        return None;
+    }
+    let words: Vec<&str> = req.split(' ').collect();
+    let seq = words.first()?;
+    let num = |i: usize| words.get(i).and_then(|w| w.parse::<f64>().ok());
+    let slot = |i: usize, j: usize| -> Result<(u8, u16), &'static str> {
+        let st = words.get(i).and_then(|w| w.parse::<u8>().ok());
+        let a = words.get(j).and_then(|w| w.parse::<u16>().ok());
+        match (st, a) {
+            (Some(st), Some(a)) if a < SIZE => Ok((st, a)),
+            (Some(_), Some(_)) => Err("illegal address"),
+            _ => Err("bad request"),
+        }
+    };
+    let body = match words.get(1).copied() {
+        Some("PING") => Ok(String::new()),
+        Some("READ") => slot(2, 3).map(|k| {
+            let v = t.values.get(&k).copied().unwrap_or(0.0);
+            format!(" {v}")
+        }),
+        Some("WRITE") => slot(2, 3).and_then(|k| {
+            let v = num(4).ok_or("bad value")?;
+            t.values.insert(k, v);
+            Ok(String::new())
+        }),
+        _ => Err("unknown command"),
+    };
+    Some(match body {
+        Ok(rest) => format!("{seq} OK{rest}\n"),
+        Err(e) => format!("{seq} ERR {e}\n"),
+    })
+}

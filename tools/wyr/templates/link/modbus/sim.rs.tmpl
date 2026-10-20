@@ -1,0 +1,6 @@
+//! Simulator (feature `sim`): the Modbus TCP simulator of `links/modbus`
+//! (1000 coils, discrete inputs, input and holding registers). Preload
+//! the registers your device model expects in the tests, or replace this
+//! with a simulator of the device's own behaviour.
+
+pub use wyrm_link_modbus::sim::{spawn, Device, Tables, SIZE};
