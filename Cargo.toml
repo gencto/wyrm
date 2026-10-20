@@ -5,7 +5,7 @@ members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyr
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/gencto/wyrm"
 authors = ["Mykhailo <info@gencto.uk>"]
