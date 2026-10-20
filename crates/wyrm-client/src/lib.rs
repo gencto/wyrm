@@ -251,6 +251,40 @@ impl WyrmClient {
         decode(&r.payload)
     }
 
+    /// A profile from `wy/<site>/pub/<name>/~meta`; `expand` asks for the
+    /// profile with its `extends` chain folded in.
+    pub async fn profile(
+        &self,
+        site: &str,
+        name: &str,
+        expand: bool,
+    ) -> Result<wyrm_core::profile::ProfileDef> {
+        let key = format!("wy/{site}/pub/{name}/~meta");
+        let sel = if expand {
+            format!("{key}?expand=true")
+        } else {
+            key
+        };
+        let r = self.one(&sel, None, Attachment::default(), false).await?;
+        decode(&r.payload)
+    }
+
+    /// `~meta` of `node` with every absent field taken from its profile
+    /// chain (spec 02 "Успадкування"). Profiles given by code are not
+    /// expanded yet.
+    pub async fn meta_expanded(&self, node: &str) -> Result<NodeMeta> {
+        let meta = self.meta(node).await?;
+        let Some(wyrm_core::meta::Profile::Name(name)) = &meta.is else {
+            return Ok(meta);
+        };
+        let site = node
+            .strip_prefix("wy/")
+            .and_then(|r| r.split('/').next())
+            .unwrap_or_default();
+        let p = self.profile(site, name, true).await?;
+        Ok(wyrm_core::profile::inherit(&meta, &p.meta))
+    }
+
     async fn meta_raw(&self, node: &str, params: &str) -> Result<Response> {
         let key = suffixed(node, SUFFIX_META);
         let sel = if params.is_empty() {

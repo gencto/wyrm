@@ -499,6 +499,7 @@ impl Control {
             tokio::spawn(watch_quarantine(self.clone(), ctx.clone())),
             tokio::spawn(watch_metrics(self.clone(), ctx.clone())),
             tokio::spawn(watch_audit(self.clone(), ctx.clone())),
+            tokio::spawn(serve_profiles(self.clone(), session.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         Ok(Attached {
@@ -728,6 +729,24 @@ impl Link for Admin {
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
         }
+        ctx.declare_node("profiles", NodeMeta::folder()).await?;
+        ctx.declare_action(
+            "profiles",
+            "put",
+            ActionMeta::new()
+                .param("name", str_param().required(true))
+                .param("profile", ParamMeta::of(TypeCode::Binary).required(true))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "profiles",
+            "remove",
+            ActionMeta::new()
+                .param("name", str_param().required(true))
+                .level(Perm::Config),
+        )
+        .await?;
         ctx.declare_node("quarantine", NodeMeta::folder()).await?;
         for (cn, e) in &reg.quarantine {
             declare_quarantined(&ctx, cn, e).await?;
@@ -785,6 +804,8 @@ impl Link for Admin {
             (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
             (["quarantine", cn], "approve") => self.approve(cn, &args, &sub).await,
             (["quarantine", cn], "reject") => self.reject(cn, &sub).await.map(|_| None),
+            (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
+            (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
             (["audit"], "tail") => {
                 let n = arg(&args, "n").and_then(Value::as_f64).unwrap_or(50.0) as usize;
                 Ok(Some(Value::Array(
@@ -987,6 +1008,41 @@ impl Admin {
                 .map(Value::Str)
                 .collect(),
         )
+    }
+
+    /// `profiles/~act/put {name, profile: CBOR ProfileDef}`; publishes the
+    /// new profile on `pub/<name>/~meta` for subscribers.
+    async fn put_profile(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let name = arg_str(args, "name").unwrap_or_default().to_owned();
+        let Some(Value::Bytes(cbor)) = arg(args, "profile") else {
+            return Err(LinkError::invalid_parameter("profile: CBOR bytes required"));
+        };
+        self.ctl
+            .apply(Op::PutProfile {
+                name: name.clone(),
+                cbor: cbor.clone(),
+            })
+            .map_err(rejected)?;
+        self.ctl.record(sub, "profile_put", &name, Status::Ok, "");
+        let key = profile_key(&self.ctl.cfg.site, &name);
+        if let Err(e) = self.ctx.client().put(&key, cbor.clone()).await {
+            debug!("publish {key}: {e}");
+        }
+        Ok(())
+    }
+
+    async fn remove_profile(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let name = arg_str(args, "name").unwrap_or_default().to_owned();
+        self.ctl
+            .apply(Op::RemoveProfile(name.clone()))
+            .map_err(rejected)?;
+        self.ctl
+            .record(sub, "profile_remove", &name, Status::Ok, "");
+        let key = profile_key(&self.ctl.cfg.site, &name);
+        if let Err(e) = self.ctx.client().delete(&key).await {
+            debug!("delete {key}: {e}");
+        }
+        Ok(())
     }
 
     fn def(&self, id: &str) -> wyrm_link_sdk::Result<LinkDef> {
@@ -1304,6 +1360,84 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             .apply(rec)
         {
             warn!("audit write failed: {e}");
+        }
+    }
+}
+
+fn profile_key(site: &str, name: &str) -> String {
+    format!("wy/{site}/pub/{name}/~meta")
+}
+
+/// `wy/<site>/pub/**` (spec 01/02): `<name>/~meta` answers the CBOR
+/// `ProfileDef`; with `?expand=true` the profile with its `extends` chain
+/// folded in (no `extends` left). A wildcard `get` answers every match.
+async fn serve_profiles(ctl: Arc<Control>, session: Session) {
+    let key = format!("wy/{}/pub/**", ctl.cfg.site);
+    let q = match session.declare_queryable(&key).complete(true).await {
+        Ok(q) => q,
+        Err(e) => {
+            warn!("profiles queryable: {e}");
+            return;
+        }
+    };
+    while let Ok(query) = q.recv_async().await {
+        answer_profiles(&ctl, &query).await;
+    }
+}
+
+async fn answer_profiles(ctl: &Control, q: &zenoh::query::Query) {
+    use wyrm_core::profile::{self, ProfileDef};
+    let reg = ctl.registry();
+    let site = &ctl.cfg.site;
+    let expand = q
+        .parameters()
+        .as_str()
+        .split('&')
+        .any(|kv| kv == "expand=true");
+    let names: Vec<String> = profile::builtins()
+        .into_iter()
+        .map(|(n, _)| n.to_owned())
+        .chain(reg.profiles.keys().cloned())
+        .collect();
+    let qk = q.key_expr();
+    let mut found = false;
+    for name in names {
+        let k = profile_key(site, &name);
+        if !zenoh::key_expr::keyexpr::new(&k).is_ok_and(|k| k.intersects(qk)) {
+            continue;
+        }
+        let Some(p) = reg.profile(&name) else {
+            continue;
+        };
+        let out = if expand {
+            let start = NodeMeta {
+                is: p.extends.clone().map(Profile::Name),
+                ..p.meta.clone()
+            };
+            let mut meta = profile::expand(&start, |n| reg.profile(n));
+            meta.is = None;
+            ProfileDef {
+                meta,
+                extends: None,
+            }
+        } else {
+            p
+        };
+        let ok = wyrm_core::codec::to_vec(&wyrm_core::Attachment::with_status(Status::Ok));
+        if let (Ok(bytes), Ok(ok)) = (wyrm_core::codec::to_vec(&out), ok) {
+            if let Err(e) = q.reply(&k, bytes).attachment(ok).await {
+                debug!("reply {k}: {e}");
+            }
+            found = true;
+        }
+    }
+    if !found && !qk.as_str().contains('*') {
+        let att = wyrm_core::Attachment::with_status(Status::NotFound);
+        if let Ok(a) = wyrm_core::codec::to_vec(&att) {
+            let _ = q
+                .reply(q.key_expr().clone(), Vec::<u8>::new())
+                .attachment(a)
+                .await;
         }
     }
 }

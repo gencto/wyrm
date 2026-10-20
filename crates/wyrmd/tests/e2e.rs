@@ -801,3 +801,98 @@ async fn tls_listener_refuses_missing_and_foreign_certificates() {
     s.close().await.unwrap();
     env.stop().await;
 }
+
+/// Profiles (spec 01/02): the admin stores and serves `pub/<name>/~meta`;
+/// built-ins are fixed; `expand` folds `extends` in; links read profiles
+/// through the ACL but cannot write them.
+#[tokio::test(flavor = "multi_thread")]
+async fn profiles_stored_served_and_inherited() {
+    use wyrm_core::meta::{TextOrCode, TypeCode};
+    use wyrm_core::profile::ProfileDef;
+    let env = Env::start(
+        "profiles",
+        r#"links: { ext: { driver: "x", mode: "external" } },"#,
+    )
+    .await;
+    let c = env.client().await;
+    let sys = format!("wy/{SITE}/sys/profiles");
+    let put = |name: &str, p: &ProfileDef| {
+        let mut a = BTreeMap::new();
+        a.insert("name".to_owned(), Value::from(name));
+        a.insert(
+            "profile".to_owned(),
+            Value::Bytes(wyrm_core::codec::to_vec(p).unwrap()),
+        );
+        c.invoke_one(&sys, "put", Value::Map(a))
+    };
+    let temp = ProfileDef {
+        meta: wyrm_core::NodeMeta {
+            unit: Some(TextOrCode::Text("°C".into())),
+            ..Default::default()
+        },
+        extends: Some("wy:number".into()),
+    };
+    put("acme:temp", &temp).await.unwrap();
+    // built-ins are fixed; unknown parents and bad names are refused
+    assert!(put("wy:number", &temp).await.is_err());
+    let orphan = ProfileDef {
+        extends: Some("acme:nothing".into()),
+        ..temp.clone()
+    };
+    assert!(put("acme:orphan", &orphan).await.is_err());
+    assert!(put("nocolon", &temp).await.is_err());
+
+    assert_eq!(c.profile(SITE, "acme:temp", false).await.unwrap(), temp);
+    let e = c.profile(SITE, "acme:temp", true).await.unwrap();
+    assert_eq!(e.meta.ty, Some(TypeCode::Number), "from wy:number");
+    assert_eq!(e.extends, None);
+    assert!(c.profile(SITE, "acme:missing", false).await.is_err());
+    // wildcard: built-ins and stored ones
+    let r = c
+        .session()
+        .get(format!("wy/{SITE}/pub/*/~meta"))
+        .await
+        .unwrap();
+    let mut n = 0;
+    while let Ok(rep) = r.recv_async().await {
+        if rep.result().is_ok() {
+            n += 1;
+        }
+    }
+    assert_eq!(n, 11, "10 built-ins + acme:temp");
+
+    // a link reads profiles through the ACL, but cannot put into pub/**
+    let s = env.tls_session("ext").await;
+    let got = s
+        .get(format!("wy/{SITE}/pub/acme:temp/~meta"))
+        .await
+        .unwrap()
+        .recv_async()
+        .await
+        .ok()
+        .and_then(|r| r.result().ok().map(|s| s.payload().to_bytes().to_vec()));
+    assert_eq!(
+        got.map(|b| wyrm_core::codec::from_slice::<ProfileDef>(&b).unwrap()),
+        Some(temp.clone())
+    );
+    let sub = c
+        .session()
+        .declare_subscriber(format!("wy/{SITE}/pub/**"))
+        .await
+        .unwrap();
+    s.put(format!("wy/{SITE}/pub/acme:temp/~meta"), vec![0u8])
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), sub.recv_async())
+            .await
+            .is_err(),
+        "the ACL drops a link's put into pub/**"
+    );
+
+    let mut a = BTreeMap::new();
+    a.insert("name".to_owned(), Value::from("acme:temp"));
+    c.invoke_one(&sys, "remove", Value::Map(a)).await.unwrap();
+    assert!(c.profile(SITE, "acme:temp", false).await.is_err());
+    env.stop().await;
+}

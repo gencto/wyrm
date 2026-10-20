@@ -203,6 +203,18 @@
   "note": null
  },
  {
+  "name": "profile_extends",
+  "description": "pub/<profile>/~meta: поля ~meta + текстовий ключ extends",
+  "hex": "a301010263c2b04367657874656e64736977793a6e756d626572",
+  "len": 26,
+  "json": {
+   "1": 1,
+   "2": "°C",
+   "extends": "wy:number"
+  },
+  "note": null
+ },
+ {
   "name": "att_reply_ok",
   "description": "attachment відповіді set/invoke: ok",
   "hex": "a10000",

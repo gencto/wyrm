@@ -4,8 +4,9 @@
 //! into the router, `egress` = from the router to that session.
 //!
 //! * link `L` (process/external, CN `L`): everything on `wy/S/down/L/**`,
-//!   `query`/`reply` on its own `sys/links/L/~act/hello`, and liveliness of
-//!   `sys/broker` (re-publish after a broker restart).
+//!   `query`/`reply` on its own `sys/links/L/~act/hello`, liveliness of
+//!   `sys/broker` (re-publish after a broker restart), and reading the
+//!   profiles under `pub/**` (also allowed to upstream peer sites).
 //! * requesters — loopback `tcp`/`unixsock-stream` in `prod`, and operator
 //!   CNs: they may ask (query, subscribe, liveliness) and receive (put,
 //!   delete, reply, liveliness token) on `wy/S/**`, but never publish, serve
@@ -89,6 +90,20 @@ pub fn access_control_with_peers(
             &requester_keys,
         ),
         rule("requester-adv", &["ingress", "egress"], ALL, &adv_keys),
+        // Profiles (`pub/**`): links and peer sites read and follow them;
+        // only the admin (in-process, outside the ACL) writes them.
+        rule(
+            "pub-in",
+            &["ingress"],
+            &["query", "declare_subscriber"],
+            &[format!("wy/{site}/pub/**")],
+        ),
+        rule(
+            "pub-out",
+            &["egress"],
+            &["reply", "put", "delete"],
+            &[format!("wy/{site}/pub/**")],
+        ),
         rule(
             "broker-watch",
             &["ingress", "egress"],
@@ -139,7 +154,7 @@ pub fn access_control_with_peers(
         // trusted only on the QUIC broker listener.
         subjects.push(json!({ "id": format!("cn-{id}"), "cert_common_names": [id], "link_protocols": ["tls"] }));
         policies.push(json!({
-            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch"],
+            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch", "pub-in", "pub-out"],
             "subjects": [format!("cn-{id}")],
         }));
     }
@@ -192,7 +207,7 @@ pub fn access_control_with_peers(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "pub-in", "pub-out"], "subjects": ["upstream"] }));
     }
     for d in &peers.downstream {
         rules.push(rule(

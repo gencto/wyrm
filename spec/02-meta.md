@@ -27,7 +27,7 @@ param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": 
 ```
 
 ## Успадкування
-Відсутнє поле береться з профілю `is` (рекурсивно через `extends` у профілі). SDK responder'а відповідає **розгорнутим** `~meta` у `view=full` лише на `?expand=true`; за замовчуванням — тільки власні поля (економія).
+Відсутнє поле береться з профілю `is` (рекурсивно через `extends` у профілі). Профіль (`pub/<profile>/~meta`) — та сама map, що `~meta`, плюс текстовий ключ `"extends": tstr` (ім'я батьківського профілю); ланцюг ≤ 8, без циклів. `cfg`, `attr`, `actions` зливаються по ключах (власні виграють); `is`, `rev`, `children` і поля `view=list` не успадковуються. `pub/**` пише лише `wyrm-admin`; `?expand=true` — профіль з уже злитим ланцюгом. SDK responder'а відповідає **розгорнутим** `~meta` у `view=full` лише на `?expand=true`; за замовчуванням — тільки власні поля (економія).
 
 ## `view=list`
 Відповідь — **CBOR array** map'ів дітей з ключами `{0,1,10,11,12?,13?,15?}`; порядок = `children`. Пагінація `from/limit`.
@@ -38,4 +38,4 @@ param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": 
 ## Patch
 `put ~meta` при зміні — `{10: rev, "patch": {<key>: <value>, ...}}`; відсутність `"patch"` = повний `~meta`. Requester, що бачить `rev` ≠ `last_rev+1`, робить `get ~meta`.
 
-Фікстури: `meta_number_full`, `meta_folder_full`, `meta_profile_only`, `meta_view_list`, `meta_view_keys`, `meta_patch`.
+Фікстури: `meta_number_full`, `meta_folder_full`, `meta_profile_only`, `meta_view_list`, `meta_view_keys`, `meta_patch`, `profile_extends`.

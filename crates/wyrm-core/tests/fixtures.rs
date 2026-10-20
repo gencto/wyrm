@@ -67,7 +67,7 @@ where
 #[test]
 fn all_fixtures_roundtrip() {
     let fx = fixtures();
-    assert_eq!(fx.len(), 22, "fixture count changed — update bindings too");
+    assert_eq!(fx.len(), 23, "fixture count changed — update bindings too");
     for f in &fx {
         let bytes = hex::decode(&f.hex).unwrap();
         let n = f.name.as_str();
@@ -76,6 +76,9 @@ fn all_fixtures_roundtrip() {
             "meta_view_list" => roundtrip::<Vec<NodeMeta>>(n, &bytes),
             "meta_view_keys" => roundtrip::<Vec<String>>(n, &bytes),
             "meta_patch" => roundtrip::<MetaPatch>(n, &bytes),
+            _ if n.starts_with("profile_") => {
+                roundtrip::<wyrm_core::profile::ProfileDef>(n, &bytes)
+            }
             _ if n.starts_with("meta_") => roundtrip::<NodeMeta>(n, &bytes),
             _ if n.starts_with("att_") => roundtrip::<Attachment>(n, &bytes),
             "ptok_claims_v1" => roundtrip::<Value>(n, &bytes),

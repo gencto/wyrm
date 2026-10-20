@@ -51,6 +51,8 @@ def fixtures():
     add("meta_view_keys", "~meta?view=keys: префіксно стиснуті ключі ('/'-суфікс = push, '' = pop)",
         ["ahu1/", "supply_temp", "return_temp", "fan", "", "ahu2/", "supply_temp", ""])
     add("meta_patch", "~meta patch: {rev, patch}", {10: 18, "patch": {4: 2}})
+    add("profile_extends", "pub/<profile>/~meta: поля ~meta + текстовий ключ extends",
+        {1: 1, 2: "°C", "extends": "wy:number"})
 
     # attachment
     add("att_reply_ok", "attachment відповіді set/invoke: ok", {0: 0})

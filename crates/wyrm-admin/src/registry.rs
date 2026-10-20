@@ -4,6 +4,7 @@ use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use wyrm_core::keyspace::validate_segment;
+use wyrm_core::profile::{self, ProfileDef};
 
 /// A link id is a key segment, a certificate CN and a directory name under
 /// `data_dir/links`: no leading `.` (rejects `.` and `..`), no reserved names.
@@ -137,6 +138,17 @@ pub enum Op {
     /// Leave quarantine and never record this CN again.
     #[n(6)]
     Reject(#[n(0)] String),
+    /// Add or replace a profile (`pub/<name>/~meta`, CBOR `ProfileDef`).
+    #[n(7)]
+    PutProfile {
+        #[n(0)]
+        name: String,
+        #[n(1)]
+        #[cbor(with = "minicbor::bytes")]
+        cbor: Vec<u8>,
+    },
+    #[n(8)]
+    RemoveProfile(#[n(0)] String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -148,10 +160,50 @@ pub struct Registry {
     /// CRL yet), so an id is never handed out again.
     #[serde(default)]
     pub retired: BTreeSet<String>,
+    /// Profiles beside the built-in ones: name → CBOR `ProfileDef`.
+    #[serde(default)]
+    pub profiles: BTreeMap<String, Vec<u8>>,
+}
+
+impl Registry {
+    /// A profile by name: built-in or stored.
+    pub fn profile(&self, name: &str) -> Option<ProfileDef> {
+        if let Some((_, p)) = profile::builtins().into_iter().find(|(n, _)| *n == name) {
+            return Some(p);
+        }
+        self.profiles
+            .get(name)
+            .and_then(|b| wyrm_core::codec::from_slice(b).ok())
+    }
+
+    fn check_profile(&self, name: &str, def: &ProfileDef) -> Result<(), String> {
+        profile::validate_name(name)?;
+        if profile::builtins().iter().any(|(n, _)| *n == name) {
+            return Err(format!("profile {name} is built in"));
+        }
+        // the parent exists and the chain does not come back to `name`
+        let mut next = def.extends.clone();
+        for _ in 0..profile::MAX_DEPTH {
+            let Some(p) = next.take() else {
+                return Ok(());
+            };
+            if p == name {
+                return Err(format!("profile {name}: extends cycle"));
+            }
+            next = self
+                .profile(&p)
+                .ok_or_else(|| format!("profile {name}: extends unknown {p}"))?
+                .extends;
+        }
+        Err(format!(
+            "profile {name}: extends chain longer than {}",
+            profile::MAX_DEPTH
+        ))
+    }
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 2;
+    const SCHEMA: u32 = 3;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -230,6 +282,26 @@ impl wyrm_state::State for Registry {
                     .remove(cn)
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
                 self.blocklist.insert(cn.clone());
+            }
+            Op::PutProfile { name, cbor } => {
+                let def: ProfileDef = wyrm_core::codec::from_slice(cbor)
+                    .map_err(|e| format!("profile {name}: {e}"))?;
+                self.check_profile(name, &def)?;
+                self.profiles.insert(name.clone(), cbor.clone());
+            }
+            Op::RemoveProfile(name) => {
+                if !self.profiles.contains_key(name) {
+                    return Err(format!("no profile {name}"));
+                }
+                let child = self.profiles.iter().find(|(n, b)| {
+                    *n != name
+                        && wyrm_core::codec::from_slice::<ProfileDef>(b)
+                            .is_ok_and(|p| p.extends.as_deref() == Some(name.as_str()))
+                });
+                if let Some((c, _)) = child {
+                    return Err(format!("profile {c} extends {name}"));
+                }
+                self.profiles.remove(name);
             }
         }
         Ok(())
