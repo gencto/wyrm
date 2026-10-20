@@ -280,7 +280,17 @@ where
     L::Config: FromParams,
 {
     // Before any network input: limits set by the supervisor (fail closed).
-    crate::limits::Limits::from_env()?.apply()?;
+    // `main` applied them before the runtime (see `limits`); check here.
+    if crate::limits::supervised() {
+        crate::limits::Limits::from_env()?.apply_rlimits()?;
+        #[cfg(target_os = "linux")]
+        if !crate::limits::all_threads_no_new_privs().unwrap_or(false) {
+            return Err(LinkError::internal(
+                "no_new_privs is not set on every thread: call \
+                 wyrm_link_sdk::limits::apply_from_env() in main before the runtime",
+            ));
+        }
+    }
     // Also while waiting for the first `hello`: an orphan never lingers.
     tokio::select! {
         _ = parent_gone() => Ok(()),

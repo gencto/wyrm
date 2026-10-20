@@ -115,8 +115,7 @@ fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
+fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -124,6 +123,18 @@ async fn main() -> Result<(), Error> {
         )
         .init();
     let args = Args::parse();
+    if matches!(args.cmd, Some(Cmd::Link { .. })) {
+        // Before the runtime: no_new_privs reaches only threads created
+        // after it (wyrm_link_sdk::limits).
+        wyrm_link_sdk::limits::apply_from_env()?;
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(args))
+}
+
+async fn run(args: Args) -> Result<(), Error> {
     if let Some(Cmd::Link { driver }) = &args.cmd {
         return wyrmd::run_link(driver).await;
     }

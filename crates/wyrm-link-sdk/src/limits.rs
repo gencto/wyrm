@@ -2,6 +2,10 @@
 //! connects (it runs our code until then, so this needs no `pre_exec`).
 //! Hard and soft limits are the same: the link cannot raise them again.
 //!
+//! `no_new_privs` is a per-thread attribute that only new threads inherit,
+//! so the binary calls [`apply_from_env`] in `main` before it starts the
+//! tokio runtime; `process::run` then checks every thread (fail closed).
+//!
 //! * no core dumps (a dump would hold the link token and secrets);
 //! * `WYRM_LIMIT_MEMORY_MB`: Linux only, `RLIMIT_DATA` (heap and private
 //!   mappings), 0 = unchanged; macOS refuses a data limit below the large
@@ -48,8 +52,18 @@ impl Limits {
         })
     }
 
-    /// Apply to the calling process. An error means a limit is not in place.
+    /// Apply the rlimits and `no_new_privs`. Call it before any other
+    /// thread exists. An error means a limit is not in place.
     pub fn apply(self) -> Result<()> {
+        self.apply_rlimits()?;
+        #[cfg(target_os = "linux")]
+        nix::sys::prctl::set_no_new_privs()
+            .map_err(|e| LinkError::internal(format!("no_new_privs: {e}")))?;
+        Ok(())
+    }
+
+    /// The rlimits only (they hold for the whole process).
+    pub fn apply_rlimits(self) -> Result<()> {
         #[cfg(unix)]
         {
             use nix::sys::resource::{getrlimit, setrlimit, Resource};
@@ -78,11 +92,39 @@ impl Limits {
             if self.open_files > 0 {
                 cap(Resource::RLIMIT_NOFILE, self.open_files, "open files")?;
             }
-            #[cfg(target_os = "linux")]
-            nix::sys::prctl::set_no_new_privs().map_err(|e| fail("no_new_privs", e))?;
         }
         Ok(())
     }
+}
+
+/// `true` when started by the supervisor (it always sets the limits).
+pub fn supervised() -> bool {
+    std::env::var_os(OPEN_FILES_ENV).is_some()
+}
+
+/// For `main`, before the tokio runtime: apply the supervisor's limits.
+/// Does nothing outside supervision.
+pub fn apply_from_env() -> Result<()> {
+    if supervised() {
+        Limits::from_env()?.apply()?;
+    }
+    Ok(())
+}
+
+/// Linux: whether every thread of this process has `no_new_privs`.
+#[cfg(target_os = "linux")]
+pub fn all_threads_no_new_privs() -> std::io::Result<bool> {
+    for t in std::fs::read_dir("/proc/self/task")? {
+        let status = std::fs::read_to_string(t?.path().join("status"))?;
+        let on = status
+            .lines()
+            .find_map(|l| l.strip_prefix("NoNewPrivs:"))
+            .is_some_and(|v| v.trim() == "1");
+        if !on {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(all(test, unix))]
@@ -103,8 +145,16 @@ mod tests {
             let (s, h) = getrlimit(r).unwrap();
             format!("{s}/{h}")
         };
+        #[cfg(target_os = "linux")]
+        let nnp = std::fs::read_to_string("/proc/thread-self/status")
+            .unwrap()
+            .lines()
+            .find_map(|l| l.strip_prefix("NoNewPrivs:").map(|v| v.trim().to_owned()))
+            .unwrap();
+        #[cfg(not(target_os = "linux"))]
+        let nnp = "-";
         println!(
-            "LIMITS core={} data={} nofile={}",
+            "LIMITS core={} data={} nofile={} nnp={nnp}",
             show(Resource::RLIMIT_CORE),
             show(Resource::RLIMIT_DATA),
             show(Resource::RLIMIT_NOFILE)
@@ -140,6 +190,7 @@ mod tests {
         {
             let data = 2048u64 << 20;
             assert!(line.contains(&format!("data={data}/{data}")), "{line}");
+            assert!(line.contains("nnp=1"), "{line}");
         }
         assert!(line.contains("nofile=256/256"), "{line}");
     }
