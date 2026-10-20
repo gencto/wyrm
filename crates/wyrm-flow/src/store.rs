@@ -55,22 +55,34 @@ pub struct FlowStore {
     /// Operator start/stop, separate from `~def.enabled`.
     pub stopped: BTreeMap<String, bool>,
     pub states: BTreeMap<String, Vec<NodeStateRec>>,
+    /// Replaced definitions per flow, oldest first, at most [`HISTORY`].
+    pub history: BTreeMap<String, Vec<Vec<u8>>>,
 }
 
+/// Replaced definitions kept per flow (for `history` and `rollback`).
+pub const HISTORY: usize = 10;
+
 impl wyrm_state::State for FlowStore {
-    const SCHEMA: u32 = 1;
+    const SCHEMA: u32 = 2;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
         match op {
             Op::PutDef { id, cbor } => {
-                self.defs.insert(id.clone(), cbor.clone());
+                if let Some(old) = self.defs.insert(id.clone(), cbor.clone()) {
+                    let h = self.history.entry(id.clone()).or_default();
+                    h.push(old);
+                    if h.len() > HISTORY {
+                        h.remove(0);
+                    }
+                }
             }
             Op::RemoveDef(id) => {
                 self.defs
                     .remove(id)
                     .ok_or_else(|| format!("no flow {id}"))?;
                 self.states.remove(id);
+                self.history.remove(id);
                 self.stopped.remove(id);
             }
             Op::SetEnabled { id, on } => {

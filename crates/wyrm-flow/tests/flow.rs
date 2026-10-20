@@ -599,3 +599,65 @@ fn wasm_config_checks() {
     }
     assert!(ok(d).unwrap_err().contains("memory_mb"));
 }
+
+/// T11: replaced definitions are kept; `rollback` redeploys one as a new
+/// version with the same checks as `deploy` (proofs required).
+#[tokio::test(flavor = "multi_thread")]
+async fn history_and_rollback() {
+    let env = Env::start("history").await;
+    env.deploy(peak(1, "a.v + b.v")).await.unwrap();
+    env.deploy(peak(2, "a.v - b.v")).await.unwrap();
+    let flow = format!("wy/{SITE}/flows/peak");
+    let h = env
+        .client
+        .invoke_one(&flow, "history", map(&[]))
+        .await
+        .unwrap();
+    let Some(Value::Array(defs)) = h else {
+        panic!("history is an array: {h:?}")
+    };
+    assert_eq!(defs.len(), 2, "v1 and the current v2");
+    // rollback without proofs is refused (the flow has an invoke sink)
+    let e = env
+        .client
+        .invoke_one(&flow, "rollback", map(&[("version", Value::UInt(1))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // with proofs: v1's definition comes back as version 3
+    let Value::Map(mut args) = deploy_args(&env.client, peak(1, "a.v + b.v")) else {
+        panic!()
+    };
+    args.remove("def");
+    args.insert("version".into(), Value::UInt(1));
+    env.client
+        .invoke_one(&flow, "rollback", Value::Map(args))
+        .await
+        .unwrap();
+    let h = env
+        .client
+        .invoke_one(&flow, "history", map(&[]))
+        .await
+        .unwrap();
+    let Some(Value::Array(defs)) = h else {
+        panic!()
+    };
+    let last = defs.last().unwrap();
+    let Value::Map(m) = last else { panic!() };
+    assert_eq!(m["version"], Value::UInt(3));
+    let Value::Map(nodes) = &m["nodes"] else {
+        panic!()
+    };
+    let Value::Map(sum) = &nodes["sum"] else {
+        panic!()
+    };
+    assert_eq!(sum["expr"], s("a.v + b.v"));
+    // unknown version
+    let e = env
+        .client
+        .invoke_one(&flow, "rollback", map(&[("version", Value::UInt(42))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::NotFound), "{e}");
+    env.stop().await;
+}

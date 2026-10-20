@@ -237,6 +237,25 @@ impl State {
                 .declare_action(id, a, ActionMeta::new().level(Perm::Config))
                 .await?;
         }
+        self.ctx
+            .declare_action(
+                id,
+                "history",
+                ActionMeta::new()
+                    .result(ActionResult::Type(TypeCode::Array))
+                    .level(Perm::Read),
+            )
+            .await?;
+        self.ctx
+            .declare_action(
+                id,
+                "rollback",
+                ActionMeta::new()
+                    .param("version", ParamMeta::of(TypeCode::Number).required(true))
+                    .param("proofs", ParamMeta::of(TypeCode::Map))
+                    .level(Perm::Config),
+            )
+            .await?;
         let nodes = format!("{id}/nodes");
         if self.ctx.meta(&nodes).is_none() {
             self.ctx.declare_node(&nodes, NodeMeta::folder()).await?;
@@ -545,6 +564,17 @@ fn targets(def: &FlowDef, site: &str) -> Vec<String> {
         .collect()
 }
 
+fn version_of(v: &Value) -> Option<u64> {
+    match v {
+        Value::Map(m) => match m.get("version") {
+            Some(Value::UInt(u)) => Some(*u),
+            Some(Value::Int(i)) => u64::try_from(*i).ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// A deploying caller may not give a flow more than it holds: `maxperm` is
 /// capped by the caller's effective permission. (Requester tokens are scoped
 /// to the request key, so they cannot prove rights on the flow's targets;
@@ -770,6 +800,59 @@ impl Link for Engine {
                 let states = st.halt(id).await;
                 st.launch(id, states, &shared);
                 st.publish_val(id).await;
+            }
+            (id, "history") => {
+                // Previous definitions (oldest first) and the current one.
+                let mut defs: Vec<Value> = {
+                    let store = st.host.store();
+                    let state = store.state();
+                    state
+                        .history
+                        .get(id)
+                        .into_iter()
+                        .flatten()
+                        .chain(state.defs.get(id))
+                        .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
+                        .collect()
+                };
+                defs.dedup();
+                drop(st);
+                return out.reply(Value::Array(defs)).await;
+            }
+            (id, "rollback") => {
+                // Deploy an earlier definition as a new version, with the
+                // same checks as `deploy` (ADR 0008).
+                let want = match &args {
+                    Value::Map(m) => m.get("version").and_then(Value::as_f64),
+                    _ => None,
+                }
+                .ok_or_else(|| LinkError::invalid_parameter("version: required"))?
+                    as u64;
+                let current = st
+                    .flows
+                    .get(id)
+                    .map(|f| f.def.version)
+                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+                let old = {
+                    let store = st.host.store();
+                    store
+                        .state()
+                        .history
+                        .get(id)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
+                        .find(|v| version_of(v) == Some(want))
+                }
+                .ok_or_else(|| LinkError::not_found(format!("{id} version {want}")))?;
+                let Value::Map(mut m) = old else {
+                    return Err(LinkError::internal("stored definition is not a map"));
+                };
+                m.insert("version".into(), Value::UInt(current + 1));
+                let raw = Value::Map(m);
+                caller_covers(&raw, who)?;
+                proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
+                st.deploy(raw, true, &shared).await?
             }
             (id, "remove") => {
                 st.halt(id).await;
