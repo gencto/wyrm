@@ -33,9 +33,6 @@
       mode: "process",
       // Driver framework tree (ADR 0004): connections → devices → points.
       params: {
-        // A process link cannot see the broker's `~val` storage subscription
-        // through the ACL, so poll regardless of subscribers.
-        poll_unsubscribed: true,
         connections: {
           line1: {
             host: "127.0.0.1",

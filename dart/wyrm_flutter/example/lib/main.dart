@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:wyrm_ffi/wyrm_ffi.dart';
 import 'package:wyrm_flutter/wyrm_flutter.dart';
 
+import 'node_page.dart';
+
 void main() => runApp(const MaterialApp(title: 'WYRM', home: ConnectPage()));
 
 class ConnectPage extends StatefulWidget {
@@ -22,7 +24,7 @@ class _ConnectPageState extends State<ConnectPage> {
   final _user = TextEditingController(text: 'admin');
   final _password = TextEditingController();
   final _endpoint = TextEditingController(text: 'tcp/127.0.0.1:7447');
-  final _root = TextEditingController(text: 'wy/local/down');
+  final _root = TextEditingController(text: 'wy/edge/down');
 
   /// Direct mode: hex seed of a key in `admin_keys` (`wyr keygen`), for
   /// set/invoke. Empty = read only.
@@ -101,6 +103,9 @@ class TreePage extends StatelessWidget {
           api: api,
           rootKey: rootKey,
           onLeafTap: (key, child) => _write(context, key, child),
+          onNodeOpen: (key, _) => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => NodePage(api: api, nodeKey: key)),
+          ),
         ),
       );
 

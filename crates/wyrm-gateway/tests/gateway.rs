@@ -775,3 +775,37 @@ async fn flow_deploy_proofs_come_from_the_user() {
     engine.stop().await;
     env.stop().await;
 }
+
+/// ADR 0007: a downstream site in `read_sites` is checked under the own
+/// site's roles, and its requests carry no ptok (its links do not trust
+/// this gateway's key); other sites stay out of reach.
+#[test]
+fn read_sites_map_to_own_roles_without_a_token() {
+    use wyrm_client::TokenSource;
+    let mut cfg = GatewayConfig::new(SITE, temp_dir("readsites"), "127.0.0.1:0".parse().unwrap());
+    cfg.read_sites = vec!["edge".into()];
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    assert_eq!(gw.read_site_of("wy/edge/down/m/p"), Some("edge"));
+    assert_eq!(gw.read_site_of("wy/edgex/down"), None);
+    assert_eq!(gw.read_site_of("wy/other/down"), None);
+    assert_eq!(gw.as_own("wy/edge/down/m/p"), format!("wy/{SITE}/down/m/p"));
+    assert_eq!(gw.as_own("wy/edge"), format!("wy/{SITE}"));
+    assert_eq!(gw.as_own("wy/other/down"), "wy/other/down");
+    let p = wyrm_gateway::Principal {
+        name: "op".into(),
+        roles: vec!["admin".into()],
+        grants: RoleTable::default().grants(SITE, &["admin".into()]),
+        claims: wyrm_gateway::SessionClaims {
+            sub: "op".into(),
+            roles: vec!["admin".into()],
+            exp: u64::MAX,
+            iat: 0,
+            jti: [0; 16],
+            gen: 0,
+        },
+    };
+    let t = gw.tokens_for(&p);
+    assert!(t.token(&format!("wy/{SITE}/down/m/p/~set")).is_some());
+    assert!(t.token("wy/edge/down/m/p/~meta").is_none());
+    assert!(t.token(&format!("wy/{SITE}x/down/~meta")).is_none());
+}

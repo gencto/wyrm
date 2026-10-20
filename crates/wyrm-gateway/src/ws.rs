@@ -272,20 +272,31 @@ impl Conn {
             return true;
         }
         let pattern = req.op == "subscribe";
-        if let Err(msg) = check_key(self.gw.site(), &req.key, pattern) {
+        // A downstream site (ADR 0007): read only, checked as the own site.
+        if let Some(d) = self.gw.read_site_of(&req.key) {
+            if !matches!(req.op.as_str(), "meta" | "children" | "list" | "subscribe") {
+                self.send(err_frame(
+                    req.id,
+                    Status::PermissionDenied.code(),
+                    &format!("{d} is a downstream site: read only"),
+                ))
+                .await;
+                return true;
+            }
+        }
+        let own = self.gw.as_own(&req.key);
+        if let Err(msg) = check_key(self.gw.site(), &own, pattern) {
             self.send(err_frame(req.id, Status::InvalidParameter.code(), &msg))
                 .await;
             return true;
         }
         let allowed = match req.op.as_str() {
-            "meta" | "children" | "list" => {
-                p.grants.perm(&format!("{}/~meta", req.key)) >= Perm::List
-            }
-            "subscribe" => p.grants.any(&format!("{}/~val", req.key), Perm::Read),
-            "set" => p.grants.perm(&format!("{}/~set", req.key)) >= Perm::Write,
+            "meta" | "children" | "list" => p.grants.perm(&format!("{own}/~meta")) >= Perm::List,
+            "subscribe" => p.grants.any(&format!("{own}/~val"), Perm::Read),
+            "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
             "invoke" => match req.action.as_deref() {
                 Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
-                    p.grants.perm(&format!("{}/~act/{a}", req.key)) >= Perm::Read
+                    p.grants.perm(&format!("{own}/~act/{a}")) >= Perm::Read
                 }
                 _ => {
                     self.send(err_frame(
@@ -362,7 +373,7 @@ impl Conn {
                     let g = self.grants.borrow().clone();
                     let kids = kids
                         .iter()
-                        .filter(|k| visible_child(&g, &req.key, &k.name))
+                        .filter(|k| visible_child(&g, &self.gw.as_own(&req.key), &k.name))
                         .map(child_value)
                         .collect();
                     ok_frame(id, Some(Value::Array(kids)))
@@ -423,7 +434,8 @@ impl Conn {
         let grants = self.grants.subscribe();
         while let Some(ev) = s.next().await {
             let g = grants.borrow().clone();
-            let see = |name: &str| visible_child(&g, &req.key, name);
+            let parent = self.gw.as_own(&req.key);
+            let see = |name: &str| visible_child(&g, &parent, name);
             let ev = match ev {
                 ListEvent::Refreshed(kids) => {
                     let kids = kids
@@ -486,7 +498,11 @@ impl Conn {
                 }
             };
             // Per-point filter: the first grant matching this very key.
-            if grants.borrow().perm(&format!("{key}/~val")) < Perm::Read {
+            if grants
+                .borrow()
+                .perm(&format!("{}/~val", self.gw.as_own(&key)))
+                < Perm::Read
+            {
                 continue;
             }
             // ~val is Data + Drop: a slow socket loses samples, not memory.

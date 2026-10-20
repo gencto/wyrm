@@ -15,6 +15,9 @@ struct Args {
 enum Cmd {
     /// Validate the config and exit.
     Check,
+    /// Create the site CA if it does not exist and print the path of its
+    /// certificate: the file to give to peer sites (`peers.*.ca`).
+    Ca,
     /// Write the WAL head anchors (state_anchor_dir) from the current
     /// stores, after moving or creating that directory. Run with wyrmd
     /// stopped, only on stores you trust.
@@ -144,6 +147,11 @@ async fn run(args: Args) -> Result<(), Error> {
     match args.cmd {
         Some(Cmd::Check) => {
             println!("ok");
+            return Ok(());
+        }
+        Some(Cmd::Ca) => {
+            let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
+            println!("{}", pki.ca_path().display());
             return Ok(());
         }
         Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),

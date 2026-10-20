@@ -1,0 +1,66 @@
+// Demo: the downstream site `edge` with the connectors (see run.sh).
+{
+  site: "edge",
+  profile: "prod",
+  data_dir: "./data/edge",
+  listen: ["tcp/127.0.0.1:7457", "tls/127.0.0.1:7458"],
+  admin_keys: [],
+  peers: {
+    upstream: [{ site: "central", endpoint: "quic/127.0.0.1:7449", ca: "./data/central/pki/ca.pem" }],
+    upstream_val_hz: 5,
+  },
+  gateway: { listen: "127.0.0.1:8444", admin_user: "admin" },
+  links: {
+    // Plain mock: 16 points at 2 Hz on a two-level folder tree.
+    mock: { driver: "mock", params: { points: 16, rate_hz: 2, depth: 2, fanout: 2 } },
+    // Framework mock (ADR 0004): connections → devices → points, with the
+    // generated add_*/edit/remove/enable actions; edits survive restarts.
+    lab: {
+      driver: "mockdev",
+      params: {
+        connections: {
+          bench: {
+            devices: {
+              rig1: {
+                ping_s: 1,
+                points: {
+                  wave: { kind: "wave", poll_s: 0.5 },
+                  count: { kind: "counter", poll_s: 1 },
+                  knob: { kind: "constant", writable: true, initial: 50, poll_s: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // Modbus TCP as a supervised process against wyrm-modbus-sim (port 5020).
+    plc1: {
+      driver: "modbus",
+      mode: "process",
+      params: {
+        connections: {
+          line1: {
+            host: "127.0.0.1",
+            port: 5020,
+            timeout_ms: 1000,
+            devices: {
+              ahu1: {
+                unit: 1,
+                ping: "probe",
+                probe_table: "holding",
+                probe_addr: 0,
+                points: {
+                  supply_temp: { table: "input", addr: 1, dtype: "i16", scale: 0.1, unit: "°C", poll_s: 1 },
+                  counter: { table: "holding", addr: 0, dtype: "u16", poll_s: 1 },
+                  setpoint: { table: "holding", addr: 10, dtype: "f32", writable: true, unit: "°C", poll_s: 1 },
+                  fan: { table: "coil", addr: 3, dtype: "binary", writable: true, poll_s: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}

@@ -837,6 +837,12 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
+    gc.read_sites = cfg
+        .peers
+        .downstream
+        .iter()
+        .map(|d| d.site.clone())
+        .collect();
     gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
     gc.anchor_init = cfg.init_anchors;
     if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {

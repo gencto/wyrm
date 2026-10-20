@@ -78,6 +78,11 @@ pub struct GatewayConfig {
     pub anchor: Option<PathBuf>,
     /// Create the anchor from the current head (operator step).
     pub anchor_init: bool,
+    /// Downstream sites (peers, ADR 0007) whose trees users may browse:
+    /// read operations only, under the same roles as the own site
+    /// (`wy/<d>/x` is checked as `wy/<site>/x`), without a ptok (the
+    /// downstream links do not trust this gateway's key).
+    pub read_sites: Vec<String>,
 }
 
 impl GatewayConfig {
@@ -92,7 +97,25 @@ impl GatewayConfig {
             roles: RoleTable::default(),
             anchor: None,
             anchor_init: false,
+            read_sites: Vec::new(),
         }
+    }
+}
+
+/// Per-request tokens for the own site only: requests to a read site go
+/// without one (its links would refuse a token they do not trust).
+pub struct OwnSiteTokens {
+    root: String,
+    inner: wyrm_client::SigningTokens,
+}
+
+impl wyrm_client::TokenSource for OwnSiteTokens {
+    fn token(&self, key: &str) -> Option<Vec<u8>> {
+        let own = key == self.root
+            || key
+                .strip_prefix(self.root.as_str())
+                .is_some_and(|r| r.starts_with('/'));
+        own.then(|| self.inner.token(key)).flatten()
     }
 }
 
@@ -244,6 +267,26 @@ impl Gateway {
 
     pub fn site(&self) -> &str {
         &self.cfg.site
+    }
+
+    /// The downstream site `key` belongs to, if it is one of `read_sites`.
+    pub fn read_site_of(&self, key: &str) -> Option<&str> {
+        let rest = key.strip_prefix("wy/")?;
+        let site = rest.split('/').next()?;
+        self.cfg
+            .read_sites
+            .iter()
+            .find(|s| s.as_str() == site)
+            .map(String::as_str)
+    }
+
+    /// `key` with a read site's prefix replaced by the own site's (roles
+    /// are written for the own site); other keys unchanged.
+    pub fn as_own(&self, key: &str) -> String {
+        match self.read_site_of(key) {
+            Some(d) => format!("wy/{}{}", self.cfg.site, &key[3 + d.len()..]),
+            None => key.to_owned(),
+        }
     }
 
     /// Key that links must trust (`LinkConfig::admin_keys`) for gateway ptoks.
@@ -448,12 +491,15 @@ impl Gateway {
 
     /// A ptok source for `p`: subject `user:<name>`, the user's grants and
     /// max, 5 min lifetime, one token per request scoped to its key.
-    pub fn tokens_for(&self, p: &Principal) -> wyrm_client::SigningTokens {
-        wyrm_client::SigningTokens::new(self.signing.clone(), &self.cfg.site)
-            .subject(format!("user:{}", p.name))
-            .grants(p.grants.list.clone())
-            .max(p.grants.max)
-            .ttl(PTOK_TTL)
+    pub fn tokens_for(&self, p: &Principal) -> OwnSiteTokens {
+        OwnSiteTokens {
+            root: format!("wy/{}", self.cfg.site),
+            inner: wyrm_client::SigningTokens::new(self.signing.clone(), &self.cfg.site)
+                .subject(format!("user:{}", p.name))
+                .grants(p.grants.list.clone())
+                .max(p.grants.max)
+                .ttl(PTOK_TTL),
+        }
     }
 
     /// May `p` manage users: `config` on all of `wy/<site>/sys/**`.

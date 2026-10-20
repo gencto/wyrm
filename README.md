@@ -101,6 +101,16 @@ peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.
 ```
 Each side trusts the other's CA only on the QUIC broker link (certificate CN `broker:<site>`). The upstream site may subscribe and query `~meta|~val|~def|~state` under `wy/<edge>/{down,flows}/**`, never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
 
+Demo with two sites, connectors and the Flutter app: `examples/demo/run.sh`
+starts `central` and `edge` (mock, framework mock `lab`, modbus process link
+against `wyrm-modbus-sim`), each with a gateway (`:8443`, `:8444`, user
+`admin`, password `wyrm-demo-1`). `wyrmd -c <cfg> ca` creates a site's CA
+before the other site trusts it. App: `cd dart/wyrm_flutter/example &&
+flutter create --platforms=macos . && flutter run -d macos` (raise
+`MACOSX_DEPLOYMENT_TARGET` to 12.0 and add the `network.client`
+entitlement); root `wy/edge/down`, the tune icon opens a node's `~meta`
+and actions.
+
 ## Gateway
 ```json5
 gateway: { listen: "0.0.0.0:8443", tls_cert: "gw.pem", tls_key: "gw.key", admin_user: "admin" },

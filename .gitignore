@@ -4,3 +4,8 @@
 admin.key
 *.key
 data/
+
+# Flutter example: generated platform files (flutter create)
+dart/wyrm_flutter/example/macos/
+dart/wyrm_flutter/example/.metadata
+dart/wyrm_flutter/example/.gitignore

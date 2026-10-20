@@ -1,0 +1,19 @@
+// Demo: the upstream site `central` (see run.sh). It reads the downstream
+// site `edge` over QUIC + mTLS; edge's CA is exchanged by run.sh.
+{
+  site: "central",
+  profile: "prod",
+  data_dir: "./data/central",
+  listen: ["tcp/127.0.0.1:7447", "tls/127.0.0.1:7448"],
+  admin_keys: [],
+  peers: {
+    listen: "quic/127.0.0.1:7449",
+    downstream: [{ site: "edge", ca: "./data/edge/pki/ca.pem" }],
+  },
+  // App login: user admin, password from WYRM_GATEWAY_ADMIN_PASSWORD.
+  gateway: { listen: "127.0.0.1:8443", admin_user: "admin" },
+  links: {
+    // A small mock on the central site itself.
+    hq: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },
+  },
+}

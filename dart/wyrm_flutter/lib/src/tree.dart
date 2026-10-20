@@ -17,11 +17,15 @@ class WyrmTree extends StatelessWidget {
   /// Called on a tap on a leaf (for example to open a `set` dialog).
   final void Function(String key, Child child)? onLeafTap;
 
-  const WyrmTree({super.key, required this.api, required this.rootKey, this.onLeafTap});
+  /// Opens a node (its full `~meta` and actions); adds a button to each row.
+  final void Function(String key, Child child)? onNodeOpen;
+
+  const WyrmTree({super.key, required this.api, required this.rootKey, this.onLeafTap, this.onNodeOpen});
 
   @override
   Widget build(BuildContext context) =>
-      SingleChildScrollView(child: WyrmChildren(api: api, nodeKey: rootKey, onLeafTap: onLeafTap));
+      SingleChildScrollView(
+          child: WyrmChildren(api: api, nodeKey: rootKey, onLeafTap: onLeafTap, onNodeOpen: onNodeOpen));
 }
 
 /// The children of one node, kept current by `list()` while this widget lives.
@@ -31,12 +35,16 @@ class WyrmChildren extends StatefulWidget {
   final int depth;
   final void Function(String key, Child child)? onLeafTap;
 
+  /// Opens a node (its full `~meta` and actions); adds a button to each row.
+  final void Function(String key, Child child)? onNodeOpen;
+
   const WyrmChildren({
     super.key,
     required this.api,
     required this.nodeKey,
     this.depth = 0,
     this.onLeafTap,
+    this.onNodeOpen,
   });
 
   @override
@@ -135,6 +143,7 @@ class _WyrmChildrenState extends State<WyrmChildren> {
             child: c,
             depth: widget.depth,
             onLeafTap: widget.onLeafTap,
+            onNodeOpen: widget.onNodeOpen,
           ),
       ],
     );
@@ -149,6 +158,9 @@ class WyrmNodeTile extends StatefulWidget {
   final int depth;
   final void Function(String key, Child child)? onLeafTap;
 
+  /// Opens a node (its full `~meta` and actions); adds a button to each row.
+  final void Function(String key, Child child)? onNodeOpen;
+
   const WyrmNodeTile({
     super.key,
     required this.api,
@@ -156,6 +168,7 @@ class WyrmNodeTile extends StatefulWidget {
     required this.child,
     required this.depth,
     this.onLeafTap,
+    this.onNodeOpen,
   });
 
   String get nodeKey => '$parentKey/${child.name}';
@@ -166,6 +179,14 @@ class WyrmNodeTile extends StatefulWidget {
 
 class _WyrmNodeTileState extends State<WyrmNodeTile> {
   bool _expanded = false;
+
+  Widget? _openButton() => widget.onNodeOpen == null
+      ? null
+      : IconButton(
+          icon: const Icon(Icons.tune, size: 18),
+          tooltip: 'Details and actions',
+          onPressed: () => widget.onNodeOpen!(widget.nodeKey, widget.child),
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -181,6 +202,7 @@ class _WyrmNodeTileState extends State<WyrmNodeTile> {
             contentPadding: EdgeInsets.only(left: indent + 8, right: 16),
             leading: Icon(_expanded ? Icons.expand_more : Icons.chevron_right),
             title: Text(title),
+            trailing: _openButton(),
             onTap: () => setState(() => _expanded = !_expanded),
           ),
           // Collapsing removes the widget, which cancels its list().
@@ -190,6 +212,7 @@ class _WyrmNodeTileState extends State<WyrmNodeTile> {
               nodeKey: widget.nodeKey,
               depth: widget.depth + 1,
               onLeafTap: widget.onLeafTap,
+              onNodeOpen: widget.onNodeOpen,
             ),
         ],
       );
@@ -198,7 +221,10 @@ class _WyrmNodeTileState extends State<WyrmNodeTile> {
       dense: true,
       contentPadding: EdgeInsets.only(left: indent + 48, right: 16),
       title: Text(title),
-      trailing: WyrmValue(api: widget.api, nodeKey: widget.nodeKey, meta: meta),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        WyrmValue(api: widget.api, nodeKey: widget.nodeKey, meta: meta),
+        if (_openButton() case final b?) b,
+      ]),
       onTap: widget.onLeafTap == null ? null : () => widget.onLeafTap!(widget.nodeKey, widget.child),
     );
   }
