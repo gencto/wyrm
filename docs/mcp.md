@@ -24,7 +24,7 @@ WARNING: the key file is an admin signing key. Keep it at mode 0600.
   }
 }
 ```
-For HTTP: run `wyrm-mcp --http 127.0.0.1:8765` and use `{"type": "http", "url": "http://127.0.0.1:8765/mcp"}`.
+For HTTP: run `wyrm-mcp --http 127.0.0.1:8765` (set `WYRM_MCP_HTTP_TOKEN`, at least 32 characters, or copy the random token it prints) and use `{"type": "http", "url": "http://127.0.0.1:8765/mcp", "headers": {"Authorization": "Bearer <token>"}}`. Requests need a loopback `Host` with that port and no `Origin` header (DNS-rebinding guard).
 
 ## Not yet
-A `wyr` command to mint approvals; tools `history`, `device_models`, `link_install`; tree and profile resources; prompts; `origin` marking for approved AI calls; a service identity issued by the admin (the `write` cap is enforced by the MCP process); TLS for `--http`.
+A `wyr` command to mint approvals; tools `history`, `device_models`, `link_install`; tree and profile resources; prompts; `origin` marking for approved AI calls; a service identity issued by the admin (the `write` cap is enforced by the MCP process); TLS for `--http` (loopback only, bearer token).
