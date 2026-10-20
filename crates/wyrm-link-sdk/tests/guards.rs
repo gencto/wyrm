@@ -177,3 +177,26 @@ async fn reads_are_rate_limited() {
     );
     h.stop().await;
 }
+
+/// A flood on one key fills that key's shard, not the link-wide budget:
+/// reads of another node still pass.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_flood_on_one_key_spares_others() {
+    let h = TestHarness::<W>::start_with((), |c| c.read_rate_limit = Some((1.0, 100.0))).await;
+    let meta = |p: &'static str| {
+        let h = &h;
+        async move {
+            let r = h.query(&h.key(p, "~meta"), None, Default::default()).await;
+            r.first().and_then(|r| status(&r.att))
+        }
+    };
+    let mut limited = 0;
+    for _ in 0..20 {
+        if meta("p").await == Some(Status::RateLimited) {
+            limited += 1;
+        }
+    }
+    assert!(limited >= 10, "the flooded key is limited ({limited})");
+    assert_eq!(meta("").await, Some(Status::Ok), "another node still reads");
+    h.stop().await;
+}

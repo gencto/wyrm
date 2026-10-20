@@ -75,6 +75,12 @@ pub struct LinkConfig {
 /// Most replies to one wildcard `get` or `view=keys`.
 pub const MAX_READ_ITEMS: usize = 10_000;
 const READS: &str = "reads";
+/// Reads are first charged to one of these shards by the target path, so a
+/// flood on one key fills its own shard before it can drain the link-wide
+/// budget; hashing keeps the table bounded however large the tree is.
+const READ_SHARDS: u64 = 1024;
+/// Per-shard budget as a fraction of the link-wide one.
+const SHARD_SHARE: f64 = 0.05;
 
 impl LinkConfig {
     pub fn new(site: impl Into<String>, link: impl Into<String>) -> Self {
@@ -217,6 +223,10 @@ pub async fn spawn<L: Link>(
         read_limiter: cfg
             .read_rate_limit
             .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
+        shard_limiter: cfg.read_rate_limit.map(|(r, b)| {
+            crate::guard::RateLimiter::new(r * SHARD_SHARE, (b * SHARD_SHARE).max(2.0))
+        }),
+        shard_seed: Default::default(),
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
@@ -331,6 +341,9 @@ struct Shared<C> {
     limiter: Option<crate::guard::RateLimiter>,
     anon_limiter: Option<crate::guard::RateLimiter>,
     read_limiter: Option<crate::guard::RateLimiter>,
+    shard_limiter: Option<crate::guard::RateLimiter>,
+    /// Random per link: a caller cannot pick keys that share a shard.
+    shard_seed: std::collections::hash_map::RandomState,
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
@@ -409,14 +422,20 @@ async fn reply_here(q: &Query, payload: Vec<u8>, att: Attachment, express: bool)
 }
 
 impl<C: Send + 'static> Shared<C> {
-    fn read_allowed(&self) -> bool {
-        self.read_limiter.as_ref().is_none_or(|l| l.allow(READS))
+    /// `target`: the node path, or the wildcard key of a fan-in.
+    fn read_allowed(&self, target: &str) -> bool {
+        use std::hash::BuildHasher;
+        let shard_ok = self.shard_limiter.as_ref().is_none_or(|l| {
+            let shard = self.shard_seed.hash_one(target) % READ_SHARDS;
+            l.allow(&format!("s{shard}"))
+        });
+        shard_ok && self.read_limiter.as_ref().is_none_or(|l| l.allow(READS))
     }
 
     async fn route(self: &Arc<Self>, q: Query) {
         let key = q.key_expr().as_str();
         if is_wild(key) {
-            if self.read_allowed() {
+            if self.read_allowed(key) {
                 self.fan_in(&q).await;
             }
             return;
@@ -437,7 +456,7 @@ impl<C: Send + 'static> Shared<C> {
         };
         let (path, suffix) = (path.to_owned(), suffix.to_owned());
         let is_read = suffix != SUFFIX_SET && !suffix.starts_with("~act/");
-        if is_read && !self.read_allowed() {
+        if is_read && !self.read_allowed(&path) {
             if suffix != SUFFIX_VAL {
                 let e = LinkError::new(Status::RateLimited, "too many reads");
                 reply_here(&q, Vec::new(), err_att(&e), false).await;
