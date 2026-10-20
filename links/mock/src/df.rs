@@ -18,6 +18,15 @@ pub struct Conn {
     /// Added to every poll.
     #[param(default = 0, max = 10000)]
     pub latency_ms: u32,
+    /// Where `token` goes (a destination field: changing it drops a stored
+    /// token unless the edit supplies it again).
+    #[param(default = "sim", dest)]
+    pub host: String,
+    /// `open` fails while `token` is empty (secret handling tests).
+    #[param(default = false)]
+    pub need_token: bool,
+    #[param(default = "", secret)]
+    pub token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -80,6 +89,9 @@ impl Driver for MockDev {
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
         if conn.down {
             return Err(DriverError::Transport("connection refused".into()));
+        }
+        if conn.need_token && conn.token.is_empty() {
+            return Err(DriverError::Transport("authentication failed".into()));
         }
         Ok(Transport {
             latency: Duration::from_millis(conn.latency_ms.into()),

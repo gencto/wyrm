@@ -17,7 +17,8 @@
 //! * A config that fails validation at load keeps its node (`Failed`,
 //!   error shown) and stays editable; nothing is deleted.
 
-use super::params::{ParamSpec, Params};
+use super::params::{normalize, ParamSpec, Params};
+use super::persist::Persist;
 use super::{backoff, jitter, Driver, DriverError, NodeState, PointId};
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
@@ -176,6 +177,8 @@ pub struct Framework<D: Driver> {
     ctx: LinkCtx,
     conns: BTreeMap<String, ConnEntry<D>>,
     poll_unsubscribed: bool,
+    /// The sealed copy of the tree in `data_dir` (see `persist`).
+    persist: Option<Persist>,
 }
 
 fn status_path(base: &str) -> String {
@@ -237,9 +240,59 @@ fn valid_name(name: &str) -> Result<()> {
 fn form(schema: &[ParamSpec], prefill: Option<&Map>) -> ActionMeta {
     let mut a = ActionMeta::new().level(Perm::Config);
     for s in schema {
-        a = a.param(s.name, s.param_meta(prefill.and_then(|m| m.get(s.name))));
+        let mut p = s.param_meta(prefill.and_then(|m| m.get(s.name)));
+        if prefill.is_some() && s.secret {
+            // `edit`: an empty secret keeps the stored one.
+            p.required = Some(false);
+        }
+        a = a.param(s.name, p);
     }
     a
+}
+
+/// `edit` args with the stored secrets of `old` filled in where `new`
+/// leaves them out or empty, but only while the destination (the `dest`
+/// fields, or every field when none is marked) stays the same: a caller
+/// with `config` must not point a stored password at another host.
+fn keep_secrets<P: Params>(old: &Value, new: &Value) -> Value {
+    let schema = P::schema();
+    let missing = |m: &Map, n: &str| match m.get(n) {
+        None | Some(Value::Null) => true,
+        Some(Value::Str(s)) => s.is_empty(),
+        _ => false,
+    };
+    let old_m = map_of(old);
+    let mut cand = map_of(new);
+    let mut kept = Vec::new();
+    for s in schema.iter().filter(|s| s.secret) {
+        if missing(&cand, s.name) {
+            cand.remove(s.name);
+            if !missing(&old_m, s.name) {
+                cand.insert(s.name.to_owned(), old_m[s.name].clone());
+                kept.push(s.name);
+            }
+        }
+    }
+    if kept.is_empty() {
+        return Value::Map(cand);
+    }
+    let any_dest = schema.iter().any(|s| s.dest);
+    let same = match (
+        normalize(&schema, old),
+        normalize(&schema, &Value::Map(cand.clone())),
+    ) {
+        (Ok(o), Ok(n)) => schema
+            .iter()
+            .filter(|s| !s.secret && (s.dest || !any_dest))
+            .all(|s| o.get(s.name) == n.get(s.name)),
+        _ => false,
+    };
+    if !same {
+        for k in kept {
+            cand.remove(k);
+        }
+    }
+    Value::Map(cand)
 }
 
 fn add_form(schema: &[ParamSpec]) -> ActionMeta {
@@ -567,6 +620,36 @@ impl<D: Driver> Framework<D> {
                     .points
                     .iter()
                     .map(|(pn, p)| (pn.clone(), Value::Map(p.slot_shown())))
+                    .collect();
+                dm.insert("points".into(), Value::Map(pts));
+                devs.insert(dn.clone(), Value::Map(dm));
+            }
+            cm.insert("devices".into(), Value::Map(devs));
+            conns.insert(cn.clone(), Value::Map(cm));
+        }
+        let mut m = Map::new();
+        m.insert(
+            "poll_unsubscribed".into(),
+            Value::Bool(self.poll_unsubscribed),
+        );
+        m.insert("connections".into(), Value::Map(conns));
+        Value::Map(m)
+    }
+
+    /// The whole tree with secrets (for `persist` only, never a reply).
+    fn full_tree(&self) -> Value {
+        let mut conns = Map::new();
+        for (cn, c) in &self.conns {
+            let mut cm = map_of(&c.slot.raw);
+            cm.insert("enabled".into(), Value::Bool(c.enabled));
+            let mut devs = Map::new();
+            for (dn, d) in &c.devices {
+                let mut dm = map_of(&d.slot.raw);
+                dm.insert("enabled".into(), Value::Bool(d.enabled));
+                let pts: Map = d
+                    .points
+                    .iter()
+                    .map(|(pn, p)| (pn.clone(), p.raw.clone()))
                     .collect();
                 dm.insert("points".into(), Value::Map(pts));
                 devs.insert(dn.clone(), Value::Map(dm));
@@ -948,7 +1031,11 @@ impl<D: Driver> Link for Framework<D> {
     type Config = Tree;
 
     async fn start(tree: Tree, ctx: LinkCtx) -> Result<Self> {
-        let mut top = map_of(&tree.0);
+        // Runtime edits kept in `data_dir` win over the bootstrap params
+        // they were made on; new bootstrap params win over them.
+        let persist = Persist::open(&ctx, &tree.0);
+        let source = persist.as_ref().and_then(Persist::load).unwrap_or(tree.0);
+        let mut top = map_of(&source);
         // Default: always poll; only an explicit `false` gates on subscribers.
         let poll_unsubscribed = !matches!(
             take(&mut top, "poll_unsubscribed"),
@@ -966,6 +1053,7 @@ impl<D: Driver> Link for Framework<D> {
             ctx,
             conns: BTreeMap::new(),
             poll_unsubscribed,
+            persist,
         };
         for (cn, cv) in conns_raw {
             valid_name(&cn)?;
@@ -1074,7 +1162,45 @@ impl<D: Driver> Link for Framework<D> {
         } else {
             path.split('/').map(str::to_owned).collect()
         };
-        match (parts.as_slice(), action) {
+        let changes = matches!(
+            action,
+            "add_connection"
+                | "add_device"
+                | "add_point"
+                | "edit"
+                | "remove"
+                | "enable"
+                | "disable"
+        );
+        self.invoke_action(&parts, action, args, out).await?;
+        if changes {
+            if let Some(p) = &self.persist {
+                p.save(&self.full_tree()).map_err(|e| {
+                    LinkError::internal(format!("applied, but not saved for a restart: {e}"))
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn stop(&mut self) {
+        let names: Vec<String> = self.conns.keys().cloned().collect();
+        for n in names {
+            self.tear_down(&n).await;
+        }
+    }
+}
+
+impl<D: Driver> Framework<D> {
+    async fn invoke_action(
+        &mut self,
+        parts: &[String],
+        action: &str,
+        args: Value,
+        out: ReplySink,
+    ) -> Result<()> {
+        let path = parts.join("/");
+        match (parts, action) {
             ([], "export") => return out.reply(self.export()).await,
             ([], "add_connection") => {
                 let (name, params) = split_name(&args)?;
@@ -1130,7 +1256,8 @@ impl<D: Driver> Link for Framework<D> {
             }
             ([conn], "edit") => {
                 // Validate first; a rejected edit changes nothing.
-                let cfg = D::Conn::from_value(&args)?;
+                let old = self.conn_mut(conn)?.slot.raw.clone();
+                let cfg = D::Conn::from_value(&keep_secrets::<D::Conn>(&old, &args))?;
                 let c = self.conn_mut(conn)?;
                 if c.slot.cfg.as_ref() == Some(&cfg) {
                     return Ok(());
@@ -1141,7 +1268,13 @@ impl<D: Driver> Link for Framework<D> {
                 self.bring_up(conn).await;
             }
             ([conn, dev], "edit") => {
-                let cfg = D::Dev::from_value(&args)?;
+                let old = self
+                    .conn_mut(conn)?
+                    .devices
+                    .get(dev)
+                    .map(|d| d.slot.raw.clone())
+                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
+                let cfg = D::Dev::from_value(&keep_secrets::<D::Dev>(&old, &args))?;
                 let d = self
                     .conn_mut(conn)?
                     .devices
@@ -1155,7 +1288,14 @@ impl<D: Driver> Link for Framework<D> {
                 self.replan(conn).await;
             }
             ([conn, dev, pt], "edit") => {
-                let cfg = D::Point::from_value(&args)?;
+                let old = self
+                    .conn_mut(conn)?
+                    .devices
+                    .get(dev)
+                    .and_then(|d| d.points.get(pt))
+                    .map(|p| p.raw.clone())
+                    .ok_or_else(|| LinkError::not_found(pt.clone()))?;
+                let cfg = D::Point::from_value(&keep_secrets::<D::Point>(&old, &args))?;
                 let p = self
                     .conn_mut(conn)?
                     .devices
@@ -1238,12 +1378,5 @@ impl<D: Driver> Link for Framework<D> {
             _ => return Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         }
         Ok(())
-    }
-
-    async fn stop(&mut self) {
-        let names: Vec<String> = self.conns.keys().cloned().collect();
-        for n in names {
-            self.tear_down(&n).await;
-        }
     }
 }

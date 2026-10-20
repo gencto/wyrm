@@ -386,3 +386,125 @@ async fn add_and_remove() {
     assert_eq!(status(&att), Some(Status::NotFound));
     h.stop().await;
 }
+
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("wyrm-df-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// A harness with a `data_dir` and a store key, as `wyrmd` gives every link.
+async fn start_stored(tree: Tree, dir: &std::path::Path, key: [u8; 32]) -> H {
+    let dir = dir.to_owned();
+    H::start_with(tree, move |lc| {
+        lc.data_dir = Some(dir);
+        lc.secrets.insert(
+            wyrm_link_sdk::driver::persist::STORE_KEY,
+            wyrm_link_sdk::Secret::new(key.to_vec()),
+        );
+    })
+    .await
+}
+
+/// Runtime edits survive a restart, sealed in `data_dir`; secrets never
+/// show; an empty secret on `edit` keeps the stored one only while the
+/// destination stays; new bootstrap params replace the stored tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn runtime_edits_and_secrets_are_kept() {
+    let dir = temp_dir("persist");
+    let key = [7u8; 32];
+    let boot = || tree(standard(), true);
+    let h = start_stored(boot(), &dir, key).await;
+    let a = act(
+        &h,
+        "",
+        "add_connection",
+        map(&[
+            ("name", "c2".into()),
+            ("need_token", Value::Bool(true)),
+            ("token", "s3cret-pw".into()),
+        ]),
+    )
+    .await;
+    assert_eq!(status(&a), Some(Status::Ok), "{a:?}");
+    wait("c2 connected", || {
+        state(&h, "c2").as_deref() == Some("connected")
+    })
+    .await;
+    h.stop().await;
+
+    // Sealed: the secret is not readable in the file.
+    let raw = std::fs::read(dir.join("framework.tree")).unwrap();
+    assert!(!raw.windows(9).any(|w| w == b"s3cret-pw"));
+    assert!(!raw.windows(10).any(|w| w == b"need_token"));
+
+    // Restart, same bootstrap: c2 is back and connects with its token.
+    let h = start_stored(boot(), &dir, key).await;
+    wait("c2 back", || {
+        state(&h, "c2").as_deref() == Some("connected")
+    })
+    .await;
+    let ex = h
+        .invoke("", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await
+        .remove(0)
+        .value()
+        .unwrap();
+    assert!(
+        !format!("{ex:?}").contains("s3cret-pw"),
+        "export hides secrets"
+    );
+    let (_, meta) = h.meta("c2").await;
+    assert!(
+        !format!("{meta:?}").contains("s3cret-pw"),
+        "~meta hides secrets"
+    );
+
+    // Edit without the token, same destination: the token is kept.
+    let a = act(
+        &h,
+        "c2",
+        "edit",
+        map(&[
+            ("need_token", Value::Bool(true)),
+            ("latency_ms", Value::UInt(1)),
+        ]),
+    )
+    .await;
+    assert_eq!(status(&a), Some(Status::Ok), "{a:?}");
+    wait("still connected", || {
+        state(&h, "c2").as_deref() == Some("connected")
+    })
+    .await;
+    // Another host without the token: the stored token is dropped.
+    let a = act(
+        &h,
+        "c2",
+        "edit",
+        map(&[("need_token", Value::Bool(true)), ("host", "evil".into())]),
+    )
+    .await;
+    assert_eq!(status(&a), Some(Status::Ok), "{a:?}");
+    wait("c2 fails without its token", || {
+        state(&h, "c2").as_deref() == Some("failed")
+    })
+    .await;
+    h.stop().await;
+
+    // A wrong store key: the stored tree does not open; bootstrap is used.
+    let h = start_stored(boot(), &dir, [8u8; 32]).await;
+    wait("c1 up", || state(&h, "c1").as_deref() == Some("connected")).await;
+    assert!(state(&h, "c2").is_none(), "sealed with another key");
+    h.stop().await;
+
+    // New bootstrap params win over the stored tree.
+    let h = start_stored(tree(standard(), false), &dir, key).await;
+    wait("c1 up", || state(&h, "c1").as_deref() == Some("connected")).await;
+    assert!(
+        state(&h, "c2").is_none(),
+        "bootstrap changed: stored tree replaced"
+    );
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}

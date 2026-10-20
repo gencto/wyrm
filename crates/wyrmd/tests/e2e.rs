@@ -40,6 +40,11 @@ struct Env {
 impl Env {
     /// `extra`: more json5 fields (without braces).
     async fn start(name: &str, extra: &str) -> Self {
+        Self::start_in(&temp_dir(name), extra).await
+    }
+
+    /// Like `start`, in `dir` as it is (a restart keeps the state).
+    async fn start_in(dir: &std::path::Path, extra: &str) -> Self {
         let (port, tls) = (free_port(), free_port());
         let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
         let text = format!(
@@ -51,11 +56,23 @@ impl Env {
                 metrics_interval_ms: 200,
                 {extra}
             }}"#,
-            temp_dir(name).display(),
+            dir.display(),
             hex::encode(key.verifying_key().to_bytes())
         );
-        let cfg = Config::from_json5(&text).unwrap();
-        let daemon = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+        // After a restart, tasks of the previous broker may still hold the
+        // state lock for a moment.
+        let mut tries = 0;
+        let daemon = loop {
+            let cfg = Config::from_json5(&text).unwrap();
+            match Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
+                Ok(d) => break d,
+                Err(e) if tries < 50 && e.to_string().contains("in use") => {
+                    tries += 1;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => panic!("open: {e}"),
+            }
+        };
         let ctl = daemon.control();
         let gateway = daemon.gateway();
         let (stop, rx) = oneshot::channel();
@@ -81,6 +98,11 @@ impl Env {
     }
 
     async fn session(&self) -> zenoh::Session {
+        self.try_session().await.unwrap()
+    }
+
+    /// `None` while the router is being rebuilt (ACL change).
+    async fn try_session(&self) -> Option<zenoh::Session> {
         let mut zc = zenoh::Config::default();
         zc.insert_json5("mode", r#""client""#).unwrap();
         zc.insert_json5(
@@ -90,7 +112,7 @@ impl Env {
         .unwrap();
         zc.insert_json5("scouting/multicast/enabled", "false")
             .unwrap();
-        zenoh::open(zc).await.unwrap()
+        zenoh::open(zc).await.ok()
     }
 
     /// mTLS session presenting a CA-issued certificate with CN `cn`.
@@ -338,7 +360,7 @@ async fn unknown_cert_quarantine_and_acl_denied() {
         .unwrap();
     assert!(matches!(reply, Some(Value::Map(m)) if m.contains_key("token")));
     eventually("approved link may publish", 15, || async {
-        let c2 = env.client().await;
+        let c2 = WyrmClient::new(env.try_session().await?);
         mcu.put(&key, sample(2.0)).await.ok()?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         (last_val(&c2, &format!("wy/{SITE}/down/mcu-7/t")).await == Some(Value::Float(2.0)))
@@ -1241,5 +1263,40 @@ async fn process_link_polls_only_while_subscribed() {
     assert_eq!(idle, 0, "no subscriber, no polling");
     assert!(exact >= 5, "one point subscribed: {exact} requests/s");
     assert!(pattern >= 5, "down/** subscribed: {pattern} requests/s");
+    env.stop().await;
+}
+
+/// Principle 3: a framework link keeps its runtime edits (and the secrets
+/// in them) in its own `data_dir`, sealed with the store key the admin
+/// hands it; a broker restart brings them back.
+#[tokio::test(flavor = "multi_thread")]
+async fn process_link_keeps_runtime_edits() {
+    let dir = temp_dir("keep-edits");
+    let links =
+        r#"links: { dev1: { driver: "mockdev", mode: "process", params: { connections: {} } } },"#;
+    let env = Env::start_in(&dir, links).await;
+    let c = env.client().await;
+    let root = format!("wy/{SITE}/down/dev1");
+    eventually("dev1 up", 15, || async { c.meta(&root).await.ok() }).await;
+    let args = Value::Map(BTreeMap::from([
+        ("name".to_owned(), Value::from("c2")),
+        ("need_token".to_owned(), Value::Bool(true)),
+        ("token".to_owned(), Value::from("pw-123456")),
+    ]));
+    c.invoke_one(&root, "add_connection", args).await.unwrap();
+    env.stop().await;
+    let sealed = std::fs::read(dir.join("links/dev1/data/framework.tree")).unwrap();
+    assert!(!sealed.windows(9).any(|w| w == b"pw-123456"));
+
+    let env = Env::start_in(&dir, links).await;
+    let c = env.client().await;
+    let status = format!("{root}/c2/status");
+    eventually("c2 back and connected", 15, || async {
+        match last_val(&c, &status).await {
+            Some(Value::Map(m)) if m.get("state") == Some(&Value::from("connected")) => Some(()),
+            _ => None,
+        }
+    })
+    .await;
     env.stop().await;
 }

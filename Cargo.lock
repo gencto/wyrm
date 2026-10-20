@@ -5856,6 +5856,7 @@ dependencies = [
  "futures-util",
  "minicbor",
  "nix",
+ "ring",
  "sha2",
  "thiserror 2.0.21",
  "tokio",

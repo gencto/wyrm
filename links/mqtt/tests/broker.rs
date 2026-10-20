@@ -771,3 +771,136 @@ async fn tls_with_ca_file() {
     h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// As in DSA, credentials come with the connection: `password` (and
+/// `key_pem`) are secret parameters of `add_connection`, kept sealed by the
+/// link, never shown, dropped by an edit that changes the destination.
+#[tokio::test(flavor = "multi_thread")]
+async fn password_in_the_connection() {
+    let port = broker(Some(("wyrm", "pw-7777777")));
+    let dir = std::env::temp_dir().join(format!("wyrm-mqtt-pw-{}-{port}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let start = || {
+        let dir = dir.clone();
+        H::start_with(Tree(map(&[("connections", map(&[]))])), move |c| {
+            c.data_dir = Some(dir);
+            c.secrets.insert(
+                wyrm_link_sdk::driver::persist::STORE_KEY,
+                Secret::new(vec![3u8; 32]),
+            );
+        })
+    };
+    let h = start().await;
+    let add = map(&[
+        ("name", "c1".into()),
+        ("host", "127.0.0.1".into()),
+        ("port", Value::UInt(port.into())),
+        ("timeout_ms", Value::UInt(1500)),
+        ("username", "wyrm".into()),
+        ("password", "pw-7777777".into()),
+    ]);
+    assert_eq!(act(&h, "", "add_connection", add).await, Some(Status::Ok));
+    wait("connected with the password", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    let (_, m) = h.meta("c1").await;
+    assert!(!format!("{m:?}").contains("pw-7777777"), "~meta hides it");
+    let export = h
+        .invoke("", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    let exported = format!("{:?}", export.first().and_then(|r| r.value()));
+    assert!(!exported.contains("pw-7777777"), "{exported}");
+    // a plaintext password to a non-loopback host is refused
+    let far = map(&[
+        ("name", "c2".into()),
+        ("host", "192.0.2.1".into()),
+        ("username", "wyrm".into()),
+        ("password", "pw-7777777".into()),
+    ]);
+    assert_eq!(
+        act(&h, "", "add_connection", far).await,
+        Some(Status::InvalidParameter)
+    );
+    h.stop().await;
+    assert!(!std::fs::read(dir.join("framework.tree"))
+        .unwrap()
+        .windows(10)
+        .any(|w| w == b"pw-7777777"));
+
+    // restart: the connection and its password come back
+    let h = start().await;
+    wait("connected after restart", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    // an edit without the password, same destination: kept
+    let same = map(&[
+        ("host", "127.0.0.1".into()),
+        ("port", Value::UInt(port.into())),
+        ("timeout_ms", Value::UInt(1600)),
+        ("username", "wyrm".into()),
+    ]);
+    assert_eq!(act(&h, "c1", "edit", same).await, Some(Status::Ok));
+    wait("still connected", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    // another destination without the password: dropped, the broker refuses
+    let moved = map(&[
+        ("host", "localhost".into()),
+        ("port", Value::UInt(port.into())),
+        ("timeout_ms", Value::UInt(1500)),
+        ("username", "wyrm".into()),
+    ]);
+    assert_eq!(act(&h, "c1", "edit", moved).await, Some(Status::Ok));
+    wait("refused without the password", || {
+        error(&h, "c1").is_some_and(|e| e.starts_with("transport: connect"))
+    })
+    .await;
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn act(h: &H, path: &str, action: &str, args: Value) -> Option<Status> {
+    h.invoke(path, action, args, Some(h.ptok(Perm::Config)))
+        .await
+        .first()
+        .and_then(|r| status(&r.att))
+}
+
+/// The CA can come as PEM text in the connection instead of a file.
+#[tokio::test(flavor = "multi_thread")]
+async fn tls_with_ca_pem() {
+    let port = broker(None);
+    let (tport, ca_pem) = tls_proxy(port).await;
+    let tree = |ca: &str| {
+        conn(
+            tport,
+            &[
+                ("host", "localhost".into()),
+                ("tls", true.into()),
+                ("ca_pem", ca.into()),
+            ],
+            plain(map(&[("t", pt(&[("topic", "tlspem/t".into())]))])),
+        )
+    };
+    let h = H::start(tree(&ca_pem)).await;
+    let (pubc, _) = client(port, "pub-tlspem", &[]).await;
+    publish_until(&pubc, "tlspem/t", b"7", "value over tls", || {
+        val(&h, "c1/d1/t") == Some(Value::UInt(7))
+    })
+    .await;
+    h.stop().await;
+    // a PEM that does not parse is a config error, kept as failed
+    let h = H::start(tree(
+        "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n",
+    ))
+    .await;
+    wait("bad ca_pem", || {
+        error(&h, "c1").is_some_and(|e| e.contains("ca_pem"))
+    })
+    .await;
+    h.stop().await;
+}

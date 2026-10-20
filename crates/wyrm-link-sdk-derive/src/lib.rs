@@ -69,6 +69,7 @@ struct FieldAttrs {
     min: Option<Expr>,
     max: Option<Expr>,
     secret: bool,
+    dest: bool,
     desc: Option<String>,
     name: Option<String>,
     is_enum: bool,
@@ -84,12 +85,13 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
                 Some("min") => a.min = Some(m.value()?.parse()?),
                 Some("max") => a.max = Some(m.value()?.parse()?),
                 Some("secret") => a.secret = true,
+                Some("dest") => a.dest = true,
                 Some("enum") => a.is_enum = true,
                 Some("desc") => a.desc = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 Some("name") => a.name = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 _ => {
                     return Err(m.error(
-                        "unknown param attribute; expected default, min, max, secret, desc, name or enum",
+                        "unknown param attribute; expected default, min, max, secret, dest, desc, name or enum",
                     ))
                 }
             }
@@ -259,6 +261,9 @@ fn expand_params(input: &DeriveInput) -> syn::Result<Tokens> {
         }
         if a.secret {
             spec = quote!(#spec.secret());
+        }
+        if a.dest {
+            spec = quote!(#spec.dest());
         }
         if let Some(d) = &a.desc {
             spec = quote!(#spec.desc(#d));

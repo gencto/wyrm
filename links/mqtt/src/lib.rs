@@ -19,9 +19,14 @@
 //! (Sparkplug); there is no optimistic update — the tree shows what the
 //! device reports back on its state topic.
 //!
-//! The broker password is a link secret: `auth_ref` names the entry in the
-//! link `SecretStore` (`links/<id>/~act/set_secret`); it never appears in
-//! the tree, `~def` or `export`.
+//! Credentials, as in DSA, come with the connection: `password` and the TLS
+//! client key `key_pem` are secret parameters of `add_connection`/`edit`.
+//! The framework keeps them sealed in the link's `data_dir` and never shows
+//! them in `~meta`, `export` or replies; an `edit` that changes the
+//! destination (`host`, `port`, `tls`, `ca_file`, `ca_pem`) drops them
+//! unless it supplies them again. Alternatively `auth_ref` names a link
+//! secret (`links/<id>/~act/set_secret`), bound to the destinations of the
+//! install params. A password is sent in plaintext only to loopback.
 
 #![forbid(unsafe_code)]
 
@@ -127,17 +132,27 @@ pub struct Conn {
     pub tls: bool,
     /// PEM file with the CA certificates; empty = system roots.
     pub ca_file: String,
+    /// PEM CA certificates (instead of `ca_file`); empty = `ca_file` or
+    /// system roots.
+    pub ca_pem: String,
+    /// PEM client certificate chain for mutual TLS; empty = none.
+    pub cert_pem: String,
+    /// PEM private key of `cert_pem` (secret parameter).
+    key_pem: Secret,
     pub username: String,
     /// Name of the link secret with the broker password; empty = none.
     pub auth_ref: String,
-    /// Resolved from the link `SecretStore`; never in the schema or tree.
+    /// The `password` parameter (secret), or resolved from `auth_ref`.
     password: Option<Secret>,
+    /// `password` was given as a parameter (kept in the sealed tree).
+    password_param: bool,
 }
 
 impl PartialEq for Conn {
     fn eq(&self, o: &Self) -> bool {
         self.to_map() == o.to_map()
             && self.password.as_ref().map(Secret::expose) == o.password.as_ref().map(Secret::expose)
+            && self.key_pem.expose() == o.key_pem.expose()
     }
 }
 
@@ -155,10 +170,11 @@ fn resolve_secret(name: &str) -> wyrm_link_sdk::Result<Secret> {
 impl Params for Conn {
     fn schema() -> Vec<ParamSpec> {
         vec![
-            ParamSpec::new("host", TypeCode::String),
+            ParamSpec::new("host", TypeCode::String).dest(),
             ParamSpec::new("port", TypeCode::Number)
                 .default(1883u64)
-                .bounds(1.0, 65535.0),
+                .bounds(1.0, 65535.0)
+                .dest(),
             ParamSpec::new("client_id", TypeCode::String)
                 .default("")
                 .desc("empty: wyrm-<random> per connect"),
@@ -168,11 +184,27 @@ impl Params for Conn {
             ParamSpec::new("timeout_ms", TypeCode::Number)
                 .default(3000u64)
                 .bounds(100.0, 60_000.0),
-            ParamSpec::new("tls", TypeCode::Bool).default(false),
+            ParamSpec::new("tls", TypeCode::Bool).default(false).dest(),
             ParamSpec::new("ca_file", TypeCode::String)
                 .default("")
-                .desc("PEM CA file for tls; empty = system roots"),
+                .desc("PEM CA file for tls; empty = system roots")
+                .dest(),
+            ParamSpec::new("ca_pem", TypeCode::String)
+                .default("")
+                .desc("PEM CA certificates for tls (instead of ca_file)")
+                .dest(),
+            ParamSpec::new("cert_pem", TypeCode::String)
+                .default("")
+                .desc("PEM client certificate for mutual TLS"),
+            ParamSpec::new("key_pem", TypeCode::String)
+                .default("")
+                .secret()
+                .desc("PEM private key of cert_pem"),
             ParamSpec::new("username", TypeCode::String).default(""),
+            ParamSpec::new("password", TypeCode::String)
+                .default("")
+                .secret()
+                .desc("broker password (kept sealed by the link)"),
             ParamSpec::new("auth_ref", TypeCode::String)
                 .default("")
                 .desc("name of the link secret that holds the broker password"),
@@ -188,10 +220,15 @@ impl Params for Conn {
             timeout_ms: field::int(m, "timeout_ms")?,
             tls: field::bool(m, "tls")?,
             ca_file: field::string(m, "ca_file")?,
+            ca_pem: field::string(m, "ca_pem")?,
+            cert_pem: field::string(m, "cert_pem")?,
+            key_pem: Secret::new(field::string(m, "key_pem")?),
             username: field::string(m, "username")?,
             auth_ref: field::string(m, "auth_ref")?,
             password: None,
+            password_param: false,
         };
+        let password = field::string(m, "password")?;
         if c.host.is_empty() {
             return Err(bad("host", "required"));
         }
@@ -200,6 +237,35 @@ impl Params for Conn {
         }
         if !c.tls && !c.ca_file.is_empty() {
             return Err(bad("ca_file", "only with tls"));
+        }
+        if !c.tls && (!c.ca_pem.is_empty() || !c.cert_pem.is_empty()) {
+            return Err(bad("ca_pem", "ca_pem and cert_pem only with tls"));
+        }
+        if !c.ca_pem.is_empty() && !c.ca_file.is_empty() {
+            return Err(bad("ca_pem", "give ca_pem or ca_file, not both"));
+        }
+        if c.cert_pem.is_empty() != c.key_pem.expose().is_empty() {
+            return Err(bad("cert_pem", "cert_pem and key_pem go together"));
+        }
+        if !c.ca_pem.is_empty() || !c.cert_pem.is_empty() {
+            // Parse now: a bad PEM is an edit error, not a connect failure.
+            tls_config(&c).map_err(|e| bad("tls", e))?;
+        }
+        if !password.is_empty() {
+            if !c.auth_ref.is_empty() {
+                return Err(bad("password", "give password or auth_ref, not both"));
+            }
+            if c.username.is_empty() {
+                return Err(bad("username", "required with password"));
+            }
+            if !c.tls && !is_loopback(&c.host) {
+                return Err(bad(
+                    "tls",
+                    "a password is never sent in plaintext to a non-loopback host",
+                ));
+            }
+            c.password = Some(Secret::new(password));
+            c.password_param = true;
         }
         if !c.auth_ref.is_empty() {
             if c.auth_ref.len() > 64
@@ -242,7 +308,20 @@ impl Params for Conn {
             ("timeout_ms".into(), Value::UInt(self.timeout_ms.into())),
             ("tls".into(), Value::Bool(self.tls)),
             ("ca_file".into(), Value::Str(self.ca_file.clone())),
+            ("ca_pem".into(), Value::Str(self.ca_pem.clone())),
+            ("cert_pem".into(), Value::Str(self.cert_pem.clone())),
+            (
+                "key_pem".into(),
+                Value::Str(self.key_pem.expose_str().unwrap_or_default().to_owned()),
+            ),
             ("username".into(), Value::Str(self.username.clone())),
+            (
+                "password".into(),
+                Value::Str(match (&self.password, self.password_param) {
+                    (Some(p), true) => p.expose_str().unwrap_or_default().to_owned(),
+                    _ => String::new(),
+                }),
+            ),
             ("auth_ref".into(), Value::Str(self.auth_ref.clone())),
         ])
     }
@@ -618,31 +697,57 @@ async fn run_event_loop(mut el: EventLoop, client: AsyncClient, shared: Arc<Mute
     }
 }
 
-fn tls_config(ca_file: &str) -> Result<rustls::ClientConfig, DriverError> {
+fn tls_config(c: &Conn) -> Result<rustls::ClientConfig, DriverError> {
     use rustls_pki_types::pem::PemObject;
-    use rustls_pki_types::CertificateDer;
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+    let tls_err =
+        |what: &str, e: &dyn std::fmt::Display| DriverError::Transport(format!("{what}: {e}"));
     let mut roots = rustls::RootCertStore::empty();
-    if ca_file.is_empty() {
-        let found = rustls_native_certs::load_native_certs();
-        roots.add_parsable_certificates(found.certs);
+    let pem = if !c.ca_pem.is_empty() {
+        Some(("ca_pem".to_owned(), c.ca_pem.as_bytes().to_vec()))
+    } else if !c.ca_file.is_empty() {
+        let what = format!("ca_file {}", c.ca_file);
+        let b = std::fs::read(&c.ca_file).map_err(|e| tls_err(&what, &e))?;
+        Some((what, b))
     } else {
-        let pem = std::fs::read(ca_file)
-            .map_err(|e| DriverError::Transport(format!("ca_file {ca_file}: {e}")))?;
-        for c in CertificateDer::pem_slice_iter(&pem) {
-            let c = c.map_err(|e| DriverError::Transport(format!("ca_file {ca_file}: {e}")))?;
-            roots
-                .add(c)
-                .map_err(|e| DriverError::Transport(format!("ca_file {ca_file}: {e}")))?;
+        None
+    };
+    match pem {
+        None => {
+            let found = rustls_native_certs::load_native_certs();
+            roots.add_parsable_certificates(found.certs);
+        }
+        Some((what, pem)) => {
+            for cert in CertificateDer::pem_slice_iter(&pem) {
+                let cert = cert.map_err(|e| tls_err(&what, &e))?;
+                roots.add(cert).map_err(|e| tls_err(&what, &e))?;
+            }
         }
     }
     if roots.is_empty() {
         return Err(DriverError::Transport("tls: no CA certificates".into()));
     }
     // ring only: never the process default provider (aws-lc is forbidden).
-    rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .map(|b| b.with_root_certificates(roots).with_no_client_auth())
-        .map_err(|e| DriverError::Transport(format!("tls: {e}")))
+    let b = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| tls_err("tls", &e))?
+    .with_root_certificates(roots);
+    if c.cert_pem.is_empty() {
+        return Ok(b.with_no_client_auth());
+    }
+    let chain = CertificateDer::pem_slice_iter(c.cert_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| tls_err("cert_pem", &e))?;
+    if chain.is_empty() {
+        return Err(DriverError::Transport("cert_pem: no certificate".into()));
+    }
+    // Never echo the key's content in an error.
+    let key = PrivateKeyDer::from_pem_slice(c.key_pem.expose())
+        .map_err(|_| DriverError::Transport("key_pem: not a PEM private key".into()))?;
+    b.with_client_auth_cert(chain, key)
+        .map_err(|e| tls_err("cert_pem/key_pem", &e))
 }
 
 fn random_client_id() -> String {
@@ -700,7 +805,7 @@ impl Driver for MqttDriver {
             None => {}
         }
         if c.tls {
-            let cfg = tls_config(&c.ca_file)?;
+            let cfg = tls_config(c)?;
             o.set_transport(rumqttc::Transport::tls_with_config(
                 TlsConfiguration::Rustls(Arc::new(cfg)),
             ));
@@ -1093,7 +1198,29 @@ mod tests {
     #[test]
     fn tls_with_ring_provider() {
         // system roots may be empty in a sandbox; the builder must not panic
-        let _ = tls_config("");
-        assert!(tls_config("/nonexistent/ca.pem").is_err());
+        let conn = |extra: &[(&str, Value)]| {
+            let mut m = BTreeMap::from([
+                ("host".to_owned(), Value::from("localhost")),
+                ("tls".to_owned(), Value::Bool(true)),
+            ]);
+            m.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), v.clone())));
+            wyrm_link_sdk::driver::params::normalize(&Conn::schema(), &Value::Map(m))
+                .and_then(|m| Conn::from_map(&m))
+        };
+        let _ = tls_config(&conn(&[]).unwrap());
+        let missing = conn(&[("ca_file", "/nonexistent/ca.pem".into())]).unwrap();
+        assert!(tls_config(&missing).is_err());
+        // a client key's content never appears in an error
+        let e = conn(&[
+            ("ca_pem", "x".into()),
+            ("cert_pem", "y".into()),
+            ("key_pem", "very-private".into()),
+        ])
+        .unwrap_err();
+        assert!(!e.message.contains("very-private"), "{}", e.message);
+        assert!(
+            conn(&[("cert_pem", "y".into())]).is_err(),
+            "cert without key"
+        );
     }
 }

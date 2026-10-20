@@ -7,6 +7,7 @@
 
 pub mod framework;
 pub mod params;
+pub mod persist;
 
 pub use framework::{Framework, Tree};
 pub use params::{ParamEnum, ParamSpec, Params};

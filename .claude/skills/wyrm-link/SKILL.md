@@ -21,7 +21,7 @@ description: Create or extend a WYRM protocol connector (driver) on the driver f
 2. Add `"links/<name>"` to `[workspace] members` and `wyrm-link-<name> = { path = "links/<name>" }` to `[workspace.dependencies]` in the root `Cargo.toml` (the command prints both lines).
 3. Run `cargo test -p wyrm-link-<name>` — the generated tests pass before any change.
 4. Replace the placeholder protocol:
-   - Parameters: one `#[derive(Params)]` struct per kind (`Conn`, `Dev`, `Point`). Attributes: `default`, `min`, `max`, `desc`, `name`, `enum` (with `#[derive(ParamEnum)]`), `secret` (secrets come from the link secret store, never from params or logs). Use a hand-written `Params` impl only for cross-field rules (see modbus `Point`).
+   - Parameters: one `#[derive(Params)]` struct per kind (`Conn`, `Dev`, `Point`). Attributes: `default`, `min`, `max`, `desc`, `name`, `enum` (with `#[derive(ParamEnum)]`), `secret` (entered in `add_*`/`edit`, kept sealed by the framework in `data_dir`, never shown in `~meta`, `export` or logs) and `dest` (fields that say where a secret goes — host, port, TLS, CA; an edit that changes one drops the stored secrets unless it supplies them again). Take certificates as PEM text params (`ca_pem`, `cert_pem`) and the private key as a `secret` param, as in DSA. Use a hand-written `Params` impl only for cross-field rules (see modbus `Point`).
    - `open`: connect with a timeout; every error is `DriverError::Transport`.
    - `ping`: a protocol exception means the device is alive (`Ok`); no answer is `DriverError::Device`.
    - `plan`: group points into as few reads as possible (address spans, max count); it is cached until the group changes.

@@ -162,6 +162,7 @@ pub fn lint_params(v: &Value, path: &str) -> Result<(), String> {
         "api_key",
         "apikey",
         "credential",
+        "key_pem",
     ];
     match v {
         Value::Map(m) => {
@@ -180,6 +181,11 @@ pub fn lint_params(v: &Value, path: &str) -> Result<(), String> {
             for (i, v) in a.iter().enumerate() {
                 lint_params(v, &format!("{path}[{i}]"))?;
             }
+        }
+        Value::Str(s) if s.contains("PRIVATE KEY-----") => {
+            return Err(format!(
+                "{path}: a PEM private key; enter it in the link's add/edit action or use links/<id>/~act/set_secret"
+            ));
         }
         Value::Str(s) if s.len() >= 32 && s.chars().all(|c| c.is_ascii_hexdigit()) => {
             return Err(format!(
@@ -230,7 +236,7 @@ mod tests {
     fn params_lint() {
         let ok = Value::Map(BTreeMap::from([("host".into(), Value::from("10.0.0.1"))]));
         assert!(lint_params(&ok, "params").is_ok());
-        for bad in ["password", "api_key", "dlms_key", "Secret"] {
+        for bad in ["password", "api_key", "dlms_key", "Secret", "key_pem"] {
             let v = Value::Map(BTreeMap::from([(bad.to_owned(), Value::from("x"))]));
             assert!(lint_params(&v, "params").is_err(), "{bad}");
         }
@@ -239,5 +245,16 @@ mod tests {
             Value::from("00112233445566778899aabbccddeeff"),
         )]));
         assert!(lint_params(&hex, "params").is_err());
+        let pem = Value::Map(BTreeMap::from([(
+            "client".into(),
+            Value::from("-----BEGIN PRIVATE KEY-----\nMC4\n-----END PRIVATE KEY-----\n"),
+        )]));
+        assert!(lint_params(&pem, "params").is_err());
+        // certificates are public
+        let cert = Value::Map(BTreeMap::from([(
+            "ca_pem".into(),
+            Value::from("-----BEGIN CERTIFICATE-----\nMC4\n-----END CERTIFICATE-----\n"),
+        )]));
+        assert!(lint_params(&cert, "params").is_ok());
     }
 }

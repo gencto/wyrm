@@ -338,6 +338,19 @@ impl Control {
         Ok(true)
     }
 
+    /// The link's store key (32 random bytes, secret `.store_key`): it seals
+    /// the framework tree the link keeps in its `data_dir`. Created once; it
+    /// goes away with the link's secrets.
+    fn ensure_store_key(&self, id: &str) -> Result<(), Error> {
+        let name = wyrm_link_sdk::driver::persist::STORE_KEY;
+        if self.secrets.names(id).iter().any(|n| n == name) {
+            return Ok(());
+        }
+        let mut key = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut key[..]).map_err(|e| format!("no randomness: {e}"))?;
+        self.secrets.set(id, name, &key[..])
+    }
+
     /// Secrets of one link for the SDK (embedded start, `hello` reply).
     fn link_secrets(&self, id: &str) -> wyrm_link_sdk::SecretStore {
         self.secrets
@@ -610,6 +623,9 @@ impl Control {
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
                 warn!(link = %def.id, "agent key: {e}");
+            }
+            if let Err(e) = self.ensure_store_key(&def.id) {
+                warn!(link = %def.id, "store key: {e}");
             }
         }
         let embedded: Running = Arc::new(AsyncMutex::new(HashMap::new()));
@@ -1094,6 +1110,8 @@ impl Admin {
             .map_err(|e| LinkError::internal(e.to_string()))?;
         ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
         ctl.record(sub, "install", &id, Status::Ok, mode.name());
+        ctl.ensure_store_key(&id)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
         if def.driver == AGENT_DRIVER {
             // New trusted key: running links restart with the new trust list.
             ctl.ensure_agent_key(&def)

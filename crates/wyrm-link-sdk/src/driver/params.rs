@@ -23,6 +23,10 @@ pub struct ParamSpec {
     pub max: Option<f64>,
     /// Never echoed in `~meta.cfg` or replies.
     pub secret: bool,
+    /// Where a secret goes (host, port, TLS, CA): an `edit` that changes a
+    /// destination field drops the stored secrets unless it supplies them
+    /// again. Without any `dest` field, every field counts as one.
+    pub dest: bool,
     pub desc: &'static str,
 }
 
@@ -36,6 +40,7 @@ impl ParamSpec {
             min: None,
             max: None,
             secret: false,
+            dest: false,
             desc: "",
         }
     }
@@ -59,6 +64,11 @@ impl ParamSpec {
 
     pub const fn secret(mut self) -> Self {
         self.secret = true;
+        self
+    }
+
+    pub const fn dest(mut self) -> Self {
+        self.dest = true;
         self
     }
 
