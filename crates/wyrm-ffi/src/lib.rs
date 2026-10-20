@@ -171,7 +171,8 @@ pub unsafe extern "C" fn wyrm_open(
     })
 }
 
-/// Like [`wyrm_open`], over mTLS (`tls/<host>:<port>` or `quic/…`): `ca` is
+/// Like [`wyrm_open`], over mTLS (`tls/<host>:<port>`, the broker client
+/// listener; the library has no QUIC transport): `ca` is
 /// the broker CA (PEM file), `cert` and `key` a client certificate it
 /// issued and its private key (PEM files).
 ///
@@ -189,8 +190,8 @@ pub unsafe extern "C" fn wyrm_open_tls(
 ) -> *mut WyrmHandle {
     open_handle(err, "wyrm_open_tls", || {
         let endpoint = text(endpoint).ok_or("endpoint: UTF-8 string required")?;
-        if !is_tls(endpoint) {
-            return Err(format!("{endpoint}: not a tls/ or quic/ endpoint"));
+        if !endpoint.starts_with("tls/") {
+            return Err(format!("{endpoint}: not a tls/ endpoint"));
         }
         let path = |p: *const c_char, what: &str| {
             text(p)
@@ -224,7 +225,7 @@ unsafe fn signer(seed: *const u8, site: *const c_char) -> Result<Signer, String>
     )))
 }
 
-/// Principle 6: plaintext only on loopback, `tls/`/`quic/` with mTLS.
+/// Principle 6: plaintext only on loopback, `tls/` with mTLS.
 fn open_session(endpoint: &str, tls: Option<&TlsFiles>, key: Signer) -> Result<WyrmHandle, String> {
     if plaintext_off_loopback(endpoint) {
         return Err(format!(

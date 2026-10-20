@@ -35,7 +35,7 @@ typedef struct WyrmHandle WyrmHandle;
  * wyrm_string_free). */
 WyrmHandle *wyrm_open(const char *endpoint, const uint8_t *seed, const char *site, char **err);
 
-/* As wyrm_open, over mTLS ("tls/host:port" or "quic/..."): `ca` is the
+/* As wyrm_open, over mTLS ("tls/host:port", the broker client listener): `ca` is the
  * broker CA, `cert`/`key` a client certificate it issued (PEM file paths). */
 WyrmHandle *wyrm_open_tls(const char *endpoint, const char *ca, const char *cert, const char *key,
                           const uint8_t *seed, const char *site, char **err);

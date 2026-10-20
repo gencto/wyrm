@@ -19,7 +19,7 @@ test-harness = ["dep:wyrm-link-sdk", "dep:wyrm-link-mock", "wyrm-link-sdk/harnes
 [dependencies]
 wyrm-core.workspace = true
 wyrm-client.workspace = true
-zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_quic"] }
+zenoh = { workspace = true, features = ["transport_tcp", "transport_tls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
 ed25519-dalek.workspace = true
 wyrm-link-sdk = { workspace = true, optional = true }
@@ -32,5 +32,5 @@ wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
 wyrm-admin.workspace = true
 ed25519-dalek.workspace = true
-zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_quic"] }
+zenoh = { workspace = true, features = ["transport_tcp", "transport_tls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
