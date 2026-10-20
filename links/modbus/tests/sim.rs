@@ -31,21 +31,18 @@ fn tree(port: u16, dev: &[(&str, Value)], points: Value) -> Tree {
     let mut d: Vec<(&str, Value)> = vec![("unit", Value::UInt(1)), ("ping_s", Value::Float(0.1))];
     d.extend_from_slice(dev);
     d.push(("points", points));
-    Tree(map(&[
-        ("poll_unsubscribed", Value::Bool(true)),
-        (
-            "connections",
-            map(&[(
-                "c1",
-                map(&[
-                    ("host", "127.0.0.1".into()),
-                    ("port", Value::UInt(port.into())),
-                    ("timeout_ms", Value::UInt(200)),
-                    ("devices", map(&[("d1", map(&d))])),
-                ]),
-            )]),
-        ),
-    ]))
+    Tree(map(&[(
+        "connections",
+        map(&[(
+            "c1",
+            map(&[
+                ("host", "127.0.0.1".into()),
+                ("port", Value::UInt(port.into())),
+                ("timeout_ms", Value::UInt(200)),
+                ("devices", map(&[("d1", map(&d))])),
+            ]),
+        )]),
+    )]))
 }
 
 fn state(h: &H, base: &str) -> Option<String> {

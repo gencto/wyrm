@@ -156,10 +156,7 @@ fn conn(port: u16, extra: &[(&str, Value)], devices: Value) -> Tree {
     ];
     c.extend_from_slice(extra);
     c.push(("devices", devices));
-    Tree(map(&[
-        ("poll_unsubscribed", Value::Bool(true)),
-        ("connections", map(&[("c1", map(&c))])),
-    ]))
+    Tree(map(&[("connections", map(&[("c1", map(&c))]))]))
 }
 
 fn plain(points: Value) -> Value {

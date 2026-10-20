@@ -6,7 +6,7 @@ description: Create or extend a WYRM protocol connector (driver) on the driver f
 # WYRM link (driver) on the driver framework
 
 ## Read first
-1. `docs/adr/0004-driver-framework.md` — what the framework owns (tree, generated actions, edits, states, scheduling, polling only while subscribed, read-back writes, quality ladder). Do not re-implement any of it in a driver.
+1. `docs/adr/0004-driver-framework.md` — what the framework owns (tree, generated actions, edits, states, scheduling, polling (always by default, `poll_unsubscribed: false` gates on subscribers), read-back writes, quality ladder). Do not re-implement any of it in a driver.
 2. `crates/wyrm-link-sdk/src/driver/mod.rs` — `trait Driver`, `DriverError`, `NodeState`.
 3. Reference drivers: `links/modbus/src/lib.rs` (real protocol, batched plan, hand-written `Params` for cross-field rules) and `links/mock/src/df.rs` (`mockdev`, smallest complete driver). Tests to copy from: `links/modbus/tests/sim.rs`, `links/mock/tests/df.rs`.
 4. `CLAUDE.md` conventions (QoS, secrets, no `unwrap` on network paths, `wire_enum!`).
@@ -29,7 +29,7 @@ description: Create or extend a WYRM protocol connector (driver) on the driver f
    - `write`: no optimistic update — the framework reads the point back. Refuse read-only points with `DriverError::Point`.
    - `point_meta`: type, unit, `writable`. `poll_period`, `ping_period`, `io_timeout` from the params.
    - Make sure a late reply after a timeout cannot be taken for the next request (transaction or sequence ids).
-5. Extend the simulator (`src/sim.rs`, feature `sim`) with the device's behaviour and failure modes (exceptions, silence, disconnect), and the tests in `tests/sim.rs`: values and data types, point errors, write + read-back, silent device → `uncertain/stale` then `bad/comm_fail`, connection down → `failed` and children `stopped_by_parent`. Tests use `poll_unsubscribed: true` and generous waits (10 s).
+5. Extend the simulator (`src/sim.rs`, feature `sim`) with the device's behaviour and failure modes (exceptions, silence, disconnect), and the tests in `tests/sim.rs`: values and data types, point errors, write + read-back, silent device → `uncertain/stale` then `bad/comm_fail`, connection down → `failed` and children `stopped_by_parent`. Tests poll all the time (the default) and use generous waits (10 s).
 6. To run it from `wyrmd`, register the driver in `crates/wyrmd/src/lib.rs` (params validation, `start_boxed::<…>`, `run_link`).
 7. Check: `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 

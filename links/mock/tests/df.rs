@@ -17,11 +17,14 @@ fn map(kv: &[(&str, Value)]) -> Value {
     )
 }
 
+/// `poll_unsubscribed: true` is the default and left out; `false` gates
+/// polling on subscribers.
 fn tree(conn: Value, poll_unsubscribed: bool) -> Tree {
-    Tree(map(&[
-        ("poll_unsubscribed", Value::Bool(poll_unsubscribed)),
-        ("connections", map(&[("c1", conn)])),
-    ]))
+    let mut top = vec![("connections", map(&[("c1", conn)]))];
+    if !poll_unsubscribed {
+        top.push(("poll_unsubscribed", Value::Bool(false)));
+    }
+    Tree(map(&top))
 }
 
 fn conn(extra: &[(&str, Value)], devices: Value) -> Value {

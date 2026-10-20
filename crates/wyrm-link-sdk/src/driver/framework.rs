@@ -6,8 +6,11 @@
 //! * One owner task per connection holds the transport and serves `Poll`,
 //!   `Ping`, `Write` and `Reconfigure` requests in order.
 //! * One ticker per `(device, poll period)` group; a tick is skipped while
-//!   the previous poll of that group is in flight, and (unless
-//!   `poll_unsubscribed`) while no point of the group has a subscriber.
+//!   the previous poll of that group is in flight. Points are polled all the
+//!   time (owner decision, ADR 0004 amendment); with `poll_unsubscribed:
+//!   false` a tick is also skipped while no point of the group has a
+//!   subscriber (only reliable for process links: the in-process `~val`
+//!   storage of `wyrmd` always counts as one).
 //! * Edits validate first (atomic), then rebuild only what depends on them:
 //!   a connection edit tears the owner down completely before the new one
 //!   starts; device and point edits re-plan without reconnecting.
@@ -946,8 +949,11 @@ impl<D: Driver> Link for Framework<D> {
 
     async fn start(tree: Tree, ctx: LinkCtx) -> Result<Self> {
         let mut top = map_of(&tree.0);
-        let poll_unsubscribed =
-            matches!(take(&mut top, "poll_unsubscribed"), Some(Value::Bool(true)));
+        // Default: always poll; only an explicit `false` gates on subscribers.
+        let poll_unsubscribed = !matches!(
+            take(&mut top, "poll_unsubscribed"),
+            Some(Value::Bool(false))
+        );
         let conns_raw = take(&mut top, "connections")
             .map(|v| map_of(&v))
             .unwrap_or_default();

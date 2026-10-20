@@ -272,11 +272,7 @@ async fn modbus_as_process() {
     let env = Env::start(
         "process",
         &format!(
-            // poll_unsubscribed: the test reads values with `get` (the
-            // storage), not a subscription; under the ACL a process link
-            // sees only real subscribers (see
-            // `process_link_polls_only_while_subscribed`).
-            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ poll_unsubscribed: true, connections: {{ c1: {{
+            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ connections: {{ c1: {{
                 host: "127.0.0.1", port: {},
                 devices: {{ ahu1: {{ unit: 1, points: {{
                   supply_temp: {{ table: "input", addr: 1, dtype: "i16", scale: 0.1, poll_s: 0.05 }},
@@ -1163,16 +1159,17 @@ fn verify_state_finds_a_tampered_wal() {
 
 /// The subscriber gate of a process link: the `~val` storage subscribes to
 /// `wy/**/~val`, which the link ACL (`wy/S/down/L/**`) does not pass on, so
-/// the link polls only while a real subscriber (one point or a pattern
-/// under `down/**`) exists. Embedded links share the router with the
-/// storage and therefore always poll (open owner decision 6).
+/// with `poll_unsubscribed: false` the link polls only while a real
+/// subscriber (one point or a pattern under `down/**`) exists. Embedded
+/// links share the router with the storage, so for them the gate is
+/// always open (the default is to poll all the time anyway).
 #[tokio::test(flavor = "multi_thread")]
 async fn process_link_polls_only_while_subscribed() {
     let (addr, dev, _task) = wyrm_link_modbus::sim::spawn("127.0.0.1:0").await.unwrap();
     let env = Env::start(
         "gate",
         &format!(
-            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ connections: {{ c1: {{
+            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ poll_unsubscribed: false, connections: {{ c1: {{
                 host: "127.0.0.1", port: {},
                 devices: {{ ahu1: {{ unit: 1, points: {{
                   supply_temp: {{ table: "input", addr: 1, dtype: "i16", scale: 0.1, poll_s: 0.05 }},
