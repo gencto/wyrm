@@ -154,3 +154,26 @@ async fn long_lived_tokens_are_refused() {
     );
     h.stop().await;
 }
+
+/// Reads share one budget per link: over it, `~meta` answers `rate_limited`
+/// (a flood cannot take the link's CPU).
+#[tokio::test(flavor = "multi_thread")]
+async fn reads_are_rate_limited() {
+    let h = TestHarness::<W>::start_with((), |c| c.read_rate_limit = Some((0.5, 2.0))).await;
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        let r = h
+            .query(&h.key("p", "~meta"), None, Default::default())
+            .await;
+        seen.push(r.first().and_then(|r| status(&r.att)));
+    }
+    assert_eq!(
+        seen,
+        [
+            Some(Status::Ok),
+            Some(Status::Ok),
+            Some(Status::RateLimited)
+        ]
+    );
+    h.stop().await;
+}

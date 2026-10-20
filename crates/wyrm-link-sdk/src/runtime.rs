@@ -66,7 +66,15 @@ pub struct LinkConfig {
     pub rate_limit: Option<(f64, f64)>,
     /// Put an audit record for every `set`/`invoke` on `wy/<site>/sys/audit/<link>`.
     pub audit: bool,
+    /// Reads (`~meta`, documents, `~val`, wildcard fan-in) for the whole
+    /// link: `(per second, burst)`; `None` = off. Reads carry no verified
+    /// identity, so the budget protects the link's CPU, not fairness.
+    pub read_rate_limit: Option<(f64, f64)>,
 }
+
+/// Most replies to one wildcard `get` or `view=keys`.
+pub const MAX_READ_ITEMS: usize = 10_000;
+const READS: &str = "reads";
 
 impl LinkConfig {
     pub fn new(site: impl Into<String>, link: impl Into<String>) -> Self {
@@ -82,6 +90,7 @@ impl LinkConfig {
             republish_on: None,
             rate_limit: Some((50.0, 100.0)),
             audit: true,
+            read_rate_limit: Some((5000.0, 10_000.0)),
         }
     }
 }
@@ -205,6 +214,9 @@ pub async fn spawn<L: Link>(
         anon_limiter: cfg
             .rate_limit
             .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
+        read_limiter: cfg
+            .read_rate_limit
+            .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
@@ -318,6 +330,7 @@ struct Shared<C> {
     /// can never use up the table or buckets of verified callers.
     limiter: Option<crate::guard::RateLimiter>,
     anon_limiter: Option<crate::guard::RateLimiter>,
+    read_limiter: Option<crate::guard::RateLimiter>,
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
@@ -396,10 +409,16 @@ async fn reply_here(q: &Query, payload: Vec<u8>, att: Attachment, express: bool)
 }
 
 impl<C: Send + 'static> Shared<C> {
+    fn read_allowed(&self) -> bool {
+        self.read_limiter.as_ref().is_none_or(|l| l.allow(READS))
+    }
+
     async fn route(self: &Arc<Self>, q: Query) {
         let key = q.key_expr().as_str();
         if is_wild(key) {
-            self.fan_in(&q).await;
+            if self.read_allowed() {
+                self.fan_in(&q).await;
+            }
             return;
         }
         let Some(rest) = key
@@ -417,6 +436,14 @@ impl<C: Send + 'static> Shared<C> {
             }
         };
         let (path, suffix) = (path.to_owned(), suffix.to_owned());
+        let is_read = suffix != SUFFIX_SET && !suffix.starts_with("~act/");
+        if is_read && !self.read_allowed() {
+            if suffix != SUFFIX_VAL {
+                let e = LinkError::new(Status::RateLimited, "too many reads");
+                reply_here(&q, Vec::new(), err_att(&e), false).await;
+            }
+            return;
+        }
         match suffix.as_str() {
             SUFFIX_META => {
                 let (payload, att) = match self.meta(&q, &path) {
@@ -504,6 +531,10 @@ impl<C: Send + 'static> Shared<C> {
                     }
                 }
             }
+        }
+        if out.len() > MAX_READ_ITEMS {
+            debug!(key = %qk, n = out.len(), "fan-in truncated");
+            out.truncate(MAX_READ_ITEMS);
         }
         for (k, p, att) in out {
             reply(q, &k, p, att, false).await;
@@ -610,6 +641,12 @@ impl<C: Send + 'static> Shared<C> {
                 let keys = tree
                     .keys(path, &filter, depth, authorized)
                     .unwrap_or_default();
+                if keys.len() > MAX_READ_ITEMS {
+                    return Err(LinkError::new(
+                        Status::Busy,
+                        format!("more than {MAX_READ_ITEMS} keys; narrow match or depth"),
+                    ));
+                }
                 encode(&keyspace::compress_keys(keys))?
             }
             v => return Err(LinkError::invalid_parameter(format!("bad view {v}"))),

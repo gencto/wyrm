@@ -761,3 +761,43 @@ async fn user_cli_offline_only() {
     drop(gw);
     drop(daemon);
 }
+
+/// The `tls/` listener needs a client certificate from our own CA: a client
+/// without one, or with one from a foreign CA, does not get a session.
+#[tokio::test(flavor = "multi_thread")]
+async fn tls_listener_refuses_missing_and_foreign_certificates() {
+    let env = Env::start("tlsneg", MOCK).await;
+    let foreign_dir = temp_dir("foreign-ca");
+    let foreign = wyrm_admin::secret::Pki::open_or_create(&foreign_dir).unwrap();
+    let foreign_cert = foreign
+        .issue("plc1", &[], false, &foreign_dir, "plc1")
+        .unwrap();
+    let open = |cert: Option<&wyrm_admin::secret::CertFiles>| {
+        let mut zc = zenoh::Config::default();
+        zc.insert_json5("mode", r#""client""#).unwrap();
+        zc.insert_json5(
+            "connect/endpoints",
+            &format!(r#"["tls/127.0.0.1:{}"]"#, env.tls),
+        )
+        .unwrap();
+        zc.insert_json5("scouting/multicast/enabled", "false")
+            .unwrap();
+        zc.insert_json5("connect/timeout_ms", "2000").unwrap();
+        let mut tls = serde_json::json!({ "root_ca_certificate": env.ctl.ca_path() });
+        if let Some(c) = cert {
+            tls["connect_certificate"] = serde_json::json!(c.cert);
+            tls["connect_private_key"] = serde_json::json!(c.key);
+            tls["enable_mtls"] = serde_json::json!(true);
+        }
+        zc.insert_json5("transport/link/tls", &tls.to_string())
+            .unwrap();
+        zenoh::open(zc)
+    };
+    assert!(open(None).await.is_err(), "no client certificate");
+    assert!(open(Some(&foreign_cert)).await.is_err(), "foreign CA");
+    // control: a certificate from our CA connects
+    let ours = env.ctl.link_cert("plc1").unwrap();
+    let s = open(Some(&ours)).await.expect("own CA");
+    s.close().await.unwrap();
+    env.stop().await;
+}
