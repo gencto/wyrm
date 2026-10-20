@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/wyrm-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/gencto/wyrm"
+authors = ["Mykhailo <info@gencto.uk>"]
+
+[workspace.dependencies]
+minicbor = { version = "0.26", features = ["derive", "std", "half"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

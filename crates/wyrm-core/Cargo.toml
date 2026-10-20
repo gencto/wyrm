@@ -1,0 +1,19 @@
+[package]
+name = "wyrm-core"
+description = "WYRM core types and wire codec (CBOR): Value, Quality, Sample, NodeMeta, Attachment, Status, key-space"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+minicbor.workspace = true
+half = "2"
+thiserror.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true

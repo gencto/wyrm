@@ -1,0 +1,101 @@
+{
+ "meta_keys": {
+  "0": "is",
+  "1": "type",
+  "2": "unit",
+  "3": "enum",
+  "4": "writable",
+  "5": "invokable",
+  "6": "cfg",
+  "7": "attr",
+  "8": "actions",
+  "9": "children",
+  "10": "rev",
+  "11": "has_children",
+  "12": "display",
+  "13": "has_override",
+  "14": "children_count",
+  "15": "q"
+ },
+ "val_keys": {
+  "0": "v",
+  "1": "q",
+  "2": "t"
+ },
+ "attachment_keys": {
+  "0": "status",
+  "1": "qual",
+  "2": "ts",
+  "3": "refreshed",
+  "4": "ptok",
+  "5": "maxperm",
+  "6": "audit",
+  "7": "err",
+  "8": "rev",
+  "9": "rid",
+  "10": "seq",
+  "11": "last",
+  "12": "origin",
+  "13": "trace",
+  "14": "enc"
+ },
+ "type_codes": {
+  "0": "null",
+  "1": "number",
+  "2": "string",
+  "3": "bool",
+  "4": "enum",
+  "5": "map",
+  "6": "array",
+  "7": "binary",
+  "8": "dynamic"
+ },
+ "perm_levels": {
+  "0": "none",
+  "1": "list",
+  "2": "read",
+  "3": "write",
+  "4": "config"
+ },
+ "writable_codes": {
+  "0": "never",
+  "1": "config",
+  "2": "write"
+ },
+ "quality_codes": {
+  "0": "good",
+  "1": "uncertain",
+  "2": "bad"
+ },
+ "status_codes": {
+  "0x0": "ok",
+  "0x1": "initializing",
+  "0x2": "refreshed",
+  "0x8": "not_available",
+  "0x10": "closed",
+  "0x20": "disconnected",
+  "0x21": "permission_denied",
+  "0x22": "invalid_message",
+  "0x23": "invalid_parameter",
+  "0x24": "busy",
+  "0x25": "internal_error",
+  "0x26": "not_supported",
+  "0x27": "not_found",
+  "0x28": "timeout",
+  "0x29": "out_of_range",
+  "0x2a": "rate_limited"
+ },
+ "is_codes": {
+  "0": "wy:node",
+  "1": "wy:folder",
+  "2": "wy:number",
+  "3": "wy:string",
+  "4": "wy:bool",
+  "5": "wy:enum",
+  "6": "wy:link",
+  "7": "wy:flow",
+  "8": "wy:flow-node",
+  "9": "wy:broker",
+  "10": "wy:metric"
+ }
+}

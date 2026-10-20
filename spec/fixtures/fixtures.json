@@ -1,0 +1,339 @@
+[
+ {
+  "name": "val_number",
+  "description": "~val: число, good, uhlc ts",
+  "hex": "a300fb40356666666666660100021b000640b5eecfe240",
+  "len": 23,
+  "json": {
+   "0": 21.4,
+   "1": 0,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "val_bool_bad",
+  "description": "~val: bool, bad quality",
+  "hex": "a300f40102021b000640b5eecfe240",
+  "len": 15,
+  "json": {
+   "0": false,
+   "1": 2,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "val_string",
+  "description": "~val: рядок",
+  "hex": "a300626f6e0100021b000640b5eecfe240",
+  "len": 17,
+  "json": {
+   "0": "on",
+   "1": 0,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "val_enum_idx",
+  "description": "~val: enum як індекс",
+  "hex": "a300020100021b000640b5eecfe240",
+  "len": 15,
+  "json": {
+   "0": 2,
+   "1": 0,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "val_binary",
+  "description": "~val: сирі байти",
+  "hex": "a30044010203040100021b000640b5eecfe240",
+  "len": 19,
+  "json": {
+   "0": "01020304",
+   "1": 0,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "val_uncertain",
+  "description": "~val: uncertain/stale після рестарту",
+  "hex": "a300fb40356666666666660101021b000640b5eecfe240",
+  "len": 23,
+  "json": {
+   "0": 21.4,
+   "1": 1,
+   "2": 1760000000123456
+  },
+  "note": null
+ },
+ {
+  "name": "meta_number_full",
+  "description": "~meta повний для листового числового вузла (is=wy:number, type=number)",
+  "hex": "a8000201010263c2b0430400050006a4636d6178f95780636d696ef9d10069707265636973696f6e016b696e74657276616c5f6d731903e807a26374616782646876616366666c6f6f723267646973706c61796f537570706c79206169722074656d700a11",
+  "len": 101,
+  "json": {
+   "0": 2,
+   "1": 1,
+   "2": "°C",
+   "4": 0,
+   "5": 0,
+   "6": {
+    "precision": 1,
+    "min": -40.0,
+    "max": 120.0,
+    "interval_ms": 1000
+   },
+   "7": {
+    "display": "Supply air temp",
+    "tag": [
+     "hvac",
+     "floor2"
+    ]
+   },
+   "10": 17
+  },
+  "note": null
+ },
+ {
+  "name": "meta_folder_full",
+  "description": "~meta повний для контейнера з дією reset",
+  "hex": "a5000108a1657265736574a366706172616d73a1646d6f6465a20104038264736f6674646861726466726573756c74006673747265616df409836b737570706c795f74656d706b72657475726e5f74656d706366616e0a050e03",
+  "len": 90,
+  "json": {
+   "0": 1,
+   "9": [
+    "supply_temp",
+    "return_temp",
+    "fan"
+   ],
+   "10": 5,
+   "14": 3,
+   "8": {
+    "reset": {
+     "params": {
+      "mode": {
+       "1": 4,
+       "3": [
+        "soft",
+        "hard"
+       ]
+      }
+     },
+     "result": 0,
+     "stream": false
+    }
+   }
+  },
+  "note": null
+ },
+ {
+  "name": "meta_profile_only",
+  "description": "~meta дитини, що повністю відповідає профілю",
+  "hex": "a200020a03",
+  "len": 5,
+  "json": {
+   "0": 2,
+   "10": 3
+  },
+  "note": null
+ },
+ {
+  "name": "meta_view_list",
+  "description": "~meta?view=list: масив дітей скорочено",
+  "hex": "83a5000201010a110bf40c6f537570706c79206169722074656d70a4000201010a090bf4a60004010304020a020bf40df5",
+  "len": 49,
+  "json": [
+   {
+    "0": 2,
+    "1": 1,
+    "11": false,
+    "10": 17,
+    "12": "Supply air temp"
+   },
+   {
+    "0": 2,
+    "1": 1,
+    "11": false,
+    "10": 9
+   },
+   {
+    "0": 4,
+    "1": 3,
+    "11": false,
+    "10": 2,
+    "4": 2,
+    "13": true
+   }
+  ],
+  "note": null
+ },
+ {
+  "name": "meta_view_keys",
+  "description": "~meta?view=keys: префіксно стиснуті ключі ('/'-суфікс = push, '' = pop)",
+  "hex": "8865616875312f6b737570706c795f74656d706b72657475726e5f74656d706366616e6065616875322f6b737570706c795f74656d7060",
+  "len": 55,
+  "json": [
+   "ahu1/",
+   "supply_temp",
+   "return_temp",
+   "fan",
+   "",
+   "ahu2/",
+   "supply_temp",
+   ""
+  ],
+  "note": null
+ },
+ {
+  "name": "meta_patch",
+  "description": "~meta patch: {rev, patch}",
+  "hex": "a20a12657061746368a10402",
+  "len": 12,
+  "json": {
+   "10": 18,
+   "patch": {
+    "4": 2
+   }
+  },
+  "note": null
+ },
+ {
+  "name": "att_reply_ok",
+  "description": "attachment відповіді set/invoke: ok",
+  "hex": "a10000",
+  "len": 3,
+  "json": {
+   "0": 0
+  },
+  "note": null
+ },
+ {
+  "name": "att_reply_err",
+  "description": "attachment відповіді: out_of_range з деталлю",
+  "hex": "a2001829077376616c756520313530203e206d617820313230",
+  "len": 25,
+  "json": {
+   "0": 41,
+   "7": "value 150 > max 120"
+  },
+  "note": null
+ },
+ {
+  "name": "att_stream_mid",
+  "description": "attachment стрімової відповіді",
+  "hex": "a309070a030bf4",
+  "len": 7,
+  "json": {
+   "9": 7,
+   "10": 3,
+   "11": false
+  },
+  "note": null
+ },
+ {
+  "name": "att_stream_last",
+  "description": "attachment останньої відповіді стріму",
+  "hex": "a309070a040bf5",
+  "len": 7,
+  "json": {
+   "9": 7,
+   "10": 4,
+   "11": true
+  },
+  "note": null
+ },
+ {
+  "name": "att_refreshed",
+  "description": "attachment: кеш недійсний",
+  "hex": "a2000203f5",
+  "len": 5,
+  "json": {
+   "0": 2,
+   "3": true
+  },
+  "note": null
+ },
+ {
+  "name": "att_304",
+  "description": "attachment: ~meta не змінився з rev",
+  "hex": "a200000811",
+  "len": 5,
+  "json": {
+   "0": 0,
+   "8": 17
+  },
+  "note": null
+ },
+ {
+  "name": "att_request_set",
+  "description": "attachment запиту set з ptok (placeholder) і trace",
+  "hex": "a304490100000000000000000c6a757365723a6f6c656e610d50deadbeefdeadbeefdeadbeefdeadbeef",
+  "len": 42,
+  "json": {
+   "4": "010000000000000000",
+   "12": "user:olena",
+   "13": "deadbeefdeadbeefdeadbeefdeadbeef"
+  },
+  "note": null
+ },
+ {
+  "name": "att_request_flow",
+  "description": "attachment запиту від флоу з maxperm=write",
+  "hex": "a3044901000000000000000005030c71666c6f773a7065616b2d73686176696e67",
+  "len": 33,
+  "json": {
+   "4": "010000000000000000",
+   "5": 3,
+   "12": "flow:peak-shaving"
+  },
+  "note": null
+ },
+ {
+  "name": "att_zstd",
+  "description": "attachment відповіді list зі стисненням",
+  "hex": "a200000e647a737464",
+  "len": 9,
+  "json": {
+   "0": 0,
+   "14": "zstd"
+  },
+  "note": null
+ },
+ {
+  "name": "ptok_claims_v1",
+  "description": "ptok v1 claims (перед підписом): 0x01 || cbor(claims) || ed25519 sig(64)",
+  "hex": "a8636578701a68e7792c636961741a68e77800636a74695011111111111111111111111111111111636d617803637375626a757365723a6f6c656e61647369746567706c616e742d6165726f6c657381686f70657261746f72666772616e747383a2616b7277792f706c616e742d612f646f776e2f2a2a617002a2616b781977792f706c616e742d612f646f776e2f6261636e65742f2a2a617003a2616b7177792f706c616e742d612f7379732f2a2a617000",
+  "len": 179,
+  "json": {
+   "sub": "user:olena",
+   "roles": [
+    "operator"
+   ],
+   "grants": [
+    {
+     "k": "wy/plant-a/down/**",
+     "p": 2
+    },
+    {
+     "k": "wy/plant-a/down/bacnet/**",
+     "p": 3
+    },
+    {
+     "k": "wy/plant-a/sys/**",
+     "p": 0
+    }
+   ],
+   "max": 3,
+   "iat": 1760000000,
+   "exp": 1760000300,
+   "jti": "11111111111111111111111111111111",
+   "site": "plant-a"
+  },
+  "note": null
+ }
+]
