@@ -115,6 +115,7 @@ fn router(st: AppState) -> Router {
         .route("/api/users/{name}/password", post(set_password))
         .route("/api/users/{name}/roles", post(set_roles))
         .route("/api/users/{name}/disabled", post(set_disabled))
+        .route("/api/ws-ticket", post(ws_ticket))
         .route("/api/ws", get(crate::ws::upgrade))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(st)
@@ -309,6 +310,18 @@ async fn login(
             "too many failed logins",
         )),
     }
+}
+
+async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult {
+    let session = bearer(&headers).ok_or_else(ApiError::unauthenticated)?;
+    let (ticket, exp) = st
+        .gw
+        .ws_ticket(&session)
+        .ok_or_else(ApiError::unauthenticated)?;
+    Ok(cbor(
+        StatusCode::OK,
+        &map([("ticket", Value::Str(ticket)), ("exp", Value::UInt(exp))]),
+    ))
 }
 
 async fn me(Auth(p): Auth) -> ApiResult {

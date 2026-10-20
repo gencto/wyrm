@@ -176,8 +176,18 @@ impl Env {
         self.session(name, "user password").await
     }
 
+    /// A single-use WebSocket ticket for a session (`None` = refused).
+    async fn ticket(&self, token: &str) -> Option<String> {
+        let (st, v) = self.http("POST", "/api/ws-ticket", Some(token), None).await;
+        match (st, get(&v, "ticket")) {
+            (200, Value::Str(t)) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
     async fn ws(&self, token: &str) -> Ws {
-        let url = format!("ws://{}/api/ws?session={token}", self.addr);
+        let t = self.ticket(token).await.expect("ws ticket");
+        let url = format!("ws://{}/api/ws?ticket={t}", self.addr);
         let (s, _) = tokio_tungstenite::connect_async(url).await.unwrap();
         Ws { s, next_id: 1 }
     }
@@ -470,8 +480,20 @@ async fn expired_and_tampered_sessions_are_rejected() {
     bad[i] = if bad[i] == b'A' { b'B' } else { b'A' };
     let bad = String::from_utf8(bad).unwrap();
     assert_eq!(env.http("GET", "/api/me", Some(&bad), None).await.0, 401);
-    let url = format!("ws://{}/api/ws?session={bad}", env.addr);
+    assert!(
+        env.ticket(&bad).await.is_none(),
+        "no ticket for a tampered session"
+    );
+    // the session itself is never accepted in the URL; a ticket works once
+    let url = format!("ws://{}/api/ws?session={tok}", env.addr);
     assert!(tokio_tungstenite::connect_async(url).await.is_err());
+    let t = env.ticket(&tok).await.unwrap();
+    let url = format!("ws://{}/api/ws?ticket={t}", env.addr);
+    assert!(tokio_tungstenite::connect_async(url.clone()).await.is_ok());
+    assert!(
+        tokio_tungstenite::connect_async(url).await.is_err(),
+        "single use"
+    );
 
     // An open socket is closed when the session expires.
     let closed = tokio::time::timeout(Duration::from_secs(4), async {
@@ -487,8 +509,7 @@ async fn expired_and_tampered_sessions_are_rejected() {
     .expect("closed at expiry");
     assert_eq!(closed, Some(4001));
     assert_eq!(env.http("GET", "/api/me", Some(&tok), None).await.0, 401);
-    let url = format!("ws://{}/api/ws?session={tok}", env.addr);
-    assert!(tokio_tungstenite::connect_async(url).await.is_err());
+    assert!(env.ticket(&tok).await.is_none(), "no ticket after expiry");
     env.stop().await;
 }
 

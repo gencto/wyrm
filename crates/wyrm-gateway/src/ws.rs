@@ -60,15 +60,19 @@ enum Out {
     Close(u16, &'static str),
 }
 
-/// `GET /api/ws?session=…` (or `Authorization: Bearer`).
+/// `GET /api/ws?ticket=…` (single-use, from `POST /api/ws-ticket`) or with
+/// `Authorization: Bearer <session>`. Sessions are never taken from the URL.
 pub(crate) async fn upgrade(
     State(st): State<AppState>,
     uri: Uri,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let token = query_session(&uri).or_else(|| bearer(&headers));
-    let Some(p) = token.and_then(|t| st.gw.authenticate(&t)) else {
+    let p = match query_ticket(&uri) {
+        Some(t) => st.gw.redeem_ticket(&t),
+        None => bearer(&headers).and_then(|t| st.gw.authenticate(&t)),
+    };
+    let Some(p) = p else {
         return ApiError::unauthenticated().into_response();
     };
     ws.max_message_size(MAX_FRAME)
@@ -76,10 +80,10 @@ pub(crate) async fn upgrade(
         .on_upgrade(move |sock| run(st, p, sock))
 }
 
-fn query_session(uri: &Uri) -> Option<String> {
+fn query_ticket(uri: &Uri) -> Option<String> {
     uri.query()?
         .split('&')
-        .find_map(|kv| kv.strip_prefix("session="))
+        .find_map(|kv| kv.strip_prefix("ticket="))
         .map(str::to_owned)
 }
 

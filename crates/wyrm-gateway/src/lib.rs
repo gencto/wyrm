@@ -7,7 +7,10 @@
 //!
 //! * `POST /api/login` `{user, password}` → `{session, exp}`
 //! * `GET /api/me` → `{sub, roles, grants}`
-//! * `GET /api/ws?session=…` — binary CBOR frames, see [`ws`]
+//! * `POST /api/ws-ticket` (bearer session) → `{ticket, exp}`: single use,
+//!   30 s, so the long-lived session never appears in a URL
+//! * `GET /api/ws?ticket=…` (or `Authorization: Bearer`) — binary CBOR
+//!   frames, see [`ws`]
 //! * user management (`config` on `wy/<site>/sys/**`): `GET|POST /api/users`,
 //!   `POST /api/users/{name}/password|roles|disabled`, `DELETE /api/users/{name}`
 
@@ -135,7 +138,12 @@ pub struct Gateway {
     hashing: Semaphore,
     audit: RwLock<Option<AuditHook>>,
     addr: watch::Sender<Option<SocketAddr>>,
+    /// WebSocket tickets: hex(16 random bytes) → (session token, expiry s).
+    tickets: Mutex<std::collections::HashMap<String, (Zeroizing<String>, u64)>>,
 }
+
+const TICKET_TTL_S: u64 = 30;
+const MAX_TICKETS: usize = 10_000;
 
 impl Gateway {
     /// Open the user store and the signing key (`<dir>/gateway.key`, 0600,
@@ -161,8 +169,41 @@ impl Gateway {
             hashing: Semaphore::new(4),
             audit: RwLock::new(None),
             addr: watch::channel(None).0,
+            tickets: Mutex::new(Default::default()),
             cfg,
         }))
+    }
+
+    /// A single-use WebSocket ticket for a valid `session` token.
+    pub fn ws_ticket(&self, session: &str) -> Option<(String, u64)> {
+        self.authenticate(session)?;
+        let now = session::now_s();
+        let mut raw = [0u8; 16];
+        getrandom::fill(&mut raw).ok()?;
+        let ticket: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        let exp = now + TICKET_TTL_S;
+        let mut t = self.tickets.lock().unwrap_or_else(|p| p.into_inner());
+        if t.len() >= MAX_TICKETS {
+            t.retain(|_, (_, e)| *e > now);
+            if t.len() >= MAX_TICKETS {
+                return None;
+            }
+        }
+        t.insert(ticket.clone(), (Zeroizing::new(session.to_owned()), exp));
+        Some((ticket, exp))
+    }
+
+    /// Spend a ticket: the principal of its session, checked again now.
+    pub fn redeem_ticket(&self, ticket: &str) -> Option<Principal> {
+        let (session, exp) = self
+            .tickets
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(ticket)?;
+        if session::now_s() >= exp {
+            return None;
+        }
+        self.authenticate(&session)
     }
 
     pub fn site(&self) -> &str {
