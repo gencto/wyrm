@@ -38,6 +38,12 @@ hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util.workspace = true
 bytes.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
+# Persistent tasks and budget under the link's data_dir.
+wyrm-state.workspace = true
+minicbor.workspace = true
+# `rc`: the persisted state holds `Arc`s (the store clones it per operation).
+serde = { workspace = true, features = ["rc"] }
+getrandom.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

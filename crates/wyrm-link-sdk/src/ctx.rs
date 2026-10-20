@@ -4,6 +4,7 @@ use crate::error::{LinkError, Result};
 use crate::support::{Metrics, SecretStore};
 use crate::tree::{Changed, NodeTree};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,6 +39,7 @@ pub(crate) struct Inner {
     closed: AtomicBool,
     pub secrets: SecretStore,
     pub metrics: Metrics,
+    pub data_dir: Option<PathBuf>,
 }
 
 /// Cheap to clone; all clones share one tree.
@@ -64,6 +66,7 @@ impl LinkCtx {
         prefix: String,
         root: NodeMeta,
         secrets: SecretStore,
+        data_dir: Option<PathBuf>,
     ) -> Self {
         Self(Arc::new(Inner {
             session,
@@ -77,6 +80,7 @@ impl LinkCtx {
             closed: AtomicBool::new(false),
             secrets,
             metrics: Metrics::default(),
+            data_dir,
         }))
     }
 
@@ -430,6 +434,13 @@ impl LinkCtx {
 
     pub fn metrics(&self) -> &Metrics {
         &self.0.metrics
+    }
+
+    /// Private directory owned by this link (state the connector keeps across
+    /// restarts), or `None` when the host gives it none (tests, external
+    /// links): the driver then keeps its state in memory.
+    pub fn data_dir(&self) -> Option<&Path> {
+        self.0.data_dir.as_deref()
     }
 
     async fn publish_changed(&self, path: &str, changed: Changed) -> Result<()> {

@@ -9,6 +9,7 @@
 //! | `WYRM_ENDPOINT` | router endpoint, e.g. `tls/127.0.0.1:7447` |
 //! | `WYRM_CA`, `WYRM_CERT`, `WYRM_KEY` | mTLS files (required for `tls/` and `quic/`) |
 //! | `WYRM_TOKEN_FILE` | link token (0600); deleted after reading if `WYRM_TOKEN_DELETE=1` |
+//! | `WYRM_DATA_DIR` | optional private directory of the link ([`LinkConfig::data_dir`]) |
 //!
 //! Start-up: open the session → `hello` with the link token (retried with
 //! backoff while the broker is away) → build `L::Config` from the returned
@@ -34,6 +35,7 @@ pub struct Env {
     pub link: String,
     pub endpoint: String,
     pub tls: Option<(String, String, String)>,
+    pub data_dir: Option<std::path::PathBuf>,
     token: Zeroizing<Vec<u8>>,
 }
 
@@ -66,11 +68,15 @@ impl Env {
         if std::env::var("WYRM_TOKEN_DELETE").as_deref() == Ok("1") {
             let _ = std::fs::remove_file(&path);
         }
+        let data_dir = std::env::var_os("WYRM_DATA_DIR")
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from);
         Ok(Self {
             site,
             link,
             endpoint,
             tls,
+            data_dir,
             token,
         })
     }
@@ -308,6 +314,7 @@ where
     lcfg.admin_keys = hello.admin_keys;
     lcfg.limited_keys = hello.limited_keys;
     lcfg.secrets = hello.secrets;
+    lcfg.data_dir = env.data_dir.clone();
     let broker = format!("wy/{}/sys/broker", env.site);
     lcfg.republish_on = Some(broker.clone());
     // Watch before the link starts, so no broker restart is missed.

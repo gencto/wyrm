@@ -648,3 +648,16 @@ async fn stop_drops_liveliness_and_closes_ctx() {
     assert_eq!(e.status, Status::Closed);
     assert!(ctx.set_dynamic("ahu1", true).await.is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn data_dir_reaches_ctx() {
+    let (h, _) = harness().await;
+    assert_eq!(h.ctx().data_dir(), None);
+    h.stop().await;
+
+    let dir = std::env::temp_dir().join(format!("wyrm-sdk-data-{}", std::process::id()));
+    let d = dir.clone();
+    let h = TestHarness::<Demo>::start_with(Calls::default(), move |c| c.data_dir = Some(d)).await;
+    assert_eq!(h.ctx().data_dir(), Some(dir.as_path()));
+    h.stop().await;
+}

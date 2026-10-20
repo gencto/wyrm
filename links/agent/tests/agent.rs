@@ -96,10 +96,57 @@ struct Env {
     mock: Option<LinkHandle<Mock>>,
     agent: Option<LinkHandle<Agent>>,
     llm: Arc<FakeLlm>,
+    params: AgentParams,
+    data_dir: Option<std::path::PathBuf>,
+}
+
+async fn spawn_agent(
+    session: &zenoh::Session,
+    params: AgentParams,
+    llm: Arc<FakeLlm>,
+    data_dir: Option<std::path::PathBuf>,
+) -> LinkHandle<Agent> {
+    let mut acfg = LinkConfig::new(SITE, "agent");
+    acfg.admin_keys = vec![test_key().verifying_key()];
+    acfg.answer_val = true;
+    acfg.secrets = SecretStore::from_iter([("agent_key", Secret::new(AGENT_SEED.to_vec()))]);
+    acfg.data_dir = data_dir;
+    wyrm_link_sdk::spawn::<Agent>(
+        session.clone(),
+        acfg,
+        AgentConfig {
+            params,
+            llm: Some(llm),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+/// A fresh private directory for one test.
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!(
+        "wyrm-agent-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&d);
+    d
 }
 
 impl Env {
     async fn start(params: AgentParams, script: Vec<Json>) -> Self {
+        Self::start_in(params, script, None).await
+    }
+
+    async fn start_in(
+        params: AgentParams,
+        script: Vec<Json>,
+        data_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         let session = zenoh::open(isolated_config()).await.unwrap();
         let agent_vk = ed25519_dalek::SigningKey::from_bytes(&AGENT_SEED).verifying_key();
         let mut mcfg = LinkConfig::new(SITE, "mock");
@@ -119,26 +166,33 @@ impl Env {
         .await
         .unwrap();
         let llm = FakeLlm::new(script);
-        let mut acfg = LinkConfig::new(SITE, "agent");
-        acfg.admin_keys = vec![test_key().verifying_key()];
-        acfg.answer_val = true;
-        acfg.secrets = SecretStore::from_iter([("agent_key", Secret::new(AGENT_SEED.to_vec()))]);
-        let agent = wyrm_link_sdk::spawn::<Agent>(
-            session.clone(),
-            acfg,
-            AgentConfig {
-                params,
-                llm: Some(llm.clone()),
-            },
-        )
-        .await
-        .unwrap();
+        let agent = spawn_agent(&session, params.clone(), llm.clone(), data_dir.clone()).await;
         Self {
             session,
             mock: Some(mock),
             agent: Some(agent),
             llm,
+            params,
+            data_dir,
         }
+    }
+
+    /// Stop the agent link and start it again on the same data_dir with a
+    /// new model script.
+    async fn restart_agent(&mut self, script: Vec<Json>) {
+        if let Some(a) = self.agent.take() {
+            a.stop().await;
+        }
+        self.llm = FakeLlm::new(script);
+        self.agent = Some(
+            spawn_agent(
+                &self.session,
+                self.params.clone(),
+                self.llm.clone(),
+                self.data_dir.clone(),
+            )
+            .await,
+        );
     }
 
     fn human(&self, max: Perm) -> WyrmClient {
@@ -707,5 +761,115 @@ async fn one_step_per_key_and_only_the_asker_may_cancel() {
         assert!(e.is(Status::PermissionDenied), "{a}: {e}");
     }
     env.wait_state(&id, "awaiting_approval").await;
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_keeps_tasks_and_budget() {
+    let dir = temp_dir("restart");
+    let p = AgentParams {
+        budget_tokens_day: 100,
+        ..params(&["down/mock"])
+    };
+    let mut env = Env::start_in(p, set_p0_script(42.0), Some(dir.clone())).await;
+    let (id, _) = env.ask("set p0 to 42").await.unwrap();
+    env.wait_state(&id, "awaiting_approval").await;
+
+    env.restart_agent(Vec::new()).await;
+    // Listed again and still awaiting approval, with its plan and tokens.
+    let v = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(plan_len(&v), 1);
+    assert!(matches!(&v, Value::Map(m) if m.get("tokens") == Some(&Value::UInt(140))));
+    assert_eq!(field(&v, "owner").as_deref(), Some("user:op"));
+    let human = env.human(Perm::Config);
+    let ctx = env.agent.as_ref().unwrap().ctx();
+    assert!(
+        ctx.meta(&format!("tasks/{id}")).is_some(),
+        "task node re-declared"
+    );
+    // The budget (140 of 100 used) survived: no LLM call for a new ask.
+    let e = env.ask("again").await.unwrap_err();
+    assert!(e.is(Status::RateLimited), "{e}");
+    assert!(env.llm.seen().is_empty());
+    // And the reloaded task is approvable.
+    let key = format!("{P0}/~set");
+    env.task_action(
+        &human,
+        &id,
+        "approve",
+        approvals(&[(&key, human_token("user:op", &key))]),
+    )
+    .await
+    .unwrap();
+    env.wait_state(&id, "done").await;
+    assert_eq!(env.p0(), 42.0);
+
+    // Done stays done across another restart.
+    env.restart_agent(Vec::new()).await;
+    env.wait_state(&id, "done").await;
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn planning_task_fails_on_restart() {
+    let dir = temp_dir("interrupt");
+    let mut env = Env::start_in(
+        params(&["down/mock"]),
+        set_p0_script(42.0),
+        Some(dir.clone()),
+    )
+    .await;
+    *env.llm.delay.lock().unwrap() = Duration::from_secs(30);
+    let args = Value::Map(BTreeMap::from([("task".to_owned(), Value::from("slow"))]));
+    let mut s = env
+        .human(Perm::Config)
+        .invoke("wy/test/down/agent", "ask", args)
+        .await
+        .unwrap();
+    let first = s.next().await.unwrap().unwrap().unwrap();
+    let id = field(&first, "task").unwrap();
+    drop(s);
+    env.restart_agent(set_p0_script(1.0)).await;
+    let v = env.wait_state(&id, "failed").await;
+    assert_eq!(
+        field(&v, "error").as_deref(),
+        Some("interrupted by restart")
+    );
+    // Never resumed: the new model was not called.
+    assert!(env.llm.seen().is_empty());
+    // A new task (same second, sequence restored) gets a new id.
+    let (id2, _) = env.ask("set p0 to 1").await.unwrap();
+    assert_ne!(id2, id);
+    env.wait_state(&id2, "awaiting_approval").await;
+    env.wait_state(&id, "failed").await;
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_asks_cannot_both_spend_the_last_budget() {
+    let p = AgentParams {
+        budget_tokens_day: 100,
+        ..params(&["down/mock"])
+    };
+    let env = Env::start(p, set_p0_script(42.0)).await;
+    *env.llm.delay.lock().unwrap() = Duration::from_millis(300);
+    let (a, b) = tokio::join!(env.ask("one"), env.ask("two"));
+    let refused = [&a, &b]
+        .iter()
+        .filter(|r| matches!(r, Err(e) if e.is(Status::RateLimited)))
+        .count();
+    assert_eq!(refused, 1, "{a:?} / {b:?}");
+    let id = match (a, b) {
+        (Ok((id, _)), _) | (_, Ok((id, _))) => id,
+        _ => unreachable!(),
+    };
+    env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(
+        env.llm.seen().len(),
+        2,
+        "only the admitted task called the model"
+    );
     env.stop().await;
 }

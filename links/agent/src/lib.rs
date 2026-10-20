@@ -20,13 +20,21 @@
 //! the human's rights) or, for write-level operations that need no approval,
 //! with the agent's own service token (`ai:<link>`, `max = write`): the agent
 //! can never perform a `config` operation by itself.
+//!
+//! With a `data_dir` (embedded and process links under `wyrmd`), tasks and
+//! the daily budget survive a restart (see [`store`]). A task that was
+//! `planning` or `running` when the link stopped comes back `failed`
+//! ("interrupted by restart") and is never resumed; `awaiting_approval`
+//! stays approvable. Without a `data_dir` everything is in memory.
 
 #![forbid(unsafe_code)]
 
 pub mod llm;
+pub mod store;
 pub mod tools;
 
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
+use crate::store::{AgentStore, TaskRec};
 use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader};
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
@@ -45,6 +53,10 @@ use zeroize::Zeroizing;
 
 /// Kept tasks; the oldest finished ones are removed beyond this.
 const MAX_TASKS: usize = 200;
+/// Finished tasks older than this are removed.
+const MAX_TASK_AGE_S: u64 = 30 * 86_400;
+/// Error of a task that was planning or running when the link stopped.
+pub const INTERRUPTED: &str = "interrupted by restart";
 const MAX_LOG: usize = 200;
 const MAX_PLAN: usize = 50;
 const MAX_ASK_CHARS: usize = 8000;
@@ -261,6 +273,13 @@ impl TaskState {
     }
 }
 
+fn now_s() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 struct Task {
     /// Subject of the `ask` caller; only they (or a `config` caller) may
     /// reject or cancel.
@@ -271,11 +290,54 @@ struct Task {
     log: Vec<String>,
     error: Option<String>,
     tokens: u64,
+    /// Seconds since the Unix epoch.
+    created: u64,
+    /// Sequence number in the task id.
+    seq: u64,
     cancel: bool,
-    planner: Option<tokio::task::AbortHandle>,
+    /// The planning or executing task; aborted by `cancel` (while planning)
+    /// and by `stop`.
+    worker: Option<tokio::task::AbortHandle>,
 }
 
 impl Task {
+    fn to_rec(&self) -> TaskRec {
+        TaskRec {
+            state: self.state.name().to_owned(),
+            owner: self.owner.clone(),
+            ask: self.ask.clone(),
+            plan: store::encode_plan(&self.plan),
+            log: self.log.clone(),
+            error: self.error.clone(),
+            tokens: self.tokens,
+            created: self.created,
+            seq: self.seq,
+        }
+    }
+
+    /// A reloaded record. A task that was `planning` or `running` is not
+    /// resumed: it becomes `failed` ([`INTERRUPTED`]). `Err`: unreadable.
+    fn from_rec(r: &TaskRec) -> std::result::Result<Self, String> {
+        let state = store::state_from_name(&r.state).ok_or("unknown state")?;
+        let mut t = Self {
+            owner: r.owner.clone(),
+            ask: r.ask.clone(),
+            state,
+            plan: store::decode_plan(&r.plan)?,
+            log: r.log.clone(),
+            error: r.error.clone(),
+            tokens: r.tokens,
+            created: r.created,
+            seq: r.seq,
+            cancel: false,
+            worker: None,
+        };
+        if matches!(state, TaskState::Planning | TaskState::Running) {
+            t.fail(INTERRUPTED);
+        }
+        Ok(t)
+    }
+
     fn push_log(&mut self, line: impl Into<String>) {
         let mut line: String = line.into();
         if line.len() > 1000 {
@@ -338,6 +400,8 @@ fn truncate(s: &str, max: usize) -> String {
 struct Budget {
     day: u64,
     used: u64,
+    /// Held by LLM calls in flight ([`Reserved`]); not persisted.
+    reserved: u64,
 }
 
 impl Budget {
@@ -365,6 +429,21 @@ impl Budget {
         self.roll();
         self.used = self.used.saturating_add(n);
     }
+
+    /// Check and reserve in one step: refused at the limit (used plus calls
+    /// in flight); otherwise up to `max` tokens (the output cap of one call)
+    /// are held until the call is settled. The estimate covers output, not
+    /// input tokens, so a call can still overrun by its input.
+    fn reserve(&mut self, limit: u64, max: u64) -> Option<u64> {
+        self.roll();
+        let committed = self.used.saturating_add(self.reserved);
+        if committed >= limit {
+            return None;
+        }
+        let n = max.min(limit - committed).max(1);
+        self.reserved += n;
+        Some(n)
+    }
 }
 
 #[derive(Default)]
@@ -373,6 +452,94 @@ struct State {
     order: VecDeque<String>,
     budget: Budget,
     next: u64,
+    /// Durable copy (with a `data_dir`); taken by `stop`, after which late
+    /// updates of leftover tasks stay in memory.
+    db: Option<AgentStore>,
+}
+
+impl State {
+    fn persist(&mut self, op: store::Op) {
+        if let Some(db) = self.db.as_mut() {
+            if let Err(e) = db.apply(op) {
+                warn!("agent store: {e}");
+            }
+        }
+    }
+
+    fn save_task(&mut self, id: &str) {
+        if self.db.is_none() {
+            return;
+        }
+        if let Some(rec) = self.tasks.get(id).map(Task::to_rec) {
+            self.persist(store::Op::Put(id.to_owned(), rec));
+        }
+    }
+
+    fn save_budget(&mut self) {
+        let (day, used) = (self.budget.day, self.budget.used);
+        self.persist(store::Op::Budget { day, used });
+    }
+
+    /// Remove finished tasks older than [`MAX_TASK_AGE_S`], then the oldest
+    /// finished ones until `room` more fit under [`MAX_TASKS`]. Returns the
+    /// removed ids (their nodes are still to be removed).
+    fn evict(&mut self, room: usize) -> Vec<String> {
+        let cutoff = now_s().saturating_sub(MAX_TASK_AGE_S);
+        let mut evict: Vec<String> = self
+            .order
+            .iter()
+            .filter(|i| {
+                self.tasks
+                    .get(*i)
+                    .is_none_or(|t| t.state.finished() && t.created < cutoff)
+            })
+            .cloned()
+            .collect();
+        self.order.retain(|i| !evict.contains(i));
+        while self.order.len() + room > MAX_TASKS {
+            let Some(pos) = self
+                .order
+                .iter()
+                .position(|i| self.tasks.get(i).is_none_or(|t| t.state.finished()))
+            else {
+                break;
+            };
+            if let Some(old) = self.order.remove(pos) {
+                evict.push(old);
+            }
+        }
+        for old in &evict {
+            self.tasks.remove(old);
+            self.persist(store::Op::Remove(old.clone()));
+        }
+        evict
+    }
+}
+
+/// Tokens held for one LLM call; released on drop (an aborted planner),
+/// replaced by the real usage on [`settle`](Self::settle).
+struct Reserved {
+    sh: Arc<Shared>,
+    n: u64,
+}
+
+impl Reserved {
+    fn settle(mut self, used: u64) {
+        let mut st = self.sh.lock();
+        st.budget.reserved = st.budget.reserved.saturating_sub(self.n);
+        self.n = 0;
+        st.budget.add(used);
+        st.save_budget();
+    }
+}
+
+impl Drop for Reserved {
+    fn drop(&mut self) {
+        if self.n > 0 {
+            let mut st = self.sh.lock();
+            st.budget.reserved = st.budget.reserved.saturating_sub(self.n);
+        }
+    }
 }
 
 /// Token source with exactly one token for exactly one key (a human approval).
@@ -428,13 +595,35 @@ impl Shared {
     }
 
     /// Run `f` on task `id` under the lock, then update its `~state`
-    /// document and publish its (state-only) `~val`.
+    /// document and publish its (state-only) `~val`. The record is persisted
+    /// when its state, plan, error or tokens changed (not for every log line).
     async fn with_task<R>(&self, id: &str, f: impl FnOnce(&mut Task) -> R) -> Option<R> {
+        self.update_task(id, false, f).await
+    }
+
+    /// Like [`with_task`](Self::with_task), and always persisted.
+    async fn with_task_saved<R>(&self, id: &str, f: impl FnOnce(&mut Task) -> R) -> Option<R> {
+        self.update_task(id, true, f).await
+    }
+
+    async fn update_task<R>(
+        &self,
+        id: &str,
+        force: bool,
+        f: impl FnOnce(&mut Task) -> R,
+    ) -> Option<R> {
         let (r, v, doc) = {
             let mut st = self.lock();
             let t = st.tasks.get_mut(id)?;
+            let before = (t.state, t.plan.len(), t.error.is_some(), t.tokens);
             let r = f(t);
-            (r, t.public_value(), wyrm_core::codec::to_vec(&t.to_value()))
+            let changed = before != (t.state, t.plan.len(), t.error.is_some(), t.tokens);
+            let out = (r, t.public_value(), wyrm_core::codec::to_vec(&t.to_value()));
+            // Under the lock: records reach the WAL in the order they change.
+            if force || changed {
+                st.save_task(id);
+            }
+            out
         };
         match doc {
             Ok(doc) => {
@@ -457,6 +646,54 @@ impl Shared {
     fn state_of(&self, id: &str) -> Option<TaskState> {
         self.lock().tasks.get(id).map(|t| t.state)
     }
+
+    /// Reserve budget for the next LLM call (see [`Budget::reserve`]).
+    fn reserve(self: &Arc<Self>) -> Option<Reserved> {
+        let p = self.params();
+        let n = self
+            .lock()
+            .budget
+            .reserve(p.budget_tokens_day, p.max_tokens.into())?;
+        Some(Reserved {
+            sh: self.clone(),
+            n,
+        })
+    }
+}
+
+/// Load the persisted tasks and budget. Tasks that were planning or running
+/// become failed (and are saved so); ids keep counting from the highest
+/// loaded sequence number.
+fn reload(db: AgentStore) -> State {
+    let saved = db.state().clone();
+    let mut st = State {
+        db: Some(db),
+        ..State::default()
+    };
+    st.budget.day = saved.day;
+    st.budget.used = saved.used;
+    let mut loaded: Vec<(String, Task)> = Vec::new();
+    for (id, rec) in &saved.tasks {
+        match Task::from_rec(rec) {
+            Ok(t) => loaded.push((id.clone(), t)),
+            Err(e) => {
+                warn!(task = %id, "unreadable task record dropped: {e}");
+                st.persist(store::Op::Remove(id.clone()));
+            }
+        }
+    }
+    loaded.sort_by_key(|(_, t)| (t.created, t.seq));
+    for (id, t) in loaded {
+        st.next = st.next.max(t.seq);
+        let interrupted = store::state_from_name(&saved.tasks[&id].state) != Some(t.state);
+        st.order.push_back(id.clone());
+        st.tasks.insert(id.clone(), t);
+        if interrupted {
+            st.save_task(&id);
+        }
+    }
+    st.evict(0);
+    st
 }
 
 pub struct Agent {
@@ -617,6 +854,15 @@ impl Link for Agent {
             );
         }
         let reader = service.clone().unwrap_or_else(|| plain.clone());
+        // Fail closed: with a data_dir, a store that does not open is an
+        // error, not a silent reset of tasks and budget.
+        let state = match ctx.data_dir() {
+            Some(dir) => reload(
+                store::open(dir, store::COMPACT_AT)
+                    .map_err(|e| LinkError::internal(format!("agent store: {e}")))?,
+            ),
+            None => State::default(),
+        };
 
         // Task records hold model output: restricted (readers need `list`).
         ctx.declare_node("tasks", NodeMeta::folder().cfg("restricted", true))
@@ -645,8 +891,16 @@ impl Link for Agent {
             reader,
             service,
             plain,
-            state: Mutex::new(State::default()),
+            state: Mutex::new(state),
         });
+        let ids: Vec<String> = shared.lock().order.iter().cloned().collect();
+        for id in ids {
+            shared
+                .ctx
+                .declare_node(&Shared::task_path(&id), task_meta())
+                .await?;
+            shared.with_task(&id, |_| ()).await;
+        }
         Ok(Self { shared })
     }
 
@@ -703,12 +957,29 @@ impl Link for Agent {
     }
 
     async fn stop(&mut self) {
-        let st = self.shared.lock();
+        self.shut();
+    }
+}
+
+impl Agent {
+    /// Abort planning and execution, and release the store (and its lock
+    /// file) now: leftover clones of `Shared` must not keep a restarted link
+    /// from opening it.
+    fn shut(&self) {
+        let mut st = self.shared.lock();
         for t in st.tasks.values() {
-            if let Some(h) = &t.planner {
+            if let Some(h) = &t.worker {
                 h.abort();
             }
         }
+        st.db = None;
+    }
+}
+
+/// Also when the host aborts the link without `stop` (handle dropped).
+impl Drop for Agent {
+    fn drop(&mut self) {
+        self.shut();
     }
 }
 
@@ -742,39 +1013,31 @@ impl Agent {
             )));
         }
         let sub = caller_sub(who);
-        let budget = sh.params().budget_tokens_day;
-        let (id, evict) = {
+        let params = sh.params();
+        let (id, evict, first) = {
             let mut st = sh.lock();
-            if st.budget.used() >= budget {
+            // The check and the reservation for the first LLM call are one
+            // step: two concurrent asks cannot both pass on the last tokens.
+            let committed = st.budget.used().saturating_add(st.budget.reserved);
+            if committed >= params.budget_tokens_day {
                 return Err(LinkError::new(
                     Status::RateLimited,
                     "daily token budget exhausted",
                 ));
             }
-            st.next += 1;
-            let secs = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let id = format!("t{secs:x}-{}", st.next);
-            // Make room: drop the oldest finished tasks.
-            let mut evict = Vec::new();
-            while st.order.len() + 1 > MAX_TASKS {
-                let Some(pos) = st
-                    .order
-                    .iter()
-                    .position(|i| st.tasks.get(i).is_none_or(|t| t.state.finished()))
-                else {
-                    break;
-                };
-                if let Some(old) = st.order.remove(pos) {
-                    st.tasks.remove(&old);
-                    evict.push(old);
-                }
-            }
+            // Make room: drop expired and the oldest finished tasks.
+            let evict = st.evict(1);
             if st.order.len() >= MAX_TASKS {
                 return Err(LinkError::new(Status::Busy, "too many unfinished tasks"));
             }
+            let first = st
+                .budget
+                .reserve(params.budget_tokens_day, params.max_tokens.into())
+                .unwrap_or(0);
+            st.next += 1;
+            let seq = st.next;
+            let created = now_s();
+            let id = format!("t{created:x}-{seq}");
             st.order.push_back(id.clone());
             st.tasks.insert(
                 id.clone(),
@@ -786,11 +1049,18 @@ impl Agent {
                     log: Vec::new(),
                     error: None,
                     tokens: 0,
+                    created,
+                    seq,
                     cancel: false,
-                    planner: None,
+                    worker: None,
                 },
             );
-            (id, evict)
+            st.save_task(&id);
+            (id, evict, first)
+        };
+        let first = Reserved {
+            sh: sh.clone(),
+            n: first,
         };
         for old in evict {
             if let Err(e) = sh.ctx.remove_node(&Shared::task_path(&old)).await {
@@ -809,9 +1079,9 @@ impl Agent {
                 ("state", Value::from("planning")),
             ]))
             .await;
-        let h = tokio::spawn(plan_task(sh.clone(), llm, id.clone(), text, out));
+        let h = tokio::spawn(plan_task(sh.clone(), llm, id.clone(), text, out, first));
         if let Some(t) = sh.lock().tasks.get_mut(&id) {
-            t.planner = Some(h.abort_handle());
+            t.worker = Some(h.abort_handle());
         }
         Ok(())
     }
@@ -910,7 +1180,10 @@ impl Agent {
                 "task is no longer awaiting_approval",
             ));
         }
-        tokio::spawn(execute(sh, id.to_owned(), per_op));
+        let h = tokio::spawn(execute(sh.clone(), id.to_owned(), per_op));
+        if let Some(t) = sh.lock().tasks.get_mut(id) {
+            t.worker = Some(h.abort_handle());
+        }
         Ok(map_value(vec![
             ("task", Value::from(id)),
             ("state", Value::from("running")),
@@ -954,7 +1227,7 @@ impl Agent {
             .with_task(id, |t| match t.state {
                 _ if !may_manage(t, who) => Err(not_owner()),
                 TaskState::Planning => {
-                    if let Some(h) = t.planner.take() {
+                    if let Some(h) = t.worker.take() {
                         h.abort();
                     }
                     t.fail(format!("cancelled by {sub}"));
@@ -1006,9 +1279,10 @@ async fn plan_task(
     id: String,
     text: String,
     out: ReplySink,
+    first: Reserved,
 ) {
     let mut sink = Some(out);
-    let r = plan_loop(&sh, llm.as_ref(), &id, &text, &mut sink).await;
+    let r = plan_loop(&sh, llm.as_ref(), &id, &text, &mut sink, first).await;
     if let Err(e) = r {
         sh.with_task(&id, |t| {
             if t.state == TaskState::Planning {
@@ -1034,12 +1308,14 @@ async fn plan_task(
 }
 
 async fn plan_loop(
-    sh: &Shared,
+    sh: &Arc<Shared>,
     llm: &dyn LlmClient,
     id: &str,
     text: &str,
     sink: &mut Option<ReplySink>,
+    first: Reserved,
 ) -> std::result::Result<(), String> {
+    let mut first = Some(first).filter(|r| r.n > 0);
     let params = sh.params();
     let policy = sh.policy();
     let site = sh.ctx.site().to_owned();
@@ -1060,9 +1336,9 @@ async fn plan_loop(
         if sh.state_of(id) != Some(TaskState::Planning) {
             return Ok(());
         }
-        if sh.lock().budget.used() >= params.budget_tokens_day {
+        let Some(reserved) = first.take().or_else(|| sh.reserve()) else {
             return Err("daily token budget exhausted".into());
-        }
+        };
         let body = json!({
             "model": params.model,
             "max_tokens": params.max_tokens,
@@ -1082,9 +1358,16 @@ async fn plan_loop(
                 _ = tick.tick() => progress(sink, id, "wait", "").await,
             }
         };
-        let resp = resp.map_err(|e| format!("LLM: {e}"))?;
+        let resp = match resp {
+            Ok(r) => r,
+            Err(e) => {
+                // No usage reported: nothing is charged.
+                reserved.settle(0);
+                return Err(format!("LLM: {e}"));
+            }
+        };
         let used = usage_tokens(&resp);
-        sh.lock().budget.add(used);
+        reserved.settle(used);
         sh.with_task(id, |t| t.tokens += used).await;
         let content = resp["content"].clone();
         let blocks = content.as_array().cloned().unwrap_or_default();
@@ -1216,7 +1499,6 @@ async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
                 t.push_log("plan needs no approval");
                 t.state = TaskState::Running;
             }
-            t.planner = None;
             t.state
         })
         .await;
@@ -1245,7 +1527,8 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Option<Vec<u8>>>) {
         }
         let r = run_op(&sh, &policy, op, approvals.get(i).cloned().flatten()).await;
         let ok = r.is_ok();
-        sh.with_task(&id, |t| match r {
+        // Saved: a reader after a restart sees which steps went out.
+        sh.with_task_saved(&id, |t| match r {
             Ok(line) => t.push_log(format!("step {}: {line}", i + 1)),
             Err(e) => t.fail(format!("step {} ({}): {e}", i + 1, op.key)),
         })
@@ -1315,5 +1598,77 @@ async fn run_op(
             }
             Ok(format!("invoke {} ok, {n} result(s) ({by})", op.key))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(state: TaskState) -> TaskRec {
+        TaskRec {
+            state: state.name().to_owned(),
+            owner: "user:op".into(),
+            ask: "x".into(),
+            plan: Vec::new(),
+            log: Vec::new(),
+            error: None,
+            tokens: 3,
+            created: 1,
+            seq: 4,
+        }
+    }
+
+    #[test]
+    fn interrupted_tasks_fail_and_others_keep_their_state() {
+        for s in [TaskState::Planning, TaskState::Running] {
+            let t = Task::from_rec(&rec(s)).unwrap();
+            assert_eq!(t.state, TaskState::Failed);
+            assert_eq!(t.error.as_deref(), Some(INTERRUPTED));
+        }
+        for s in [
+            TaskState::AwaitingApproval,
+            TaskState::Done,
+            TaskState::Failed,
+        ] {
+            let t = Task::from_rec(&rec(s)).unwrap();
+            assert_eq!(t.state, s);
+            assert_eq!(t.error, None);
+        }
+    }
+
+    #[test]
+    fn reservation_is_checked_and_held_in_one_step() {
+        let mut b = Budget::default();
+        assert_eq!(b.reserve(100, 16_000), Some(100));
+        assert_eq!(b.reserve(100, 16_000), None, "in-flight calls count");
+        b.reserved = 0;
+        b.add(60);
+        assert_eq!(b.reserve(100, 16_000), Some(40));
+    }
+
+    #[test]
+    fn eviction_drops_expired_and_oldest_finished() {
+        let mut st = State::default();
+        let add = |id: &str, state: TaskState, created: u64, st: &mut State| {
+            let mut t = Task::from_rec(&rec(state)).unwrap();
+            t.created = created;
+            st.order.push_back(id.to_owned());
+            st.tasks.insert(id.to_owned(), t);
+        };
+        add("old-done", TaskState::Done, 1, &mut st);
+        add("old-waiting", TaskState::AwaitingApproval, 1, &mut st);
+        add("new-done", TaskState::Done, now_s(), &mut st);
+        assert_eq!(st.evict(0), vec!["old-done".to_owned()]);
+        for i in 0..MAX_TASKS {
+            add(
+                &format!("w{i}"),
+                TaskState::AwaitingApproval,
+                now_s(),
+                &mut st,
+            );
+        }
+        assert_eq!(st.evict(0), vec!["new-done".to_owned()]);
+        assert!(st.tasks.contains_key("old-waiting"));
     }
 }

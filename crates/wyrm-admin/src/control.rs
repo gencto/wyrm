@@ -348,6 +348,26 @@ impl Control {
         Ok(self.cfg.data_dir.join("links").join(id))
     }
 
+    /// `data_dir/links/<id>/data`: the link's own private directory (mode
+    /// 0700), created on demand and removed with the link. Embedded and
+    /// process links get it; external links keep their state themselves.
+    fn link_data_dir(&self, id: &str) -> Result<PathBuf, LinkError> {
+        let dir = self.link_dir(id)?.join("data");
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b.create(&dir)
+            .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
+        }
+        Ok(dir)
+    }
+
     /// Certificate for a remote link (CN = id) under `links/<id>/`.
     pub fn link_cert(&self, id: &str) -> Result<CertFiles, Error> {
         self.pki.issue(id, &[], false, &self.link_dir(id)?, "link")
@@ -530,6 +550,13 @@ impl Control {
     fn proc_spec(&self, def: &LinkDef) -> Option<ProcSpec> {
         let endpoint = self.cfg.link_endpoint.clone()?;
         let dir = self.link_dir(&def.id).ok()?;
+        let data = match self.link_data_dir(&def.id) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(link = %def.id, "data dir: {e}");
+                return None;
+            }
+        };
         let cert = self.link_cert(&def.id).ok()?;
         Some(ProcSpec {
             id: def.id.clone(),
@@ -548,6 +575,7 @@ impl Control {
                     "WYRM_TOKEN_FILE".into(),
                     dir.join("token").display().to_string(),
                 ),
+                ("WYRM_DATA_DIR".into(), data.display().to_string()),
             ],
             max_restarts: self.cfg.max_restarts,
         })
@@ -601,7 +629,9 @@ impl Control {
                 }
                 Mode::Process => match self.proc_spec(def) {
                     Some(spec) => self.supervisor.start(spec),
-                    None => warn!(link = %def.id, "no tls listener for process mode"),
+                    None => {
+                        warn!(link = %def.id, "process mode unavailable (no tls listener or link files)")
+                    }
                 },
                 Mode::External => {}
             }
@@ -665,6 +695,7 @@ async fn start_embedded(
     lcfg.admin_keys = admin_keys;
     lcfg.limited_keys = limited_keys;
     lcfg.secrets = ctl.link_secrets(&def.id);
+    lcfg.data_dir = Some(ctl.link_data_dir(&def.id)?);
     let link = ctl
         .host
         .start(

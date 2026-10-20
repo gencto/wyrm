@@ -75,6 +75,10 @@ pub struct LinkConfig {
     /// link: `(per second, burst)`; `None` = off. Reads carry no verified
     /// identity, so the budget protects the link's CPU, not fairness.
     pub read_rate_limit: Option<(f64, f64)>,
+    /// Private directory owned by the link (created by the host, mode 0700),
+    /// see [`LinkCtx::data_dir`](crate::LinkCtx::data_dir). `None` = no
+    /// persistent state.
+    pub data_dir: Option<std::path::PathBuf>,
 }
 
 /// Most replies to one wildcard `get` or `view=keys`.
@@ -103,6 +107,7 @@ impl LinkConfig {
             rate_limit: Some((50.0, 100.0)),
             audit: true,
             read_rate_limit: Some((5000.0, 10_000.0)),
+            data_dir: None,
         }
     }
 }
@@ -213,6 +218,7 @@ pub async fn spawn<L: Link>(
         prefix,
         root,
         cfg.secrets,
+        cfg.data_dir,
     );
     let queryable = session
         .declare_queryable(format!("{}/**", ctx.0.prefix))
