@@ -163,7 +163,14 @@ pub struct Registry {
     /// Profiles beside the built-in ones: name → CBOR `ProfileDef`.
     #[serde(default)]
     pub profiles: BTreeMap<String, Vec<u8>>,
+    /// Replaced params per link, oldest first: `(rev, params CBOR)`, at most
+    /// [`LINK_HISTORY`] (T11: version history and rollback).
+    #[serde(default)]
+    pub history: BTreeMap<String, Vec<(u32, Vec<u8>)>>,
 }
+
+/// Replaced params kept per link.
+pub const LINK_HISTORY: usize = 10;
 
 impl Registry {
     /// A profile by name: built-in or stored.
@@ -203,7 +210,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 3;
+    const SCHEMA: u32 = 4;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -226,6 +233,7 @@ impl wyrm_state::State for Registry {
                 self.links.insert(def.id.clone(), def.clone());
             }
             Op::Remove(id) => {
+                self.history.remove(id);
                 let def = self
                     .links
                     .remove(id)
@@ -243,6 +251,11 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("no link {id}"))?;
                 if mode.is_remote() && def.token_hash.is_empty() {
                     return Err(format!("{} link needs a token", mode.name()));
+                }
+                let h = self.history.entry(id.clone()).or_default();
+                h.push((def.rev, def.params.clone()));
+                if h.len() > LINK_HISTORY {
+                    h.remove(0);
                 }
                 def.mode = *mode;
                 def.params = params.clone();

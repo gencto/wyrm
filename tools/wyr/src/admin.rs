@@ -27,6 +27,18 @@ pub enum AdminCmd {
     Stop { site: String, id: String },
     /// Remove a runtime-installed link.
     Remove { site: String, id: String },
+    /// Replace the params of a runtime-installed link (`--param k=v`,
+    /// repeatable); the link restarts with them.
+    Update {
+        site: String,
+        id: String,
+        #[arg(long = "param")]
+        params: Vec<String>,
+    },
+    /// Previous params of a link (and the current one).
+    History { site: String, id: String },
+    /// Run an earlier params revision again (as a new revision).
+    Rollback { site: String, id: String, rev: u64 },
     /// Store a link secret; the value is read from stdin (never argv, so it
     /// stays out of shell history). The link sees it on its next start.
     SetSecret {
@@ -76,6 +88,9 @@ impl AdminCmd {
             | AdminCmd::Start { site, .. }
             | AdminCmd::Stop { site, .. }
             | AdminCmd::Remove { site, .. }
+            | AdminCmd::Update { site, .. }
+            | AdminCmd::History { site, .. }
+            | AdminCmd::Rollback { site, .. }
             | AdminCmd::SetSecret { site, .. }
             | AdminCmd::DeleteSecret { site, .. }
             | AdminCmd::Quarantine { site }
@@ -194,6 +209,30 @@ pub async fn run(c: &WyrmClient, cmd: AdminCmd) -> Result<(), Error> {
                 BTreeMap::new(),
             )
             .await
+        }
+        AdminCmd::Update { site, id, params } => {
+            let mut p = BTreeMap::new();
+            for kv in &params {
+                let (k, v) = parse_param(kv)?;
+                p.insert(k, v);
+            }
+            let mut args = BTreeMap::new();
+            args.insert("params".to_owned(), Value::Map(p));
+            invoke(c, &sys(&site, &format!("links/{id}")), "update", args).await
+        }
+        AdminCmd::History { site, id } => {
+            invoke(
+                c,
+                &sys(&site, &format!("links/{id}")),
+                "history",
+                BTreeMap::new(),
+            )
+            .await
+        }
+        AdminCmd::Rollback { site, id, rev } => {
+            let mut args = BTreeMap::new();
+            args.insert("rev".to_owned(), Value::UInt(rev));
+            invoke(c, &sys(&site, &format!("links/{id}")), "rollback", args).await
         }
         AdminCmd::Remove { site, id } => {
             invoke(

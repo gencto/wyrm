@@ -1053,3 +1053,75 @@ fn state_anchor_refuses_a_cut_wal() {
     drop(Daemon::open(init, exe.clone()).unwrap());
     drop(Daemon::open(cfg(&anchors).unwrap(), exe).unwrap());
 }
+
+/// T11 / runtime edits: a runtime-installed link's params can be updated
+/// (validated, linted, restarted), listed and rolled back; config links are
+/// edited in wyrmd.json5.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_params_update_history_rollback() {
+    let env = Env::start("linkhist", MOCK).await;
+    let c = env.client().await;
+    let links = format!("wy/{SITE}/sys/links");
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let mock = |points: u64| {
+        m(&[
+            ("points", Value::UInt(points)),
+            ("rate_hz", Value::Float(1.0)),
+            ("depth", Value::UInt(0)),
+            ("fanout", Value::UInt(1)),
+        ])
+    };
+    let install = m(&[
+        ("id", Value::from("m2")),
+        ("driver", Value::from("mock")),
+        ("params", mock(2)),
+    ]);
+    c.invoke_one(&links, "install", install).await.unwrap();
+    let node = format!("{links}/m2");
+    let count = |n: usize| {
+        let c = &c;
+        async move {
+            eventually("children", 10, || async {
+                let ch = c.children(&format!("wy/{SITE}/down/m2")).await.ok()?;
+                (ch.len() == n).then_some(())
+            })
+            .await
+        }
+    };
+    count(2).await;
+    let rev = c
+        .invoke_one(&node, "update", m(&[("params", mock(3))]))
+        .await
+        .unwrap();
+    assert_eq!(rev, Some(Value::UInt(2)));
+    count(3).await;
+    // secret-like params are refused, nothing changes
+    let bad = m(&[("params", m(&[("password", Value::from("x"))]))]);
+    assert!(c.invoke_one(&node, "update", bad).await.is_err());
+    let Some(Value::Array(h)) = c.invoke_one(&node, "history", m(&[])).await.unwrap() else {
+        panic!("history")
+    };
+    assert_eq!(h.len(), 2, "rev 1 and current rev 2");
+    let rev = c
+        .invoke_one(&node, "rollback", m(&[("rev", Value::UInt(1))]))
+        .await
+        .unwrap();
+    assert_eq!(rev, Some(Value::UInt(3)));
+    count(2).await;
+    // a link from wyrmd.json5 is edited there
+    assert!(c
+        .invoke_one(
+            &format!("{links}/mock"),
+            "update",
+            m(&[("params", mock(1))])
+        )
+        .await
+        .is_err());
+    env.stop().await;
+}

@@ -69,7 +69,7 @@ target/release/wyr bench list wy/local/down/mock
 | Node | Actions / value |
 |---|---|
 | `sys/links` | `~act/install {id, driver, mode, params}` |
-| `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`; child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
+| `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`, `update {params}`, `history`, `rollback {rev}` (runtime-installed links; the last 10 params revisions are kept); child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
 | `sys/quarantine/<cn>` | unknown CA-signed certificate; `~act/approve {driver, params}`, `reject` |
 | `sys/metrics/broker/acl_denied_total` | router access-control drops |
 | `sys/audit` | `~act/tail {n}` — HMAC-chained audit records |

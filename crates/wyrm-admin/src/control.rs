@@ -768,6 +768,32 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     }
     ctx.declare_action(
         &p,
+        "update",
+        ActionMeta::new()
+            .level(Perm::Config)
+            .param("params", ParamMeta::of(TypeCode::Map).required(true))
+            .result(ActionResult::Type(TypeCode::Number)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
+        "history",
+        ActionMeta::new()
+            .level(Perm::Read)
+            .result(ActionResult::Type(TypeCode::Array)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
+        "rollback",
+        ActionMeta::new()
+            .level(Perm::Config)
+            .param("rev", ParamMeta::of(TypeCode::Number).required(true))
+            .result(ActionResult::Type(TypeCode::Number)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
         "set_secret",
         ActionMeta::new()
             .level(Perm::Config)
@@ -945,6 +971,28 @@ impl Link for Admin {
             (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
             (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
+            (["links", id], "update") => {
+                let params = arg(&args, "params")
+                    .cloned()
+                    .ok_or_else(|| LinkError::invalid_parameter("params: required"))?;
+                self.update_params(id, params, &sub, "update").await
+            }
+            (["links", id], "history") => self.params_history(id),
+            (["links", id], "rollback") => {
+                let rev = arg(&args, "rev")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| LinkError::invalid_parameter("rev: required"))?
+                    as u32;
+                let old = self
+                    .ctl
+                    .registry()
+                    .history
+                    .get(*id)
+                    .and_then(|h| h.iter().find(|(r, _)| *r == rev).cloned())
+                    .ok_or_else(|| LinkError::not_found(format!("{id} rev {rev}")))?;
+                self.update_params(id, decode_params(&old.1), &sub, "rollback")
+                    .await
+            }
             (["links", id], "set_secret") => self.set_secret(id, &args, &sub),
             (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
             (["quarantine", cn], "approve") => self.approve(cn, &args, &sub).await,
@@ -1125,6 +1173,67 @@ impl Admin {
             ),
         );
         Ok(Some(Value::Map(reply)))
+    }
+
+    /// New params for a runtime-installed link (validated, linted, kept in
+    /// the history), then a restart so the link runs them. Replies the new
+    /// `rev`. Links from `wyrmd.json5` are edited there.
+    async fn update_params(
+        &self,
+        id: &str,
+        params: Value,
+        sub: &str,
+        op: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        let def = self.def(id)?;
+        if def.origin == Origin::Config {
+            return Err(LinkError::not_supported(
+                "defined in wyrmd.json5; change it there",
+            ));
+        }
+        crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
+        if def.mode != Mode::External {
+            self.ctl.host.validate(&def.driver, &params)?;
+        }
+        self.ctl
+            .apply(Op::Update {
+                id: id.to_owned(),
+                mode: def.mode,
+                params: encode_params(&params)?,
+            })
+            .map_err(rejected)?;
+        let rev = self.def(id)?.rev;
+        self.ctl
+            .record(sub, op, id, Status::Ok, &format!("rev {rev}"));
+        if def.driver == AGENT_DRIVER {
+            // allowed_prefixes scope its key in every link's trust list
+            self.ctl.schedule_reload();
+        } else if def.mode != Mode::External {
+            self.stop_link(id, sub).await?;
+            self.start_link(id, sub).await?;
+        }
+        Ok(Some(Value::UInt(rev.into())))
+    }
+
+    /// Previous params (oldest first) and the current one: `[{rev, params}]`.
+    fn params_history(&self, id: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let def = self.def(id)?;
+        let reg = self.ctl.registry();
+        let entry = |rev: u32, params: &[u8]| {
+            let mut m = BTreeMap::new();
+            m.insert("rev".to_owned(), Value::UInt(rev.into()));
+            m.insert("params".to_owned(), decode_params(params));
+            Value::Map(m)
+        };
+        let mut out: Vec<Value> = reg
+            .history
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|(r, p)| entry(*r, p))
+            .collect();
+        out.push(entry(def.rev, &def.params));
+        Ok(Some(Value::Array(out)))
     }
 
     /// Stores one secret; the link sees it on its next start (`hello`).
