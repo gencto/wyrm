@@ -1115,16 +1115,29 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             Some(Value::Bytes(b)) => hex::encode(b),
             _ => String::new(),
         };
+        // The link's own clock and `sub` are claims; the admin's clock is the
+        // record time, and a key outside the link's subtree is flagged.
+        let key = text("key");
+        let root = format!("wy/{}/down/{link}", ctl.cfg.site);
+        let in_subtree = key == root || key.starts_with(&format!("{root}/"));
+        let link_t = match m.get("t") {
+            Some(Value::UInt(t)) => t.to_string(),
+            _ => "-".into(),
+        };
+        let suppressed = match m.get("suppressed") {
+            Some(Value::UInt(n)) => format!(" suppressed:{n}"),
+            _ => String::new(),
+        };
         let rec = AuditRecord {
-            t: match m.get("t") {
-                Some(Value::UInt(t)) => *t,
-                _ => now_us(),
-            },
-            sub: text("sub"),
+            t: now_us(),
+            sub: format!("claimed:{}", text("sub")),
             op: text("op"),
-            key: text("key"),
+            key,
             status,
-            detail: format!("link:{link} args_sha256:{hash}"),
+            detail: format!(
+                "link:{link} link_t:{link_t} args_sha256:{hash}{suppressed}{}",
+                if in_subtree { "" } else { " key_outside_link" }
+            ),
         };
         if let Err(e) = ctl
             .audit

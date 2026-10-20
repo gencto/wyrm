@@ -205,6 +205,7 @@ pub async fn spawn<L: Link>(
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
+        audit_suppressed: Default::default(),
         next_rid: AtomicU32::new(1),
     });
     let query_task = tokio::spawn(serve(shared, queryable));
@@ -312,6 +313,7 @@ struct Shared<C> {
     open_actions: Vec<String>,
     limiter: Option<crate::guard::RateLimiter>,
     audit_key: Option<String>,
+    audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
 }
 
@@ -609,17 +611,23 @@ impl<C: Send + 'static> Shared<C> {
         Ok((payload, att))
     }
 
-    /// Over the per-caller budget → `rate_limited`.
-    fn limit(&self, caller: &Caller) -> Result<()> {
+    /// Over the budget → `rate_limited`. A verified token is its own bucket.
+    /// Anonymous and unauthenticated callers have no verified identity in
+    /// the SDK, so they share a bucket per target path: the router ACL binds
+    /// paths to transport identities (`links/<id>/~act/hello` only for CN
+    /// `<id>`), and a flood on one path cannot starve another.
+    fn limit(&self, caller: Option<&Caller>, path: &str) -> Result<()> {
         let Some(l) = &self.limiter else {
             return Ok(());
         };
-        let who = caller
-            .claims
-            .as_ref()
-            .map(|c| c.sub.as_str())
-            .unwrap_or("anonymous");
-        if l.allow(who) {
+        let who = match caller {
+            Some(Caller {
+                claims: Some(c), ..
+            }) => format!("sub:{}", c.sub),
+            Some(_) => format!("anon:{path}"),
+            None => format!("unauth:{path}"),
+        };
+        if l.allow(&who) {
             Ok(())
         } else {
             Err(LinkError::new(Status::RateLimited, "too many requests"))
@@ -636,7 +644,20 @@ impl<C: Send + 'static> Shared<C> {
             Ok(()) => Status::Ok,
             Err(e) => e.status,
         };
+        // A flood must not become an audit flood: rejected-by-limit requests
+        // are counted and reported in the next record.
+        if status == Status::RateLimited {
+            self.audit_suppressed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return;
+        }
         let mut m = std::collections::BTreeMap::new();
+        let suppressed = self
+            .audit_suppressed
+            .swap(0, std::sync::atomic::Ordering::Relaxed);
+        if suppressed > 0 {
+            m.insert("suppressed".to_owned(), Value::UInt(suppressed));
+        }
         m.insert("t".to_owned(), Value::UInt(crate::ctx::now_us()));
         m.insert("sub".to_owned(), Value::Str(sub.to_owned()));
         m.insert("op".to_owned(), Value::Str(op.to_owned()));
@@ -667,14 +688,17 @@ impl<C: Send + 'static> Shared<C> {
             .map(|p| p.to_bytes().to_vec())
             .unwrap_or_default();
         let (sub, r) = match self.attachment(q).and_then(|att| self.authorize(q, &att)) {
-            Err(e) => ("unauthenticated".to_owned(), Err(e)),
+            Err(e) => (
+                "unauthenticated".to_owned(),
+                self.limit(None, path).and(Err(e)),
+            ),
             Ok(caller) => {
                 let sub = caller
                     .claims
                     .as_ref()
                     .map(|c| c.sub.clone())
                     .unwrap_or_else(|| "anonymous".into());
-                let r = match self.limit(&caller) {
+                let r = match self.limit(Some(&caller), path) {
                     Ok(()) => self.set_authorized(q, path, caller).await,
                     Err(e) => Err(e),
                 };
@@ -737,14 +761,17 @@ impl<C: Send + 'static> Shared<C> {
             .attachment(q)
             .and_then(|att| self.authorize(q, &att).map(|c| (att, c)))
         {
-            Err(e) => ("unauthenticated".to_owned(), Err(e)),
+            Err(e) => (
+                "unauthenticated".to_owned(),
+                self.limit(None, path).and(Err(e)),
+            ),
             Ok((att, caller)) => {
                 let sub = caller
                     .claims
                     .as_ref()
                     .map(|c| c.sub.clone())
                     .unwrap_or_else(|| "anonymous".into());
-                let r = match self.limit(&caller) {
+                let r = match self.limit(Some(&caller), path) {
                     Ok(()) => self.invoke_authorized(q, path, action, att, caller).await,
                     Err(e) => Err(e),
                 };

@@ -41,6 +41,7 @@ postcard = { version = "1", features = ["use-std"] }
 argon2 = "0.5"
 flate2 = "1"
 rcgen = { version = "0.14", features = ["x509-parser"] }
+ring = "0.17"
 wyrm-state = { path = "crates/wyrm-state" }
 wyrm-flow = { path = "crates/wyrm-flow" }
 rhai = { version = "1.26", features = ["sync"] }

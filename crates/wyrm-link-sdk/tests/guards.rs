@@ -91,3 +91,45 @@ async fn every_set_is_audited_without_values() {
     );
     h.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unauthenticated_flood_is_limited_and_not_audited() {
+    let h = TestHarness::<W>::start_with((), |c| c.rate_limit = Some((0.5, 2.0))).await;
+    let sub = h
+        .session()
+        .declare_subscriber(format!("wy/{SITE}/sys/audit/w"))
+        .await
+        .unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        seen.push(status(&h.set("p", 1.0, None).await));
+    }
+    assert_eq!(
+        seen,
+        [
+            Some(Status::PermissionDenied),
+            Some(Status::PermissionDenied),
+            Some(Status::RateLimited),
+            Some(Status::RateLimited)
+        ]
+    );
+    // A verified caller has its own bucket; its record reports the drops.
+    assert_eq!(
+        status(&h.set("p", 1.0, Some(h.ptok(Perm::Write))).await),
+        Some(Status::Ok)
+    );
+    let mut last = None;
+    for _ in 0..3 {
+        let s = tokio::time::timeout(Duration::from_secs(2), sub.recv_async())
+            .await
+            .expect("audit record")
+            .unwrap();
+        last = Some(wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes()).unwrap());
+    }
+    let Some(Value::Map(m)) = last else {
+        panic!("record is a map")
+    };
+    assert_eq!(m["sub"], Value::from("user:test"));
+    assert_eq!(m["suppressed"], Value::UInt(2));
+    h.stop().await;
+}

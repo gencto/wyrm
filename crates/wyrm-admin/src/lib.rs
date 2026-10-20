@@ -7,6 +7,7 @@ pub mod audit;
 pub mod control;
 pub mod registry;
 pub mod secret;
+pub mod secrets;
 pub mod supervisor;
 
 pub use control::{
