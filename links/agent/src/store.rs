@@ -11,7 +11,8 @@
 //! Records hold what a task shows (`state, owner, ask, plan, log, error,
 //! tokens`), never approval tokens. The WAL is append-only, so `open`
 //! rewrites the store from its current state once it holds more than
-//! [`COMPACT_AT`] records: removed tasks then also leave the disk.
+//! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
+//! removed tasks then also leave the disk.
 
 use crate::tools::{OpKind, PlanOp};
 use crate::TaskState;
@@ -25,7 +26,7 @@ use wyrm_core::{Perm, Value};
 use wyrm_state::Store;
 use zeroize::Zeroizing;
 
-/// Rewrite the store at start once its WAL holds more records than this.
+/// Rewrite the store once its WAL holds more records than this.
 pub const COMPACT_AT: u64 = 10_000;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -164,6 +165,20 @@ pub fn open(data_dir: &Path, compact_at: u64) -> Result<AgentStore, Error> {
     let store = Store::<Saved>::open(&dir, &key)?;
     if store.lsn() <= compact_at {
         return Ok(store);
+    }
+    compact(data_dir, store)
+}
+
+/// Rewrite `store` (the one in `data_dir/agent`) from its current state and
+/// reopen it: the history of removed tasks leaves the disk. On an error the
+/// store is closed; [`open`] then finds the old or the complete new copy.
+pub fn compact(data_dir: &Path, store: AgentStore) -> Result<AgentStore, Error> {
+    let key = load_or_create_key(&data_dir.join("agent.key"))?;
+    let dir = data_dir.join("agent");
+    let next = sibling(&dir, ".next");
+    let old = sibling(&dir, ".old");
+    if next.exists() {
+        std::fs::remove_dir_all(&next)?;
     }
     let state = store.state().clone();
     {
@@ -354,6 +369,14 @@ mod tests {
         let s = open(&d, COMPACT_AT).unwrap();
         assert_eq!(s.state().tasks.len(), 15);
         assert!(!d.join("agent.next").exists());
+        // While running: compact an open store in place.
+        let mut s = s;
+        for i in 0..20 {
+            s.apply(Op::Remove(format!("t-{i}"))).unwrap();
+        }
+        let s = compact(&d, s).unwrap();
+        assert_eq!(s.lsn(), 6, "5 tasks + budget");
+        assert_eq!(*s.state().tasks["t-21"], rec(21));
         drop(s);
         let _ = std::fs::remove_dir_all(d);
     }

@@ -65,11 +65,11 @@ fn tool_use(calls: &[(&str, &str, Json)]) -> Json {
             |(id, name, input)| json!({"type": "tool_use", "id": id, "name": name, "input": input}),
         )
         .collect();
-    json!({"content": content, "stop_reason": "tool_use", "usage": {"input_tokens": 50, "output_tokens": 10}})
+    json!({"content": content, "stop_reason": "tool_use", "usage": {"input_tokens": 5000, "output_tokens": 10}})
 }
 
 fn end(text: &str) -> Json {
-    json!({"content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "usage": {"input_tokens": 60, "output_tokens": 20}})
+    json!({"content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "usage": {"input_tokens": 6000, "output_tokens": 20}})
 }
 
 /// Read p0, propose `p0 := 42`, finish.
@@ -471,14 +471,14 @@ async fn reject_and_cancel() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn budget_exhausted() {
     let p = AgentParams {
-        budget_tokens_day: 100,
+        budget_tokens_day: 10_000,
         ..params(&["down/mock"])
     };
-    // 60 + 80 tokens: the first task spends the whole budget.
+    // 5010 + 6020 tokens: the first task spends the whole budget.
     let env = Env::start(p, set_p0_script(42.0)).await;
     let (id, _) = env.ask("set p0 to 42").await.unwrap();
     let v = env.wait_state(&id, "awaiting_approval").await;
-    assert!(matches!(&v, Value::Map(m) if m.get("tokens") == Some(&Value::UInt(140))));
+    assert!(matches!(&v, Value::Map(m) if m.get("tokens") == Some(&Value::UInt(11_030))));
     let e = env.ask("again").await.unwrap_err();
     assert!(e.is(Status::RateLimited), "{e}");
     assert_eq!(env.llm.seen().len(), 2, "no LLM call for a refused ask");
@@ -768,7 +768,7 @@ async fn one_step_per_key_and_only_the_asker_may_cancel() {
 async fn restart_keeps_tasks_and_budget() {
     let dir = temp_dir("restart");
     let p = AgentParams {
-        budget_tokens_day: 100,
+        budget_tokens_day: 10_000,
         ..params(&["down/mock"])
     };
     let mut env = Env::start_in(p, set_p0_script(42.0), Some(dir.clone())).await;
@@ -779,7 +779,7 @@ async fn restart_keeps_tasks_and_budget() {
     // Listed again and still awaiting approval, with its plan and tokens.
     let v = env.wait_state(&id, "awaiting_approval").await;
     assert_eq!(plan_len(&v), 1);
-    assert!(matches!(&v, Value::Map(m) if m.get("tokens") == Some(&Value::UInt(140))));
+    assert!(matches!(&v, Value::Map(m) if m.get("tokens") == Some(&Value::UInt(11_030))));
     assert_eq!(field(&v, "owner").as_deref(), Some("user:op"));
     let human = env.human(Perm::Config);
     let ctx = env.agent.as_ref().unwrap().ctx();
@@ -787,7 +787,7 @@ async fn restart_keeps_tasks_and_budget() {
         ctx.meta(&format!("tasks/{id}")).is_some(),
         "task node re-declared"
     );
-    // The budget (140 of 100 used) survived: no LLM call for a new ask.
+    // The budget (11030 of 10000 used) survived: no LLM call for a new ask.
     let e = env.ask("again").await.unwrap_err();
     assert!(e.is(Status::RateLimited), "{e}");
     assert!(env.llm.seen().is_empty());
@@ -850,7 +850,7 @@ async fn planning_task_fails_on_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_asks_cannot_both_spend_the_last_budget() {
     let p = AgentParams {
-        budget_tokens_day: 100,
+        budget_tokens_day: 10_000,
         ..params(&["down/mock"])
     };
     let env = Env::start(p, set_p0_script(42.0)).await;

@@ -39,6 +39,7 @@ use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader};
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
@@ -432,8 +433,8 @@ impl Budget {
 
     /// Check and reserve in one step: refused at the limit (used plus calls
     /// in flight); otherwise up to `max` tokens (the output cap of one call)
-    /// are held until the call is settled. The estimate covers output, not
-    /// input tokens, so a call can still overrun by its input.
+    /// are held until the call is settled. Before the call the hold is
+    /// re-sized to its input and output with [`fit`](Self::fit).
     fn reserve(&mut self, limit: u64, max: u64) -> Option<u64> {
         self.roll();
         let committed = self.used.saturating_add(self.reserved);
@@ -444,6 +445,27 @@ impl Budget {
         self.reserved += n;
         Some(n)
     }
+
+    /// Re-size a hold of `held` tokens for a call with `input` tokens: all
+    /// of the input plus up to `max` output tokens. Returns the output
+    /// tokens held; `None` (and nothing held) when the input does not fit.
+    fn fit(&mut self, limit: u64, held: u64, input: u64, max: u64) -> Option<u64> {
+        self.roll();
+        self.reserved = self.reserved.saturating_sub(held);
+        let free = limit.saturating_sub(self.used.saturating_add(self.reserved));
+        if input >= free {
+            return None;
+        }
+        let out = max.min(free - input);
+        self.reserved += input + out;
+        Some(out)
+    }
+}
+
+/// Upper estimate of the input tokens of a request body: one token per
+/// three bytes of JSON (tokenizers average about four characters per token).
+fn input_estimate(body: &Json) -> u64 {
+    (body.to_string().len() as u64).div_ceil(3)
 }
 
 #[derive(Default)]
@@ -455,15 +477,36 @@ struct State {
     /// Durable copy (with a `data_dir`); taken by `stop`, after which late
     /// updates of leftover tasks stay in memory.
     db: Option<AgentStore>,
+    /// The `data_dir` of `db` (for compaction).
+    db_dir: Option<PathBuf>,
 }
 
 impl State {
     fn persist(&mut self, op: store::Op) {
-        if let Some(db) = self.db.as_mut() {
-            if let Err(e) = db.apply(op) {
-                warn!("agent store: {e}");
-            }
+        let Some(db) = self.db.as_mut() else { return };
+        if let Err(e) = db.apply(op) {
+            warn!("agent store: {e}");
         }
+        if db.lsn() > store::COMPACT_AT {
+            self.compact();
+        }
+    }
+
+    /// Rewrite the store from the current state (the WAL is append-only).
+    /// After a failed rewrite the store is opened again as it is on disk.
+    fn compact(&mut self) {
+        let (Some(db), Some(dir)) = (self.db.take(), self.db_dir.clone()) else {
+            return;
+        };
+        self.db = match store::compact(&dir, db) {
+            Ok(db) => Some(db),
+            Err(e) => {
+                warn!("agent store compaction: {e}");
+                store::open(&dir, u64::MAX)
+                    .inspect_err(|e| warn!("agent store lost, tasks kept in memory only: {e}"))
+                    .ok()
+            }
+        };
     }
 
     fn save_task(&mut self, id: &str) {
@@ -524,6 +567,14 @@ struct Reserved {
 }
 
 impl Reserved {
+    /// Hold the input of the call and up to `max` output tokens (see
+    /// [`Budget::fit`]); returns the output tokens the call may ask for.
+    fn fit(&mut self, limit: u64, input: u64, max: u64) -> Option<u64> {
+        let out = self.sh.lock().budget.fit(limit, self.n, input, max);
+        self.n = out.map_or(0, |o| input + o);
+        out
+    }
+
     fn settle(mut self, used: u64) {
         let mut st = self.sh.lock();
         st.budget.reserved = st.budget.reserved.saturating_sub(self.n);
@@ -664,10 +715,11 @@ impl Shared {
 /// Load the persisted tasks and budget. Tasks that were planning or running
 /// become failed (and are saved so); ids keep counting from the highest
 /// loaded sequence number.
-fn reload(db: AgentStore) -> State {
+fn reload(db: AgentStore, dir: &Path) -> State {
     let saved = db.state().clone();
     let mut st = State {
         db: Some(db),
+        db_dir: Some(dir.to_owned()),
         ..State::default()
     };
     st.budget.day = saved.day;
@@ -860,6 +912,7 @@ impl Link for Agent {
             Some(dir) => reload(
                 store::open(dir, store::COMPACT_AT)
                     .map_err(|e| LinkError::internal(format!("agent store: {e}")))?,
+                dir,
             ),
             None => State::default(),
         };
@@ -1336,16 +1389,25 @@ async fn plan_loop(
         if sh.state_of(id) != Some(TaskState::Planning) {
             return Ok(());
         }
-        let Some(reserved) = first.take().or_else(|| sh.reserve()) else {
+        let Some(mut reserved) = first.take().or_else(|| sh.reserve()) else {
             return Err("daily token budget exhausted".into());
         };
-        let body = json!({
+        let mut body = json!({
             "model": params.model,
-            "max_tokens": params.max_tokens,
             "system": system,
             "tools": tools,
             "messages": messages,
         });
+        // The input is held as well, and the call asks for no more output
+        // than is left: it overruns the budget only by the estimate's error.
+        let Some(out) = reserved.fit(
+            params.budget_tokens_day,
+            input_estimate(&body),
+            params.max_tokens.into(),
+        ) else {
+            return Err("daily token budget exhausted (the next request does not fit)".into());
+        };
+        body["max_tokens"] = out.into();
         // Keep the ask stream alive while the model thinks: requesters drop a
         // stream after their idle timeout (wyrm-client default 10 s).
         let call = llm.messages(body);
@@ -1645,6 +1707,14 @@ mod tests {
         b.reserved = 0;
         b.add(60);
         assert_eq!(b.reserve(100, 16_000), Some(40));
+        // Re-sized to input plus output; nothing held when the input does
+        // not fit.
+        assert_eq!(b.fit(100, 40, 30, 16_000), Some(10));
+        assert_eq!(b.reserved, 40);
+        assert_eq!(b.fit(100, 40, 40, 16_000), None);
+        assert_eq!(b.reserved, 0);
+        assert_eq!(b.fit(100, 0, 5, 20), Some(20));
+        assert!(input_estimate(&json!({"a": "x".repeat(300)})) >= 100);
     }
 
     #[test]
