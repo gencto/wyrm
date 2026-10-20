@@ -1,6 +1,6 @@
 [package]
 name = "wyr"
-description = "WYRM CLI: list, sub, set, invoke, meta, resolve, bench, keygen"
+description = "WYRM CLI: list, sub, set, invoke, meta, resolve, flow, bench, keygen"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 zeroize.workspace = true
 wyrm-core.workspace = true
+wyrm-flow.workspace = true
 wyrm-client = { workspace = true, features = ["advanced"] }
 zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_unixsock-stream"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
@@ -18,3 +19,5 @@ clap = { workspace = true, features = ["env"] }
 hex.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
+serde_json.workspace = true
+json5.workspace = true

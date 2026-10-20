@@ -75,6 +75,13 @@ Link secrets (device passwords, keys) live in `data_dir/secrets.bin` (ChaCha20-P
 
 ## Flows
 `wy/<site>/flows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/down/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
+```
+wyr --key admin.key flow validate local peak.json5     # compile only
+wyr --key admin.key flow deploy   local peak.json5     # signs one proof per invoke/set target
+wyr flow list local                                     # id, state (running|stopped|error), version
+wyr --key admin.key flow show local peak                # state + ~def
+wyr --key admin.key flow stop|start|reload|remove local peak
+```
 
 ## Two brokers
 ```json5

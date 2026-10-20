@@ -96,7 +96,7 @@ fn attr(m: &wyrm_core::NodeMeta, k: &str) -> String {
 }
 
 /// Last stored value of `node` (storage replies, no status attachment).
-async fn last_value(c: &WyrmClient, node: &str) -> Option<Value> {
+pub(crate) async fn last_value(c: &WyrmClient, node: &str) -> Option<Value> {
     let r = c.session().get(format!("{node}/~val")).await.ok()?;
     let reply = r.recv_async().await.ok()?;
     let s = reply.result().ok()?;

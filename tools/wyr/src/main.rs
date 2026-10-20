@@ -13,6 +13,7 @@ macro_rules! out {
 
 mod admin;
 mod bench;
+mod flow;
 
 use clap::{Parser, Subcommand};
 use std::collections::BTreeMap;
@@ -89,6 +90,11 @@ enum Cmd {
         #[command(subcommand)]
         what: bench::What,
     },
+    /// Data flows (`wy/<site>/flows`).
+    Flow {
+        #[command(subcommand)]
+        cmd: flow::FlowCmd,
+    },
     #[command(flatten)]
     Admin(admin::AdminCmd),
     /// Create an admin signing key (hex seed, mode 0600) and print the public key.
@@ -159,6 +165,10 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Bench { what } => bench::run(&client.inner, what).await,
+        Cmd::Flow { cmd } => {
+            let c = client.with_site(&flow::root(cmd.site()), &cli.key)?;
+            flow::run(&c, cmd).await
+        }
         Cmd::Admin(cmd) => {
             let c = client.with_site(&format!("wy/{}/sys", cmd.site()), &cli.key)?;
             admin::run(&c, cmd).await
@@ -488,6 +498,8 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(Cli::try_parse_from(["wyr", "audit", "s", "-n", "5"]).is_ok());
+        assert!(Cli::try_parse_from(["wyr", "flow", "deploy", "s", "f.json5"]).is_ok());
+        assert!(Cli::try_parse_from(["wyr", "flow", "stop", "s", "peak"]).is_ok());
         assert!(Cli::try_parse_from(["wyr", "--tls-key", "k", "links", "s"]).is_ok());
     }
 }
