@@ -28,6 +28,7 @@ zenoh-plugin-rest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
 serde.workspace = true
 serde_json.workspace = true
+wyrm-client.workspace = true
 json5.workspace = true
 clap.workspace = true
 hex.workspace = true

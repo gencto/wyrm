@@ -29,10 +29,16 @@ extern "C" {
 
 typedef struct WyrmHandle WyrmHandle;
 
-/* Zenoh client session to `endpoint` ("tcp/127.0.0.1:7447"). `seed`: null
- * or 32-byte Ed25519 seed trusted by the broker; then `site` is required.
- * Null on failure, with *err set (free with wyrm_string_free). */
+/* Zenoh client session to `endpoint` ("tcp/127.0.0.1:7447"); plaintext on
+ * loopback only. `seed`: null or 32-byte Ed25519 seed trusted by the broker;
+ * then `site` is required. Null on failure, with *err set (free with
+ * wyrm_string_free). */
 WyrmHandle *wyrm_open(const char *endpoint, const uint8_t *seed, const char *site, char **err);
+
+/* As wyrm_open, over mTLS ("tls/host:port" or "quic/..."): `ca` is the
+ * broker CA, `cert`/`key` a client certificate it issued (PEM file paths). */
+WyrmHandle *wyrm_open_tls(const char *endpoint, const char *ca, const char *cert, const char *key,
+                          const uint8_t *seed, const char *site, char **err);
 
 /* Feature "test-harness" only: in-process isolated peer + mock link. */
 WyrmHandle *wyrm_open_test_mock(uint32_t points, double rate_hz, char **err);

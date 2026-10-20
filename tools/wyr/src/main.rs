@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use wyrm_client::endpoint::TlsFiles;
 use wyrm_client::{ListEvent, SigningTokens, ValEvent, WyrmClient};
 use wyrm_core::meta::{Profile, TextOrCode};
 use wyrm_core::{NodeMeta, Quality, Value};
@@ -346,14 +347,8 @@ fn client_config(
     cert: &Option<PathBuf>,
     tls_key: &Option<PathBuf>,
 ) -> Result<zenoh::Config, Error> {
-    let mut zc = zenoh::Config::default();
-    zc.insert_json5("mode", r#""client""#)?;
-    zc.insert_json5("connect/endpoints", &format!("[\"{connect}\"]"))?;
-    zc.insert_json5("scouting/multicast/enabled", "false")?;
-    if let Some(tls) = tls_config(connect, ca, cert, tls_key)? {
-        zc.insert_json5("transport/link/tls", &tls)?;
-    }
-    Ok(zc)
+    let tls = tls_files(connect, ca, cert, tls_key)?;
+    Ok(wyrm_client::endpoint::client_config(connect, tls.as_ref())?)
 }
 
 async fn connect(cli: &Cli) -> Result<Ctx, Error> {
@@ -364,25 +359,24 @@ async fn connect(cli: &Cli) -> Result<Ctx, Error> {
     })
 }
 
-/// `transport/link/tls` for `tls/`/`quic/` endpoints (mTLS); `None` otherwise.
-fn tls_config(
+/// The mTLS files for `tls/`/`quic/` endpoints; `None` otherwise.
+fn tls_files(
     endpoint: &str,
     ca: &Option<PathBuf>,
     cert: &Option<PathBuf>,
     key: &Option<PathBuf>,
-) -> Result<Option<String>, Error> {
-    if !(endpoint.starts_with("tls/") || endpoint.starts_with("quic/")) {
+) -> Result<Option<TlsFiles>, Error> {
+    if !wyrm_client::endpoint::is_tls(endpoint) {
         return Ok(None);
     }
     let (Some(ca), Some(cert), Some(key)) = (ca, cert, key) else {
         return Err("tls/quic endpoints need --ca, --cert and --tls-key".into());
     };
-    Ok(Some(format!(
-        "{{ root_ca_certificate: {:?}, connect_certificate: {:?}, connect_private_key: {:?}, enable_mtls: true }}",
-        ca.display().to_string(),
-        cert.display().to_string(),
-        key.display().to_string()
-    )))
+    Ok(Some(TlsFiles {
+        ca: ca.clone(),
+        cert: cert.clone(),
+        key: key.clone(),
+    }))
 }
 
 /// `name=value` → (name, parsed value).
@@ -687,17 +681,16 @@ mod tests {
     #[test]
     fn tls_flags() {
         let p = |s: &str| Some(PathBuf::from(s));
-        assert_eq!(
-            tls_config("tcp/127.0.0.1:7447", &None, &None, &None).unwrap(),
-            None
-        );
-        assert!(tls_config("tls/127.0.0.1:7448", &p("ca"), &None, &p("k")).is_err());
-        let c = tls_config("tls/127.0.0.1:7448", &p("ca.pem"), &p("c.pem"), &p("c.key"))
+        assert!(tls_files("tcp/127.0.0.1:7447", &None, &None, &None)
             .unwrap()
-            .unwrap();
-        let mut zc = zenoh::Config::default();
-        zc.insert_json5("transport/link/tls", &c).unwrap();
-        assert!(c.contains("enable_mtls: true"));
+            .is_none());
+        assert!(tls_files("tls/127.0.0.1:7448", &p("ca"), &None, &p("k")).is_err());
+        let zc =
+            client_config("tls/127.0.0.1:7448", &p("ca.pem"), &p("c.pem"), &p("c.key")).unwrap();
+        assert_eq!(
+            zc.get_json("transport/link/tls/enable_mtls").unwrap(),
+            "true"
+        );
     }
 
     #[test]

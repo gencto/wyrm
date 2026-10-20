@@ -37,6 +37,7 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, Notify};
 use tokio::task::JoinHandle;
+use wyrm_client::endpoint::{client_config, is_tls, plaintext_off_loopback, TlsFiles};
 use wyrm_client::{Child, ClientError, ListEvent, ValEvent, WyrmClient};
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::{NodeMeta, Status, Value};
@@ -141,7 +142,8 @@ fn new_handle(rt: Runtime, client: WyrmClient) -> WyrmHandle {
 
 // ---------- open / close ----------
 
-/// Open a Zenoh client session to `endpoint` (`tcp/127.0.0.1:7447`).
+/// Open a Zenoh client session to `endpoint`: plaintext (`tcp/127.0.0.1:7447`)
+/// on loopback only; use [`wyrm_open_tls`] for any other host.
 ///
 /// `seed` (32 bytes, may be null) is an Ed25519 key whose public half the
 /// broker trusts (`admin_keys`); with it every request carries a `ptok`
@@ -160,50 +162,104 @@ pub unsafe extern "C" fn wyrm_open(
     site: *const c_char,
     err: *mut *mut c_char,
 ) -> *mut WyrmHandle {
-    let r = catch_unwind(AssertUnwindSafe(|| -> Result<WyrmHandle, String> {
+    open_handle(err, "wyrm_open", || {
         let endpoint = text(endpoint).ok_or("endpoint: UTF-8 string required")?;
-        let key = if seed.is_null() {
-            None
-        } else {
-            let s: [u8; 32] = std::slice::from_raw_parts(seed, 32)
-                .try_into()
-                .map_err(|_| "seed: 32 bytes")?;
-            let site = text(site).ok_or("site: required with a seed")?;
-            Some((ed25519_dalek::SigningKey::from_bytes(&s), site.to_owned()))
-        };
-        let mut zc = zenoh::Config::default();
-        let set = |zc: &mut zenoh::Config, k: &str, v: &str| {
-            zc.insert_json5(k, v)
-                .map_err(|e| format!("zenoh config {k}: {e}"))
-        };
-        set(&mut zc, "mode", r#""client""#)?;
-        if endpoint
-            .chars()
-            .any(|c| c == '"' || c == '\\' || c.is_control())
-        {
-            return Err("endpoint: illegal character".into());
+        if is_tls(endpoint) {
+            return Err(format!("{endpoint}: use wyrm_open_tls"));
         }
-        let ep = format!("[\"{endpoint}\"]");
-        set(&mut zc, "connect/endpoints", &ep)?;
-        set(&mut zc, "scouting/multicast/enabled", "false")?;
-        let rt = runtime().map_err(|e| format!("runtime: {e}"))?;
-        let session = rt
-            .block_on(async { zenoh::open(zc).await })
-            .map_err(|e| format!("open {endpoint}: {e}"))?;
-        let mut client = WyrmClient::new(session);
-        if let Some((k, site)) = key {
-            client = client.with_tokens(Arc::new(wyrm_client::SigningTokens::new(k, site)));
+        open_session(endpoint, None, signer(seed, site)?)
+    })
+}
+
+/// Like [`wyrm_open`], over mTLS (`tls/<host>:<port>` or `quic/…`): `ca` is
+/// the broker CA (PEM file), `cert` and `key` a client certificate it
+/// issued and its private key (PEM files).
+///
+/// # Safety
+/// As [`wyrm_open`]; `ca`, `cert` and `key` are NUL-terminated paths.
+#[no_mangle]
+pub unsafe extern "C" fn wyrm_open_tls(
+    endpoint: *const c_char,
+    ca: *const c_char,
+    cert: *const c_char,
+    key: *const c_char,
+    seed: *const u8,
+    site: *const c_char,
+    err: *mut *mut c_char,
+) -> *mut WyrmHandle {
+    open_handle(err, "wyrm_open_tls", || {
+        let endpoint = text(endpoint).ok_or("endpoint: UTF-8 string required")?;
+        if !is_tls(endpoint) {
+            return Err(format!("{endpoint}: not a tls/ or quic/ endpoint"));
         }
-        Ok(new_handle(rt, client))
-    }));
-    match r {
+        let path = |p: *const c_char, what: &str| {
+            text(p)
+                .map(std::path::PathBuf::from)
+                .ok_or_else(|| format!("{what}: UTF-8 path required"))
+        };
+        let tls = TlsFiles {
+            ca: path(ca, "ca")?,
+            cert: path(cert, "cert")?,
+            key: path(key, "key")?,
+        };
+        open_session(endpoint, Some(&tls), signer(seed, site)?)
+    })
+}
+
+type Signer = Option<(ed25519_dalek::SigningKey, String)>;
+
+/// # Safety
+/// `seed` is null or points to 32 bytes; `site` is null or NUL-terminated.
+unsafe fn signer(seed: *const u8, site: *const c_char) -> Result<Signer, String> {
+    if seed.is_null() {
+        return Ok(None);
+    }
+    let s: [u8; 32] = std::slice::from_raw_parts(seed, 32)
+        .try_into()
+        .map_err(|_| "seed: 32 bytes")?;
+    let site = text(site).ok_or("site: required with a seed")?;
+    Ok(Some((
+        ed25519_dalek::SigningKey::from_bytes(&s),
+        site.to_owned(),
+    )))
+}
+
+/// Principle 6: plaintext only on loopback, `tls/`/`quic/` with mTLS.
+fn open_session(endpoint: &str, tls: Option<&TlsFiles>, key: Signer) -> Result<WyrmHandle, String> {
+    if plaintext_off_loopback(endpoint) {
+        return Err(format!(
+            "{endpoint}: plaintext off loopback; use a tls/ endpoint (wyrm_open_tls)"
+        ));
+    }
+    let zc = client_config(endpoint, tls)?;
+    let rt = runtime().map_err(|e| format!("runtime: {e}"))?;
+    let session = rt
+        .block_on(async { zenoh::open(zc).await })
+        .map_err(|e| format!("open {endpoint}: {e}"))?;
+    let mut client = WyrmClient::new(session);
+    if let Some((k, site)) = key {
+        client = client.with_tokens(Arc::new(wyrm_client::SigningTokens::new(k, site)));
+    }
+    Ok(new_handle(rt, client))
+}
+
+/// Run `f` without letting a panic cross the boundary.
+///
+/// # Safety
+/// `err` is null or a writable slot.
+unsafe fn open_handle(
+    err: *mut *mut c_char,
+    name: &str,
+    f: impl FnOnce() -> Result<WyrmHandle, String>,
+) -> *mut WyrmHandle {
+    match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(h)) => Box::into_raw(Box::new(h)),
         Ok(Err(e)) => {
             set_err(err, &e);
             std::ptr::null_mut()
         }
         Err(_) => {
-            set_err(err, "panic in wyrm_open");
+            set_err(err, &format!("panic in {name}"));
             std::ptr::null_mut()
         }
     }

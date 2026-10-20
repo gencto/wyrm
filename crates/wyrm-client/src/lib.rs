@@ -11,6 +11,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod endpoint;
 mod streams;
 pub mod tokens;
 

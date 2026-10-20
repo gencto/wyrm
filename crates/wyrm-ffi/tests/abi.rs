@@ -222,22 +222,25 @@ fn open_failure_reports_an_error() {
     unsafe { wyrm_string_free(err) };
 }
 
-/// The production entry point: a client session over TCP to a router that
-/// serves the mock, with ptoks signed from the seed.
-#[test]
-fn open_over_tcp_with_a_seed() {
+/// A router on `listen` (with `tls`: its `transport/link/tls`) that serves
+/// the mock link and trusts the harness test key.
+fn router_with_mock(
+    rt: &tokio::runtime::Runtime,
+    listen: &str,
+    tls: Option<String>,
+) -> (
+    zenoh::Session,
+    wyrm_link_sdk::LinkHandle<wyrm_link_mock::Mock>,
+) {
     use wyrm_link_sdk::harness::{isolated_config, SITE, TEST_KEY_SEED};
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (_session, link) = rt.block_on(async {
+    rt.block_on(async {
         let mut zc = isolated_config();
         zc.insert_json5("mode", r#""router""#).unwrap();
-        zc.insert_json5("listen/endpoints", &format!(r#"["tcp/127.0.0.1:{port}"]"#))
+        zc.insert_json5("listen/endpoints", &format!(r#"["{listen}"]"#))
             .unwrap();
+        if let Some(t) = tls {
+            zc.insert_json5("transport/link/tls", &t).unwrap();
+        }
         let session = zenoh::open(zc).await.unwrap();
         let mut lc = wyrm_link_sdk::LinkConfig::new(SITE, "mock");
         lc.admin_keys = vec![ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED).verifying_key()];
@@ -253,8 +256,36 @@ fn open_over_tcp_with_a_seed() {
             .await
             .unwrap();
         (session, link)
-    });
+    })
+}
 
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// `set` through `h` (signed with the seed) is accepted.
+fn set_works(h: &H) {
+    unsafe {
+        let key = c(&format!("{ROOT}/g1/p1"));
+        let v = to_vec(&Value::Float(7.5)).unwrap();
+        assert_eq!(wyrm_set(h.0, 1, key.as_ptr(), v.as_ptr(), v.len()), WYRM_OK);
+        let f = next_for(h, 1);
+        assert!(is_ok(&f), "{f:?}");
+    }
+}
+
+/// The production entry point: a client session over TCP to a router that
+/// serves the mock, with ptoks signed from the seed.
+#[test]
+fn open_over_tcp_with_a_seed() {
+    use wyrm_link_sdk::harness::{SITE, TEST_KEY_SEED};
+    let port = free_port();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_session, link) = router_with_mock(&rt, &format!("tcp/127.0.0.1:{port}"), None);
     let mut err = std::ptr::null_mut();
     let ep = c(&format!("tcp/127.0.0.1:{port}"));
     let site = c(SITE);
@@ -265,14 +296,9 @@ fn open_over_tcp_with_a_seed() {
         unsafe { CStr::from_ptr(err) }.to_string_lossy()
     );
     let h = H(raw);
+    // set needs a ptok from the seed
+    set_works(&h);
     unsafe {
-        // set needs a ptok from the seed
-        let key = c(&format!("{ROOT}/g1/p1"));
-        let v = to_vec(&Value::Float(7.5)).unwrap();
-        assert_eq!(wyrm_set(h.0, 1, key.as_ptr(), v.as_ptr(), v.len()), WYRM_OK);
-        let f = next_for(&h, 1);
-        assert!(is_ok(&f), "{f:?}");
-
         let args = to_vec(&Value::Map(BTreeMap::from([("n".into(), Value::UInt(2))]))).unwrap();
         let act = c("count");
         assert_eq!(
@@ -301,4 +327,96 @@ fn open_over_tcp_with_a_seed() {
     }
     drop(h);
     rt.block_on(link.stop());
+}
+
+/// mTLS: `wyrm_open_tls` with a certificate from the broker CA connects;
+/// `wyrm_open` refuses tls/ endpoints and plaintext off loopback.
+#[test]
+fn open_over_mtls() {
+    use wyrm_link_sdk::harness::{SITE, TEST_KEY_SEED};
+    let dir = std::env::temp_dir().join(format!("wyrm-ffi-tls-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let pki = wyrm_admin::secret::Pki::open_or_create(&dir.join("ca")).unwrap();
+    let server = pki
+        .issue("broker:test", &["127.0.0.1".into()], true, &dir, "server")
+        .unwrap();
+    let client = pki.issue("user:app", &[], false, &dir, "client").unwrap();
+    let ca = pki.ca_path();
+    let port = free_port();
+    let tls = serde_json_like(&[
+        ("root_ca_certificate", &ca),
+        ("listen_certificate", &server.cert),
+        ("listen_private_key", &server.key),
+    ]);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_session, link) = router_with_mock(&rt, &format!("tls/127.0.0.1:{port}"), Some(tls));
+
+    let ep = c(&format!("tls/127.0.0.1:{port}"));
+    let site = c(SITE);
+    let p = |x: &std::path::Path| c(x.to_str().unwrap());
+    let (ca_c, cert_c, key_c) = (p(&ca), p(&client.cert), p(&client.key));
+    let mut err = std::ptr::null_mut();
+    let raw = unsafe {
+        wyrm_open_tls(
+            ep.as_ptr(),
+            ca_c.as_ptr(),
+            cert_c.as_ptr(),
+            key_c.as_ptr(),
+            TEST_KEY_SEED.as_ptr(),
+            site.as_ptr(),
+            &mut err,
+        )
+    };
+    assert!(
+        !raw.is_null(),
+        "open: {}",
+        unsafe { CStr::from_ptr(err) }.to_string_lossy()
+    );
+    let h = H(raw);
+    set_works(&h);
+    drop(h);
+
+    let refused = |ep: &str| {
+        let mut err = std::ptr::null_mut();
+        let ep = c(ep);
+        let h = unsafe { wyrm_open(ep.as_ptr(), std::ptr::null(), std::ptr::null(), &mut err) };
+        assert!(h.is_null());
+        let msg = unsafe { CStr::from_ptr(err) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { wyrm_string_free(err) };
+        msg
+    };
+    assert!(refused(&format!("tls/127.0.0.1:{port}")).contains("wyrm_open_tls"));
+    assert!(refused("tcp/192.0.2.1:7447").contains("plaintext off loopback"));
+    // Without a client certificate from the CA: no session.
+    let foreign = wyrm_admin::secret::Pki::open_or_create(&dir.join("foreign")).unwrap();
+    let other = foreign.issue("user:x", &[], false, &dir, "other").unwrap();
+    let (oc, ok) = (p(&other.cert), p(&other.key));
+    let mut err = std::ptr::null_mut();
+    let h = unsafe {
+        wyrm_open_tls(
+            ep.as_ptr(),
+            ca_c.as_ptr(),
+            oc.as_ptr(),
+            ok.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            &mut err,
+        )
+    };
+    assert!(h.is_null(), "foreign client certificate");
+    unsafe { wyrm_string_free(err) };
+    rt.block_on(link.stop());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// `transport/link/tls` of the router (mTLS required).
+fn serde_json_like(kv: &[(&str, &std::path::PathBuf)]) -> String {
+    let mut s = String::from("{ enable_mtls: true");
+    for (k, v) in kv {
+        s.push_str(&format!(", {k}: {:?}", v.to_str().unwrap()));
+    }
+    s.push_str(" }");
+    s
 }

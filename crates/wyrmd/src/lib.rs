@@ -257,26 +257,7 @@ fn default_restarts() -> u32 {
     10
 }
 
-/// `tcp/`, `udp/` or `ws/` endpoint whose host is not loopback.
-pub fn plaintext_off_loopback(endpoint: &str) -> bool {
-    let Some((proto, rest)) = endpoint.split_once('/') else {
-        return false;
-    };
-    if !matches!(proto, "tcp" | "udp" | "ws") {
-        return false;
-    }
-    // strip `?metadata` / `#config`, then the port
-    let addr = rest.split(['?', '#']).next().unwrap_or(rest);
-    let host = match addr.rsplit_once(':') {
-        Some((h, _)) => h.trim_start_matches('[').trim_end_matches(']'),
-        None => addr,
-    };
-    let loopback = host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback());
-    !loopback
-}
+pub use wyrm_client::endpoint::plaintext_off_loopback;
 
 /// JSON (from json5) → wire `Value`. Integral numbers stay integers.
 pub fn json_to_value(j: &serde_json::Value) -> Value {

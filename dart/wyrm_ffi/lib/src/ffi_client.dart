@@ -24,6 +24,10 @@ const int _errDuplicate = -4;
 
 typedef _OpenN = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 typedef _Open = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _OpenTlsN = Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _OpenTls = Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 typedef _OpenMockN = Pointer<Void> Function(Uint32, Double, Pointer<Pointer<Utf8>>);
 typedef _OpenMock = Pointer<Void> Function(int, double, Pointer<Pointer<Utf8>>);
 typedef _HN = Int32 Function(Pointer<Void>);
@@ -51,6 +55,7 @@ class _Lib {
   _Lib(this.lib);
 
   late final open = lib.lookupFunction<_OpenN, _Open>('wyrm_open');
+  late final openTls = lib.lookupFunction<_OpenTlsN, _OpenTls>('wyrm_open_tls');
   late final shutdown = lib.lookupFunction<_HN, _H>('wyrm_shutdown');
   late final free = lib.lookupFunction<_FreeN, _Free>('wyrm_free');
   late final bufFree = lib.lookupFunction<_BufFreeN, _BufFree>('wyrm_buf_free');
@@ -76,6 +81,15 @@ class _Lib {
   }
 }
 
+/// mTLS files of a client: the broker CA and a certificate it issued, with
+/// its private key (PEM file paths).
+class TlsFiles {
+  final String ca;
+  final String cert;
+  final String key;
+  const TlsFiles({required this.ca, required this.cert, required this.key});
+}
+
 /// Opens WYRM sessions through the native library.
 class WyrmFfi {
   /// Library path: [path], else `WYRM_FFI_LIB`, else the platform name
@@ -89,11 +103,12 @@ class WyrmFfi {
               ? 'wyrm_ffi.dll'
               : 'libwyrm_ffi.so');
 
-  /// Connect a Zenoh client session to [endpoint] (`tcp/127.0.0.1:7447`).
+  /// Connect a Zenoh client session to [endpoint]: `tcp/127.0.0.1:7447`
+  /// (plaintext on loopback only), or `tls/<host>:<port>` with [tls].
   /// [seed]: a 32-byte Ed25519 key the broker trusts, for `ptok`s on [site].
   /// The blocking connect runs in a helper isolate.
   static Future<FrameClient> open(String endpoint,
-      {Uint8List? seed, String? site, String? library}) async {
+      {Uint8List? seed, String? site, TlsFiles? tls, String? library}) async {
     if (seed != null && (seed.length != 32 || site == null)) {
       throw ArgumentError('seed must be 32 bytes and needs a site');
     }
@@ -106,8 +121,12 @@ class WyrmFfi {
         if (seed != null) {
           s = arena<Uint8>(32)..asTypedList(32).setAll(0, seed);
         }
-        final h = l.open(endpoint.toNativeUtf8(allocator: arena), s,
-            site == null ? nullptr : site.toNativeUtf8(allocator: arena), err);
+        final ep = endpoint.toNativeUtf8(allocator: arena);
+        final st = site == null ? nullptr : site.toNativeUtf8(allocator: arena);
+        final h = tls == null
+            ? l.open(ep, s, st, err)
+            : l.openTls(ep, tls.ca.toNativeUtf8(allocator: arena), tls.cert.toNativeUtf8(allocator: arena),
+                tls.key.toNativeUtf8(allocator: arena), s, st, err);
         return l.takeHandle(h, err);
       });
     });
