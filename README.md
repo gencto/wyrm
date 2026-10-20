@@ -5,7 +5,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 *Wyrm* — a wingless serpent-dragon: a long body of segments, like a tree of nodes; kin to the dragon on Zenoh's logo.
 
 ## Status
-- **Iteration 1 (core)** — done on the SDK raw layer. Porting `mock` and `modbus` onto the driver framework (ADR 0004) is pending.
+- **Iteration 1 (core)** — done. `modbus` and `mockdev` run on the driver framework (ADR 0004); the bench `mock` stays on the raw layer.
 - **Iteration 2 (control plane)** — in progress: link registry, tokens, internal CA, generated ACL, supervisor, quarantine, audit.
 
 | Crate | Purpose |
@@ -17,7 +17,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrm-admin` | registry, link tokens (argon2id), internal CA, generated ACL, supervisor, quarantine, audit — the `wy/<site>/sys/**` tree |
 | `crates/wyrmd` | broker: Zenoh router + static plugins (storage manager, REST) + admin + links from `wyrmd.json5` |
 | `links/mock` | N points × F Hz on a configurable tree (tests, benchmarks) |
-| `links/modbus` | Modbus TCP on `tokio-modbus`, with a simulator (`wyrm-modbus-sim`) |
+| `links/modbus` | Modbus TCP on the driver framework (`connection → device → point`, DSA data types, batched FC1–4 reads, FC5/6/15/16/22 writes with read-back), with a simulator (`wyrm-modbus-sim`) |
 | `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`, `set`, `invoke`, `bench`, `keygen` |
 
 Planned: `wyrm-history`, `wyrm-flow`, `wyrm-mcp`, more links.
@@ -33,7 +33,7 @@ Planned: `wyrm-history`, `wyrm-flow`, `wyrm-mcp`, more links.
   admin_keys: [],                  // public key from `wyr keygen`
   links: {
     mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
-    plc1: { driver: "modbus", mode: "process", params: { host: "127.0.0.1", port: 5020, points: [ /* … */ ] } },
+    plc1: { driver: "modbus", mode: "process", params: { connections: { line1: { host: "127.0.0.1", port: 5020, devices: { ahu1: { unit: 1, points: { /* … */ } } } } } } },
   },
 }
 ```

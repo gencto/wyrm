@@ -1,6 +1,8 @@
 //! Minimal Modbus TCP device simulator (feature `sim`): 1000 coils, discrete
 //! inputs, input and holding registers, all zero at start. Addresses outside
-//! the tables answer `IllegalDataAddress`. Stand-in for `diagslave` in tests.
+//! the tables answer `IllegalDataAddress`. Supports FC1–6, 15, 16, 17 and 22
+//! (FC22 can be switched off to test the read-modify-write fallback).
+//! Stand-in for `diagslave` in tests.
 
 use std::future;
 use std::net::SocketAddr;
@@ -18,6 +20,10 @@ pub struct Tables {
     pub discrete: Vec<bool>,
     pub input: Vec<u16>,
     pub holding: Vec<u16>,
+    /// Requests served (all function codes).
+    pub requests: u64,
+    /// Answer FC22 (mask write) with `IllegalFunction`.
+    pub no_fc22: bool,
 }
 
 impl Default for Tables {
@@ -27,6 +33,8 @@ impl Default for Tables {
             discrete: vec![false; SIZE],
             input: vec![0; SIZE],
             holding: vec![0; SIZE],
+            requests: 0,
+            no_fc22: false,
         }
     }
 }
@@ -55,6 +63,7 @@ impl Service for Sim {
 
     fn call(&self, req: Request<'static>) -> Self::Future {
         let mut t = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        t.requests += 1;
         future::ready(match req {
             Request::ReadCoils(a, n) => range(&t.coils, a, n).map(Response::ReadCoils),
             Request::ReadDiscreteInputs(a, n) => {
@@ -82,6 +91,27 @@ impl Service for Sim {
                     None => Err(ExceptionCode::IllegalDataAddress),
                 }
             }
+            Request::WriteMultipleCoils(a, bits) => {
+                let end = a as usize + bits.len();
+                match t.coils.get_mut(a as usize..end) {
+                    Some(dst) => {
+                        dst.copy_from_slice(&bits);
+                        Ok(Response::WriteMultipleCoils(a, bits.len() as u16))
+                    }
+                    None => Err(ExceptionCode::IllegalDataAddress),
+                }
+            }
+            Request::MaskWriteRegister(a, and, or) => {
+                if t.no_fc22 {
+                    Err(ExceptionCode::IllegalFunction)
+                } else {
+                    slot(&mut t.holding, a)
+                        .map(|r| *r = (*r & and) | (or & !and))
+                        .map(|_| Response::MaskWriteRegister(a, and, or))
+                }
+            }
+            // FC17 Report Server ID: id 1, run indicator on.
+            Request::Custom(0x11, _) => Ok(Response::Custom(0x11, vec![2, 1, 0xFF].into())),
             _ => Err(ExceptionCode::IllegalFunction),
         })
     }

@@ -244,16 +244,18 @@ async fn embedded_modbus_from_json5() {
     let env = Env::start(
         "modbus",
         &format!(
-            r#"links: {{ plc1: {{ driver: "modbus", params: {{
-                host: "127.0.0.1", port: {}, poll_ms: 50,
-                points: [ {{ path: "ahu1/supply_temp", table: "input", address: 1, kind: "i16", scale: 0.1, unit: "°C" }} ],
-            }} }} }},"#,
+            r#"links: {{ plc1: {{ driver: "modbus", params: {{ connections: {{ c1: {{
+                host: "127.0.0.1", port: {},
+                devices: {{ ahu1: {{ unit: 1, points: {{
+                  supply_temp: {{ table: "input", addr: 1, dtype: "i16", scale: 0.1, unit: "°C", poll_s: 0.05 }},
+                }} }} }},
+            }} }} }} }} }},"#,
             addr.port()
         ),
     )
     .await;
     let c = env.client().await;
-    let node = format!("wy/{SITE}/down/plc1/ahu1/supply_temp");
+    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
     let v = eventually("modbus value", 5, || async { last_val(&c, &node).await }).await;
     assert_eq!(v, Value::Float(21.5));
     env.stop().await;
@@ -267,13 +269,16 @@ async fn modbus_as_process() {
     let env = Env::start(
         "process",
         &format!(
-            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{
-                host: "127.0.0.1", port: {}, poll_ms: 50,
-                points: [
-                  {{ path: "ahu1/supply_temp", table: "input", address: 1, kind: "i16", scale: 0.1 }},
-                  {{ path: "ahu1/fan", table: "coil", address: 3, kind: "bool", writable: true }},
-                ],
-            }} }} }},"#,
+            // poll_unsubscribed: under the ACL a process link never sees the
+            // storage's `wy/**/~val` subscription, so the subscriber gate
+            // would never open (framework issue, reported).
+            r#"links: {{ plc1: {{ driver: "modbus", mode: "process", params: {{ poll_unsubscribed: true, connections: {{ c1: {{
+                host: "127.0.0.1", port: {},
+                devices: {{ ahu1: {{ unit: 1, points: {{
+                  supply_temp: {{ table: "input", addr: 1, dtype: "i16", scale: 0.1, poll_s: 0.05 }},
+                  fan: {{ table: "coil", addr: 3, dtype: "binary", writable: true, poll_s: 0.05 }},
+                }} }} }},
+            }} }} }} }} }},"#,
             addr.port()
         ),
     )
@@ -284,14 +289,14 @@ async fn modbus_as_process() {
         (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
     })
     .await;
-    let node = format!("wy/{SITE}/down/plc1/ahu1/supply_temp");
+    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
     let v = eventually("value from the process", 5, || async {
         last_val(&c, &node).await
     })
     .await;
     assert_eq!(v, Value::Float(21.5));
     // a write goes through the router into the process and the device
-    c.set(&format!("wy/{SITE}/down/plc1/ahu1/fan"), true)
+    c.set(&format!("wy/{SITE}/down/plc1/c1/ahu1/fan"), true)
         .await
         .unwrap();
     assert!(dev.lock().unwrap().coils[3]);

@@ -1,324 +1,494 @@
-//! Modbus TCP connector.
+//! Modbus TCP connector on the driver framework (ADR 0004).
 //!
-//! One link = one device (unit id). Points are polled every `poll_ms`; a value
-//! is published when it or its quality changes. All I/O is bounded by
-//! `timeout_ms`. Quality is honest: a failed cycle marks every point
-//! `uncertain/stale`, `stale_cycles` failed cycles in a row mark them
-//! `bad/comm_fail`; a Modbus exception marks that one point `bad/device_error`.
-//! Writes go to coils and holding registers and are read back before `ok`.
+//! Tree: `<conn>/<device>/<point>`; kinds [`IpConn`] → [`Device`] → [`Point`].
+//! The framework owns states, scheduling, edits and the quality ladder; this
+//! driver only does protocol I/O:
+//!
+//! * reads (FC1–4) batched per table by [`codec::plan`] (`max_regs`,
+//!   `max_bits`, `contiguous_only`); a span-level exception fails its
+//!   member points only;
+//! * writes FC5/FC15 (coils), FC6/FC16 (registers, `write_mode`), FC22 mask
+//!   write for a bit in a register with a read-modify-write fallback that is
+//!   cached per unit when the device lacks FC22;
+//! * device ping by reading a probe register (an exception reply = alive) or
+//!   FC17 Report Server ID.
+//!
+//! Every request is bounded by `timeout_ms`; a timeout is a device miss, an
+//! I/O or protocol error drops the connection. Serial (RTU) is not supported
+//! yet.
 
 #![forbid(unsafe_code)]
 
 pub mod codec;
-mod config;
 #[cfg(feature = "sim")]
 pub mod sim;
 
-pub use config::{DataKind, ModbusConfig, PointConfig, Table};
-
+use codec::{DType, Span};
+use std::collections::{BTreeMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio_modbus::client::{tcp, Context};
-use tokio_modbus::prelude::{Reader, Writer};
-use tokio_modbus::{ExceptionCode, Slave};
-use tracing::{debug, info};
+use std::sync::LazyLock;
+use std::time::Duration;
+use tokio_modbus::client::{tcp, Client, Context, Reader, Writer};
+use tokio_modbus::slave::SlaveContext;
+use tokio_modbus::{ExceptionCode, Request, Slave};
 use wyrm_core::meta::Writable;
-use wyrm_core::{NodeMeta, Quality, Status, TypeCode, Value};
-use wyrm_link_sdk::{now_us, Caller, Link, LinkCtx, LinkError, Result};
+use wyrm_core::{NodeMeta, TypeCode, Value};
+use wyrm_link_sdk::driver::params::{field, ParamSpec};
+// Traits (type namespace) beside the derive macros of the same name.
+use wyrm_link_sdk::driver::{Driver, DriverError, Framework, ParamEnum, Params, PointId};
+use wyrm_link_sdk::LinkError;
+use wyrm_link_sdk::{ParamEnum, Params};
 
-pub const QUAL_STALE: &str = "uncertain/stale";
-pub const QUAL_COMM_FAIL: &str = "bad/comm_fail";
-pub const QUAL_DEVICE_ERROR: &str = "bad/device_error";
+/// The `modbus` link: the framework running [`ModbusDriver`].
+pub type Modbus = Framework<ModbusDriver>;
 
-/// Why one point could not be read or written.
-#[derive(Debug)]
-enum IoFail {
-    /// The device answered with a Modbus exception: the link is fine.
-    Exception(ExceptionCode),
-    /// Timeout, transport or protocol error: drop the connection.
-    Link(String),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum WriteMode {
+    /// FC6/FC5 for one word or bit, FC16 for more.
+    Auto,
+    /// FC6/FC5 only (multi-word values still need FC16).
+    Single,
+    /// FC16/FC15 always.
+    Multiple,
 }
 
-struct Shared {
-    cfg: ModbusConfig,
-    conn: Mutex<Option<Context>>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum Ping {
+    /// Read `probe_table`/`probe_addr`; an exception reply means alive.
+    Probe,
+    /// FC17 Report Server ID (often unsupported by devices).
+    Fc17,
+    None,
 }
 
-impl Shared {
-    async fn connect(&self) -> std::result::Result<Context, String> {
-        let t = self.cfg.timeout();
-        let target = format!("{}:{}", self.cfg.host, self.cfg.port);
-        let addr: SocketAddr = tokio::time::timeout(t, tokio::net::lookup_host(&target))
-            .await
-            .map_err(|_| format!("resolve {target}: timeout"))?
-            .map_err(|e| format!("resolve {target}: {e}"))?
-            .next()
-            .ok_or_else(|| format!("resolve {target}: no address"))?;
-        tokio::time::timeout(t, tcp::connect_slave(addr, Slave(self.cfg.unit)))
-            .await
-            .map_err(|_| format!("connect {target}: timeout"))?
-            .map_err(|e| format!("connect {target}: {e}"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum Table {
+    Coil,
+    Discrete,
+    Input,
+    Holding,
+}
+
+impl Table {
+    fn is_bits(self) -> bool {
+        matches!(self, Table::Coil | Table::Discrete)
     }
 }
 
-async fn bounded<T>(
-    t: std::time::Duration,
+#[derive(Debug, Clone, PartialEq, Params)]
+pub struct IpConn {
+    pub host: String,
+    #[param(default = 502)]
+    pub port: u16,
+    /// Bound on each request.
+    #[param(default = 1000, min = 100, max = 10000)]
+    pub timeout_ms: u32,
+    #[param(enum, default = "auto")]
+    pub write_mode: WriteMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Params)]
+pub struct Device {
+    #[param(min = 1, max = 247)]
+    pub unit: u8,
+    #[param(enum, default = "probe")]
+    pub ping: Ping,
+    #[param(enum, default = "holding")]
+    pub probe_table: Table,
+    #[param(default = 0)]
+    pub probe_addr: u16,
+    #[param(default = 5.0, min = 0.1, max = 3600.0)]
+    pub ping_s: f64,
+    /// Read gaps between points (`false`) or only adjacent registers.
+    #[param(default = false)]
+    pub contiguous_only: bool,
+    #[param(default = 125, min = 1, max = 125)]
+    pub max_regs: u16,
+    #[param(default = 2000, min = 1, max = 2000)]
+    pub max_bits: u16,
+}
+
+/// One point. Hand-written `Params` because `dtype` uses the codec names and
+/// the rules cross fields (coil/discrete ⇔ binary, writable tables, scale).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Point {
+    pub table: Table,
+    pub addr: u16,
+    pub dtype: DType,
+    pub bit: u8,
+    pub regs: u8,
+    pub poll_s: f64,
+    pub scale: f64,
+    pub offset: f64,
+    pub writable: bool,
+    pub unit: String,
+}
+
+static DTYPE_NAMES: LazyLock<&'static [&'static str]> = LazyLock::new(|| {
+    let names: Vec<&'static str> = DType::ALL.iter().map(|d| d.name()).collect();
+    Box::leak(names.into_boxed_slice())
+});
+
+impl Point {
+    /// Words (registers) or bits one value occupies.
+    fn words(&self) -> u16 {
+        if self.table.is_bits() {
+            1
+        } else {
+            self.dtype.words(self.regs)
+        }
+    }
+}
+
+impl Params for Point {
+    fn schema() -> Vec<ParamSpec> {
+        vec![
+            ParamSpec::new("table", TypeCode::Enum).one_of(Table::NAMES),
+            ParamSpec::new("addr", TypeCode::Number).bounds(0.0, 65535.0),
+            ParamSpec::new("dtype", TypeCode::Enum)
+                .one_of(*DTYPE_NAMES)
+                .default("u16"),
+            ParamSpec::new("bit", TypeCode::Number)
+                .default(0u64)
+                .bounds(0.0, 15.0)
+                .desc("bit of a register for dtype binary"),
+            ParamSpec::new("regs", TypeCode::Number)
+                .default(1u64)
+                .bounds(1.0, 125.0)
+                .desc("registers of a char/varchar value"),
+            ParamSpec::new("poll_s", TypeCode::Number)
+                .default(1.0)
+                .bounds(0.01, 86_400.0),
+            ParamSpec::new("scale", TypeCode::Number).default(1.0),
+            ParamSpec::new("offset", TypeCode::Number).default(0.0),
+            ParamSpec::new("writable", TypeCode::Bool).default(false),
+            ParamSpec::new("unit", TypeCode::String).default(""),
+        ]
+    }
+
+    fn from_map(m: &BTreeMap<String, Value>) -> wyrm_link_sdk::Result<Self> {
+        let dtype_name = field::string(m, "dtype")?;
+        let p = Point {
+            table: field::enumv(m, "table")?,
+            addr: field::int(m, "addr")?,
+            dtype: DType::parse(&dtype_name).ok_or_else(|| {
+                LinkError::invalid_parameter(format!("dtype: unknown {dtype_name}"))
+            })?,
+            bit: field::int(m, "bit")?,
+            regs: field::int(m, "regs")?,
+            poll_s: field::f64(m, "poll_s")?,
+            scale: field::f64(m, "scale")?,
+            offset: field::f64(m, "offset")?,
+            writable: field::bool(m, "writable")?,
+            unit: field::string(m, "unit")?,
+        };
+        if p.table.is_bits() && p.dtype != DType::Binary {
+            return Err(LinkError::invalid_parameter(
+                "dtype: coil and discrete tables hold binary values only",
+            ));
+        }
+        if p.writable && !matches!(p.table, Table::Coil | Table::Holding) {
+            return Err(LinkError::invalid_parameter(
+                "writable: only coil and holding points can be written",
+            ));
+        }
+        if p.scale == 0.0 {
+            return Err(LinkError::invalid_parameter("scale: must not be 0"));
+        }
+        if u32::from(p.addr) + u32::from(p.words()) > 65_536 {
+            return Err(LinkError::invalid_parameter("addr: value runs past 65535"));
+        }
+        Ok(p)
+    }
+
+    fn to_map(&self) -> BTreeMap<String, Value> {
+        BTreeMap::from([
+            ("table".into(), Value::Str(self.table.name().into())),
+            ("addr".into(), Value::UInt(self.addr.into())),
+            ("dtype".into(), Value::Str(self.dtype.name().into())),
+            ("bit".into(), Value::UInt(self.bit.into())),
+            ("regs".into(), Value::UInt(self.regs.into())),
+            ("poll_s".into(), Value::Float(self.poll_s)),
+            ("scale".into(), Value::Float(self.scale)),
+            ("offset".into(), Value::Float(self.offset)),
+            ("writable".into(), Value::Bool(self.writable)),
+            ("unit".into(), Value::Str(self.unit.clone())),
+        ])
+    }
+}
+
+pub struct Transport {
+    ctx: Context,
+    timeout: Duration,
+    write_mode: WriteMode,
+    /// Units that answered FC22 with `IllegalFunction`.
+    no_fc22: HashSet<u8>,
+}
+
+/// Reads of one table.
+pub struct TableReads {
+    table: Table,
+    spans: Vec<Span>,
+    /// Indexed like the requests given to `codec::plan`.
+    members: Vec<(PointId, Point)>,
+}
+
+pub struct Plan {
+    tables: Vec<TableReads>,
+}
+
+type Reply<T> = Result<Result<T, ExceptionCode>, DriverError>;
+
+/// Run one request with the timeout and sort the outcome.
+async fn io<T>(
+    timeout: Duration,
     f: impl std::future::Future<Output = tokio_modbus::Result<T>>,
-) -> std::result::Result<T, IoFail> {
-    match tokio::time::timeout(t, f).await {
-        Err(_) => Err(IoFail::Link("timeout".into())),
-        Ok(Err(e)) => Err(IoFail::Link(e.to_string())),
-        Ok(Ok(Err(code))) => Err(IoFail::Exception(code)),
-        Ok(Ok(Ok(v))) => Ok(v),
+) -> Reply<T> {
+    match tokio::time::timeout(timeout, f).await {
+        Err(_) => Err(DriverError::Device("request timed out".into())),
+        Ok(Err(e)) => Err(DriverError::Transport(e.to_string())),
+        Ok(Ok(r)) => Ok(r),
     }
 }
 
-async fn read_point(
-    ctx: &mut Context,
-    p: &PointConfig,
-    t: std::time::Duration,
-) -> std::result::Result<Value, IoFail> {
-    let n = p.kind.words();
-    let raw = match p.table {
-        Table::Coil => {
-            return bounded(t, ctx.read_coils(p.address, 1))
-                .await
-                .and_then(|b| bit(&b))
-        }
-        Table::Discrete => {
-            return bounded(t, ctx.read_discrete_inputs(p.address, 1))
-                .await
-                .and_then(|b| bit(&b))
-        }
-        Table::Input => bounded(t, ctx.read_input_registers(p.address, n)).await?,
-        Table::Holding => bounded(t, ctx.read_holding_registers(p.address, n)).await?,
-    };
-    let v = p
-        .kind
-        .decode(&raw, p.word_swap)
-        .ok_or_else(|| IoFail::Link("short register response".into()))?;
-    Ok(Value::Float(v * p.scale + p.offset))
+fn exception(e: ExceptionCode) -> DriverError {
+    DriverError::Point(format!("device exception {e:?}"))
 }
 
-fn bit(b: &[bool]) -> std::result::Result<Value, IoFail> {
-    b.first()
-        .map(|v| Value::Bool(*v))
-        .ok_or_else(|| IoFail::Link("short coil response".into()))
+fn codec_err(e: codec::CodecError) -> DriverError {
+    DriverError::Point(e.to_string())
 }
 
-fn meta_for(p: &PointConfig) -> NodeMeta {
-    let mut m = if p.kind == DataKind::Bool {
-        NodeMeta::leaf(TypeCode::Bool)
-    } else {
-        NodeMeta::number()
-    };
-    if let Some(u) = &p.unit {
-        m = m.unit(u.clone());
-    }
-    m.writable(if p.writable {
-        Writable::Write
-    } else {
-        Writable::Never
-    })
-}
-
-fn exception_error(code: ExceptionCode) -> LinkError {
-    match code {
-        ExceptionCode::IllegalDataAddress => {
-            LinkError::invalid_parameter("device: illegal data address")
+impl Transport {
+    async fn read(&mut self, table: Table, addr: u16, n: u16) -> Reply<Vec<u16>> {
+        let t = self.timeout;
+        fn bits(r: Result<Vec<bool>, ExceptionCode>) -> Result<Vec<u16>, ExceptionCode> {
+            r.map(|b| b.into_iter().map(u16::from).collect())
         }
-        ExceptionCode::IllegalDataValue => {
-            LinkError::new(Status::OutOfRange, "device: illegal data value")
-        }
-        ExceptionCode::ServerDeviceBusy => LinkError::new(Status::Busy, "device busy"),
-        other => LinkError::internal(format!("device exception {other:?}")),
-    }
-}
-
-pub struct Modbus {
-    ctx: LinkCtx,
-    shared: Arc<Shared>,
-    poller: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl Link for Modbus {
-    const NAME: &'static str = "modbus";
-    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    type Config = ModbusConfig;
-
-    async fn start(cfg: ModbusConfig, ctx: LinkCtx) -> Result<Self> {
-        cfg.validate()?;
-        // Folders for every parent segment, then the points.
-        for p in &cfg.points {
-            let mut parent = String::new();
-            for seg in p
-                .path
-                .split('/')
-                .rev()
-                .skip(1)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-            {
-                if !parent.is_empty() {
-                    parent.push('/');
-                }
-                parent.push_str(seg);
-                if ctx.meta(&parent).is_none() {
-                    ctx.declare_node(&parent, NodeMeta::folder()).await?;
-                }
-            }
-            ctx.declare_node(&p.path, meta_for(p)).await?;
-        }
-        let shared = Arc::new(Shared {
-            cfg,
-            conn: Mutex::new(None),
-        });
-        let poller = tokio::spawn(poll(ctx.clone(), shared.clone()));
-        Ok(Self {
-            ctx,
-            shared,
-            poller: Some(poller),
+        Ok(match table {
+            Table::Coil => bits(io(t, self.ctx.read_coils(addr, n)).await?),
+            Table::Discrete => bits(io(t, self.ctx.read_discrete_inputs(addr, n)).await?),
+            Table::Input => io(t, self.ctx.read_input_registers(addr, n)).await?,
+            Table::Holding => io(t, self.ctx.read_holding_registers(addr, n)).await?,
         })
     }
 
-    async fn on_set(&mut self, path: &str, value: Value, _who: &Caller) -> Result<()> {
-        let p = self
-            .shared
-            .cfg
-            .points
-            .iter()
-            .find(|p| p.path == path)
-            .ok_or_else(|| LinkError::not_found(path.to_owned()))?
-            .clone();
-        let t = self.shared.cfg.timeout();
-        let mut guard = self.shared.conn.lock().await;
-        let Some(conn) = guard.as_mut() else {
-            return Err(LinkError::new(Status::Disconnected, "device not connected"));
-        };
-        let written = match (p.table, &value) {
-            (Table::Coil, Value::Bool(b)) => {
-                bounded(t, conn.write_single_coil(p.address, *b)).await
-            }
-            (Table::Holding, v) => {
-                let x = v
-                    .as_f64()
-                    .ok_or_else(|| LinkError::invalid_parameter("expected number"))?;
-                let words = p
-                    .kind
-                    .encode((x - p.offset) / p.scale, p.word_swap)
-                    .ok_or_else(|| {
-                        LinkError::new(Status::OutOfRange, "value does not fit the register")
-                    })?;
-                if words.len() == 1 {
-                    bounded(t, conn.write_single_register(p.address, words[0])).await
-                } else {
-                    bounded(t, conn.write_multiple_registers(p.address, &words)).await
+    /// Set one bit of a holding register: FC22, or read-modify-write when the
+    /// unit does not support FC22 (remembered for this connection).
+    async fn write_bit(
+        &mut self,
+        unit: u8,
+        addr: u16,
+        bit: u8,
+        on: bool,
+    ) -> Result<(), DriverError> {
+        let (and, or) = codec::bit_masks(bit, on);
+        if !self.no_fc22.contains(&unit) {
+            match io(self.timeout, self.ctx.masked_write_register(addr, and, or)).await? {
+                Ok(()) => return Ok(()),
+                Err(ExceptionCode::IllegalFunction) => {
+                    self.no_fc22.insert(unit);
                 }
-            }
-            _ => return Err(LinkError::not_supported("point is not writable")),
-        };
-        match written {
-            Ok(()) => {}
-            Err(IoFail::Exception(code)) => return Err(exception_error(code)),
-            Err(IoFail::Link(e)) => {
-                *guard = None;
-                return Err(LinkError::new(Status::Disconnected, e));
+                Err(e) => return Err(exception(e)),
             }
         }
-        // Read back: publish what the device holds, not what was asked.
-        match read_point(conn, &p, t).await {
-            Ok(v) => self.ctx.update(&p.path, v, Quality::Good, now_us()).await,
-            Err(IoFail::Exception(code)) => Err(exception_error(code)),
-            Err(IoFail::Link(e)) => {
-                *guard = None;
-                Err(LinkError::new(Status::Disconnected, e))
-            }
-        }
-    }
-
-    async fn stop(&mut self) {
-        if let Some(p) = self.poller.take() {
-            p.abort();
-        }
-        if let Some(mut c) = self.shared.conn.lock().await.take() {
-            use tokio_modbus::client::Client;
-            let _ = tokio::time::timeout(self.shared.cfg.timeout(), c.disconnect()).await;
-        }
+        let cur = io(self.timeout, self.ctx.read_holding_registers(addr, 1))
+            .await?
+            .map_err(exception)?;
+        let cur = *cur
+            .first()
+            .ok_or_else(|| DriverError::Point("short read".into()))?;
+        io(
+            self.timeout,
+            self.ctx
+                .write_single_register(addr, codec::apply_masks(cur, and, or)),
+        )
+        .await?
+        .map_err(exception)
     }
 }
 
-async fn poll(ctx: LinkCtx, sh: Arc<Shared>) {
-    let mut iv = tokio::time::interval(sh.cfg.poll());
-    iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let t = sh.cfg.timeout();
-    let mut fails = 0u32;
-    loop {
-        iv.tick().await;
-        if ctx.is_closed() {
-            return;
+pub struct ModbusDriver;
+
+impl Driver for ModbusDriver {
+    const NAME: &'static str = "modbus";
+    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    type Conn = IpConn;
+    type Dev = Device;
+    type Point = Point;
+    type Transport = Transport;
+    type Plan = Plan;
+
+    async fn open(conn: &IpConn) -> Result<Transport, DriverError> {
+        let timeout = Duration::from_millis(conn.timeout_ms.into());
+        let target = format!("{}:{}", conn.host, conn.port);
+        let addr: SocketAddr = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
+            .await
+            .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
+            .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
+            .next()
+            .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
+        let ctx = tokio::time::timeout(timeout, tcp::connect_slave(addr, Slave(1)))
+            .await
+            .map_err(|_| DriverError::Transport(format!("connect {target}: timeout")))?
+            .map_err(|e| DriverError::Transport(format!("connect {target}: {e}")))?;
+        Ok(Transport {
+            ctx,
+            timeout,
+            write_mode: conn.write_mode,
+            no_fc22: HashSet::new(),
+        })
+    }
+
+    async fn ping(t: &mut Transport, dev: &Device) -> Result<(), DriverError> {
+        t.ctx.set_slave(Slave(dev.unit));
+        match dev.ping {
+            Ping::None => Ok(()),
+            // Any answer, exception included, means the device is alive.
+            Ping::Probe => t.read(dev.probe_table, dev.probe_addr, 1).await.map(|_| ()),
+            Ping::Fc17 => io(
+                t.timeout,
+                t.ctx.call(Request::Custom(0x11, Vec::new().into())),
+            )
+            .await
+            .map(|_| ()),
         }
-        let mut ok = true;
-        {
-            let mut guard = sh.conn.lock().await;
-            if guard.is_none() {
-                match sh.connect().await {
-                    Ok(c) => {
-                        info!(host = %sh.cfg.host, "modbus connected");
-                        *guard = Some(c);
-                    }
-                    Err(e) => {
-                        debug!("modbus: {e}");
-                        ok = false;
-                    }
+    }
+
+    fn plan(dev: &Device, points: &[(PointId, Point)]) -> Plan {
+        let mut by_table: BTreeMap<u8, Vec<(PointId, Point)>> = BTreeMap::new();
+        for (id, p) in points {
+            by_table
+                .entry(p.table as u8)
+                .or_default()
+                .push((id.clone(), p.clone()));
+        }
+        let tables = by_table
+            .into_values()
+            .map(|members| {
+                let table = members[0].1.table;
+                let reqs: Vec<(u16, u16)> =
+                    members.iter().map(|(_, p)| (p.addr, p.words())).collect();
+                let max = if table.is_bits() {
+                    dev.max_bits
+                } else {
+                    dev.max_regs
+                };
+                TableReads {
+                    table,
+                    spans: codec::plan(&reqs, max, dev.contiguous_only),
+                    members,
                 }
-            }
-            if let Some(conn) = guard.as_mut() {
-                for p in &sh.cfg.points {
-                    // The tree holds what was last published (poll, set, mark_all).
-                    let prev = ctx.last(&p.path);
-                    let (v, q, qual) = match read_point(conn, p, t).await {
-                        Ok(v) => (v, Quality::Good, None),
-                        Err(IoFail::Exception(code)) => {
-                            debug!(path = %p.path, ?code, "modbus exception");
-                            let v = prev.as_ref().map(|s| s.v.clone()).unwrap_or(Value::Null);
-                            (v, Quality::Bad, Some(QUAL_DEVICE_ERROR))
-                        }
-                        Err(IoFail::Link(e)) => {
-                            debug!("modbus link error: {e}");
-                            *guard = None;
-                            ok = false;
-                            break;
+            })
+            .collect();
+        Plan { tables }
+    }
+
+    async fn poll(
+        t: &mut Transport,
+        dev: &Device,
+        plan: &Plan,
+    ) -> Vec<(PointId, Result<Value, DriverError>)> {
+        t.ctx.set_slave(Slave(dev.unit));
+        let mut out = Vec::new();
+        for tr in &plan.tables {
+            for span in &tr.spans {
+                let r = t.read(tr.table, span.start, span.count).await;
+                for &i in &span.members {
+                    let (id, p) = &tr.members[i];
+                    let v = match &r {
+                        Err(e) => Err(e.clone()),
+                        Ok(Err(e)) => Err(exception(*e)),
+                        Ok(Ok(words)) => {
+                            let w = codec::slice(span, words, p.addr, p.words());
+                            if tr.table.is_bits() {
+                                w.first()
+                                    .map(|b| Value::Bool(*b != 0))
+                                    .ok_or_else(|| DriverError::Point("short read".into()))
+                            } else {
+                                codec::decode(p.dtype, w, p.bit, p.scale, p.offset)
+                                    .map_err(codec_err)
+                            }
                         }
                     };
-                    if prev.is_none_or(|s| s.v != v || s.q != q) {
-                        let s = wyrm_core::Sample { v, q, t: now_us() };
-                        if ctx.update_sample(&p.path, s, qual).await.is_err() {
-                            return; // link stopped
-                        }
-                    }
+                    out.push((id.clone(), v));
+                }
+                // A broken connection: the framework reconnects; stop here.
+                if matches!(r, Err(DriverError::Transport(_))) {
+                    return out;
                 }
             }
         }
-        if ok {
-            fails = 0;
-            continue;
-        }
-        fails += 1;
-        // Mark once on each transition: first failure, then the give-up cycle.
-        let mark = if fails == sh.cfg.stale_cycles.max(1) {
-            Some((Quality::Bad, QUAL_COMM_FAIL))
-        } else if fails == 1 {
-            Some((Quality::Uncertain, QUAL_STALE))
-        } else {
-            None
-        };
-        if let Some((q, qual)) = mark {
-            // The next good read republishes: the stored quality now differs.
-            if ctx.mark_all(q, Some(qual)).await.is_err() {
-                return;
+        out
+    }
+
+    async fn write(
+        t: &mut Transport,
+        dev: &Device,
+        _id: &str,
+        p: &Point,
+        v: &Value,
+    ) -> Result<(), DriverError> {
+        t.ctx.set_slave(Slave(dev.unit));
+        let timeout = t.timeout;
+        match (p.table, p.dtype) {
+            (Table::Coil, _) => {
+                let Value::Bool(on) = v else {
+                    return Err(DriverError::Point("expected true or false".into()));
+                };
+                let r = if t.write_mode == WriteMode::Multiple {
+                    io(timeout, t.ctx.write_multiple_coils(p.addr, &[*on])).await?
+                } else {
+                    io(timeout, t.ctx.write_single_coil(p.addr, *on)).await?
+                };
+                r.map_err(exception)
             }
+            (Table::Holding, DType::Binary) => {
+                let Value::Bool(on) = v else {
+                    return Err(DriverError::Point("expected true or false".into()));
+                };
+                t.write_bit(dev.unit, p.addr, p.bit, *on).await
+            }
+            (Table::Holding, _) => {
+                let words =
+                    codec::encode(p.dtype, v, p.regs, p.scale, p.offset).map_err(codec_err)?;
+                let r = if words.len() == 1 && t.write_mode != WriteMode::Multiple {
+                    io(timeout, t.ctx.write_single_register(p.addr, words[0])).await?
+                } else {
+                    io(timeout, t.ctx.write_multiple_registers(p.addr, &words)).await?
+                };
+                r.map_err(exception)
+            }
+            _ => Err(DriverError::Point("point is not writable".into())),
         }
+    }
+
+    fn point_meta(p: &Point) -> NodeMeta {
+        let mut m = NodeMeta::leaf(if p.table.is_bits() {
+            TypeCode::Bool
+        } else {
+            p.dtype.type_code()
+        });
+        if !p.unit.is_empty() {
+            m = m.unit(p.unit.clone());
+        }
+        m.writable(if p.writable {
+            Writable::Write
+        } else {
+            Writable::Never
+        })
+    }
+
+    fn poll_period(p: &Point) -> Duration {
+        Duration::from_secs_f64(p.poll_s)
+    }
+
+    fn ping_period(dev: &Device) -> Option<Duration> {
+        (dev.ping != Ping::None).then(|| Duration::from_secs_f64(dev.ping_s))
+    }
+
+    /// Whole-operation bound; each request inside is bounded by `timeout_ms`.
+    fn io_timeout(conn: &IpConn) -> Duration {
+        Duration::from_millis(u64::from(conn.timeout_ms) * 4)
     }
 }

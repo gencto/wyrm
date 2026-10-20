@@ -19,19 +19,33 @@
     plc1: {
       driver: "modbus",
       mode: "process",
+      // Driver framework tree (ADR 0004): connections → devices → points.
       params: {
-        host: "127.0.0.1",
-        port: 5020,
-        unit: 1,
-        poll_ms: 1000,
-        timeout_ms: 1000,
-        stale_cycles: 3,
-        points: [
-          { path: "ahu1/supply_temp", table: "input", address: 1, kind: "i16", scale: 0.1, unit: "°C" },
-          { path: "ahu1/counter", table: "holding", address: 0, kind: "u16" },
-          { path: "ahu1/setpoint", table: "holding", address: 10, kind: "f32", writable: true, unit: "°C" },
-          { path: "ahu1/fan", table: "coil", address: 3, kind: "bool", writable: true },
-        ],
+        // A process link cannot see the broker's `~val` storage subscription
+        // through the ACL, so poll regardless of subscribers.
+        poll_unsubscribed: true,
+        connections: {
+          line1: {
+            host: "127.0.0.1",
+            port: 5020,
+            timeout_ms: 1000,
+            write_mode: "auto",
+            devices: {
+              ahu1: {
+                unit: 1,
+                ping: "probe",
+                probe_table: "holding",
+                probe_addr: 0,
+                points: {
+                  supply_temp: { table: "input", addr: 1, dtype: "i16", scale: 0.1, unit: "°C", poll_s: 1 },
+                  counter: { table: "holding", addr: 0, dtype: "u16", poll_s: 1 },
+                  setpoint: { table: "holding", addr: 10, dtype: "f32", writable: true, unit: "°C", poll_s: 1 },
+                  fan: { table: "coil", addr: 3, dtype: "binary", writable: true, poll_s: 1 },
+                },
+              },
+            },
+          },
+        },
       },
     },
   },
