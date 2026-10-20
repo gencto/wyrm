@@ -79,6 +79,8 @@ pub struct ControlConfig {
     /// journal (`state.head`, `audit.head`), on another medium than
     /// `data_dir`: detects records cut from the end of a WAL.
     pub anchor_dir: Option<PathBuf>,
+    /// Create the anchors from the current heads (operator step).
+    pub anchor_init: bool,
 }
 
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
@@ -164,9 +166,13 @@ impl Control {
         let mut store = Store::<Registry>::open(cfg.data_dir.join("state"), &key)?;
         let mut audit = Store::<AuditLog>::open(cfg.data_dir.join("audit"), &key)?;
         if let Some(dir) = &cfg.anchor_dir {
-            std::fs::create_dir_all(dir)?;
-            store = store.with_anchor(dir.join("state.head"))?;
-            audit = audit.with_anchor(dir.join("audit.head"))?;
+            if cfg.anchor_init {
+                store = store.init_anchor(dir.join("state.head"))?;
+                audit = audit.init_anchor(dir.join("audit.head"))?;
+            } else {
+                store = store.with_anchor(dir.join("state.head"))?;
+                audit = audit.with_anchor(dir.join("audit.head"))?;
+            }
         }
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
         let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;

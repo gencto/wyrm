@@ -15,6 +15,10 @@ struct Args {
 enum Cmd {
     /// Validate the config and exit.
     Check,
+    /// Write the WAL head anchors (state_anchor_dir) from the current
+    /// stores, after moving or creating that directory. Run with wyrmd
+    /// stopped, only on stores you trust.
+    InitAnchors,
     /// Host one driver as a supervised link process (started by wyrmd).
     Link { driver: String },
     /// Gateway users (wyrmd stopped; passwords are read from stdin).
@@ -129,6 +133,16 @@ async fn main() -> Result<(), Error> {
             return Ok(());
         }
         Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
+        Some(Cmd::InitAnchors) => {
+            if cfg.state_anchor_dir.is_none() {
+                return Err("state_anchor_dir is not set in the config".into());
+            }
+            let mut cfg = cfg;
+            cfg.init_anchors = true;
+            drop(Daemon::open(cfg, std::env::current_exe()?)?);
+            println!("anchors written");
+            return Ok(());
+        }
         _ => {}
     }
     if cfg.admin_keys.is_empty() {

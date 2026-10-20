@@ -63,8 +63,25 @@ impl FlowHost {
     /// Store under `dir/state`, signing key in `dir/flow.key` (0600), WASM
     /// artifacts under `dir/artifacts`.
     pub fn open(dir: &Path, hmac_key: &[u8], site: &str) -> Result<Arc<Self>, Error> {
+        Self::open_anchored(dir, hmac_key, site, None)
+    }
+
+    /// [`open`](Self::open) with the store's WAL head kept in `anchor`
+    /// (another medium; see `wyrm_state::Store::with_anchor`); `init`
+    /// creates the anchor from the current head.
+    pub fn open_anchored(
+        dir: &Path,
+        hmac_key: &[u8],
+        site: &str,
+        anchor: Option<(&Path, bool)>,
+    ) -> Result<Arc<Self>, Error> {
         std::fs::create_dir_all(dir)?;
-        let store = Store::<FlowStore>::open(dir.join("state"), hmac_key)?;
+        let mut store = Store::<FlowStore>::open(dir.join("state"), hmac_key)?;
+        match anchor {
+            Some((a, true)) => store = store.init_anchor(a)?,
+            Some((a, false)) => store = store.with_anchor(a)?,
+            None => {}
+        }
         let key_path = dir.join("flow.key");
         let seed: [u8; 32] = match std::fs::read_to_string(&key_path) {
             Ok(t) => wyrm_core_hex(t.trim())?,

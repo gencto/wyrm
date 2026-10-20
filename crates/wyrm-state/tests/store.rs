@@ -230,4 +230,23 @@ fn anchor_detects_a_cut_wal() {
         .unwrap()
         .with_anchor(&anchor)
         .is_ok());
+    // a deleted anchor is not silently recreated for a store with records
+    std::fs::remove_file(&anchor).unwrap();
+    let e = Store::<Kv>::open(&d, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .err()
+        .expect("missing anchor refused");
+    assert!(matches!(e, StateError::Anchor { .. }), "{e}");
+    // the explicit operator step creates it again
+    drop(
+        Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .init_anchor(&anchor)
+            .unwrap(),
+    );
+    assert!(Store::<Kv>::open(&d, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .is_ok());
 }

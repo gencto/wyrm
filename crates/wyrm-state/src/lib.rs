@@ -80,6 +80,8 @@ pub struct Store<S: State> {
     _lock: File,
     /// Head record (`<lsn> <hex mac>`) kept outside the store directory.
     anchor: Option<PathBuf>,
+    /// The last anchor write failed: no new record until it succeeds.
+    anchor_stale: bool,
     since_snapshot: usize,
     snapshot_every: usize,
 }
@@ -203,6 +205,7 @@ impl<S: State> Store<S> {
             wal,
             _lock: lock,
             anchor: None,
+            anchor_stale: false,
             since_snapshot: replayed,
             snapshot_every: SNAPSHOT_EVERY,
         })
@@ -220,6 +223,14 @@ impl<S: State> Store<S> {
             why,
         };
         match fs::read_to_string(&path) {
+            // A store with records and no anchor: the anchor may have been
+            // deleted together with a cut. Only `init_anchor` creates one.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && self.lsn > 0 => {
+                return Err(bad(format!(
+                    "missing, but the WAL has {} records (create it with init_anchor)",
+                    self.lsn
+                )));
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
             Ok(text) => {
@@ -247,6 +258,14 @@ impl<S: State> Store<S> {
             }
         }
         self.anchor = Some(path);
+        self.write_anchor()?;
+        Ok(self)
+    }
+
+    /// Create or replace the anchor with the current head: an explicit
+    /// operator step for an existing store (e.g. `wyrmd init-anchors`).
+    pub fn init_anchor(mut self, path: impl Into<PathBuf>) -> Result<Self> {
+        self.anchor = Some(path.into());
         self.write_anchor()?;
         Ok(self)
     }
@@ -283,6 +302,11 @@ impl<S: State> Store<S> {
 
     /// Validate `op` on a copy, append it durably, then make it current.
     pub fn apply(&mut self, op: S::Op) -> Result<u64> {
+        if self.anchor_stale {
+            // Catch up first; while the anchor cannot be written, refuse.
+            self.write_anchor()?;
+            self.anchor_stale = false;
+        }
         let mut next = self.state.clone();
         next.apply(&op).map_err(StateError::Rejected)?;
         let payload = minicbor::to_vec(&op).map_err(|e| StateError::Codec(e.to_string()))?;
@@ -299,8 +323,10 @@ impl<S: State> Store<S> {
         self.lsn = lsn;
         self.chain = m;
         if let Err(e) = self.write_anchor() {
-            // The record is durable; a stale anchor is caught on next open.
-            warn!("anchor write failed: {e}");
+            // The record is durable (the anchor is one behind, which open
+            // tolerates), but nothing more is written until it catches up.
+            self.anchor_stale = true;
+            return Err(e);
         }
         self.since_snapshot += 1;
         if self.since_snapshot >= self.snapshot_every {

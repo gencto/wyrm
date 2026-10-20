@@ -1030,6 +1030,9 @@ fn state_anchor_refuses_a_cut_wal() {
     // an anchor inside data_dir protects nothing
     assert!(cfg(&dir.join("heads")).is_err());
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    // the directory is the operator's (another medium): not created for them
+    assert!(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).is_err());
+    std::fs::create_dir_all(&anchors).unwrap();
     drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
     drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
     // the anchor says the registry WAL was longer than it is now
@@ -1038,8 +1041,15 @@ fn state_anchor_refuses_a_cut_wal() {
         format!("999 {}\n", "00".repeat(32)),
     )
     .unwrap();
-    let e = Daemon::open(cfg(&anchors).unwrap(), exe)
+    let e = Daemon::open(cfg(&anchors).unwrap(), exe.clone())
         .err()
         .expect("refused");
     assert!(e.to_string().contains("anchor"), "{e}");
+    // a deleted anchor is refused too, until `wyrmd init-anchors`
+    std::fs::remove_file(anchors.join("state.head")).unwrap();
+    assert!(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).is_err());
+    let mut init = cfg(&anchors).unwrap();
+    init.init_anchors = true;
+    drop(Daemon::open(init, exe.clone()).unwrap());
+    drop(Daemon::open(cfg(&anchors).unwrap(), exe).unwrap());
 }

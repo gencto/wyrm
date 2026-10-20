@@ -81,6 +81,9 @@ pub struct Config {
     /// at the end or rolled back is refused at start.
     #[serde(default)]
     pub state_anchor_dir: Option<PathBuf>,
+    /// `wyrmd init-anchors`: create the anchors from the current heads.
+    #[serde(skip)]
+    pub init_anchors: bool,
     /// Router-to-router links to other sites (iteration 4), QUIC + mTLS.
     #[serde(default)]
     pub peers: PeersSection,
@@ -726,6 +729,8 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
+    gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
+    gc.anchor_init = cfg.init_anchors;
     if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {
         gc.tls = Some((c.clone(), k.clone()));
     }
@@ -796,7 +801,24 @@ impl Daemon {
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
-        let flows = FlowHost::open(&cfg.data_dir.join("flows"), &hmac, &cfg.site)?;
+        let anchor = |name: &str| cfg.state_anchor_dir.as_ref().map(|d| d.join(name));
+        if let Some(d) = &cfg.state_anchor_dir {
+            // Not created here: it belongs on another medium the operator mounts.
+            if !d.is_dir() {
+                return Err(format!(
+                    "state_anchor_dir {}: not a directory (mount it, then run `wyrmd init-anchors`)",
+                    d.display()
+                )
+                .into());
+            }
+        }
+        let flows_anchor = anchor("flows.head");
+        let flows = FlowHost::open_anchored(
+            &cfg.data_dir.join("flows"),
+            &hmac,
+            &cfg.site,
+            flows_anchor.as_deref().map(|a| (a, cfg.init_anchors)),
+        )?;
         let gateway = match &cfg.gateway {
             None => None,
             Some(g) => Some(open_gateway(&cfg, g, true)?),
@@ -830,6 +852,7 @@ impl Daemon {
             link_exe,
             max_restarts: cfg.max_restarts,
             anchor_dir: cfg.state_anchor_dir.clone(),
+            anchor_init: cfg.init_anchors,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());

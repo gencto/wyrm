@@ -73,6 +73,11 @@ pub struct GatewayConfig {
     pub tls: Option<(PathBuf, PathBuf)>,
     pub session_ttl: Duration,
     pub roles: RoleTable,
+    /// WAL head anchor of the user store (another medium; see
+    /// `wyrm_state::Store::with_anchor`).
+    pub anchor: Option<PathBuf>,
+    /// Create the anchor from the current head (operator step).
+    pub anchor_init: bool,
 }
 
 impl GatewayConfig {
@@ -85,6 +90,8 @@ impl GatewayConfig {
             tls: None,
             session_ttl: SESSION_TTL,
             roles: RoleTable::default(),
+            anchor: None,
+            anchor_init: false,
         }
     }
 }
@@ -166,7 +173,14 @@ impl Gateway {
                 cfg.listen
             )));
         }
-        let users = Store::<UserDb>::open(cfg.dir.join("users"), hmac_key)?;
+        let mut users = Store::<UserDb>::open(cfg.dir.join("users"), hmac_key)?;
+        if let Some(a) = &cfg.anchor {
+            users = if cfg.anchor_init {
+                users.init_anchor(a)?
+            } else {
+                users.with_anchor(a)?
+            };
+        }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
