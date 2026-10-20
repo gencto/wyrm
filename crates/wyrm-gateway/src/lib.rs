@@ -138,12 +138,19 @@ pub struct Gateway {
     hashing: Semaphore,
     audit: RwLock<Option<AuditHook>>,
     addr: watch::Sender<Option<SocketAddr>>,
-    /// WebSocket tickets: hex(16 random bytes) → (session token, expiry s).
-    tickets: Mutex<std::collections::HashMap<String, (Zeroizing<String>, u64)>>,
+    /// WebSocket tickets: hex(16 random bytes) → ticket.
+    tickets: Mutex<std::collections::HashMap<String, Ticket>>,
+}
+
+struct Ticket {
+    session: Zeroizing<String>,
+    user: String,
+    exp: u64,
 }
 
 const TICKET_TTL_S: u64 = 30;
-const MAX_TICKETS: usize = 10_000;
+/// Live tickets per user; a new one replaces that user's oldest.
+const TICKETS_PER_USER: usize = 8;
 
 impl Gateway {
     /// Open the user store and the signing key (`<dir>/gateway.key`, 0600,
@@ -176,34 +183,49 @@ impl Gateway {
 
     /// A single-use WebSocket ticket for a valid `session` token.
     pub fn ws_ticket(&self, session: &str) -> Option<(String, u64)> {
-        self.authenticate(session)?;
+        let p = self.authenticate(session)?;
         let now = session::now_s();
         let mut raw = [0u8; 16];
         getrandom::fill(&mut raw).ok()?;
         let ticket: String = raw.iter().map(|b| format!("{b:02x}")).collect();
         let exp = now + TICKET_TTL_S;
         let mut t = self.tickets.lock().unwrap_or_else(|p| p.into_inner());
-        if t.len() >= MAX_TICKETS {
-            t.retain(|_, (_, e)| *e > now);
-            if t.len() >= MAX_TICKETS {
-                return None;
+        // Live tickets are bounded by users × TICKETS_PER_USER: one user
+        // cannot crowd out the others.
+        t.retain(|_, k| k.exp > now);
+        let mut mine: Vec<(u64, String)> = t
+            .iter()
+            .filter(|(_, k)| k.user == p.name)
+            .map(|(id, k)| (k.exp, id.clone()))
+            .collect();
+        if mine.len() >= TICKETS_PER_USER {
+            mine.sort();
+            for (_, id) in &mine[..=mine.len() - TICKETS_PER_USER] {
+                t.remove(id);
             }
         }
-        t.insert(ticket.clone(), (Zeroizing::new(session.to_owned()), exp));
+        t.insert(
+            ticket.clone(),
+            Ticket {
+                session: Zeroizing::new(session.to_owned()),
+                user: p.name,
+                exp,
+            },
+        );
         Some((ticket, exp))
     }
 
     /// Spend a ticket: the principal of its session, checked again now.
     pub fn redeem_ticket(&self, ticket: &str) -> Option<Principal> {
-        let (session, exp) = self
+        let k = self
             .tickets
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(ticket)?;
-        if session::now_s() >= exp {
+        if session::now_s() >= k.exp {
             return None;
         }
-        self.authenticate(&session)
+        self.authenticate(&k.session)
     }
 
     pub fn site(&self) -> &str {

@@ -647,3 +647,31 @@ fn signing_key_persists() {
         assert_eq!(mode & 0o777, 0o600);
     }
 }
+
+/// One user holds at most 8 live tickets: a 9th replaces the oldest, so a
+/// single user cannot fill the table for everyone.
+#[tokio::test(flavor = "multi_thread")]
+async fn tickets_are_capped_per_user() {
+    let env = Env::start("tickets", wyrm_gateway::SESSION_TTL).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let mut ts = Vec::new();
+    for _ in 0..9 {
+        ts.push(env.ticket(&admin).await.expect("ticket"));
+    }
+    let ok = |t: &String| {
+        let url = format!("ws://{}/api/ws?ticket={t}", env.addr);
+        async move { tokio_tungstenite::connect_async(url).await.is_ok() }
+    };
+    let mut live = 0;
+    for t in &ts {
+        if ok(t).await {
+            live += 1;
+        }
+    }
+    assert_eq!(live, 8, "one ticket was evicted");
+    assert!(!ok(&ts[8]).await, "spent");
+    // another user still gets a ticket
+    let other = env.add_user(&admin, "olha", &["viewer"]).await;
+    assert!(env.ticket(&other).await.is_some());
+    env.stop().await;
+}
