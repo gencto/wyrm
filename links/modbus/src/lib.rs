@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod codec;
 mod config;
 #[cfg(feature = "sim")]
 pub mod sim;

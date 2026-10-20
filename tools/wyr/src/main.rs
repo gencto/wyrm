@@ -11,6 +11,7 @@ macro_rules! out {
     }};
 }
 
+mod admin;
 mod bench;
 
 use clap::{Parser, Subcommand};
@@ -33,6 +34,15 @@ struct Cli {
     /// Admin signing key file (from `wyr keygen`); mints a ptok per request.
     #[arg(long, global = true, env = "WYR_KEY")]
     key: Option<PathBuf>,
+    /// CA certificate for `tls/`/`quic/` endpoints.
+    #[arg(long, global = true, env = "WYR_CA")]
+    ca: Option<PathBuf>,
+    /// Client certificate (CN = operator name) for `tls/`/`quic/` endpoints.
+    #[arg(long, global = true, env = "WYR_CERT")]
+    cert: Option<PathBuf>,
+    /// Private key of `--cert` (`--key` is the admin signing key).
+    #[arg(long = "tls-key", global = true, env = "WYR_TLS_KEY")]
+    tls_key: Option<PathBuf>,
     /// Request timeout, seconds.
     #[arg(long, global = true, default_value_t = 10)]
     timeout: u64,
@@ -79,6 +89,8 @@ enum Cmd {
         #[command(subcommand)]
         what: bench::What,
     },
+    #[command(flatten)]
+    Admin(admin::AdminCmd),
     /// Create an admin signing key (hex seed, mode 0600) and print the public key.
     Keygen {
         #[arg(long, default_value = "admin.key")]
@@ -127,11 +139,9 @@ async fn run(cli: Cli) -> Result<(), Error> {
         }
         Cmd::Invoke { node, action, args } => {
             let mut map = BTreeMap::new();
-            for a in args {
-                let (k, v) = a
-                    .split_once('=')
-                    .ok_or_else(|| format!("argument {a:?} is not name=value"))?;
-                map.insert(k.to_owned(), parse_value(v));
+            for a in &args {
+                let (k, v) = parse_param(a)?;
+                map.insert(k, v);
             }
             let c = client.with_site(&node, &cli.key)?;
             let mut s = c.invoke(&node, &action, Value::Map(map)).await?;
@@ -149,6 +159,10 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Bench { what } => bench::run(&client.inner, what).await,
+        Cmd::Admin(cmd) => {
+            let c = client.with_site(&format!("wy/{}/sys", cmd.site()), &cli.key)?;
+            admin::run(&c, cmd).await
+        }
         Cmd::Keygen { .. } => unreachable!(),
     }
 }
@@ -186,10 +200,42 @@ async fn connect(cli: &Cli) -> Result<Ctx, Error> {
     zc.insert_json5("mode", r#""client""#)?;
     zc.insert_json5("connect/endpoints", &format!("[\"{}\"]", cli.connect))?;
     zc.insert_json5("scouting/multicast/enabled", "false")?;
+    if let Some(tls) = tls_config(&cli.connect, &cli.ca, &cli.cert, &cli.tls_key)? {
+        zc.insert_json5("transport/link/tls", &tls)?;
+    }
     let session = zenoh::open(zc).await?;
     Ok(Ctx {
         inner: WyrmClient::new(session).with_timeout(Duration::from_secs(cli.timeout)),
     })
+}
+
+/// `transport/link/tls` for `tls/`/`quic/` endpoints (mTLS); `None` otherwise.
+fn tls_config(
+    endpoint: &str,
+    ca: &Option<PathBuf>,
+    cert: &Option<PathBuf>,
+    key: &Option<PathBuf>,
+) -> Result<Option<String>, Error> {
+    if !(endpoint.starts_with("tls/") || endpoint.starts_with("quic/")) {
+        return Ok(None);
+    }
+    let (Some(ca), Some(cert), Some(key)) = (ca, cert, key) else {
+        return Err("tls/quic endpoints need --ca, --cert and --tls-key".into());
+    };
+    Ok(Some(format!(
+        "{{ root_ca_certificate: {:?}, connect_certificate: {:?}, connect_private_key: {:?}, enable_mtls: true }}",
+        ca.display().to_string(),
+        cert.display().to_string(),
+        key.display().to_string()
+    )))
+}
+
+/// `name=value` → (name, parsed value).
+fn parse_param(a: &str) -> Result<(String, Value), Error> {
+    match a.split_once('=') {
+        Some((k, v)) if !k.is_empty() => Ok((k.to_owned(), parse_value(v))),
+        _ => Err(format!("argument {a:?} is not name=value").into()),
+    }
 }
 
 fn keygen(out: &Path) -> Result<(), Error> {
@@ -395,5 +441,53 @@ mod tests {
         assert_eq!(parse_value("-3"), Value::Int(-3));
         assert_eq!(parse_value("21.5"), Value::Float(21.5));
         assert_eq!(parse_value("on"), Value::Str("on".into()));
+    }
+
+    #[test]
+    fn params() {
+        assert_eq!(
+            parse_param("port=502").unwrap(),
+            ("port".into(), Value::UInt(502))
+        );
+        assert_eq!(
+            parse_param("host=a=b").unwrap(),
+            ("host".into(), Value::Str("a=b".into()))
+        );
+        assert!(parse_param("noequals").is_err());
+        assert!(parse_param("=1").is_err());
+    }
+
+    #[test]
+    fn tls_flags() {
+        let p = |s: &str| Some(PathBuf::from(s));
+        assert_eq!(
+            tls_config("tcp/127.0.0.1:7447", &None, &None, &None).unwrap(),
+            None
+        );
+        assert!(tls_config("tls/127.0.0.1:7448", &p("ca"), &None, &p("k")).is_err());
+        let c = tls_config("tls/127.0.0.1:7448", &p("ca.pem"), &p("c.pem"), &p("c.key"))
+            .unwrap()
+            .unwrap();
+        let mut zc = zenoh::Config::default();
+        zc.insert_json5("transport/link/tls", &c).unwrap();
+        assert!(c.contains("enable_mtls: true"));
+    }
+
+    #[test]
+    fn admin_cli_parses() {
+        let cli = Cli::try_parse_from([
+            "wyr", "install", "s", "plc1", "modbus", "--mode", "process", "--param", "host=h",
+            "--param", "port=502",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Cmd::Admin(admin::AdminCmd::Install { params, mode, .. }) => {
+                assert_eq!(params, ["host=h", "port=502"]);
+                assert_eq!(mode.as_deref(), Some("process"));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(Cli::try_parse_from(["wyr", "audit", "s", "-n", "5"]).is_ok());
+        assert!(Cli::try_parse_from(["wyr", "--tls-key", "k", "links", "s"]).is_ok());
     }
 }

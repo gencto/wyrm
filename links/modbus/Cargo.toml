@@ -23,6 +23,7 @@ wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
 tokio-modbus = { workspace = true, features = ["tcp"] }
 tracing.workspace = true
+thiserror.workspace = true
 clap = { workspace = true, optional = true }
 
 [dev-dependencies]
