@@ -5,7 +5,7 @@ Broker with IOT-DSA semantics (node tree, reactive list/subscribe/invoke, manage
 ## Language and docs
 - Code, comments, commit messages: English. Design wiki (Obsidian, outside this repo at `~/Documents/Obsidian/Wiki/Zenoh`) and discussions with the owner: Ukrainian.
 - `spec/` is **normative**. Any change there → update `spec/fixtures/gen.py` → regenerate → every SDK's fixture test must pass → line in `spec/CHANGELOG.md`.
-- Decisions go to `docs/adr/NNNN-*.md`. Read ADR 0001–0004 before touching architecture; ADR 0004 (driver framework) is mandatory reading before writing any `links/*`.
+- Decisions go to `docs/adr/NNNN-*.md`. Read ADR 0001–0005 before touching architecture; ADR 0004 (driver framework) is mandatory reading before writing any `links/*`.
 
 ## Non-negotiable principles
 1. Zenoh = transport; WYRM = semantics via key-space conventions, CBOR attachment, SDKs, static plugins.
@@ -29,7 +29,9 @@ crates/wyrm-flow        engine: compiler, node registry, rhai, runtime
 crates/wyrm-admin       registry, supervisor, tokens, CA, quarantine, ACL generator, gateway
 crates/wyrmd            binary
 links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin")
-tools/wyr               CLI
+tools/wyr               CLI (ops + dev: new/dev/sim/replay/ai/mcp)
+tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
+links/agent             AI agent connector with approval workflow (ADR 0005)
 ```
 
 ## Current state
@@ -44,7 +46,9 @@ Iteration 0 done (2026-10-20): spec v0.1, `wyrm-core`, 22 fixtures green, CI con
 5. `tools/wyr`: `list`, `sub`, `set`, `invoke`, `bench` (p50/p95/p99 on subscribe and list-1000).
 6. `links/modbus` on `tokio-modbus` using the driver framework: kinds `IpConn/SerialConn → Device → Point`; data types as in DSA (`BINARY, U16/I16(+swapped), U32/I32(+word/byte swapped), F32(+swapped), U64/I64, F64, BCD16/32, CHAR, VARCHAR`), bit index for BINARY on registers, linear scaling, FC1–4 batched reads partitioned by contiguity/max-count with `contiguous_only` escape hatch, writes FC5/6/15/16 + FC22 mask-write with RMW fallback cached per unit, `write_mode: auto|single|multiple`, device ping via FC17 or a configurable probe register (FC17 is often unsupported). Verified against `diagslave` and a real device. Slave mode (`ServerKind`) is iteration 6.
 
-Done when `wyr bench` prints numbers on ARM64 against targets in the wiki (subscribe p99 < 2 ms LAN, list 1000 < 50 ms, 50k samples/s < 50 % CPU on 4 cores).
+Later iterations (see wiki 07 План): 2 control-plane, 3 flow, 4 two brokers, 5 security, 6 connectors, 7 Dart/Flutter, 8 WASM, 9 platform (cloud profile, MCP, agent, dev CLI).
+
+Iteration 1 is done when `wyr bench` prints numbers on ARM64 against targets in the wiki (subscribe p99 < 2 ms LAN, list 1000 < 50 ms, 50k samples/s < 50 % CPU on 4 cores).
 
 ## Conventions
 - `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` must pass.
