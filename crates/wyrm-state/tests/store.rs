@@ -154,8 +154,21 @@ fn snapshot_then_more_ops() {
     let s = Store::<Kv>::open(&d, KEY).unwrap();
     assert_eq!(s.lsn(), 7);
     assert_eq!(s.state().map.len(), 7);
+    drop(s);
     // new schema: snapshot ignored, rebuilt from the full WAL
     let v2 = Store::<KvV2>::open(&d, KEY).unwrap();
     assert_eq!(v2.lsn(), 7);
     assert_eq!(v2.state().map.len(), 7);
+}
+
+#[test]
+fn one_writer_per_store() {
+    let d = dir("lock");
+    let a = Store::<Kv>::open(&d, KEY).unwrap();
+    let e = Store::<Kv>::open(&d, KEY)
+        .err()
+        .expect("second open refused");
+    assert!(matches!(e, StateError::InUse(_)), "{e}");
+    drop(a);
+    assert!(Store::<Kv>::open(&d, KEY).is_ok(), "free again after drop");
 }

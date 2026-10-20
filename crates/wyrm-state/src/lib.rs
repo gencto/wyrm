@@ -50,6 +50,8 @@ pub enum StateError {
     Rejected(String),
     #[error("codec: {0}")]
     Codec(String),
+    #[error("{0} is in use by another process")]
+    InUse(String),
 }
 
 pub type Result<T, E = StateError> = core::result::Result<T, E>;
@@ -71,6 +73,9 @@ pub struct Store<S: State> {
     lsn: u64,
     chain: [u8; 32],
     wal: File,
+    /// Exclusive lock on `dir/LOCK` for the life of the store: one writer
+    /// per WAL (a second process would interleave records).
+    _lock: File,
     since_snapshot: usize,
     snapshot_every: usize,
 }
@@ -122,6 +127,18 @@ impl<S: State> Store<S> {
     pub fn open(dir: impl AsRef<Path>, key: &[u8]) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("LOCK"))?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(StateError::InUse(dir.display().to_string()))
+            }
+            Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+        }
         let (mut state, mut lsn, mut chain) = Self::load_snapshot(&dir, key).unwrap_or_default();
         let snap_lsn = lsn;
         let segs = segments(&dir)?;
@@ -176,6 +193,7 @@ impl<S: State> Store<S> {
             lsn,
             chain,
             wal,
+            _lock: lock,
             since_snapshot: replayed,
             snapshot_every: SNAPSHOT_EVERY,
         })
