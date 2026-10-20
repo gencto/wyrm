@@ -113,13 +113,24 @@ impl Supervisor {
     }
 }
 
+/// Broker variables a link process may inherit (logging, locale, time zone).
+const INHERITED_ENV: &[&str] = &["RUST_LOG", "RUST_BACKTRACE", "TZ", "LANG", "LC_ALL", "PATH"];
+
 async fn monitor(spec: ProcSpec, mut stop: watch::Receiver<bool>, state: Arc<Mutex<ProcState>>) {
     let mut restarts = 0u32;
     let mut backoff = Duration::from_secs(1);
     loop {
         set(&state, ProcState::Starting);
         let mut cmd = Command::new(&spec.exe);
+        // A link sees only its own settings, never the broker's environment
+        // (bootstrap passwords and other secrets live there).
         cmd.args(&spec.args)
+            .env_clear()
+            .envs(
+                INHERITED_ENV
+                    .iter()
+                    .filter_map(|k| std::env::var_os(k).map(|v| (k.to_string(), v))),
+            )
             .envs(spec.env.iter().cloned())
             .stdin(std::process::Stdio::null())
             .kill_on_drop(false);

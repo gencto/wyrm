@@ -553,16 +553,19 @@ impl Broker {
         // first remote query already finds their queryables and tokens.
         let session = zenoh::session::init(runtime.clone().into()).await?;
         let admin = ctl.attach(session.clone()).await?;
-        // The engine trusts only admin keys: flow tokens never command flows.
+        // The engine trusts admin keys and the gateway's (user requests),
+        // never the flow key: flow tokens do not command flows.
+        let mut engine_keys = ctl.config().admin_keys.clone();
+        engine_keys.extend(gateway.map(|g| g.verifying_key()));
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
         lcfg.root = Some(format!("wy/{}/flows", cfg.site));
-        lcfg.admin_keys = ctl.config().admin_keys.clone();
+        lcfg.admin_keys = engine_keys.clone();
         let flows = match wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
             lcfg,
             EngineStart {
                 host: flows.clone(),
-                admin_keys: ctl.config().admin_keys.clone(),
+                admin_keys: engine_keys,
             },
         )
         .await
@@ -643,6 +646,8 @@ fn open_gateway(cfg: &Config, g: &GatewaySection) -> Result<Arc<Gateway>, Error>
     let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
     if let Ok(pw) = std::env::var(GATEWAY_ADMIN_PASSWORD_ENV) {
         let pw = zeroize::Zeroizing::new(pw);
+        // Child processes get a cleared environment as well (supervisor).
+        std::env::remove_var(GATEWAY_ADMIN_PASSWORD_ENV);
         if gw
             .ensure_admin(&g.admin_user, &pw)
             .map_err(|e| format!("gateway admin: {e}"))?
@@ -704,15 +709,16 @@ impl Daemon {
             None => None,
             Some(g) => Some(open_gateway(&cfg, g)?),
         };
-        // The gateway signs one token per user request with the user's
-        // grants, so admin and links trust its key like an admin key.
-        let mut admin_keys = cfg.admin_keys()?;
-        admin_keys.extend(gateway.as_ref().map(|g| g.verifying_key()));
+        // The gateway signs one token per user request with that user's
+        // grants. Links (and the flow engine) trust its key; the admin does
+        // not, so the control plane stays with operator keys.
+        let mut link_keys = vec![flows.verifying_key()];
+        link_keys.extend(gateway.as_ref().map(|g| g.verifying_key()));
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),
-            admin_keys,
-            link_keys: vec![flows.verifying_key()],
+            admin_keys: cfg.admin_keys()?,
+            link_keys,
             operators: cfg.operators.clone(),
             dev: cfg.profile == Profile::Dev,
             link_endpoint: cfg.link_endpoint(),
