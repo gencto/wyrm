@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow"]
 
 [workspace.package]
 version = "0.1.0"
@@ -42,6 +42,8 @@ argon2 = "0.5"
 flate2 = "1"
 rcgen = { version = "0.14", features = ["x509-parser"] }
 wyrm-state = { path = "crates/wyrm-state" }
+wyrm-flow = { path = "crates/wyrm-flow" }
+rhai = { version = "1.26", features = ["sync"] }
 wyrm-admin = { path = "crates/wyrm-admin" }
 nix = { version = "0.29", features = ["signal"] }
 tokio-modbus = { version = "0.17", default-features = false }

@@ -1,0 +1,30 @@
+[package]
+name = "wyrm-flow"
+description = "WYRM data-flow engine: flows as data (~def), compiler, node registry, rhai, runtime, state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-client.workspace = true
+wyrm-state.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+rhai.workspace = true
+minicbor.workspace = true
+serde.workspace = true
+crc32c.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-mock.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

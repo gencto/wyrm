@@ -5,7 +5,7 @@
 //! owned by the tree — whatever the driver puts there is replaced.
 
 use crate::error::{LinkError, Result};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use wyrm_core::meta::{ActionMeta, Profile, TextOrCode, TypeCode};
 use wyrm_core::{NodeMeta, Sample, Value};
 
@@ -16,6 +16,8 @@ pub struct Node {
     pub children: Vec<String>,
     pub rev: u32,
     pub last: Option<Sample>,
+    /// Extra documents served under other spec suffixes (`~def`, `~state`).
+    pub docs: BTreeMap<String, Vec<u8>>,
 }
 
 impl Node {
@@ -25,6 +27,7 @@ impl Node {
             children: Vec::new(),
             rev: 1,
             last: None,
+            docs: BTreeMap::new(),
         }
     }
 
@@ -205,6 +208,19 @@ impl NodeTree {
             pn.rev = pn.rev.wrapping_add(1);
         }
         Ok((removed, parent.to_owned()))
+    }
+
+    /// Set (`Some`) or clear (`None`) a document under `suffix` (`~def`).
+    pub fn set_doc(&mut self, path: &str, suffix: &str, doc: Option<Vec<u8>>) -> Result<()> {
+        let node = self
+            .nodes
+            .get_mut(path)
+            .ok_or_else(|| LinkError::not_found(path.to_owned()))?;
+        match doc {
+            Some(d) => node.docs.insert(suffix.to_owned(), d),
+            None => node.docs.remove(suffix),
+        };
+        Ok(())
     }
 
     /// Store the last value of a leaf.

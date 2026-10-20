@@ -434,8 +434,11 @@ impl<C: Send + 'static> Shared<C> {
                     });
                 }
                 None => {
-                    let e = LinkError::not_supported(format!("suffix {s}"));
-                    reply_here(&q, Vec::new(), err_att(&e), false).await;
+                    let (payload, att) = match self.doc(&q, &path, s) {
+                        Ok(d) => (d, status_att(Status::Ok)),
+                        Err(e) => (Vec::new(), err_att(&e)),
+                    };
+                    reply_here(&q, payload, att, false).await;
                 }
             },
         }
@@ -512,6 +515,26 @@ impl<C: Send + 'static> Shared<C> {
                 Err(denied())
             }
         }
+    }
+
+    /// A document set with `LinkCtx::set_doc` (`~def`, `~state`); restricted
+    /// nodes need `list` like `~meta`.
+    fn doc(&self, q: &Query, path: &str, suffix: &str) -> Result<Vec<u8>> {
+        let (doc, restricted) = {
+            let tree = self.ctx.tree();
+            let node = tree
+                .get(path)
+                .ok_or_else(|| LinkError::not_found(path.to_owned()))?;
+            (node.docs.get(suffix).cloned(), tree.restricted(path))
+        };
+        let doc = doc.ok_or_else(|| LinkError::not_supported(format!("suffix {suffix}")))?;
+        if restricted {
+            let att = self.attachment(q)?;
+            if self.authorize(q, &att)?.perm < Perm::List {
+                return Err(denied());
+            }
+        }
+        Ok(doc)
     }
 
     fn meta(&self, q: &Query, path: &str) -> Result<(Vec<u8>, Attachment)> {

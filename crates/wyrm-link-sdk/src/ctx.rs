@@ -140,6 +140,16 @@ impl LinkCtx {
         self.tree().get(path).map(|n| n.full())
     }
 
+    /// Serve `doc` (CBOR) at `<path>/<suffix>` (`~def`, `~state`); `None` removes it.
+    pub fn set_doc(&self, path: &str, suffix: &str, doc: Option<Vec<u8>>) -> Result<()> {
+        if !matches!(suffix, "~def" | "~state") {
+            return Err(LinkError::invalid_parameter(format!(
+                "{suffix} is not a document suffix"
+            )));
+        }
+        self.tree_mut().set_doc(path, suffix, doc)
+    }
+
     /// Last value published for `path`.
     pub fn last(&self, path: &str) -> Option<Sample> {
         self.tree().get(path).and_then(|n| n.last.clone())
