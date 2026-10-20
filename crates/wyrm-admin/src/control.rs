@@ -96,6 +96,7 @@ pub struct Control {
     store: Mutex<Store<Registry>>,
     audit: Mutex<Store<AuditLog>>,
     pki: Pki,
+    secrets: crate::secrets::SecretStore,
     supervisor: Arc<Supervisor>,
     host: Arc<dyn EmbeddedHost>,
     reload: mpsc::UnboundedSender<()>,
@@ -148,6 +149,7 @@ impl Control {
         let store = Store::<Registry>::open(cfg.data_dir.join("state"), &key)?;
         let audit = Store::<AuditLog>::open(cfg.data_dir.join("audit"), &key)?;
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
+        let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;
         let (reload, rx) = mpsc::unbounded_channel();
         Ok((
             Arc::new(Self {
@@ -155,6 +157,7 @@ impl Control {
                 store: Mutex::new(store),
                 audit: Mutex::new(audit),
                 pki,
+                secrets,
                 supervisor: Supervisor::new(),
                 host,
                 reload,
@@ -211,6 +214,15 @@ impl Control {
         {
             warn!("audit write failed: {e}");
         }
+    }
+
+    /// Secrets of one link for the SDK (embedded start, `hello` reply).
+    fn link_secrets(&self, id: &str) -> wyrm_link_sdk::SecretStore {
+        self.secrets
+            .for_link(id)
+            .into_iter()
+            .map(|(k, v)| (k, wyrm_link_sdk::Secret::new(v.to_vec())))
+            .collect()
     }
 
     /// `data_dir/links/<id>`; refuses ids that could leave that directory.
@@ -517,6 +529,7 @@ async fn start_embedded(
     }
     let mut lcfg = LinkConfig::new(ctl.cfg.site.clone(), def.id.clone());
     lcfg.admin_keys = ctl.cfg.admin_keys.clone();
+    lcfg.secrets = ctl.link_secrets(&def.id);
     let link = ctl
         .host
         .start(
@@ -561,6 +574,20 @@ fn link_node(def: &LinkDef) -> NodeMeta {
         )
 }
 
+fn secret_name(args: &Value) -> Result<&str, LinkError> {
+    match arg_str(args, "name") {
+        Some(n)
+            if !n.is_empty()
+                && n.len() <= 64
+                && n.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') =>
+        {
+            Ok(n)
+        }
+        _ => Err(LinkError::invalid_parameter("name: [A-Za-z0-9_-]{1,64}")),
+    }
+}
+
 async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     let p = format!("links/{}", def.id);
     ctx.declare_node(&p, link_node(def)).await?;
@@ -573,6 +600,25 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         ctx.declare_action(&p, a, ActionMeta::new().level(Perm::Config))
             .await?;
     }
+    ctx.declare_action(
+        &p,
+        "set_secret",
+        ActionMeta::new()
+            .level(Perm::Config)
+            .param("name", ParamMeta::of(TypeCode::String).required(true))
+            .param("value", ParamMeta::of(TypeCode::Binary).required(true))
+            .result(ActionResult::Type(TypeCode::Array)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
+        "delete_secret",
+        ActionMeta::new()
+            .level(Perm::Config)
+            .param("name", ParamMeta::of(TypeCode::String).required(true))
+            .result(ActionResult::Type(TypeCode::Array)),
+    )
+    .await?;
     ctx.declare_action(
         &p,
         "hello",
@@ -715,6 +761,8 @@ impl Link for Admin {
             (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
             (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
+            (["links", id], "set_secret") => self.set_secret(id, &args, &sub),
+            (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
             (["quarantine", cn], "approve") => self.approve(cn, &args, &sub).await,
             (["quarantine", cn], "reject") => self.reject(cn, &sub).await.map(|_| None),
             (["audit"], "tail") => {
@@ -761,6 +809,7 @@ impl Admin {
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
         crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
+        crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
         if mode != Mode::External {
             if !compiled {
                 return Err(LinkError::invalid_parameter(format!(
@@ -833,6 +882,19 @@ impl Admin {
             .record(&format!("link:{id}"), "hello", id, Status::Ok, "");
         let mut reply = BTreeMap::new();
         reply.insert("params".into(), decode_params(&def.params));
+        // Over the link's own mTLS session only (ACL: CN `<id>` alone may
+        // query this key); never logged.
+        reply.insert(
+            "secrets".into(),
+            Value::Map(
+                self.ctl
+                    .secrets
+                    .for_link(id)
+                    .into_iter()
+                    .map(|(k, v)| (k, Value::Bytes(v.to_vec())))
+                    .collect(),
+            ),
+        );
         reply.insert(
             "admin_keys".into(),
             Value::Array(
@@ -845,6 +907,60 @@ impl Admin {
             ),
         );
         Ok(Some(Value::Map(reply)))
+    }
+
+    /// Stores one secret; the link sees it on its next start (`hello`).
+    /// Replies with the secret names, never the values.
+    fn set_secret(
+        &self,
+        id: &str,
+        args: &Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        self.def(id)?;
+        let name = secret_name(args)?;
+        let value = match arg(args, "value") {
+            Some(Value::Bytes(b)) => b.clone(),
+            Some(Value::Str(s)) => s.as_bytes().to_vec(),
+            _ => return Err(LinkError::invalid_parameter("value")),
+        };
+        self.ctl
+            .secrets
+            .set(id, name, &value)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
+        self.ctl.record(sub, "set_secret", id, Status::Ok, name);
+        Ok(Some(self.secret_names(id)))
+    }
+
+    fn delete_secret(
+        &self,
+        id: &str,
+        args: &Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        self.def(id)?;
+        let name = secret_name(args)?;
+        let had = self
+            .ctl
+            .secrets
+            .remove(id, name)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
+        if !had {
+            return Err(LinkError::not_found(name.to_owned()));
+        }
+        self.ctl.record(sub, "delete_secret", id, Status::Ok, name);
+        Ok(Some(self.secret_names(id)))
+    }
+
+    fn secret_names(&self, id: &str) -> Value {
+        Value::Array(
+            self.ctl
+                .secrets
+                .names(id)
+                .into_iter()
+                .map(Value::Str)
+                .collect(),
+        )
     }
 
     fn def(&self, id: &str) -> wyrm_link_sdk::Result<LinkDef> {
@@ -904,6 +1020,9 @@ impl Admin {
             .map_err(rejected)?;
         if let Ok(dir) = self.ctl.link_dir(id) {
             let _ = std::fs::remove_dir_all(dir);
+        }
+        if let Err(e) = self.ctl.secrets.drop_link(id) {
+            warn!("secrets of {id}: {e}");
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");

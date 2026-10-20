@@ -202,6 +202,9 @@ pub async fn spawn<L: Link>(
         limiter: cfg
             .rate_limit
             .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
+        anon_limiter: cfg
+            .rate_limit
+            .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
@@ -311,7 +314,10 @@ struct Shared<C> {
     driver_timeout: Duration,
     answer_val: bool,
     open_actions: Vec<String>,
+    /// Verified subjects, and separately everyone else: unverified traffic
+    /// can never use up the table or buckets of verified callers.
     limiter: Option<crate::guard::RateLimiter>,
+    anon_limiter: Option<crate::guard::RateLimiter>,
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
@@ -613,21 +619,22 @@ impl<C: Send + 'static> Shared<C> {
 
     /// Over the budget → `rate_limited`. A verified token is its own bucket.
     /// Anonymous and unauthenticated callers have no verified identity in
-    /// the SDK, so they share a bucket per target path: the router ACL binds
-    /// paths to transport identities (`links/<id>/~act/hello` only for CN
-    /// `<id>`), and a flood on one path cannot starve another.
+    /// the SDK; they use a separate limiter, one bucket per *declared* path
+    /// (the router ACL binds paths to transport identities, e.g.
+    /// `links/<id>/~act/hello` only for CN `<id>`) and one shared bucket for
+    /// any other path, so made-up paths cannot grow the table.
     fn limit(&self, caller: Option<&Caller>, path: &str) -> Result<()> {
-        let Some(l) = &self.limiter else {
-            return Ok(());
-        };
-        let who = match caller {
+        let allowed = match caller {
             Some(Caller {
                 claims: Some(c), ..
-            }) => format!("sub:{}", c.sub),
-            Some(_) => format!("anon:{path}"),
-            None => format!("unauth:{path}"),
+            }) => self.limiter.as_ref().is_none_or(|l| l.allow(&c.sub)),
+            _ => self.anon_limiter.as_ref().is_none_or(|l| {
+                let declared = self.ctx.tree().get(path).is_some();
+                let tag = if caller.is_some() { "anon" } else { "unauth" };
+                l.allow(&format!("{tag}:{}", if declared { path } else { "*" }))
+            }),
         };
-        if l.allow(&who) {
+        if allowed {
             Ok(())
         } else {
             Err(LinkError::new(Status::RateLimited, "too many requests"))

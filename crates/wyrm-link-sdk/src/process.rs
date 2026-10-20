@@ -105,6 +105,7 @@ impl Env {
 pub struct Hello {
     pub params: Value,
     pub admin_keys: Vec<VerifyingKey>,
+    pub secrets: crate::SecretStore,
 }
 
 fn parse_hello(v: Value) -> Result<Hello> {
@@ -128,7 +129,21 @@ fn parse_hello(v: Value) -> Result<Hello> {
             .collect::<Result<_>>()?,
         _ => Vec::new(),
     };
-    Ok(Hello { params, admin_keys })
+    let secrets = match m.remove("secrets") {
+        Some(Value::Map(s)) => s
+            .into_iter()
+            .filter_map(|(k, v)| match v {
+                Value::Bytes(b) => Some((k, crate::Secret::new(b))),
+                _ => None,
+            })
+            .collect(),
+        _ => crate::SecretStore::default(),
+    };
+    Ok(Hello {
+        params,
+        admin_keys,
+        secrets,
+    })
 }
 
 /// One `hello` round trip. `Err` with `permission_denied` is final.
@@ -222,6 +237,7 @@ where
     let cfg = L::Config::from_params(&hello.params)?;
     let mut lcfg = LinkConfig::new(env.site.clone(), env.link.clone());
     lcfg.admin_keys = hello.admin_keys;
+    lcfg.secrets = hello.secrets;
     lcfg.republish_on = Some(format!("wy/{}/sys/broker", env.site));
     let handle = spawn::<L>(session.clone(), lcfg, cfg).await?;
     info!(link = %env.link, driver = L::NAME, "link process up");
