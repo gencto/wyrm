@@ -289,6 +289,27 @@ fn default_link_open_files() -> u64 {
 
 pub use wyrm_client::endpoint::plaintext_off_loopback;
 
+/// Egress downsampling of `~val` towards peer brokers (`quic/`): one rule,
+/// and so one budget of `hz` samples/s, per link. Zenoh keeps one timer
+/// per rule and picks one matching rule per key, so the rules must not
+/// overlap; keys of a link not in the registry (`dev` profile only) are not
+/// limited. The router is rebuilt when links change (ADR 0006).
+pub fn upstream_downsampling(site: &str, links: &[String], hz: f64) -> Option<serde_json::Value> {
+    let rules: Vec<serde_json::Value> = links
+        .iter()
+        .map(|l| serde_json::json!({ "key_expr": format!("wy/{site}/down/{l}/**/~val"), "freq": hz }))
+        .collect();
+    (!rules.is_empty()).then(|| {
+        serde_json::json!([{
+            "id": "upstream-val",
+            "link_protocols": ["quic"],
+            "flows": ["egress"],
+            "messages": ["put"],
+            "rules": rules,
+        }])
+    })
+}
+
 /// JSON (from json5) → wire `Value`. Integral numbers stay integers.
 pub fn json_to_value(j: &serde_json::Value) -> Value {
     match j {
@@ -455,17 +476,10 @@ impl Config {
         c.insert_json5("listen/endpoints", &json(&listen))?;
         c.insert_json5("connect/endpoints", &json(&connect))?;
         if let Some(hz) = self.peers.upstream_val_hz {
-            c.insert_json5(
-                "downsampling",
-                &serde_json::json!([{
-                    "id": "upstream-val",
-                    "link_protocols": ["quic"],
-                    "flows": ["egress"],
-                    "messages": ["put"],
-                    "rules": [{ "key_expr": format!("wy/{}/down/**/~val", self.site), "freq": hz }],
-                }])
-                .to_string(),
-            )?;
+            let links: Vec<String> = ctl.registry().links.into_keys().collect();
+            if let Some(d) = upstream_downsampling(&self.site, &links, hz) {
+                c.insert_json5("downsampling", &d.to_string())?;
+            }
         }
         c.insert_json5(
             "scouting/multicast/enabled",
@@ -945,6 +959,7 @@ impl Daemon {
             metrics_interval: Duration::from_millis(cfg.metrics_interval_ms.max(100)),
             link_exe,
             max_restarts: cfg.max_restarts,
+            per_link_router_rules: cfg.peers.upstream_val_hz.is_some(),
             link_limits: wyrm_link_sdk::limits::Limits {
                 memory_mb: cfg.link_limits.memory_mb,
                 open_files: cfg.link_limits.open_files,

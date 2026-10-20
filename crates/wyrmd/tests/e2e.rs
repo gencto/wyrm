@@ -396,6 +396,22 @@ async fn hello_is_bound_to_the_cn() {
 }
 
 #[test]
+fn upstream_downsampling_has_one_rule_per_link() {
+    use wyrmd::upstream_downsampling as ds;
+    assert!(ds("edge", &[], 5.0).is_none());
+    let d = ds("edge", &["a".into(), "ab".into()], 5.0).unwrap();
+    let keys: Vec<&str> = d[0]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["key_expr"].as_str().unwrap())
+        .collect();
+    // No overlap: `a` does not cover `ab`.
+    assert_eq!(keys, ["wy/edge/down/a/**/~val", "wy/edge/down/ab/**/~val"]);
+    assert_eq!(d[0]["link_protocols"], serde_json::json!(["quic"]));
+}
+
+#[test]
 fn plaintext_off_loopback_is_refused() {
     use wyrmd::plaintext_off_loopback as off;
     assert!(!off("tcp/127.0.0.1:7447"));
@@ -570,9 +586,12 @@ async fn two_brokers_over_quic() {
             admin_keys: ["{admin}"],
             peers: {{
                 upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
-                upstream_val_hz: 50,
+                upstream_val_hz: 5,
             }},
-            {MOCK}
+            links: {{
+                mock: {{ driver: "mock", params: {{ points: 8, rate_hz: 20, depth: 1, fanout: 2 }} }},
+                slow: {{ driver: "mock", params: {{ points: 1, rate_hz: 2, depth: 1, fanout: 1 }} }},
+            }},
         }}"#,
         e_dir.display(),
         c_dir.join("pki/ca.pem").display()
@@ -610,12 +629,13 @@ async fn two_brokers_over_quic() {
         let c = &c;
         async move {
             let ch = c.children("wy/edge/down").await.ok()?;
-            let names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
-            (!names.is_empty()).then_some(names)
+            let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
+            names.sort();
+            (names.len() == 2).then_some(names)
         }
     })
     .await;
-    assert_eq!(names, ["mock"]);
+    assert_eq!(names, ["mock", "slow"]);
     let mut vals = c.subscribe("wy/edge/down/mock/g0/p0").await.unwrap();
     let got = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(ev) = vals.next().await {
@@ -627,6 +647,21 @@ async fn two_brokers_over_quic() {
     })
     .await;
     assert_eq!(got, Ok(true), "edge samples reach the central client");
+    // One downsampling budget per link: the busy `mock` link (160 samples/s)
+    // does not starve `slow` (2 samples/s) under upstream_val_hz: 5.
+    let mut busy = c.subscribe("wy/edge/down/mock/**").await.unwrap();
+    tokio::spawn(async move { while busy.next().await.is_some() {} });
+    let mut slow = c.subscribe("wy/edge/down/slow/**").await.unwrap();
+    let mut n = 0;
+    let _ = tokio::time::timeout(Duration::from_secs(4), async {
+        while let Some(ev) = slow.next().await {
+            if let ValEvent::Sample { .. } = ev {
+                n += 1;
+            }
+        }
+    })
+    .await;
+    assert!(n >= 5, "slow link starved: {n} samples in 4 s");
     // The upstream site is read-only: the edge ACL drops its commands.
     assert!(c.set("wy/edge/down/mock/g0/p0", 1.0).await.is_err());
 

@@ -77,6 +77,9 @@ pub struct ControlConfig {
     pub max_restarts: u32,
     /// Resource limits of every process link.
     pub link_limits: wyrm_link_sdk::limits::Limits,
+    /// The router config has per-link rules (`upstream_val_hz`): any link
+    /// install or removal rebuilds the broker, not only remote ones.
+    pub per_link_router_rules: bool,
     /// Directory for the WAL head anchors of the registry and the audit
     /// journal (`state.head`, `audit.head`), on another medium than
     /// `data_dir`: detects records cut from the end of a WAL.
@@ -1113,6 +1116,9 @@ impl Admin {
             ctl.schedule_reload();
         } else {
             start_embedded(ctl, &self.ctx, &self.embedded, &def).await?;
+            if ctl.cfg.per_link_router_rules {
+                ctl.schedule_reload();
+            }
         }
         Ok(Some(Value::Map(reply)))
     }
@@ -1410,7 +1416,8 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
-        if def.mode.is_remote() || def.driver == AGENT_DRIVER {
+        if def.mode.is_remote() || def.driver == AGENT_DRIVER || self.ctl.cfg.per_link_router_rules
+        {
             self.ctl.schedule_reload();
         }
         Ok(())
