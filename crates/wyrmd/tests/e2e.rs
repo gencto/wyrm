@@ -672,7 +672,7 @@ async fn two_brokers_over_quic() {
     // One downsampling budget per link: the busy `mock` link (160 samples/s)
     // does not starve `slow` (2 samples/s) under upstream_val_hz: 5.
     let mut busy = c.subscribe("wy/edge/down/mock/**").await.unwrap();
-    tokio::spawn(async move { while busy.next().await.is_some() {} });
+    let drain = tokio::spawn(async move { while busy.next().await.is_some() {} });
     let mut slow = c.subscribe("wy/edge/down/slow/**").await.unwrap();
     let mut n = 0;
     let _ = tokio::time::timeout(Duration::from_secs(4), async {
@@ -687,6 +687,10 @@ async fn two_brokers_over_quic() {
     // The upstream site is read-only: the edge ACL drops its commands.
     assert!(c.set("wy/edge/down/mock/g0/p0", 1.0).await.is_err());
 
+    // Quiet first: a live 160 samples/s stream slows the broker's close.
+    drain.abort();
+    drop(slow);
+    let _ = c.session().close().await;
     let _ = c_stop.send(());
     let _ = e_stop.send(());
     e_task.await.unwrap().unwrap();
