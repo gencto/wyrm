@@ -23,6 +23,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrmd` | broker: Zenoh router + static plugins (storage manager, REST) + admin + flow engine + gateway + links from `wyrmd.json5` |
 | `links/mock` | N points × F Hz on a configurable tree (tests, benchmarks) |
 | `links/modbus` | Modbus TCP on the driver framework (`connection → device → point`, DSA data types, batched FC1–4 reads, FC5/6/15/16/22 writes with read-back), with a simulator (`wyrm-modbus-sim`) |
+| `links/mqtt` | MQTT on the driver framework: plain topics (raw or JSON pointer) and Sparkplug B (BIRTH/DATA/DEATH, NCMD/DCMD, rebirth); TLS (ring); password from the link secrets (`auth_ref`) |
 | `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`, `set`, `invoke`, `bench`, `keygen`, `admin …` |
 
 Planned: `wyrm-history`, `wyrm-mcp`, more links.

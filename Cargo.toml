@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt"]
 
 [workspace.package]
 version = "0.1.0"
@@ -62,6 +62,12 @@ tokio-tungstenite = "0.29"
 tokio-rustls = { version = "0.26", default-features = false }
 futures-util = { version = "0.3", default-features = false }
 wyrm-gateway = { path = "crates/wyrm-gateway" }
+# MQTT: rustls without a provider (ring is chosen in code; never aws-lc).
+rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
+rustls-native-certs = "0.8"
+prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
+rumqttd = { version = "0.20", default-features = false }
+wyrm-link-mqtt = { path = "links/mqtt" }
 
 [profile.release]
 lto = "thin"

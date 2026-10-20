@@ -1,0 +1,28 @@
+[package]
+name = "wyrm-link-mqtt"
+description = "WYRM MQTT connector (plain topics and Sparkplug B) on rumqttc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+rumqttc.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+rustls-native-certs.workspace = true
+prost.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
+rumqttd.workspace = true
+rcgen.workspace = true
+tokio-rustls = { workspace = true, features = ["ring"] }

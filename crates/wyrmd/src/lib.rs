@@ -23,6 +23,7 @@ use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
+use wyrm_link_mqtt::Mqtt;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
 use zenoh::internal::plugins::PluginsManager;
@@ -484,12 +485,17 @@ where
     )))
 }
 
-/// `mock`, `mockdev` and `modbus`, embedded or as `wyrmd link <driver>`.
+/// `mock`, `mockdev`, `modbus` and `mqtt`, embedded or as `wyrmd link <driver>`.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
     fn drivers(&self) -> Vec<&'static str> {
-        vec![Mock::NAME, Framework::<MockDev>::NAME, Modbus::NAME]
+        vec![
+            Mock::NAME,
+            Framework::<MockDev>::NAME,
+            Modbus::NAME,
+            Mqtt::NAME,
+        ]
     }
 
     fn validate(&self, driver: &str, params: &Value) -> Result<(), LinkError> {
@@ -497,7 +503,7 @@ impl EmbeddedHost for Drivers {
             "mock" => MockConfig::from_params(params).map(|_| ()),
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
-            "mockdev" | "modbus" => Tree::from_params(params).map(|_| ()),
+            "mockdev" | "modbus" | "mqtt" => Tree::from_params(params).map(|_| ()),
             d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
         }
     }
@@ -514,6 +520,7 @@ impl EmbeddedHost for Drivers {
                 "mock" => start_boxed::<Mock>(session, cfg, params).await,
                 "mockdev" => start_boxed::<Framework<MockDev>>(session, cfg, params).await,
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
+                "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
                 d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
             }
         })
@@ -526,6 +533,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "mock" => wyrm_link_sdk::process::run::<Mock>().await?,
         "mockdev" => wyrm_link_sdk::process::run::<Framework<MockDev>>().await?,
         "modbus" => wyrm_link_sdk::process::run::<Modbus>().await?,
+        "mqtt" => wyrm_link_sdk::process::run::<Mqtt>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())

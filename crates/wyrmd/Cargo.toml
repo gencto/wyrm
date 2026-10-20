@@ -18,6 +18,7 @@ wyrm-gateway.workspace = true
 zeroize.workspace = true
 wyrm-link-mock.workspace = true
 wyrm-link-modbus.workspace = true
+wyrm-link-mqtt.workspace = true
 # Static plugins need the internal runtime API; this crate is the only one
 # that enables `internal`/`plugins`/`unstable`.
 zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_quic", "transport_unixsock-stream"] }
