@@ -78,26 +78,20 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
     let mut a = FieldAttrs::default();
     for attr in attrs.iter().filter(|a| a.path().is_ident("param")) {
         attr.parse_nested_meta(|m| {
-            if m.path.is_ident("default") {
-                a.default = Some(m.value()?.parse()?);
-            } else if m.path.is_ident("min") {
-                a.min = Some(m.value()?.parse()?);
-            } else if m.path.is_ident("max") {
-                a.max = Some(m.value()?.parse()?);
-            } else if m.path.is_ident("secret") {
-                a.secret = true;
-            } else if m.path.is_ident("enum") {
-                a.is_enum = true;
-            } else if m.path.is_ident("desc") {
-                let s: syn::LitStr = m.value()?.parse()?;
-                a.desc = Some(s.value());
-            } else if m.path.is_ident("name") {
-                let s: syn::LitStr = m.value()?.parse()?;
-                a.name = Some(s.value());
-            } else {
-                return Err(m.error(
-                    "unknown param attribute; expected default, min, max, secret, desc, name or enum",
-                ));
+            let key = m.path.get_ident().map(ToString::to_string);
+            match key.as_deref() {
+                Some("default") => a.default = Some(m.value()?.parse()?),
+                Some("min") => a.min = Some(m.value()?.parse()?),
+                Some("max") => a.max = Some(m.value()?.parse()?),
+                Some("secret") => a.secret = true,
+                Some("enum") => a.is_enum = true,
+                Some("desc") => a.desc = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                Some("name") => a.name = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                _ => {
+                    return Err(m.error(
+                        "unknown param attribute; expected default, min, max, secret, desc, name or enum",
+                    ))
+                }
             }
             Ok(())
         })?;
@@ -364,12 +358,12 @@ fn expand_enum(input: &DeriveInput) -> syn::Result<Tokens> {
         let mut name = snake(&v.ident.to_string());
         for attr in v.attrs.iter().filter(|a| a.path().is_ident("param")) {
             attr.parse_nested_meta(|m| {
-                if m.path.is_ident("name") {
-                    let s: syn::LitStr = m.value()?.parse()?;
-                    name = s.value();
-                    Ok(())
-                } else {
-                    Err(m.error("expected name = \"...\""))
+                match m.path.get_ident().map(ToString::to_string).as_deref() {
+                    Some("name") => {
+                        name = m.value()?.parse::<syn::LitStr>()?.value();
+                        Ok(())
+                    }
+                    _ => Err(m.error("expected name = \"...\"")),
                 }
             })?;
         }
