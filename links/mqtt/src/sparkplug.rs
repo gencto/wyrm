@@ -322,6 +322,19 @@ pub fn cmd_topic(group: &str, edge: &str, device: &str) -> String {
     }
 }
 
+// State is fed by whatever the MQTT broker sends: bound it.
+const MAX_NODES: usize = 1024;
+const MAX_DEVICES: usize = 1024;
+const MAX_METRICS: usize = 4096;
+const MAX_NAME: usize = 256;
+
+/// Insert unless the map is full (existing keys are always updated).
+fn put<K: std::hash::Hash + Eq, V>(m: &mut HashMap<K, V>, k: K, v: V) {
+    if m.len() < MAX_METRICS || m.contains_key(&k) {
+        m.insert(k, v);
+    }
+}
+
 /// Metrics of one edge node or device.
 #[derive(Debug, Default)]
 struct Entity {
@@ -339,16 +352,18 @@ impl Entity {
             ..Default::default()
         };
         for m in metrics {
-            let Some(name) = &m.name else { continue };
+            let Some(name) = m.name.as_ref().filter(|n| n.len() <= MAX_NAME) else {
+                continue;
+            };
             if let Some(a) = m.alias {
-                self.aliases.insert(a, name.clone());
+                put(&mut self.aliases, a, name.clone());
             }
             let dt = m.datatype.and_then(DataType::from_code);
             if let Some(dt) = dt {
-                self.types.insert(name.clone(), dt);
+                put(&mut self.types, name.clone(), dt);
             }
             if let Ok(v) = metric_value(dt, m) {
-                self.values.insert(name.clone(), v);
+                put(&mut self.values, name.clone(), v);
             }
         }
     }
@@ -375,8 +390,11 @@ impl Entity {
                 .datatype
                 .and_then(DataType::from_code)
                 .or_else(|| self.types.get(&name).copied());
+            if name.len() > MAX_NAME {
+                continue;
+            }
             if let Ok(v) = metric_value(dt, m) {
-                self.values.insert(name, v);
+                put(&mut self.values, name, v);
             }
         }
         unknown
@@ -418,10 +436,16 @@ impl State {
     /// to rebirth (DATA that cannot be mapped), at most once per
     /// [`REBIRTH_PERIOD`].
     pub fn apply(&mut self, t: &Topic<'_>, p: &Payload, now: Instant) -> bool {
-        let node = self
-            .nodes
-            .entry((t.group.to_owned(), t.edge.to_owned()))
-            .or_default();
+        let id = (t.group.to_owned(), t.edge.to_owned());
+        if self.nodes.len() >= MAX_NODES && !self.nodes.contains_key(&id) {
+            return false;
+        }
+        let node = self.nodes.entry(id).or_default();
+        if let Some(d) = t.device {
+            if node.devices.len() >= MAX_DEVICES && !node.devices.contains_key(d) {
+                return false;
+            }
+        }
         let unknown = match (t.kind, t.device) {
             (MsgType::NBirth, _) => {
                 node.ent.birth(&p.metrics);
@@ -643,6 +667,41 @@ mod tests {
             metrics,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn state_is_bounded() {
+        let mut s = State::default();
+        let now = Instant::now();
+        let one = payload(vec![metric(
+            Some("v"),
+            None,
+            DataType::Double,
+            MetricValue::Double(1.0),
+        )]);
+        for i in 0..MAX_DEVICES + 10 {
+            let topic = format!("spBv1.0/g/DBIRTH/e/d{i}");
+            s.apply(&parse_topic(&topic).unwrap(), &one, now);
+        }
+        let node = &s.nodes[&("g".to_owned(), "e".to_owned())];
+        assert_eq!(node.devices.len(), MAX_DEVICES);
+        let many: Vec<Metric> = (0..MAX_METRICS + 10)
+            .map(|i| {
+                metric(
+                    Some(&format!("m{i}")),
+                    None,
+                    DataType::Double,
+                    MetricValue::Double(1.0),
+                )
+            })
+            .collect();
+        s.apply(
+            &parse_topic("spBv1.0/g/NBIRTH/e").unwrap(),
+            &payload(many),
+            now,
+        );
+        let node = &s.nodes[&("g".to_owned(), "e".to_owned())];
+        assert_eq!(node.ent.values.len(), MAX_METRICS);
     }
 
     #[test]

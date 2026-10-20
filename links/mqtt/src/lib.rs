@@ -50,6 +50,42 @@ const MAX_PACKET: usize = 256 * 1024;
 tokio::task_local! {
     /// The link's secrets while connection params are parsed (see [`Mqtt`]).
     static SECRETS: SecretStore;
+    /// Where each secret may be sent (see [`Bindings`]).
+    static BINDINGS: Bindings;
+}
+
+/// Where a password goes: host, port, tls, CA file.
+type Dest = (String, u16, bool, String);
+
+/// Each `auth_ref` is bound to the destinations of the connections that
+/// use it in the bootstrap tree (`~def`, set by the admin at install).
+/// Connections added or edited at runtime (`config` on the link's tree,
+/// a lower bar) may use a secret only for one of those destinations, so
+/// a tree edit cannot redirect the password to another host.
+#[derive(Clone, Default)]
+struct Bindings {
+    /// `true` while the bootstrap tree is parsed: record instead of check.
+    recording: bool,
+    map: Arc<Mutex<HashMap<String, HashSet<Dest>>>>,
+}
+
+impl Bindings {
+    fn admit(&self, auth_ref: &str, dest: Dest) -> wyrm_link_sdk::Result<()> {
+        let mut m = self.map.lock().unwrap_or_else(|p| p.into_inner());
+        if self.recording {
+            m.entry(auth_ref.to_owned()).or_default().insert(dest);
+            return Ok(());
+        }
+        if m.get(auth_ref).is_some_and(|d| d.contains(&dest)) {
+            Ok(())
+        } else {
+            Err(bad(
+                "auth_ref",
+                "this secret is bound to the destinations in the link's install \
+                 params; change host/port/tls/ca_file there",
+            ))
+        }
+    }
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -182,6 +218,11 @@ impl Params for Conn {
                     "tls",
                     "a password is never sent in plaintext to a non-loopback host",
                 ));
+            }
+            let dest = (c.host.clone(), c.port, c.tls, c.ca_file.clone());
+            match BINDINGS.try_with(|b| b.admit(&c.auth_ref, dest)) {
+                Ok(r) => r?,
+                Err(_) => return Err(bad("auth_ref", "no secret bindings in this context")),
             }
             let s = resolve_secret(&c.auth_ref)?;
             if s.expose_str().is_none() {
@@ -866,6 +907,7 @@ impl Driver for MqttDriver {
 pub struct Mqtt {
     inner: Framework<MqttDriver>,
     secrets: SecretStore,
+    bindings: Bindings,
 }
 
 impl Link for Mqtt {
@@ -875,13 +917,28 @@ impl Link for Mqtt {
 
     async fn start(tree: Tree, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
         let secrets = ctx.secrets().clone();
+        let recording = Bindings {
+            recording: true,
+            ..Default::default()
+        };
         let inner = SECRETS
             .scope(
                 secrets.clone(),
-                <Framework<MqttDriver> as Link>::start(tree, ctx),
+                BINDINGS.scope(
+                    recording.clone(),
+                    <Framework<MqttDriver> as Link>::start(tree, ctx),
+                ),
             )
             .await?;
-        Ok(Self { inner, secrets })
+        let bindings = Bindings {
+            recording: false,
+            map: recording.map,
+        };
+        Ok(Self {
+            inner,
+            secrets,
+            bindings,
+        })
     }
 
     async fn on_set(
@@ -904,7 +961,10 @@ impl Link for Mqtt {
         SECRETS
             .scope(
                 self.secrets.clone(),
-                self.inner.on_invoke(path, action, args, who, out),
+                BINDINGS.scope(
+                    self.bindings.clone(),
+                    self.inner.on_invoke(path, action, args, who, out),
+                ),
             )
             .await
     }
@@ -971,8 +1031,15 @@ mod tests {
         // outside a link: no store
         assert!(Conn::from_value(&args).is_err());
         let store: SecretStore = [("broker", Secret::new("pw"))].into_iter().collect();
+        let rec = Bindings {
+            recording: true,
+            ..Default::default()
+        };
         let c = SECRETS
-            .scope(store.clone(), async { Conn::from_value(&args) })
+            .scope(
+                store.clone(),
+                BINDINGS.scope(rec.clone(), async { Conn::from_value(&args) }),
+            )
             .await
             .unwrap();
         assert_eq!(c.password.as_ref().and_then(Secret::expose_str), Some("pw"));
@@ -982,7 +1049,10 @@ mod tests {
         // missing secret, plaintext to a remote host
         let empty = SecretStore::default();
         assert!(SECRETS
-            .scope(empty, async { Conn::from_value(&args) })
+            .scope(
+                empty,
+                BINDINGS.scope(rec.clone(), async { Conn::from_value(&args) }),
+            )
             .await
             .is_err());
         let remote = map(&[
@@ -991,10 +1061,33 @@ mod tests {
             ("auth_ref", "broker".into()),
         ]);
         let e = SECRETS
-            .scope(store, async { Conn::from_value(&remote) })
+            .scope(
+                store.clone(),
+                BINDINGS.scope(rec.clone(), async { Conn::from_value(&remote) }),
+            )
             .await
             .unwrap_err();
         assert!(e.message.starts_with("tls:"), "{}", e.message);
+        // at runtime the secret goes only where the install params sent it
+        let runtime = Bindings {
+            recording: false,
+            map: rec.map,
+        };
+        let parse = |v: Value| {
+            SECRETS.scope(
+                store.clone(),
+                BINDINGS.scope(runtime.clone(), async move { Conn::from_value(&v) }),
+            )
+        };
+        assert!(parse(args.clone()).await.is_ok(), "bound destination");
+        let moved = map(&[
+            ("host", "127.0.0.1".into()),
+            ("port", 1884u64.into()),
+            ("username", "u".into()),
+            ("auth_ref", "broker".into()),
+        ]);
+        let e = parse(moved).await.unwrap_err();
+        assert!(e.message.contains("bound"), "{}", e.message);
     }
 
     #[test]
