@@ -18,7 +18,9 @@ pub struct User {
     pub hash: String,
     pub roles: Vec<String>,
     pub disabled: bool,
-    /// Bumped on every password change and disable: older sessions stop.
+    /// Set from the store-wide counter at creation, password change and
+    /// disable: older sessions stop, also those of an earlier user with the
+    /// same name (the counter never goes back).
     pub gen: u64,
 }
 
@@ -61,9 +63,16 @@ pub enum Op {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UserDb {
     pub users: BTreeMap<String, User>,
+    /// Next generation; survives `RemoveUser`.
+    pub next_gen: u64,
 }
 
 impl UserDb {
+    fn bump(&mut self) -> u64 {
+        self.next_gen += 1;
+        self.next_gen
+    }
+
     fn get_mut(&mut self, name: &str) -> Result<&mut User, String> {
         self.users
             .get_mut(name)
@@ -72,7 +81,7 @@ impl UserDb {
 }
 
 impl wyrm_state::State for UserDb {
-    const SCHEMA: u32 = 1;
+    const SCHEMA: u32 = 2;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -81,28 +90,32 @@ impl wyrm_state::State for UserDb {
                 if self.users.contains_key(name) {
                     return Err(format!("user {name} exists"));
                 }
+                let gen = self.bump();
                 self.users.insert(
                     name.clone(),
                     User {
                         hash: hash.clone(),
                         roles: roles.clone(),
                         disabled: false,
-                        gen: 0,
+                        gen,
                     },
                 );
             }
             Op::SetPassword { name, hash } => {
+                let gen = self.bump();
                 let u = self.get_mut(name)?;
                 u.hash = hash.clone();
-                u.gen += 1;
+                u.gen = gen;
             }
             Op::SetRoles { name, roles } => {
                 self.get_mut(name)?.roles = roles.clone();
             }
             Op::Disable { name, disabled } => {
+                let was = self.get_mut(name)?.disabled;
+                let gen = (*disabled && !was).then(|| self.bump());
                 let u = self.get_mut(name)?;
-                if *disabled && !u.disabled {
-                    u.gen += 1;
+                if let Some(g) = gen {
+                    u.gen = g;
                 }
                 u.disabled = *disabled;
             }
@@ -185,9 +198,12 @@ mod tests {
             disabled: true,
         })
         .unwrap();
-        assert_eq!(db.users["olena"].gen, 2);
+        assert_eq!(db.users["olena"].gen, 3);
         db.apply(&Op::RemoveUser("olena".into())).unwrap();
         assert!(db.apply(&Op::RemoveUser("olena".into())).is_err());
+        // a new user with the same name never reuses a generation
+        db.apply(&add).unwrap();
+        assert_eq!(db.users["olena"].gen, 4);
     }
 
     #[test]

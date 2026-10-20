@@ -571,9 +571,14 @@ fn proves_targets(
         let (claims, perm) = verifier
             .verify(tok, ke, None, now_us() / 1_000_000)
             .map_err(|_| denied("proof rejected"))?;
+        // The flow token for this target carries up to `maxperm`.
+        let needed = def.maxperm.max(Perm::Write);
         let same = who.claims.as_ref().is_some_and(|c| c.sub == claims.sub);
-        if !same || perm < Perm::Write {
-            return Err(denied("proof does not give the deployer write"));
+        if !same || perm < needed {
+            return Err(denied(&format!(
+                "proof does not give the deployer {}",
+                needed.name()
+            )));
         }
     }
     Ok(())
