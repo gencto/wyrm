@@ -481,11 +481,16 @@ async fn flow_commands_a_link_through_wyrmd() {
         ("permissions", m(&[("maxperm", s("write"))])),
     ]);
     let flows = format!("wy/{SITE}/flows");
-    let mut args = BTreeMap::new();
-    args.insert("def".to_owned(), def.clone());
-    c.invoke_one(&flows, "deploy", Value::Map(args))
-        .await
-        .unwrap();
+    let proofs = wyrm_flow::command_targets(&def, SITE)
+        .unwrap()
+        .into_iter()
+        .map(|t| {
+            let p = c.proof(&t).unwrap();
+            (t, Value::Bytes(p))
+        })
+        .collect();
+    let args = m(&[("def", def.clone()), ("proofs", Value::Map(proofs))]);
+    c.invoke_one(&flows, "deploy", args).await.unwrap();
     let res = format!("{flows}/shed/nodes/res/~val");
     let q = eventually("flow command result", 10, || {
         let (session, key) = (c.session().clone(), res.clone());
@@ -527,4 +532,102 @@ async fn flow_commands_a_link_through_wyrmd() {
         .collect();
     assert_eq!(names, ["shed"]);
     env.stop().await;
+}
+
+/// Iteration 4: an edge broker connects to a central broker over QUIC with
+/// mTLS, each side trusting the other's CA only on that link. A client of
+/// the central broker lists and reads the edge's links; it cannot write.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_brokers_over_quic() {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir) = (temp_dir("central"), temp_dir("edge"));
+    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{
+            site: "central",
+            data_dir: "{}",
+            listen: ["tcp/127.0.0.1:{c_tcp}"],
+            admin_keys: ["{admin}"],
+            peers: {{
+                listen: "quic/127.0.0.1:{c_quic}",
+                downstream: [{{ site: "edge", ca: "{}" }}],
+            }},
+        }}"#,
+        c_dir.display(),
+        e_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    let edge = Config::from_json5(&format!(
+        r#"{{
+            site: "edge",
+            data_dir: "{}",
+            listen: ["tcp/127.0.0.1:{e_tcp}"],
+            admin_keys: ["{admin}"],
+            peers: {{
+                upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
+                upstream_val_hz: 50,
+            }},
+            {MOCK}
+        }}"#,
+        e_dir.display(),
+        c_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    // Both CAs exist once both daemons are open; brokers read them at start.
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let central = Daemon::open(central, exe.clone()).unwrap();
+    let edge = Daemon::open(edge, exe).unwrap();
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let (e_stop, e_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    let e_task = tokio::spawn(edge.run_until(async {
+        let _ = e_rx.await;
+    }));
+
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{c_tcp}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "5000").unwrap();
+    let session = zenoh::open(zc).await.unwrap();
+    let c = WyrmClient::new(session)
+        .with_tokens(Arc::new(SigningTokens::new(key, "edge")))
+        .with_timeout(Duration::from_secs(3));
+
+    let names = eventually("edge links seen from central", 15, || {
+        let c = &c;
+        async move {
+            let ch = c.children("wy/edge/down").await.ok()?;
+            let names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
+            (!names.is_empty()).then_some(names)
+        }
+    })
+    .await;
+    assert_eq!(names, ["mock"]);
+    let mut vals = c.subscribe("wy/edge/down/mock/g0/p0").await.unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(ev) = vals.next().await {
+            if let ValEvent::Sample { .. } = ev {
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    assert_eq!(got, Ok(true), "edge samples reach the central client");
+    // The upstream site is read-only: the edge ACL drops its commands.
+    assert!(c.set("wy/edge/down/mock/g0/p0", 1.0).await.is_err());
+
+    let _ = c_stop.send(());
+    let _ = e_stop.send(());
+    e_task.await.unwrap().unwrap();
+    c_task.await.unwrap().unwrap();
 }

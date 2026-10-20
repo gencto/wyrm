@@ -160,6 +160,12 @@ impl WyrmClient {
         &self.session
     }
 
+    /// A token for `key` from the configured source, e.g. a proof of rights
+    /// on a flow's command target (`flows/~act/deploy {proofs}`).
+    pub fn proof(&self, key: &str) -> Option<Vec<u8>> {
+        self.tokens.as_ref().and_then(|t| t.token(key))
+    }
+
     fn token_att(&self, key: &str) -> Attachment {
         Attachment {
             ptok: self.tokens.as_ref().and_then(|t| t.token(key)),

@@ -12,4 +12,4 @@ pub mod runtime;
 pub mod script;
 pub mod store;
 
-pub use engine::{Engine, EngineStart, FlowHost};
+pub use engine::{command_targets, Engine, EngineStart, FlowHost};

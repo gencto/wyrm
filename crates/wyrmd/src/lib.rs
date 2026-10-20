@@ -13,7 +13,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use wyrm_admin::{Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, RunningLink};
+use wyrm_admin::{
+    Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
+};
 use wyrm_core::Value;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_link_mock::df::MockDev;
@@ -70,6 +72,114 @@ pub struct Config {
     pub metrics_interval_ms: u64,
     #[serde(default = "default_restarts")]
     pub max_restarts: u32,
+    /// Router-to-router links to other sites (iteration 4), QUIC + mTLS.
+    #[serde(default)]
+    pub peers: PeersSection,
+}
+
+/// Brokers of other sites. Each side trusts the other's CA only on the QUIC
+/// broker link; the generated ACL lets an upstream site read our
+/// `down/**` and `flows/**` (commands still need a `ptok` from our admin)
+/// and lets a downstream site serve its own `wy/<site>/**`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeersSection {
+    /// QUIC listener for downstream brokers (`quic/0.0.0.0:7448`).
+    #[serde(default)]
+    pub listen: Option<String>,
+    /// Sites this broker connects to.
+    #[serde(default)]
+    pub upstream: Vec<UpstreamPeer>,
+    /// Sites that connect to this broker.
+    #[serde(default)]
+    pub downstream: Vec<DownstreamPeer>,
+    /// Max rate per key of `~val` samples sent over QUIC (Hz); none = all.
+    #[serde(default)]
+    pub upstream_val_hz: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpstreamPeer {
+    pub site: String,
+    /// `quic/<host>:<port>`; the host must be a SAN of its broker certificate.
+    pub endpoint: String,
+    /// CA certificate (PEM) of that site.
+    pub ca: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DownstreamPeer {
+    pub site: String,
+    /// CA certificate (PEM) of that site.
+    pub ca: PathBuf,
+}
+
+impl PeersSection {
+    fn is_empty(&self) -> bool {
+        self.upstream.is_empty() && self.downstream.is_empty()
+    }
+
+    fn validate(&self, own_site: &str) -> Result<(), Error> {
+        let quic = |what: &str, ep: &str| -> Result<(), Error> {
+            if !ep.starts_with("quic/") || ep.contains(['#', '?']) {
+                return Err(format!("{what} {ep}: expected quic/<host>:<port>").into());
+            }
+            Ok(())
+        };
+        let path = |what: &str, p: &std::path::Path| -> Result<(), Error> {
+            // Endpoint parameters are `;`-separated.
+            if p.to_str().is_none_or(|s| s.contains([';', '#', '?'])) {
+                return Err(
+                    format!("{what} {}: path must be UTF-8 without ; # ?", p.display()).into(),
+                );
+            }
+            Ok(())
+        };
+        let mut seen = std::collections::HashSet::new();
+        for (site, kind) in self
+            .upstream
+            .iter()
+            .map(|u| (&u.site, "upstream"))
+            .chain(self.downstream.iter().map(|d| (&d.site, "downstream")))
+        {
+            wyrm_core::keyspace::validate_segment(site)
+                .map_err(|e| format!("peers.{kind} site: {e}"))?;
+            if site == own_site || !seen.insert(site.clone()) {
+                return Err(format!("peers.{kind}: site {site} repeated or own").into());
+            }
+        }
+        for u in &self.upstream {
+            quic("peers.upstream endpoint", &u.endpoint)?;
+            path("peers.upstream ca", &u.ca)?;
+        }
+        for d in &self.downstream {
+            path("peers.downstream ca", &d.ca)?;
+        }
+        match (&self.listen, self.downstream.is_empty()) {
+            (Some(ep), false) => quic("peers.listen", ep)?,
+            (Some(_), true) => return Err("peers.listen without peers.downstream".into()),
+            (None, false) => return Err("peers.downstream needs peers.listen".into()),
+            (None, true) => {}
+        }
+        if let Some(hz) = self.upstream_val_hz {
+            if !(hz.is_finite() && hz > 0.0) {
+                return Err("peers.upstream_val_hz: expected > 0".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn peer_config(&self) -> PeerConfig {
+        PeerConfig {
+            peers: wyrm_admin::acl::Peers {
+                upstream: self.upstream.iter().map(|u| u.site.clone()).collect(),
+                downstream: self.downstream.iter().map(|d| d.site.clone()).collect(),
+            },
+            trusted_cas: self.downstream.iter().map(|d| d.ca.clone()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -180,6 +290,7 @@ impl Config {
                 tracing::warn!(endpoint = %ep, "plaintext endpoint off loopback (insecure_plaintext)");
             }
         }
+        cfg.peers.validate(&cfg.site)?;
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
             if let Some(m) = &l.mode {
@@ -201,10 +312,13 @@ impl Config {
             .collect()
     }
 
+    /// Broker certificates are needed for `tls/`/`quic/` listeners and peers.
     fn has_tls(&self) -> bool {
-        self.listen
-            .iter()
-            .any(|e| e.starts_with("tls/") || e.starts_with("quic/"))
+        !self.peers.is_empty()
+            || self
+                .listen
+                .iter()
+                .any(|e| e.starts_with("tls/") || e.starts_with("quic/"))
     }
 
     /// Endpoint for process links: the first `tls/` listener, on loopback.
@@ -239,8 +353,38 @@ impl Config {
     fn zenoh_config(&self, ctl: &Control) -> Result<zenoh::Config, Error> {
         let mut c = zenoh::Config::default();
         c.insert_json5("mode", r#""router""#)?;
-        c.insert_json5("listen/endpoints", &json(&self.listen))?;
-        c.insert_json5("connect/endpoints", &json(&self.connect))?;
+        // Peer CAs only on the broker links: per-endpoint trust overrides
+        // the global root (our own CA) for these endpoints alone.
+        let mut listen = self.listen.clone();
+        if let Some(ep) = &self.peers.listen {
+            listen.push(format!(
+                "{ep}#root_ca_certificate_file={}",
+                ctl.peer_trust_path().display()
+            ));
+        }
+        let mut connect = self.connect.clone();
+        for u in &self.peers.upstream {
+            connect.push(format!(
+                "{}#root_ca_certificate_file={}",
+                u.endpoint,
+                u.ca.display()
+            ));
+        }
+        c.insert_json5("listen/endpoints", &json(&listen))?;
+        c.insert_json5("connect/endpoints", &json(&connect))?;
+        if let Some(hz) = self.peers.upstream_val_hz {
+            c.insert_json5(
+                "downsampling",
+                &serde_json::json!([{
+                    "id": "upstream-val",
+                    "link_protocols": ["quic"],
+                    "flows": ["egress"],
+                    "messages": ["put"],
+                    "rules": [{ "key_expr": format!("wy/{}/down/**/~val", self.site), "freq": hz }],
+                }])
+                .to_string(),
+            )?;
+        }
         c.insert_json5(
             "scouting/multicast/enabled",
             &json(&self.multicast_scouting),
@@ -373,6 +517,7 @@ impl Broker {
             lcfg,
             EngineStart {
                 host: flows.clone(),
+                admin_keys: ctl.config().admin_keys.clone(),
             },
         )
         .await
@@ -447,6 +592,7 @@ impl Daemon {
             max_restarts: cfg.max_restarts,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
+        ctl.set_peers(cfg.peers.peer_config());
         ctl.bootstrap(&cfg.config_links())?;
         Ok(Self {
             cfg,

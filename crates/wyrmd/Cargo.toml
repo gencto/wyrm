@@ -17,7 +17,7 @@ wyrm-link-mock.workspace = true
 wyrm-link-modbus.workspace = true
 # Static plugins need the internal runtime API; this crate is the only one
 # that enables `internal`/`plugins`/`unstable`.
-zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_unixsock-stream"] }
+zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_quic", "transport_unixsock-stream"] }
 zenoh-plugin-storage-manager.workspace = true
 zenoh-plugin-rest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }

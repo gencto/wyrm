@@ -1,7 +1,6 @@
 //! Flow engine end to end on an in-memory session: a mock link as the
 //! data source and command target, the engine on `wy/test/flows`.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,9 +133,16 @@ async fn engine_on(session: &zenoh::Session, dir: &std::path::Path) -> LinkHandl
     let mut lcfg = LinkConfig::new(SITE, "flows");
     lcfg.root = Some(format!("wy/{SITE}/flows"));
     lcfg.admin_keys = vec![key.verifying_key()];
-    wyrm_link_sdk::spawn::<Engine>(session.clone(), lcfg, EngineStart { host })
-        .await
-        .unwrap()
+    wyrm_link_sdk::spawn::<Engine>(
+        session.clone(),
+        lcfg,
+        EngineStart {
+            host,
+            admin_keys: vec![key.verifying_key()],
+        },
+    )
+    .await
+    .unwrap()
 }
 
 impl Env {
@@ -177,10 +183,12 @@ impl Env {
     }
 
     async fn deploy(&self, def: Value) -> Result<(), wyrm_client::ClientError> {
-        let mut args = BTreeMap::new();
-        args.insert("def".to_owned(), def);
         self.client
-            .invoke_one(&format!("wy/{SITE}/flows"), "deploy", Value::Map(args))
+            .invoke_one(
+                &format!("wy/{SITE}/flows"),
+                "deploy",
+                deploy_args(&self.client, def),
+            )
             .await
             .map(|_| ())
     }
@@ -202,6 +210,16 @@ impl Env {
             m.stop().await;
         }
     }
+}
+
+/// `{def, proofs}`: one token from the deployer per command target.
+fn deploy_args(c: &WyrmClient, def: Value) -> Value {
+    let proofs = wyrm_flow::command_targets(&def, SITE)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|t| c.proof(&t).map(|p| (t, Value::Bytes(p))))
+        .collect();
+    map(&[("def", def), ("proofs", Value::Map(proofs))])
 }
 
 async fn wait<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
@@ -385,12 +403,58 @@ async fn deploy_needs_config() {
     let c = WyrmClient::new(env.session.clone())
         .with_tokens(Arc::new(writer))
         .with_timeout(Duration::from_secs(3));
-    let mut args = BTreeMap::new();
-    args.insert("def".to_owned(), peak(1, "a.v + b.v"));
     let e = c
-        .invoke_one(&format!("wy/{SITE}/flows"), "deploy", Value::Map(args))
+        .invoke_one(
+            &format!("wy/{SITE}/flows"),
+            "deploy",
+            deploy_args(&c, peak(1, "a.v + b.v")),
+        )
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    env.stop().await;
+}
+
+/// `config` on `flows/**` alone does not let a flow command devices: the
+/// deployer proves its own rights on every target.
+#[tokio::test(flavor = "multi_thread")]
+async fn deploy_needs_proofs_for_targets() {
+    let env = Env::start("proofs").await;
+    let flows = format!("wy/{SITE}/flows");
+    // no proofs
+    let e = env
+        .client
+        .invoke_one(&flows, "deploy", map(&[("def", peak(1, "a.v + b.v"))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // a deployer whose grants cover only flows/** cannot mint proofs
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let flows_only = SigningTokens::new(key, SITE).grants(vec![wyrm_core::ptok::Grant {
+        k: format!("{flows}/**"),
+        p: wyrm_core::Perm::Config,
+    }]);
+    let c = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(flows_only))
+        .with_timeout(Duration::from_secs(3));
+    let e = c
+        .invoke_one(&flows, "deploy", deploy_args(&c, peak(1, "a.v + b.v")))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // targets outside wy/<site>/down/ or with wildcards are refused
+    for path in ["sys/links/mock", "down/*"] {
+        let mut d = peak(1, "a.v + b.v");
+        if let Value::Map(m) = &mut d {
+            if let Some(Value::Map(nodes)) = m.get_mut("nodes") {
+                if let Some(Value::Map(shed)) = nodes.get_mut("shed") {
+                    shed.insert("path".into(), s(path));
+                }
+            }
+        }
+        let e = env.deploy(d).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{path}: {e}");
+    }
+    assert!(env.deploy(peak(1, "a.v + b.v")).await.is_ok());
     env.stop().await;
 }

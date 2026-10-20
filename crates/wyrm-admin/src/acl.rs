@@ -41,7 +41,8 @@ fn rule(id: &str, flows: &[&str], messages: &[&str], keys: &[String]) -> Value {
 #[derive(Debug, Clone, Default)]
 pub struct Peers {
     /// Sites this broker connects to; they may only read our `down/**` and
-    /// `flows/**` (queries reach links, whose commands still need a `ptok`).
+    /// `flows/**` (subscribe, liveliness, queries on `~meta|~val|~def|~state`;
+    /// no `~set`/`~act`).
     pub upstream: Vec<String>,
     /// Sites that connect to this broker; they serve their own `wy/<site>/**`.
     pub downstream: Vec<String>,
@@ -61,6 +62,14 @@ pub fn access_control_with_peers(
     peers: &Peers,
 ) -> Value {
     let all_site = vec![format!("wy/{site}/**")];
+    // Requesters here may also ask downstream sites (their brokers serve
+    // `wy/<d>/**` over the peer link; their ACL keeps us read-only).
+    let mut requester_keys = all_site.clone();
+    let mut adv_keys = vec![format!("wy/{site}/**/@adv/sub/**")];
+    for d in &peers.downstream {
+        requester_keys.push(format!("wy/{d}/**"));
+        adv_keys.push(format!("wy/{d}/**/@adv/sub/**"));
+    }
     let mut rules = vec![
         rule(
             "requester-in",
@@ -71,20 +80,15 @@ pub fn access_control_with_peers(
                 "declare_liveliness_subscriber",
                 "liveliness_query",
             ],
-            &all_site,
+            &requester_keys,
         ),
         rule(
             "requester-out",
             &["egress"],
             &["put", "delete", "reply", "liveliness_token"],
-            &all_site,
+            &requester_keys,
         ),
-        rule(
-            "requester-adv",
-            &["ingress", "egress"],
-            ALL,
-            &[format!("wy/{site}/**/@adv/sub/**")],
-        ),
+        rule("requester-adv", &["ingress", "egress"], ALL, &adv_keys),
         rule(
             "broker-watch",
             &["ingress", "egress"],
@@ -145,12 +149,26 @@ pub fn access_control_with_peers(
             "upstream-in",
             &["ingress"],
             &[
-                "query",
                 "declare_subscriber",
                 "declare_liveliness_subscriber",
                 "liveliness_query",
             ],
             &readable,
+        ));
+        // Read-only: queries only on read suffixes, never `~set`/`~act`.
+        let read_suffixes: Vec<String> = ["down", "flows"]
+            .iter()
+            .flat_map(|t| {
+                ["~meta", "~val", "~def", "~state"]
+                    .iter()
+                    .map(move |sfx| format!("wy/{site}/{t}/**/{sfx}"))
+            })
+            .collect();
+        rules.push(rule(
+            "upstream-query",
+            &["ingress"],
+            &["query"],
+            &read_suffixes,
         ));
         rules.push(rule(
             "upstream-out",
@@ -174,7 +192,7 @@ pub fn access_control_with_peers(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out"], "subjects": ["upstream"] }));
     }
     for d in &peers.downstream {
         rules.push(rule(

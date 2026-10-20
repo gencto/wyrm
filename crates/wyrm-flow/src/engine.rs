@@ -8,7 +8,10 @@
 //! Hot swap: the old run stops (drains ≤ 1 s) and the new one starts with
 //! the state of every node whose id and config hash did not change.
 //! `invoke`/`set` sinks act with a token minted per flow, scoped by the
-//! flow's `permissions.maxperm`.
+//! flow's `permissions.maxperm`. Links trust the flow key, so a deployer must
+//! prove its own rights on every command target: `deploy {def, proofs}`
+//! carries one admin-signed token per target key (same subject, `write` or
+//! more), and targets must be exact keys under `wy/<site>/down/`.
 
 use crate::def::{self, FlowDef};
 use crate::nodes::{Io, Ports};
@@ -26,6 +29,7 @@ use wyrm_client::{SigningTokens, WyrmClient};
 use wyrm_core::meta::{ActionResult, ParamMeta, Profile, TextOrCode};
 use wyrm_core::ptok::Grant;
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
+use wyrm_link_sdk::auth::Verifier;
 use wyrm_link_sdk::{now_us, Caller, Link, LinkCtx, LinkError, ReplySink, VerifyingKey};
 use wyrm_state::Store;
 
@@ -489,6 +493,13 @@ async fn supervise(
 }
 
 /// Full keys of every `invoke`/`set` target of `def`.
+/// Full keys of a definition's command targets (`…/~act/<a>`, `…/~set`),
+/// for which a deployer sends `proofs`.
+pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, String> {
+    let def = def::parse(raw).map_err(|e| e.0)?;
+    Ok(targets(&def, site))
+}
+
 fn targets(def: &FlowDef, site: &str) -> Vec<String> {
     def.nodes
         .values()
@@ -524,13 +535,61 @@ fn caller_covers(raw: &Value, who: &Caller) -> Result<(), LinkError> {
     Ok(())
 }
 
+/// The deployer proves rights on every command target: the flow key is
+/// trusted by links, so without this a `config` right on `flows/**` would
+/// become a `write` right on every device.
+fn proves_targets(
+    raw: &Value,
+    args: &Value,
+    who: &Caller,
+    site: &str,
+    verifier: &Verifier,
+) -> Result<(), LinkError> {
+    let Ok(def) = def::parse(raw) else {
+        return Ok(()); // the compiler reports it
+    };
+    let proofs = match args {
+        Value::Map(m) => match m.get("proofs") {
+            Some(Value::Map(p)) => Some(p),
+            None => None,
+            Some(_) => return Err(LinkError::invalid_parameter("proofs: map key → token")),
+        },
+        _ => None,
+    };
+    let down = format!("wy/{site}/down/");
+    for t in targets(&def, site) {
+        if !t.starts_with(&down) || t.contains(['*', '$']) {
+            return Err(LinkError::invalid_parameter(format!(
+                "{t}: command targets must be exact keys under {down}"
+            )));
+        }
+        let denied = |why: &str| LinkError::new(Status::PermissionDenied, format!("{t}: {why}"));
+        let Some(Value::Bytes(tok)) = proofs.and_then(|p| p.get(&t)) else {
+            return Err(denied("no proof of the deployer's rights"));
+        };
+        let ke = zenoh::key_expr::keyexpr::new(&t).map_err(|_| denied("bad key"))?;
+        let (claims, perm) = verifier
+            .verify(tok, ke, None, now_us() / 1_000_000)
+            .map_err(|_| denied("proof rejected"))?;
+        let same = who.claims.as_ref().is_some_and(|c| c.sub == claims.sub);
+        if !same || perm < Perm::Write {
+            return Err(denied("proof does not give the deployer write"));
+        }
+    }
+    Ok(())
+}
+
 pub struct EngineStart {
     pub host: Arc<FlowHost>,
+    /// Keys that sign deployers' proofs (the admin keys).
+    pub admin_keys: Vec<VerifyingKey>,
 }
 
 /// The `wy/<site>/flows/**` responder.
 pub struct Engine {
     shared: Shared,
+    verifier: Verifier,
+    site: String,
 }
 
 fn def_param() -> ParamMeta {
@@ -548,6 +607,8 @@ impl Link for Engine {
             "deploy",
             ActionMeta::new()
                 .param("def", def_param())
+                // target key → the deployer's token for it
+                .param("proofs", ParamMeta::of(TypeCode::Map))
                 .level(Perm::Config),
         )
         .await?;
@@ -579,7 +640,11 @@ impl Link for Engine {
                 }
             }
         }
-        Ok(Engine { shared })
+        Ok(Engine {
+            shared,
+            verifier: Verifier::new(cfg.admin_keys, ctx.site()),
+            site: ctx.site().to_owned(),
+        })
     }
 
     async fn on_invoke(
@@ -603,6 +668,7 @@ impl Link for Engine {
             ("", "deploy") => {
                 let raw = def_arg()?;
                 caller_covers(&raw, who)?;
+                proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, true, &shared).await?
             }
             ("", "validate") => {
