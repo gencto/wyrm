@@ -290,12 +290,32 @@ impl NodeTree {
         limit: usize,
         authorized: bool,
     ) -> Option<Vec<NodeMeta>> {
+        self.list_with(path, from, limit, authorized, |_| false)
+    }
+
+    /// [`list`](Self::list) with `has_override` set where `overrides(meta)`.
+    pub fn list_with(
+        &self,
+        path: &str,
+        from: usize,
+        limit: usize,
+        authorized: bool,
+        overrides: impl Fn(&NodeMeta) -> bool,
+    ) -> Option<Vec<NodeMeta>> {
         self.nodes.get(path)?;
         Some(
             self.visible_children(path, authorized)
                 .skip(from)
                 .take(limit)
-                .filter_map(|c| self.nodes.get(&join(path, c)).map(Node::summary))
+                .filter_map(|c| {
+                    self.nodes.get(&join(path, c)).map(|n| {
+                        let mut s = n.summary();
+                        if overrides(&n.meta) {
+                            s.has_override = Some(true);
+                        }
+                        s
+                    })
+                })
                 .collect(),
         )
     }

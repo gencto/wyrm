@@ -135,6 +135,42 @@ pub fn expand(meta: &NodeMeta, lookup: impl Fn(&str) -> Option<ProfileDef>) -> N
     out
 }
 
+/// The full field set of profile `name` (its chain folded in).
+pub fn resolved(name: &str, lookup: impl Fn(&str) -> Option<ProfileDef>) -> NodeMeta {
+    let start = NodeMeta {
+        is: Some(Profile::Name(name.to_owned())),
+        ..Default::default()
+    };
+    let mut m = expand(&start, lookup);
+    m.is = None;
+    m
+}
+
+/// `true` if `own` sets an inheritable field to something other than
+/// `base` (spec 02 `has_override`: worth fetching `view=full`).
+pub fn overrides(own: &NodeMeta, base: &NodeMeta) -> bool {
+    fn map_diff<V: PartialEq>(
+        own: &Option<BTreeMap<String, V>>,
+        base: &Option<BTreeMap<String, V>>,
+    ) -> bool {
+        own.as_ref().is_some_and(|o| {
+            o.iter()
+                .any(|(k, v)| base.as_ref().and_then(|b| b.get(k)) != Some(v))
+        })
+    }
+    fn diff<T: PartialEq>(own: &Option<T>, base: &Option<T>) -> bool {
+        own.is_some() && own != base
+    }
+    diff(&own.ty, &base.ty)
+        || diff(&own.unit, &base.unit)
+        || diff(&own.enum_values, &base.enum_values)
+        || diff(&own.writable, &base.writable)
+        || diff(&own.invokable, &base.invokable)
+        || map_diff(&own.cfg, &base.cfg)
+        || map_diff(&own.attr, &base.attr)
+        || map_diff(&own.actions, &base.actions)
+}
+
 /// A profile name per spec 01: `<vendor>:<seg>` (`wy:` for the core).
 pub fn validate_name(name: &str) -> Result<(), String> {
     let Some((vendor, seg)) = name.split_once(':') else {

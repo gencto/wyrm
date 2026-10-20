@@ -17,6 +17,7 @@ use crate::link::{Link, ReplySink, SinkItem};
 use crate::support::{Metrics, SecretStore};
 use ed25519_dalek::VerifyingKey;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::sync::atomic::{self, AtomicU32};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,6 +27,7 @@ use tracing::{debug, warn};
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
+use wyrm_core::profile::{self, ProfileDef};
 use wyrm_core::{Attachment, NodeMeta, Perm, SetRequest, Status, Value};
 use zenoh::handlers::FifoChannelHandler;
 use zenoh::key_expr::keyexpr;
@@ -220,6 +222,7 @@ pub async fn spawn<L: Link>(
         anon_limiter: cfg
             .rate_limit
             .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
+        profiles: Default::default(),
         read_limiter: cfg
             .read_rate_limit
             .map(|(r, b)| crate::guard::RateLimiter::new(r, b)),
@@ -233,7 +236,15 @@ pub async fn spawn<L: Link>(
         audit_suppressed: Default::default(),
         next_rid: AtomicU32::new(1),
     });
-    let query_task = tokio::spawn(serve(shared, queryable));
+    let profiles = shared.profiles.clone();
+    let (psession, psite) = (session.clone(), cfg.site.clone());
+    // One task: aborting it stops the queryable and the profile follower.
+    let query_task = tokio::spawn(async move {
+        tokio::join!(
+            serve(shared, queryable),
+            follow_profiles(psession, psite, profiles)
+        );
+    });
     let link = match L::start(link_cfg, ctx.clone()).await {
         Ok(l) => l,
         Err(e) => {
@@ -341,6 +352,8 @@ struct Shared<C> {
     limiter: Option<crate::guard::RateLimiter>,
     anon_limiter: Option<crate::guard::RateLimiter>,
     read_limiter: Option<crate::guard::RateLimiter>,
+    /// `pub/**` profiles of the site, followed live (spec 02 inheritance).
+    profiles: Profiles,
     shard_limiter: Option<crate::guard::RateLimiter>,
     /// Random per link: a caller cannot pick keys that share a shard.
     shard_seed: std::collections::hash_map::RandomState,
@@ -355,6 +368,56 @@ async fn serve<C: Send + 'static>(
 ) {
     while let Ok(q) = queryable.recv_async().await {
         sh.route(q).await;
+    }
+}
+
+type Profiles = Arc<std::sync::RwLock<HashMap<String, ProfileDef>>>;
+
+/// Keep `cache` equal to `wy/<site>/pub/*/~meta`: subscribe first, then
+/// read everything once (no lost-update window).
+async fn follow_profiles(session: Session, site: String, cache: Profiles) {
+    let prefix = format!("{}/{site}/pub/", keyspace::ROOT);
+    let name_of = |k: &str| {
+        k.strip_prefix(prefix.as_str())
+            .and_then(|r| r.strip_suffix("/~meta"))
+            .map(str::to_owned)
+    };
+    let Ok(sub) = session.declare_subscriber(format!("{prefix}*/~meta")).await else {
+        return;
+    };
+    if let Ok(replies) = session
+        .get(format!("{prefix}*/~meta"))
+        .timeout(Duration::from_secs(5))
+        .await
+    {
+        while let Ok(r) = replies.recv_async().await {
+            let Ok(s) = r.result() else { continue };
+            if let (Some(n), Ok(p)) = (
+                name_of(s.key_expr().as_str()),
+                from_slice::<ProfileDef>(&s.payload().to_bytes()),
+            ) {
+                cache
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(n, p);
+            }
+        }
+    }
+    while let Ok(s) = sub.recv_async().await {
+        let Some(n) = name_of(s.key_expr().as_str()) else {
+            continue;
+        };
+        let mut c = cache.write().unwrap_or_else(|p| p.into_inner());
+        match s.kind() {
+            zenoh::sample::SampleKind::Delete => {
+                c.remove(&n);
+            }
+            zenoh::sample::SampleKind::Put => {
+                if let Ok(p) = from_slice::<ProfileDef>(&s.payload().to_bytes()) {
+                    c.insert(n, p);
+                }
+            }
+        }
     }
 }
 
@@ -423,6 +486,22 @@ async fn reply_here(q: &Query, payload: Vec<u8>, att: Attachment, express: bool)
 
 impl<C: Send + 'static> Shared<C> {
     /// `target`: the node path, or the wildcard key of a fan-in.
+    /// A profile from the followed cache, else a built-in one.
+    fn profile(&self, name: &str) -> Option<ProfileDef> {
+        if let Some(p) = self
+            .profiles
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+        {
+            return Some(p.clone());
+        }
+        profile::builtins()
+            .into_iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, p)| p)
+    }
+
     fn read_allowed(&self, target: &str) -> bool {
         use std::hash::BuildHasher;
         let shard_ok = self.shard_limiter.as_ref().is_none_or(|l| {
@@ -646,13 +725,30 @@ impl<C: Send + 'static> Shared<C> {
             return Ok((Vec::new(), att));
         }
         let payload = match param(q, "view").unwrap_or("full") {
-            "full" => encode(&tree.full(path, authorized).unwrap_or_default())?,
+            "full" => {
+                let m = tree.full(path, authorized).unwrap_or_default();
+                if param(q, "expand") == Some("true") {
+                    encode(&profile::expand(&m, |n| self.profile(n)))?
+                } else {
+                    encode(&m)?
+                }
+            }
             "list" => {
                 let from = parse("from")?.unwrap_or(0);
                 let limit = parse("limit")?
                     .unwrap_or(LIST_LIMIT_MAX)
                     .min(LIST_LIMIT_MAX);
-                encode(&tree.list(path, from, limit, authorized).unwrap_or_default())?
+                let overrides = |m: &NodeMeta| match &m.is {
+                    Some(Profile::Name(n)) => {
+                        profile::overrides(m, &profile::resolved(n, |x| self.profile(x)))
+                    }
+                    _ => false,
+                };
+                encode(
+                    &tree
+                        .list_with(path, from, limit, authorized, overrides)
+                        .unwrap_or_default(),
+                )?
             }
             "keys" => {
                 let filter = crate::tree::KeyFilter::parse(param(q, "match").unwrap_or(""))?;
