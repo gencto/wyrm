@@ -28,7 +28,8 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 struct Env {
-    _gw: Arc<Gateway>,
+    gw: Arc<Gateway>,
+    session: zenoh::Session,
     addr: SocketAddr,
     link: Option<LinkHandle<Mock>>,
     stop: Option<oneshot::Sender<()>>,
@@ -44,6 +45,11 @@ impl Env {
                 ("wy/{site}/down/mock/g1/**".into(), Perm::None),
                 ("wy/{site}/down/**".into(), Perm::Read),
             ],
+        );
+        // config on flows, no rights on devices
+        roles.insert(
+            "flows_only",
+            vec![("wy/{site}/flows/**".into(), Perm::Config)],
         );
         let mut cfg = GatewayConfig::new(SITE, temp_dir(name), "127.0.0.1:0".parse().unwrap());
         cfg.session_ttl = ttl;
@@ -70,14 +76,15 @@ impl Env {
             .await
             .unwrap();
         let (stop, rx) = oneshot::channel::<()>();
-        tokio::spawn(gw.clone().serve(session, async {
+        tokio::spawn(gw.clone().serve(session.clone(), async {
             let _ = rx.await;
         }));
         let addr = tokio::time::timeout(Duration::from_secs(5), gw.local_addr())
             .await
             .unwrap();
         Self {
-            _gw: gw,
+            gw,
+            session,
             addr,
             link: Some(link),
             stop: Some(stop),
@@ -673,5 +680,98 @@ async fn tickets_are_capped_per_user() {
     // another user still gets a ticket
     let other = env.add_user(&admin, "olha", &["viewer"]).await;
     assert!(env.ticket(&other).await.is_some());
+    env.stop().await;
+}
+
+/// A flow deploy through the gateway carries the user's own per-target
+/// proofs (ADR 0008): an engineer deploys; a user with `config` on flows but
+/// no rights on the target device is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_deploy_proofs_come_from_the_user() {
+    let env = Env::start("flows", wyrm_gateway::SESSION_TTL).await;
+    let dir = temp_dir("flows-engine");
+    let host = wyrm_flow::FlowHost::open(&dir, b"flow-test-hmac-key", SITE).unwrap();
+    let mut lc = LinkConfig::new(SITE, "flows");
+    lc.root = Some(format!("wy/{SITE}/flows"));
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    let engine = wyrm_link_sdk::spawn::<wyrm_flow::Engine>(
+        env.session.clone(),
+        lc,
+        wyrm_flow::EngineStart {
+            host,
+            admin_keys: vec![env.gw.verifying_key()],
+        },
+    )
+    .await
+    .unwrap();
+    let def = map([
+        ("id", Value::from("shed")),
+        (
+            "nodes",
+            map([
+                (
+                    "a",
+                    map([
+                        ("type", Value::from("subscribe")),
+                        ("key", Value::from("down/mock/g0/p0")),
+                    ]),
+                ),
+                (
+                    "cmd",
+                    map([
+                        ("type", Value::from("invoke")),
+                        ("path", Value::from("down/mock")),
+                        ("action", Value::from("reset")),
+                    ]),
+                ),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![Value::Array(vec![
+                Value::from("a.out"),
+                Value::from("cmd.in"),
+            ])]),
+        ),
+        ("permissions", map([("maxperm", Value::from("write"))])),
+    ]);
+    let flows = format!("wy/{SITE}/flows");
+    let admin = env.session("root", ADMIN_PW).await;
+
+    let eng = env.add_user(&admin, "eng", &["engineer"]).await;
+    let mut ws = env.ws(&eng).await;
+    // a forged proof from the client is replaced by the gateway's
+    let r = ws
+        .call(
+            "invoke",
+            &flows,
+            vec![
+                ("action", Value::from("deploy")),
+                (
+                    "args",
+                    map([
+                        ("def", def.clone()),
+                        ("proofs", Value::Map(BTreeMap::new())),
+                    ]),
+                ),
+            ],
+        )
+        .await;
+    assert!(is_ok(&r), "engineer deploys: {r:?}");
+
+    let fo = env.add_user(&admin, "fo", &["flows_only"]).await;
+    let mut ws = env.ws(&fo).await;
+    let r = ws
+        .call(
+            "invoke",
+            &flows,
+            vec![
+                ("action", Value::from("deploy")),
+                ("args", map([("def", def)])),
+            ],
+        )
+        .await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    engine.stop().await;
     env.stop().await;
 }

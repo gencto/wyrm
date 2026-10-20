@@ -87,6 +87,26 @@ fn query_ticket(uri: &Uri) -> Option<String> {
         .map(str::to_owned)
 }
 
+impl Conn {
+    /// A flow deploy through the gateway (ADR 0008): the proofs are the
+    /// user's own per-target tokens, signed here with the user's grants, so
+    /// the engine checks the user's rights on every command target. Proofs
+    /// sent by the client are replaced; a target the user has no grant on
+    /// gets no proof and the engine refuses the deploy.
+    fn add_flow_proofs(&self, c: &WyrmClient, args: &mut Value) {
+        let Value::Map(m) = args else { return };
+        let Some(def) = m.get("def") else { return };
+        let Ok(targets) = wyrm_flow::command_targets(def, self.gw.site()) else {
+            return; // the engine's compiler reports it
+        };
+        let proofs = targets
+            .into_iter()
+            .filter_map(|t| c.proof(&t).map(|p| (t, Value::Bytes(p))))
+            .collect();
+        m.insert("proofs".into(), Value::Map(proofs));
+    }
+}
+
 struct Conn {
     gw: Arc<Gateway>,
     session: zenoh::Session,
@@ -358,7 +378,10 @@ impl Conn {
             },
             "invoke" => {
                 let action = req.action.unwrap_or_default();
-                let args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
+                let mut args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
+                if action == "deploy" && req.key == format!("wy/{}/flows", self.gw.site()) {
+                    self.add_flow_proofs(&c, &mut args);
+                }
                 match c.invoke(&req.key, &action, args).await {
                     Err(e) => client_err(id, &e),
                     Ok(mut s) => {

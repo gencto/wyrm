@@ -4525,6 +4525,7 @@ dependencies = [
  "tracing",
  "wyrm-client",
  "wyrm-core",
+ "wyrm-flow",
  "wyrm-link-mock",
  "wyrm-link-sdk",
  "wyrm-state",
