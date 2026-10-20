@@ -12,7 +12,7 @@ pub fn validate_link_id(id: &str) -> Result<(), String> {
     if id.starts_with('.') {
         return Err(format!("link id {id:?} may not start with '.'"));
     }
-    if matches!(id, "admin" | "broker") {
+    if matches!(id, "admin" | "broker" | "flows") {
         return Err(format!("link id {id:?} is reserved"));
     }
     Ok(())

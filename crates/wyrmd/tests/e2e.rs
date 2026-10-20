@@ -428,3 +428,103 @@ fn example_config_parses() {
     let cfg = Config::from_json5(text).unwrap();
     assert!(cfg.links.contains_key("plc1"));
 }
+
+/// The flow engine runs in wyrmd, and links trust its key: a flow command
+/// (alarm → `reset` on the mock) succeeds. A bare `put` on `~def` deploys
+/// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_commands_a_link_through_wyrmd() {
+    let env = Env::start("flow", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let def = m(&[
+        ("id", s("shed")),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[("type", s("subscribe")), ("key", s("down/mock/g0/p0"))]),
+                ),
+                (
+                    "al",
+                    m(&[("type", s("alarm")), ("high", Value::Float(-1e9))]),
+                ),
+                (
+                    "cmd",
+                    m(&[
+                        ("type", s("invoke")),
+                        ("path", s("down/mock")),
+                        ("action", s("reset")),
+                        ("on", s("rising")),
+                    ]),
+                ),
+                ("res", m(&[("type", s("publish")), ("node", s("res"))])),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "al.in"),
+                edge("al.out", "cmd.in"),
+                edge("cmd.out", "res.in"),
+            ]),
+        ),
+        ("permissions", m(&[("maxperm", s("write"))])),
+    ]);
+    let flows = format!("wy/{SITE}/flows");
+    let mut args = BTreeMap::new();
+    args.insert("def".to_owned(), def.clone());
+    c.invoke_one(&flows, "deploy", Value::Map(args))
+        .await
+        .unwrap();
+    let res = format!("{flows}/shed/nodes/res/~val");
+    let q = eventually("flow command result", 10, || {
+        let (session, key) = (c.session().clone(), res.clone());
+        async move {
+            let r = session.get(&key).await.ok()?;
+            let reply = r.recv_async().await.ok()?;
+            let smp = reply.result().ok()?;
+            wyrm_core::codec::from_slice::<wyrm_core::Sample>(&smp.payload().to_bytes())
+                .ok()
+                .map(|s| s.q)
+        }
+    })
+    .await;
+    assert_eq!(
+        q,
+        wyrm_core::Quality::Good,
+        "the mock accepted the flow token"
+    );
+
+    // `put ~def` is not a deploy path
+    let mut other = def;
+    if let Value::Map(mm) = &mut other {
+        mm.insert("id".into(), s("sneaky"));
+    }
+    c.session()
+        .put(
+            format!("{flows}/sneaky/~def"),
+            wyrm_core::codec::to_vec(&other).unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let names: Vec<String> = c
+        .children(&flows)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(names, ["shed"]);
+    env.stop().await;
+}

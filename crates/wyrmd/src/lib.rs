@@ -1,7 +1,7 @@
 //! `wyrmd`: Zenoh router runtime + static plugins + `wyrm-admin` + links.
 //!
 //! [`Daemon`] owns what survives a reload (the admin [`Control`]: registry,
-//! CA, supervisor, audit). A [`Broker`] is one router runtime with its
+//! CA, supervisor, audit; the flow store and signing key). A [`Broker`] is one router runtime with its
 //! plugins and in-process sessions; it is rebuilt when the ACL changes,
 //! because Zenoh 1.10 cannot reload `access_control` live (ADR 0004).
 
@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use wyrm_admin::{Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, RunningLink};
 use wyrm_core::Value;
+use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
@@ -341,10 +342,15 @@ pub struct Broker {
     runtime: Runtime,
     session: Session,
     admin: Option<Attached>,
+    flows: Option<LinkHandle<Engine>>,
 }
 
 impl Broker {
-    pub async fn start(cfg: &Config, ctl: &Arc<Control>) -> Result<Self, Error> {
+    pub async fn start(
+        cfg: &Config,
+        ctl: &Arc<Control>,
+        flows: &Arc<FlowHost>,
+    ) -> Result<Self, Error> {
         let mut plugins = PluginsManager::static_plugins_only();
         plugins.declare_static_plugin::<StoragesPlugin, &str>("storage_manager", true);
         if cfg.rest.is_some() {
@@ -358,11 +364,31 @@ impl Broker {
         // first remote query already finds their queryables and tokens.
         let session = zenoh::session::init(runtime.clone().into()).await?;
         let admin = ctl.attach(session.clone()).await?;
+        // The engine trusts only admin keys: flow tokens never command flows.
+        let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
+        lcfg.root = Some(format!("wy/{}/flows", cfg.site));
+        lcfg.admin_keys = ctl.config().admin_keys.clone();
+        let flows = match wyrm_link_sdk::spawn::<Engine>(
+            session.clone(),
+            lcfg,
+            EngineStart {
+                host: flows.clone(),
+            },
+        )
+        .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                admin.stop().await;
+                return Err(format!("flow engine: {e}").into());
+            }
+        };
         runtime.start().await?;
         Ok(Self {
             runtime,
             session,
             admin: Some(admin),
+            flows: Some(flows),
         })
     }
 
@@ -381,6 +407,9 @@ impl Broker {
 
     /// Stop admin and embedded links, then close sessions before the runtime.
     pub async fn stop(mut self) -> Result<(), Error> {
+        if let Some(f) = self.flows.take() {
+            f.stop().await;
+        }
         if let Some(a) = self.admin.take() {
             a.stop().await;
         }
@@ -393,6 +422,7 @@ impl Broker {
 pub struct Daemon {
     cfg: Config,
     ctl: Arc<Control>,
+    flows: Arc<FlowHost>,
     reload: tokio::sync::mpsc::UnboundedReceiver<()>,
 }
 
@@ -400,10 +430,14 @@ impl Daemon {
     /// Open state and CA, apply `wyrmd.json5` links. `link_exe` hosts
     /// process links (`<link_exe> link <driver>`), normally this binary.
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
+        std::fs::create_dir_all(&cfg.data_dir)?;
+        let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
+        let flows = FlowHost::open(&cfg.data_dir.join("flows"), &hmac, &cfg.site)?;
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),
             admin_keys: cfg.admin_keys()?,
+            link_keys: vec![flows.verifying_key()],
             operators: cfg.operators.clone(),
             dev: cfg.profile == Profile::Dev,
             link_endpoint: cfg.link_endpoint(),
@@ -414,7 +448,12 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.bootstrap(&cfg.config_links())?;
-        Ok(Self { cfg, ctl, reload })
+        Ok(Self {
+            cfg,
+            ctl,
+            flows,
+            reload,
+        })
     }
 
     pub fn control(&self) -> Arc<Control> {
@@ -425,7 +464,7 @@ impl Daemon {
     pub async fn run_until(mut self, shutdown: impl Future<Output = ()>) -> Result<(), Error> {
         tokio::pin!(shutdown);
         loop {
-            let broker = Broker::start(&self.cfg, &self.ctl).await?;
+            let broker = Broker::start(&self.cfg, &self.ctl, &self.flows).await?;
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = &mut shutdown => false,

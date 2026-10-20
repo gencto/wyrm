@@ -58,6 +58,10 @@ pub struct ControlConfig {
     pub site: String,
     pub data_dir: PathBuf,
     pub admin_keys: Vec<VerifyingKey>,
+    /// Extra keys trusted by links only, never by the admin itself (the flow
+    /// engine signs flow commands with one: a flow may command devices, not
+    /// the control plane).
+    pub link_keys: Vec<VerifyingKey>,
     /// Certificate CNs with requester rights (engineering tools).
     pub operators: Vec<String>,
     /// `dev` profile: loopback sessions get full rights.
@@ -72,6 +76,9 @@ pub struct ControlConfig {
     pub link_exe: PathBuf,
     pub max_restarts: u32,
 }
+
+/// Link id of the flow engine (rooted at `wy/<site>/flows`); reserved.
+pub const FLOWS_LINK: &str = "flows";
 
 /// A link declared in `wyrmd.json5`.
 #[derive(Debug, Clone)]
@@ -214,6 +221,13 @@ impl Control {
         {
             warn!("audit write failed: {e}");
         }
+    }
+
+    /// Keys a link verifies `ptok`s with: admin keys plus `link_keys`.
+    fn link_trust(&self) -> Vec<VerifyingKey> {
+        let mut keys = self.cfg.admin_keys.clone();
+        keys.extend(self.cfg.link_keys.iter().copied());
+        keys
     }
 
     /// Secrets of one link for the SDK (embedded start, `hello` reply).
@@ -532,7 +546,7 @@ async fn start_embedded(
         return Ok(());
     }
     let mut lcfg = LinkConfig::new(ctl.cfg.site.clone(), def.id.clone());
-    lcfg.admin_keys = ctl.cfg.admin_keys.clone();
+    lcfg.admin_keys = ctl.link_trust();
     lcfg.secrets = ctl.link_secrets(&def.id);
     let link = ctl
         .host
@@ -910,8 +924,7 @@ impl Admin {
             "admin_keys".into(),
             Value::Array(
                 self.ctl
-                    .cfg
-                    .admin_keys
+                    .link_trust()
                     .iter()
                     .map(|k| Value::Bytes(k.to_bytes().to_vec()))
                     .collect(),
@@ -1257,7 +1270,11 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         // The link's own clock and `sub` are claims; the admin's clock is the
         // record time, and a key outside the link's subtree is flagged.
         let key = text("key");
-        let root = format!("wy/{}/down/{link}", ctl.cfg.site);
+        let root = if link == FLOWS_LINK {
+            format!("wy/{}/flows", ctl.cfg.site)
+        } else {
+            format!("wy/{}/down/{link}", ctl.cfg.site)
+        };
         let in_subtree = key == root || key.starts_with(&format!("{root}/"));
         let link_t = match m.get("t") {
             Some(Value::UInt(t)) => t.to_string(),

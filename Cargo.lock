@@ -4115,6 +4115,7 @@ dependencies = [
  "wyrm-admin",
  "wyrm-client",
  "wyrm-core",
+ "wyrm-flow",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-sdk",
