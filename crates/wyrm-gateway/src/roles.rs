@@ -31,7 +31,6 @@ impl Default for RoleTable {
             vec![
                 ("wy/{site}/down/**".into(), Perm::Config),
                 ("wy/{site}/flows/**".into(), Perm::Config),
-                ("wy/{site}/sys/links/**".into(), Perm::Write),
             ],
         );
         t.insert("admin", vec![("wy/**".into(), Perm::Config)]);
@@ -166,8 +165,8 @@ mod tests {
         assert_eq!(v.perm("wy/other/down/mock/p0/~val"), Perm::None);
         assert_eq!(v.perm("wy/s/flows/f/~val"), Perm::None);
         let e = t.grants("s", &roles(&["engineer"]));
-        assert!(e.covers("wy/s/sys/links/**", Perm::Write));
-        assert!(!e.covers("wy/s/sys/**", Perm::Config), "only a part of sys");
+        // the admin does not trust the gateway key (ADR 0009): no sys rights
+        assert!(!e.covers("wy/s/sys/links/**", Perm::Write));
         let a = t.grants("s", &roles(&["admin"]));
         assert!(a.covers("wy/s/sys/**", Perm::Config));
     }

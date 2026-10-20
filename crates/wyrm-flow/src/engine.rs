@@ -10,8 +10,10 @@
 //! `invoke`/`set` sinks act with a token minted per flow, scoped by the
 //! flow's `permissions.maxperm`. Links trust the flow key, so a deployer must
 //! prove its own rights on every command target: `deploy {def, proofs}`
-//! carries one admin-signed token per target key (same subject, `write` or
-//! more), and targets must be exact keys under `wy/<site>/down/`.
+//! carries one token per target key, signed by a key the engine trusts
+//! (admin or gateway), with the deployer's subject and at least
+//! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/down/`
+//! (ADR 0008).
 
 use crate::def::{self, FlowDef};
 use crate::nodes::{Io, Ports};

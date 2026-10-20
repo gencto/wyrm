@@ -1,6 +1,6 @@
 # ADR 0006 — ACL changes rebuild the router runtime
 
-**Status:** proposed · 2026-10-20
+**Status:** accepted · 2026-10-20
 
 ## Context
 `wyrm-admin` generates the Zenoh `access_control` section from the link registry (and, since iteration 4, from the `peers` section, ADR 0007). Zenoh 1.10.1 has no public live reload of it: `TablesLock::update_config` is `pub(crate)` and only Zenoh's own tests call it.
@@ -30,7 +30,7 @@
 - Revisit when Zenoh exposes a public live ACL reload.
 
 ## Open
-- **Failed rebuild orphans process links.** If `Broker::start` (or `Broker::stop`) fails inside `run_until` (port in use, unreadable peer CA), the error returns before `Control::shutdown`, and children spawned with `kill_on_drop(false)` keep running without a broker.
+- ~~Failed rebuild orphans process links~~ — fixed: `run_until` calls `Control::shutdown` also when `Broker::start`/`stop` fails.
 - **Coalescing** relies on a fixed 300 ms delay plus one drain; there is no debounce window.
 - PID adoption of process links (see Consequences).
 

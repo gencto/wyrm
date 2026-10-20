@@ -1,18 +1,25 @@
-//! Failed-login limiter per `(user, ip)`: at most `max` failures in a
-//! sliding `window`; a success clears the record.
+//! Failed-login limiter: at most `max` failures per `(user, ip)` and
+//! `max * IP_FACTOR` per `ip` over all user names (password spraying) in a
+//! sliding `window`; a success clears the `(user, ip)` record.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Records kept in memory; beyond this the stalest go first.
+/// Records kept in memory; when full, expired records go first, then the
+/// one with the oldest last failure.
 const MAX_RECORDS: usize = 10_000;
+/// Failures per address over all user names, as a multiple of `max`.
+const IP_FACTOR: usize = 4;
+
+/// `None` user = the address-wide record.
+type Key = (Option<String>, IpAddr);
 
 pub struct LoginLimiter {
     max: usize,
     window: Duration,
-    fails: Mutex<HashMap<(String, IpAddr), VecDeque<Instant>>>,
+    fails: Mutex<HashMap<Key, VecDeque<Instant>>>,
 }
 
 impl LoginLimiter {
@@ -24,16 +31,13 @@ impl LoginLimiter {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, IpAddr), VecDeque<Instant>>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Key, VecDeque<Instant>>> {
         self.fails.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// `false` = too many recent failures; do not even check the password.
-    pub fn allowed(&self, user: &str, ip: IpAddr) -> bool {
-        let now = Instant::now();
-        let mut f = self.lock();
-        let Some(q) = f.get_mut(&(user.to_owned(), ip)) else {
-            return true;
+    fn recent(&self, f: &mut HashMap<Key, VecDeque<Instant>>, k: &Key, now: Instant) -> usize {
+        let Some(q) = f.get_mut(k) else {
+            return 0;
         };
         while q
             .front()
@@ -41,25 +45,47 @@ impl LoginLimiter {
         {
             q.pop_front();
         }
-        q.len() < self.max
+        q.len()
+    }
+
+    /// `false` = too many recent failures; do not even check the password.
+    pub fn allowed(&self, user: &str, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut f = self.lock();
+        self.recent(&mut f, &(Some(user.to_owned()), ip), now) < self.max
+            && self.recent(&mut f, &(None, ip), now) < self.max * IP_FACTOR
     }
 
     pub fn failed(&self, user: &str, ip: IpAddr) {
         let now = Instant::now();
         let mut f = self.lock();
-        if f.len() >= MAX_RECORDS {
-            let window = self.window;
-            f.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < window));
-        }
-        let q = f.entry((user.to_owned(), ip)).or_default();
-        q.push_back(now);
-        if q.len() > self.max {
-            q.pop_front();
+        for (k, cap) in [
+            ((Some(user.to_owned()), ip), self.max),
+            ((None, ip), self.max * IP_FACTOR),
+        ] {
+            if !f.contains_key(&k) && f.len() >= MAX_RECORDS {
+                let window = self.window;
+                f.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < window));
+                if f.len() >= MAX_RECORDS {
+                    if let Some(oldest) = f
+                        .iter()
+                        .min_by_key(|(_, q)| q.back().copied())
+                        .map(|(k, _)| k.clone())
+                    {
+                        f.remove(&oldest);
+                    }
+                }
+            }
+            let q = f.entry(k).or_default();
+            q.push_back(now);
+            if q.len() > cap {
+                q.pop_front();
+            }
         }
     }
 
     pub fn succeeded(&self, user: &str, ip: IpAddr) {
-        self.lock().remove(&(user.to_owned(), ip));
+        self.lock().remove(&(Some(user.to_owned()), ip));
     }
 }
 
@@ -79,5 +105,16 @@ mod tests {
         assert!(l.allowed("u", b) && l.allowed("v", a));
         l.succeeded("u", a);
         assert!(l.allowed("u", a));
+    }
+
+    #[test]
+    fn spraying_one_address_is_limited() {
+        let l = LoginLimiter::new(2, Duration::from_secs(60));
+        let a: IpAddr = "10.0.0.1".parse().unwrap();
+        for i in 0..2 * IP_FACTOR {
+            l.failed(&format!("user{i}"), a);
+        }
+        assert!(!l.allowed("someone-else", a), "address-wide limit");
+        assert!(l.allowed("someone-else", "10.0.0.9".parse().unwrap()));
     }
 }

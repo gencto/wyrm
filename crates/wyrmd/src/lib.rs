@@ -3,7 +3,7 @@
 //! [`Daemon`] owns what survives a reload (the admin [`Control`]: registry,
 //! CA, supervisor, audit; the flow store and signing key). A [`Broker`] is one router runtime with its
 //! plugins and in-process sessions; it is rebuilt when the ACL changes,
-//! because Zenoh 1.10 cannot reload `access_control` live (ADR 0004).
+//! because Zenoh 1.10 cannot reload `access_control` live (ADR 0006).
 
 #![forbid(unsafe_code)]
 
@@ -108,8 +108,8 @@ pub const GATEWAY_ADMIN_PASSWORD_ENV: &str = "WYRM_GATEWAY_ADMIN_PASSWORD";
 
 /// Brokers of other sites. Each side trusts the other's CA only on the QUIC
 /// broker link; the generated ACL lets an upstream site read our
-/// `down/**` and `flows/**` (commands still need a `ptok` from our admin)
-/// and lets a downstream site serve its own `wy/<site>/**`.
+/// `down/**` and `flows/**` (no `~set`/`~act` queries: the ACL drops them)
+/// and lets a downstream site serve its own `wy/<site>/**` (ADR 0007).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeersSection {
@@ -122,7 +122,8 @@ pub struct PeersSection {
     /// Sites that connect to this broker.
     #[serde(default)]
     pub downstream: Vec<DownstreamPeer>,
-    /// Max rate per key of `~val` samples sent over QUIC (Hz); none = all.
+    /// Max rate of `~val` samples sent over QUIC (Hz); none = all. Zenoh
+    /// 1.10 keeps one budget per rule and connection, so all points share it.
     #[serde(default)]
     pub upstream_val_hz: Option<f64>,
 }
@@ -810,12 +811,22 @@ impl Daemon {
     /// Serve until `shutdown` completes; rebuild the broker on reload requests.
     pub async fn run_until(mut self, shutdown: impl Future<Output = ()>) -> Result<(), Error> {
         tokio::pin!(shutdown);
+        let r = self.serve(shutdown).await;
+        // Also on errors: supervised link processes must not outlive us.
+        self.ctl.shutdown().await;
+        r
+    }
+
+    async fn serve(
+        &mut self,
+        mut shutdown: std::pin::Pin<&mut impl Future<Output = ()>>,
+    ) -> Result<(), Error> {
         loop {
             let broker =
                 Broker::start(&self.cfg, &self.ctl, &self.flows, self.gateway.as_ref()).await?;
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
-                _ = &mut shutdown => false,
+                _ = shutdown.as_mut() => false,
                 r = self.reload.recv() => r.is_some(),
             };
             broker.stop().await?;
@@ -826,7 +837,6 @@ impl Daemon {
             while self.reload.try_recv().is_ok() {}
             tracing::info!("ACL changed: rebuilding the router runtime");
         }
-        self.ctl.shutdown().await;
         Ok(())
     }
 }

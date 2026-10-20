@@ -6,7 +6,7 @@
 //! watchers: link states (liveliness + supervisor), quarantine (link events
 //! with an unknown certificate CN) and `acl_denied_total` (router metrics).
 //!
-//! Zenoh 1.10 cannot reload `access_control` live (ADR 0004), so changes that
+//! Zenoh 1.10 cannot reload `access_control` live (ADR 0006), so changes that
 //! alter the ACL (install/remove of a process or external link, approve) ask
 //! the host to rebuild the router runtime through the reload channel.
 

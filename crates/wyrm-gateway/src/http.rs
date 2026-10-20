@@ -372,7 +372,7 @@ async fn list_users(State(st): State<AppState>, _: Admin) -> ApiResult {
 
 fn changed(gw: &Gateway, by: &Principal, user: &str, change: &'static str) {
     gw.audit(AuditEvent::UserChanged {
-        by: by.name.clone(),
+        by: format!("user:{}", by.name),
         user: user.to_owned(),
         change,
     });

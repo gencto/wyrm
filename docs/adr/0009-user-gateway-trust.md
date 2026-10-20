@@ -15,15 +15,15 @@ People use WYRM through a browser or app, not with an Ed25519 key or a client ce
 - **Trust boundary.** Links (`ControlConfig.link_keys`) and the flow engine trust the gateway key. **The admin does not**: the control plane (`sys/**`: link install, quarantine, secrets, tokens) needs operator keys. Gateway user management is local to the gateway store, not an admin operation.
 - **WebSocket tickets.** `POST /api/ws-ticket` (bearer session) returns a random 128-bit ticket, single use, 30 s; `GET /api/ws?ticket=…` spends it and re-resolves the session. The long-lived session never appears in a URL. At most 8 live tickets per user; a new one replaces that user's oldest, so one user cannot crowd out the others. `Authorization: Bearer` is also accepted for non-browser clients. Open sockets re-read the user every 15 s and close at session expiry.
 - **First admin.** At start, if `WYRM_GATEWAY_ADMIN_PASSWORD` is set and `admin_user` does not exist, that user is created with the `admin` role. The variable is removed from the process environment right after reading, and the supervisor starts link processes with a cleared environment (`env_clear` plus `RUST_LOG`, `RUST_BACKTRACE`, `TZ`, `LANG`, `LC_ALL`, `PATH`). The password never comes from `wyrmd.json5`.
-- **Login rate limit.** At most 5 failed logins per `(user, ip)` in a sliding 60 s window; a success clears it; expired records are pruned once 10 000 are held.
+- **Login rate limit.** At most 5 failed logins per `(user, ip)` and 20 per `ip` over all user names in a sliding 60 s window; a success clears the `(user, ip)` record; at 10 000 records expired ones go first, then the one with the oldest last failure.
 - **Audit.** `AuditEvent`s (`LoginOk`, `LoginFailed{reason}`, `UserChanged`, `Denied`) go into the admin journal through `Control::record`: logins and refusals with subject `user:<name>`, user changes with the acting user's name as subject. They never carry passwords or tokens.
 
 ## Consequences
 - A stolen gateway key gives `write`/`config` on devices and flows of this site, but not on the control plane and not on other sites (their links do not trust it).
 - Role changes take effect on the next request without a new login; sessions can only be ended by password change, disable or removal (no logout list).
-- The default `engineer` role's `write` on `wy/<site>/sys/links/**` lets the gateway show those nodes, but its write part has no effect, because the admin does not trust gateway tokens. The `admin` role's `config` on `sys/**` likewise only governs gateway user management.
+- The default roles grant nothing on `sys/**` except the `admin` role's `config`, which only governs gateway user management: the admin does not trust gateway tokens.
 - Gateway users cannot deploy flows with command sinks: proofs (ADR 0008) are tokens the gateway never hands out.
-- The rate limit is per `(user, ip)`: password spraying over many user names from one address is not bounded.
+- Spraying from many addresses is bounded only by the argon2 cost (4 concurrent hashes).
 - A broker rebuild (ADR 0006) closes all WebSockets; sessions and tickets stay valid.
 
 ## Alternatives
