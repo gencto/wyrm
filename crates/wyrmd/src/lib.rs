@@ -13,11 +13,13 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::oneshot;
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
 };
 use wyrm_core::Value;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
+use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
@@ -75,7 +77,34 @@ pub struct Config {
     /// Router-to-router links to other sites (iteration 4), QUIC + mTLS.
     #[serde(default)]
     pub peers: PeersSection,
+    /// User gateway (HTTP + WebSocket, iteration 5). Off when absent.
+    #[serde(default)]
+    pub gateway: Option<GatewaySection>,
 }
+
+/// The first admin's password comes from `WYRM_GATEWAY_ADMIN_PASSWORD` at
+/// start (only if the user does not exist yet), never from this file.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GatewaySection {
+    pub listen: std::net::SocketAddr,
+    /// Certificate chain and key (PEM); required off loopback.
+    #[serde(default)]
+    pub tls_cert: Option<PathBuf>,
+    #[serde(default)]
+    pub tls_key: Option<PathBuf>,
+    #[serde(default)]
+    pub session_ttl_s: Option<u64>,
+    /// Name of the first admin user.
+    #[serde(default = "default_gateway_admin")]
+    pub admin_user: String,
+}
+
+fn default_gateway_admin() -> String {
+    "admin".into()
+}
+
+pub const GATEWAY_ADMIN_PASSWORD_ENV: &str = "WYRM_GATEWAY_ADMIN_PASSWORD";
 
 /// Brokers of other sites. Each side trusts the other's CA only on the QUIC
 /// broker link; the generated ACL lets an upstream site read our
@@ -291,6 +320,20 @@ impl Config {
             }
         }
         cfg.peers.validate(&cfg.site)?;
+        if let Some(g) = &cfg.gateway {
+            match (&g.tls_cert, &g.tls_key) {
+                (Some(_), Some(_)) => {}
+                (None, None) if g.listen.ip().is_loopback() => {}
+                (None, None) => {
+                    return Err(format!(
+                        "gateway {}: TLS (tls_cert, tls_key) is required off loopback",
+                        g.listen
+                    )
+                    .into())
+                }
+                _ => return Err("gateway: set both tls_cert and tls_key".into()),
+            }
+        }
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
             if let Some(m) = &l.mode {
@@ -487,6 +530,7 @@ pub struct Broker {
     session: Session,
     admin: Option<Attached>,
     flows: Option<LinkHandle<Engine>>,
+    gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
 }
 
 impl Broker {
@@ -494,6 +538,7 @@ impl Broker {
         cfg: &Config,
         ctl: &Arc<Control>,
         flows: &Arc<FlowHost>,
+        gateway: Option<&Arc<Gateway>>,
     ) -> Result<Self, Error> {
         let mut plugins = PluginsManager::static_plugins_only();
         plugins.declare_static_plugin::<StoragesPlugin, &str>("storage_manager", true);
@@ -529,11 +574,27 @@ impl Broker {
             }
         };
         runtime.start().await?;
+        let gateway = gateway.map(|gw| {
+            let (tx, rx) = oneshot::channel::<()>();
+            let (gw, s) = (gw.clone(), session.clone());
+            let task = tokio::spawn(async move {
+                if let Err(e) = gw
+                    .serve(s, async {
+                        let _ = rx.await;
+                    })
+                    .await
+                {
+                    tracing::error!("gateway: {e}");
+                }
+            });
+            (tx, task)
+        });
         Ok(Self {
             runtime,
             session,
             admin: Some(admin),
             flows: Some(flows),
+            gateway,
         })
     }
 
@@ -552,6 +613,10 @@ impl Broker {
 
     /// Stop admin and embedded links, then close sessions before the runtime.
     pub async fn stop(mut self) -> Result<(), Error> {
+        if let Some((tx, task)) = self.gateway.take() {
+            let _ = tx.send(());
+            let _ = task.await;
+        }
         if let Some(f) = self.flows.take() {
             f.stop().await;
         }
@@ -564,10 +629,67 @@ impl Broker {
     }
 }
 
+fn open_gateway(cfg: &Config, g: &GatewaySection) -> Result<Arc<Gateway>, Error> {
+    let dir = cfg.data_dir.join("gateway");
+    std::fs::create_dir_all(&dir)?;
+    let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
+    let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
+    if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {
+        gc.tls = Some((c.clone(), k.clone()));
+    }
+    if let Some(s) = g.session_ttl_s {
+        gc.session_ttl = Duration::from_secs(s.clamp(60, 7 * 86_400));
+    }
+    let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
+    if let Ok(pw) = std::env::var(GATEWAY_ADMIN_PASSWORD_ENV) {
+        let pw = zeroize::Zeroizing::new(pw);
+        if gw
+            .ensure_admin(&g.admin_user, &pw)
+            .map_err(|e| format!("gateway admin: {e}"))?
+        {
+            tracing::info!(user = %g.admin_user, "gateway: first admin created");
+        }
+    }
+    Ok(gw)
+}
+
+/// Gateway events into the admin journal (no passwords or tokens in them).
+fn gateway_audit(ctl: &Control, e: AuditEvent) {
+    use wyrm_core::Status;
+    match e {
+        AuditEvent::LoginOk { user, ip } => ctl.record(
+            &format!("user:{user}"),
+            "login",
+            "",
+            Status::Ok,
+            &ip.to_string(),
+        ),
+        AuditEvent::LoginFailed { user, ip, reason } => ctl.record(
+            &format!("user:{user}"),
+            "login",
+            "",
+            Status::PermissionDenied,
+            &format!("{ip} {reason}"),
+        ),
+        AuditEvent::UserChanged { by, user, change } => {
+            ctl.record(&by, "user", &user, Status::Ok, change)
+        }
+        AuditEvent::Denied { user, op, key } => ctl.record(
+            &format!("user:{user}"),
+            &op,
+            &key,
+            Status::PermissionDenied,
+            "gateway",
+        ),
+        e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
+    }
+}
+
 pub struct Daemon {
     cfg: Config,
     ctl: Arc<Control>,
     flows: Arc<FlowHost>,
+    gateway: Option<Arc<Gateway>>,
     reload: tokio::sync::mpsc::UnboundedReceiver<()>,
 }
 
@@ -578,10 +700,18 @@ impl Daemon {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
         let flows = FlowHost::open(&cfg.data_dir.join("flows"), &hmac, &cfg.site)?;
+        let gateway = match &cfg.gateway {
+            None => None,
+            Some(g) => Some(open_gateway(&cfg, g)?),
+        };
+        // The gateway signs one token per user request with the user's
+        // grants, so admin and links trust its key like an admin key.
+        let mut admin_keys = cfg.admin_keys()?;
+        admin_keys.extend(gateway.as_ref().map(|g| g.verifying_key()));
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),
-            admin_keys: cfg.admin_keys()?,
+            admin_keys,
             link_keys: vec![flows.verifying_key()],
             operators: cfg.operators.clone(),
             dev: cfg.profile == Profile::Dev,
@@ -593,11 +723,16 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());
+        if let Some(gw) = &gateway {
+            let audit = ctl.clone();
+            gw.set_audit(move |e| gateway_audit(&audit, e));
+        }
         ctl.bootstrap(&cfg.config_links())?;
         Ok(Self {
             cfg,
             ctl,
             flows,
+            gateway,
             reload,
         })
     }
@@ -606,11 +741,16 @@ impl Daemon {
         self.ctl.clone()
     }
 
+    pub fn gateway(&self) -> Option<Arc<Gateway>> {
+        self.gateway.clone()
+    }
+
     /// Serve until `shutdown` completes; rebuild the broker on reload requests.
     pub async fn run_until(mut self, shutdown: impl Future<Output = ()>) -> Result<(), Error> {
         tokio::pin!(shutdown);
         loop {
-            let broker = Broker::start(&self.cfg, &self.ctl, &self.flows).await?;
+            let broker =
+                Broker::start(&self.cfg, &self.ctl, &self.flows, self.gateway.as_ref()).await?;
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = &mut shutdown => false,

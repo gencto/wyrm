@@ -4615,12 +4615,14 @@ dependencies = [
  "wyrm-client",
  "wyrm-core",
  "wyrm-flow",
+ "wyrm-gateway",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-sdk",
  "zenoh",
  "zenoh-plugin-rest",
  "zenoh-plugin-storage-manager",
+ "zeroize",
 ]
 
 [[package]]

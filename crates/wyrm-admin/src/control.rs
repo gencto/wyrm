@@ -204,7 +204,9 @@ impl Control {
             .map(|_| ())
     }
 
-    fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
+    /// One record in the admin's audit journal (also for in-process
+    /// components such as the user gateway). Never pass secret values.
+    pub fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
         let rec = AuditRecord {
             t: now_us(),
             sub: sub.to_owned(),

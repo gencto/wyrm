@@ -13,6 +13,8 @@ wyrm-core.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["advanced", "process"] }
 wyrm-admin.workspace = true
 wyrm-flow.workspace = true
+wyrm-gateway.workspace = true
+zeroize.workspace = true
 wyrm-link-mock.workspace = true
 wyrm-link-modbus.workspace = true
 # Static plugins need the internal runtime API; this crate is the only one

@@ -32,6 +32,7 @@ struct Env {
     port: u16,
     tls: u16,
     ctl: Arc<Control>,
+    gateway: Option<Arc<wyrm_gateway::Gateway>>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<Result<(), wyrmd::Error>>,
 }
@@ -56,6 +57,7 @@ impl Env {
         let cfg = Config::from_json5(&text).unwrap();
         let daemon = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
         let ctl = daemon.control();
+        let gateway = daemon.gateway();
         let (stop, rx) = oneshot::channel();
         let task = tokio::spawn(daemon.run_until(async {
             let _ = rx.await;
@@ -64,6 +66,7 @@ impl Env {
             port,
             tls,
             ctl,
+            gateway,
             stop: Some(stop),
             task,
         };
@@ -630,4 +633,67 @@ async fn two_brokers_over_quic() {
     let _ = e_stop.send(());
     e_task.await.unwrap().unwrap();
     c_task.await.unwrap().unwrap();
+}
+
+/// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
+/// the environment; a login is audited; the gateway's per-user tokens are
+/// accepted by links (its key is trusted like an admin key).
+#[tokio::test(flavor = "multi_thread")]
+async fn gateway_in_wyrmd() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let port = free_port();
+    std::env::set_var(
+        wyrmd::GATEWAY_ADMIN_PASSWORD_ENV,
+        "correct-horse-battery-staple",
+    );
+    let env = Env::start(
+        "gateway",
+        &format!(r#"{MOCK} gateway: {{ listen: "127.0.0.1:{port}", admin_user: "root" }},"#),
+    )
+    .await;
+    let gw = env.gateway.clone().expect("gateway configured");
+    let addr = gw.local_addr().await;
+    assert_eq!(addr.port(), port);
+
+    let mut body = BTreeMap::new();
+    body.insert("user".to_owned(), Value::from("root"));
+    body.insert(
+        "password".to_owned(),
+        Value::from("correct-horse-battery-staple"),
+    );
+    let body = wyrm_core::codec::to_vec(&Value::Map(body)).unwrap();
+    let req = format!(
+        "POST /api/login HTTP/1.1\r\nHost: gw\r\nConnection: close\r\nContent-Type: application/cbor\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    );
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    s.write_all(req.as_bytes()).await.unwrap();
+    s.write_all(&body).await.unwrap();
+    let mut resp = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp))
+        .await
+        .unwrap()
+        .unwrap();
+    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    assert!(resp.starts_with(b"HTTP/1.1 200"), "login ok");
+    let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&resp[split + 4..]).unwrap() else {
+        panic!("login body is a map")
+    };
+    let Some(Value::Str(session)) = m.get("session") else {
+        panic!("session token")
+    };
+
+    let p = gw.authenticate(session).expect("session verifies");
+    let c = WyrmClient::new(env.session().await)
+        .with_tokens(Arc::new(gw.tokens_for(&p)))
+        .with_timeout(Duration::from_secs(3));
+    c.set(&format!("wy/{SITE}/down/mock/g0/p0"), 5.0)
+        .await
+        .expect("a gateway token is accepted by the link");
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "login" && r.sub == "user:root"));
+    env.stop().await;
 }
