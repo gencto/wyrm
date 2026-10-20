@@ -172,8 +172,7 @@ pub fn start(
     for (id, hash, node) in built {
         let inbox = inboxes[&id].clone();
         let inj_box = inbox.clone();
-        let inject: nodes::Inject =
-            Arc::new(move |port: &str, m: Msg| inj_box.push_now(port, m));
+        let inject: nodes::Inject = Arc::new(move |port: &str, m: Msg| inj_box.push_now(port, m));
         let io = io_for(&id, inject);
         tasks.push(tokio::spawn(run_node(
             id.clone(),

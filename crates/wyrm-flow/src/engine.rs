@@ -160,15 +160,17 @@ fn publish_meta(cfg: &def::Map) -> NodeMeta {
 }
 
 impl State {
+    /// Tokens of a flow cover only the keys its command sinks declare.
     fn client_for(&self, def: &FlowDef) -> WyrmClient {
         let site = &self.host.site;
+        let grants = targets(def, site)
+            .into_iter()
+            .map(|k| Grant { k, p: def.maxperm })
+            .collect();
         let tokens = SigningTokens::new(self.host.signer.clone(), site.clone())
             .subject(format!("flow:{}", def.id))
             .max(def.maxperm)
-            .grants(vec![Grant {
-                k: format!("wy/{site}/**"),
-                p: def.maxperm,
-            }]);
+            .grants(grants);
         WyrmClient::new(self.ctx.client().clone()).with_tokens(Arc::new(tokens))
     }
 
@@ -485,6 +487,42 @@ async fn supervise(
     }
 }
 
+/// Full keys of every `invoke`/`set` target of `def`.
+fn targets(def: &FlowDef, site: &str) -> Vec<String> {
+    def.nodes
+        .values()
+        .filter_map(|n| crate::nodes::command_target(&n.ty, &n.cfg))
+        .map(|k| {
+            if k.starts_with("wy/") {
+                k
+            } else {
+                format!("wy/{site}/{}", k.trim_start_matches('/'))
+            }
+        })
+        .collect()
+}
+
+/// A deploying caller may not give a flow more than it holds: `maxperm` is
+/// capped by the caller's effective permission. (Requester tokens are scoped
+/// to the request key, so they cannot prove rights on the flow's targets;
+/// the flow token itself covers only the declared targets.)
+fn caller_covers(raw: &Value, who: &Caller) -> Result<(), LinkError> {
+    let Ok(def) = def::parse(raw) else {
+        return Ok(()); // the compiler reports it
+    };
+    if def.maxperm > who.perm {
+        return Err(LinkError::new(
+            Status::PermissionDenied,
+            format!(
+                "permissions.maxperm {} exceeds the deployer's {}",
+                def.maxperm.name(),
+                who.perm.name()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 pub struct EngineStart {
     pub host: Arc<FlowHost>,
 }
@@ -572,7 +610,7 @@ impl Link for Engine {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Caller,
+        who: &Caller,
         out: ReplySink,
     ) -> wyrm_link_sdk::Result<()> {
         let def_arg = || match &args {
@@ -585,7 +623,11 @@ impl Link for Engine {
         let shared = self.shared.clone();
         let mut st = self.shared.lock().await;
         match (path, action) {
-            ("", "deploy") => st.deploy(def_arg()?, true, &shared).await?,
+            ("", "deploy") => {
+                let raw = def_arg()?;
+                caller_covers(&raw, who)?;
+                st.deploy(raw, true, &shared).await?
+            }
             ("", "validate") => {
                 let mut m = BTreeMap::new();
                 match def::compile(&def_arg()?) {

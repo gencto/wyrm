@@ -343,11 +343,8 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
         .nodes
         .values()
         .filter(|n| n.ty == "window")
-        .map(|n| match n.cfg.get("max_samples") {
-            Some(Value::UInt(u)) => *u,
-            _ => 10_000,
-        })
-        .sum();
+        .map(|n| nodes::max_samples(&n.cfg).unwrap_or(u64::MAX))
+        .fold(0u64, u64::saturating_add);
     if samples > MAX_WINDOW_SAMPLES {
         return err(format!(
             "nodes: window.max_samples total {samples} > {MAX_WINDOW_SAMPLES}"

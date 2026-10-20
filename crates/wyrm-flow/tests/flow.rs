@@ -375,3 +375,22 @@ async fn peak_shaving_hot_swap_and_restart() {
     assert!(env.client.meta(&flow).await.is_err());
     env.stop().await;
 }
+
+/// Deploying needs `config`; a flow never gets more than its deployer.
+#[tokio::test(flavor = "multi_thread")]
+async fn deploy_needs_config() {
+    let env = Env::start("deployer").await;
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let writer = SigningTokens::new(key, SITE).max(wyrm_core::Perm::Write);
+    let c = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(writer))
+        .with_timeout(Duration::from_secs(3));
+    let mut args = BTreeMap::new();
+    args.insert("def".to_owned(), peak(1, "a.v + b.v"));
+    let e = c
+        .invoke_one(&format!("wy/{SITE}/flows"), "deploy", Value::Map(args))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    env.stop().await;
+}

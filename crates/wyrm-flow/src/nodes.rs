@@ -166,6 +166,31 @@ fn names(cfg: &Map) -> Result<Vec<String>, String> {
     }
 }
 
+/// `window.max_samples`: an integer 1..=100 000, default 10 000. One parser
+/// for the node and for the compiler's memory check.
+pub fn max_samples(cfg: &Map) -> Result<u64, String> {
+    match cfg.get("max_samples") {
+        None => Ok(10_000),
+        Some(Value::UInt(u)) if (1..=100_000).contains(u) => Ok(*u),
+        Some(Value::Float(x)) if x.fract() == 0.0 && (1.0..=100_000.0).contains(x) => Ok(*x as u64),
+        Some(_) => Err("max_samples: integer 1..=100000".into()),
+    }
+}
+
+/// The key a command sink acts on (`<path>/~act/<action>`, `<path>/~set`),
+/// relative or absolute as written; `None` for other node types.
+pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
+    let path = match cfg.get("path") {
+        Some(Value::Str(p)) => p.trim_end_matches('/'),
+        _ => return None,
+    };
+    match (ty, cfg.get("action")) {
+        ("invoke", Some(Value::Str(a))) => Some(format!("{path}/~act/{a}")),
+        ("set", _) => Some(format!("{path}/~set")),
+        _ => None,
+    }
+}
+
 /// Ports and config validation of a node type (compiler step 3).
 pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     use PortType::*;
@@ -226,6 +251,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 &["avg", "min", "max", "sum", "count", "rate"],
                 "avg",
             )?;
+            max_samples(cfg)?;
             let size = f(cfg, "size_s")?.ok_or("size_s: required")?;
             if size <= 0.0 {
                 return Err("size_s: must be > 0".into());
@@ -1100,7 +1126,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>,
                 "avg",
             )?
             .to_owned(),
-            max: num("max_samples", 10_000.0)? as usize,
+            max: max_samples(cfg)? as usize,
             buf: VecDeque::new(),
             start: None,
         }),
