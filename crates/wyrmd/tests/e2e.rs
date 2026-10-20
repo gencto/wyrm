@@ -1304,3 +1304,236 @@ async fn process_link_keeps_runtime_edits() {
     .await;
     env.stop().await;
 }
+
+/// Runs one daemon until the returned sender fires.
+fn spawn_daemon(
+    cfg: Config,
+) -> (
+    oneshot::Sender<()>,
+    tokio::task::JoinHandle<Result<(), wyrmd::Error>>,
+) {
+    let d = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let (tx, rx) = oneshot::channel::<()>();
+    (
+        tx,
+        tokio::spawn(d.run_until(async {
+            let _ = rx.await;
+        })),
+    )
+}
+
+/// Plain client session to a loopback `tcp/` listener.
+async fn loopback_session(port: u16) -> zenoh::Session {
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5("connect/endpoints", &format!(r#"["tcp/127.0.0.1:{port}"]"#))
+        .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "5000").unwrap();
+    zenoh::open(zc).await.unwrap()
+}
+
+/// Ok replies to `get key` within 2 s.
+async fn replies(s: &zenoh::Session, key: &str) -> Vec<String> {
+    let r = s
+        .get(key)
+        .consolidation(zenoh::query::ConsolidationMode::None)
+        .timeout(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Ok(reply) = r.recv_async().await {
+        if let Ok(smp) = reply.result() {
+            out.push(smp.key_expr().to_string());
+        }
+    }
+    out
+}
+
+/// Samples seen on `key` during `secs` seconds.
+async fn samples(s: &zenoh::Session, key: &str, secs: u64) -> Vec<String> {
+    let sub = s.declare_subscriber(key).await.unwrap();
+    let mut seen = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(secs), async {
+        while let Ok(smp) = sub.recv_async().await {
+            seen.push(smp.key_expr().to_string());
+        }
+    })
+    .await;
+    let _ = sub.undeclare().await;
+    seen
+}
+
+/// ADR 0007 boundaries between real brokers (T12):
+/// 1. the upstream reads `down/**` of the downstream site, never `sys/**`;
+/// 2. the upstream cannot `invoke`, even with a token the edge trusts;
+/// 3. the downstream cannot write or query outside its own `wy/<edge>/**`;
+/// 4. a broker with a certificate from an untrusted CA cannot join, even
+///    with a configured site name (`broker:edge`).
+#[tokio::test(flavor = "multi_thread")]
+async fn two_brokers_isolation() {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir, r_dir) = (
+        temp_dir("iso-central"),
+        temp_dir("iso-edge"),
+        temp_dir("iso-rogue"),
+    );
+    let (c_tcp, c_quic, e_tcp, r_tcp) = (free_port(), free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{
+            site: "central",
+            data_dir: "{}",
+            listen: ["tcp/127.0.0.1:{c_tcp}"],
+            admin_keys: ["{admin}"],
+            peers: {{
+                listen: "quic/127.0.0.1:{c_quic}",
+                downstream: [{{ site: "edge", ca: "{}" }}],
+            }},
+        }}"#,
+        c_dir.display(),
+        e_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    // The edge runs `dev` so a loopback client there may publish and query
+    // anything: the only thing that stops it is the central broker's ACL.
+    let edge_cfg = |dir: &std::path::Path, port: u16, link: &str| {
+        Config::from_json5(&format!(
+            r#"{{
+                site: "edge",
+                profile: "dev",
+                data_dir: "{}",
+                listen: ["tcp/127.0.0.1:{port}"],
+                admin_keys: ["{admin}"],
+                metrics_interval_ms: 200,
+                peers: {{
+                    upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
+                }},
+                links: {{ {link}: {{ driver: "mock", params: {{ points: 2, rate_hz: 20, depth: 1, fanout: 2 }} }} }},
+            }}"#,
+            dir.display(),
+            c_dir.join("pki/ca.pem").display()
+        ))
+        .unwrap()
+    };
+    // Both CAs exist once both daemons are open; brokers read them at start.
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let central = Daemon::open(central, exe.clone()).unwrap();
+    let edge = Daemon::open(edge_cfg(&e_dir, e_tcp, "mock"), exe).unwrap();
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let (e_stop, e_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    let e_task = tokio::spawn(edge.run_until(async {
+        let _ = e_rx.await;
+    }));
+
+    let cs = loopback_session(c_tcp).await;
+    let c = WyrmClient::new(cs.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "edge")))
+        .with_timeout(Duration::from_secs(3));
+    eventually("edge links seen from central", 15, || {
+        let c = &c;
+        async move { (!c.children("wy/edge/down").await.ok()?.is_empty()).then_some(()) }
+    })
+    .await;
+
+    // 1. down/** is readable from central, sys/** is not.
+    assert!(
+        !replies(&cs, "wy/edge/down/mock/**/~meta").await.is_empty(),
+        "control: central reads the edge's down/**"
+    );
+    for k in [
+        "wy/edge/sys/**",
+        "wy/edge/sys/links/**",
+        "wy/edge/sys/audit/**",
+        "wy/edge/sys/**/~meta",
+    ] {
+        assert_eq!(replies(&cs, k).await, Vec::<String>::new(), "query {k}");
+    }
+    // The edge publishes its metrics every 200 ms; none reach central.
+    let (down, sys) = tokio::join!(
+        samples(&cs, "wy/edge/down/**", 2),
+        samples(&cs, "wy/edge/sys/**", 2)
+    );
+    assert!(!down.is_empty(), "control: edge values reach central");
+    assert_eq!(sys, Vec::<String>::new(), "edge sys/** samples at central");
+
+    // 2. No commands across sites, even with a token the edge trusts.
+    let args = Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(1))]));
+    assert!(c
+        .invoke_one("wy/edge/down/mock", "count", args)
+        .await
+        .is_err());
+    let args = Value::Map(BTreeMap::new());
+    assert!(c
+        .invoke_one("wy/edge/down/mock", "reset", args)
+        .await
+        .is_err());
+
+    // 3. The edge's loopback client may do anything on the edge (dev), but
+    //    central accepts from `broker:edge` only `wy/edge/**`.
+    let es = loopback_session(e_tcp).await;
+    assert!(
+        !samples(&es, "wy/edge/sys/**", 1).await.is_empty(),
+        "control: the edge does publish sys/** (check 1 is not vacuous)"
+    );
+    let watch_central = samples(&cs, "wy/central/**", 3);
+    let watch_other = samples(&cs, "wy/other/**", 3);
+    let forge = async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        for _ in 0..10 {
+            es.put("wy/central/down/x/~val", sample(1.0)).await.unwrap();
+            es.put("wy/other/down/x/~val", sample(1.0)).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    let (central_seen, other_seen, ()) = tokio::join!(watch_central, watch_other, forge);
+    assert_eq!(
+        central_seen,
+        Vec::<String>::new(),
+        "edge wrote into wy/central"
+    );
+    assert_eq!(other_seen, Vec::<String>::new(), "edge wrote into wy/other");
+    for k in ["wy/central/sys/**", "wy/central/down/**"] {
+        assert_eq!(
+            replies(&es, k).await,
+            Vec::<String>::new(),
+            "edge queried {k}"
+        );
+    }
+
+    // 4. A rogue broker that calls itself `edge` (CN `broker:edge`), with a
+    //    certificate from its own CA, does not get in.
+    let (r_stop, r_task) = spawn_daemon(edge_cfg(&r_dir, r_tcp, "evil"));
+    let rs = loopback_session(r_tcp).await;
+    let (evil, own) = tokio::join!(
+        samples(&cs, "wy/edge/down/evil/**", 4),
+        samples(&rs, "wy/edge/down/evil/**", 4)
+    );
+    assert!(
+        !own.is_empty(),
+        "control: the rogue broker runs and publishes"
+    );
+    assert_eq!(evil, Vec::<String>::new(), "rogue samples reached central");
+    let names: Vec<String> = c
+        .children("wy/edge/down")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(names, ["mock"], "rogue link listed at central");
+
+    let _ = rs.close().await;
+    let _ = es.close().await;
+    let _ = cs.close().await;
+    let _ = r_stop.send(());
+    let _ = e_stop.send(());
+    r_task.await.unwrap().unwrap();
+    e_task.await.unwrap().unwrap();
+    let _ = c_stop.send(());
+    c_task.await.unwrap().unwrap();
+}
