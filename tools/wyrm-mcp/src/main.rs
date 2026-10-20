@@ -131,7 +131,39 @@ async fn serve_http(server: WyrmMcp, addr: std::net::SocketAddr) -> Result<(), E
         LocalSessionManager::default().into(),
         config,
     );
-    let router = axum::Router::new().nest_service("/mcp", service);
+    // Loopback is not enough: a web page can reach it via DNS rebinding.
+    // Every request needs the right Host, no browser Origin, and a bearer
+    // token (from WYRM_MCP_HTTP_TOKEN, or random and printed once here).
+    let token = match std::env::var(HTTP_TOKEN_ENV) {
+        Ok(t) if t.len() >= 32 => t,
+        Ok(_) => return Err(format!("{HTTP_TOKEN_ENV}: at least 32 characters").into()),
+        Err(_) => {
+            let mut raw = [0u8; 32];
+            getrandom::fill(&mut raw).map_err(|e| format!("no randomness: {e}"))?;
+            let t: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+            eprintln!("wyrm-mcp: HTTP bearer token (send as Authorization: Bearer): {t}");
+            t
+        }
+    };
+    let port = addr.port();
+    let token = std::sync::Arc::new(token);
+    let router =
+        axum::Router::new()
+            .nest_service("/mcp", service)
+            .layer(axum::middleware::from_fn(
+                move |req: axum::extract::Request, next: axum::middleware::Next| {
+                    let token = token.clone();
+                    async move {
+                        if http_allowed(req.headers(), port, &token) {
+                            next.run(req).await
+                        } else {
+                            axum::response::IntoResponse::into_response(
+                                axum::http::StatusCode::FORBIDDEN,
+                            )
+                        }
+                    }
+                },
+            ));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     eprintln!("wyrm-mcp: streamable HTTP on http://{addr}/mcp");
     axum::serve(listener, router)
@@ -141,6 +173,36 @@ async fn serve_http(server: WyrmMcp, addr: std::net::SocketAddr) -> Result<(), E
         })
         .await?;
     Ok(())
+}
+
+const HTTP_TOKEN_ENV: &str = "WYRM_MCP_HTTP_TOKEN";
+
+/// Host is a loopback name with our port, no `Origin` (browsers send one;
+/// MCP clients do not), and `Authorization: Bearer <token>` (constant-time).
+#[cfg(feature = "http")]
+fn http_allowed(h: &axum::http::HeaderMap, port: u16, token: &str) -> bool {
+    use axum::http::header::{AUTHORIZATION, HOST, ORIGIN};
+    let host_ok = h.get(HOST).and_then(|v| v.to_str().ok()).is_some_and(|v| {
+        [
+            format!("127.0.0.1:{port}"),
+            format!("localhost:{port}"),
+            format!("[::1]:{port}"),
+        ]
+        .iter()
+        .any(|ok| ok == v)
+    });
+    let bearer = h
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+    let token_ok = bearer.len() == token.len()
+        && bearer
+            .bytes()
+            .zip(token.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
+    host_ok && h.get(ORIGIN).is_none() && token_ok
 }
 
 #[cfg(not(feature = "http"))]
@@ -195,6 +257,44 @@ fn load_key(path: &Path) -> Result<ed25519_dalek::SigningKey, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(feature = "http")]
+    fn http_guard() {
+        use axum::http::{HeaderMap, HeaderValue};
+        let tok = "t".repeat(64);
+        let mk = |host: &str, origin: Option<&str>, bearer: &str| {
+            let mut h = HeaderMap::new();
+            h.insert("host", HeaderValue::from_str(host).unwrap());
+            if let Some(o) = origin {
+                h.insert("origin", HeaderValue::from_str(o).unwrap());
+            }
+            h.insert(
+                "authorization",
+                HeaderValue::from_str(&format!("Bearer {bearer}")).unwrap(),
+            );
+            h
+        };
+        assert!(http_allowed(&mk("127.0.0.1:8765", None, &tok), 8765, &tok));
+        assert!(http_allowed(&mk("localhost:8765", None, &tok), 8765, &tok));
+        // DNS rebinding: foreign Host, or a browser Origin
+        assert!(!http_allowed(
+            &mk("evil.example:8765", None, &tok),
+            8765,
+            &tok
+        ));
+        assert!(!http_allowed(
+            &mk("127.0.0.1:8765", Some("http://evil.example"), &tok),
+            8765,
+            &tok
+        ));
+        assert!(!http_allowed(
+            &mk("127.0.0.1:8765", None, "wrong"),
+            8765,
+            &tok
+        ));
+        assert!(!http_allowed(&mk("127.0.0.1:9999", None, &tok), 8765, &tok));
+    }
 
     #[test]
     fn http_only_on_loopback() {
