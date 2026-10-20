@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -72,6 +72,9 @@ wyrm-link-mqtt = { path = "links/mqtt" }
 wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
 wat = "1"
 wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
+# MCP (ADR 0005): server side only; no reqwest/auth features (no aws-lc).
+rmcp = { version = "=3.6.0", default-features = false }
+schemars = "1"
 
 [profile.release]
 lto = "thin"

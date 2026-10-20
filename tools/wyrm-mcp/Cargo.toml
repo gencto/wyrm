@@ -1,0 +1,39 @@
+[package]
+name = "wyrm-mcp"
+description = "WYRM MCP server: the node tree, values, actions and flows as MCP tools (ADR 0005)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["http"]
+# Streamable HTTP transport (loopback only).
+http = ["rmcp/transport-streamable-http-server", "dep:axum"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-client.workspace = true
+wyrm-flow.workspace = true
+zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_unixsock-stream"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal", "io-std"] }
+rmcp = { workspace = true, features = ["server", "macros", "transport-io"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+clap = { workspace = true, features = ["env"] }
+hex.workspace = true
+ed25519-dalek.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zeroize.workspace = true
+axum = { workspace = true, optional = true, features = ["http1", "tokio"] }
+
+[dev-dependencies]
+rmcp = { workspace = true, features = ["client"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-mock.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util"] }
