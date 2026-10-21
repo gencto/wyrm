@@ -290,78 +290,184 @@ class _WyExplorerState extends State<WyExplorer> {
   }
 }
 
-/// The node's context menu: its actions, `@set` for a
-/// writable node, a separator and "Copy Path". An action with params opens
-/// the flyout to the right of its item.
+/// One action in the menu: its key, meta (`null` = the `@set` pseudo-action)
+/// and the name people see.
+class _Act {
+  final String id;
+  final ActionMeta? meta;
+  const _Act(this.id, this.meta);
+
+  String get label => meta?.display ?? id;
+
+  /// Opens a form (`@set` always has its `value` field).
+  bool get hasParams => meta == null || meta!.params.isNotEmpty;
+}
+
+/// A menu row: one action, or a group submenu.
+sealed class _Entry {
+  const _Entry();
+}
+
+final class _ActEntry extends _Entry {
+  final _Act act;
+  const _ActEntry(this.act);
+}
+
+final class _GroupEntry extends _Entry {
+  final String label;
+  final List<_Act> acts;
+  const _GroupEntry(this.label, this.acts);
+}
+
+/// Spec 02 groups: `new` first, then the top level, then `edit`; a group
+/// with one action shows it inline, a bigger group as a submenu.
+List<_Entry> _menuEntries(NodeMeta m) {
+  final groups = <String?, List<_Act>>{};
+  for (final e in (m.actions ?? const <String, ActionMeta>{}).entries) {
+    // Level `none`: not for people (a link handshake).
+    if (e.value.level == Perm.none) continue;
+    groups.putIfAbsent(e.value.group, () => []).add(_Act(e.key, e.value));
+  }
+  if (m.isWritable) groups.putIfAbsent(null, () => []).add(const _Act('@set', null));
+  for (final g in groups.values) {
+    g.sort((a, b) => a.label.compareTo(b.label));
+  }
+  String title(String g) => switch (g) {
+        'new' => 'New',
+        'edit' => 'Edit',
+        _ => g.isEmpty ? g : g[0].toUpperCase() + g.substring(1),
+      };
+  final order = [
+    'new',
+    null,
+    ...groups.keys.whereType<String>().where((g) => g != 'new' && g != 'edit').toList()..sort(),
+    'edit',
+  ];
+  final out = <_Entry>[];
+  for (final g in order) {
+    final acts = groups[g];
+    if (acts == null || acts.isEmpty) continue;
+    if (g == null || acts.length == 1) {
+      out.addAll(acts.map(_ActEntry.new));
+    } else {
+      out.add(_GroupEntry(title(g), acts));
+    }
+  }
+  return out;
+}
+
+/// The node's context menu: its actions by group (`New ▸`, the top level,
+/// `Edit ▸`), `@set` for a writable node, a separator and "Copy Path".
+/// An action with params opens its form to the right of its row; one
+/// without params runs on click and shows its result there.
 abstract final class WyContextMenu {
   static void show(BuildContext context, Offset at, WyrmApi api, String key) {
     final overlay = Overlay.of(context);
-    late OverlayEntry entry;
-    OverlayEntry? flyout;
-    void close() {
-      flyout?.remove();
-      flyout = null;
-      entry.remove();
+    // layers[0]: the backdrop and the menu; then submenus and forms.
+    final layers = <OverlayEntry>[];
+    void closeFrom(int depth) {
+      while (layers.length > depth) {
+        layers.removeLast().remove();
+      }
     }
 
-    void openFlyout(Rect item, String action, ActionMeta? meta, NodeMeta node) {
-      flyout?.remove();
-      flyout = OverlayEntry(
-        builder: (_) => Positioned(
-          left: item.right,
-          top: item.top,
-          child: _ActionFlyout(
-            api: api,
-            nodeKey: key,
-            action: action,
-            meta: meta,
-            node: node,
-            // No params: run at once, the flyout shows status and results.
-            autoRun: meta != null && meta.params.isEmpty,
-          ),
-        ),
-      );
-      overlay.insert(flyout!);
+    void close() => closeFrom(0);
+
+    void open(int depth, Rect anchor, Widget child) {
+      closeFrom(depth);
+      final e = OverlayEntry(builder: (_) => Positioned(left: anchor.right, top: anchor.top, child: child));
+      layers.add(e);
+      overlay.insert(e);
     }
 
-    entry = OverlayEntry(
+    late void Function(int depth, Rect anchor, _Entry entry, NodeMeta node) onEntry;
+
+    Widget panel(int depth, List<_Entry> entries, NodeMeta node, {List<Widget> tail = const []}) => _MenuPanel(
+          children: [
+            for (final e in entries)
+              switch (e) {
+                _ActEntry(:final act) => _MenuItem(
+                    label: act.label,
+                    submenu: act.hasParams,
+                    onHover: (r) => act.hasParams ? onEntry(depth + 1, r, e, node) : closeFrom(depth + 1),
+                    onTap: (r) => onEntry(depth + 1, r, e, node),
+                  ),
+                _GroupEntry(:final label) => _MenuItem(
+                    label: label,
+                    submenu: true,
+                    onHover: (r) => onEntry(depth + 1, r, e, node),
+                    onTap: (r) => onEntry(depth + 1, r, e, node),
+                  ),
+              },
+            ...tail,
+          ],
+        );
+
+    onEntry = (depth, anchor, entry, node) {
+      switch (entry) {
+        case _GroupEntry(:final acts):
+          open(depth, anchor, panel(depth, [for (final a in acts) _ActEntry(a)], node));
+        case _ActEntry(:final act):
+          open(
+            depth,
+            anchor,
+            _ActionFlyout(
+              api: api,
+              nodeKey: key,
+              action: act.id,
+              meta: act.meta,
+              node: node,
+              // No params: run at once; the form shows status and result.
+              autoRun: !act.hasParams,
+            ),
+          );
+      }
+    };
+
+    final root = OverlayEntry(
       builder: (_) => Stack(children: [
         Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: close,
-            onSecondaryTap: close,
-          ),
+          child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: close, onSecondaryTap: close),
         ),
         Positioned(
           left: at.dx,
           top: at.dy,
-          child: _Menu(
-            api: api,
-            nodeKey: key,
-            onClose: close,
-            onAction: openFlyout,
+          child: FutureBuilder<NodeMeta>(
+            future: api.meta(key),
+            builder: (context, snap) {
+              final m = snap.data;
+              if (m == null) {
+                return _MenuPanel(children: [
+                  _MenuItem(label: snap.hasError ? '${snap.error}' : 'Loading…', disabled: true),
+                ]);
+              }
+              final entries = _menuEntries(m);
+              return panel(0, entries, m, tail: [
+                if (entries.isEmpty) const _MenuItem(label: 'No actions', disabled: true),
+                Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 2), color: WyStyle.line),
+                _MenuItem(
+                  label: 'Copy Path',
+                  onHover: (_) => closeFrom(1),
+                  onTap: (_) {
+                    Clipboard.setData(ClipboardData(text: key));
+                    close();
+                  },
+                ),
+              ]);
+            },
           ),
         ),
       ]),
     );
-    overlay.insert(entry);
+    layers.add(root);
+    overlay.insert(root);
   }
 }
 
-class _Menu extends StatefulWidget {
-  final WyrmApi api;
-  final String nodeKey;
-  final VoidCallback onClose;
-  final void Function(Rect item, String action, ActionMeta? meta, NodeMeta node) onAction;
-  const _Menu({required this.api, required this.nodeKey, required this.onClose, required this.onAction});
-
-  @override
-  State<_Menu> createState() => _MenuState();
-}
-
-class _MenuState extends State<_Menu> {
-  late final Future<NodeMeta> _meta = widget.api.meta(widget.nodeKey);
+/// The menu box: `#323232`, 1px `#424244`, shadow, 2px padding.
+class _MenuPanel extends StatelessWidget {
+  final List<Widget> children;
+  const _MenuPanel({required this.children});
 
   @override
   Widget build(BuildContext context) => Material(
@@ -369,46 +475,12 @@ class _MenuState extends State<_Menu> {
         child: Container(
           constraints: const BoxConstraints(minWidth: 160, maxWidth: 360),
           padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            color: WyStyle.panel,
-            border: Border.all(color: WyStyle.line),
-            boxShadow: WyStyle.shadow,
-          ),
-          child: FutureBuilder<NodeMeta>(
-            future: _meta,
-            builder: (context, snap) {
-              final m = snap.data;
-              if (snap.hasError) return IntrinsicWidth(child: _item(context, '${snap.error}', disabled: true));
-              if (m == null) return IntrinsicWidth(child: _item(context, 'Loading…', disabled: true));
-              // Level `none`: not for people (a link handshake).
-              final actions = [
-                for (final e in (m.actions ?? const <String, ActionMeta>{}).entries)
-                  if (e.value.level != Perm.none) e.key,
-              ]..sort();
-              return IntrinsicWidth(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  for (final a in actions)
-                    _item(context, a, submenu: m.actions![a]!.params.isNotEmpty, onTap: (rect) {
-                      widget.onAction(rect, a, m.actions![a], m);
-                    }),
-                  if (m.isWritable)
-                    _item(context, '@set', submenu: true, onTap: (rect) => widget.onAction(rect, '@set', null, m)),
-                  if (actions.isEmpty && !m.isWritable) _item(context, 'No actions', disabled: true),
-                  Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 2), color: WyStyle.line),
-                  _item(context, 'Copy Path', onTap: (_) {
-                    Clipboard.setData(ClipboardData(text: widget.nodeKey));
-                    widget.onClose();
-                  }),
-                ]),
-              );
-            },
+          decoration: BoxDecoration(color: WyStyle.panel, border: Border.all(color: WyStyle.line), boxShadow: WyStyle.shadow),
+          child: IntrinsicWidth(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: children),
           ),
         ),
       );
-
-  Widget _item(BuildContext context, String label,
-          {bool submenu = false, bool disabled = false, void Function(Rect)? onTap}) =>
-      _MenuItem(label: label, submenu: submenu, disabled: disabled, onTap: onTap);
 }
 
 class _MenuItem extends StatefulWidget {
@@ -416,7 +488,10 @@ class _MenuItem extends StatefulWidget {
   final bool submenu;
   final bool disabled;
   final void Function(Rect)? onTap;
-  const _MenuItem({required this.label, this.submenu = false, this.disabled = false, this.onTap});
+
+  /// Called when the pointer enters the row (submenus open on hover).
+  final void Function(Rect)? onHover;
+  const _MenuItem({required this.label, this.submenu = false, this.disabled = false, this.onTap, this.onHover});
 
   @override
   State<_MenuItem> createState() => _MenuItemState();
@@ -438,8 +513,7 @@ class _MenuItemState extends State<_MenuItem> {
       cursor: widget.disabled ? MouseCursor.defer : SystemMouseCursors.click,
       onEnter: (_) {
         setState(() => _hover = true);
-        // Submenus open on hover.
-        if (widget.submenu && !widget.disabled) widget.onTap?.call(_rect());
+        if (!widget.disabled) widget.onHover?.call(_rect());
       },
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
@@ -630,16 +704,28 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         ),
       );
 
-  Widget _paramRow(String name, ParamMeta p) => SizedBox(
-        height: 30,
-        child: Row(children: [
-          SizedBox(
-            width: 56, // 30% of the 190px content
-            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+  /// Label 30% (the name for people, the hint in a tooltip) + editor.
+  Widget _paramRow(String name, ParamMeta p) {
+    final label = p.display ?? name;
+    final tip = [label, if (p.description != null) p.description!].join('\n');
+    return SizedBox(
+      height: p.editor == 'textarea' ? 66 : 30,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+        SizedBox(
+          width: 56, // 30% of the 190px content
+          child: Tooltip(
+            message: tip,
+            child: Text(
+              p.required == true ? '$label *' : label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          Expanded(child: _editor(name, p)),
-        ]),
-      );
+        ),
+        Expanded(child: _editor(name, p)),
+      ]),
+    );
+  }
 
   Widget _editor(String name, ParamMeta p) {
     if (_bool.containsKey(name)) {
@@ -671,13 +757,23 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         ),
       );
     }
+    final area = p.editor == 'textarea';
     return _FieldBox(
+      height: area ? 62 : 26,
       child: TextField(
         controller: _text[name],
         style: WyStyle.input,
         cursorColor: WyStyle.accent,
-        decoration: const InputDecoration(isCollapsed: true, border: InputBorder.none),
-        onSubmitted: (_) => _invoke(),
+        // A secret: hidden, never pre-filled (spec 02 `editor: password`).
+        obscureText: p.isPassword,
+        maxLines: area ? 3 : 1,
+        decoration: InputDecoration(
+          isCollapsed: true,
+          border: InputBorder.none,
+          hintText: p.placeholder,
+          hintStyle: WyStyle.input.copyWith(color: WyStyle.placeholder),
+        ),
+        onSubmitted: area ? null : (_) => _invoke(),
       ),
     );
   }
@@ -686,10 +782,11 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
 /// Input and select box: `#2B2B2B`, 1px `#424244`, 26px.
 class _FieldBox extends StatelessWidget {
   final Widget child;
-  const _FieldBox({required this.child});
+  final double height;
+  const _FieldBox({required this.child, this.height = 26});
   @override
   Widget build(BuildContext context) => Container(
-        height: 26,
+        height: height,
         padding: const EdgeInsets.only(left: 5, right: 2),
         alignment: Alignment.centerLeft,
         decoration: BoxDecoration(color: WyStyle.field, border: Border.all(color: WyStyle.line)),
@@ -871,6 +968,10 @@ class _MetricRowState extends State<_MetricRow> {
   ValSample? _last;
   TextEditingController? _edit;
 
+  /// `view=list` carries no enum labels: an enum leaf (`status`) loads its
+  /// full `~meta` once.
+  late NodeMeta _meta = widget.meta;
+
   /// Expanded: the point's own properties (full `~meta`) below the row.
   bool _open = false;
   Future<NodeMeta>? _full;
@@ -905,6 +1006,11 @@ class _MetricRowState extends State<_MetricRow> {
     _sub = widget.api.subscribe(widget.key2).listen((e) {
       if (e.key == widget.key2 && mounted) setState(() => _last = e is ValSample ? e : null);
     }, onError: (Object _) {});
+    if (_meta.ty == TypeCode.enum_ && _meta.enumValues == null) {
+      widget.api.meta(widget.key2).then((m) {
+        if (mounted) setState(() => _meta = m);
+      }, onError: (Object _) {});
+    }
   }
 
   @override
@@ -916,7 +1022,7 @@ class _MetricRowState extends State<_MetricRow> {
   Future<void> _commit() async {
     final t = _edit!.text.trim();
     setState(() => _edit = null);
-    final v = switch (widget.meta.ty) {
+    final v = switch (_meta.ty) {
       TypeCode.number => int.tryParse(t) != null ? VInt(int.parse(t)) : VFloat(double.tryParse(t) ?? 0),
       TypeCode.bool_ => VBool(t == 'true' || t == '1'),
       _ => VStr(t),
@@ -931,17 +1037,23 @@ class _MetricRowState extends State<_MetricRow> {
   @override
   Widget build(BuildContext context) {
     final s = _last;
-    final text = s == null ? '' : formatValue(s.sample.v, widget.meta);
-    // A status map that is not `connected` reads as a fault.
-    final faulty = switch (s?.sample.v) {
-      VMap(:final v) => v['state'] is VStr && (v['state']! as VStr).v != 'connected',
-      _ => false,
-    };
+    final text = s == null ? '' : formatValue(s.sample.v, _meta);
+    // The driver framework's `status` (Failed red, Connecting orange,
+    // Stopped dim) and `error` leaves.
+    final profile = _meta.profileName;
+    final stateColor = profile != 'wy:df-status'
+        ? null
+        : switch (text) {
+            'Failed' => Colors.redAccent,
+            'Connecting' => Colors.orange,
+            'Stopped' || 'Stopped by Parent' || 'Unknown' => WyStyle.disabled,
+            _ => null,
+          };
     final color = switch (s?.sample.q) {
       Quality.uncertain => Colors.orange,
       Quality.bad => Colors.redAccent,
-      _ when faulty => Colors.redAccent,
-      _ => WyStyle.text,
+      _ when profile == 'wy:df-error' => Colors.redAccent,
+      _ => stateColor ?? WyStyle.text,
     };
     final row = Container(
       height: WyStyle.rowHeight,
@@ -976,11 +1088,11 @@ class _MetricRowState extends State<_MetricRow> {
           )
         else
           GestureDetector(
-            onTap: widget.meta.isWritable
+            onTap: _meta.isWritable
                 ? () => setState(() => _edit = TextEditingController(text: s == null ? '' : text))
                 : null,
             child: MouseRegion(
-              cursor: widget.meta.isWritable ? SystemMouseCursors.text : MouseCursor.defer,
+              cursor: _meta.isWritable ? SystemMouseCursors.text : MouseCursor.defer,
               child: s == null
                   ? const SizedBox.shrink()
                   : Text(

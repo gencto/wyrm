@@ -15,11 +15,27 @@ class ActApi implements WyrmApi {
     'reset': ActionMeta(),
   });
 
+  /// A driver connection: groups `new` and `edit` (spec 02 0.1.6).
+  static final metaC = NodeMeta(hasChildren: true, actions: {
+    'add_device': ActionMeta(display: 'Add Device', group: 'new', params: {
+      'name': ParamMeta(ty: TypeCode.string, required: true, display: 'Name'),
+      'unit': ParamMeta(ty: TypeCode.number, display: 'Slave ID', description: '1..247'),
+    }),
+    'add_point': ActionMeta(display: 'Add Point', group: 'new', params: {
+      'name': ParamMeta(ty: TypeCode.string, required: true),
+      'password': ParamMeta(ty: TypeCode.string, editor: 'password', placeholder: 'secret'),
+    }),
+    'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'host': ParamMeta(ty: TypeCode.string)}),
+    'remove': ActionMeta(display: 'Remove', group: 'edit'),
+    'restart': ActionMeta(display: 'Restart'),
+    'hello': ActionMeta(level: Perm.none, params: {'token': ParamMeta(ty: TypeCode.binary)}),
+  });
+
   @override
   Stream<ListUpdate> list(String key) {
     final c = StreamController<ListUpdate>();
     lists[key] = c;
-    if (key == 'wy/s/down') c.add(ListRefreshed([Child('m', metaM)]));
+    if (key == 'wy/s/down') c.add(ListRefreshed([Child('m', metaM), Child('c', metaC)]));
     return c.stream;
   }
 
@@ -34,7 +50,11 @@ class ActApi implements WyrmApi {
   }
 
   @override
-  Future<NodeMeta> meta(String key) async => key == 'wy/s/down/m' ? metaM : NodeMeta();
+  Future<NodeMeta> meta(String key) async => switch (key) {
+        'wy/s/down/m' => metaM,
+        'wy/s/down/c' => metaC,
+        _ => NodeMeta(),
+      };
   @override
   Future<List<Child>> children(String key) async => [];
   @override
@@ -68,7 +88,7 @@ void main() {
     // Hover over an action with params: its fields appear.
     await mouse.moveTo(t.getCenter(find.text('count')));
     await t.pumpAndSettle();
-    expect(find.text('n'), findsOneWidget, reason: 'param field on hover');
+    expect(find.text('n *'), findsOneWidget, reason: 'param field on hover (required)');
     await t.enterText(find.byType(TextField).last, '3');
     await t.tap(find.text('Invoke'));
     await t.pumpAndSettle();
@@ -87,5 +107,43 @@ void main() {
     await t.tap(find.text('reset'));
     await t.pumpAndSettle();
     expect(api.invoked.single.$2, 'reset');
+  });
+
+  testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    final mouse = await t.createGesture(kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.down(t.getCenter(find.text('c')));
+    await mouse.up();
+    await t.pumpAndSettle();
+    // top level: New ▸, Restart, Edit ▸; the handshake is hidden
+    expect(find.text('New'), findsOneWidget);
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Restart'), findsOneWidget);
+    expect(find.text('hello'), findsNothing);
+    expect(find.text('Add Device'), findsNothing, reason: 'inside New');
+    final top = [for (final w in ['New', 'Restart', 'Edit']) t.getTopLeft(find.text(w)).dy];
+    expect(top, orderedEquals([...top]..sort()), reason: 'New, top level, Edit');
+
+    await mouse.moveTo(t.getCenter(find.text('New')));
+    await t.pumpAndSettle();
+    expect(find.text('Add Device'), findsOneWidget);
+    expect(find.text('Add Point'), findsOneWidget);
+    // the form: labels for people, required mark, hint
+    await mouse.moveTo(t.getCenter(find.text('Add Device')));
+    await t.pumpAndSettle();
+    expect(find.text('Name *'), findsOneWidget);
+    expect(find.text('Slave ID'), findsOneWidget);
+    // a password field hides its text
+    await mouse.moveTo(t.getCenter(find.text('Add Point')));
+    await t.pumpAndSettle();
+    final pw = t.widgetList<TextField>(find.byType(TextField)).where((f) => f.obscureText).toList();
+    expect(pw, hasLength(1));
+    expect(pw.single.decoration?.hintText, 'secret');
   });
 }

@@ -312,11 +312,6 @@ String formatValue(Value v, NodeMeta? meta) {
     VStr(:final v) => v,
     VBytes(:final v) => '${v.length} bytes',
     VArray(:final v) => '[${v.length}]',
-    // A status map (driver framework): its state, and the error if any.
-    VMap(:final v) when v['state'] is VStr => switch (v['error']) {
-        VStr(v: final e) => '${(v['state']! as VStr).v}: $e',
-        _ => (v['state']! as VStr).v,
-      },
     VMap(:final v) => '{${v.length}}',
   };
 }
