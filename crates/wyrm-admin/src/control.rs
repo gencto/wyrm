@@ -24,7 +24,9 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
-use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile};
+use wyrm_core::meta::{
+    is_code, ActionResult, ParamMeta, Profile, EDITOR_PASSWORD, GROUP_EDIT, GROUP_NEW,
+};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
     now_us, Caller, Link, LinkConfig, LinkCtx, LinkError, LinkHandle, ReplySink, VerifyingKey,
@@ -847,15 +849,23 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         NodeMeta::leaf(TypeCode::Enum).enum_values(STATES),
     )
     .await?;
-    for a in ["start", "stop", "remove"] {
-        ctx.declare_action(&p, a, ActionMeta::new().level(Perm::Config))
-            .await?;
+    // Names for people and menu groups (spec 02 0.1.6).
+    for (a, d, g) in [
+        ("start", "Start", None),
+        ("stop", "Stop", None),
+        ("remove", "Remove", Some(GROUP_EDIT)),
+    ] {
+        let mut m = ActionMeta::new().level(Perm::Config).display(d);
+        m.group = g.map(str::to_owned);
+        ctx.declare_action(&p, a, m).await?;
     }
     ctx.declare_action(
         &p,
         "update",
         ActionMeta::new()
             .level(Perm::Config)
+            .display("Update Params")
+            .group(GROUP_EDIT)
             .param("params", ParamMeta::of(TypeCode::Map).required(true))
             .result(ActionResult::Type(TypeCode::Number)),
     )
@@ -866,6 +876,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         ActionMeta::new()
             // params are control-plane config: same level as update/rollback
             .level(Perm::Config)
+            .display("History")
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;
@@ -874,7 +885,14 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "rollback",
         ActionMeta::new()
             .level(Perm::Config)
-            .param("rev", ParamMeta::of(TypeCode::Number).required(true))
+            .display("Rollback")
+            .group(GROUP_EDIT)
+            .param(
+                "rev",
+                ParamMeta::of(TypeCode::Number)
+                    .required(true)
+                    .display("Revision"),
+            )
             .result(ActionResult::Type(TypeCode::Number)),
     )
     .await?;
@@ -883,8 +901,21 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "set_secret",
         ActionMeta::new()
             .level(Perm::Config)
-            .param("name", ParamMeta::of(TypeCode::String).required(true))
-            .param("value", ParamMeta::of(TypeCode::Binary).required(true))
+            .display("Set Secret")
+            .group("secrets")
+            .param(
+                "name",
+                ParamMeta::of(TypeCode::String)
+                    .required(true)
+                    .display("Name"),
+            )
+            .param(
+                "value",
+                ParamMeta::of(TypeCode::Binary)
+                    .required(true)
+                    .display("Value")
+                    .editor(EDITOR_PASSWORD),
+            )
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;
@@ -893,7 +924,14 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "delete_secret",
         ActionMeta::new()
             .level(Perm::Config)
-            .param("name", ParamMeta::of(TypeCode::String).required(true))
+            .display("Delete Secret")
+            .group("secrets")
+            .param(
+                "name",
+                ParamMeta::of(TypeCode::String)
+                    .required(true)
+                    .display("Name"),
+            )
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;
@@ -929,14 +967,19 @@ async fn declare_quarantined(
         &p,
         "approve",
         ActionMeta::new()
-            .param("driver", str_param())
-            .param("params", ParamMeta::of(TypeCode::Map))
+            .display("Approve")
+            .param("driver", str_param().display("Driver"))
+            .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
     .await?;
-    ctx.declare_action(&p, "reject", ActionMeta::new().level(Perm::Config))
-        .await
+    ctx.declare_action(
+        &p,
+        "reject",
+        ActionMeta::new().level(Perm::Config).display("Reject"),
+    )
+    .await
 }
 
 fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> {
@@ -974,13 +1017,17 @@ impl Link for Admin {
             "links",
             "install",
             ActionMeta::new()
-                .param("id", str_param().required(true))
-                .param("driver", str_param().required(true))
+                .display("Install Link")
+                .group(GROUP_NEW)
+                .param("id", str_param().required(true).display("Link ID"))
+                .param("driver", str_param().required(true).display("Driver"))
                 .param(
                     "mode",
-                    str_param().enum_values(["embedded", "process", "external"]),
+                    str_param()
+                        .enum_values(["embedded", "process", "external"])
+                        .display("Mode"),
                 )
-                .param("params", ParamMeta::of(TypeCode::Map))
+                .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
                 .result(ActionResult::Type(TypeCode::Map))
                 .level(Perm::Config),
         )
@@ -994,8 +1041,15 @@ impl Link for Admin {
             "profiles",
             "put",
             ActionMeta::new()
-                .param("name", str_param().required(true))
-                .param("profile", ParamMeta::of(TypeCode::Binary).required(true))
+                .display("Put Profile")
+                .group(GROUP_NEW)
+                .param("name", str_param().required(true).display("Name"))
+                .param(
+                    "profile",
+                    ParamMeta::of(TypeCode::Binary)
+                        .required(true)
+                        .display("Profile"),
+                )
                 .level(Perm::Config),
         )
         .await?;
@@ -1003,7 +1057,9 @@ impl Link for Admin {
             "profiles",
             "remove",
             ActionMeta::new()
-                .param("name", str_param().required(true))
+                .display("Remove Profile")
+                .group(GROUP_EDIT)
+                .param("name", str_param().required(true).display("Name"))
                 .level(Perm::Config),
         )
         .await?;

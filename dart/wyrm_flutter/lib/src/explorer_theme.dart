@@ -44,5 +44,7 @@ abstract final class WyStyle {
   static const label = TextStyle(fontFamily: font, fontSize: 11, color: text, height: 16 / 11);
   static const tab = TextStyle(fontFamily: font, fontSize: 12, color: text);
   static const menu = TextStyle(fontFamily: font, fontSize: 13, color: text);
-  static const input = TextStyle(fontFamily: 'Arial', fontSize: 11, color: accent);
+  /// Form labels: one size up from tree labels, for reading.
+  static const formLabel = TextStyle(fontFamily: font, fontSize: 12, color: text);
+  static const input = TextStyle(fontFamily: 'Arial', fontSize: 12, color: accent);
 }

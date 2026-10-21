@@ -10,6 +10,11 @@ class ActApi implements WyrmApi {
   final invoked = <(String, String, Value?)>[];
   final lists = <String, StreamController<ListUpdate>>{};
 
+  /// A value point (goes to Metrics) with its own actions.
+  static final metaT = NodeMeta(ty: TypeCode.number, hasChildren: false, actions: {
+    'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'scale': ParamMeta(ty: TypeCode.number)}),
+  });
+
   static final metaM = NodeMeta(hasChildren: true, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
@@ -53,10 +58,16 @@ class ActApi implements WyrmApi {
   Future<NodeMeta> meta(String key) async => switch (key) {
         'wy/s/down/m' => metaM,
         'wy/s/down/c' => metaC,
+        'wy/s/down/c/temp' => metaT,
         _ => NodeMeta(),
       };
+  /// `m` holds only a point (no tree children); `c` holds a device too.
   @override
-  Future<List<Child>> children(String key) async => [];
+  Future<List<Child>> children(String key) async => switch (key) {
+        'wy/s/down/m' => [Child('temp', metaT)],
+        'wy/s/down/c' => [Child('dev', NodeMeta(hasChildren: true)), Child('temp', metaT)],
+        _ => [],
+      };
   @override
   Future<void> close() async {}
 }
@@ -88,7 +99,7 @@ void main() {
     // Hover over an action with params: its fields appear.
     await mouse.moveTo(t.getCenter(find.text('count')));
     await t.pumpAndSettle();
-    expect(find.text('n *'), findsOneWidget, reason: 'param field on hover (required)');
+    expect(find.text('n'), findsOneWidget, reason: 'param field on hover, no required mark');
     await t.enterText(find.byType(TextField).last, '3');
     await t.tap(find.text('Invoke'));
     await t.pumpAndSettle();
@@ -97,7 +108,7 @@ void main() {
     expect(find.text('7'), findsOneWidget, reason: 'result shown');
   });
 
-  testWidgets('an action without params runs on click', (t) async {
+  testWidgets('an action without params also opens its form; Invoke runs it', (t) async {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
@@ -106,7 +117,36 @@ void main() {
     await rightClick(t, find.text('m'));
     await t.tap(find.text('reset'));
     await t.pumpAndSettle();
+    expect(api.invoked, isEmpty, reason: 'nothing runs before Invoke');
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
     expect(api.invoked.single.$2, 'reset');
+  });
+
+  testWidgets('a triangle only where the tree has children; points in Metrics have a menu', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    // m holds only a point: not expandable; c holds a device: expandable
+    await t.tap(find.text('m'));
+    await t.pump(const Duration(milliseconds: 50));
+    await t.tap(find.text('m'));
+    await t.pumpAndSettle();
+    expect(api.lists.keys, isNot(contains('wy/s/down/m')));
+    await t.tap(find.text('c'));
+    await t.pump(const Duration(milliseconds: 50));
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
+    expect(api.lists.keys, contains('wy/s/down/c'));
+    // select c (one click): Metrics shows its point; a right click opens its menu
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle(const Duration(milliseconds: 400));
+    expect(find.text('temp'), findsOneWidget);
+    await rightClick(t, find.text('temp'));
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Copy Path'), findsOneWidget);
   });
 
   testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {
@@ -137,13 +177,13 @@ void main() {
     // the form: labels for people, required mark, hint
     await mouse.moveTo(t.getCenter(find.text('Add Device')));
     await t.pumpAndSettle();
-    expect(find.text('Name *'), findsOneWidget);
+    expect(find.text('Name'), findsOneWidget);
     expect(find.text('Slave ID'), findsOneWidget);
     // a password field hides its text
     await mouse.moveTo(t.getCenter(find.text('Add Point')));
     await t.pumpAndSettle();
     final pw = t.widgetList<TextField>(find.byType(TextField)).where((f) => f.obscureText).toList();
     expect(pw, hasLength(1));
-    expect(pw.single.decoration?.hintText, 'secret');
+    expect(pw.single.decoration?.hintText, 'secret (optional)');
   });
 }

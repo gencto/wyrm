@@ -145,6 +145,32 @@ class _WyExplorerState extends State<WyExplorer> {
 
   bool _synthetic(String key) => _sites.contains(key);
 
+  /// Whether a node has children for the tree (not only value points, which
+  /// go to Metrics): known after one `children` call per container row.
+  final _treeKids = <String, bool>{};
+  final _probing = <String>{};
+
+  static bool _treeChild(Child c) => !_isPoint(c.meta) || _refRoot(c.meta) != null;
+
+  /// `null` while not known yet (no triangle until then).
+  bool? _expandable(_Row r) {
+    if (_synthetic(r.key) || _refRoot(r.meta) != null) return true;
+    if (!r.meta.isContainer) return false;
+    final listed = _kids[r.key];
+    if (listed != null) return listed.any(_treeChild);
+    final known = _treeKids[r.key];
+    if (known == null && _probing.add(r.key)) {
+      widget.api.children(r.key).then(
+            (kids) => _treeKids[r.key] = kids.any(_treeChild),
+            onError: (Object _) => _treeKids[r.key] = false,
+          ).whenComplete(() {
+        _probing.remove(r.key);
+        if (mounted) setState(() {});
+      });
+    }
+    return known;
+  }
+
   @override
   void dispose() {
     for (final s in _subs.values) {
@@ -258,7 +284,8 @@ class _WyExplorerState extends State<WyExplorer> {
   Widget _rowWidget(_Row r) {
     final selected = r.key == _selected;
     final fg = selected ? Colors.white : WyStyle.text;
-    final isContainer = r.meta.isContainer;
+    // A triangle only where the tree has something to show below.
+    final isContainer = _expandable(r) ?? false;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _selected = r.key),
@@ -358,8 +385,8 @@ List<_Entry> _menuEntries(NodeMeta m) {
 
 /// The node's context menu: its actions by group (`New ▸`, the top level,
 /// `Edit ▸`), `@set` for a writable node, a separator and "Copy Path".
-/// An action with params opens its form to the right of its row; one
-/// without params runs on click and shows its result there.
+/// Every action opens its form to the right of its row: its params (if
+/// any), Invoke, the status and the result.
 abstract final class WyContextMenu {
   static void show(BuildContext context, Offset at, WyrmApi api, String key) {
     final overlay = Overlay.of(context);
@@ -386,10 +413,11 @@ abstract final class WyContextMenu {
           children: [
             for (final e in entries)
               switch (e) {
+                // Every action opens its form (params, if any, and Invoke).
                 _ActEntry(:final act) => _MenuItem(
                     label: act.label,
-                    submenu: act.hasParams,
-                    onHover: (r) => act.hasParams ? onEntry(depth + 1, r, e, node) : closeFrom(depth + 1),
+                    submenu: true,
+                    onHover: (r) => onEntry(depth + 1, r, e, node),
                     onTap: (r) => onEntry(depth + 1, r, e, node),
                   ),
                 _GroupEntry(:final label) => _MenuItem(
@@ -417,8 +445,6 @@ abstract final class WyContextMenu {
               action: act.id,
               meta: act.meta,
               node: node,
-              // No params: run at once; the form shows status and result.
-              autoRun: !act.hasParams,
             ),
           );
       }
@@ -555,8 +581,8 @@ class _MenuTriangle extends CustomPainter {
   bool shouldRepaint(_MenuTriangle old) => old.color != color;
 }
 
-/// The action flyout (200px): one row per param (label
-/// 30% + editor), "Invoke", the status indicator, then the results.
+/// The action form: one row per param (label column, then the field, all
+/// fields on one edge), "Invoke", the status indicator, then the results.
 class _ActionFlyout extends StatefulWidget {
   final WyrmApi api;
   final String nodeKey;
@@ -565,14 +591,13 @@ class _ActionFlyout extends StatefulWidget {
   /// `null` for the `@set` pseudo-action (one `value` param of the node type).
   final ActionMeta? meta;
   final NodeMeta node;
-  final bool autoRun;
-  const _ActionFlyout(
-      {required this.api,
-      required this.nodeKey,
-      required this.action,
-      required this.meta,
-      required this.node,
-      this.autoRun = false});
+  const _ActionFlyout({
+    required this.api,
+    required this.nodeKey,
+    required this.action,
+    required this.meta,
+    required this.node,
+  });
 
   @override
   State<_ActionFlyout> createState() => _ActionFlyoutState();
@@ -604,7 +629,6 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : formatValue(d, null));
       }
     }
-    if (widget.autoRun) _invoke();
   }
 
   Value _value(String k, ParamMeta p) {
@@ -663,8 +687,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   Widget build(BuildContext context) => Material(
         type: MaterialType.transparency,
         child: Container(
-          width: 200,
-          padding: const EdgeInsets.all(5),
+          width: _formWidth,
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 5),
           decoration: BoxDecoration(color: WyStyle.panel, border: Border.all(color: WyStyle.line), boxShadow: WyStyle.shadow),
           child: DefaultTextStyle(
             style: WyStyle.label,
@@ -673,7 +697,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
               Row(children: [
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 5, 0, 5),
+                    padding: EdgeInsets.fromLTRB(_params.isEmpty ? 0 : _labelWidth + _gap, 5, 0, 5),
                     child: _Button(
                         label: widget.meta == null ? 'Set' : 'Invoke',
                         onTap: _status == _Status.running ? null : _invoke),
@@ -704,27 +728,35 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         ),
       );
 
-  /// Label 30% (the name for people, the hint in a tooltip) + editor.
+  /// The label (the name for people; the hint in a tooltip) in a fixed
+  /// column, the field after it: every field starts at the same x.
   Widget _paramRow(String name, ParamMeta p) {
     final label = p.display ?? name;
     final tip = [label, if (p.description != null) p.description!].join('\n');
-    return SizedBox(
-      height: p.editor == 'textarea' ? 66 : 30,
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        SizedBox(
-          width: 56, // 30% of the 190px content
-          child: Tooltip(
-            message: tip,
-            child: Text(
-              p.required == true ? '$label *' : label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: SizedBox(
+        height: p.editor == 'textarea' ? 66 : 30,
+        child: Row(children: [
+          SizedBox(
+            width: _labelWidth,
+            child: Tooltip(
+              message: tip,
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: WyStyle.formLabel),
             ),
           ),
-        ),
-        Expanded(child: _editor(name, p)),
-      ]),
+          const SizedBox(width: _gap),
+          Expanded(child: _editor(name, p)),
+        ]),
+      ),
     );
+  }
+
+  /// Hint in an empty field: the param's example, and `optional` for a
+  /// param that may stay empty (required ones carry no mark).
+  static String? _hint(ParamMeta p) {
+    if (p.required == true) return p.placeholder;
+    return p.placeholder == null ? 'optional' : '${p.placeholder} (optional)';
   }
 
   Widget _editor(String name, ParamMeta p) {
@@ -770,7 +802,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         decoration: InputDecoration(
           isCollapsed: true,
           border: InputBorder.none,
-          hintText: p.placeholder,
+          hintText: _hint(p),
           hintStyle: WyStyle.input.copyWith(color: WyStyle.placeholder),
         ),
         onSubmitted: area ? null : (_) => _invoke(),
@@ -778,6 +810,11 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     );
   }
 }
+
+/// Form layout: width, label column, gap between label and field.
+const _formWidth = 340.0;
+const _labelWidth = 120.0;
+const _gap = 10.0;
 
 /// Input and select box: `#2B2B2B`, 1px `#424244`, 26px.
 class _FieldBox extends StatelessWidget {
@@ -1103,9 +1140,15 @@ class _MetricRowState extends State<_MetricRow> {
           ),
       ]),
     );
-    if (!_open) return row;
+    // A point has actions too (edit, remove, @set): right click as in the tree.
+    final menuRow = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (d) => WyContextMenu.show(context, d.globalPosition, widget.api, widget.key2),
+      child: row,
+    );
+    if (!_open) return menuRow;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      row,
+      menuRow,
       FutureBuilder<NodeMeta>(
         future: _full,
         builder: (context, snap) => snap.hasData
