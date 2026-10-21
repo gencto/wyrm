@@ -14,7 +14,7 @@
     // Plain mock: 16 points at 2 Hz on a two-level folder tree.
     mock: { driver: "mock", params: { points: 16, rate_hz: 2, depth: 2, fanout: 2 } },
     // Framework mock (ADR 0004): connections → devices → points, with the
-    // generated add_*/edit/remove/enable actions; edits survive restarts.
+    // generated add_*/edit/remove/restart/stop actions; edits survive restarts.
     lab: {
       driver: "mockdev",
       params: {
