@@ -67,6 +67,13 @@ pub struct ParamMeta {
     pub enum_values: Option<Vec<String>>,
     pub default: Option<Value>,
     pub required: Option<bool>,
+    /// Field label for people (the key stays the `args` name).
+    pub display: Option<String>,
+    pub description: Option<String>,
+    /// Example value shown in an empty field.
+    pub placeholder: Option<String>,
+    /// `"password"` (hidden, never echoed) or `"textarea"`; UIs ignore others.
+    pub editor: Option<String>,
 }
 
 /// Action result kind.
@@ -84,6 +91,11 @@ pub struct ActionMeta {
     pub stream: Option<bool>,
     pub level: Option<Perm>,
     pub timeout_ms: Option<u32>,
+    /// Name for people (`"Add Device"`); the key stays a key segment.
+    pub display: Option<String>,
+    /// Menu: `"new"` (adds children), `"edit"` (changes or removes the
+    /// node), another name = own submenu, `None` = top level.
+    pub group: Option<String>,
 }
 
 /// Full `~meta` (spec 02). Every field optional; absent = inherited from profile.
@@ -161,6 +173,10 @@ impl<C> Encode<C> for ParamMeta {
             self.enum_values.is_some(),
             self.default.is_some(),
             self.required.is_some(),
+            self.display.is_some(),
+            self.description.is_some(),
+            self.placeholder.is_some(),
+            self.editor.is_some(),
         ]
         .iter()
         .filter(|b| **b)
@@ -177,13 +193,26 @@ impl<C> Encode<C> for ParamMeta {
             e.u8(3)?;
             enc_str_array(e, ev)?;
         }
-        // text keys after int keys (canonical): "default"(7) < "required"(8)
+        // text keys after int keys, by length then bytes: "editor"(6)
+        // "default" "display"(7) "required"(8) "description" "placeholder"(11)
+        if let Some(x) = &self.editor {
+            e.str("editor")?.str(x)?;
+        }
         if let Some(d) = &self.default {
             e.str("default")?;
             d.encode(e, ctx)?;
         }
+        if let Some(x) = &self.display {
+            e.str("display")?.str(x)?;
+        }
         if let Some(r) = self.required {
             e.str("required")?.bool(r)?;
+        }
+        if let Some(x) = &self.description {
+            e.str("description")?.str(x)?;
+        }
+        if let Some(x) = &self.placeholder {
+            e.str("placeholder")?.str(x)?;
         }
         Ok(())
     }
@@ -195,13 +224,19 @@ impl<C> Encode<C> for ActionMeta {
         e: &mut Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), encode::Error<W::Error>> {
-        // keys: "level"(5) "params"(6) "result"(6) "stream"(6) "timeout_ms"(10) → canonical order
+        // keys by length then bytes: "group" "level"(5) "params" "result"
+        // "stream"(6) "display"(7) "timeout_ms"(10)
         let mut n = 1u64;
         n += self.result.is_some() as u64;
         n += self.stream.is_some() as u64;
         n += self.level.is_some() as u64;
         n += self.timeout_ms.is_some() as u64;
+        n += self.display.is_some() as u64;
+        n += self.group.is_some() as u64;
         e.map(n)?;
+        if let Some(g) = &self.group {
+            e.str("group")?.str(g)?;
+        }
         if let Some(l) = self.level {
             e.str("level")?.u8(l.code())?;
         }
@@ -223,6 +258,9 @@ impl<C> Encode<C> for ActionMeta {
         }
         if let Some(s) = self.stream {
             e.str("stream")?.bool(s)?;
+        }
+        if let Some(x) = &self.display {
+            e.str("display")?.str(x)?;
         }
         if let Some(t) = self.timeout_ms {
             e.str("timeout_ms")?.u32(t)?;
@@ -389,6 +427,10 @@ impl<'b, C> Decode<'b, C> for ParamMeta {
                 Type::String | Type::StringIndef => match d.str()? {
                     "default" => p.default = Some(Value::decode(d, ctx)?),
                     "required" => p.required = Some(d.bool()?),
+                    "display" => p.display = Some(d.str()?.to_owned()),
+                    "description" => p.description = Some(d.str()?.to_owned()),
+                    "placeholder" => p.placeholder = Some(d.str()?.to_owned()),
+                    "editor" => p.editor = Some(d.str()?.to_owned()),
                     _ => d.skip()?,
                 },
                 _ => match d.u32()? {
@@ -431,6 +473,8 @@ impl<'b, C> Decode<'b, C> for ActionMeta {
                 "stream" => a.stream = Some(d.bool()?),
                 "level" => a.level = Some(Perm::try_from(d.u8()?).map_err(bad("level"))?),
                 "timeout_ms" => a.timeout_ms = Some(d.u32()?),
+                "display" => a.display = Some(d.str()?.to_owned()),
+                "group" => a.group = Some(d.str()?.to_owned()),
                 _ => d.skip()?,
             }
         }
@@ -635,7 +679,26 @@ impl ActionMeta {
         self.timeout_ms = Some(ms);
         self
     }
+
+    pub fn display(mut self, d: impl Into<String>) -> Self {
+        self.display = Some(d.into());
+        self
+    }
+
+    pub fn group(mut self, g: impl Into<String>) -> Self {
+        self.group = Some(g.into());
+        self
+    }
 }
+
+/// `group` of actions that add children.
+pub const GROUP_NEW: &str = "new";
+/// `group` of actions that change or remove the node itself.
+pub const GROUP_EDIT: &str = "edit";
+/// `editor` of a secret parameter.
+pub const EDITOR_PASSWORD: &str = "password";
+/// `editor` of a multi-line text parameter.
+pub const EDITOR_TEXTAREA: &str = "textarea";
 
 impl ParamMeta {
     pub fn of(ty: TypeCode) -> Self {
@@ -652,6 +715,26 @@ impl ParamMeta {
 
     pub fn enum_values<I: IntoIterator<Item = S>, S: Into<String>>(mut self, values: I) -> Self {
         self.enum_values = Some(values.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn display(mut self, d: impl Into<String>) -> Self {
+        self.display = Some(d.into());
+        self
+    }
+
+    pub fn description(mut self, d: impl Into<String>) -> Self {
+        self.description = Some(d.into());
+        self
+    }
+
+    pub fn placeholder(mut self, p: impl Into<String>) -> Self {
+        self.placeholder = Some(p.into());
+        self
+    }
+
+    pub fn editor(mut self, e: impl Into<String>) -> Self {
+        self.editor = Some(e.into());
         self
     }
 }

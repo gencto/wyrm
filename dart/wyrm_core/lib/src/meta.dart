@@ -51,10 +51,33 @@ class ParamMeta {
   Value? defaultValue;
   bool? required;
 
-  ParamMeta({this.ty, this.unit, this.enumValues, this.defaultValue, this.required});
+  /// Field label for people (the key stays the `args` name).
+  String? display;
+  String? description;
+
+  /// Example value shown in an empty field.
+  String? placeholder;
+
+  /// `password` (hidden, never echoed) or `textarea`; others are ignored.
+  String? editor;
+
+  ParamMeta(
+      {this.ty,
+      this.unit,
+      this.enumValues,
+      this.defaultValue,
+      this.required,
+      this.display,
+      this.description,
+      this.placeholder,
+      this.editor});
+
+  bool get isPassword => editor == 'password';
 
   void encode(CborWriter w) {
-    final n = [ty, unit, enumValues, defaultValue, required].where((x) => x != null).length;
+    final n = [ty, unit, enumValues, defaultValue, required, display, description, placeholder, editor]
+        .where((x) => x != null)
+        .length;
     w.mapHeader(n);
     if (ty != null) {
       w.uint(1);
@@ -68,14 +91,31 @@ class ParamMeta {
       w.uint(3);
       _encStrings(w, enumValues!);
     }
-    // text keys after int keys: "default"(7) < "required"(8)
+    // text keys after int keys, by length then bytes: "editor"(6)
+    // "default" "display"(7) "required"(8) "description" "placeholder"(11)
+    if (editor != null) {
+      w.text('editor');
+      w.text(editor!);
+    }
     if (defaultValue != null) {
       w.text('default');
       defaultValue!.encode(w);
     }
+    if (display != null) {
+      w.text('display');
+      w.text(display!);
+    }
     if (required != null) {
       w.text('required');
       w.boolean(required!);
+    }
+    if (description != null) {
+      w.text('description');
+      w.text(description!);
+    }
+    if (placeholder != null) {
+      w.text('placeholder');
+      w.text(placeholder!);
     }
   }
 
@@ -89,6 +129,14 @@ class ParamMeta {
             p.defaultValue = r.readValue();
           case 'required':
             p.required = r.readBool();
+          case 'display':
+            p.display = r.readText();
+          case 'description':
+            p.description = r.readText();
+          case 'placeholder':
+            p.placeholder = r.readText();
+          case 'editor':
+            p.editor = r.readText();
           default:
             r.skip();
         }
@@ -134,13 +182,26 @@ class ActionMeta {
   Perm? level;
   int? timeoutMs;
 
-  ActionMeta({Map<String, ParamMeta>? params, this.result, this.stream, this.level, this.timeoutMs})
+  /// Name for people (`Add Device`); the key stays a key segment.
+  String? display;
+
+  /// Menu: `new` (adds children), `edit` (changes or removes the node),
+  /// another name = own submenu, null = top level.
+  String? group;
+
+  ActionMeta(
+      {Map<String, ParamMeta>? params, this.result, this.stream, this.level, this.timeoutMs, this.display, this.group})
       : params = params ?? {};
 
   void encode(CborWriter w) {
-    // "level"(5) "params"(6) "result"(6) "stream"(6) "timeout_ms"(10)
-    final n = 1 + [result, stream, level, timeoutMs].where((x) => x != null).length;
+    // by length then bytes: "group" "level"(5) "params" "result" "stream"(6)
+    // "display"(7) "timeout_ms"(10)
+    final n = 1 + [result, stream, level, timeoutMs, display, group].where((x) => x != null).length;
     w.mapHeader(n);
+    if (group != null) {
+      w.text('group');
+      w.text(group!);
+    }
     if (level != null) {
       w.text('level');
       w.uint(level!.code);
@@ -162,6 +223,10 @@ class ActionMeta {
     if (stream != null) {
       w.text('stream');
       w.boolean(stream!);
+    }
+    if (display != null) {
+      w.text('display');
+      w.text(display!);
     }
     if (timeoutMs != null) {
       w.text('timeout_ms');
@@ -197,6 +262,10 @@ class ActionMeta {
           a.level = Perm.fromCode(c) ?? (throw CborError('bad level $c'));
         case 'timeout_ms':
           a.timeoutMs = r.readUint();
+        case 'display':
+          a.display = r.readText();
+        case 'group':
+          a.group = r.readText();
         default:
           r.skip();
       }

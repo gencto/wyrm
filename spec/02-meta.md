@@ -22,9 +22,17 @@
 
 ### action
 ```
-{ "params": { <name>: <param-meta> }, "result": type_code | "stream" | "void", "stream": bool, "level": perm }
-param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": bool }
+{ "params": { <name>: <param-meta> }, "result": type_code | "stream" | "void", "stream": bool, "level": perm,
+  "timeout_ms": uint, "display": tstr, "group": tstr }
+param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": bool,
+               "display": tstr, "description": tstr, "placeholder": tstr, "editor": tstr }
 ```
+Поля для UI (як `$name`, `$actionGroup`, `$params` у DSA), усі необов'язкові:
+- `display` дії — назва для людини (`"Add Device"`); ключ у `actions` лишається сегментом ключа (`add_device`, spec 01).
+- `group` — меню, у якому UI показує дію: `"new"` — дії, що додають дітей; `"edit"` — дії, що змінюють або видаляють сам вузол; інше ім'я — окреме підменю; без `group` — верхній рівень меню.
+- `display` параметра — підпис поля; ключ параметра лишається ім'ям у `args`.
+- `description` — підказка; `placeholder` — приклад значення в порожньому полі.
+- `editor`: `"password"` — значення приховане, UI не показує його й не підставляє (секрет); `"textarea"` — багаторядковий текст. Невідомий `editor` UI ігнорує.
 
 ## Успадкування
 Відсутнє поле береться з профілю `is` (рекурсивно через `extends` у профілі). Профіль (`pub/<profile>/~meta`) — та сама map, що `~meta`, плюс текстовий ключ `"extends": tstr` (ім'я батьківського профілю); ланцюг ≤ 8, без циклів. `cfg`, `attr`, `actions` зливаються по ключах (власні виграють); `is`, `rev`, `children` і поля `view=list` не успадковуються. `pub/**` пише лише `wyrm-admin`; `?expand=true` — профіль з уже злитим ланцюгом. SDK responder'а відповідає **розгорнутим** `~meta` у `view=full` лише на `?expand=true`; за замовчуванням — тільки власні поля (економія).
@@ -38,4 +46,4 @@ param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": 
 ## Patch
 `put ~meta` при зміні — `{10: rev, "patch": {<key>: <value>, ...}}`; відсутність `"patch"` = повний `~meta`. Requester, що бачить `rev` ≠ `last_rev+1`, робить `get ~meta`.
 
-Фікстури: `meta_number_full`, `meta_folder_full`, `meta_profile_only`, `meta_view_list`, `meta_view_keys`, `meta_patch`, `profile_extends`.
+Фікстури: `meta_number_full`, `meta_folder_full`, `meta_action_ui`, `meta_profile_only`, `meta_view_list`, `meta_view_keys`, `meta_patch`, `profile_extends`.

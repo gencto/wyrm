@@ -42,6 +42,16 @@ def fixtures():
     add("meta_folder_full", "~meta повний для контейнера з дією reset",
         {0: 1, 9: ["supply_temp", "return_temp", "fan"], 10: 5, 14: 3,
          8: {"reset": {"params": {"mode": {1: 4, 3: ["soft", "hard"]}}, "result": 0, "stream": False}}})
+    add("meta_action_ui", "~meta з'єднання драйвера: дії з display/group, параметри з display/description/placeholder/editor",
+        {0: 1, 10: 4,
+         8: {"add_device": {"params": {
+                 "name": {1: 2, "required": True, "display": "Name"},
+                 "unit": {1: 1, "default": 1, "display": "Slave ID", "description": "1..247"},
+                 "host": {1: 2, "placeholder": "10.0.1.199"},
+                 "password": {1: 2, "editor": "password"}},
+                 "level": 4, "display": "Add Device", "group": "new"},
+             "restart": {"params": {}, "level": 4, "display": "Restart"},
+             "remove": {"params": {}, "level": 4, "display": "Remove", "group": "edit"}}})
     add("meta_profile_only", "~meta дитини, що повністю відповідає профілю", {0: 2, 10: 3})
     add("meta_view_list", "~meta?view=list: масив дітей скорочено", [
         {0: 2, 1: 1, 11: False, 10: 17, 12: "Supply air temp"},

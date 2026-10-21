@@ -139,6 +139,19 @@ void main() {
     expect(m.children, ['supply_temp', 'return_temp', 'fan']);
   });
 
+  test('meta_action_ui UI fields', () {
+    final f = fixtures.firstWhere((f) => f['name'] == 'meta_action_ui');
+    final m = NodeMeta.fromCbor(hexDecode(f['hex'] as String));
+    final add = m.actions!['add_device']!;
+    expect(add.display, 'Add Device');
+    expect(add.group, 'new');
+    expect(add.params['unit']!.display, 'Slave ID');
+    expect(add.params['unit']!.description, '1..247');
+    expect(add.params['host']!.placeholder, '10.0.1.199');
+    expect(add.params['password']!.isPassword, isTrue);
+    expect(m.actions!['restart']!.group, isNull);
+  });
+
   test('profile_extends typed fields', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'profile_extends');
     final p = ProfileDef.fromCbor(hexDecode(f['hex'] as String));

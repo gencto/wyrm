@@ -67,7 +67,7 @@ where
 #[test]
 fn all_fixtures_roundtrip() {
     let fx = fixtures();
-    assert_eq!(fx.len(), 23, "fixture count changed — update bindings too");
+    assert_eq!(fx.len(), 24, "fixture count changed — update bindings too");
     for f in &fx {
         let bytes = hex::decode(&f.hex).unwrap();
         let n = f.name.as_str();
@@ -140,6 +140,27 @@ fn attachment_status_helpers() {
     let a: Attachment = from_slice(&hex::decode(&f.hex).unwrap()).unwrap();
     assert!(a.status.unwrap().is_error());
     assert_eq!(a.err.as_deref(), Some("value 150 > max 120"));
+}
+
+/// Spec 0.1.6 UI fields decode into their typed places.
+#[test]
+fn action_ui_fields() {
+    let f = fixtures()
+        .into_iter()
+        .find(|f| f.name == "meta_action_ui")
+        .unwrap();
+    let m: NodeMeta = wyrm_core::codec::from_slice(&hex::decode(&f.hex).unwrap()).unwrap();
+    let a = &m.actions.as_ref().unwrap()["add_device"];
+    assert_eq!(a.display.as_deref(), Some("Add Device"));
+    assert_eq!(a.group.as_deref(), Some(wyrm_core::meta::GROUP_NEW));
+    assert_eq!(a.params["unit"].display.as_deref(), Some("Slave ID"));
+    assert_eq!(a.params["unit"].description.as_deref(), Some("1..247"));
+    assert_eq!(a.params["host"].placeholder.as_deref(), Some("10.0.1.199"));
+    assert_eq!(
+        a.params["password"].editor.as_deref(),
+        Some(wyrm_core::meta::EDITOR_PASSWORD)
+    );
+    assert_eq!(m.actions.as_ref().unwrap()["restart"].group, None);
 }
 
 #[test]
