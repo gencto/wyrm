@@ -10,7 +10,7 @@ authors.workspace = true
 
 [features]
 # In-process Modbus TCP simulator for tests and demos (`diagslave` stand-in).
-sim = ["tokio-modbus/tcp-server"]
+sim = ["tokio-modbus/tcp-server", "tokio-modbus/rtu-over-tcp-server"]
 bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
 
 [[bin]]
@@ -21,7 +21,9 @@ required-features = ["bin"]
 wyrm-core.workspace = true
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
-tokio-modbus = { workspace = true, features = ["tcp"] }
+tokio-modbus = { workspace = true, features = ["tcp", "rtu"] }
+# Serial RTU; no libudev (port listing reads sysfs on Linux).
+tokio-serial = { version = "5.4", default-features = false }
 tracing.workspace = true
 thiserror.workspace = true
 clap = { workspace = true, optional = true }

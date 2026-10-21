@@ -264,3 +264,146 @@ async fn invalid_point_config_keeps_node() {
     .await;
     h.stop().await;
 }
+
+/// DSA's connection kinds: `Add IP Connection` (Modbus TCP or RTU over
+/// TCP) and `Add Serial Connection`, each with its own form; the kind is
+/// kept and shown; `Rescan For Serial Ports` at the root.
+#[tokio::test(flavor = "multi_thread")]
+async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
+    let (addr, dev, _task) = sim::spawn_rtu_over_tcp("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().input[1] = 215;
+    let h = H::start(Tree(map(&[("connections", map(&[]))]))).await;
+    let (_, root) = h.meta("").await;
+    let actions = root.unwrap().actions.unwrap();
+    assert_eq!(
+        actions["add_ip_connection"].display.as_deref(),
+        Some("Add IP Connection")
+    );
+    assert_eq!(
+        actions["add_serial_connection"].display.as_deref(),
+        Some("Add Serial Connection")
+    );
+    assert_eq!(
+        actions["add_serial_connection"].params["serial_port"]
+            .display
+            .as_deref(),
+        Some("Serial Port")
+    );
+    assert!(
+        !actions.contains_key("add_connection"),
+        "one action per kind"
+    );
+    assert_eq!(
+        actions["rescan"].display.as_deref(),
+        Some("Rescan For Serial Ports")
+    );
+
+    // RTU framing over TCP (a serial gateway), then a device and a point
+    let add = map(&[
+        ("name", "gw".into()),
+        ("host", "127.0.0.1".into()),
+        ("port", Value::UInt(addr.port().into())),
+        ("transport", "rtu_over_tcp".into()),
+        ("timeout_ms", Value::UInt(200)),
+    ]);
+    let r = h
+        .invoke("", "add_ip_connection", add, Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
+    let dev_args = map(&[
+        ("name", "d1".into()),
+        ("unit", Value::UInt(1)),
+        ("ping", "none".into()),
+    ]);
+    let r = h
+        .invoke("gw", "add_device", dev_args, Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
+    let mut p = match pt("input", 1, "i16", &[("scale", Value::Float(0.1))]) {
+        Value::Map(m) => m,
+        _ => unreachable!(),
+    };
+    p.insert("name".into(), "temp".into());
+    let r = h
+        .invoke(
+            "gw/d1",
+            "add_point",
+            Value::Map(p),
+            Some(h.ptok(Perm::Config)),
+        )
+        .await;
+    assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
+    wait("value over rtu framing", || {
+        h.ctx().last("gw/d1/temp").map(|s| s.v) == Some(Value::Float(21.5))
+    })
+    .await;
+    let (_, gw) = h.meta("gw").await;
+    let gw = gw.unwrap();
+    assert_eq!(
+        gw.cfg.as_ref().unwrap()["kind"],
+        Value::from("ip_connection")
+    );
+    assert_eq!(
+        gw.cfg.as_ref().unwrap()["transport"],
+        Value::from("rtu_over_tcp")
+    );
+    // the edit form of an IP connection has IP fields only
+    let edit = &gw.actions.as_ref().unwrap()["edit"];
+    assert!(edit.params.contains_key("host") && !edit.params.contains_key("baud_rate"));
+
+    // a serial port that does not exist: kept, Failed, the error in `error`
+    let add = map(&[
+        ("name", "rs485".into()),
+        ("serial_port", "/dev/wyrm-no-such-port".into()),
+        ("baud_rate", Value::UInt(19_200)),
+    ]);
+    let r = h
+        .invoke("", "add_serial_connection", add, Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
+    wait("serial failed", || {
+        state(&h, "rs485").as_deref() == Some("failed")
+            && h.ctx().last("rs485/error").is_some_and(
+                |s| matches!(&s.v, Value::Str(e) if e.contains("/dev/wyrm-no-such-port")),
+            )
+    })
+    .await;
+    let (_, rs) = h.meta("rs485").await;
+    let rs = rs.unwrap();
+    assert_eq!(
+        rs.cfg.as_ref().unwrap()["kind"],
+        Value::from("serial_connection")
+    );
+    assert!(rs.actions.as_ref().unwrap()["edit"]
+        .params
+        .contains_key("baud_rate"));
+
+    // the export keeps the kinds
+    let ex = h
+        .invoke("", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await
+        .remove(0)
+        .value()
+        .unwrap();
+    let conns = match &ex {
+        Value::Map(m) => match &m["connections"] {
+            Value::Map(c) => c.clone(),
+            _ => panic!(),
+        },
+        _ => panic!(),
+    };
+    let kind = |n: &str| match &conns[n] {
+        Value::Map(c) => c["kind"].clone(),
+        _ => Value::Null,
+    };
+    assert_eq!(kind("gw"), Value::from("ip_connection"));
+    assert_eq!(kind("rs485"), Value::from("serial_connection"));
+
+    // rescan replies with the ports found on this host (maybe none)
+    let r = h
+        .invoke("", "rescan", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
+    assert!(matches!(r[0].value(), Some(Value::Map(_))));
+    h.stop().await;
+}

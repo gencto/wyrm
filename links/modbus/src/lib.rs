@@ -1,6 +1,11 @@
-//! Modbus TCP connector on the driver framework (ADR 0004).
+//! Modbus connector on the driver framework (ADR 0004), shaped like the
+//! DSA `dslink-java-v2-modbus`.
 //!
-//! Tree: `<conn>/<device>/<point>`; kinds [`IpConn`] → [`Device`] → [`Point`].
+//! Tree: `<conn>/<device>/<point>`; connection kinds [`Conn`]: `Add IP
+//! Connection` ([`IpConn`]: Modbus TCP, or RTU framing over TCP for serial
+//! gateways) and `Add Serial Connection` ([`SerialConn`]: RTU on a serial
+//! port; the root action `Rescan For Serial Ports` refreshes the found
+//! ports in the forms) → [`Device`] → [`Point`].
 //! The framework owns states, scheduling, edits and the quality ladder; this
 //! driver only does protocol I/O:
 //!
@@ -14,8 +19,8 @@
 //!   FC17 Report Server ID.
 //!
 //! Every request is bounded by `timeout_ms`; a timeout is a device miss, an
-//! I/O or protocol error drops the connection. Serial (RTU) is not supported
-//! yet.
+//! I/O or protocol error drops the connection. Modbus ASCII and UDP are not
+//! supported.
 
 #![forbid(unsafe_code)]
 
@@ -28,7 +33,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::LazyLock;
 use std::time::Duration;
-use tokio_modbus::client::{tcp, Client, Context, Reader, Writer};
+use tokio_modbus::client::{rtu, tcp, Client, Context, Reader, Writer};
 use tokio_modbus::slave::SlaveContext;
 use tokio_modbus::{ExceptionCode, Request, Slave};
 use wyrm_core::meta::Writable;
@@ -75,36 +80,98 @@ impl Table {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum IpTransport {
+    /// Modbus TCP (MBAP header).
+    Tcp,
+    /// RTU frames (CRC, no MBAP) over TCP, as serial-to-Ethernet gateways send.
+    RtuOverTcp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum Parity {
+    None,
+    Odd,
+    Even,
+}
+
+/// The connection kinds of a Modbus link (DSA: `Add IP Connection`, `Add
+/// Serial Connection`).
+#[derive(Debug, Clone, PartialEq, Params)]
+pub enum Conn {
+    #[param(name = "ip_connection", display = "IP Connection")]
+    Ip(IpConn),
+    #[param(name = "serial_connection", display = "Serial Connection")]
+    Serial(SerialConn),
+}
+
+impl Conn {
+    fn timeout_ms(&self) -> u32 {
+        match self {
+            Conn::Ip(c) => c.timeout_ms,
+            Conn::Serial(c) => c.timeout_ms,
+        }
+    }
+
+    fn write_mode(&self) -> WriteMode {
+        match self {
+            Conn::Ip(c) => c.write_mode,
+            Conn::Serial(c) => c.write_mode,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct IpConn {
+    #[param(display = "Host", placeholder = "10.0.1.199", dest)]
     pub host: String,
-    #[param(default = 502)]
+    #[param(default = 502, display = "Port", dest)]
     pub port: u16,
+    #[param(enum, default = "tcp", display = "Transport Type", dest)]
+    pub transport: IpTransport,
     /// Bound on each request.
-    #[param(default = 1000, min = 100, max = 10000)]
+    #[param(default = 1000, min = 100, max = 10000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
-    #[param(enum, default = "auto")]
+    #[param(enum, default = "auto", display = "Write Mode")]
+    pub write_mode: WriteMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Params)]
+pub struct SerialConn {
+    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0", dest)]
+    pub serial_port: String,
+    #[param(default = 9600, min = 300, max = 4000000, display = "Baud Rate")]
+    pub baud_rate: u32,
+    #[param(default = 8, min = 5, max = 8, display = "Data Bits")]
+    pub data_bits: u8,
+    #[param(default = 1, min = 1, max = 2, display = "Stop Bits")]
+    pub stop_bits: u8,
+    #[param(enum, default = "none", display = "Parity")]
+    pub parity: Parity,
+    #[param(default = 1000, min = 100, max = 10000, display = "Timeout (ms)")]
+    pub timeout_ms: u32,
+    #[param(enum, default = "auto", display = "Write Mode")]
     pub write_mode: WriteMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct Device {
-    #[param(min = 1, max = 247)]
+    #[param(min = 1, max = 247, display = "Slave ID")]
     pub unit: u8,
-    #[param(enum, default = "probe")]
+    #[param(enum, default = "probe", display = "Ping")]
     pub ping: Ping,
-    #[param(enum, default = "holding")]
+    #[param(enum, default = "holding", display = "Probe Table")]
     pub probe_table: Table,
-    #[param(default = 0)]
+    #[param(default = 0, display = "Probe Address")]
     pub probe_addr: u16,
-    #[param(default = 5.0, min = 0.1, max = 3600.0)]
+    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping Rate (s)")]
     pub ping_s: f64,
     /// Read gaps between points (`false`) or only adjacent registers.
-    #[param(default = false)]
+    #[param(default = false, display = "Contiguous Batch Reads Only")]
     pub contiguous_only: bool,
-    #[param(default = 125, min = 1, max = 125)]
+    #[param(default = 125, min = 1, max = 125, display = "Max Registers per Read")]
     pub max_regs: u16,
-    #[param(default = 2000, min = 1, max = 2000)]
+    #[param(default = 2000, min = 1, max = 2000, display = "Max Bits per Read")]
     pub max_bits: u16,
 }
 
@@ -143,26 +210,42 @@ impl Point {
 impl Params for Point {
     fn schema() -> Vec<ParamSpec> {
         vec![
-            ParamSpec::new("table", TypeCode::Enum).one_of(Table::NAMES),
-            ParamSpec::new("addr", TypeCode::Number).bounds(0.0, 65535.0),
+            ParamSpec::new("table", TypeCode::Enum)
+                .one_of(Table::NAMES)
+                .display("Object Type"),
+            ParamSpec::new("addr", TypeCode::Number)
+                .bounds(0.0, 65535.0)
+                .display("Offset"),
             ParamSpec::new("dtype", TypeCode::Enum)
                 .one_of(*DTYPE_NAMES)
-                .default("u16"),
+                .default("u16")
+                .display("Data Type"),
             ParamSpec::new("bit", TypeCode::Number)
                 .default(0u64)
                 .bounds(0.0, 15.0)
-                .desc("bit of a register for dtype binary"),
+                .desc("bit of a register for dtype binary")
+                .display("Bit"),
             ParamSpec::new("regs", TypeCode::Number)
                 .default(1u64)
                 .bounds(1.0, 125.0)
-                .desc("registers of a char/varchar value"),
+                .desc("registers of a char/varchar value")
+                .display("Number of Registers"),
             ParamSpec::new("poll_s", TypeCode::Number)
                 .default(1.0)
-                .bounds(0.01, 86_400.0),
-            ParamSpec::new("scale", TypeCode::Number).default(1.0),
-            ParamSpec::new("offset", TypeCode::Number).default(0.0),
-            ParamSpec::new("writable", TypeCode::Bool).default(false),
-            ParamSpec::new("unit", TypeCode::String).default(""),
+                .bounds(0.01, 86_400.0)
+                .display("Poll Rate (s)"),
+            ParamSpec::new("scale", TypeCode::Number)
+                .default(1.0)
+                .display("Scaling"),
+            ParamSpec::new("offset", TypeCode::Number)
+                .default(0.0)
+                .display("Scaling Offset"),
+            ParamSpec::new("writable", TypeCode::Bool)
+                .default(false)
+                .display("Writable"),
+            ParamSpec::new("unit", TypeCode::String)
+                .default("")
+                .display("Unit"),
         ]
     }
 
@@ -215,6 +298,31 @@ impl Params for Point {
             ("unit".into(), Value::Str(self.unit.clone())),
         ])
     }
+}
+
+fn serial_builder(c: &SerialConn) -> tokio_serial::SerialPortBuilder {
+    use tokio_serial::{DataBits, StopBits};
+    let data_bits = match c.data_bits {
+        5 => DataBits::Five,
+        6 => DataBits::Six,
+        7 => DataBits::Seven,
+        _ => DataBits::Eight,
+    };
+    let stop_bits = if c.stop_bits == 2 {
+        StopBits::Two
+    } else {
+        StopBits::One
+    };
+    let parity = match c.parity {
+        Parity::None => tokio_serial::Parity::None,
+        Parity::Odd => tokio_serial::Parity::Odd,
+        Parity::Even => tokio_serial::Parity::Even,
+    };
+    tokio_serial::new(&c.serial_port, c.baud_rate)
+        .data_bits(data_bits)
+        .stop_bits(stop_bits)
+        .parity(parity)
+        .timeout(Duration::from_millis(c.timeout_ms.into()))
 }
 
 pub struct Transport {
@@ -313,29 +421,59 @@ pub struct ModbusDriver;
 impl Driver for ModbusDriver {
     const NAME: &'static str = "modbus";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    type Conn = IpConn;
+    type Conn = Conn;
     type Dev = Device;
     type Point = Point;
     type Transport = Transport;
     type Plan = Plan;
 
-    async fn open(conn: &IpConn) -> Result<Transport, DriverError> {
-        let timeout = Duration::from_millis(conn.timeout_ms.into());
-        let target = format!("{}:{}", conn.host, conn.port);
-        let addr: SocketAddr = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
-            .await
-            .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
-            .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
-            .next()
-            .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
-        let ctx = tokio::time::timeout(timeout, tcp::connect_slave(addr, Slave(1)))
-            .await
-            .map_err(|_| DriverError::Transport(format!("connect {target}: timeout")))?
-            .map_err(|e| DriverError::Transport(format!("connect {target}: {e}")))?;
+    async fn open(conn: &Conn) -> Result<Transport, DriverError> {
+        let timeout = Duration::from_millis(conn.timeout_ms().into());
+        let ctx = match conn {
+            Conn::Ip(c) => {
+                let target = format!("{}:{}", c.host, c.port);
+                let addr: SocketAddr =
+                    tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
+                        .await
+                        .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
+                        .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
+                        .next()
+                        .ok_or_else(|| {
+                            DriverError::Transport(format!("resolve {target}: no address"))
+                        })?;
+                match c.transport {
+                    IpTransport::Tcp => {
+                        tokio::time::timeout(timeout, tcp::connect_slave(addr, Slave(1)))
+                            .await
+                            .map_err(|_| {
+                                DriverError::Transport(format!("connect {target}: timeout"))
+                            })?
+                            .map_err(|e| DriverError::Transport(format!("connect {target}: {e}")))?
+                    }
+                    IpTransport::RtuOverTcp => {
+                        let stream =
+                            tokio::time::timeout(timeout, tokio::net::TcpStream::connect(addr))
+                                .await
+                                .map_err(|_| {
+                                    DriverError::Transport(format!("connect {target}: timeout"))
+                                })?
+                                .map_err(|e| {
+                                    DriverError::Transport(format!("connect {target}: {e}"))
+                                })?;
+                        rtu::attach_slave(stream, Slave(1))
+                    }
+                }
+            }
+            Conn::Serial(c) => {
+                let stream = tokio_serial::SerialStream::open(&serial_builder(c))
+                    .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
+                rtu::attach_slave(stream, Slave(1))
+            }
+        };
         Ok(Transport {
             ctx,
             timeout,
-            write_mode: conn.write_mode,
+            write_mode: conn.write_mode(),
             no_fc22: HashSet::new(),
         })
     }
@@ -488,7 +626,19 @@ impl Driver for ModbusDriver {
     }
 
     /// Whole-operation bound; each request inside is bounded by `timeout_ms`.
-    fn io_timeout(conn: &IpConn) -> Duration {
-        Duration::from_millis(u64::from(conn.timeout_ms) * 4)
+    fn io_timeout(conn: &Conn) -> Duration {
+        Duration::from_millis(u64::from(conn.timeout_ms()) * 4)
     }
+
+    /// Serial ports found on this host, for the `serial_port` field.
+    fn choices(param: &str) -> Vec<String> {
+        if param != "serial_port" {
+            return Vec::new();
+        }
+        tokio_serial::available_ports()
+            .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
+            .unwrap_or_default()
+    }
+
+    const RESCAN: Option<&'static str> = Some("Rescan For Serial Ports");
 }

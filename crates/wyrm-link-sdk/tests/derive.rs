@@ -212,3 +212,10 @@ fn ui_fields_in_the_form() {
     let host = Conn::schema()[0].param_meta(None);
     assert_eq!(host.description.as_deref(), Some("device host"));
 }
+
+/// A config of an unknown kind still hides the secrets of every kind.
+#[test]
+fn unknown_kind_redacts_all_secrets() {
+    let names = wyrm_link_sdk::driver::params::all_secret_names::<AnyConn>();
+    assert_eq!(names, ["password", "pin"]);
+}

@@ -213,18 +213,31 @@ pub trait Params: Sized + Clone + PartialEq + Send + Sync + 'static {
         Self::from_kind_map(kind, &normalize(&Self::kind_schema(kind)?, v)?)
     }
 
-    /// `~meta.cfg` view: secrets left out.
+    /// `~meta.cfg` view: secrets left out (those of every kind when the
+    /// kind cannot be resolved: fail closed).
     fn public_map(&self) -> BTreeMap<String, Value> {
-        let secret: Vec<&str> = Self::kind_schema(self.kind())
-            .unwrap_or_default()
-            .iter()
-            .filter(|s| s.secret)
-            .map(|s| s.name)
-            .collect();
+        let secret: Vec<&str> = match Self::kind_schema(self.kind()) {
+            Ok(schema) => schema.iter().filter(|s| s.secret).map(|s| s.name).collect(),
+            Err(_) => all_secret_names::<Self>(),
+        };
         let mut m = self.to_map();
         m.retain(|k, _| !secret.contains(&k.as_str()));
         m
     }
+}
+
+/// The secret params of every kind of `P` (redaction when the kind of a
+/// stored config is unknown).
+pub fn all_secret_names<P: Params>() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = P::kinds()
+        .into_iter()
+        .flat_map(|k| k.schema)
+        .filter(|s| s.secret)
+        .map(|s| s.name)
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {

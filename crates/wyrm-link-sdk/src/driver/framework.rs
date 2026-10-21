@@ -142,9 +142,9 @@ impl<P: Params> Slot<P> {
         let mut m = match &self.cfg {
             Some(c) => c.public_map(),
             None => {
-                let schema = self.schema();
-                let secret: Vec<&str> =
-                    schema.iter().filter(|s| s.secret).map(|s| s.name).collect();
+                // An invalid config (possibly of an unknown kind): leave out
+                // the secrets of every kind of the level.
+                let secret = super::params::all_secret_names::<P>();
                 let mut m = map_of(&self.raw);
                 m.retain(|k, _| !secret.contains(&k.as_str()));
                 m

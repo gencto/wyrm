@@ -129,6 +129,40 @@ pub async fn serve(listener: TcpListener, device: Device) -> std::io::Result<()>
         .await
 }
 
+/// Serve `device` with RTU framing over TCP (what serial-to-Ethernet
+/// gateways send) until the task is dropped or aborted.
+pub async fn serve_rtu_over_tcp(listener: TcpListener, device: Device) -> std::io::Result<()> {
+    use tokio_modbus::server::rtu_over_tcp;
+    let server = rtu_over_tcp::Server::new(listener);
+    let on_connected = |stream, addr: SocketAddr| {
+        let device = device.clone();
+        async move {
+            rtu_over_tcp::accept_tcp_connection(stream, addr, move |_| {
+                Ok(Some(Sim(device.clone())))
+            })
+        }
+    };
+    server
+        .serve(&on_connected, |e| {
+            tracing::debug!("sim rtu connection: {e}")
+        })
+        .await
+}
+
+/// Like [`spawn`], with RTU framing over TCP.
+pub async fn spawn_rtu_over_tcp(
+    addr: &str,
+) -> std::io::Result<(SocketAddr, Device, tokio::task::JoinHandle<()>)> {
+    let listener = TcpListener::bind(addr).await?;
+    let local = listener.local_addr()?;
+    let device = Device::default();
+    let d = device.clone();
+    let task = tokio::spawn(async move {
+        let _ = serve_rtu_over_tcp(listener, d).await;
+    });
+    Ok((local, device, task))
+}
+
 /// Bind `addr` (use port 0 for a free port) and serve in a task.
 pub async fn spawn(
     addr: &str,
