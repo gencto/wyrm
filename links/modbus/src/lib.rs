@@ -300,6 +300,42 @@ impl Params for Point {
     }
 }
 
+/// Only serial device paths may be opened: a `config` user must not make
+/// the link open another device file (some have side effects on open).
+fn serial_path_ok(p: &str) -> bool {
+    if p.contains("..") || p.contains('\0') {
+        return false;
+    }
+    let com = |s: &str| {
+        s.strip_prefix("COM")
+            .is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    if cfg!(windows) {
+        return com(p) || p.strip_prefix(r"\\.\").is_some_and(com);
+    }
+    let Some(rest) = p.strip_prefix("/dev/") else {
+        return false;
+    };
+    let name_ok = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':'))
+    };
+    match rest.split_once('/') {
+        None => {
+            ["tty", "cu.", "rfcomm"]
+                .iter()
+                .any(|pre| rest.starts_with(pre))
+                && name_ok(rest)
+        }
+        Some(("serial", sub)) => match sub.split_once('/') {
+            Some(("by-id" | "by-path", name)) => name_ok(name),
+            _ => false,
+        },
+        Some(_) => false,
+    }
+}
+
 fn serial_builder(c: &SerialConn) -> tokio_serial::SerialPortBuilder {
     use tokio_serial::{DataBits, StopBits};
     let data_bits = match c.data_bits {
@@ -465,6 +501,13 @@ impl Driver for ModbusDriver {
                 }
             }
             Conn::Serial(c) => {
+                if !serial_path_ok(&c.serial_port) {
+                    return Err(DriverError::Transport(format!(
+                        "serial_port {:?}: not a serial device path (/dev/tty*, /dev/cu.*, \
+                         /dev/serial/by-id/*, /dev/serial/by-path/*, /dev/rfcomm*, COMn)",
+                        c.serial_port
+                    )));
+                }
                 let stream = tokio_serial::SerialStream::open(&serial_builder(c))
                     .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
                 rtu::attach_slave(stream, Slave(1))
@@ -641,4 +684,39 @@ impl Driver for ModbusDriver {
     }
 
     const RESCAN: Option<&'static str> = Some("Rescan For Serial Ports");
+}
+
+#[cfg(test)]
+mod serial_tests {
+    use super::serial_path_ok;
+
+    #[test]
+    #[cfg(not(windows))]
+    fn only_serial_device_paths() {
+        for ok in [
+            "/dev/ttyUSB0",
+            "/dev/ttyS1",
+            "/dev/ttyAMA0",
+            "/dev/cu.usbserial-1410",
+            "/dev/tty.usbmodem14101",
+            "/dev/rfcomm0",
+            "/dev/serial/by-id/usb-FTDI_FT232R-if00-port0",
+            "/dev/serial/by-path/pci-0000:00:14.0-usb-0:2:1.0-port0",
+        ] {
+            assert!(serial_path_ok(ok), "{ok}");
+        }
+        for bad in [
+            "/dev/watchdog",
+            "/dev/sda",
+            "/dev/mem",
+            "/etc/passwd",
+            "/dev/tty/../sda",
+            "/dev/serial/by-id/../../sda",
+            "/dev/serial/other/x",
+            "ttyUSB0",
+            "",
+        ] {
+            assert!(!serial_path_ok(bad), "{bad}");
+        }
+    }
 }
