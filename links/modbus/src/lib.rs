@@ -321,12 +321,25 @@ fn serial_path_ok(p: &str) -> bool {
             && s.bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':'))
     };
+    // Known serial port names only: not `/dev/tty` (the controlling
+    // terminal), `/dev/ttyN` (consoles) or `/dev/ttyprintk` (kernel log).
+    let numbered = |s: &str, prefixes: &[&str]| {
+        prefixes.iter().any(|pre| {
+            s.strip_prefix(pre).is_some_and(|n| {
+                !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit())
+            })
+        })
+    };
+    const LINUX: &[&str] = &[
+        "ttyS", "ttyUSB", "ttyACM", "ttyAMA", "ttyTHS", "ttyXRUSB", "ttymxc", "ttyO", "ttySAC",
+        "ttyLP", "ttyGS", "rfcomm",
+    ];
     match rest.split_once('/') {
         None => {
-            ["tty", "cu.", "rfcomm"]
-                .iter()
-                .any(|pre| rest.starts_with(pre))
-                && name_ok(rest)
+            numbered(rest, LINUX)
+                || ["tty.", "cu."]
+                    .iter()
+                    .any(|pre| rest.strip_prefix(pre).is_some_and(name_ok))
         }
         Some(("serial", sub)) => match sub.split_once('/') {
             Some(("by-id" | "by-path", name)) => name_ok(name),
@@ -707,6 +720,13 @@ mod serial_tests {
         }
         for bad in [
             "/dev/watchdog",
+            "/dev/tty",
+            "/dev/tty0",
+            "/dev/tty63",
+            "/dev/ttyprintk",
+            "/dev/ttyp0",
+            "/dev/ttyUSB",
+            "/dev/cu.",
             "/dev/sda",
             "/dev/mem",
             "/etc/passwd",

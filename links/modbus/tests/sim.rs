@@ -355,7 +355,7 @@ async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
     // (a path that is not a serial device is refused before any open)
     let add = map(&[
         ("name", "rs485".into()),
-        ("serial_port", "/dev/ttyWYRM9".into()),
+        ("serial_port", "/dev/ttyUSB199".into()),
         ("baud_rate", Value::UInt(19_200)),
     ]);
     let r = h
@@ -366,7 +366,7 @@ async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
         state(&h, "rs485").as_deref() == Some("failed")
             && h.ctx()
                 .last("rs485/error")
-                .is_some_and(|s| matches!(&s.v, Value::Str(e) if e.contains("/dev/ttyWYRM9")))
+                .is_some_and(|s| matches!(&s.v, Value::Str(e) if e.contains("/dev/ttyUSB199")))
     })
     .await;
     let (_, rs) = h.meta("rs485").await;
