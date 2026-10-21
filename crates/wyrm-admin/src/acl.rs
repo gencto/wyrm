@@ -19,12 +19,10 @@
 use crate::registry::Registry;
 use serde_json::{json, Value};
 
-/// Liveliness of `sys/broker` between peer sites: presence, nothing else.
-const PRESENCE: &[&str] = &[
-    "liveliness_token",
-    "declare_liveliness_subscriber",
-    "liveliness_query",
-];
+/// Watching a liveliness token (subscriber and history query).
+const WATCH: &[&str] = &["declare_liveliness_subscriber", "liveliness_query"];
+/// Declaring a liveliness token.
+const TOKEN: &[&str] = &["liveliness_token"];
 
 const ALL: &[&str] = &[
     "put",
@@ -111,14 +109,17 @@ pub fn access_control_with_peers(
             &["reply", "put", "delete"],
             &[format!("wy/{site}/pub/**")],
         ),
+        // Links watch the broker token; only the broker declares it.
         rule(
             "broker-watch",
-            &["ingress", "egress"],
-            &[
-                "declare_liveliness_subscriber",
-                "liveliness_query",
-                "liveliness_token",
-            ],
+            &["ingress"],
+            WATCH,
+            &[format!("wy/{site}/sys/broker")],
+        ),
+        rule(
+            "broker-token",
+            &["egress"],
+            TOKEN,
             &[format!("wy/{site}/sys/broker")],
         ),
     ];
@@ -137,7 +138,14 @@ pub fn access_control_with_peers(
         );
         policies.push(json!({ "rules": requester_rules, "subjects": ["operators"] }));
     }
-    for def in reg.links.values().filter(|d| d.mode.is_remote()) {
+    // A link id equal to a downstream site would overlap `down/<d>`, the
+    // broker node of that site (registry and config refuse it; this is the
+    // last line).
+    for def in reg
+        .links
+        .values()
+        .filter(|d| d.mode.is_remote() && !peers.downstream.contains(&d.id))
+    {
         let id = &def.id;
         rules.push(rule(
             &format!("link-{id}"),
@@ -161,7 +169,7 @@ pub fn access_control_with_peers(
         // trusted only on the QUIC broker listener.
         subjects.push(json!({ "id": format!("cn-{id}"), "cert_common_names": [id], "link_protocols": ["tls"] }));
         policies.push(json!({
-            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch", "pub-in", "pub-out"],
+            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch", "broker-token", "pub-in", "pub-out"],
             "subjects": [format!("cn-{id}")],
         }));
     }
@@ -213,18 +221,46 @@ pub fn access_control_with_peers(
         subjects.push(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
-        // Presence: our broker token and theirs, liveliness only (the
-        // `sys/upstream/<u>/connected` points of both sides).
-        let mut keys = vec![format!("wy/{site}/sys/broker")];
-        keys.extend(peers.upstream.iter().map(|u| format!("wy/{u}/sys/broker")));
-        rules.push(rule(
-            "upstream-presence",
-            &["ingress", "egress"],
-            PRESENCE,
-            &keys,
-        ));
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "upstream-presence", "pub-in", "pub-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "pub-in", "pub-out"], "subjects": ["upstream"] }));
+        // Presence (`up/<u>/connected` here, `down/<site>/connected` there):
+        // per upstream site, so one site cannot declare another's token,
+        // and a peer never declares a token on our own key.
+        let own = format!("wy/{site}/sys/broker");
+        for u in &peers.upstream {
+            let theirs = format!("wy/{u}/sys/broker");
+            let ids = [
+                format!("presence-{u}-token-in"),
+                format!("presence-{u}-watch-in"),
+                format!("presence-{u}-token-out"),
+                format!("presence-{u}-watch-out"),
+            ];
+            rules.push(rule(
+                &ids[0],
+                &["ingress"],
+                TOKEN,
+                std::slice::from_ref(&theirs),
+            ));
+            rules.push(rule(
+                &ids[1],
+                &["ingress"],
+                WATCH,
+                std::slice::from_ref(&own),
+            ));
+            rules.push(rule(
+                &ids[2],
+                &["egress"],
+                TOKEN,
+                std::slice::from_ref(&own),
+            ));
+            rules.push(rule(&ids[3], &["egress"], WATCH, &[theirs]));
+            subjects.push(json!({
+                "id": format!("upstream-{u}"),
+                "cert_common_names": [format!("broker:{u}")],
+                "link_protocols": ["quic"],
+            }));
+            policies.push(json!({ "rules": ids, "subjects": [format!("upstream-{u}")] }));
+        }
     }
     for d in &peers.downstream {
         rules.push(rule(
@@ -238,15 +274,23 @@ pub fn access_control_with_peers(
             "cert_common_names": [format!("broker:{d}")],
             "link_protocols": ["quic"],
         }));
-        // The downstream site may see our broker token (its upstream state).
+        // The downstream site watches our broker token (its `up/<site>`);
+        // it may not declare one on our key. Its own token is in `site-d`.
+        let own = format!("wy/{site}/sys/broker");
         rules.push(rule(
-            &format!("presence-{d}"),
-            &["ingress", "egress"],
-            PRESENCE,
-            &[format!("wy/{site}/sys/broker")],
+            &format!("presence-{d}-watch-in"),
+            &["ingress"],
+            WATCH,
+            std::slice::from_ref(&own),
+        ));
+        rules.push(rule(
+            &format!("presence-{d}-token-out"),
+            &["egress"],
+            TOKEN,
+            &[own],
         ));
         policies.push(json!({
-            "rules": [format!("site-{d}"), format!("presence-{d}")],
+            "rules": [format!("site-{d}"), format!("presence-{d}-watch-in"), format!("presence-{d}-token-out")],
             "subjects": [format!("broker-{d}")],
         }));
     }
@@ -294,6 +338,54 @@ mod tests {
         assert!(text.contains(r#""key_exprs":["wy/plant-b/**"]"#));
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &text).unwrap();
+    }
+
+    /// A peer never declares a liveliness token on our `sys/broker` key
+    /// (it would fake our presence); an upstream declares only its own.
+    #[test]
+    fn presence_tokens_by_direction() {
+        let peers = Peers {
+            upstream: vec!["cloud".into(), "hq".into()],
+            downstream: vec!["plant-b".into()],
+        };
+        let mut reg = Registry::default();
+        reg.links
+            .insert("plant-b".into(), def("plant-b", Mode::External));
+        let acl = access_control_with_peers("plant-a", &reg, &[], false, &peers);
+        let rules = acl["rules"].as_array().unwrap();
+        let own = "wy/plant-a/sys/broker";
+        for r in rules {
+            let keys: Vec<&str> = r["key_exprs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap())
+                .collect();
+            let token = r["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "liveliness_token");
+            let ingress = r["flows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f == "ingress");
+            if token && ingress {
+                assert!(
+                    !keys.contains(&own),
+                    "token on our key accepted: {}",
+                    r["id"]
+                );
+            }
+            if r["id"] == "presence-cloud-token-in" {
+                assert_eq!(keys, ["wy/cloud/sys/broker"]);
+            }
+        }
+        // a link with a downstream site's name gets no rule over down/<d>
+        assert!(!acl.to_string().contains("wy/plant-a/down/plant-b/**"));
+        let mut c = zenoh::Config::default();
+        c.insert_json5("access_control", &acl.to_string()).unwrap();
     }
 
     #[test]

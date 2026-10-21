@@ -1522,6 +1522,11 @@ impl Admin {
         if self.ctl.registry().links.contains_key(cn) {
             return Err(LinkError::invalid_parameter(format!("link {cn} exists")));
         }
+        if self.ctl.peers().downstream.iter().any(|d| d == cn) {
+            return Err(LinkError::invalid_parameter(format!(
+                "{cn:?} is a downstream site (down/{cn} is its broker node)"
+            )));
+        }
         crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
         let (token_hash, token) = self.ctl.new_token_for(cn, Mode::External)?;
         self.ctl
@@ -1660,6 +1665,8 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
             || reg.blocklist.contains(&cn)
             || reg.retired.contains(&cn)
             || ctl.cfg.operators.contains(&cn)
+            // `down/<d>` is a downstream site's node; never a link.
+            || ctl.peers().downstream.contains(&cn)
             || cn == "broker";
         if known || crate::registry::validate_link_id(&cn).is_err() {
             continue;

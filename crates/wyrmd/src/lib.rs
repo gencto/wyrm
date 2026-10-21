@@ -981,6 +981,20 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());
+        // A link installed at runtime before its name became a downstream
+        // site would overlap `down/<d>` (ADR 0007): refuse to start.
+        if let Some(d) = cfg
+            .peers
+            .downstream
+            .iter()
+            .find(|d| ctl.registry().links.contains_key(&d.site))
+        {
+            return Err(format!(
+                "peers.downstream {:?}: a link with that id exists; remove the link first",
+                d.site
+            )
+            .into());
+        }
         let p = &cfg.peers;
         if p.downstream.len() > 1 || (!p.downstream.is_empty() && !p.upstream.is_empty()) {
             // ADR 0007: the ACL matches certificate CNs only, so every CA in
