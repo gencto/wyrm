@@ -100,6 +100,17 @@ pub trait Driver: Sized + Send + Sync + 'static {
     fn stale_misses() -> u32 {
         3
     }
+
+    /// Values found on this host for a parameter (serial ports). The add
+    /// and edit forms show them as the placeholder and in the description.
+    fn choices(_param: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Name for people of the root action `rescan`, which looks for
+    /// [`Driver::choices`] again and refreshes the forms (DSA: "Rescan For
+    /// Serial Ports"). `None` = no such action.
+    const RESCAN: Option<&'static str> = None;
 }
 
 /// Typed node state (ADR 0004), published in the branch's `status` leaf.
@@ -123,8 +134,23 @@ impl NodeState {
         "stopped_by_parent",
     ];
 
+    /// Values of the `status` enum leaf, by state (the DSA labels, plus
+    /// `Connecting`); `~val.v` is the index.
+    pub const LABELS: [&'static str; 6] = [
+        "Unknown",
+        "Connecting",
+        "Connected",
+        "Failed",
+        "Stopped",
+        "Stopped by Parent",
+    ];
+
     pub fn name(self) -> &'static str {
         Self::NAMES[self as usize]
+    }
+
+    pub fn label(self) -> &'static str {
+        Self::LABELS[self as usize]
     }
 }
 

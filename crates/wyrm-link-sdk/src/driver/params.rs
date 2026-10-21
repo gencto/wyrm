@@ -27,7 +27,14 @@ pub struct ParamSpec {
     /// destination field drops the stored secrets unless it supplies them
     /// again. Without any `dest` field, every field counts as one.
     pub dest: bool,
+    /// Hint shown with the field (`description` in the form).
     pub desc: &'static str,
+    /// Field label for people (`"Slave ID"`); empty = the name.
+    pub display: &'static str,
+    /// Example value shown in an empty field.
+    pub placeholder: &'static str,
+    /// Form editor (`"textarea"`); a secret is always `"password"`.
+    pub editor: &'static str,
 }
 
 impl ParamSpec {
@@ -42,6 +49,9 @@ impl ParamSpec {
             secret: false,
             dest: false,
             desc: "",
+            display: "",
+            placeholder: "",
+            editor: "",
         }
     }
 
@@ -77,6 +87,21 @@ impl ParamSpec {
         self
     }
 
+    pub const fn display(mut self, d: &'static str) -> Self {
+        self.display = d;
+        self
+    }
+
+    pub const fn placeholder(mut self, p: &'static str) -> Self {
+        self.placeholder = p;
+        self
+    }
+
+    pub const fn editor(mut self, e: &'static str) -> Self {
+        self.editor = e;
+        self
+    }
+
     /// Spec 02 `param-meta` for action forms (enum as names, string-typed).
     pub fn param_meta(&self, prefill: Option<&Value>) -> ParamMeta {
         let mut p = ParamMeta::of(match self.ty {
@@ -92,12 +117,36 @@ impl ParamSpec {
             prefill.cloned().or_else(|| self.default.clone())
         };
         p.required = Some(self.default.is_none() && prefill.is_none());
+        let text = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+        p.display = text(self.display);
+        p.description = text(self.desc);
+        p.placeholder = text(self.placeholder);
+        p.editor = if self.secret {
+            Some(wyrm_core::meta::EDITOR_PASSWORD.to_owned())
+        } else {
+            text(self.editor)
+        };
         p
     }
 }
 
-/// Typed parameters of one node kind.
+/// One kind of node on a level, like DSA's "Add IP Connection" next to
+/// "Add Serial Connection": its own add action and parameters.
+#[derive(Debug, Clone)]
+pub struct Kind {
+    /// Key segment (`ip_connection`); empty for a type with one kind.
+    pub id: &'static str,
+    /// Name for people (`"IP Connection"`); empty = the level's noun.
+    pub display: &'static str,
+    pub schema: Vec<ParamSpec>,
+}
+
+/// Typed parameters of the nodes of one level. A struct is one kind; an
+/// enum of structs (`#[derive(Params)]` on newtype variants) is one kind
+/// per variant. The tree stores a node's kind as `"kind"` beside its params,
+/// so the kinds of a multi-kind level must not have a param named `kind`.
 pub trait Params: Sized + Clone + PartialEq + Send + Sync + 'static {
+    /// The parameters of a single-kind type (of the first kind otherwise).
     fn schema() -> Vec<ParamSpec>;
     /// From a normalized map (see [`normalize`]): every field present.
     fn from_map(m: &BTreeMap<String, Value>) -> Result<Self>;
@@ -112,9 +161,62 @@ pub trait Params: Sized + Clone + PartialEq + Send + Sync + 'static {
         Value::Map(self.to_map())
     }
 
+    /// The kinds of this level; one unnamed kind by default.
+    fn kinds() -> Vec<Kind> {
+        vec![Kind {
+            id: "",
+            display: "",
+            schema: Self::schema(),
+        }]
+    }
+
+    /// This value's kind (`""` for a single-kind type).
+    fn kind(&self) -> &'static str {
+        ""
+    }
+
+    /// Build a value of `kind` from its normalized map.
+    fn from_kind_map(kind: &str, m: &BTreeMap<String, Value>) -> Result<Self> {
+        if kind.is_empty() {
+            Self::from_map(m)
+        } else {
+            Err(LinkError::invalid_parameter(format!(
+                "kind: unknown {kind:?}"
+            )))
+        }
+    }
+
+    /// The parameters of `kind` (`""` = the first kind).
+    fn kind_schema(kind: &str) -> Result<Vec<ParamSpec>> {
+        let kinds = Self::kinds();
+        if kind.is_empty() {
+            return Ok(kinds
+                .into_iter()
+                .next()
+                .map(|k| k.schema)
+                .unwrap_or_default());
+        }
+        kinds
+            .into_iter()
+            .find(|k| k.id == kind)
+            .map(|k| k.schema)
+            .ok_or_else(|| LinkError::invalid_parameter(format!("kind: unknown {kind:?}")))
+    }
+
+    /// Validate `v` against the schema of `kind` and build the value.
+    fn from_kind_value(kind: &str, v: &Value) -> Result<Self> {
+        let kind = if kind.is_empty() {
+            Self::kinds().first().map(|k| k.id).unwrap_or("")
+        } else {
+            kind
+        };
+        Self::from_kind_map(kind, &normalize(&Self::kind_schema(kind)?, v)?)
+    }
+
     /// `~meta.cfg` view: secrets left out.
     fn public_map(&self) -> BTreeMap<String, Value> {
-        let secret: Vec<&str> = Self::schema()
+        let secret: Vec<&str> = Self::kind_schema(self.kind())
+            .unwrap_or_default()
             .iter()
             .filter(|s| s.secret)
             .map(|s| s.name)

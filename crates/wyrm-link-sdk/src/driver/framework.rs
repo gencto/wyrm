@@ -1,7 +1,12 @@
 //! [`Framework`]: a [`Link`] that runs any [`Driver`].
 //!
-//! Tree: `<conn>/<dev>/<point>`; connections and devices have a `status`
-//! leaf (`{state, error?}` map; spec 03 gives containers no `~val`).
+//! Tree: `<conn>/<dev>/<point>`, shaped like the DSA driver framework.
+//! Connections and devices have a `status` enum leaf (Unknown, Connecting,
+//! Connected, Failed, Stopped, Stopped by Parent; spec 03 gives containers
+//! no `~val`) and an `error` leaf that exists only while there is an error.
+//! Actions carry a name for people and a menu group (spec 02): `add_*`
+//! (group `new`, one per node kind of the level below), `edit` and `remove`
+//! (group `edit`), `restart`, and `stop` or `start`, whichever applies.
 //!
 //! * One owner task per connection holds the transport and serves `Poll`,
 //!   `Ping`, `Write` and `Reconfigure` requests in order.
@@ -17,7 +22,7 @@
 //! * A config that fails validation at load keeps its node (`Failed`,
 //!   error shown) and stays editable; nothing is deleted.
 
-use super::params::{normalize, ParamSpec, Params};
+use super::params::{normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
 use super::{backoff, jitter, Driver, DriverError, NodeState, PointId};
 use crate::auth::Caller;
@@ -32,7 +37,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
-use wyrm_core::meta::ActionResult;
+use wyrm_core::meta::{ActionResult, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
 pub const QUAL_STALE: &str = "uncertain/stale";
@@ -43,10 +48,14 @@ pub const QUAL_CONFIG_ERROR: &str = "bad/config_error";
 
 /// Name of the status leaf under connections and devices (reserved).
 pub const STATUS: &str = "status";
+/// Name of the error leaf beside `status`; it exists only while there is
+/// an error (reserved).
+pub const ERROR: &str = "error";
 
 /// Bootstrap tree (`~def.params`):
-/// `{poll_unsubscribed?, connections: {<c>: {..Conn, enabled?, devices:
-/// {<d>: {..Dev, enabled?, points: {<p>: {..Point}}}}}}}`.
+/// `{poll_unsubscribed?, connections: {<c>: {..Conn, kind?, enabled?, devices:
+/// {<d>: {..Dev, kind?, enabled?, points: {<p>: {..Point, kind?}}}}}}}`.
+/// `kind` names the node kind on levels with several (default: the first).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree(pub Value);
 
@@ -72,19 +81,41 @@ fn map_of(v: &Value) -> Map {
 #[derive(Debug, Clone)]
 struct Slot<P: Params> {
     cfg: Option<P>,
+    /// The params as given, without `kind`.
     raw: Value,
+    /// The node kind (`""` on a single-kind level).
+    kind: String,
     error: Option<String>,
+}
+
+/// A level with several node kinds stores and shows `kind`.
+fn multi_kind<P: Params>() -> bool {
+    P::kinds().len() > 1
 }
 
 impl<P: Params> Slot<P> {
     fn parse(raw: Value) -> Self {
-        match P::from_value(&raw) {
+        // `kind` is structural only on levels with several kinds (their
+        // params may not use that name); elsewhere it is a driver param.
+        let mut m = map_of(&raw);
+        let given = match multi_kind::<P>().then(|| m.remove("kind")).flatten() {
+            Some(Value::Str(k)) => k,
+            _ => String::new(),
+        };
+        let raw = Value::Map(m);
+        match P::from_kind_value(&given, &raw) {
             Ok(cfg) => Self {
+                kind: cfg.kind().to_owned(),
                 cfg: Some(cfg),
                 raw,
                 error: None,
             },
             Err(e) => Self {
+                kind: if given.is_empty() {
+                    P::kinds().first().map(|k| k.id).unwrap_or("").to_owned()
+                } else {
+                    given
+                },
                 cfg: None,
                 raw,
                 error: Some(e.message),
@@ -95,26 +126,43 @@ impl<P: Params> Slot<P> {
     fn valid(cfg: P) -> Self {
         Self {
             raw: cfg.to_value(),
+            kind: cfg.kind().to_owned(),
             cfg: Some(cfg),
             error: None,
         }
     }
 
+    /// The parameters of this node's kind.
+    fn schema(&self) -> Vec<ParamSpec> {
+        P::kind_schema(&self.kind).unwrap_or_default()
+    }
+
     /// Values shown in `~meta.cfg` and pre-filled in `edit`.
     fn shown(&self) -> Map {
-        match &self.cfg {
+        let mut m = match &self.cfg {
             Some(c) => c.public_map(),
             None => {
-                let secret: Vec<&str> = P::schema()
-                    .iter()
-                    .filter(|s| s.secret)
-                    .map(|s| s.name)
-                    .collect();
+                let schema = self.schema();
+                let secret: Vec<&str> =
+                    schema.iter().filter(|s| s.secret).map(|s| s.name).collect();
                 let mut m = map_of(&self.raw);
                 m.retain(|k, _| !secret.contains(&k.as_str()));
                 m
             }
+        };
+        if multi_kind::<P>() {
+            m.insert("kind".into(), Value::Str(self.kind.clone()));
         }
+        m
+    }
+
+    /// The params with secrets and `kind` (the sealed tree only).
+    fn stored(&self) -> Map {
+        let mut m = map_of(&self.raw);
+        if multi_kind::<P>() {
+            m.insert("kind".into(), Value::Str(self.kind.clone()));
+        }
+        m
     }
 }
 
@@ -185,15 +233,47 @@ fn status_path(base: &str) -> String {
     format!("{base}/{STATUS}")
 }
 
+fn error_path(base: &str) -> String {
+    format!("{base}/{ERROR}")
+}
+
+/// The `status` leaf: an enum of [`NodeState::LABELS`].
+fn status_meta() -> NodeMeta {
+    NodeMeta::leaf(TypeCode::Enum)
+        .is("wy:df-status")
+        .enum_values(NodeState::LABELS)
+}
+
+/// Publish the state; declare the `error` leaf while there is an error and
+/// remove it when the error clears (DSA shows its `Error` the same way).
 async fn set_status(ctx: &LinkCtx, base: &str, state: NodeState, error: Option<&str>) {
-    let mut m = Map::new();
-    m.insert("state".into(), Value::Str(state.name().into()));
-    if let Some(e) = error {
-        m.insert("error".into(), Value::Str(e.into()));
-    }
     let _ = ctx
-        .update(&status_path(base), Value::Map(m), Quality::Good, now_us())
+        .update(
+            &status_path(base),
+            Value::UInt(state as u64),
+            Quality::Good,
+            now_us(),
+        )
         .await;
+    let ep = error_path(base);
+    match error {
+        Some(e) => {
+            if !ctx.has_node(&ep) {
+                let meta = NodeMeta::leaf(TypeCode::String).is("wy:df-error");
+                if ctx.declare_node(&ep, meta).await.is_err() {
+                    return;
+                }
+            }
+            let _ = ctx
+                .update(&ep, Value::Str(e.into()), Quality::Good, now_us())
+                .await;
+        }
+        None => {
+            if ctx.has_node(&ep) {
+                let _ = ctx.remove_node(&ep).await;
+            }
+        }
+    }
 }
 
 /// Publish a point value when it or its quality changed.
@@ -229,21 +309,74 @@ async fn mark(ctx: &LinkCtx, paths: impl IntoIterator<Item = String>, q: Quality
 
 fn valid_name(name: &str) -> Result<()> {
     wyrm_core::keyspace::validate_segment(name)?;
-    if name == STATUS {
+    if name == STATUS || name == ERROR {
         return Err(LinkError::invalid_parameter(format!(
-            "{STATUS:?} is reserved"
+            "{name:?} is reserved"
         )));
     }
     Ok(())
 }
 
-fn form(schema: &[ParamSpec], prefill: Option<&Map>) -> ActionMeta {
+/// `ip_connection` → `Ip Connection`.
+fn title(id: &str) -> String {
+    id.split('_')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The add actions of a level: `(action, kind, name for people)`. One kind:
+/// `add_<noun>`; several: `add_<kind id>`.
+fn adds<P: Params>(noun: &str) -> Vec<(String, Kind)> {
+    let kinds = P::kinds();
+    if kinds.len() == 1 {
+        return kinds
+            .into_iter()
+            .map(|k| (format!("add_{noun}"), k))
+            .collect();
+    }
+    kinds
+        .into_iter()
+        .map(|k| (format!("add_{}", k.id), k))
+        .collect()
+}
+
+/// The name for people of an add action.
+fn add_display(noun: &str, k: &Kind) -> String {
+    if k.display.is_empty() {
+        format!("Add {}", title(if k.id.is_empty() { noun } else { k.id }))
+    } else {
+        format!("Add {}", k.display)
+    }
+}
+
+/// A plain action of the framework (no params, `config`).
+fn plain(display: &str) -> ActionMeta {
+    ActionMeta::new().level(Perm::Config).display(display)
+}
+
+fn form<D: Driver>(schema: &[ParamSpec], prefill: Option<&Map>) -> ActionMeta {
     let mut a = ActionMeta::new().level(Perm::Config);
     for s in schema {
         let mut p = s.param_meta(prefill.and_then(|m| m.get(s.name)));
         if prefill.is_some() && s.secret {
             // `edit`: an empty secret keeps the stored one.
             p.required = Some(false);
+        }
+        let found = D::choices(s.name);
+        if let Some(first) = found.first() {
+            p.placeholder = Some(first.clone());
+            let list = format!("Found: {}", found.join(", "));
+            p.description = Some(match p.description.take() {
+                Some(d) => format!("{d}. {list}"),
+                None => list,
+            });
         }
         a = a.param(s.name, p);
     }
@@ -254,8 +387,7 @@ fn form(schema: &[ParamSpec], prefill: Option<&Map>) -> ActionMeta {
 /// leaves them out or empty, but only while the destination (the `dest`
 /// fields, or every field when none is marked) stays the same: a caller
 /// with `config` must not point a stored password at another host.
-fn keep_secrets<P: Params>(old: &Value, new: &Value) -> Value {
-    let schema = P::schema();
+fn keep_secrets(schema: &[ParamSpec], old: &Value, new: &Value) -> Value {
     let missing = |m: &Map, n: &str| match m.get(n) {
         None | Some(Value::Null) => true,
         Some(Value::Str(s)) => s.is_empty(),
@@ -278,8 +410,8 @@ fn keep_secrets<P: Params>(old: &Value, new: &Value) -> Value {
     }
     let any_dest = schema.iter().any(|s| s.dest);
     let same = match (
-        normalize(&schema, old),
-        normalize(&schema, &Value::Map(cand.clone())),
+        normalize(schema, old),
+        normalize(schema, &Value::Map(cand.clone())),
     ) {
         (Ok(o), Ok(n)) => schema
             .iter()
@@ -295,11 +427,16 @@ fn keep_secrets<P: Params>(old: &Value, new: &Value) -> Value {
     Value::Map(cand)
 }
 
-fn add_form(schema: &[ParamSpec]) -> ActionMeta {
-    form(schema, None).param(
-        "name",
-        wyrm_core::meta::ParamMeta::of(TypeCode::String).required(true),
-    )
+fn add_form<D: Driver>(schema: &[ParamSpec], display: String) -> ActionMeta {
+    form::<D>(schema, None)
+        .param(
+            "name",
+            wyrm_core::meta::ParamMeta::of(TypeCode::String)
+                .required(true)
+                .display("Name"),
+        )
+        .display(display)
+        .group(GROUP_NEW)
 }
 
 /// Split `{name, ..params}` action args.
@@ -339,55 +476,47 @@ impl<D: Driver> Framework<D> {
 
     async fn declare_conn(&self, name: &str) -> Result<()> {
         let c = &self.conns[name];
+        let shown = c.slot.shown();
         let mut meta = NodeMeta::folder().is("wy:df-connection");
-        meta.cfg = Some(c.slot.shown());
+        meta.cfg = Some(shown.clone());
         self.ctx.declare_node(name, meta).await?;
         self.ctx
-            .declare_node(
-                &status_path(name),
-                NodeMeta::leaf(TypeCode::Map).is("wy:df-status"),
-            )
+            .declare_node(&status_path(name), status_meta())
             .await?;
-        let shown = c.slot.shown();
-        self.ctx
-            .declare_action(name, "add_device", add_form(&D::Dev::schema()))
-            .await?;
-        self.ctx
-            .declare_action(name, "edit", form(&D::Conn::schema(), Some(&shown)))
-            .await?;
-        for a in ["remove", "restart", "enable", "disable"] {
+        for (id, k) in adds::<D::Dev>("device") {
+            let display = add_display("device", &k);
             self.ctx
-                .declare_action(name, a, ActionMeta::new().level(Perm::Config))
+                .declare_action(name, &id, add_form::<D>(&k.schema, display))
                 .await?;
         }
-        Ok(())
+        self.declare_common(name, &c.slot.schema(), &shown).await?;
+        self.ctx
+            .declare_action(name, "restart", plain("Restart"))
+            .await?;
+        self.declare_run_toggle(name, c.enabled).await
     }
 
     async fn declare_dev(&self, conn: &str, dev: &str) -> Result<()> {
         let d = &self.conns[conn].devices[dev];
         let base = format!("{conn}/{dev}");
+        let shown = d.slot.shown();
         let mut meta = NodeMeta::folder().is("wy:df-device");
-        meta.cfg = Some(d.slot.shown());
+        meta.cfg = Some(shown.clone());
         self.ctx.declare_node(&base, meta).await?;
         self.ctx
-            .declare_node(
-                &status_path(&base),
-                NodeMeta::leaf(TypeCode::Map).is("wy:df-status"),
-            )
+            .declare_node(&status_path(&base), status_meta())
             .await?;
-        let shown = d.slot.shown();
-        self.ctx
-            .declare_action(&base, "add_point", add_form(&D::Point::schema()))
-            .await?;
-        self.ctx
-            .declare_action(&base, "edit", form(&D::Dev::schema(), Some(&shown)))
-            .await?;
-        for a in ["remove", "restart", "enable", "disable"] {
+        for (id, k) in adds::<D::Point>("point") {
+            let display = add_display("point", &k);
             self.ctx
-                .declare_action(&base, a, ActionMeta::new().level(Perm::Config))
+                .declare_action(&base, &id, add_form::<D>(&k.schema, display))
                 .await?;
         }
-        Ok(())
+        self.declare_common(&base, &d.slot.schema(), &shown).await?;
+        self.ctx
+            .declare_action(&base, "restart", plain("Restart"))
+            .await?;
+        self.declare_run_toggle(&base, d.enabled).await
     }
 
     async fn declare_point(&self, conn: &str, dev: &str, pt: &str) -> Result<()> {
@@ -397,19 +526,11 @@ impl<D: Driver> Framework<D> {
             Some(cfg) => D::point_meta(cfg),
             None => NodeMeta::leaf(TypeCode::Dynamic),
         };
+        let shown = p.shown();
         let cfg = meta.cfg.get_or_insert_with(Map::new);
-        cfg.extend(p.slot_shown());
+        cfg.extend(shown.clone());
         self.ctx.declare_node(&path, meta).await?;
-        self.ctx
-            .declare_action(
-                &path,
-                "edit",
-                form(&D::Point::schema(), Some(&p.slot_shown())),
-            )
-            .await?;
-        self.ctx
-            .declare_action(&path, "remove", ActionMeta::new().level(Perm::Config))
-            .await?;
+        self.declare_common(&path, &p.schema(), &shown).await?;
         if let Some(e) = &p.error {
             // Keep the node; show why it does not run.
             let _ = self
@@ -426,6 +547,105 @@ impl<D: Driver> Framework<D> {
                 .await;
         }
         Ok(())
+    }
+
+    /// `edit` (the node's own form, pre-filled) and `remove`, group `edit`.
+    async fn declare_common(&self, path: &str, schema: &[ParamSpec], shown: &Map) -> Result<()> {
+        let edit = form::<D>(schema, Some(shown))
+            .display("Edit")
+            .group(GROUP_EDIT);
+        self.ctx.declare_action(path, "edit", edit).await?;
+        self.ctx
+            .declare_action(path, "remove", plain("Remove").group(GROUP_EDIT))
+            .await
+    }
+
+    /// DSA shows only the action that applies: `stop` while the node runs,
+    /// `start` while it is stopped.
+    async fn declare_run_toggle(&self, path: &str, enabled: bool) -> Result<()> {
+        let (on, off) = if enabled {
+            ("stop", "start")
+        } else {
+            ("start", "stop")
+        };
+        self.ctx.remove_action(path, off).await?;
+        self.ctx.declare_action(path, on, plain(&title(on))).await
+    }
+
+    /// Root actions: one `add_*` per connection kind, `export`, and
+    /// `rescan` when the driver has one.
+    async fn declare_root(&self) -> Result<()> {
+        for (id, k) in adds::<D::Conn>("connection") {
+            let display = add_display("connection", &k);
+            self.ctx
+                .declare_action("", &id, add_form::<D>(&k.schema, display))
+                .await?;
+        }
+        self.ctx
+            .declare_action(
+                "",
+                "export",
+                plain("Export").result(ActionResult::Type(TypeCode::Map)),
+            )
+            .await?;
+        if let Some(name) = D::RESCAN {
+            self.ctx
+                .declare_action(
+                    "",
+                    "rescan",
+                    ActionMeta::new()
+                        .level(Perm::Config)
+                        .display(name)
+                        .result(ActionResult::Type(TypeCode::Map)),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// The node kind an add action creates on the level below `depth`.
+    fn add_kind(depth: usize, action: &str) -> Option<&'static str> {
+        let find = |list: Vec<(String, Kind)>| {
+            list.into_iter()
+                .find(|(id, _)| id == action)
+                .map(|(_, k)| k.id)
+        };
+        match depth {
+            0 => find(adds::<D::Conn>("connection")),
+            1 => find(adds::<D::Dev>("device")),
+            2 => find(adds::<D::Point>("point")),
+            _ => None,
+        }
+    }
+
+    /// `rescan`: forms again with fresh choices; replies `{param: [found]}`.
+    async fn rescan(&self) -> Result<Value> {
+        self.declare_root().await?;
+        for (cn, c) in &self.conns {
+            self.declare_conn(cn).await?;
+            for (dn, d) in &c.devices {
+                self.declare_dev(cn, dn).await?;
+                for pn in d.points.keys() {
+                    self.declare_point(cn, dn, pn).await?;
+                }
+            }
+        }
+        let mut found = Map::new();
+        let schemas = D::Conn::kinds()
+            .into_iter()
+            .chain(D::Dev::kinds())
+            .chain(D::Point::kinds())
+            .flat_map(|k| k.schema);
+        for p in schemas {
+            let list = D::choices(p.name);
+            if !list.is_empty() {
+                found.insert(
+                    p.name.to_owned(),
+                    Value::Array(list.into_iter().map(Value::Str).collect()),
+                );
+            }
+        }
+        Ok(Value::Map(found))
     }
 
     /// The runtime view of a connection's devices (valid, enabled ones).
@@ -619,7 +839,7 @@ impl<D: Driver> Framework<D> {
                 let pts: Map = d
                     .points
                     .iter()
-                    .map(|(pn, p)| (pn.clone(), Value::Map(p.slot_shown())))
+                    .map(|(pn, p)| (pn.clone(), Value::Map(p.shown())))
                     .collect();
                 dm.insert("points".into(), Value::Map(pts));
                 devs.insert(dn.clone(), Value::Map(dm));
@@ -640,16 +860,16 @@ impl<D: Driver> Framework<D> {
     fn full_tree(&self) -> Value {
         let mut conns = Map::new();
         for (cn, c) in &self.conns {
-            let mut cm = map_of(&c.slot.raw);
+            let mut cm = c.slot.stored();
             cm.insert("enabled".into(), Value::Bool(c.enabled));
             let mut devs = Map::new();
             for (dn, d) in &c.devices {
-                let mut dm = map_of(&d.slot.raw);
+                let mut dm = d.slot.stored();
                 dm.insert("enabled".into(), Value::Bool(d.enabled));
                 let pts: Map = d
                     .points
                     .iter()
-                    .map(|(pn, p)| (pn.clone(), p.raw.clone()))
+                    .map(|(pn, p)| (pn.clone(), Value::Map(p.stored())))
                     .collect();
                 dm.insert("points".into(), Value::Map(pts));
                 devs.insert(dn.clone(), Value::Map(dm));
@@ -670,17 +890,6 @@ impl<D: Driver> Framework<D> {
         self.conns
             .get_mut(name)
             .ok_or_else(|| LinkError::not_found(name.to_owned()))
-    }
-}
-
-/// Point slots also show their raw config when invalid.
-trait SlotShown {
-    fn slot_shown(&self) -> Map;
-}
-
-impl<P: Params> SlotShown for Slot<P> {
-    fn slot_shown(&self) -> Map {
-        self.shown()
     }
 }
 
@@ -1094,19 +1303,7 @@ impl<D: Driver> Link for Framework<D> {
                 },
             );
         }
-        // Root actions.
-        fw.ctx
-            .declare_action("", "add_connection", add_form(&D::Conn::schema()))
-            .await?;
-        fw.ctx
-            .declare_action(
-                "",
-                "export",
-                ActionMeta::new()
-                    .level(Perm::Config)
-                    .result(ActionResult::Type(TypeCode::Map)),
-            )
-            .await?;
+        fw.declare_root().await?;
         let names: Vec<String> = fw.conns.keys().cloned().collect();
         for cn in &names {
             fw.declare_conn(cn).await?;
@@ -1162,16 +1359,8 @@ impl<D: Driver> Link for Framework<D> {
         } else {
             path.split('/').map(str::to_owned).collect()
         };
-        let changes = matches!(
-            action,
-            "add_connection"
-                | "add_device"
-                | "add_point"
-                | "edit"
-                | "remove"
-                | "enable"
-                | "disable"
-        );
+        let changes =
+            action.starts_with("add_") || matches!(action, "edit" | "remove" | "start" | "stop");
         self.invoke_action(&parts, action, args, out).await?;
         if changes {
             if let Some(p) = &self.persist {
@@ -1192,22 +1381,15 @@ impl<D: Driver> Link for Framework<D> {
 }
 
 impl<D: Driver> Framework<D> {
-    async fn invoke_action(
-        &mut self,
-        parts: &[String],
-        action: &str,
-        args: Value,
-        out: ReplySink,
-    ) -> Result<()> {
-        let path = parts.join("/");
-        match (parts, action) {
-            ([], "export") => return out.reply(self.export()).await,
-            ([], "add_connection") => {
-                let (name, params) = split_name(&args)?;
+    /// `add_*`: a connection (depth 0), device (1) or point (2) of `kind`.
+    async fn add_child(&mut self, parts: &[String], kind: &str, args: &Value) -> Result<()> {
+        let (name, params) = split_name(args)?;
+        match parts {
+            [] => {
                 if self.conns.contains_key(&name) {
                     return Err(LinkError::invalid_parameter(format!("{name} exists")));
                 }
-                let cfg = D::Conn::from_value(&params)?;
+                let cfg = D::Conn::from_kind_value(kind, &params)?;
                 self.conns.insert(
                     name.clone(),
                     ConnEntry {
@@ -1220,9 +1402,8 @@ impl<D: Driver> Framework<D> {
                 self.declare_conn(&name).await?;
                 self.bring_up(&name).await;
             }
-            ([conn], "add_device") => {
-                let (name, params) = split_name(&args)?;
-                let cfg = D::Dev::from_value(&params)?;
+            [conn] => {
+                let cfg = D::Dev::from_kind_value(kind, &params)?;
                 let c = self.conn_mut(conn)?;
                 if c.devices.contains_key(&name) {
                     return Err(LinkError::invalid_parameter(format!("{name} exists")));
@@ -1239,9 +1420,8 @@ impl<D: Driver> Framework<D> {
                 set_status(&self.ctx, &format!("{conn}/{name}"), NodeState::New, None).await;
                 self.replan(conn).await;
             }
-            ([conn, dev], "add_point") => {
-                let (name, params) = split_name(&args)?;
-                let cfg = D::Point::from_value(&params)?;
+            [conn, dev] => {
+                let cfg = D::Point::from_kind_value(kind, &params)?;
                 let d = self
                     .conn_mut(conn)?
                     .devices
@@ -1254,10 +1434,33 @@ impl<D: Driver> Framework<D> {
                 self.declare_point(conn, dev, &name).await?;
                 self.replan(conn).await;
             }
+            _ => return Err(LinkError::not_supported("add below a point")),
+        }
+        Ok(())
+    }
+
+    async fn invoke_action(
+        &mut self,
+        parts: &[String],
+        action: &str,
+        args: Value,
+        out: ReplySink,
+    ) -> Result<()> {
+        let path = parts.join("/");
+        match (parts, action) {
+            ([], "export") => return out.reply(self.export()).await,
+            ([], "rescan") if D::RESCAN.is_some() => return out.reply(self.rescan().await?).await,
+            _ if action.starts_with("add_") => {
+                let Some(kind) = Self::add_kind(parts.len(), action) else {
+                    return Err(LinkError::not_supported(format!("{path}/~act/{action}")));
+                };
+                self.add_child(parts, kind, &args).await?;
+            }
             ([conn], "edit") => {
                 // Validate first; a rejected edit changes nothing.
-                let old = self.conn_mut(conn)?.slot.raw.clone();
-                let cfg = D::Conn::from_value(&keep_secrets::<D::Conn>(&old, &args))?;
+                let slot = &self.conn_mut(conn)?.slot;
+                let (old, kind, schema) = (slot.raw.clone(), slot.kind.clone(), slot.schema());
+                let cfg = D::Conn::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let c = self.conn_mut(conn)?;
                 if c.slot.cfg.as_ref() == Some(&cfg) {
                     return Ok(());
@@ -1268,13 +1471,13 @@ impl<D: Driver> Framework<D> {
                 self.bring_up(conn).await;
             }
             ([conn, dev], "edit") => {
-                let old = self
+                let (old, kind, schema) = self
                     .conn_mut(conn)?
                     .devices
                     .get(dev)
-                    .map(|d| d.slot.raw.clone())
+                    .map(|d| (d.slot.raw.clone(), d.slot.kind.clone(), d.slot.schema()))
                     .ok_or_else(|| LinkError::not_found(dev.clone()))?;
-                let cfg = D::Dev::from_value(&keep_secrets::<D::Dev>(&old, &args))?;
+                let cfg = D::Dev::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let d = self
                     .conn_mut(conn)?
                     .devices
@@ -1288,14 +1491,14 @@ impl<D: Driver> Framework<D> {
                 self.replan(conn).await;
             }
             ([conn, dev, pt], "edit") => {
-                let old = self
+                let (old, kind, schema) = self
                     .conn_mut(conn)?
                     .devices
                     .get(dev)
                     .and_then(|d| d.points.get(pt))
-                    .map(|p| p.raw.clone())
+                    .map(|p| (p.raw.clone(), p.kind.clone(), p.schema()))
                     .ok_or_else(|| LinkError::not_found(pt.clone()))?;
-                let cfg = D::Point::from_value(&keep_secrets::<D::Point>(&old, &args))?;
+                let cfg = D::Point::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let p = self
                     .conn_mut(conn)?
                     .devices
@@ -1341,17 +1544,18 @@ impl<D: Driver> Framework<D> {
                 self.conn_mut(conn)?;
                 self.replan(conn).await;
             }
-            ([conn], a @ ("enable" | "disable")) => {
-                let on = a == "enable";
+            ([conn], a @ ("start" | "stop")) => {
+                let on = a == "start";
                 if self.conn_mut(conn)?.enabled == on {
                     return Ok(());
                 }
                 self.tear_down(conn).await;
                 self.conn_mut(conn)?.enabled = on;
+                self.declare_run_toggle(conn, on).await?;
                 self.bring_up(conn).await;
             }
-            ([conn, dev], a @ ("enable" | "disable")) => {
-                let on = a == "enable";
+            ([conn, dev], a @ ("start" | "stop")) => {
+                let on = a == "start";
                 let d = self
                     .conn_mut(conn)?
                     .devices
@@ -1362,6 +1566,7 @@ impl<D: Driver> Framework<D> {
                 }
                 d.enabled = on;
                 let base = format!("{conn}/{dev}");
+                self.declare_run_toggle(&base, on).await?;
                 if on {
                     set_status(&self.ctx, &base, NodeState::New, None).await;
                 } else {

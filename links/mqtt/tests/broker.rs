@@ -172,22 +172,20 @@ fn pt(kv: &[(&str, Value)]) -> Value {
     map(&v)
 }
 
+/// The `status` enum leaf as a state name (`connected`, `failed`, …).
 fn state(h: &H, base: &str) -> Option<String> {
     match h.ctx().last(&format!("{base}/status"))?.v {
-        Value::Map(m) => match m.get("state") {
-            Some(Value::Str(s)) => Some(s.clone()),
-            _ => None,
-        },
+        Value::UInt(i) => wyrm_link_sdk::driver::NodeState::NAMES
+            .get(i as usize)
+            .map(|s| (*s).to_owned()),
         _ => None,
     }
 }
 
+/// The `error` leaf beside `status` (it exists only while there is one).
 fn error(h: &H, base: &str) -> Option<String> {
-    match h.ctx().last(&format!("{base}/status"))?.v {
-        Value::Map(m) => match m.get("error") {
-            Some(Value::Str(s)) => Some(s.clone()),
-            _ => None,
-        },
+    match h.ctx().last(&format!("{base}/error"))?.v {
+        Value::Str(s) => Some(s),
         _ => None,
     }
 }

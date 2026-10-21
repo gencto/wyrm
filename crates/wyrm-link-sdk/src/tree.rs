@@ -187,6 +187,23 @@ impl NodeTree {
         Ok(true)
     }
 
+    /// Remove one action; `false` if the node had no such action.
+    pub fn remove_action(&mut self, path: &str, name: &str) -> Result<bool> {
+        let node = self
+            .nodes
+            .get_mut(path)
+            .ok_or_else(|| LinkError::not_found(path.to_owned()))?;
+        let removed = node
+            .meta
+            .actions
+            .as_mut()
+            .is_some_and(|a| a.remove(name).is_some());
+        if removed {
+            node.rev = node.rev.wrapping_add(1);
+        }
+        Ok(removed)
+    }
+
     /// Remove a node with its subtree. Returns removed paths (parent first)
     /// and the parent path.
     pub fn remove(&mut self, path: &str) -> Result<(Vec<String>, String)> {

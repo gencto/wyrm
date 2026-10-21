@@ -234,6 +234,29 @@ impl LinkCtx {
         .await
     }
 
+    /// Remove one action of a node (and publish its `~meta`); `false` if it
+    /// had no such action.
+    pub async fn remove_action(&self, path: &str, name: &str) -> Result<bool> {
+        self.ensure_open()?;
+        let removed = self.tree_mut().remove_action(path, name)?;
+        if removed {
+            self.publish_changed(
+                path,
+                Changed {
+                    node: true,
+                    parent: None,
+                },
+            )
+            .await?;
+        }
+        Ok(removed)
+    }
+
+    /// Whether `path` is a declared node.
+    pub fn has_node(&self, path: &str) -> bool {
+        self.tree().get(path).is_some()
+    }
+
     /// Remove a node with its subtree: deletes `~meta`/`~val` of every removed
     /// node, drops their liveliness tokens, republishes the parent's `~meta`.
     pub async fn remove_node(&self, path: &str) -> Result<()> {

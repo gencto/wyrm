@@ -148,3 +148,67 @@ fn unknown_key_rejected_and_round_trip() {
     assert!(!public.contains_key("password"));
     assert!(public.contains_key("host"));
 }
+
+#[derive(Debug, Clone, PartialEq, Params)]
+struct Serial {
+    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0")]
+    port: String,
+    #[param(default = 9600, display = "Baud Rate")]
+    baud: u32,
+    #[param(default = "", secret)]
+    pin: String,
+}
+
+/// Several node kinds on one level (DSA: Add IP / Add Serial Connection).
+#[derive(Debug, Clone, PartialEq, Params)]
+enum AnyConn {
+    #[param(name = "ip_connection", display = "IP Connection")]
+    Ip(Conn),
+    #[param(display = "Serial Connection")]
+    Serial(Serial),
+}
+
+#[test]
+fn node_kinds_from_an_enum() {
+    let kinds = AnyConn::kinds();
+    let ids: Vec<&str> = kinds.iter().map(|k| k.id).collect();
+    assert_eq!(ids, ["ip_connection", "serial"]);
+    assert_eq!(kinds[0].display, "IP Connection");
+    assert_eq!(kinds[1].schema[0].name, "port");
+
+    let s = AnyConn::from_kind_value(
+        "serial",
+        &map(&[("port", "/dev/ttyS1".into()), ("pin", "1234".into())]),
+    )
+    .unwrap();
+    assert_eq!(s.kind(), "serial");
+    let AnyConn::Serial(inner) = &s else { panic!() };
+    assert_eq!(inner.baud, 9600);
+    // the kind's own secrets stay out of ~meta.cfg
+    assert!(!s.public_map().contains_key("pin"));
+    assert!(s.public_map().contains_key("port"));
+    // "" = the first kind
+    let ip = AnyConn::from_kind_value("", &map(&[("host", "h".into())])).unwrap();
+    assert_eq!(ip.kind(), "ip_connection");
+    assert!(AnyConn::from_kind_value("usb", &map(&[])).is_err());
+    // a single-kind type has one unnamed kind
+    assert_eq!(Conn::kinds().len(), 1);
+    assert_eq!(Conn::kinds()[0].id, "");
+}
+
+#[test]
+fn ui_fields_in_the_form() {
+    let s = Serial::schema();
+    let port = s[0].param_meta(None);
+    assert_eq!(port.display.as_deref(), Some("Serial Port"));
+    assert_eq!(port.placeholder.as_deref(), Some("/dev/ttyUSB0"));
+    let pin = s[2].param_meta(Some(&"x".into()));
+    assert_eq!(
+        pin.editor.as_deref(),
+        Some("password"),
+        "a secret is a password field"
+    );
+    assert_eq!(pin.default, None, "a secret is never pre-filled");
+    let host = Conn::schema()[0].param_meta(None);
+    assert_eq!(host.description.as_deref(), Some("device host"));
+}

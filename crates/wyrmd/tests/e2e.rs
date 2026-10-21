@@ -1333,7 +1333,8 @@ async fn process_link_keeps_runtime_edits() {
     let status = format!("{root}/c2/status");
     eventually("c2 back and connected", 15, || async {
         match last_val(&c, &status).await {
-            Some(Value::Map(m)) if m.get("state") == Some(&Value::from("connected")) => Some(()),
+            // `status` is an enum leaf; 2 = Connected
+            Some(Value::UInt(2)) => Some(()),
             _ => None,
         }
     })

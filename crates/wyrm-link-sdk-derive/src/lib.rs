@@ -2,8 +2,14 @@
 //! `wyrm_link_sdk::driver::params` (ADR 0004).
 //!
 //! Field attributes: `#[param(default = <lit>, min = <num>, max = <num>,
-//! secret, dest, desc = "...", name = "...", enum)]` (`dest`: a field that
-//! says where secrets go; see `ParamSpec::dest`).
+//! secret, dest, desc = "...", display = "...", placeholder = "...",
+//! editor = "...", name = "...", enum)]` (`dest`: a field that says where
+//! secrets go, see `ParamSpec::dest`; `display`: the label people see).
+//!
+//! On an enum of newtype variants (`enum Conn { Ip(IpConn), Serial(SerialConn) }`)
+//! the derive makes one node kind per variant: `#[param(name = "...",
+//! display = "...")]` on a variant sets its key (default: snake_case
+//! variant name) and its name for people.
 //!
 //! * Types: `String`, `bool`, integers (`u8`..`u64`, `i8`..`i64`, `usize`,
 //!   `isize`), `f32`/`f64`, and any `ParamEnum` type marked `#[param(enum)]`.
@@ -72,6 +78,9 @@ struct FieldAttrs {
     secret: bool,
     dest: bool,
     desc: Option<String>,
+    display: Option<String>,
+    placeholder: Option<String>,
+    editor: Option<String>,
     name: Option<String>,
     is_enum: bool,
 }
@@ -89,10 +98,16 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
                 Some("dest") => a.dest = true,
                 Some("enum") => a.is_enum = true,
                 Some("desc") => a.desc = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                Some("display") => a.display = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                Some("placeholder") => {
+                    a.placeholder = Some(m.value()?.parse::<syn::LitStr>()?.value())
+                }
+                Some("editor") => a.editor = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 Some("name") => a.name = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 _ => {
                     return Err(m.error(
-                        "unknown param attribute; expected default, min, max, secret, dest, desc, name or enum",
+                        "unknown param attribute; expected default, min, max, secret, dest, desc, \
+                         display, placeholder, editor, name or enum",
                     ))
                 }
             }
@@ -186,11 +201,15 @@ fn expand_params(input: &DeriveInput) -> syn::Result<Tokens> {
             "#[derive(Params)] does not support generics",
         ));
     }
-    let Data::Struct(data) = &input.data else {
-        return Err(syn::Error::new_spanned(
-            &input.ident,
-            "#[derive(Params)] needs a struct",
-        ));
+    let data = match &input.data {
+        Data::Struct(d) => d,
+        Data::Enum(e) => return expand_kinds(input, e),
+        Data::Union(_) => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "#[derive(Params)] needs a struct or an enum of newtype variants",
+            ))
+        }
     };
     let Fields::Named(fields) = &data.fields else {
         return Err(syn::Error::new_spanned(
@@ -269,6 +288,15 @@ fn expand_params(input: &DeriveInput) -> syn::Result<Tokens> {
         if let Some(d) = &a.desc {
             spec = quote!(#spec.desc(#d));
         }
+        if let Some(d) = &a.display {
+            spec = quote!(#spec.display(#d));
+        }
+        if let Some(d) = &a.placeholder {
+            spec = quote!(#spec.placeholder(#d));
+        }
+        if let Some(d) = &a.editor {
+            spec = quote!(#spec.editor(#d));
+        }
         specs.push(spec);
 
         reads.push(match kind {
@@ -312,6 +340,87 @@ fn expand_params(input: &DeriveInput) -> syn::Result<Tokens> {
                 let mut m = ::std::collections::BTreeMap::new();
                 #(#writes)*
                 m
+            }
+        }
+    })
+}
+
+/// `#[derive(Params)]` on an enum: one node kind per newtype variant.
+fn expand_kinds(input: &DeriveInput, e: &syn::DataEnum) -> syn::Result<Tokens> {
+    let params = quote!(::wyrm_link_sdk::driver::params);
+    let ident = &input.ident;
+    let mut kinds = Vec::new();
+    let mut ids = Vec::new();
+    let mut vars = Vec::new();
+    let mut inners = Vec::new();
+    for v in &e.variants {
+        let Fields::Unnamed(f) = &v.fields else {
+            return Err(syn::Error::new_spanned(
+                v,
+                "a node kind is a newtype variant: Kind(Params)",
+            ));
+        };
+        if f.unnamed.len() != 1 {
+            return Err(syn::Error::new_spanned(
+                v,
+                "a node kind is a newtype variant: Kind(Params)",
+            ));
+        }
+        let inner = &f.unnamed[0].ty;
+        let a = field_attrs(&v.attrs)?;
+        let id = a
+            .name
+            .clone()
+            .unwrap_or_else(|| snake(&v.ident.to_string()));
+        let display = a.display.clone().unwrap_or_default();
+        kinds.push(quote!(#params::Kind {
+            id: #id,
+            display: #display,
+            schema: <#inner as #params::Params>::schema(),
+        }));
+        ids.push(id);
+        vars.push(&v.ident);
+        inners.push(inner);
+    }
+    let (Some(first_var), Some(first_inner)) = (vars.first(), inners.first()) else {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "#[derive(Params)] needs at least one kind",
+        ));
+    };
+    Ok(quote! {
+        impl #params::Params for #ident {
+            fn schema() -> ::std::vec::Vec<#params::ParamSpec> {
+                <#first_inner as #params::Params>::schema()
+            }
+            fn from_map(
+                m: &::std::collections::BTreeMap<::std::string::String, ::wyrm_core::Value>,
+            ) -> ::wyrm_link_sdk::Result<Self> {
+                ::std::result::Result::Ok(Self::#first_var(<#first_inner as #params::Params>::from_map(m)?))
+            }
+            fn to_map(&self) -> ::std::collections::BTreeMap<::std::string::String, ::wyrm_core::Value> {
+                match self {
+                    #(Self::#vars(x) => <#inners as #params::Params>::to_map(x),)*
+                }
+            }
+            fn kinds() -> ::std::vec::Vec<#params::Kind> {
+                ::std::vec![#(#kinds),*]
+            }
+            fn kind(&self) -> &'static str {
+                match self {
+                    #(Self::#vars(_) => #ids,)*
+                }
+            }
+            fn from_kind_map(
+                kind: &str,
+                m: &::std::collections::BTreeMap<::std::string::String, ::wyrm_core::Value>,
+            ) -> ::wyrm_link_sdk::Result<Self> {
+                match kind {
+                    #(#ids => ::std::result::Result::Ok(Self::#vars(<#inners as #params::Params>::from_map(m)?)),)*
+                    other => ::std::result::Result::Err(::wyrm_link_sdk::LinkError::invalid_parameter(
+                        ::std::format!("kind: unknown {other:?}"),
+                    )),
+                }
             }
         }
     })

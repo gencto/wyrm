@@ -76,12 +76,12 @@ fn standard() -> Value {
     )
 }
 
+/// The `status` enum leaf as a state name (`connected`, `failed`, …).
 fn state(h: &H, base: &str) -> Option<String> {
     match h.ctx().last(&format!("{base}/status"))?.v {
-        Value::Map(m) => match m.get("state") {
-            Some(Value::Str(s)) => Some(s.clone()),
-            _ => None,
-        },
+        Value::UInt(i) => wyrm_link_sdk::driver::NodeState::NAMES
+            .get(i as usize)
+            .map(|s| (*s).to_owned()),
         _ => None,
     }
 }
@@ -507,4 +507,88 @@ async fn runtime_edits_and_secrets_are_kept() {
     );
     h.stop().await;
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The DSA shape of a connection: `status` enum leaf, an `error` leaf only
+/// while there is an error, `stop` or `start` (whichever applies), actions
+/// with names for people and menu groups.
+#[tokio::test(flavor = "multi_thread")]
+async fn dsa_node_shape() {
+    use wyrm_core::meta::{GROUP_EDIT, GROUP_NEW};
+    let h = H::start(tree(standard(), true)).await;
+    wait("connected", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+
+    let (_, st) = h.meta("c1/status").await;
+    let st = st.unwrap();
+    assert_eq!(st.ty, Some(wyrm_core::TypeCode::Enum));
+    assert_eq!(
+        st.enum_values.as_deref().unwrap()[2],
+        "Connected",
+        "DSA labels"
+    );
+    assert!(!h.ctx().has_node("c1/error"), "no error, no leaf");
+
+    let actions = |m: &wyrm_core::NodeMeta| m.actions.clone().unwrap_or_default();
+    let (_, m) = h.meta("c1").await;
+    let a = actions(&m.unwrap());
+    assert_eq!(a["add_device"].display.as_deref(), Some("Add Device"));
+    assert_eq!(a["add_device"].group.as_deref(), Some(GROUP_NEW));
+    assert_eq!(
+        a["add_device"].params["name"].display.as_deref(),
+        Some("Name")
+    );
+    assert_eq!(a["edit"].group.as_deref(), Some(GROUP_EDIT));
+    assert_eq!(a["remove"].group.as_deref(), Some(GROUP_EDIT));
+    assert_eq!(a["restart"].display.as_deref(), Some("Restart"));
+    assert!(a.contains_key("stop") && !a.contains_key("start"));
+    let (_, root) = h.meta("").await;
+    let r = actions(&root.unwrap());
+    assert_eq!(
+        r["add_connection"].display.as_deref(),
+        Some("Add Connection")
+    );
+    assert_eq!(r["export"].display.as_deref(), Some("Export"));
+
+    // stop: only `start` is offered, the state is Stopped
+    assert_eq!(
+        status(&act(&h, "c1", "stop", map(&[])).await),
+        Some(Status::Ok)
+    );
+    wait("stopped", || state(&h, "c1").as_deref() == Some("stopped")).await;
+    let (_, m) = h.meta("c1").await;
+    let a = actions(&m.unwrap());
+    assert!(a.contains_key("start") && !a.contains_key("stop"));
+    assert_eq!(
+        status(&act(&h, "c1", "start", map(&[])).await),
+        Some(Status::Ok)
+    );
+    wait("connected again", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+
+    // a failure shows in `error`; it goes away when the failure clears
+    assert_eq!(
+        status(&act(&h, "c1", "edit", map(&[("down", Value::Bool(true))])).await),
+        Some(Status::Ok)
+    );
+    wait("error leaf", || {
+        h.ctx()
+            .last("c1/error")
+            .is_some_and(|s| s.v == Value::from("transport: connection refused"))
+    })
+    .await;
+    assert_eq!(state(&h, "c1").as_deref(), Some("failed"));
+    assert_eq!(
+        status(&act(&h, "c1", "edit", map(&[("down", Value::Bool(false))])).await),
+        Some(Status::Ok)
+    );
+    wait("connected, no error", || {
+        state(&h, "c1").as_deref() == Some("connected") && !h.ctx().has_node("c1/error")
+    })
+    .await;
+    h.stop().await;
 }
