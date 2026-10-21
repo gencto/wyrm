@@ -125,6 +125,9 @@ pub struct Control {
     peers: Mutex<PeerConfig>,
 }
 
+/// `(path, peer site)` reference nodes of one peer link.
+type PeerNodes = Vec<(String, String)>;
+
 /// Router-to-router setup (iteration 4): peer sites and their CA files.
 #[derive(Debug, Clone, Default)]
 pub struct PeerConfig {
@@ -510,6 +513,15 @@ impl Control {
         *self.peers.lock().unwrap_or_else(|e| e.into_inner()) = p;
     }
 
+    /// The configured peer sites.
+    pub fn peers(&self) -> acl::Peers {
+        self.peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .peers
+            .clone()
+    }
+
     pub fn configure_zenoh(&self, c: &mut zenoh::Config, tls: bool) -> Result<(), Error> {
         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if tls {
@@ -616,6 +628,48 @@ impl Control {
         self.supervisor.stop_all().await;
     }
 
+    /// Reference nodes of the peer brokers: one link `down/<d>` per
+    /// downstream site, one link `up` with a node per upstream site.
+    async fn start_peers(&self, session: &Session) -> Vec<LinkHandle<crate::peers::PeerRefs>> {
+        use crate::peers::{PeerRefs, PeerRefsConfig};
+        let peers = self.peers();
+        let site = &self.cfg.site;
+        // (link id, root key, reference nodes)
+        let mut plan: Vec<(String, String, PeerNodes)> = peers
+            .downstream
+            .iter()
+            .map(|d| {
+                (
+                    d.clone(),
+                    format!("wy/{site}/down/{d}"),
+                    vec![(String::new(), d.clone())],
+                )
+            })
+            .collect();
+        if !peers.upstream.is_empty() {
+            let nodes = peers
+                .upstream
+                .iter()
+                .map(|u| (u.clone(), u.clone()))
+                .collect();
+            plan.push(("up".into(), format!("wy/{site}/up"), nodes));
+        }
+        let mut out = Vec::new();
+        for (id, root, nodes) in plan {
+            let mut lcfg = LinkConfig::new(site.clone(), id.clone());
+            lcfg.root = Some(root.clone());
+            lcfg.admin_keys = self.cfg.admin_keys.clone();
+            lcfg.audit = false;
+            match wyrm_link_sdk::spawn::<PeerRefs>(session.clone(), lcfg, PeerRefsConfig { nodes })
+                .await
+            {
+                Ok(h) => out.push(h),
+                Err(e) => warn!(%root, "peer nodes: {e}"),
+            }
+        }
+        out
+    }
+
     /// Run the admin responder, embedded links, process links and watchers
     /// on `session` (an in-process session of the router runtime).
     pub async fn attach(self: &Arc<Self>, session: Session) -> Result<Attached, Error> {
@@ -668,8 +722,10 @@ impl Control {
             tokio::spawn(serve_profiles(self.clone(), session.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
+        let peers = self.start_peers(&session).await;
         Ok(Attached {
             admin: Some(admin),
+            peers,
             embedded,
             tasks,
         })
@@ -681,6 +737,8 @@ type Running = Arc<AsyncMutex<HashMap<String, Box<dyn RunningLink>>>>;
 /// Admin state bound to one broker instance.
 pub struct Attached {
     admin: Option<LinkHandle<Admin>>,
+    /// `down/<d>` and `up` reference nodes of peer brokers.
+    peers: Vec<LinkHandle<crate::peers::PeerRefs>>,
     embedded: Running,
     tasks: Vec<JoinHandle<()>>,
 }
@@ -698,6 +756,9 @@ impl Attached {
         let links: Vec<_> = self.embedded.lock().await.drain().collect();
         for (_, l) in links {
             l.stop().await;
+        }
+        for p in self.peers.drain(..) {
+            p.stop().await;
         }
         if let Some(a) = self.admin.take() {
             a.stop().await;
@@ -839,7 +900,10 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     ctx.declare_action(
         &p,
         "hello",
+        // Link handshake (an open action, see `open_actions`): level none
+        // marks it as not for people, and UIs hide it.
         ActionMeta::new()
+            .level(Perm::None)
             .param("token", ParamMeta::of(TypeCode::Binary).required(true))
             .result(ActionResult::Type(TypeCode::Map)),
     )
@@ -962,15 +1026,6 @@ impl Link for Admin {
         .await?;
         ctx.declare_node("audit", NodeMeta::number().is("wy:audit"))
             .await?;
-        ctx.declare_action(
-            "audit",
-            "tail",
-            ActionMeta::new()
-                .param("n", ParamMeta::of(TypeCode::Number))
-                .result(ActionResult::Type(TypeCode::Array))
-                .level(Perm::Config),
-        )
-        .await?;
         // `wy/<site>/sys/broker` liveliness: process links re-publish when it returns.
         ctx.set_dynamic("broker", true).await?;
         Ok(Admin {
@@ -1068,6 +1123,11 @@ impl Admin {
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
         crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
+        if ctl.peers().downstream.contains(&id) {
+            return Err(LinkError::invalid_parameter(format!(
+                "link id {id:?} is a downstream site (down/{id} is its broker node)"
+            )));
+        }
         // Before any side effect (token, secret purge) on an existing id.
         if ctl.registry().links.contains_key(&id) {
             return Err(LinkError::invalid_parameter(format!("link {id} exists")));

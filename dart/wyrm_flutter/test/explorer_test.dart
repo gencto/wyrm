@@ -1,0 +1,91 @@
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:wyrm_flutter/wyrm_flutter.dart';
+
+/// A [WyrmApi] with one node `wy/s/down/m` that has actions.
+class ActApi implements WyrmApi {
+  final invoked = <(String, String, Value?)>[];
+  final lists = <String, StreamController<ListUpdate>>{};
+
+  static final metaM = NodeMeta(hasChildren: true, actions: {
+    'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
+    'reset': ActionMeta(),
+  });
+
+  @override
+  Stream<ListUpdate> list(String key) {
+    final c = StreamController<ListUpdate>();
+    lists[key] = c;
+    if (key == 'wy/s/down') c.add(ListRefreshed([Child('m', metaM)]));
+    return c.stream;
+  }
+
+  @override
+  Stream<ValEvent> subscribe(String pattern) => const Stream.empty();
+  @override
+  Future<void> set(String key, Value value) async {}
+  @override
+  Stream<Value> invoke(String key, String action, [Value? args]) {
+    invoked.add((key, action, args));
+    return Stream.value(const VInt(7));
+  }
+
+  @override
+  Future<NodeMeta> meta(String key) async => key == 'wy/s/down/m' ? metaM : NodeMeta();
+  @override
+  Future<List<Child>> children(String key) async => [];
+  @override
+  Future<void> close() async {}
+}
+
+Future<void> rightClick(WidgetTester t, Finder f) async {
+  await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
+  await t.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('menu: hover shows params, Invoke runs the action', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    expect(find.text('m'), findsOneWidget);
+
+    // One mouse for the whole scenario: right-click the row, then hover.
+    final mouse = await t.createGesture(kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.down(t.getCenter(find.text('m')));
+    await mouse.up();
+    await t.pumpAndSettle();
+    expect(find.text('count'), findsOneWidget);
+    expect(find.text('reset'), findsOneWidget);
+
+    // Hover over an action with params: its fields appear.
+    await mouse.moveTo(t.getCenter(find.text('count')));
+    await t.pumpAndSettle();
+    expect(find.text('n'), findsOneWidget, reason: 'param field on hover');
+    await t.enterText(find.byType(TextField).last, '3');
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect(api.invoked.single.$2, 'count');
+    expect(api.invoked.single.$3, VMap({'n': const VInt(3)}));
+    expect(find.text('7'), findsOneWidget, reason: 'result shown');
+  });
+
+  testWidgets('an action without params runs on click', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('m'));
+    await t.tap(find.text('reset'));
+    await t.pumpAndSettle();
+    expect(api.invoked.single.$2, 'reset');
+  });
+}

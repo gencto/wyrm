@@ -342,6 +342,12 @@ impl Config {
     pub fn from_json5(text: &str) -> Result<Self, Error> {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
+        // `down/<d>` is the broker node of downstream site d (ADR 0007).
+        for d in &cfg.peers.downstream {
+            if cfg.links.contains_key(&d.site) {
+                return Err(format!("links.{}: the name of a downstream site", d.site).into());
+            }
+        }
         if let Some(addr) = cfg.rest {
             // The REST plugin runs inside the router: the ACL never sees its
             // requests, so it could put into `down/**` and `sys/**`.

@@ -103,7 +103,7 @@ Each side trusts the other's CA only on the QUIC broker link (certificate CN `br
 
 Demo with two sites, connectors and the Flutter app: `examples/demo/run.sh`
 starts `central` and `edge` (mock, framework mock `lab`, modbus process link
-against `wyrm-modbus-sim`), each with a gateway (`:8443`, `:8444`, user
+against `wyrm-modbus-sim`), each with a gateway (`:8445`, `:8444`, user
 `admin`, password `wyrm-demo-1`). `wyrmd -c <cfg> ca` creates a site's CA
 before the other site trusts it. App: `cd dart/wyrm_flutter/example &&
 flutter create --platforms=macos . && flutter run -d macos` (raise

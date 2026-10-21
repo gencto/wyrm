@@ -658,6 +658,42 @@ async fn two_brokers_over_quic() {
     })
     .await;
     assert_eq!(names, ["mock", "slow"]);
+    // Each broker shows its peer: the downstream edge beside central's
+    // links (`down/edge`), the upstream central at `up/central`, both
+    // connected (liveliness of `sys/broker`).
+    let down = "wy/central/down/edge";
+    let kids: Vec<String> = eventually("down/edge beside central's links", 10, || async {
+        let ch = c.children("wy/central/down").await.ok()?;
+        let names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
+        names.contains(&"edge".to_owned()).then_some(names)
+    })
+    .await;
+    assert!(kids.contains(&"edge".to_owned()), "{kids:?}");
+    let meta = c.meta(down).await.expect("downstream node");
+    assert_eq!(
+        meta.attr.as_ref().and_then(|a| a.get("root")),
+        Some(&Value::from("wy/edge"))
+    );
+    eventually("central sees edge connected", 10, || async {
+        (last_val(&c, &format!("{down}/connected")).await == Some(Value::Bool(true))).then_some(())
+    })
+    .await;
+    let mut ez = zenoh::Config::default();
+    ez.insert_json5("mode", r#""client""#).unwrap();
+    ez.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{e_tcp}"]"#),
+    )
+    .unwrap();
+    ez.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let ec = WyrmClient::new(zenoh::open(ez).await.unwrap()).with_timeout(Duration::from_secs(3));
+    eventually("edge sees central connected", 10, || async {
+        (last_val(&ec, "wy/edge/up/central/connected").await == Some(Value::Bool(true)))
+            .then_some(())
+    })
+    .await;
+    let _ = ec.session().close().await;
     let mut vals = c.subscribe("wy/edge/down/mock/g0/p0").await.unwrap();
     let got = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(ev) = vals.next().await {

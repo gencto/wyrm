@@ -11,7 +11,7 @@
     downstream: [{ site: "edge", ca: "./data/edge/pki/ca.pem" }],
   },
   // App login: user admin, password from WYRM_GATEWAY_ADMIN_PASSWORD.
-  gateway: { listen: "127.0.0.1:8443", admin_user: "admin" },
+  gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },
   links: {
     // A small mock on the central site itself.
     hq: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },

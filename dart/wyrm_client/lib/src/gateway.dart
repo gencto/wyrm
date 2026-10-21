@@ -39,7 +39,7 @@ class WyrmGateway {
     return WyrmGateway._(base, session, exp, client);
   }
 
-  /// `GET /api/me`: `{sub, roles, grants, max, exp}`.
+  /// `GET /api/me`: `{sub, roles, grants, max, exp, site}`.
   Future<Value> me() => _get(_http, base.resolve('/api/me'), bearer: _session);
 
   /// Open a WebSocket and return the client over it.

@@ -324,7 +324,7 @@ async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult 
     ))
 }
 
-async fn me(Auth(p): Auth) -> ApiResult {
+async fn me(State(st): State<AppState>, Auth(p): Auth) -> ApiResult {
     let grants = p
         .grants
         .list
@@ -347,6 +347,9 @@ async fn me(Auth(p): Auth) -> ApiResult {
             ("grants", Value::Array(grants)),
             ("max", Value::from(p.grants.max.name())),
             ("exp", Value::UInt(p.claims.exp)),
+            // The site the gateway serves (peer sites: its `sys/upstream`
+            // and `sys/downstream` nodes).
+            ("site", Value::Str(st.gw.site().to_owned())),
         ]),
     ))
 }

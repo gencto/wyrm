@@ -5,6 +5,8 @@
 key        = "wy/" site "/" branch
 site       = seg
 branch     = "down/" link ("/" path)? ("/" suffix)?
+           | "down/" site ("/connected")? ("/" suffix)?        ; downstream broker node
+           | "up/" site ("/connected")? ("/" suffix)?          ; upstream broker node
            | "flows/" flowid ("/" ("~def" | "~meta" | "~val" | "~act/" name | "nodes/" seg "/" suffix))?
            | "pub/" profile "/~meta"
            | "sys/" syspath
@@ -22,7 +24,10 @@ profile    = "wy:" seg ; або "<vendor>:" seg
 - Префікси `wy/<site>/sys/` і `wy/<site>/pub/` пише лише `wyrm-admin`.
 
 ## Повні імена
-Віртуальних префіксів (`up/`, `remote/`) немає. Ключ має одне ім'я на всіх брокерах mesh і в UI.
+Віртуальних префіксів (`remote/`) немає: ключ має одне ім'я на всіх брокерах mesh і в UI.
+
+## Брокери-сусіди
+Downstream — те, що підключається до брокера: лінки і брокери нижчих сайтів; їх вузли поруч у `down/`. Брокер сайту `d`, що підключається до нас, — вузол `wy/<site>/down/<d>`. Upstream — брокери, до яких підключається наш: `wy/<site>/up/<u>`. Ці вузли — посилання, а не копії: `is = wy:broker`, `attr.site`, `attr.root = "wy/<peer>"` і bool-точка `connected` (liveliness `wy/<peer>/sys/broker`). Ключі сусіда лишаються під його власним ім'ям (`wy/<peer>/…`); клієнт іде за `attr.root`. Id лінка не може збігатися з іменем downstream-сайту.
 
 ## Селектори
 `key?param=value&...` — параметри **не** впливають на маршрутизацію. Визначені:

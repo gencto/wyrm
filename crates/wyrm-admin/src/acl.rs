@@ -19,6 +19,13 @@
 use crate::registry::Registry;
 use serde_json::{json, Value};
 
+/// Liveliness of `sys/broker` between peer sites: presence, nothing else.
+const PRESENCE: &[&str] = &[
+    "liveliness_token",
+    "declare_liveliness_subscriber",
+    "liveliness_query",
+];
+
 const ALL: &[&str] = &[
     "put",
     "delete",
@@ -206,8 +213,18 @@ pub fn access_control_with_peers(
         subjects.push(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
+        // Presence: our broker token and theirs, liveliness only (the
+        // `sys/upstream/<u>/connected` points of both sides).
+        let mut keys = vec![format!("wy/{site}/sys/broker")];
+        keys.extend(peers.upstream.iter().map(|u| format!("wy/{u}/sys/broker")));
+        rules.push(rule(
+            "upstream-presence",
+            &["ingress", "egress"],
+            PRESENCE,
+            &keys,
+        ));
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "pub-in", "pub-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "upstream-presence", "pub-in", "pub-out"], "subjects": ["upstream"] }));
     }
     for d in &peers.downstream {
         rules.push(rule(
@@ -221,8 +238,17 @@ pub fn access_control_with_peers(
             "cert_common_names": [format!("broker:{d}")],
             "link_protocols": ["quic"],
         }));
-        policies
-            .push(json!({ "rules": [format!("site-{d}")], "subjects": [format!("broker-{d}")] }));
+        // The downstream site may see our broker token (its upstream state).
+        rules.push(rule(
+            &format!("presence-{d}"),
+            &["ingress", "egress"],
+            PRESENCE,
+            &[format!("wy/{site}/sys/broker")],
+        ));
+        policies.push(json!({
+            "rules": [format!("site-{d}"), format!("presence-{d}")],
+            "subjects": [format!("broker-{d}")],
+        }));
     }
     json!({
         "enabled": true,

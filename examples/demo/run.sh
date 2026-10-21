@@ -5,7 +5,7 @@
 #   examples/demo/run.sh            build, start everything, Ctrl+C stops it
 #   examples/demo/run.sh --clean    also delete ./data first (fresh sites)
 #
-# App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8443 (central)
+# App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8445 (central)
 # or :8444 (edge), user admin, password $WYRM_GATEWAY_ADMIN_PASSWORD.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -34,7 +34,7 @@ RUST_LOG=info,zenoh=warn $BIN/wyrmd -c edge.json5 >data/edge.log 2>&1 & pids+=($
 
 cat <<MSG
 Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
-  central: zenoh tcp/127.0.0.1:7447, gateway http://127.0.0.1:8443
+  central: zenoh tcp/127.0.0.1:7447, gateway http://127.0.0.1:8445
   edge:    zenoh tcp/127.0.0.1:7457, gateway http://127.0.0.1:8444
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
   roots:   wy/edge/down (edge links; read-only from central), wy/central/down
