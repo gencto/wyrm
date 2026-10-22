@@ -1,6 +1,9 @@
 //! Broker end to end: external sessions (loopback TCP, mTLS) talk to links
 //! through the router, under the generated ACL.
 
+#[path = "../../wyrm-wasm-host/tests/guests/mod.rs"]
+mod guests;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -941,6 +944,112 @@ async fn install_link_from_url_repository_git() {
     )
     .await;
     assert!(!ok && msg.contains("ref"), "{msg}");
+    env.stop().await;
+}
+
+/// "Install Link ▸ from WASM" (ADR 0011, 0012): a component runs as an
+/// embedded `wasm` link; its connection's `net` lets it read a TCP device on
+/// loopback; a new component for the same name replaces it and keeps the
+/// link's devices and points.
+#[tokio::test(flavor = "multi_thread")]
+async fn wasm_link_reads_a_device_over_tcp() {
+    use std::io::{Read, Write};
+    // a device answering every request with CBOR uint 42
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut s = s;
+                let mut buf = [0u8; 64];
+                while let Ok(n) = s.read(&mut buf) {
+                    if n == 0 || s.write_all(&[0x18, 0x2a]).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let env = Env::start("wasmlink", "").await;
+    let c = env.client().await;
+    let args = |pairs: Vec<(&str, Value)>| {
+        Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+    };
+    let ok = |r: Option<Value>| match r {
+        Some(Value::Map(m)) => {
+            assert_eq!(m.get("success"), Some(&Value::Bool(true)), "{m:?}");
+            match m.get("message") {
+                Some(Value::Str(s)) => s.clone(),
+                _ => String::new(),
+            }
+        }
+        other => panic!("{other:?}"),
+    };
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |wasm: Vec<u8>| {
+        args(vec![
+            ("name", Value::from("w1")),
+            ("wasm", Value::Bytes(wasm)),
+        ])
+    };
+    ok(
+        c.invoke_one(&links, "install_wasm", install(guests::tcp_ping()))
+            .await
+            .unwrap(),
+    );
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["w1"].kind.name(), "wasm");
+    assert_eq!(reg.links["w1"].driver, "pkg:w1");
+    assert_eq!(reg.links["w1"].mode, wyrm_admin::Mode::Embedded);
+    assert!(env.ctl.component_store().join("w1.wasm").is_file());
+
+    let main = format!("wy/{SITE}/down/w1/main");
+    eventually("main declared", 10, || async { c.meta(&main).await.ok() }).await;
+    c.invoke_one(
+        &main,
+        "edit",
+        args(vec![
+            ("component", Value::from("w1")),
+            ("net", Value::from(format!("127.0.0.1:{port}").as_str())),
+            ("config", Value::from(port.to_string().as_str())),
+        ]),
+    )
+    .await
+    .expect("edit main");
+    eventually("main reopened", 10, || async {
+        c.invoke_one(&main, "add_device", args(vec![("name", Value::from("d1"))]))
+            .await
+            .ok()
+    })
+    .await;
+    c.invoke_one(
+        &format!("{main}/d1"),
+        "add_point",
+        args(vec![
+            ("name", Value::from("p")),
+            ("poll_s", Value::Float(0.1)),
+        ]),
+    )
+    .await
+    .expect("add point");
+    let p = format!("{main}/d1/p");
+    eventually("p = 42 from the device", 10, || async {
+        (last_val(&c, &p).await == Some(Value::UInt(42))).then_some(())
+    })
+    .await;
+
+    // another component for the same name: the link restarts on it and
+    // keeps its device and point (`register` answers 7 without a network)
+    let msg = ok(c
+        .invoke_one(&links, "install_wasm", install(guests::register()))
+        .await
+        .unwrap());
+    assert!(msg.contains("→"), "{msg}");
+    eventually("p = 7 from the new component", 10, || async {
+        let c = env.client().await;
+        (last_val(&c, &p).await == Some(Value::UInt(7))).then_some(())
+    })
+    .await;
     env.stop().await;
 }
 

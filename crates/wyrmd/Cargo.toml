@@ -17,6 +17,7 @@ wyrm-flow.workspace = true
 wyrm-gateway.workspace = true
 zeroize.workspace = true
 wyrm-link-mock.workspace = true
+wyrm-link-wasm.workspace = true
 wyrm-link-modbus.workspace = true
 wyrm-link-agent.workspace = true
 wyrm-link-mqtt.workspace = true
@@ -41,3 +42,4 @@ wyrm-client.workspace = true
 ed25519-dalek.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 sha2.workspace = true
+wat.workspace = true

@@ -27,6 +27,7 @@ use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
+use wyrm_link_wasm::Wasm;
 use zenoh::internal::plugins::PluginsManager;
 use zenoh::internal::runtime::{Runtime, RuntimeBuilder};
 use zenoh::Session;
@@ -564,6 +565,7 @@ impl EmbeddedHost for Drivers {
             Modbus::NAME,
             Mqtt::NAME,
             Agent::NAME,
+            Framework::<Wasm>::NAME,
         ]
     }
 
@@ -572,7 +574,7 @@ impl EmbeddedHost for Drivers {
             "mock" => MockConfig::from_params(params).map(|_| ()),
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
-            "mockdev" | "modbus" | "mqtt" => Tree::from_params(params).map(|_| ()),
+            "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
         }
@@ -592,6 +594,10 @@ impl EmbeddedHost for Drivers {
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
                 "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
+                // a `wasm` package link runs in the broker (ADR 0011, 0012)
+                d if d == "wasm" || d.starts_with("pkg:") => {
+                    start_boxed::<Framework<Wasm>>(session, cfg, params).await
+                }
                 d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
             }
         })
@@ -1042,6 +1048,7 @@ impl Daemon {
             repository: cfg.packages.repository.clone(),
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
+        wyrm_link_wasm::set_component_root(ctl.component_store());
         ctl.set_peers(cfg.peers.peer_config());
         // a site now in wyrmd.json5 and still in the registry: json5 wins
         ctl.drop_shadowed_peers();
@@ -1107,14 +1114,16 @@ impl Daemon {
         loop {
             let broker =
                 Broker::start(&self.cfg, &self.ctl, &self.flows, self.gateway.as_ref()).await?;
+            self.ctl.reopen();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = shutdown.as_mut() => false,
                 r = self.reload.recv() => r.is_some(),
             };
             if reload {
-                // A package install in flight finishes on this broker.
-                self.ctl.idle(Duration::from_secs(180)).await;
+                // A package install in flight finishes on this broker; new
+                // ones answer `busy` until the next broker is up.
+                self.ctl.quiesce(Duration::from_secs(180)).await;
             }
             broker.stop().await?;
             if !reload {

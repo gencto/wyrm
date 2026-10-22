@@ -73,6 +73,33 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
     Ok(list)
 }
 
+/// "Install Link ▸ from WASM": one component as a `wasm` package named
+/// `name` (version `0+<sha256 prefix>`), so it takes the same path as a zip.
+pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    if wasm.len() > MAX_ZIP {
+        return Err(format!("component larger than {} MiB", MAX_ZIP >> 20));
+    }
+    let sha = hex::encode(Sha256::digest(wasm));
+    let manifest = serde_json::json!({
+        "name": name,
+        "version": format!("0+{}", &sha[..12]),
+        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+        "kind": "wasm",
+        "entry": "component.wasm",
+    });
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let opt = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut put = |path: &str, data: &[u8]| -> Result<(), String> {
+        w.start_file(path, opt).map_err(|e| e.to_string())?;
+        w.write_all(data).map_err(|e| e.to_string())
+    };
+    put(MANIFEST, manifest.to_string().as_bytes())?;
+    put("component.wasm", wasm)?;
+    Ok(w.finish().map_err(|e| e.to_string())?.into_inner())
+}
+
 /// Key of this host in a manifest's `entries`: `<os>-<arch>`
 /// (`linux-aarch64`, `macos-aarch64`, `linux-x86_64`).
 pub fn platform() -> String {

@@ -1,9 +1,10 @@
 //! `wasm`: a framework driver (ADR 0004) whose points a WebAssembly
 //! component reads and writes (`wyrm:link/driver`, ADR 0011, ADR 0012).
 //!
-//! A connection names its component by SHA-256: the admin keeps the entry
-//! of each `wasm` package under `<root>/<sha256>.wasm` ([`set_component_root`]),
-//! and the driver checks the hash when it loads it. The connection's `net`
+//! A connection names its component by package: the admin keeps the entry of
+//! each `wasm` package as `<root>/<package>.wasm` ([`set_component_root`]),
+//! replacing it in one rename on an upgrade, after which the links of the
+//! package restart on the new file. The connection's `net`
 //! list is the component's whole network (IP literals and ports); `config`
 //! (JSON) goes to the component's `init`, a point's `cfg` (JSON) to its
 //! `read`/`write`, both as canonical CBOR.
@@ -23,12 +24,18 @@ use wyrm_link_sdk::driver::{Driver, DriverError, PointId};
 use wyrm_link_sdk::Params;
 use wyrm_wasm_host::{DriverWorld, Host, Limits, LinkDriver, NetPolicy, Slot};
 
-static ROOT: OnceLock<PathBuf> = OnceLock::new();
+/// Component stores of the brokers in this process (one in `wyrmd`; tests
+/// run several).
+static ROOTS: std::sync::RwLock<Vec<PathBuf>> = std::sync::RwLock::new(Vec::new());
 static HOST: OnceLock<Result<Host, String>> = OnceLock::new();
 
-/// Where the components are: `<root>/<sha256>.wasm`. Set once per process.
+/// Where the components are: `<root>/<package>.wasm`. Each broker of the
+/// process adds its store.
 pub fn set_component_root(root: PathBuf) {
-    let _ = ROOT.set(root);
+    let mut r = ROOTS.write().unwrap_or_else(|p| p.into_inner());
+    if !r.contains(&root) {
+        r.push(root);
+    }
 }
 
 fn host() -> Result<&'static Host, DriverError> {
@@ -39,8 +46,8 @@ fn host() -> Result<&'static Host, DriverError> {
 
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct Conn {
-    /// SHA-256 of the component (set by "Install Link ▸ from WASM").
-    #[param(default = "", display = "Component")]
+    /// The `wasm` package that runs here (set by the install).
+    #[param(default = "", display = "Package")]
     pub component: String,
     /// Where the component may connect: `<ip>/<prefix>:<port>` or
     /// `<ip>:<port>`, separated by commas (ADR 0012). Empty: no network.
@@ -130,16 +137,24 @@ fn reading(b: &[u8]) -> Result<Value, DriverError> {
         .map_err(|e| DriverError::Point(format!("component reading: {e}")))
 }
 
-fn component_path(sha: &str) -> Result<PathBuf, DriverError> {
-    if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(DriverError::Transport(
-            "component: a SHA-256 (64 hex digits)".into(),
-        ));
+fn component_path(name: &str) -> Result<PathBuf, DriverError> {
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    if !ok {
+        return Err(DriverError::Transport(format!(
+            "package {name:?}: a package name"
+        )));
     }
-    let root = ROOT
-        .get()
-        .ok_or_else(|| DriverError::Transport("no component store in this process".into()))?;
-    Ok(root.join(format!("{}.wasm", sha.to_ascii_lowercase())))
+    let roots = ROOTS.read().unwrap_or_else(|p| p.into_inner());
+    roots
+        .iter()
+        .map(|r| r.join(format!("{name}.wasm")))
+        .find(|p| p.is_file())
+        .ok_or_else(|| DriverError::Transport(format!("no component for package {name}")))
 }
 
 /// Run the instance: init, then reads and writes until the transport drops.
@@ -199,9 +214,6 @@ impl Driver for Wasm {
         let art = host()?
             .load::<DriverWorld>(&bytes)
             .map_err(|e| DriverError::Transport(e.to_string()))?;
-        if !art.sha256().eq_ignore_ascii_case(&conn.component) {
-            return Err(DriverError::Transport("component: hash mismatch".into()));
-        }
         let call = Duration::from_millis(conn.call_ms.clamp(10, 10_000).into());
         let limits = Limits {
             time: call,
@@ -317,6 +329,7 @@ mod tests {
         let v: Value = wyrm_core::codec::from_slice(&b).unwrap();
         assert!(matches!(v, Value::Map(m) if m["reg"] == Value::UInt(3)));
         assert!(json_cbor("cfg", "{bad").is_err());
-        assert!(component_path("abc").is_err());
+        assert!(component_path("../x").is_err());
+        assert!(component_path("").is_err());
     }
 }

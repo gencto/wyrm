@@ -231,6 +231,9 @@ pub struct Control {
     /// Long admin actions in flight (package installs): a rebuild waits for
     /// them ([`Control::idle`]) instead of stopping them halfway.
     inflight: std::sync::atomic::AtomicUsize,
+    /// Set while the broker stops for a rebuild: new long actions answer
+    /// `busy` instead of starting on a broker that is going away.
+    closing: std::sync::atomic::AtomicBool,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -365,6 +368,7 @@ impl Control {
                 role_grants: Mutex::new(None),
                 repo: Mutex::new(None),
                 inflight: Default::default(),
+                closing: Default::default(),
             }),
             rx,
         ))
@@ -779,6 +783,23 @@ impl Control {
         self.cfg.data_dir.join("packages")
     }
 
+    /// The components of `wasm` packages, `<package>.wasm`, as the `wasm`
+    /// driver reads them (ADR 0012).
+    pub fn component_store(&self) -> PathBuf {
+        self.packages_root().join(".wasm")
+    }
+
+    /// Put a `wasm` package's entry into the component store, in one rename.
+    fn publish_component(&self, def: &PackageDef) -> Result<(), String> {
+        let src = packages::dir(&self.packages_root(), def).join(&def.entry);
+        let bytes = std::fs::read(&src).map_err(|e| format!("{}: {e}", src.display()))?;
+        let store = self.component_store();
+        std::fs::create_dir_all(&store).map_err(|e| e.to_string())?;
+        let tmp = store.join(format!(".{}.tmp", def.name));
+        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, store.join(format!("{}.wasm", def.name))).map_err(|e| e.to_string())
+    }
+
     /// CA file of a runtime peer site (written from the registry).
     fn peer_ca_path(&self, site: &str) -> PathBuf {
         self.cfg
@@ -928,22 +949,39 @@ impl Control {
         });
     }
 
-    fn busy(&self) -> Busy<'_> {
-        self.inflight
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Busy(self)
+    /// Count a long admin action; refused while the broker is closing for
+    /// a rebuild (the caller tries again on the new one).
+    fn busy(&self) -> Result<Busy<'_>, LinkError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        // Count first, then look: either `quiesce` sees this action and
+        // waits for it, or the action sees the flag and backs off.
+        self.inflight.fetch_add(1, SeqCst);
+        let b = Busy(self);
+        if self.closing.load(SeqCst) {
+            return Err(LinkError::new(
+                Status::Busy,
+                "the broker is restarting; try again",
+            ));
+        }
+        Ok(b)
     }
 
-    /// Wait (at most `max`) until no long admin action runs: called before
-    /// the broker stops for a rebuild, so an install in flight finishes on
+    /// Before the broker stops for a rebuild: refuse new long actions and
+    /// wait (at most `max`) for those in flight, so an install finishes on
     /// the broker that started it.
-    pub async fn idle(&self, max: Duration) {
+    pub async fn quiesce(&self, max: Duration) {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.closing.store(true, SeqCst);
         let until = tokio::time::Instant::now() + max;
-        while self.inflight.load(std::sync::atomic::Ordering::SeqCst) > 0
-            && tokio::time::Instant::now() < until
-        {
+        while self.inflight.load(SeqCst) > 0 && tokio::time::Instant::now() < until {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+    }
+
+    /// The new broker is up: long actions run again.
+    pub fn reopen(&self) {
+        self.closing
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Stop all supervised processes (broker exit).
@@ -1886,6 +1924,21 @@ impl Link for Admin {
                 ),
         )
         .await?;
+        ctx.declare_action(
+            "links",
+            "install_wasm",
+            install_meta("from WASM")
+                .param("name", link_name_param())
+                .param(
+                    "wasm",
+                    ParamMeta::of(TypeCode::Binary)
+                        .required(true)
+                        .display("Component")
+                        .editor(EDITOR_FILE)
+                        .description("A wyrm:link/driver component (.wasm)"),
+                ),
+        )
+        .await?;
         declare_repo_action(&ctx, &cfg.ctl).await?;
         let reg = cfg.ctl.registry();
         for def in reg.links.values() {
@@ -2013,6 +2066,7 @@ impl Link for Admin {
         let result = match (segs.as_slice(), action) {
             (["links"], "install") => self.install(&args, &sub).await,
             (["links"], "install_zip") => {
+                let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let r = match arg(&args, "zip") {
                     Some(Value::Bytes(zip)) => {
@@ -2023,8 +2077,20 @@ impl Link for Admin {
                 };
                 Ok(Some(outcome(r)))
             }
+            (["links"], "install_wasm") => {
+                let _busy = self.ctl.busy()?;
+                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
+                let r = match arg(&args, "wasm") {
+                    Some(Value::Bytes(wasm)) => match packages::wrap_component(&name, wasm) {
+                        Ok(zip) => self.install_package(&name, zip, "wasm".into(), &sub).await,
+                        Err(e) => Err(e),
+                    },
+                    _ => Err("wasm: required".into()),
+                };
+                Ok(Some(outcome(r)))
+            }
             (["links"], "install_url") => {
-                let _busy = self.ctl.busy();
+                let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
                 let r = match crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
@@ -2037,7 +2103,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_git") => {
-                let _busy = self.ctl.busy();
+                let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
                 let git_ref = arg_str(&args, "ref").unwrap_or_default().trim().to_owned();
@@ -2053,7 +2119,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_repo") => {
-                let _busy = self.ctl.busy();
+                let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let package = arg_str(&args, "package").unwrap_or_default().to_owned();
                 Ok(Some(outcome(
@@ -2210,14 +2276,22 @@ impl Admin {
                 }
                 None => None,
             };
+        // process packages run as process links; wasm packages in the
+        // broker's space (ADR 0011)
+        let package_mode = |p: &PackageDef| match p.kind {
+            PackageKind::Process => Mode::Process,
+            PackageKind::Wasm => Mode::Embedded,
+        };
         let mode = match arg_str(args, "mode") {
             Some(m) => Mode::parse(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
-            None if package.is_some() => Mode::Process,
-            None if compiled => Mode::Embedded,
-            None => Mode::External,
+            None => match &package {
+                Some(p) => package_mode(p),
+                None if compiled => Mode::Embedded,
+                None => Mode::External,
+            },
         };
         if let Some(p) = &package {
-            if p.kind != PackageKind::Process || mode != Mode::Process {
+            if mode != package_mode(p) {
                 return Err(LinkError::invalid_parameter(format!(
                     "package {} runs as {} links",
                     p.name,
@@ -2320,7 +2394,6 @@ impl Admin {
         source: String,
         sub: &str,
     ) -> Result<String, String> {
-        let _busy = self.ctl.busy();
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
         let now = now_s();
@@ -2331,10 +2404,7 @@ impl Admin {
                 .map_err(|e| e.to_string())??
         };
         let def = unpacked.def.clone();
-        if def.kind == PackageKind::Wasm {
-            return Err("WASM packages are not supported yet (ADR 0011)".into());
-        }
-        if self.ctl.cfg.link_endpoint.is_none() {
+        if def.kind == PackageKind::Process && self.ctl.cfg.link_endpoint.is_none() {
             return Err("process links need a tls/ listener on the broker".into());
         }
         let reg = self.ctl.registry();
@@ -2352,10 +2422,16 @@ impl Admin {
                         def.name, def.version
                     ));
                 }
+                if def.kind == PackageKind::Wasm {
+                    self.ctl.publish_component(&def)?;
+                }
                 format!("package {} {} is installed", def.name, def.version)
             }
             old => {
                 unpacked.commit(&root)?;
+                if def.kind == PackageKind::Wasm {
+                    self.ctl.publish_component(&def)?;
+                }
                 self.ctl
                     .apply(Op::PutPackage(def.clone()))
                     .map_err(|e| e.to_string())?;
@@ -2385,11 +2461,32 @@ impl Admin {
             }
         };
         if !reg.links.contains_key(link) {
-            let args = Value::Map(BTreeMap::from([
+            let mut args = BTreeMap::from([
                 ("id".to_owned(), Value::Str(link.to_owned())),
                 ("driver".to_owned(), Value::Str(driver)),
-                ("mode".to_owned(), Value::Str("process".into())),
-            ]));
+            ]);
+            match def.kind {
+                PackageKind::Process => {
+                    args.insert("mode".into(), Value::Str("process".into()));
+                }
+                PackageKind::Wasm => {
+                    // An embedded `wasm` link with one connection on the
+                    // package's component; devices and points come from its
+                    // own Add actions (ADR 0012).
+                    args.insert("mode".into(), Value::Str("embedded".into()));
+                    let main =
+                        BTreeMap::from([("component".to_owned(), Value::Str(def.name.clone()))]);
+                    let conns = BTreeMap::from([("main".to_owned(), Value::Map(main))]);
+                    args.insert(
+                        "params".into(),
+                        Value::Map(BTreeMap::from([(
+                            "connections".to_owned(),
+                            Value::Map(conns),
+                        )])),
+                    );
+                }
+            }
+            let args = Value::Map(args);
             self.install(&args, sub).await.map_err(|e| e.to_string())?;
             message.push_str(&format!("; link {link} installed"));
         }
@@ -2446,6 +2543,7 @@ impl Admin {
             .apply(Op::RemovePackage(name.to_owned()))
             .map_err(rejected)?;
         let _ = std::fs::remove_dir_all(self.ctl.packages_root().join(name));
+        let _ = std::fs::remove_file(self.ctl.component_store().join(format!("{name}.wasm")));
         self.ctl
             .record(sub, "package_remove", name, Status::Ok, &def.version);
         self.ctx.remove_node(&format!("packages/{name}")).await?;

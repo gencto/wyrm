@@ -23,20 +23,18 @@ fn map(kv: &[(&str, Value)]) -> Value {
     )
 }
 
-/// The component store of this test process, with the ping guest in it;
-/// returns its SHA-256.
+/// The component store of this test process, with the ping guest in it as
+/// package `ping`.
 fn component() -> &'static str {
-    static SHA: OnceLock<String> = OnceLock::new();
-    SHA.get_or_init(|| {
+    static READY: OnceLock<()> = OnceLock::new();
+    READY.get_or_init(|| {
         let root: PathBuf =
             std::env::temp_dir().join(format!("wyrm-wasm-link-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let bytes = guests::tcp_ping();
-        let sha = wyrm_wasm_host::sha256_hex(&bytes);
-        std::fs::write(root.join(format!("{sha}.wasm")), bytes).unwrap();
+        std::fs::write(root.join("ping.wasm"), guests::tcp_ping()).unwrap();
         wyrm_link_wasm::set_component_root(root);
-        sha
-    })
+    });
+    "ping"
 }
 
 /// A device on loopback that answers every request with CBOR uint 42.
@@ -59,11 +57,11 @@ fn device() -> u16 {
     port
 }
 
-fn tree(sha: &str, net: &str, port: u16) -> Tree {
+fn tree(component: &str, net: &str, port: u16) -> Tree {
     let point = map(&[("poll_s", Value::Float(0.1))]);
     let dev = map(&[("points", map(&[("p", point)]))]);
     let conn = map(&[
-        ("component", Value::from(sha)),
+        ("component", Value::from(component)),
         ("net", Value::from(net)),
         ("config", Value::from(port.to_string().as_str())),
         ("devices", map(&[("d1", dev)])),
@@ -107,7 +105,7 @@ async fn without_the_network_the_point_goes_bad() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unknown_component_fails_the_connection() {
     let _ = component();
-    let h = H::start(tree(&"0".repeat(64), "", 1)).await;
+    let h = H::start(tree("nope", "", 1)).await;
     wait("c1 failed", || {
         matches!(h.ctx().last("c1/status").map(|s| s.v), Some(Value::UInt(i))
             if wyrm_link_sdk::driver::NodeState::NAMES.get(i as usize) == Some(&"failed"))
