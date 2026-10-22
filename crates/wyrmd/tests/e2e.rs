@@ -547,6 +547,14 @@ async fn authorize_and_deauthorize() {
     .await;
     let reg = env.ctl.registry();
     assert!(!reg.links.contains_key("dev-7") && !reg.retired.contains("dev-7"));
+    assert!(
+        !gw.role_table()
+            .get("operator")
+            .unwrap()
+            .iter()
+            .any(|(k, _)| k.contains("dev-7")),
+        "the group grant goes with the link"
+    );
     assert!(reg.quarantine.contains_key("dev-7") && reg.held.contains("dev-7"));
 
     // allow-all does not re-admit a deauthorized CN

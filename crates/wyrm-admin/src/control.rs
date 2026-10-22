@@ -2334,6 +2334,7 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
+        self.revoke_link_grants(id, sub);
         Ok(
             def.mode.is_remote()
                 || def.driver == AGENT_DRIVER
@@ -2433,8 +2434,37 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
+        self.revoke_link_grants(id, sub);
         self.ctl.schedule_reload();
         Ok(None)
+    }
+
+    /// Drop the gateway grants that name this link's branch exactly (from
+    /// Authorize `group` or Update Permissions): a CN authorized again must
+    /// not inherit them.
+    fn revoke_link_grants(&self, id: &str, sub: &str) {
+        let Some(roles) = self.ctl.role_grants() else {
+            return;
+        };
+        let keys = [
+            format!("wy/{{site}}/down/{id}/**"),
+            format!("wy/{}/down/{id}/**", self.ctl.cfg.site),
+        ];
+        for (role, key, _) in roles.grants() {
+            if !keys.contains(&key) {
+                continue;
+            }
+            match roles.set_grant(&role, &key, Perm::None) {
+                Ok(()) => self.ctl.record(
+                    sub,
+                    "update_permissions",
+                    &role,
+                    Status::Ok,
+                    &format!("{key} none (link {id} gone)"),
+                ),
+                Err(e) => warn!(%role, %key, "grant not revoked: {e}"),
+            }
+        }
     }
 
     /// `upstream/~act/add {name, url, ca, enabled}` or
