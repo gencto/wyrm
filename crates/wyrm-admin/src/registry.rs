@@ -96,6 +96,11 @@ pub struct LinkDef {
     #[n(8)]
     #[serde(default)]
     pub display: Option<String>,
+    /// Gateway role that Authorize `group` gave `write` on this link's
+    /// branch; that one grant is revoked with the link.
+    #[n(9)]
+    #[serde(default)]
+    pub granted: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -321,7 +326,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 7;
+    const SCHEMA: u32 = 8;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -509,6 +514,7 @@ mod tests {
             origin: Origin::Runtime,
             created: 0,
             display: None,
+            granted: None,
         }
     }
 

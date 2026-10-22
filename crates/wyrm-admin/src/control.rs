@@ -623,6 +623,7 @@ impl Control {
                         origin: Origin::Config,
                         created: now_s(),
                         display: None,
+                        granted: None,
                     }))?;
                     if l.mode.is_remote() {
                         self.link_cert(&l.id)?;
@@ -1954,6 +1955,7 @@ impl Admin {
             origin: Origin::Runtime,
             created: now_s(),
             display: None,
+            granted: None,
         };
         ctl.secrets
             .drop_link(&id)
@@ -2334,7 +2336,7 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
-        self.revoke_link_grants(id, sub);
+        self.revoke_link_grant(&def, sub);
         Ok(
             def.mode.is_remote()
                 || def.driver == AGENT_DRIVER
@@ -2390,6 +2392,7 @@ impl Admin {
             driver,
             params,
             display,
+            granted: grant.as_ref().map(|(_, role)| role.clone()),
         };
         let token = admit(&self.ctl, &self.ctx, cn, how, sub, "approve").await?;
         let mut reply = BTreeMap::new();
@@ -2418,6 +2421,7 @@ impl Admin {
     /// back to quarantine instead of being retired; its token and secrets
     /// go, and only a manual Authorize admits the CN again.
     async fn deauthorize(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let def = self.def(id)?;
         let seen = now_s();
         self.ctl
             .apply(Op::Deauthorize {
@@ -2434,42 +2438,38 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
-        self.revoke_link_grants(id, sub);
+        self.revoke_link_grant(&def, sub);
         self.ctl.schedule_reload();
         Ok(None)
     }
 
-    /// Drop the gateway grants that name this link's branch exactly (from
-    /// Authorize `group` or Update Permissions): a CN authorized again must
-    /// not inherit them.
-    fn revoke_link_grants(&self, id: &str, sub: &str) {
-        let Some(roles) = self.ctl.role_grants() else {
+    /// Revoke the one grant Authorize `group` gave on this link, if it is
+    /// still `write` on exactly the link's branch. Grants made or changed by
+    /// hand (Update Permissions) stay: they may be restrictive overrides.
+    fn revoke_link_grant(&self, def: &LinkDef, sub: &str) {
+        let (Some(role), Some(roles)) = (&def.granted, self.ctl.role_grants()) else {
             return;
         };
-        let keys = [
-            format!("wy/{{site}}/down/{id}/**"),
-            format!("wy/{}/down/{id}/**", self.ctl.cfg.site),
-        ];
-        for (role, key, _) in roles.grants() {
-            if !keys.contains(&key) {
-                continue;
-            }
-            match roles.set_grant(&role, &key, Perm::None) {
-                Ok(()) => self.ctl.record(
-                    sub,
-                    "update_permissions",
-                    &role,
-                    Status::Ok,
-                    &format!("{key} none (link {id} gone)"),
-                ),
-                Err(e) => warn!(%role, %key, "grant not revoked: {e}"),
-            }
+        let key = format!("wy/{{site}}/down/{}/**", def.id);
+        let ours = roles
+            .grants()
+            .iter()
+            .any(|(r, k, p)| r == role && *k == key && *p == Perm::Write);
+        if !ours {
+            return;
+        }
+        match roles.set_grant(role, &key, Perm::None) {
+            Ok(()) => self.ctl.record(
+                sub,
+                "update_permissions",
+                role,
+                Status::Ok,
+                &format!("{key} none (link {} gone)", def.id),
+            ),
+            Err(e) => warn!(%role, %key, "grant not revoked: {e}"),
         }
     }
 
-    /// `upstream/~act/add {name, url, ca, enabled}` or
-    /// `downstream/~act/add {name, ca}`: trust that site's CA on the QUIC
-    /// broker link and rebuild the router with it (ADR 0007).
     async fn add_peer(
         &self,
         dir: PeerDir,
@@ -2609,11 +2609,13 @@ impl Admin {
     }
 }
 
-/// What an admitted CN becomes: its driver name, params and display name.
+/// What an admitted CN becomes: its driver name, params, display name and
+/// the gateway role Authorize grants `write` on it.
 struct Admission {
     driver: String,
     params: Value,
     display: Option<String>,
+    granted: Option<String>,
 }
 
 /// Install `cn`, a certificate CN signed by our CA, as an external link:
@@ -2631,6 +2633,7 @@ async fn admit(
         driver,
         params,
         display,
+        granted,
     } = how;
     let reg = ctl.registry();
     if reg.links.contains_key(cn) {
@@ -2657,6 +2660,7 @@ async fn admit(
         origin: Origin::Runtime,
         created: now_s(),
         display,
+        granted,
     };
     ctl.secrets
         .drop_link(cn)
@@ -2796,6 +2800,7 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
                 driver: "unknown".into(),
                 params: Value::Map(Default::default()),
                 display: None,
+                granted: None,
             };
             match admit(&ctl, &ctx, &cn, how, "system", "auto_install").await {
                 Ok(_) => info!(cn = %cn, "unknown certificate: installed (allow_all_links)"),
@@ -3130,6 +3135,7 @@ zenoh_rx_bytes_total_extra 7
             origin: Origin::Runtime,
             created: 0,
             display: None,
+            granted: None,
         };
         for op in [
             Op::Install(def("known")),

@@ -537,6 +537,10 @@ async fn authorize_and_deauthorize() {
         wyrm_core::Perm::Write
     )));
 
+    // a restrictive grant made by hand (viewer: list only on this link)
+    gw.set_grant("viewer", "wy/{site}/down/dev-7/**", wyrm_core::Perm::List)
+        .unwrap();
+
     // Deauthorize (after the ACL rebuild): back to quarantine, not retired
     eventually("deauthorize", 15, || async {
         let c = env.client().await;
@@ -554,6 +558,13 @@ async fn authorize_and_deauthorize() {
             .iter()
             .any(|(k, _)| k.contains("dev-7")),
         "the group grant goes with the link"
+    );
+    assert!(
+        gw.role_table()
+            .get("viewer")
+            .unwrap()
+            .contains(&("wy/{site}/down/dev-7/**".to_string(), wyrm_core::Perm::List)),
+        "a grant made by hand stays"
     );
     assert!(reg.quarantine.contains_key("dev-7") && reg.held.contains("dev-7"));
 
