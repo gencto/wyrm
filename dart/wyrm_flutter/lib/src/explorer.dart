@@ -395,18 +395,24 @@ abstract final class WyContextMenu {
     final overlay = Overlay.of(context);
     // layers[0]: the backdrop and the menu; then submenus and forms.
     final layers = <OverlayEntry>[];
+    // What each layer shows (a group or an action), so hovering the same row
+    // again keeps the open form and what was typed into it.
+    final shown = <Object>[];
     void closeFrom(int depth) {
       while (layers.length > depth) {
         layers.removeLast().remove();
       }
+      if (shown.length > depth - 1 && depth >= 1) shown.length = depth - 1;
     }
 
     void close() => closeFrom(0);
 
-    void open(int depth, Rect anchor, Widget child) {
+    void open(int depth, Rect anchor, Object what, Widget child) {
+      if (layers.length == depth + 1 && shown.length == depth && shown.last == what) return;
       closeFrom(depth);
       final e = OverlayEntry(builder: (_) => Positioned(left: anchor.right, top: anchor.top, child: child));
       layers.add(e);
+      shown.add(what);
       overlay.insert(e);
     }
 
@@ -436,12 +442,13 @@ abstract final class WyContextMenu {
 
     onEntry = (depth, anchor, entry, node) {
       switch (entry) {
-        case _GroupEntry(:final acts):
-          open(depth, anchor, panel(depth, [for (final a in acts) _ActEntry(a)], node));
+        case _GroupEntry(:final label, :final acts):
+          open(depth, anchor, 'group:$label', panel(depth, [for (final a in acts) _ActEntry(a)], node));
         case _ActEntry(:final act):
           open(
             depth,
             anchor,
+            'act:${act.id}',
             _ActionFlyout(
               api: api,
               nodeKey: key,
@@ -751,7 +758,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       ];
     }
     if (v is VMap) {
-      return [for (final e in v.v.entries) row(e.key, _ValueBox(text: _ResultTable.text(e.value)))];
+      return [
+        for (final e in _ResultTable.flat(v.v).entries) row(e.key, _ValueBox(text: _ResultTable.text(e.value))),
+      ];
     }
     return [row('output', _ValueBox(text: _ResultTable.text(v)))];
   }
@@ -802,19 +811,11 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       );
     }
     if (_enum.containsKey(name)) {
-      return _FieldBox(
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            value: _enum[name],
-            isExpanded: true,
-            dropdownColor: WyStyle.field,
-            iconEnabledColor: WyStyle.text,
-            iconSize: 16,
-            style: WyStyle.input,
-            items: [for (final o in p.enumValues!) DropdownMenuItem(value: o, child: Text(o))],
-            onChanged: (v) => setState(() => _enum[name] = v),
-          ),
-        ),
+      // Not DropdownButton: its list is a route under the menu overlay.
+      return _EnumField(
+        value: _enum[name],
+        options: p.enumValues!,
+        onChanged: (v) => setState(() => _enum[name] = v),
       );
     }
     final area = p.editor == 'textarea';
@@ -855,16 +856,94 @@ class _ValueBox extends StatelessWidget {
       );
 }
 
+/// An enum field: the box shows the value; a click opens the options in
+/// the same overlay as the menu, right under the box.
+class _EnumField extends StatefulWidget {
+  final String? value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+  const _EnumField({required this.value, required this.options, required this.onChanged});
+
+  @override
+  State<_EnumField> createState() => _EnumFieldState();
+}
+
+class _EnumFieldState extends State<_EnumField> {
+  OverlayEntry? _list;
+
+  void _close() {
+    _list?.remove();
+    _list = null;
+  }
+
+  @override
+  void dispose() {
+    _close();
+    super.dispose();
+  }
+
+  void _open() {
+    final box = context.findRenderObject()! as RenderBox;
+    final at = box.localToGlobal(Offset.zero) & box.size;
+    _list = OverlayEntry(
+      builder: (_) => Stack(children: [
+        Positioned.fill(child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _close)),
+        Positioned(
+          left: at.left,
+          top: at.bottom,
+          width: at.width,
+          child: _MenuPanel(children: [
+            for (final o in widget.options)
+              _MenuItem(
+                label: o,
+                onTap: (_) {
+                  _close();
+                  widget.onChanged(o);
+                },
+              ),
+          ]),
+        ),
+      ]),
+    );
+    Overlay.of(context).insert(_list!);
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: _open,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: _FieldBox(
+            child: Row(children: [
+              Expanded(child: Text(widget.value ?? '', style: WyStyle.input, overflow: TextOverflow.ellipsis)),
+              const Icon(Icons.arrow_drop_down, size: 18, color: WyStyle.text),
+            ]),
+          ),
+        ),
+      );
+}
+
 /// A tabular result (an array of records, or of values) in its own window:
 /// a title bar with the action's name and a close button, then a grid
 /// with one column per field found in the rows (as many as the data has).
 abstract final class _ResultTable {
-  static bool isTable(Value v) => v is VArray && v.v.isNotEmpty;
+  /// A table: records (maps). A list of plain values is text.
+  static bool isTable(Value v) => v is VArray && v.v.isNotEmpty && v.v.every((e) => e is VMap);
+
+  /// Nested records become their own columns (`params.points`), so every
+  /// cell holds one value.
+  static Map<String, Value> flat(Map<String, Value> m, [String prefix = '']) => {
+        for (final e in m.entries)
+          if (e.value case VMap(:final v) when v.isNotEmpty)
+            ...flat(v, '$prefix${e.key}.')
+          else
+            '$prefix${e.key}': e.value,
+      };
 
   static String text(Value v) => switch (v) {
         VNull() => 'Null',
-        VMap(:final v) => '{${v.entries.map((e) => '${e.key}: ${text(e.value)}').join(', ')}}',
-        VArray(:final v) => '[${v.map(text).join(', ')}]',
+        VMap(:final v) => flat(v).entries.map((e) => '${e.key}: ${text(e.value)}').join(', '),
+        VArray(:final v) => v.map(text).join(', '),
         VStr(:final v) => v,
         _ => formatValue(v, null),
       };
@@ -872,24 +951,14 @@ abstract final class _ResultTable {
   /// Columns: the union of the record keys in order of appearance; values
   /// that are not records go to one column `value`.
   static (List<String>, List<List<Value>>) grid(VArray a) {
+    final rows = [for (final r in a.v) flat((r as VMap).v)];
     final cols = <String>[];
-    for (final row in a.v) {
-      if (row is VMap) {
-        for (final k in row.v.keys) {
-          if (!cols.contains(k)) cols.add(k);
-        }
-      } else if (!cols.contains('value')) {
-        cols.add('value');
+    for (final r in rows) {
+      for (final k in r.keys) {
+        if (!cols.contains(k)) cols.add(k);
       }
     }
-    final rows = [
-      for (final row in a.v)
-        [
-          for (final c in cols)
-            row is VMap ? (row.v[c] ?? const VNull()) : (c == 'value' ? row : const VNull()),
-        ],
-    ];
-    return (cols, rows);
+    return (cols, [for (final r in rows) [for (final c in cols) r[c] ?? const VNull()]]);
   }
 
   static void open(BuildContext context, String title, Value v) {

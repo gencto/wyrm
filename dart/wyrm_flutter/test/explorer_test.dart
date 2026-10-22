@@ -30,6 +30,7 @@ class ActApi implements WyrmApi {
     'add_point': ActionMeta(display: 'Add Point', group: 'new', params: {
       'name': ParamMeta(ty: TypeCode.string, required: true),
       'password': ParamMeta(ty: TypeCode.string, editor: 'password', placeholder: 'secret'),
+      'table': ParamMeta(ty: TypeCode.enum_, enumValues: ['coil', 'holding'], defaultValue: const VStr('coil')),
     }),
     'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'host': ParamMeta(ty: TypeCode.string)}),
     'remove': ActionMeta(display: 'Remove', group: 'edit'),
@@ -193,6 +194,14 @@ void main() {
     final pw = t.widgetList<TextField>(find.byType(TextField)).where((f) => f.obscureText).toList();
     expect(pw, hasLength(1));
     expect(pw.single.decoration?.hintText, 'secret (optional)');
+    // an enum field opens its options over the menu and takes a pick
+    await t.tap(find.text('coil'));
+    await t.pumpAndSettle();
+    expect(find.text('holding'), findsOneWidget);
+    await t.tap(find.text('holding'));
+    await t.pumpAndSettle();
+    expect(find.text('holding'), findsOneWidget);
+    expect(find.text('coil'), findsNothing);
   });
 
   testWidgets('a result of records is a table with columns', (t) async {
@@ -210,9 +219,10 @@ void main() {
     // a table result: a "Table.." box that opens the table window
     await t.tap(find.text('Table..'));
     await t.pumpAndSettle();
+    // nested records become columns: one value per cell
     expect(find.text('rev'), findsOneWidget);
-    expect(find.text('params'), findsOneWidget);
-    expect(find.text('{points: 16}'), findsOneWidget);
+    expect(find.text('params.points'), findsOneWidget);
+    expect(find.text('16'), findsOneWidget);
     await t.tap(find.byTooltip('Close'));
     await t.pumpAndSettle();
     expect(find.text('rev'), findsNothing);
