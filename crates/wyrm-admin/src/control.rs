@@ -235,6 +235,18 @@ pub struct PeerConfig {
 /// Largest accepted CA certificate (PEM).
 const MAX_CA_PEM: usize = 16 * 1024;
 
+/// `peers` without the sites `config` already names (either direction).
+fn unshadowed(config: &acl::Peers, peers: impl Iterator<Item = PeerDef>) -> Vec<PeerDef> {
+    let named = |s: &str| {
+        config
+            .upstream
+            .iter()
+            .chain(&config.downstream)
+            .any(|x| x == s)
+    };
+    peers.filter(|d| !named(&d.site)).collect()
+}
+
 /// One CA certificate in PEM: parsed, with the CA basic constraint.
 fn check_ca_pem(pem: &str) -> Result<(), String> {
     if pem.len() > MAX_CA_PEM {
@@ -678,12 +690,48 @@ impl Control {
         self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Runtime peers whose site `wyrmd.json5` does not also name: the
+    /// config wins, as for links (a site twice would repeat ACL rule ids,
+    /// and Zenoh refuses such a config).
+    fn runtime_peers(&self) -> Vec<PeerDef> {
+        unshadowed(
+            &self.config_peers().peers,
+            self.registry().peers.into_values(),
+        )
+    }
+
+    /// Remove runtime peers that `wyrmd.json5` now defines (at start, after
+    /// [`Control::set_peers`]). Returns their sites.
+    pub fn drop_shadowed_peers(&self) -> Vec<String> {
+        let keep: HashSet<String> = self.runtime_peers().into_iter().map(|d| d.site).collect();
+        let gone: Vec<String> = self
+            .registry()
+            .peers
+            .into_keys()
+            .filter(|s| !keep.contains(s))
+            .collect();
+        for site in &gone {
+            if self.apply(Op::RemovePeer(site.clone())).is_ok() {
+                let _ = std::fs::remove_file(self.peer_ca_path(site));
+                self.record(
+                    "system",
+                    "peer_remove",
+                    site,
+                    Status::Ok,
+                    "now in wyrmd.json5",
+                );
+                warn!(site = %site, "peer {site} is in wyrmd.json5: the runtime entry is removed");
+            }
+        }
+        gone
+    }
+
     /// Every peer site in force: `wyrmd.json5` plus runtime ones (enabled
     /// upstream sites only). The ACL, the peer nodes, the router endpoints
     /// and the link-id checks all use this list.
     pub fn peers(&self) -> acl::Peers {
         let mut p = self.config_peers().peers;
-        for d in self.registry().peers.values() {
+        for d in &self.runtime_peers() {
             match d.dir {
                 PeerDir::Upstream if d.enabled => p.upstream.push(d.site.clone()),
                 PeerDir::Upstream => {}
@@ -710,7 +758,7 @@ impl Control {
             .into_iter()
             .map(|(_, ep, ca)| (ep, ca))
             .collect();
-        for d in self.registry().peers.values() {
+        for d in &self.runtime_peers() {
             if d.dir == PeerDir::Upstream && d.enabled {
                 out.push((d.endpoint.clone(), self.peer_ca_path(&d.site)));
             }
@@ -726,7 +774,7 @@ impl Control {
 
     pub fn configure_zenoh(&self, c: &mut zenoh::Config, tls: bool) -> Result<(), Error> {
         let mut trusted = self.config_peers().trusted_cas;
-        for d in self.registry().peers.values() {
+        for d in &self.runtime_peers() {
             let path = self.peer_ca_path(&d.site);
             std::fs::create_dir_all(path.parent().unwrap_or(&self.cfg.data_dir))?;
             std::fs::write(&path, &d.ca_pem)?;
@@ -1347,7 +1395,7 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
     for site in &cfg.peers.downstream {
         declare_downstream(ctx, site, false).await?;
     }
-    for d in ctl.registry().peers.values() {
+    for d in &ctl.runtime_peers() {
         match d.dir {
             PeerDir::Upstream => {
                 declare_upstream(ctx, &d.site, &d.endpoint, d.enabled, true).await?
@@ -2828,6 +2876,8 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     #[test]
     fn acl_metric_sum() {
         let m = r#"# HELP x
@@ -2900,6 +2950,57 @@ zenoh_rx_bytes_total_extra 7
             "",
         ] {
             assert!(!ok(cn), "{cn:?} is not admissible");
+        }
+    }
+
+    #[test]
+    fn json5_peers_shadow_runtime_ones() {
+        use crate::registry::{PeerDef, PeerDir};
+        let def = |site: &str, dir| PeerDef {
+            site: site.into(),
+            dir,
+            endpoint: if dir == PeerDir::Upstream {
+                "quic/x:1".into()
+            } else {
+                String::new()
+            },
+            ca_pem: String::new(),
+            enabled: true,
+            created: 0,
+        };
+        let config = crate::acl::Peers {
+            upstream: vec!["cloud".into()],
+            downstream: vec!["edge".into()],
+        };
+        let runtime = vec![
+            def("cloud", PeerDir::Upstream),
+            def("edge", PeerDir::Upstream),
+            def("plant", PeerDir::Downstream),
+        ];
+        let kept = super::unshadowed(&config, runtime.into_iter());
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].site, "plant");
+        // the merged list then yields unique ACL ids (Zenoh refuses repeats)
+        let merged = crate::acl::Peers {
+            upstream: config.upstream.clone(),
+            downstream: vec!["edge".into(), "plant".into()],
+        };
+        let acl = crate::acl::access_control_with_peers(
+            "central",
+            &crate::registry::Registry::default(),
+            &[],
+            false,
+            &merged,
+        );
+        for list in ["rules", "subjects", "policies"] {
+            let ids: Vec<&str> = acl[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|x| x["id"].as_str())
+                .collect();
+            let unique: HashSet<&str> = ids.iter().copied().collect();
+            assert_eq!(ids.len(), unique.len(), "{list} ids repeat");
         }
     }
 

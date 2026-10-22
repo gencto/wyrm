@@ -87,9 +87,10 @@ impl Env {
             stop: Some(stop),
             task,
         };
-        // wait for the listener
-        for _ in 0..100 {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        // wait for both listeners (on a slow CI the tls one comes later)
+        for _ in 0..200 {
+            let up = |p| std::net::TcpStream::connect(("127.0.0.1", p)).is_ok();
+            if up(port) && up(tls) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(30)).await;
@@ -138,6 +139,13 @@ impl Env {
             .to_string(),
         )
         .unwrap();
+        // a listener that has just opened may still refuse the handshake
+        for _ in 0..10 {
+            if let Ok(s) = zenoh::open(zc.clone()).await {
+                return s;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
         zenoh::open(zc).await.unwrap()
     }
 
@@ -1648,6 +1656,33 @@ async fn runtime_peers_over_quic() {
     let _ = e_stop.send(());
     c_task.await.unwrap().unwrap();
     e_task.await.unwrap().unwrap();
+
+    // The operator moves the runtime downstream into wyrmd.json5: the config
+    // wins, the registry entry goes, and the router (no repeated ACL ids)
+    // starts.
+    let central = Config::from_json5(&format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"], peers: {{ listen: "quic/127.0.0.1:{c_quic}",
+              downstream: [{{ site: "edge", ca: "{}" }}] }} }}"#,
+        c_dir.display(),
+        e_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    let central = Daemon::open(central, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let c_ctl = central.control();
+    assert!(c_ctl.registry().peers.is_empty(), "json5 wins");
+    assert_eq!(c_ctl.peers().downstream, ["edge"]);
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    eventually("central up with edge from json5", 10, || async {
+        let c = client(c_tcp, "central").await;
+        c.meta("wy/central/down/edge").await.ok()
+    })
+    .await;
+    let _ = c_stop.send(());
+    c_task.await.unwrap().unwrap();
 }
 
 /// Runs one daemon until the returned sender fires.

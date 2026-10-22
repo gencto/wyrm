@@ -1018,6 +1018,8 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());
+        // a site now in wyrmd.json5 and still in the registry: json5 wins
+        ctl.drop_shadowed_peers();
         // A link installed at runtime before its name became a downstream
         // site would overlap `down/<d>` (ADR 0007): refuse to start.
         if let Some(d) = cfg
