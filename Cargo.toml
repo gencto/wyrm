@@ -42,6 +42,8 @@ argon2 = "0.5"
 flate2 = "1"
 rcgen = { version = "0.14", features = ["x509-parser"] }
 x509-parser = "0.18"
+# Link packages (ADR 0011): read only, deflate through flate2.
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 ring = "0.17"
 wyrm-state = { path = "crates/wyrm-state" }
 wyrm-flow = { path = "crates/wyrm-flow" }

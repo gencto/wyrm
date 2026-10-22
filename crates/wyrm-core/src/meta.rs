@@ -699,6 +699,8 @@ pub const GROUP_EDIT: &str = "edit";
 pub const EDITOR_PASSWORD: &str = "password";
 /// `editor` of a multi-line text parameter.
 pub const EDITOR_TEXTAREA: &str = "textarea";
+/// `editor` of a binary parameter read from a local file (spec 02 0.1.7).
+pub const EDITOR_FILE: &str = "file";
 
 impl ParamMeta {
     pub fn of(ty: TypeCode) -> Self {

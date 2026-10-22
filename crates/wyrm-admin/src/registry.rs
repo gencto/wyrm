@@ -189,6 +189,61 @@ pub enum Op {
         #[n(1)]
         seen: u64,
     },
+    /// Install or replace a link package (ADR 0011).
+    #[n(14)]
+    PutPackage(#[n(0)] PackageDef),
+    /// Refused while a link runs the package.
+    #[n(15)]
+    RemovePackage(#[n(0)] String),
+}
+
+/// How a package's links run (ADR 0011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[cbor(index_only)]
+pub enum PackageKind {
+    /// A binary on `wyrm-link-sdk`, supervised as a process link.
+    #[n(0)]
+    Process,
+    /// A `wyrm:link/point` component in the broker (ADR 0010).
+    #[n(1)]
+    Wasm,
+}
+
+impl PackageKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            PackageKind::Process => "process",
+            PackageKind::Wasm => "wasm",
+        }
+    }
+}
+
+/// An installed link package, unpacked under
+/// `data_dir/packages/<name>/<version>/` (ADR 0011).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct PackageDef {
+    #[n(0)]
+    pub name: String,
+    #[n(1)]
+    pub version: String,
+    #[n(2)]
+    pub kind: PackageKind,
+    /// Entry for this host, relative to the package directory.
+    #[n(3)]
+    pub entry: String,
+    #[n(4)]
+    pub args: Vec<String>,
+    /// SHA-256 (hex) of the zip it came from.
+    #[n(5)]
+    pub sha256: String,
+    /// `zip`, `url <url>`, `git <url> <ref>` or `repository <url>`.
+    #[n(6)]
+    pub source: String,
+    #[n(7)]
+    pub description: String,
+    /// Unix seconds.
+    #[n(8)]
+    pub installed: u64,
 }
 
 /// Which side a peer broker is on (ADR 0007).
@@ -283,6 +338,9 @@ pub struct Registry {
     /// Authorize (never by `allow_all_links`).
     #[serde(default)]
     pub held: BTreeSet<String>,
+    /// Link packages by name (ADR 0011).
+    #[serde(default)]
+    pub packages: BTreeMap<String, PackageDef>,
 }
 
 /// Replaced params kept per link.
@@ -326,7 +384,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 8;
+    const SCHEMA: u32 = 9;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -351,6 +409,11 @@ impl wyrm_state::State for Registry {
                 }
                 if def.mode.is_remote() && def.token_hash.is_empty() {
                     return Err(format!("{} link needs a token", def.mode.name()));
+                }
+                if let Some(p) = def.driver.strip_prefix("pkg:") {
+                    if !self.packages.contains_key(p) {
+                        return Err(format!("no package {p}"));
+                    }
                 }
                 self.quarantine.remove(&def.id);
                 self.held.remove(&def.id);
@@ -421,6 +484,19 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
                 self.held.remove(cn);
                 self.blocklist.insert(cn.clone());
+            }
+            Op::PutPackage(def) => {
+                validate_link_id(&def.name).map_err(|e| format!("package {e}"))?;
+                self.packages.insert(def.name.clone(), def.clone());
+            }
+            Op::RemovePackage(name) => {
+                let driver = format!("pkg:{name}");
+                if let Some(l) = self.links.values().find(|l| l.driver == driver) {
+                    return Err(format!("link {} runs package {name}", l.id));
+                }
+                self.packages
+                    .remove(name)
+                    .ok_or_else(|| format!("no package {name}"))?;
             }
             Op::Deauthorize { id, seen } => {
                 let def = self.links.get(id).ok_or_else(|| format!("no link {id}"))?;

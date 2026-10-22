@@ -13,8 +13,10 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditRecord};
+use crate::packages;
 use crate::registry::{
-    LinkDef, Mode, Op, Options, Origin, PeerDef, PeerDir, Registry, OPTION_NAMES,
+    LinkDef, Mode, Op, Options, Origin, PackageDef, PackageKind, PeerDef, PeerDir, Registry,
+    OPTION_NAMES,
 };
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
@@ -29,8 +31,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use wyrm_core::meta::Writable;
 use wyrm_core::meta::{
-    is_code, ActionResult, ParamMeta, Profile, EDITOR_PASSWORD, EDITOR_TEXTAREA, GROUP_EDIT,
-    GROUP_NEW,
+    is_code, ActionResult, ParamMeta, Profile, EDITOR_FILE, EDITOR_PASSWORD, EDITOR_TEXTAREA,
+    GROUP_EDIT, GROUP_NEW,
 };
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
@@ -750,6 +752,11 @@ impl Control {
         p
     }
 
+    /// Where link packages are unpacked (ADR 0011).
+    pub fn packages_root(&self) -> PathBuf {
+        self.cfg.data_dir.join("packages")
+    }
+
     /// CA file of a runtime peer site (written from the registry).
     fn peer_ca_path(&self, site: &str) -> PathBuf {
         self.cfg
@@ -851,10 +858,23 @@ impl Control {
             }
         };
         let cert = self.link_cert(&def.id).ok()?;
+        // A package link runs the package's entry with its args (ADR 0011);
+        // a built-in driver runs as `<wyrmd> link <driver>`.
+        let (exe, args) = match def.driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => {
+                let p = self.registry().packages.get(name).cloned()?;
+                let dir = packages::dir(&self.packages_root(), &p);
+                (dir.join(&p.entry), p.args.clone())
+            }
+            None => (
+                self.cfg.link_exe.clone(),
+                vec!["link".into(), def.driver.clone()],
+            ),
+        };
         Some(ProcSpec {
             id: def.id.clone(),
-            exe: self.cfg.link_exe.clone(),
-            args: vec!["link".into(), def.driver.clone()],
+            exe,
+            args,
             env: vec![
                 ("WYRM_SITE".into(), self.cfg.site.clone()),
                 // see wyrm_link_sdk::process::PARENT_PID_ENV
@@ -1605,6 +1625,56 @@ fn perm_row(source: &str, subject: &str, path: &str, level: &str) -> Value {
     ]))
 }
 
+/// Menu of the link install actions (DSA "Install Link ▸").
+const INSTALL_GROUP: &str = "Install Link";
+
+/// Fetch, unpack and start of a package can take a while.
+const INSTALL_TIMEOUT_MS: u32 = 120_000;
+
+fn link_name_param() -> ParamMeta {
+    str_param()
+        .required(true)
+        .display("Name")
+        .description("Id of the new link")
+}
+
+/// DSA-style install result: two output rows.
+fn outcome(r: Result<String, String>) -> Value {
+    let (ok, message) = match r {
+        Ok(m) => (true, m),
+        Err(m) => (false, m),
+    };
+    Value::Map(BTreeMap::from([
+        ("success".to_owned(), Value::Bool(ok)),
+        ("message".to_owned(), Value::Str(message)),
+    ]))
+}
+
+/// `packages/<name>`: version, kind, source, SHA-256; `remove`.
+async fn declare_package(ctx: &LinkCtx, p: &PackageDef) -> wyrm_link_sdk::Result<()> {
+    let path = format!("packages/{}", p.name);
+    let mut node = NodeMeta::folder()
+        .is("wy:package")
+        .attr("version", p.version.as_str())
+        .attr("kind", p.kind.name())
+        .attr("source", p.source.as_str())
+        .attr("sha256", p.sha256.as_str())
+        .attr("installed", p.installed);
+    if !p.description.is_empty() {
+        node = node.attr("description", p.description.as_str());
+    }
+    ctx.declare_node(&path, node).await?;
+    ctx.declare_action(
+        &path,
+        "remove",
+        ActionMeta::new()
+            .display("Remove")
+            .group(GROUP_EDIT)
+            .level(Perm::Config),
+    )
+    .await
+}
+
 /// `secs` since the epoch as ISO 8601 UTC (`2026-10-22T03:43:00Z`).
 fn iso_utc(secs: u64) -> String {
     let (y, m, d) = secret::civil_from_days((secs / 86_400) as i64);
@@ -1641,8 +1711,8 @@ impl Link for Admin {
             "links",
             "install",
             ActionMeta::new()
-                .display("Install Link")
-                .group(GROUP_NEW)
+                .display("from Driver")
+                .group(INSTALL_GROUP)
                 .param("id", str_param().required(true).display("Link ID"))
                 .param("driver", str_param().required(true).display("Driver"))
                 .param(
@@ -1656,9 +1726,34 @@ impl Link for Admin {
                 .level(Perm::Config),
         )
         .await?;
+        ctx.declare_action(
+            "links",
+            "install_zip",
+            ActionMeta::new()
+                .display("from Zip")
+                .group(INSTALL_GROUP)
+                .param("name", link_name_param())
+                .param(
+                    "zip",
+                    ParamMeta::of(TypeCode::Binary)
+                        .required(true)
+                        .display("Zip")
+                        .editor(EDITOR_FILE)
+                        .description("Link package: a zip with wyrm-link.json"),
+                )
+                .result(ActionResult::Type(TypeCode::Map))
+                .timeout_ms(INSTALL_TIMEOUT_MS)
+                .level(Perm::Config),
+        )
+        .await?;
         let reg = cfg.ctl.registry();
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
+        }
+        ctx.declare_node("packages", NodeMeta::folder().display("Packages"))
+            .await?;
+        for p in reg.packages.values() {
+            declare_package(&ctx, p).await?;
         }
         ctx.declare_node("profiles", NodeMeta::folder()).await?;
         ctx.declare_action(
@@ -1776,6 +1871,18 @@ impl Link for Admin {
         let segs: Vec<&str> = path.split('/').collect();
         let result = match (segs.as_slice(), action) {
             (["links"], "install") => self.install(&args, &sub).await,
+            (["links"], "install_zip") => {
+                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
+                let r = match arg(&args, "zip") {
+                    Some(Value::Bytes(zip)) => {
+                        self.install_package(&name, zip.clone(), "zip".into(), &sub)
+                            .await
+                    }
+                    _ => Err("zip: required".into()),
+                };
+                Ok(Some(outcome(r)))
+            }
+            (["packages", name], "remove") => self.remove_package(name, &sub).await,
             (["links", id], "hello") => self.hello(id, &args).await,
             (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
@@ -1914,11 +2021,32 @@ impl Admin {
         let id = arg_str(args, "id").unwrap_or_default().to_owned();
         let driver = arg_str(args, "driver").unwrap_or_default().to_owned();
         let compiled = ctl.host.drivers().contains(&driver.as_str());
+        // `pkg:<name>`: an installed package (ADR 0011); process packages
+        // run as process links, never embedded.
+        let package =
+            match driver.strip_prefix(packages::DRIVER_PREFIX) {
+                Some(name) => {
+                    Some(ctl.registry().packages.get(name).cloned().ok_or_else(|| {
+                        LinkError::invalid_parameter(format!("no package {name}"))
+                    })?)
+                }
+                None => None,
+            };
         let mode = match arg_str(args, "mode") {
             Some(m) => Mode::parse(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
+            None if package.is_some() => Mode::Process,
             None if compiled => Mode::Embedded,
             None => Mode::External,
         };
+        if let Some(p) = &package {
+            if p.kind != PackageKind::Process || mode != Mode::Process {
+                return Err(LinkError::invalid_parameter(format!(
+                    "package {} runs as {} links",
+                    p.name,
+                    p.kind.name()
+                )));
+            }
+        }
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
@@ -1933,7 +2061,7 @@ impl Admin {
             return Err(LinkError::invalid_parameter(format!("link {id} exists")));
         }
         crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
-        if mode != Mode::External {
+        if mode != Mode::External && package.is_none() {
             if !compiled {
                 return Err(LinkError::invalid_parameter(format!(
                     "driver {driver} is not compiled in"
@@ -2001,6 +2129,110 @@ impl Admin {
             }
         }
         Ok(Some(Value::Map(reply)))
+    }
+
+    /// Install a package from `zip` and run it as the link `link`
+    /// (ADR 0011). The same version with the same bytes is reused (another
+    /// link of the package); a new version replaces the old one and restarts
+    /// the links that run it. `Err` is the message of `success: false`.
+    async fn install_package(
+        &self,
+        link: &str,
+        zip: Vec<u8>,
+        source: String,
+        sub: &str,
+    ) -> Result<String, String> {
+        crate::registry::validate_link_id(link)?;
+        let root = self.ctl.packages_root();
+        let now = now_s();
+        let unpacked = {
+            let root = root.clone();
+            tokio::task::spawn_blocking(move || packages::unpack(&zip, &root, &source, now))
+                .await
+                .map_err(|e| e.to_string())??
+        };
+        let def = unpacked.def.clone();
+        if def.kind == PackageKind::Wasm {
+            return Err("WASM packages are not supported yet (ADR 0011)".into());
+        }
+        if self.ctl.cfg.link_endpoint.is_none() {
+            return Err("process links need a tls/ listener on the broker".into());
+        }
+        let reg = self.ctl.registry();
+        let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
+        if let Some(l) = reg.links.get(link) {
+            if l.driver != driver {
+                return Err(format!("link {link} exists and runs {}", l.driver));
+            }
+        }
+        let mut message = match reg.packages.get(&def.name) {
+            Some(old) if old.version == def.version => {
+                if old.sha256 != def.sha256 {
+                    return Err(format!(
+                        "{} {} is installed with other content",
+                        def.name, def.version
+                    ));
+                }
+                format!("package {} {} is installed", def.name, def.version)
+            }
+            old => {
+                unpacked.commit(&root)?;
+                self.ctl
+                    .apply(Op::PutPackage(def.clone()))
+                    .map_err(|e| e.to_string())?;
+                self.ctl.record(
+                    sub,
+                    "package_install",
+                    &def.name,
+                    Status::Ok,
+                    &format!("{} sha256:{} {}", def.version, def.sha256, def.source),
+                );
+                declare_package(&self.ctx, &def)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if let Some(old) = old {
+                    // Upgrade: the links on it restart from the new files.
+                    for l in reg.links.values().filter(|l| l.driver == driver) {
+                        let _ = self.stop_link(&l.id, sub).await;
+                        self.start_link(&l.id, sub)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                    }
+                    let _ = std::fs::remove_dir_all(packages::dir(&root, old));
+                    format!("package {} {} → {}", def.name, old.version, def.version)
+                } else {
+                    format!("package {} {} installed", def.name, def.version)
+                }
+            }
+        };
+        if !reg.links.contains_key(link) {
+            let args = Value::Map(BTreeMap::from([
+                ("id".to_owned(), Value::Str(link.to_owned())),
+                ("driver".to_owned(), Value::Str(driver)),
+                ("mode".to_owned(), Value::Str("process".into())),
+            ]));
+            self.install(&args, sub).await.map_err(|e| e.to_string())?;
+            message.push_str(&format!("; link {link} installed"));
+        }
+        Ok(message)
+    }
+
+    async fn remove_package(&self, name: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let def = self
+            .ctl
+            .registry()
+            .packages
+            .get(name)
+            .cloned()
+            .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
+        self.ctl
+            .apply(Op::RemovePackage(name.to_owned()))
+            .map_err(rejected)?;
+        let _ = std::fs::remove_dir_all(self.ctl.packages_root().join(name));
+        self.ctl
+            .record(sub, "package_remove", name, Status::Ok, &def.version);
+        self.ctx.remove_node(&format!("packages/{name}")).await?;
+        Ok(None)
     }
 
     async fn hello(&self, id: &str, args: &Value) -> wyrm_link_sdk::Result<Option<Value>> {

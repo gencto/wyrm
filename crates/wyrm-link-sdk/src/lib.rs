@@ -40,3 +40,9 @@ pub use runtime::{spawn, LinkConfig, LinkHandle};
 pub use support::{Metrics, Secret, SecretStore};
 /// `#[derive(Params)]` / `#[derive(ParamEnum)]` for driver parameters (ADR 0004).
 pub use wyrm_link_sdk_derive::{ParamEnum, Params};
+
+/// Version of the contract between the broker and a process link: the
+/// environment it is started with and the shape of the `hello` reply (params,
+/// secrets, trust lists). A link package names the version it was built for
+/// (`wyrm-link.json` `wyrm_link`, ADR 0011); the broker refuses another one.
+pub const LINK_PROTOCOL: u32 = 1;

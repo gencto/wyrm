@@ -58,7 +58,8 @@ class ParamMeta {
   /// Example value shown in an empty field.
   String? placeholder;
 
-  /// `password` (hidden, never echoed) or `textarea`; others are ignored.
+  /// `password` (hidden, never echoed), `textarea` or `file` (a binary
+  /// parameter from a local file); others are ignored.
   String? editor;
 
   ParamMeta(
@@ -73,6 +74,8 @@ class ParamMeta {
       this.editor});
 
   bool get isPassword => editor == 'password';
+
+  bool get isFile => editor == 'file';
 
   void encode(CborWriter w) {
     final n = [ty, unit, enumValues, defaultValue, required, display, description, placeholder, editor]

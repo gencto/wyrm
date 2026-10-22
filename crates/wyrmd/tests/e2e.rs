@@ -583,6 +583,158 @@ async fn authorize_and_deauthorize() {
     env.stop().await;
 }
 
+/// A link package (ADR 0011) whose entry is a shell script running this
+/// test's `wyrmd link mock`: the script path is absolute because the
+/// supervisor clears the environment.
+fn mock_package(version: &str) -> Vec<u8> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    let manifest = serde_json::json!({
+        "name": "mockpkg",
+        "version": version,
+        "description": "mock link as a package",
+        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+        "kind": "process",
+        "entries": { wyrm_admin::packages::platform(): "bin/run" },
+    });
+    let script = format!(
+        "#!/bin/sh\nexec \"{}\" link mock\n",
+        env!("CARGO_BIN_EXE_wyrmd")
+    );
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opt = SimpleFileOptions::default();
+    w.start_file(wyrm_admin::packages::MANIFEST, opt).unwrap();
+    w.write_all(manifest.to_string().as_bytes()).unwrap();
+    w.start_file("bin/run", opt.unix_permissions(0o644))
+        .unwrap();
+    w.write_all(script.as_bytes()).unwrap();
+    w.finish().unwrap().into_inner()
+}
+
+/// DSA "Install Link ▸ from Zip": a package runs as a process link; a second
+/// link reuses it; a new version replaces it and restarts its links; a bad
+/// zip answers `success: false`.
+#[tokio::test(flavor = "multi_thread")]
+async fn install_link_from_zip() {
+    let env = Env::start("pkgzip", "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |name: &str, zip: Vec<u8>| {
+        Value::Map(BTreeMap::from([
+            ("name".to_owned(), Value::from(name)),
+            ("zip".to_owned(), Value::Bytes(zip)),
+        ]))
+    };
+    let outcome = |v: Option<Value>| -> (bool, String) {
+        let Some(Value::Map(m)) = v else {
+            panic!("result map: {v:?}")
+        };
+        let ok = m.get("success") == Some(&Value::Bool(true));
+        let msg = match m.get("message") {
+            Some(Value::Str(s)) => s.clone(),
+            other => panic!("message: {other:?}"),
+        };
+        (ok, msg)
+    };
+    // Each process link install rebuilds the router: every call retries
+    // until the broker answers (Ok, or an error from the admin itself).
+    let call = |key: String, action: &'static str, args: Value| {
+        let env = &env;
+        async move {
+            eventually(action, 20, || {
+                let (key, args) = (key.clone(), args.clone());
+                async move {
+                    let s = env.try_session().await?;
+                    let seed = ed25519_dalek::SigningKey::from_bytes(&SEED);
+                    let c = WyrmClient::new(s)
+                        .with_tokens(Arc::new(SigningTokens::new(seed, SITE)))
+                        .with_timeout(Duration::from_secs(3));
+                    match c.invoke_one(&key, action, args).await {
+                        Ok(v) => Some(Ok(v)),
+                        Err(e) if e.is(wyrm_core::Status::InvalidParameter) => Some(Err(e)),
+                        Err(_) => None,
+                    }
+                }
+            })
+            .await
+        }
+    };
+    let (ok, msg) = outcome(
+        call(
+            links.clone(),
+            "install_zip",
+            install("pk1", mock_package("1.0.0")),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    let pkg = env.ctl.registry().packages["mockpkg"].clone();
+    assert_eq!(pkg.version, "1.0.0");
+    assert_eq!(env.ctl.registry().links["pk1"].driver, "pkg:mockpkg");
+    eventually("pk1 runs as a process", 20, || async {
+        let c = WyrmClient::new(env.try_session().await?);
+        let ch = c.children(&format!("wy/{SITE}/down/pk1")).await.ok()?;
+        (!ch.is_empty()).then_some(())
+    })
+    .await;
+
+    // a second link of the same package bytes
+    let (ok, msg) = outcome(
+        call(
+            links.clone(),
+            "install_zip",
+            install("pk2", mock_package("1.0.0")),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(
+        ok && msg.contains("is installed") && msg.contains("pk2"),
+        "{msg}"
+    );
+
+    // a new version replaces the old one
+    let (ok, msg) = outcome(
+        call(
+            links.clone(),
+            "install_zip",
+            install("pk1", mock_package("1.1.0")),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    let root = env.ctl.packages_root();
+    assert!(!root.join("mockpkg/1.0.0").exists() && root.join("mockpkg/1.1.0/bin/run").exists());
+
+    // a bad zip is success: false, not an error
+    let (ok, msg) = outcome(
+        call(
+            links.clone(),
+            "install_zip",
+            install("pk3", b"not a zip".to_vec()),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(!ok && msg.contains("zip"), "{msg}");
+    // the package cannot go while links run it
+    let err = call(
+        format!("wy/{SITE}/sys/packages/mockpkg"),
+        "remove",
+        Value::Map(Default::default()),
+    )
+    .await
+    .expect_err("in use");
+    assert!(err.is(wyrm_core::Status::InvalidParameter), "{err}");
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "package_install"));
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
