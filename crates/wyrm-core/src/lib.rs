@@ -21,5 +21,5 @@ pub use ptok::PtokClaims;
 pub use status::{Status, StatusGroup};
 pub use value::{Quality, Sample, SetRequest, Value};
 
-/// Protocol major version published at `wy/<site>/sys/broker/~meta.proto`.
+/// Protocol major version published as `attr.proto` of `wy/<site>/sys/~meta`.
 pub const PROTO_VERSION: u8 = 1;

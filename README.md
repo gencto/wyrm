@@ -75,9 +75,9 @@ target/release/wyr bench list wy/local/down/mock
 | `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`, `update {params}`, `history`, `rollback {rev}` (runtime-installed links; the last 10 params revisions are kept); child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
 | `sys/quarantine` | `~act/authorize {dsid, group, name}`, `deauthorize {link}` (back to quarantine) |
 | `sys/quarantine/<cn>` | unknown CA-signed certificate; `~act/approve {driver, params, group, name}`, `reject` |
-| `sys/metrics/broker/acl_denied_total` | router access-control drops |
+| `sys/acl_denied` | router access-control drops (with the other broker status values: uptime, links, sessions, CPU, memory, disk) |
 | `sys/audit` | `~act/tail {n}` — HMAC-chained audit records |
-| `sys/broker` | liveliness of the broker |
+| `wy/<site>/sys/broker` | liveliness token of the broker (no node); `sys` `~meta` carries `attr.proto`, `version`, `site` |
 
 `wyr` gets admin commands as well (links, install, set-secret, …) — see `wyr --help`. ACL changes rebuild the router runtime (ADR 0006).
 

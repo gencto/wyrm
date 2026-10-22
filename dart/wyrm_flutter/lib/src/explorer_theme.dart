@@ -31,6 +31,9 @@ abstract final class WyStyle {
   /// Search placeholder.
   static const placeholder = Color(0xFF666666);
 
+  /// Errors: text, icon and the border of the error box.
+  static const error = Color(0xFFE8605A);
+
   /// Popup shadow.
   static const shadow = [BoxShadow(color: Color(0x40000000), blurRadius: 8)];
 

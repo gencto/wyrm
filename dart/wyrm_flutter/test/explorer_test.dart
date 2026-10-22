@@ -54,6 +54,9 @@ class ActApi implements WyrmApi {
   @override
   Stream<Value> invoke(String key, String action, [Value? args]) {
     invoked.add((key, action, args));
+    if (action == 'reset') {
+      return Stream.error(WyrmException.of(Status.invalidParameter, 'test exists'));
+    }
     if (action == 'history') {
       // like the admin's link history: one record per revision
       return Stream.value(VArray([
@@ -116,6 +119,23 @@ void main() {
     expect(api.invoked.single.$3, VMap({'n': const VInt(3)}));
     expect(find.text('output'), findsOneWidget);
     expect(find.text('7'), findsOneWidget, reason: 'result in the output box');
+
+    // The form opens level with the hovered row's panel edge: up by the
+    // menu's border and padding (3 px), so on the first row its top is the
+    // menu's top, not a few pixels lower.
+    bool isType(Widget w, String type) => w.runtimeType.toString() == type;
+    final row = t.getRect(find.ancestor(of: find.text('count'), matching: find.byWidgetPredicate((w) => isType(w, '_MenuItem'))));
+    final form = t.getRect(find.byWidgetPredicate((w) => isType(w, '_ActionFlyout')));
+    expect(form.top, row.top - 3);
+
+    // An error shows its message alone, in an error row.
+    await mouse.moveTo(t.getCenter(find.text('reset')));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect(find.text('error'), findsOneWidget);
+    expect(find.text('test exists'), findsOneWidget);
+    expect(find.textContaining('WyrmException'), findsNothing);
   });
 
   testWidgets('an action without params also opens its form; Invoke runs it', (t) async {

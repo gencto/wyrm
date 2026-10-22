@@ -356,7 +356,7 @@ async fn unknown_cert_quarantine_and_acl_denied() {
     // the unknown session cannot publish into down/**
     let key = format!("wy/{SITE}/down/mcu-7/t/~val");
     mcu.put(&key, sample(1.0)).await.unwrap();
-    let total = format!("wy/{SITE}/sys/metrics/broker/acl_denied_total");
+    let total = format!("wy/{SITE}/sys/acl_denied");
     eventually("acl_denied_total > 0", 5, || async {
         match last_val(&c, &total).await {
             Some(Value::UInt(n)) if n > 0 => Some(()),
@@ -412,6 +412,46 @@ async fn sys_values_and_admission_options() {
     assert_eq!(
         meta.attr_value("display"),
         Some(&Value::Str("Data In Per Second".into()))
+    );
+    // sys itself carries the protocol version; no broker or metrics nodes,
+    // but the broker's liveliness token is there
+    let root = c.meta(&sys).await.unwrap();
+    assert_eq!(
+        root.attr_value("proto"),
+        Some(&Value::UInt(wyrm_core::PROTO_VERSION.into()))
+    );
+    for gone in ["broker", "metrics", "downstream"] {
+        assert!(c.meta(&format!("{sys}/{gone}")).await.is_err(), "{gone}");
+    }
+    let token = c
+        .session()
+        .liveliness()
+        .get(format!("{sys}/broker"))
+        .await
+        .unwrap()
+        .recv_async()
+        .await;
+    assert!(token.is_ok(), "broker liveliness token");
+    eventually("status values", 5, || async {
+        for key in [
+            "uptime",
+            "links_total",
+            "links_connected",
+            "sessions",
+            "cpu",
+            "memory",
+            "disk_free",
+            "data_size",
+            "audit_records",
+        ] {
+            last_val(&c, &format!("{sys}/{key}")).await?;
+        }
+        Some(())
+    })
+    .await;
+    assert_eq!(
+        last_val(&c, &format!("{sys}/links_total")).await,
+        Some(Value::UInt(1))
     );
     eventually("traffic rates", 5, || async {
         match last_val(&c, &format!("{sys}/data_in_per_second")).await {

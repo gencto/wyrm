@@ -411,7 +411,10 @@ abstract final class WyContextMenu {
     void open(int depth, Rect anchor, Object what, Widget child) {
       if (layers.length == depth + 1 && shown.length == depth && shown.last == what) return;
       closeFrom(depth);
-      final e = OverlayEntry(builder: (_) => Positioned(left: anchor.right, top: anchor.top, child: child));
+      // Up by the menu's border and padding: the next panel's top is level
+      // with this menu's, as in DSA UIs (not a few pixels lower).
+      final e = OverlayEntry(
+          builder: (_) => Positioned(left: anchor.right, top: anchor.top - _menuInset, child: child));
       layers.add(e);
       shown.add(what);
       overlay.insert(e);
@@ -500,6 +503,9 @@ abstract final class WyContextMenu {
     overlay.insert(root);
   }
 }
+
+/// Border plus padding of a menu panel, above its first row.
+const double _menuInset = 3;
 
 /// The menu box: `#323232`, 1px `#424244`, shadow, 2px padding.
 class _MenuPanel extends StatelessWidget {
@@ -689,7 +695,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       if (mounted) {
         setState(() {
           _status = _Status.error;
-          _error = '$e';
+          // the message alone, not `WyrmException(status): …`
+          _error = e is WyrmException ? e.message : '$e';
         });
       }
     }
@@ -724,22 +731,44 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
                           padding: EdgeInsets.all(2),
                           child: CircularProgressIndicator(strokeWidth: 2, color: WyStyle.accent)),
                       _Status.ok => const Icon(Icons.check, size: 20, color: WyStyle.text),
-                      _Status.error => const Icon(Icons.error_outline, size: 20, color: Colors.redAccent),
+                      _Status.error => const Icon(Icons.error_outline, size: 20, color: WyStyle.error),
                     },
                   ),
                 ]),
               ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent)),
-                ),
+              if (_error != null) _errorRow(_error!),
               // Output only for an action that declares a result, or that
               // sent one (an action without a result shows none).
               if (_declaresResult || _results.isNotEmpty) ..._outputRows(context),
             ]),
           ),
         ),
+      );
+
+  /// The error as an output row: label, then a read-only box with the
+  /// whole message (wrapped, selectable).
+  Widget _errorRow(String message) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(
+            width: _labelWidth,
+            height: 30,
+            child: Align(alignment: Alignment.centerLeft, child: Text('error', style: WyStyle.formLabel)),
+          ),
+          const SizedBox(width: _gap),
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 30),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+              decoration: BoxDecoration(
+                color: WyStyle.field,
+                border: Border.all(color: WyStyle.error.withValues(alpha: 0.6)),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: SelectableText(message, style: WyStyle.input.copyWith(color: WyStyle.error, height: 1.3)),
+            ),
+          ),
+        ]),
       );
 
   bool get _declaresResult => switch (widget.meta?.result) {

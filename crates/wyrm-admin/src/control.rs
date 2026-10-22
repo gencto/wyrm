@@ -198,6 +198,96 @@ const SYS_RATES: [(&str, &str, &str, &str); 6] = [
 const RATES_NOTE: &str = "Average over the metrics interval of this router's network \
     sessions (TCP, TLS, QUIC); embedded links talk in-process and are not counted.";
 
+/// Messages the router's access control dropped (`sys/acl_denied`).
+const ACL_DENIED: &str = "acl_denied";
+
+/// Linux has the current resident size; elsewhere only the peak is known.
+const MEMORY_DISPLAY: &str = if cfg!(target_os = "linux") {
+    "Memory"
+} else {
+    "Peak Memory"
+};
+
+/// Broker status values of `sys`, measured every metrics interval: key,
+/// display name, unit, description.
+const SYS_STATUS: [(&str, &str, &str, &str); 14] = [
+    (
+        "uptime",
+        "Uptime",
+        "s",
+        "Seconds since the broker process started.",
+    ),
+    ("links_total", "Links", "", "Installed links."),
+    (
+        "links_connected",
+        "Links Connected",
+        "",
+        "Links whose liveliness token is present (they serve their tree).",
+    ),
+    (
+        "quarantined",
+        "Quarantined",
+        "",
+        "Unknown certificates waiting in quarantine.",
+    ),
+    ("packages", "Packages", "", "Installed link packages."),
+    (
+        "sessions",
+        "Open Sessions",
+        "",
+        "Network sessions of the router: links, peer brokers, the gateway's users go \
+         through one in-process session and are not counted.",
+    ),
+    (
+        "upstream_connected",
+        "Upstream Connected",
+        "",
+        "Upstream brokers that are connected.",
+    ),
+    (
+        "downstream_connected",
+        "Downstream Connected",
+        "",
+        "Downstream brokers that are connected.",
+    ),
+    (
+        ACL_DENIED,
+        "ACL Denied",
+        "",
+        "Messages the router's access control dropped since the router started.",
+    ),
+    (
+        "cpu",
+        "CPU Usage",
+        "%",
+        "CPU time of the broker process over the metrics interval; 100 = one core.",
+    ),
+    (
+        "memory",
+        MEMORY_DISPLAY,
+        "MiB",
+        "Resident memory of the broker process (peak on systems without /proc).",
+    ),
+    (
+        "disk_free",
+        "Disk Free",
+        "MiB",
+        "Free space on the file system of data_dir.",
+    ),
+    (
+        "data_size",
+        "Data Size",
+        "MiB",
+        "Size of data_dir, measured every minute.",
+    ),
+    (
+        "audit_records",
+        "Audit Records",
+        "",
+        "Records in the audit journal.",
+    ),
+];
+
 /// Display name and description of the [`Options`] values.
 const OPTION_INFO: [(&str, &str); 2] = [
     (
@@ -1168,6 +1258,8 @@ pub struct Admin {
     ctx: LinkCtx,
     ctl: Arc<Control>,
     embedded: Running,
+    /// `wy/<site>/sys/broker` liveliness, undeclared when the admin stops.
+    _broker: zenoh::liveliness::LivelinessToken,
 }
 
 fn str_param() -> ParamMeta {
@@ -1451,6 +1543,15 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         ctx.update(key, Value::Str(v), Quality::Good, now_us())
             .await?;
     }
+    for (key, display, unit, about) in SYS_STATUS {
+        let mut m = NodeMeta::number()
+            .display(display)
+            .attr("description", about);
+        if !unit.is_empty() {
+            m = m.unit(unit);
+        }
+        ctx.declare_node(key, m).await?;
+    }
     for (key, display, unit, _) in SYS_RATES {
         ctx.declare_node(
             key,
@@ -1541,8 +1642,7 @@ fn ca_param() -> ParamMeta {
 /// `sys/upstream` and `sys/downstream`: peer brokers, as DSA's
 /// `/sys/upstream`. Peers from `wyrmd.json5` are shown read-only.
 async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
-    ctx.declare_node("upstream", NodeMeta::folder().display("Upstream"))
-        .await?;
+    ctx.declare_node("upstream", NodeMeta::folder()).await?;
     ctx.declare_action(
         "upstream",
         "add",
@@ -1562,8 +1662,20 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
             .level(Perm::Config),
     )
     .await?;
-    ctx.declare_node("downstream", NodeMeta::folder().display("Downstream"))
-        .await?;
+    let cfg = ctl.config_peers();
+    // Downstream brokers can connect only through `peers.listen`.
+    if !cfg.listen {
+        for (site, ep, _) in &cfg.upstream {
+            declare_upstream(ctx, site, ep, true, false).await?;
+        }
+        for d in &ctl.runtime_peers() {
+            if d.dir == PeerDir::Upstream {
+                declare_upstream(ctx, &d.site, &d.endpoint, d.enabled, true).await?;
+            }
+        }
+        return Ok(());
+    }
+    ctx.declare_node("downstream", NodeMeta::folder()).await?;
     ctx.declare_action(
         "downstream",
         "add",
@@ -1575,7 +1687,6 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
             .level(Perm::Config),
     )
     .await?;
-    let cfg = ctl.config_peers();
     for (site, ep, _) in &cfg.upstream {
         declare_upstream(ctx, site, ep, true, false).await?;
     }
@@ -1841,14 +1952,17 @@ impl Link for Admin {
     type Config = AdminStart;
 
     async fn start(cfg: AdminStart, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        // `sys` itself describes the broker (spec README rule 4: `proto`).
         ctx.declare_node(
-            "broker",
+            "",
             NodeMeta {
-                is: Some(Profile::Code(9)),
+                is: Some(Profile::Code(is_code::LINK)),
                 ..Default::default()
             }
+            .attr("driver", "admin")
             .attr("version", env!("CARGO_PKG_VERSION"))
-            .attr("site", cfg.ctl.cfg.site.as_str()),
+            .attr("site", cfg.ctl.cfg.site.as_str())
+            .attr("proto", u64::from(wyrm_core::PROTO_VERSION)),
         )
         .await?;
         declare_sys_values(&ctx, &cfg.ctl).await?;
@@ -1946,8 +2060,7 @@ impl Link for Admin {
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
         }
-        ctx.declare_node("packages", NodeMeta::folder().display("Packages"))
-            .await?;
+        ctx.declare_node("packages", NodeMeta::folder()).await?;
         for p in reg.packages.values() {
             declare_package(&ctx, p).await?;
         }
@@ -1980,19 +2093,6 @@ impl Link for Admin {
         .await?;
         ctx.declare_node("quarantine", NodeMeta::folder()).await?;
         refresh_quarantine(&ctx, &cfg.ctl).await?;
-        ctx.declare_node("metrics", NodeMeta::folder()).await?;
-        ctx.declare_node("metrics/broker", NodeMeta::folder())
-            .await?;
-        ctx.declare_node(
-            "metrics/broker/acl_denied_total",
-            NodeMeta {
-                is: Some(Profile::Code(is_code::NODE + 10)),
-                ty: Some(TypeCode::Number),
-                ..Default::default()
-            }
-            .cfg("kind", "counter"),
-        )
-        .await?;
         ctx.declare_node("audit", NodeMeta::number().is("wy:audit"))
             .await?;
         ctx.declare_action(
@@ -2005,12 +2105,19 @@ impl Link for Admin {
                 .level(Perm::Config),
         )
         .await?;
-        // `wy/<site>/sys/broker` liveliness: process links re-publish when it returns.
-        ctx.set_dynamic("broker", true).await?;
+        // `wy/<site>/sys/broker` liveliness (no node): process links
+        // re-publish when it returns, peers show `connected` from it.
+        let broker = ctx
+            .client()
+            .liveliness()
+            .declare_token(format!("wy/{}/sys/broker", cfg.ctl.cfg.site))
+            .await
+            .map_err(|e| LinkError::internal(format!("broker token: {e}")))?;
         Ok(Admin {
             ctx,
             ctl: cfg.ctl,
             embedded: cfg.embedded,
+            _broker: broker,
         })
     }
 
@@ -3594,6 +3701,115 @@ async fn fetch_metrics(session: &Session, key: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&raw).into_owned())
 }
 
+/// CPU time (user + system) of this process, in seconds.
+fn cpu_seconds() -> Option<f64> {
+    #[cfg(unix)]
+    {
+        use nix::sys::resource::{getrusage, UsageWho};
+        let u = getrusage(UsageWho::RUSAGE_SELF).ok()?;
+        let s = |t: nix::sys::time::TimeVal| t.tv_sec() as f64 + t.tv_usec() as f64 / 1e6;
+        Some(s(u.user_time()) + s(u.system_time()))
+    }
+    #[cfg(not(unix))]
+    None
+}
+
+/// Resident memory of this process in MiB: current on Linux, the peak
+/// elsewhere (see [`MEMORY_DISPLAY`]).
+fn memory_mib() -> Option<f64> {
+    #[cfg(target_os = "linux")]
+    {
+        let s = std::fs::read_to_string("/proc/self/status").ok()?;
+        let kb: f64 = s
+            .lines()
+            .find_map(|l| l.strip_prefix("VmRSS:"))?
+            .trim()
+            .trim_end_matches("kB")
+            .trim()
+            .parse()
+            .ok()?;
+        Some(kb / 1024.0)
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        use nix::sys::resource::{getrusage, UsageWho};
+        let max = getrusage(UsageWho::RUSAGE_SELF).ok()?.max_rss() as f64;
+        // bytes on macOS, KiB on the BSDs
+        Some(if cfg!(target_os = "macos") {
+            max / 1048576.0
+        } else {
+            max / 1024.0
+        })
+    }
+    #[cfg(not(unix))]
+    None
+}
+
+/// Free space on the file system of `dir`, MiB.
+fn disk_free_mib(dir: &std::path::Path) -> Option<f64> {
+    #[cfg(unix)]
+    {
+        let v = nix::sys::statvfs::statvfs(dir).ok()?;
+        Some(v.blocks_available() as f64 * v.fragment_size() as f64 / 1048576.0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        None
+    }
+}
+
+/// Bytes of the regular files under `dir` (symlinks not followed).
+fn dir_bytes(dir: &std::path::Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_owned()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => stack.push(e.path()),
+                Ok(t) if t.is_file() => total += e.metadata().map(|m| m.len()).unwrap_or(0),
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+/// Sites whose broker liveliness token (`wy/<site>/sys/broker`) is present,
+/// and the link ids whose token (`wy/<site>/down/<id>`) is present.
+async fn live_tokens(session: &Session, site: &str) -> (HashSet<String>, HashSet<String>) {
+    let get = |key: String| async move {
+        let mut out = Vec::new();
+        if let Ok(r) = session
+            .liveliness()
+            .get(&key)
+            .timeout(Duration::from_secs(2))
+            .await
+        {
+            while let Ok(x) = r.recv_async().await {
+                if let Ok(s) = x.result() {
+                    out.push(s.key_expr().as_str().to_owned());
+                }
+            }
+        }
+        out
+    };
+    let brokers = get("wy/*/sys/broker".into())
+        .await
+        .into_iter()
+        .filter_map(|k| k.split('/').nth(1).map(str::to_owned))
+        .collect();
+    let links = get(format!("wy/{site}/down/*"))
+        .await
+        .into_iter()
+        .filter_map(|k| k.rsplit('/').next().map(str::to_owned))
+        .collect();
+    (brokers, links)
+}
+
 /// Router metrics into `sys`. Only `@/<zid>/router/metrics` is read: in
 /// Zenoh 1.10.1 the admin-space handlers for `subscriber/**`, `queryable/**`
 /// and the like reply while holding the routing tables' read lock, and a
@@ -3605,16 +3821,69 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
     let key = format!("@/{}/router/metrics", session.zid());
     let mut last = 0u64;
     let mut prev: Option<(std::time::Instant, Vec<f64>)> = None;
+    let mut cpu_prev: Option<(std::time::Instant, f64)> = None;
+    let mut data_size_at: Option<std::time::Instant> = None;
     let mut tick = tokio::time::interval(ctl.cfg.metrics_interval);
     loop {
         tick.tick().await;
         if ctx.is_closed() {
             return;
         }
+        let set = |key: &'static str, v: f64| {
+            let ctx = ctx.clone();
+            async move {
+                let v = if v.fract() == 0.0 && v >= 0.0 {
+                    Value::UInt(v as u64)
+                } else {
+                    Value::Float((v * 10.0).round() / 10.0)
+                };
+                let _ = ctx.update(key, v, Quality::Good, now_us()).await;
+            }
+        };
+        let reg = ctl.registry();
+        let (brokers, live) = live_tokens(&session, &ctl.cfg.site).await;
+        let peers = ctl.peers();
+        let count = |sites: &[String]| sites.iter().filter(|s| brokers.contains(*s)).count();
+        set("uptime", now_s().saturating_sub(ctl.started) as f64).await;
+        set("links_total", reg.links.len() as f64).await;
+        set(
+            "links_connected",
+            reg.links.keys().filter(|id| live.contains(*id)).count() as f64,
+        )
+        .await;
+        set("quarantined", reg.quarantine.len() as f64).await;
+        set("packages", reg.packages.len() as f64).await;
+        set("upstream_connected", count(&peers.upstream) as f64).await;
+        set("downstream_connected", count(&peers.downstream) as f64).await;
+        let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
+        set("audit_records", audit as f64).await;
+        let now = std::time::Instant::now();
+        if let Some(c) = cpu_seconds() {
+            if let Some((then, before)) = cpu_prev {
+                let wall = now.duration_since(then).as_secs_f64();
+                if wall > 0.0 {
+                    set("cpu", ((c - before) / wall * 100.0).max(0.0)).await;
+                }
+            }
+            cpu_prev = Some((now, c));
+        }
+        if let Some(m) = memory_mib() {
+            set("memory", m).await;
+        }
+        if let Some(f) = disk_free_mib(&ctl.cfg.data_dir) {
+            set("disk_free", f.floor()).await;
+        }
+        if data_size_at.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(60)) {
+            data_size_at = Some(now);
+            let dir = ctl.cfg.data_dir.clone();
+            if let Ok(b) = tokio::task::spawn_blocking(move || dir_bytes(&dir)).await {
+                set("data_size", (b as f64 / 1048576.0 * 10.0).round() / 10.0).await;
+            }
+        }
         let Some(text) = fetch_metrics(&session, &key).await else {
             continue;
         };
-        let now = std::time::Instant::now();
+        set("sessions", counter(&text, "zenoh_transports_opened")).await;
         let counters: Vec<f64> = SYS_RATES
             .iter()
             .map(|(_, _, _, name)| counter(&text, name))
@@ -3632,12 +3901,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         prev = Some((now, counters));
         let total = acl_denied(&text);
         let _ = ctx
-            .update(
-                "metrics/broker/acl_denied_total",
-                Value::UInt(total),
-                Quality::Good,
-                now_us(),
-            )
+            .update(ACL_DENIED, Value::UInt(total), Quality::Good, now_us())
             .await;
         if total > last {
             ctl.record(
