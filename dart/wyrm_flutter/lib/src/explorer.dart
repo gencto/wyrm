@@ -726,11 +726,18 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: SelectableText(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent)),
                 ),
-              if (widget.meta?.result is! ResultVoid) ..._outputRows(context),
+              // Output only for an action that declares a result, or that
+              // sent one (an action without a result shows none).
+              if (_declaresResult || _results.isNotEmpty) ..._outputRows(context),
             ]),
           ),
         ),
       );
+
+  bool get _declaresResult => switch (widget.meta?.result) {
+        null || ResultVoid() => false,
+        _ => true,
+      };
 
   /// The result as DSA shows an action's columns: a label per column and a
   /// value box; a table (several rows) as a "Table.." button that opens the
@@ -1168,8 +1175,9 @@ class _WyMetricsState extends State<WyMetrics> {
       if (!m.isContainer && m.ty != null && match('value')) {
         rows.add(_MetricRow(api: widget.api, name: 'value', key2: widget.nodeKey!, meta: m));
       }
-      for (final c in _children.where((c) => _isPoint(c.meta) && match(c.name))) {
-        rows.add(_MetricRow(api: widget.api, name: c.name, key2: '${widget.nodeKey}/${c.name}', meta: c.meta));
+      for (final c in _children.where((c) => _isPoint(c.meta) && match(c.meta.displayName ?? c.name))) {
+        rows.add(_MetricRow(
+            api: widget.api, name: c.meta.displayName ?? c.name, key2: '${widget.nodeKey}/${c.name}', meta: c.meta));
       }
       final info = <String, String?>{
         r'$is': m.profileName,

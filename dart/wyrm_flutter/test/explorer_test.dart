@@ -18,7 +18,7 @@ class ActApi implements WyrmApi {
   static final metaM = NodeMeta(hasChildren: true, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
-    'history': ActionMeta(display: 'History'),
+    'history': ActionMeta(display: 'History', result: const ResultType(TypeCode.array)),
   });
 
   /// A driver connection: groups `new` and `edit` (spec 02 0.1.6).
@@ -127,6 +127,7 @@ void main() {
     await t.tap(find.text('reset'));
     await t.pumpAndSettle();
     expect(api.invoked, isEmpty, reason: 'nothing runs before Invoke');
+    expect(find.text('output'), findsNothing, reason: 'no declared result, no output row');
     await t.tap(find.text('Invoke'));
     await t.pumpAndSettle();
     expect(api.invoked.single.$2, 'reset');
