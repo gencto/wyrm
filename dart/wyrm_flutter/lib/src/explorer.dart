@@ -122,7 +122,8 @@ class _WyExplorerState extends State<WyExplorer> {
   String? _selected;
   String? _error;
 
-  static const _sections = ['down', 'up', 'flows', 'sys'];
+  /// Site sections (spec 01 keys) with the names DSA brokers show.
+  static const _sections = {'down': 'downstream', 'flows': 'flows', 'sys': 'sys', 'up': 'upstream'};
 
   /// Site roots: built here, not listed.
   final _sites = <String>{};
@@ -139,7 +140,9 @@ class _WyExplorerState extends State<WyExplorer> {
 
   void _site(String key) {
     if (_sites.add(key)) {
-      _kids[key] = [for (final s in _sections) Child(s, NodeMeta(hasChildren: true))];
+      _kids[key] = [
+        for (final e in _sections.entries) Child(e.key, NodeMeta(hasChildren: true, display: e.value)),
+      ];
     }
   }
 
@@ -688,36 +691,70 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
             style: WyStyle.label,
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
               for (final e in _params.entries) _paramRow(e.key, e.value),
-              Row(children: [
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(_params.isEmpty ? 0 : _labelWidth + _gap, 6, 0, 6),
+              // Invoke across the form, the status after it (as in DSA UIs).
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(children: [
+                  Expanded(
                     child: _Button(
                         label: widget.meta == null ? 'Set' : 'Invoke',
                         onTap: _status == _Status.running ? null : _invoke),
                   ),
-                ),
-                if (_status != _Status.idle) ...[
-                  const SizedBox(width: 5),
-                  switch (_status) {
-                    _Status.running => const SizedBox.square(
-                        dimension: 14, child: CircularProgressIndicator(strokeWidth: 2, color: WyStyle.accent)),
-                    _Status.ok => const Icon(Icons.check, size: 16, color: WyStyle.accent),
-                    _ => const Icon(Icons.error_outline, size: 16, color: Colors.redAccent),
-                  },
-                ],
-              ]),
+                  const SizedBox(width: 8),
+                  SizedBox.square(
+                    dimension: 20,
+                    child: switch (_status) {
+                      _Status.idle => null,
+                      _Status.running => const Padding(
+                          padding: EdgeInsets.all(2),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: WyStyle.accent)),
+                      _Status.ok => const Icon(Icons.check, size: 20, color: WyStyle.text),
+                      _Status.error => const Icon(Icons.error_outline, size: 20, color: Colors.redAccent),
+                    },
+                  ),
+                ]),
+              ),
               if (_error != null)
                 Padding(
-                  padding: const EdgeInsets.all(5),
-                  child: Text(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent)),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SelectableText(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent)),
                 ),
-              if (_results.isNotEmpty) const SizedBox(height: 8),
-              for (final r in _results) _ResultView(r),
+              if (widget.meta?.result is! ResultVoid) ..._outputRows(context),
             ]),
           ),
         ),
       );
+
+  /// The result as DSA shows an action's columns: a label per column and a
+  /// value box; a table (several rows) as a "Table.." button that opens the
+  /// table window. `Null` until there is a result.
+  List<Widget> _outputRows(BuildContext context) {
+    Widget row(String label, Widget box) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            SizedBox(
+              width: _labelWidth,
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: WyStyle.formLabel),
+            ),
+            const SizedBox(width: _gap),
+            Expanded(child: box),
+          ]),
+        );
+    final results = _results;
+    if (results.isEmpty) return [row('output', const _ValueBox(text: 'Null'))];
+    // A stream gives several results: one table; one result shows as is.
+    final v = results.length == 1 ? results.single : VArray(List.of(results));
+    if (_ResultTable.isTable(v)) {
+      final title = widget.meta?.display ?? widget.action;
+      return [
+        row('output', _ValueBox(text: 'Table..', onTap: () => _ResultTable.open(context, title, v))),
+      ];
+    }
+    if (v is VMap) {
+      return [for (final e in v.v.entries) row(e.key, _ValueBox(text: _ResultTable.text(e.value)))];
+    }
+    return [row('output', _ValueBox(text: _ResultTable.text(v)))];
+  }
 
   /// The label (the name for people; the hint in a tooltip) in a fixed
   /// column, the field after it: every field starts at the same x.
@@ -802,68 +839,146 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   }
 }
 
-/// An action result as DSA shows it (a table by `$columns`): an array of
-/// maps is a table with a header row, a map is key/value rows, nested
-/// values are short text (the full text in a tooltip).
-class _ResultView extends StatelessWidget {
-  final Value value;
-  const _ResultView(this.value);
+/// A result value in the form: a button-like box (`Null`, the value, or
+/// `Table..` that opens the table window). Long text is cut; the full text
+/// is in a tooltip.
+class _ValueBox extends StatelessWidget {
+  final String text;
+  final VoidCallback? onTap;
+  const _ValueBox({required this.text, this.onTap});
 
-  static String compact(Value v) => switch (v) {
-        VMap(:final v) => '{${v.entries.map((e) => '${e.key}: ${compact(e.value)}').join(', ')}}',
-        VArray(:final v) => '[${v.map(compact).join(', ')}]',
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: text,
+        waitDuration: const Duration(milliseconds: 600),
+        child: _Button(label: text, onTap: onTap, passive: onTap == null),
+      );
+}
+
+/// A tabular result (an array of records, or of values) in its own window:
+/// a title bar with the action's name and a close button, then a grid
+/// with one column per field found in the rows (as many as the data has).
+abstract final class _ResultTable {
+  static bool isTable(Value v) => v is VArray && v.v.isNotEmpty;
+
+  static String text(Value v) => switch (v) {
+        VNull() => 'Null',
+        VMap(:final v) => '{${v.entries.map((e) => '${e.key}: ${text(e.value)}').join(', ')}}',
+        VArray(:final v) => '[${v.map(text).join(', ')}]',
         VStr(:final v) => v,
         _ => formatValue(v, null),
       };
 
-  static Widget _cell(Value v, {bool head = false}) {
-    final text = head ? (v as VStr).v : compact(v);
-    final style = head ? WyStyle.label.copyWith(color: WyStyle.disabled) : WyStyle.label.copyWith(color: WyStyle.accent);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: Tooltip(
-        message: text,
-        waitDuration: const Duration(milliseconds: 600),
-        child: Text(text, maxLines: 3, overflow: TextOverflow.ellipsis, style: style),
-      ),
-    );
+  /// Columns: the union of the record keys in order of appearance; values
+  /// that are not records go to one column `value`.
+  static (List<String>, List<List<Value>>) grid(VArray a) {
+    final cols = <String>[];
+    for (final row in a.v) {
+      if (row is VMap) {
+        for (final k in row.v.keys) {
+          if (!cols.contains(k)) cols.add(k);
+        }
+      } else if (!cols.contains('value')) {
+        cols.add('value');
+      }
+    }
+    final rows = [
+      for (final row in a.v)
+        [
+          for (final c in cols)
+            row is VMap ? (row.v[c] ?? const VNull()) : (c == 'value' ? row : const VNull()),
+        ],
+    ];
+    return (cols, rows);
   }
+
+  static void open(BuildContext context, String title, Value v) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        return Positioned(
+          left: size.width * 0.25,
+          top: 40,
+          width: size.width * 0.7,
+          height: size.height - 80,
+          child: _TableWindow(title: title, value: v as VArray, onClose: entry.remove),
+        );
+      },
+    );
+    overlay.insert(entry);
+  }
+}
+
+class _TableWindow extends StatelessWidget {
+  final String title;
+  final VArray value;
+  final VoidCallback onClose;
+  const _TableWindow({required this.title, required this.value, required this.onClose});
+
+  static const _colWidth = 180.0;
 
   @override
   Widget build(BuildContext context) {
-    final v = value;
-    if (v is VArray && v.v.isNotEmpty && v.v.every((e) => e is VMap)) {
-      final cols = <String>[];
-      for (final row in v.v) {
-        for (final k in (row as VMap).v.keys) {
-          if (!cols.contains(k)) cols.add(k);
-        }
-      }
-      return Table(
-        defaultColumnWidth: const IntrinsicColumnWidth(flex: 1),
-        border: const TableBorder(horizontalInside: BorderSide(color: WyStyle.line)),
-        children: [
-          TableRow(
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: WyStyle.line))),
-            children: [for (final c in cols) _cell(VStr(c), head: true)],
+    final (cols, rows) = _ResultTable.grid(value);
+    Widget cell(String t, {bool head = false}) => Container(
+          width: _colWidth,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: head ? WyStyle.panel : null,
+            border: Border.all(color: WyStyle.line, width: 0.5),
           ),
-          for (final row in v.v)
-            TableRow(children: [for (final c in cols) _cell((row as VMap).v[c] ?? const VNull())]),
-        ],
-      );
-    }
-    if (v is VMap) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final e in v.v.entries)
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: _labelWidth, child: _cell(VStr(e.key), head: true)),
-            Expanded(child: _cell(e.value)),
-          ]),
-      ]);
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: SelectableText(compact(v), style: WyStyle.label.copyWith(color: WyStyle.accent)),
+          child: Tooltip(
+            message: t,
+            waitDuration: const Duration(milliseconds: 600),
+            child: Text(t,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WyStyle.formLabel.copyWith(color: head ? WyStyle.text : WyStyle.accent)),
+          ),
+        );
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        decoration: BoxDecoration(color: WyStyle.field, border: Border.all(color: WyStyle.line), boxShadow: WyStyle.shadow),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            height: 34,
+            color: WyStyle.tabBar,
+            padding: const EdgeInsets.only(left: 14, right: 6),
+            child: Row(children: [
+              Expanded(child: Text(title, style: WyStyle.tab.copyWith(fontSize: 14))),
+              IconButton(
+                tooltip: 'Close',
+                icon: const Icon(Icons.close, size: 18, color: WyStyle.text),
+                onPressed: onClose,
+              ),
+            ]),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: _colWidth * cols.length,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const SizedBox(height: 40),
+                  Row(children: [for (final c in cols) cell(c, head: true)]),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: rows.length,
+                      itemExtent: 30,
+                      itemBuilder: (_, i) => Row(children: [for (final v in rows[i]) cell(_ResultTable.text(v))]),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }
@@ -893,7 +1008,10 @@ class _FieldBox extends StatelessWidget {
 class _Button extends StatefulWidget {
   final String label;
   final VoidCallback? onTap;
-  const _Button({required this.label, this.onTap});
+
+  /// A value box, not a control: no hover or press colours.
+  final bool passive;
+  const _Button({required this.label, this.onTap, this.passive = false});
   @override
   State<_Button> createState() => _ButtonState();
 }
@@ -903,8 +1021,9 @@ class _ButtonState extends State<_Button> {
   bool _down = false;
   @override
   Widget build(BuildContext context) {
-    final bg = _down ? WyStyle.accent : (_hover ? WyStyle.selected : WyStyle.field);
-    final fg = (_down || _hover) ? Colors.white : WyStyle.text;
+    final live = !widget.passive;
+    final bg = live && _down ? WyStyle.accent : (live && _hover ? WyStyle.selected : WyStyle.field);
+    final fg = live && (_down || _hover) ? Colors.white : WyStyle.text;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -914,11 +1033,13 @@ class _ButtonState extends State<_Button> {
         onTapCancel: () => setState(() => _down = false),
         onTap: widget.onTap,
         child: Container(
-          height: 26, // as tall as the fields
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           alignment: Alignment.center,
           decoration: BoxDecoration(
               color: bg, border: Border.all(color: WyStyle.line), borderRadius: BorderRadius.circular(4)),
-          child: Text(widget.label, style: TextStyle(fontFamily: 'Arial', fontSize: 11, color: fg)),
+          child: Text(widget.label,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: WyStyle.formLabel.copyWith(fontSize: 13, color: fg)),
         ),
       ),
     );

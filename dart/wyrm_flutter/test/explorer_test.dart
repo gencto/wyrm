@@ -112,7 +112,8 @@ void main() {
     await t.pumpAndSettle();
     expect(api.invoked.single.$2, 'count');
     expect(api.invoked.single.$3, VMap({'n': const VInt(3)}));
-    expect(find.text('7'), findsOneWidget, reason: 'result shown');
+    expect(find.text('output'), findsOneWidget);
+    expect(find.text('7'), findsOneWidget, reason: 'result in the output box');
   });
 
   testWidgets('an action without params also opens its form; Invoke runs it', (t) async {
@@ -203,11 +204,17 @@ void main() {
     await rightClick(t, find.text('m'));
     await t.tap(find.text('History'));
     await t.pumpAndSettle();
+    expect(find.text('Null'), findsOneWidget, reason: 'output before Invoke');
     await t.tap(find.text('Invoke'));
     await t.pumpAndSettle();
-    expect(find.byType(Table), findsOneWidget);
+    // a table result: a "Table.." box that opens the table window
+    await t.tap(find.text('Table..'));
+    await t.pumpAndSettle();
     expect(find.text('rev'), findsOneWidget);
     expect(find.text('params'), findsOneWidget);
     expect(find.text('{points: 16}'), findsOneWidget);
+    await t.tap(find.byTooltip('Close'));
+    await t.pumpAndSettle();
+    expect(find.text('rev'), findsNothing);
   });
 }
