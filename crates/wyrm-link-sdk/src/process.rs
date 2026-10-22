@@ -111,10 +111,49 @@ impl Env {
 pub struct Hello {
     pub params: Value,
     pub admin_keys: Vec<VerifyingKey>,
-    /// `[[key, perm code, [scope, ...]], ...]`: keys trusted only up to a
-    /// permission and only under their scopes.
+    /// `limited_keys` `[[key, perm code, [scope, ...]], ...]` and
+    /// `bound_keys` (the same plus a subject): keys trusted only up to a
+    /// permission, only under their scopes, a bound one only for its subject.
     pub limited_keys: Vec<crate::auth::LimitedKey>,
     pub secrets: crate::SecretStore,
+}
+
+/// One trusted limited key from `hello`: `[key, cap, scopes]`, plus the
+/// subject when `bound`.
+fn limited_key(v: &Value, bound: bool) -> Result<crate::auth::LimitedKey> {
+    let bad = |what: &str| LinkError::new(Status::InvalidMessage, format!("bad key {what}"));
+    let Value::Array(kv) = v else {
+        return Err(bad("entry"));
+    };
+    if kv.len() != if bound { 4 } else { 3 } {
+        return Err(bad("entry"));
+    }
+    let cap = kv[1]
+        .as_f64()
+        .and_then(|c| u8::try_from(c as u64).ok())
+        .and_then(|c| wyrm_core::Perm::try_from(c).ok())
+        .ok_or_else(|| bad("cap"))?;
+    let Value::Array(sc) = &kv[2] else {
+        return Err(bad("scopes"));
+    };
+    let scopes = sc
+        .iter()
+        .map(|s| match s {
+            Value::Str(s) => Ok(s.clone()),
+            _ => Err(bad("scope")),
+        })
+        .collect::<Result<_>>()?;
+    let subject = match kv.get(3) {
+        None => None,
+        Some(Value::Str(s)) => Some(s.clone()),
+        Some(_) => return Err(bad("subject")),
+    };
+    Ok(crate::auth::LimitedKey {
+        key: key_of(&kv[0])?,
+        cap,
+        scopes,
+        subject,
+    })
 }
 
 fn key_of(v: &Value) -> Result<VerifyingKey> {
@@ -139,37 +178,16 @@ fn parse_hello(v: Value) -> Result<Hello> {
         Some(Value::Array(keys)) => keys.iter().map(key_of).collect::<Result<_>>()?,
         _ => Vec::new(),
     };
-    let limited_keys = match m.remove("limited_keys") {
-        Some(Value::Array(pairs)) => pairs
-            .iter()
-            .map(|p| match p {
-                Value::Array(kv) if kv.len() == 3 => {
-                    let cap = kv[1]
-                        .as_f64()
-                        .and_then(|c| u8::try_from(c as u64).ok())
-                        .and_then(|c| wyrm_core::Perm::try_from(c).ok())
-                        .ok_or_else(|| LinkError::new(Status::InvalidMessage, "bad key cap"))?;
-                    let Value::Array(sc) = &kv[2] else {
-                        return Err(LinkError::new(Status::InvalidMessage, "bad key scopes"));
-                    };
-                    let scopes = sc
-                        .iter()
-                        .map(|s| match s {
-                            Value::Str(s) => Ok(s.clone()),
-                            _ => Err(LinkError::new(Status::InvalidMessage, "bad key scope")),
-                        })
-                        .collect::<Result<_>>()?;
-                    Ok(crate::auth::LimitedKey {
-                        key: key_of(&kv[0])?,
-                        cap,
-                        scopes,
-                    })
-                }
-                _ => Err(LinkError::new(Status::InvalidMessage, "bad limited key")),
-            })
-            .collect::<Result<_>>()?,
-        _ => Vec::new(),
+    // `[key, cap, scopes]` in `limited_keys`; keys bound to one subject
+    // in `bound_keys` as `[key, cap, scopes, subject]`.
+    let keys_of = |v: Option<Value>, bound: bool| -> Result<Vec<crate::auth::LimitedKey>> {
+        match v {
+            Some(Value::Array(entries)) => entries.iter().map(|e| limited_key(e, bound)).collect(),
+            _ => Ok(Vec::new()),
+        }
     };
+    let mut limited_keys = keys_of(m.remove("limited_keys"), false)?;
+    limited_keys.extend(keys_of(m.remove("bound_keys"), true)?);
     let secrets = match m.remove("secrets") {
         Some(Value::Map(s)) => s
             .into_iter()
@@ -380,4 +398,44 @@ where
     handle.stop().await;
     let _ = session.close().await;
     r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bound keys arrive in their own field with their subject; a bound
+    /// entry without one, or a free entry with one, is refused.
+    #[test]
+    fn hello_keeps_key_subjects() {
+        let key = Value::Bytes(
+            ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                .verifying_key()
+                .to_bytes()
+                .to_vec(),
+        );
+        let entry = |subject: Option<&str>| {
+            let mut e = vec![
+                key.clone(),
+                Value::UInt(wyrm_core::Perm::Write.code().into()),
+                Value::Array(vec![Value::from("wy/s/down/mock")]),
+            ];
+            e.extend(subject.map(Value::from));
+            Value::Array(e)
+        };
+        let reply = |free: Value, bound: Value| {
+            Value::Map(
+                [
+                    ("limited_keys".to_owned(), Value::Array(vec![free])),
+                    ("bound_keys".to_owned(), Value::Array(vec![bound])),
+                ]
+                .into(),
+            )
+        };
+        let h = parse_hello(reply(entry(None), entry(Some("link:rec")))).unwrap();
+        let subjects: Vec<_> = h.limited_keys.iter().map(|k| k.subject.clone()).collect();
+        assert_eq!(subjects, [None, Some("link:rec".to_owned())]);
+        assert!(parse_hello(reply(entry(None), entry(None))).is_err());
+        assert!(parse_hello(reply(entry(Some("link:rec")), entry(Some("link:rec")))).is_err());
+    }
 }

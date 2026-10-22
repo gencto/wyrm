@@ -145,7 +145,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `kind` | yes | `process` or `wasm`. |
 | `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`. One zip can carry several hosts. |
 | `args` | no | Arguments for the executable. |
-| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/down/mock", "level": "read"}]` (section 9). |
+| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/down/mock", "level": "read"}]` (section 9). Name a link or flow: a whole `wy/{site}/down` or `wy/{site}/flows` is refused. |
 | `entry` | `wasm` | The component file. |
 
 Unknown fields are refused, so a typo does not pass silently.
@@ -282,8 +282,8 @@ do both. Give it **grants**, as a role has them:
   certificate reach the granted paths. For `set` and actions the client
   signs a `ptok` with the link's requester key, `LinkCtx::requester_key()`
   (the link secret `.requester_key`, made by the broker for a link with
-  grants). Every link trusts that key up to the grant's level and only
-  under its path:
+  grants). Every link trusts that key up to the grant's level, only
+  under its path and only with the subject `link:<id>`:
 
 ```rust
 let key = ctx.requester_key().ok_or("no grants")?;

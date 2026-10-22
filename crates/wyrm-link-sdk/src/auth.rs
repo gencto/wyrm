@@ -51,6 +51,9 @@ pub struct LimitedKey {
     pub key: VerifyingKey,
     pub cap: Perm,
     pub scopes: Vec<String>,
+    /// The only `sub` this key may sign for (a requester link's key:
+    /// `link:<id>`), so the audit names who really called. `None` = any.
+    pub subject: Option<String>,
 }
 
 impl LimitedKey {
@@ -110,29 +113,36 @@ impl Verifier {
         let sig = Signature::from_bytes(parts.sig);
         let trust = self.trust.read().unwrap_or_else(|p| p.into_inner());
         let (keys, limited) = &*trust;
-        let cap = if keys
+        let admin = keys
             .iter()
-            .any(|k| k.verify_strict(parts.signed, &sig).is_ok())
-        {
-            Perm::Config
+            .any(|k| k.verify_strict(parts.signed, &sig).is_ok());
+        let signers: Vec<&LimitedKey> = if admin {
+            Vec::new()
         } else {
-            let signers: Vec<&LimitedKey> = limited
+            let s: Vec<&LimitedKey> = limited
                 .iter()
                 .filter(|l| l.key.verify_strict(parts.signed, &sig).is_ok())
                 .collect();
-            if signers.is_empty() {
+            if s.is_empty() {
                 return Err(Denied::Signature);
             }
+            s
+        };
+        // Signed: the claims are the signer's, safe to decode now.
+        let claims: PtokClaims =
+            wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
+        let cap = if admin {
+            Perm::Config
+        } else {
             signers
                 .iter()
                 .filter(|l| l.covers(key.as_str()))
+                .filter(|l| l.subject.as_ref().is_none_or(|s| *s == claims.sub))
                 .map(|l| l.cap)
                 .max()
                 .ok_or(Denied::NoGrant)?
         };
         drop(trust);
-        let claims: PtokClaims =
-            wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         if claims.exp <= now {
             return Err(Denied::Expired);
         }

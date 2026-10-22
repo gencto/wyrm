@@ -273,6 +273,14 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             .find(|p| p.name() == g.level && *p != wyrm_core::Perm::None)
             .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level))?;
         crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
+        // A package names the branches it needs; a whole root (every link,
+        // every flow) only an operator grants, with Grant Access.
+        if matches!(g.path.as_str(), "wy/{site}/down" | "wy/{site}/flows") {
+            return Err(format!(
+                "requester {}: name a link or flow under it (a whole root needs Grant Access)",
+                g.path
+            ));
+        }
         out.def.requester.push((g.path.clone(), level.code()));
     }
     out.def.name = m.name;
@@ -397,6 +405,25 @@ pub(crate) mod tests {
             (zip_of(&[(MANIFEST, &manifest(""), 0o644)]), "not a file of the package"),
             (b"not a zip".to_vec(), "zip:"),
         ];
+        // Requested grants: a whole root, sys and config are refused.
+        let grant = |path: &str, level: &str| {
+            let m = manifest(&format!(
+                r#", "requester": [{{"path": "{path}", "level": "{level}"}}]"#
+            ));
+            zip_of(&[(MANIFEST, &m, 0o644), ("bin/run", b"x", 0o755)])
+        };
+        let cases = cases.into_iter().chain([
+            (
+                grant("wy/{site}/down", "read"),
+                "a whole root needs Grant Access",
+            ),
+            (
+                grant("wy/{site}/flows", "list"),
+                "a whole root needs Grant Access",
+            ),
+            (grant("wy/{site}/sys", "read"), "never sys"),
+            (grant("wy/{site}/down/mock", "config"), "at most write"),
+        ]);
         for (z, why) in cases {
             let err = unpack(&z, &root, "zip", 0).err().unwrap_or_default();
             assert!(err.contains(why), "{why}: got {err:?}");

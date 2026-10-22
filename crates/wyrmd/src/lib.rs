@@ -1015,11 +1015,13 @@ impl Daemon {
             key: flows.verifying_key(),
             cap: wyrm_core::Perm::Write,
             scopes: devices.clone(),
+            subject: None,
         }];
         link_keys.extend(gateway.as_ref().map(|g| wyrm_link_sdk::LimitedKey {
             key: g.verifying_key(),
             cap: wyrm_core::Perm::Config,
             scopes: devices.clone(),
+            subject: None,
         }));
         let ctl_cfg = ControlConfig {
             site: cfg.site.clone(),

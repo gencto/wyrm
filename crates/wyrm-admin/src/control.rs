@@ -575,6 +575,7 @@ impl Control {
                     key,
                     cap,
                     scopes: vec![path.replace("{site}", &self.cfg.site)],
+                    subject: Some(format!("link:{}", d.id)),
                 });
             }
         }
@@ -633,6 +634,7 @@ impl Control {
                     key,
                     cap: Perm::Write,
                     scopes,
+                    subject: None,
                 })
             })
             .collect()
@@ -3032,20 +3034,27 @@ impl Admin {
                     .collect(),
             ),
         );
+        // `[key, cap, scopes]`; a key bound to one subject goes in
+        // `bound_keys` as `[key, cap, scopes, subject]`: a link built
+        // before subjects ignores that field and so never trusts it.
+        let entry = |l: &wyrm_link_sdk::LimitedKey| {
+            let mut e = vec![
+                Value::Bytes(l.key.to_bytes().to_vec()),
+                Value::UInt(l.cap.code().into()),
+                Value::Array(l.scopes.iter().cloned().map(Value::Str).collect()),
+            ];
+            e.extend(l.subject.clone().map(Value::Str));
+            Value::Array(e)
+        };
+        let (bound, free): (Vec<_>, Vec<_>) =
+            limited_keys.iter().partition(|l| l.subject.is_some());
         reply.insert(
             "limited_keys".into(),
-            Value::Array(
-                limited_keys
-                    .iter()
-                    .map(|l| {
-                        Value::Array(vec![
-                            Value::Bytes(l.key.to_bytes().to_vec()),
-                            Value::UInt(l.cap.code().into()),
-                            Value::Array(l.scopes.iter().cloned().map(Value::Str).collect()),
-                        ])
-                    })
-                    .collect(),
-            ),
+            Value::Array(free.into_iter().map(entry).collect()),
+        );
+        reply.insert(
+            "bound_keys".into(),
+            Value::Array(bound.into_iter().map(entry).collect()),
         );
         Ok(Some(Value::Map(reply)))
     }

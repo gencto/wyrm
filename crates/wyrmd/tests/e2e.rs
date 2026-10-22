@@ -1327,6 +1327,16 @@ async fn link_grants_make_a_requester() {
         rec.set(&format!("{mock}/g0/p0"), 6.0).await.ok()
     })
     .await;
+    // the key signs only as `link:rec` (the audit names the real caller)
+    let spoof = WyrmClient::new(env.tls_session("rec").await)
+        .with_timeout(Duration::from_secs(2))
+        .with_tokens(Arc::new(
+            SigningTokens::new(key.clone(), SITE).subject("user:admin".to_owned()),
+        ));
+    assert!(
+        spoof.set(&format!("{mock}/g0/p0"), 7.0).await.is_err(),
+        "another subject: refused"
+    );
     // the grant does not reach sys
     let rec = as_rec(Some(key.clone())).await;
     assert!(

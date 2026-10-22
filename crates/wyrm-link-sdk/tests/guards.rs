@@ -325,6 +325,7 @@ async fn limited_keys_are_capped() {
                 format!("wy/{SITE}/down/cfg/w"),
                 format!("wy/{SITE}/down/cfg/c"),
             ],
+            subject: None,
         }];
     })
     .await;
@@ -345,6 +346,44 @@ async fn limited_keys_are_capped() {
     );
     assert_eq!(
         status(&h.set("c", 1.0, Some(tok("c"))).await),
+        Some(Status::PermissionDenied)
+    );
+    h.stop().await;
+}
+
+/// A key bound to a subject (a requester link's) signs only for that
+/// subject: a token naming someone else is refused, so the audit cannot be
+/// misled.
+#[tokio::test(flavor = "multi_thread")]
+async fn bound_keys_sign_only_their_subject() {
+    let link = ed25519_dalek::SigningKey::from_bytes(&[43; 32]);
+    let vk = link.verifying_key();
+    let h = TestHarness::<Cfg>::start_with((), move |c| {
+        c.limited_keys = vec![wyrm_link_sdk::LimitedKey {
+            key: vk,
+            cap: Perm::Write,
+            scopes: vec![format!("wy/{SITE}/down/cfg")],
+            subject: Some("link:rec".into()),
+        }];
+    })
+    .await;
+    let tok = |sub: &str| {
+        let k = h.key("w", "~set");
+        let mut claims = h.claims(&[(&k, Perm::Write)]);
+        claims.sub = sub.into();
+        let mut t = vec![wyrm_core::ptok::PTOK_VERSION];
+        t.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+        use ed25519_dalek::Signer;
+        let sig = link.sign(&t);
+        t.extend(sig.to_bytes());
+        t
+    };
+    assert_eq!(
+        status(&h.set("w", 1.0, Some(tok("link:rec"))).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(
+        status(&h.set("w", 1.0, Some(tok("user:admin"))).await),
         Some(Status::PermissionDenied)
     );
     h.stop().await;
@@ -392,6 +431,7 @@ async fn limited_keys_are_scoped() {
             key: vk,
             cap: Perm::Write,
             scopes: vec![format!("wy/{SITE}/down/cfg/w")],
+            subject: None,
         }];
     })
     .await;
