@@ -3,7 +3,8 @@
 Recorded 2026-10-22 from the owner's review of the demo chain
 (`plant → edge → central`) in the Flutter explorer. Each item: what the
 owner saw or asked for, what we know of the cause, a proposal, and the
-decisions it needs. Numbers follow the owner's list.
+decisions it needs. Numbers follow the owner's list (9 and 10 added the
+same day: meta elements `@unit` and `@history`).
 
 Already fixed on the day: the Metrics panel showed
 `WyrmException(disconnected): wy/central/down/~meta is not connected` when
@@ -150,3 +151,71 @@ same for every enum parameter with no values.
 
 **Decide:** downstream brokers in the list (Deauthorize = remove the peer
 and quarantine its CN)?
+
+## 9. The unit beside the value (explorer only)
+
+**Asked:** when a node has a unit (`@unit`, the DSA name; key 2 `unit` in
+spec 02, shown as `$unit` today), the explorer writes it after the value:
+`21.5 °C`. Display only; the value itself stays a number.
+
+**Today:** `formatValue` already appends a text unit to numbers, but the
+Metrics rows take their meta from `~meta?view=list`, whose summaries carry
+no unit (spec 02: keys 0, 1, 4, 10, 11, 12, 13), so no unit shows. A unit
+can also be an interned code (`tables.json`) or come from the node's
+profile (`is`), and some drivers may put it in `attr.unit`.
+
+**Proposal:**
+- Spec 02: add key 2 (`unit`) to the `view=list` summary (one more field
+  per row; fixture `meta_view_list` changes; both SDKs), so every list
+  shows units without one `~meta` per row.
+- Explorer: the unit from, in order, the node's `unit`, its profile's
+  `unit`, `attr.unit`; codes resolved through the units table; shown after
+  numbers (also in the tree and the history table and chart axis), never
+  after enum labels, bools or text.
+
+**Decide:** spec change (unit in `view=list`) or the explorer loads the
+full `~meta` of the rows it shows.
+
+## 10. `@history`: where a point's history lives, and an icon for it
+
+**Asked:** history can be kept by the broker's historian or by a link
+(a requester that records, as `examples/links/requester`). To tie a point
+to its history, its meta carries `@history`: the path of the store that
+records it. When a node has `@history`, the explorer marks it as recorded
+with an icon, and the icon opens the history view of that store.
+
+**Contract (proposal):** `attr.history` = a node key, or an array of keys,
+each answering `get <key>/~val?history=…` (spec 01/03) for this point:
+- the broker's historian: the watch node `wy/<site>/sys/history/<group>/w<N>`
+  (it answers `~val?history=` for its point, as the point key does today);
+- a link that records: a node of its own tree that answers the same query
+  (one protocol for every store; the explorer needs no store-specific code).
+
+**Who writes `@history`:** the owner of a node's `~meta` is its link; the
+historian lives in the broker. Options:
+1. **Broker-held meta overlays** (the ADR 0003 TODO for `~set?field=`):
+   `~set?field=attr.<name>` stores an overlay in the admin's registry; the
+   admin hands each link its overlays (embedded: at start; process: in
+   `hello`; changes: a `sys/overlays/<link>` key the SDK follows), and the
+   SDK merges them into `~meta` replies and publications. Adding a watch
+   sets `attr.history`; removing it clears it. Survives link restarts and
+   re-declarations. General: also for `cfg` overrides by people.
+2. **A history index next to the tree:** the historian serves
+   `<point>/~hist` (a new suffix, spec 01) or a fan-in index; the explorer
+   asks it for the points it shows. No change to links, but not "in the
+   meta".
+3. **Links set it themselves** (a recorder declares `attr.history` on the
+   points it records via a requester grant with `config`): cannot cover
+   the broker's historian.
+
+Option 1 matches "we write the path into the meta"; it needs an ADR
+(overlays are control-plane state the broker owns; links merge, never
+own them) and a spec 02 note on `attr.history`.
+
+**Explorer:** a small history icon after the name of a recorded node (tree
+and Metrics rows); click → the history window (as View History) on the
+`@history` key(s), with a store picker when there are several.
+
+**Decide:** option 1 (overlays) or 2 (index); a single key or an array;
+whether watches added before the change get `@history` by a one-time
+pass.
