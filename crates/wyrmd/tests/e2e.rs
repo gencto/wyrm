@@ -2892,13 +2892,23 @@ async fn two_brokers_isolation() {
     ] {
         assert_eq!(replies(&cs, k).await, Vec::<String>::new(), "query {k}");
     }
-    // The edge publishes its metrics every 200 ms; they reach central too.
-    let (down, sys) = tokio::join!(
+    // The edge publishes its metrics every 200 ms: their values reach
+    // central (as clients subscribe, `<pattern>/~val`); a subscription to
+    // all of sys/** gets nothing else, so no other key under sys (audit
+    // records, checked in 3.) goes up.
+    let (down, sys, raw) = tokio::join!(
         samples(&cs, "wy/edge/down/**", 2),
+        samples(&cs, "wy/edge/sys/**/~val", 2),
         samples(&cs, "wy/edge/sys/**", 2)
     );
     assert!(!down.is_empty(), "control: edge values reach central");
-    assert!(!sys.is_empty(), "edge sys/** values reach central");
+    assert!(!sys.is_empty(), "edge sys values reach central");
+    assert!(
+        raw.iter()
+            .all(|k| k.ends_with("/~val") || k.ends_with("/~meta")),
+        "only values and metadata of edge sys/** at central: {:?}",
+        raw.iter().find(|k| !k.ends_with("/~val"))
+    );
 
     // 2. No commands across sites, even with a token the edge trusts.
     let args = Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(1))]));
@@ -2921,15 +2931,25 @@ async fn two_brokers_isolation() {
     );
     let watch_central = samples(&cs, "wy/central/**", 3);
     let watch_other = samples(&cs, "wy/other/**", 3);
+    // audit records of the edge's links stay on the edge (only ~val and
+    // ~meta of sys go up)
+    let watch_audit = samples(&cs, "wy/edge/sys/audit/**", 3);
     let forge = async {
         tokio::time::sleep(Duration::from_millis(500)).await;
         for _ in 0..10 {
             es.put("wy/central/down/x/~val", sample(1.0)).await.unwrap();
             es.put("wy/other/down/x/~val", sample(1.0)).await.unwrap();
+            es.put("wy/edge/sys/audit/mock", sample(1.0)).await.unwrap();
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     };
-    let (central_seen, other_seen, ()) = tokio::join!(watch_central, watch_other, forge);
+    let (central_seen, other_seen, audit_seen, ()) =
+        tokio::join!(watch_central, watch_other, watch_audit, forge);
+    assert_eq!(
+        audit_seen,
+        Vec::<String>::new(),
+        "edge audit records at central"
+    );
     assert_eq!(
         central_seen,
         Vec::<String>::new(),

@@ -861,6 +861,9 @@ impl wyrm_state::State for Registry {
                 if self.peers.contains_key(&def.site) {
                     return Err(format!("peer {} exists", def.site));
                 }
+                if self.peers.values().any(|p| p.via.contains(&def.site)) {
+                    return Err(format!("{} is relayed by another peer", def.site));
+                }
                 if def.dir == PeerDir::Downstream && self.links.contains_key(&def.site) {
                     return Err(format!(
                         "{} is a link id (down/{} would be both)",
@@ -952,6 +955,16 @@ mod tests {
         };
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
             .unwrap();
+        // a site edge relays cannot become a peer of its own
+        let mut relay = peer("hub", PeerDir::Downstream, "");
+        relay.via = vec!["cell".into()];
+        r.apply(&Op::AddPeer(relay)).unwrap();
+        assert!(r
+            .apply(&Op::AddPeer(peer("cell", PeerDir::Downstream, "")))
+            .is_err());
+        let mut twice = peer("hub2", PeerDir::Downstream, "");
+        twice.via = vec!["cell".into()];
+        assert!(r.apply(&Op::AddPeer(twice)).is_err(), "relayed twice");
         r.apply(&Op::AddPeer(peer(
             "cloud",
             PeerDir::Upstream,

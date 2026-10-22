@@ -276,19 +276,37 @@ pub fn access_control_with_peers(
         let sites: Vec<String> = std::iter::once(site.to_owned())
             .chain(peers.reachable())
             .collect();
+        // Whole sections: declarations and liveliness (they carry key names).
         let readable: Vec<String> = sites
             .iter()
             .flat_map(|s| UP_READ.iter().map(move |(t, _)| format!("wy/{s}/{t}/**")))
             .collect();
+        // Data: `down` and `flows` whole; `sys` and `up` only their values
+        // and metadata, so nothing else published under `sys` (the audit
+        // records of `sys/audit/<link>`) leaves for the upstream.
+        let data: Vec<String> = sites
+            .iter()
+            .flat_map(|s| {
+                UP_READ.iter().flat_map(move |(t, sfx)| {
+                    if *t == "down" || *t == "flows" {
+                        vec![format!("wy/{s}/{t}/**")]
+                    } else {
+                        sfx.iter().map(|x| format!("wy/{s}/{t}/**/{x}")).collect()
+                    }
+                })
+            })
+            .collect();
         rules.push(rule(
             "upstream-in",
             &["ingress"],
-            &[
-                "declare_subscriber",
-                "declare_liveliness_subscriber",
-                "liveliness_query",
-            ],
+            &["declare_liveliness_subscriber", "liveliness_query"],
             &readable,
+        ));
+        rules.push(rule(
+            "upstream-sub",
+            &["ingress"],
+            &["declare_subscriber"],
+            &data,
         ));
         // Read-only: queries only on read suffixes, never `~set`/`~act`.
         let read_suffixes: Vec<String> = sites
@@ -309,14 +327,17 @@ pub fn access_control_with_peers(
             "upstream-out",
             &["egress"],
             &[
-                "put",
-                "delete",
-                "reply",
                 "liveliness_token",
                 "declare_queryable",
                 "declare_subscriber",
             ],
             &readable,
+        ));
+        rules.push(rule(
+            "upstream-data",
+            &["egress"],
+            &["put", "delete", "reply"],
+            &data,
         ));
         let cns: Vec<String> = peers
             .upstream
@@ -327,7 +348,7 @@ pub fn access_control_with_peers(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-query", "upstream-out", "pub-in", "pub-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-sub", "upstream-query", "upstream-out", "upstream-data", "pub-in", "pub-out"], "subjects": ["upstream"] }));
         // Presence (`up/<u>/connected` here, `down/<site>/connected` there):
         // per upstream site, so one site cannot declare another's token,
         // and a peer never declares a token on our own key.
@@ -536,6 +557,14 @@ mod tests {
         );
         assert!(q.iter().all(|k| !k.contains("~set") && !k.contains("~act")));
         assert!(!q.iter().any(|k| k.starts_with("wy/plant-a/sys/**/~def")));
+        // data leaving for the upstream: sys only as ~val and ~meta (no
+        // audit records of sys/audit/<link>); down whole
+        for id in ["upstream-data", "upstream-sub"] {
+            let k = keys(id);
+            assert!(k.contains(&"wy/plant-a/down/**".to_owned()), "{id}");
+            assert!(k.contains(&"wy/plant-a/sys/**/~val".to_owned()), "{id}");
+            assert!(!k.contains(&"wy/plant-a/sys/**".to_owned()), "{id}: {k:?}");
+        }
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &text).unwrap();
     }

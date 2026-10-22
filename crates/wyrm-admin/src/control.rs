@@ -3548,13 +3548,16 @@ impl Admin {
         wyrm_core::keyspace::validate_segment(site)
             .map_err(|e| LinkError::invalid_parameter(format!("name: {e}")))?;
         let configured = self.ctl.config_peers();
+        let all = self.ctl.peers();
         if site == self.ctl.cfg.site
             || configured.peers.upstream.iter().any(|u| u == site)
             || configured.peers.downstream.iter().any(|d| d == site)
             || self.ctl.registry().peers.contains_key(site)
+            || all.upstream.iter().any(|u| u == site)
+            || all.reachable().iter().any(|r| r == site)
         {
             return Err(LinkError::invalid_parameter(format!(
-                "site {site} is this broker or already a peer"
+                "site {site} is this broker, a peer or a site a peer relays"
             )));
         }
         check_ca_pem(ca_pem).map_err(LinkError::invalid_parameter)?;
@@ -3590,7 +3593,6 @@ impl Admin {
                 .map(str::to_owned)
                 .collect(),
         };
-        let all = self.ctl.peers();
         for v in &via {
             wyrm_core::keyspace::validate_segment(v)
                 .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
