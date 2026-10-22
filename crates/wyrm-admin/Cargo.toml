@@ -23,6 +23,7 @@ hex.workspace = true
 getrandom.workspace = true
 argon2.workspace = true
 rcgen.workspace = true
+x509-parser.workspace = true
 ring.workspace = true
 flate2.workspace = true
 ed25519-dalek.workspace = true

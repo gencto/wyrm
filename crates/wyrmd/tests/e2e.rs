@@ -1510,6 +1510,146 @@ async fn process_link_keeps_runtime_edits() {
     env.stop().await;
 }
 
+/// Peer brokers added at runtime (DSA `/sys/upstream`): no peers in either
+/// `wyrmd.json5` (central only has `peers.listen`); central trusts the edge
+/// with `sys/downstream add`, the edge connects with `sys/upstream add`;
+/// disabling the upstream ends the link.
+#[tokio::test(flavor = "multi_thread")]
+async fn runtime_peers_over_quic() {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir) = (temp_dir("rt-central"), temp_dir("rt-edge"));
+    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"], peers: {{ listen: "quic/127.0.0.1:{c_quic}" }} }}"#,
+        c_dir.display()
+    ))
+    .unwrap();
+    let edge = Config::from_json5(&format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{admin}"], {MOCK} }}"#,
+        e_dir.display()
+    ))
+    .unwrap();
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let central = Daemon::open(central, exe.clone()).unwrap();
+    let edge = Daemon::open(edge, exe).unwrap();
+    let e_ctl = edge.control();
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let (e_stop, e_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    let e_task = tokio::spawn(edge.run_until(async {
+        let _ = e_rx.await;
+    }));
+    // a fresh client per try: every peer change rebuilds that router
+    let client = |port: u16, site: &'static str| {
+        let key = key.clone();
+        async move {
+            WyrmClient::new(loopback_session(port).await)
+                .with_tokens(Arc::new(SigningTokens::new(key, site)))
+                .with_timeout(Duration::from_secs(3))
+        }
+    };
+    let args = |pairs: &[(&str, Value)]| {
+        Value::Map(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        )
+    };
+    let pem = |dir: &PathBuf| std::fs::read_to_string(dir.join("pki/ca.pem")).unwrap();
+    let up_add = |ca: String, url: String| {
+        args(&[
+            ("name", Value::from("central")),
+            ("url", Value::from(url.as_str())),
+            ("ca", Value::from(ca.as_str())),
+        ])
+    };
+
+    let c = client(c_tcp, "central").await;
+    c.invoke_one(
+        "wy/central/sys/downstream",
+        "add",
+        args(&[
+            ("name", Value::from("edge")),
+            ("ca", Value::from(pem(&e_dir).as_str())),
+        ]),
+    )
+    .await
+    .expect("trust the edge");
+    let e = client(e_tcp, "edge").await;
+    for (ca, url, why) in [
+        (
+            "not a pem".to_string(),
+            format!("quic/127.0.0.1:{c_quic}"),
+            "CA",
+        ),
+        (pem(&c_dir), format!("tcp/127.0.0.1:{c_quic}"), "url"),
+    ] {
+        let err = e
+            .invoke_one("wy/edge/sys/upstream", "add", up_add(ca, url))
+            .await
+            .expect_err(why);
+        assert!(err.is(wyrm_core::Status::InvalidParameter), "{why}: {err}");
+    }
+    e.invoke_one(
+        "wy/edge/sys/upstream",
+        "add",
+        up_add(pem(&c_dir), format!("quic/127.0.0.1:{c_quic}")),
+    )
+    .await
+    .expect("connect upstream");
+
+    // tokens for the site being read (the edge checks them)
+    eventually("edge links seen from central", 20, || async {
+        let c = client(c_tcp, "edge").await;
+        let ch = c.children("wy/edge/down").await.ok()?;
+        ch.iter().any(|c| c.name == "mock").then_some(())
+    })
+    .await;
+    eventually("edge sees central connected", 10, || async {
+        let e = client(e_tcp, "edge").await;
+        (last_val(&e, "wy/edge/up/central/connected").await == Some(Value::Bool(true)))
+            .then_some(())
+    })
+    .await;
+    let peer = e_ctl.registry().peers["central"].clone();
+    assert!(peer.enabled && peer.endpoint.ends_with(&c_quic.to_string()));
+
+    // disabled: the edge drops the connection, central loses the edge tree
+    let e = client(e_tcp, "edge").await;
+    e.set("wy/edge/sys/upstream/central/enabled", false)
+        .await
+        .unwrap();
+    eventually("edge gone from central", 20, || async {
+        let c = client(c_tcp, "edge").await;
+        match c.children("wy/edge/down").await {
+            Ok(ch) if !ch.is_empty() => None,
+            _ => Some(()),
+        }
+    })
+    .await;
+    assert!(!e_ctl.peers().upstream.contains(&"central".to_string()));
+    let audit = e_ctl.audit_tail(50);
+    for op in ["peer_add", "peer_enable"] {
+        assert!(audit.iter().any(|r| r.op == op), "audit has {op}");
+    }
+    let e = client(e_tcp, "edge").await;
+    e.invoke_one("wy/edge/sys/upstream/central", "remove", args(&[]))
+        .await
+        .expect("remove");
+    assert!(e_ctl.registry().peers.is_empty());
+
+    let _ = c_stop.send(());
+    let _ = e_stop.send(());
+    c_task.await.unwrap().unwrap();
+    e_task.await.unwrap().unwrap();
+}
+
 /// Runs one daemon until the returned sender fires.
 fn spawn_daemon(
     cfg: Config,

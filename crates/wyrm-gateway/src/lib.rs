@@ -170,6 +170,9 @@ pub struct Gateway {
     addr: watch::Sender<Option<SocketAddr>>,
     /// WebSocket tickets: hex(16 random bytes) → ticket.
     tickets: Mutex<std::collections::HashMap<String, Ticket>>,
+    /// Downstream sites read through this gateway (starts as
+    /// `cfg.read_sites`; peers added at runtime change it).
+    read_sites: RwLock<Vec<String>>,
 }
 
 struct Ticket {
@@ -214,6 +217,7 @@ impl Gateway {
             audit: RwLock::new(None),
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),
+            read_sites: RwLock::new(cfg.read_sites.clone()),
             cfg,
         }))
     }
@@ -270,14 +274,20 @@ impl Gateway {
     }
 
     /// The downstream site `key` belongs to, if it is one of `read_sites`.
-    pub fn read_site_of(&self, key: &str) -> Option<&str> {
+    pub fn read_site_of(&self, key: &str) -> Option<String> {
         let rest = key.strip_prefix("wy/")?;
         let site = rest.split('/').next()?;
-        self.cfg
-            .read_sites
+        self.read_sites
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .find(|s| s.as_str() == site)
-            .map(String::as_str)
+            .cloned()
+    }
+
+    /// Downstream sites readable through the gateway (the broker's peers).
+    pub fn set_read_sites(&self, sites: Vec<String>) {
+        *self.read_sites.write().unwrap_or_else(|p| p.into_inner()) = sites;
     }
 
     /// `key` with a read site's prefix replaced by the own site's (roles

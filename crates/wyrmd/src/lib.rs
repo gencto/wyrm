@@ -126,7 +126,9 @@ pub const GATEWAY_ADMIN_PASSWORD_ENV: &str = "WYRM_GATEWAY_ADMIN_PASSWORD";
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeersSection {
-    /// QUIC listener for downstream brokers (`quic/0.0.0.0:7448`).
+    /// QUIC listener for downstream brokers (`quic/0.0.0.0:7448`). It opens
+    /// once a downstream site is configured here or added at runtime
+    /// (`sys/downstream`).
     #[serde(default)]
     pub listen: Option<String>,
     /// Sites this broker connects to.
@@ -201,8 +203,7 @@ impl PeersSection {
             path("peers.downstream ca", &d.ca)?;
         }
         match (&self.listen, self.downstream.is_empty()) {
-            (Some(ep), false) => quic("peers.listen", ep)?,
-            (Some(_), true) => return Err("peers.listen without peers.downstream".into()),
+            (Some(ep), _) => quic("peers.listen", ep)?,
             (None, false) => return Err("peers.downstream needs peers.listen".into()),
             (None, true) => {}
         }
@@ -221,6 +222,12 @@ impl PeersSection {
                 downstream: self.downstream.iter().map(|d| d.site.clone()).collect(),
             },
             trusted_cas: self.downstream.iter().map(|d| d.ca.clone()).collect(),
+            upstream: self
+                .upstream
+                .iter()
+                .map(|u| (u.site.clone(), u.endpoint.clone(), u.ca.clone()))
+                .collect(),
+            listen: self.listen.is_some(),
         }
     }
 }
@@ -464,20 +471,18 @@ impl Config {
         c.insert_json5("mode", r#""router""#)?;
         // Peer CAs only on the broker links: per-endpoint trust overrides
         // the global root (our own CA) for these endpoints alone.
+        // Peers come from `wyrmd.json5` and from the registry (`sys/upstream`,
+        // `sys/downstream`); the listener opens only with a downstream site.
         let mut listen = self.listen.clone();
-        if let Some(ep) = &self.peers.listen {
+        if let (Some(ep), false) = (&self.peers.listen, ctl.peers().downstream.is_empty()) {
             listen.push(format!(
                 "{ep}#root_ca_certificate_file={}",
                 ctl.peer_trust_path().display()
             ));
         }
         let mut connect = self.connect.clone();
-        for u in &self.peers.upstream {
-            connect.push(format!(
-                "{}#root_ca_certificate_file={}",
-                u.endpoint,
-                u.ca.display()
-            ));
+        for (ep, ca) in ctl.upstream_endpoints() {
+            connect.push(format!("{ep}#root_ca_certificate_file={}", ca.display()));
         }
         c.insert_json5("listen/endpoints", &json(&listen))?;
         c.insert_json5("connect/endpoints", &json(&connect))?;
@@ -505,7 +510,7 @@ impl Config {
         if let Some(addr) = self.rest {
             c.insert_json5("plugins/rest", &format!(r#"{{ http_port: "{addr}" }}"#))?;
         }
-        ctl.configure_zenoh(&mut c, self.has_tls())?;
+        ctl.configure_zenoh(&mut c, self.has_tls() || ctl.has_peers())?;
         Ok(c)
     }
 }
@@ -623,6 +628,10 @@ impl Broker {
         // first remote query already finds their queryables and tokens.
         let session = zenoh::session::init(runtime.clone().into()).await?;
         let admin = ctl.attach(session.clone()).await?;
+        if let Some(g) = gateway {
+            // downstream sites may have changed at runtime (sys/downstream)
+            g.set_read_sites(ctl.peers().downstream);
+        }
         // The engine trusts admin keys and the gateway's (user requests),
         // never the flow key: flow tokens do not command flows.
         let mut engine_keys = ctl.config().admin_keys.clone();

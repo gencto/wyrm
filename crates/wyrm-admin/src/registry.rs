@@ -157,6 +157,52 @@ pub enum Op {
         #[n(1)]
         on: bool,
     },
+    /// Add a peer broker (`sys/upstream`, `sys/downstream`).
+    #[n(10)]
+    AddPeer(#[n(0)] PeerDef),
+    #[n(11)]
+    RemovePeer(#[n(0)] String),
+    /// Connect to an upstream site or not (it stays configured).
+    #[n(12)]
+    SetPeerEnabled {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        on: bool,
+    },
+}
+
+/// Which side a peer broker is on (ADR 0007).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[cbor(index_only)]
+pub enum PeerDir {
+    /// We connect to it and it reads our `down/**`, `flows/**`.
+    #[n(0)]
+    Upstream,
+    /// It connects to us and serves its own `wy/<site>/**`.
+    #[n(1)]
+    Downstream,
+}
+
+/// A peer broker added at runtime, as DSA's `/sys/upstream` (peers from
+/// `wyrmd.json5` are not stored here).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct PeerDef {
+    #[n(0)]
+    pub site: String,
+    #[n(1)]
+    pub dir: PeerDir,
+    /// `quic/<host>:<port>` of an upstream site; empty for downstream.
+    #[n(2)]
+    pub endpoint: String,
+    /// That site's CA certificate (PEM): trusted only on the QUIC broker link.
+    #[n(3)]
+    pub ca_pem: String,
+    /// Upstream only: connect to it.
+    #[n(4)]
+    pub enabled: bool,
+    #[n(5)]
+    pub created: u64,
 }
 
 /// Broker options changed at runtime, as DSA's `allowAllLinks` and
@@ -211,6 +257,9 @@ pub struct Registry {
     pub history: BTreeMap<String, Vec<(u32, Vec<u8>)>>,
     #[serde(default)]
     pub options: Options,
+    /// Peer brokers added at runtime, by site.
+    #[serde(default)]
+    pub peers: BTreeMap<String, PeerDef>,
 }
 
 /// Replaced params kept per link.
@@ -254,13 +303,20 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 5;
+    const SCHEMA: u32 = 6;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
         match op {
             Op::Install(def) => {
                 validate_link_id(&def.id)?;
+                if self
+                    .peers
+                    .get(&def.id)
+                    .is_some_and(|p| p.dir == PeerDir::Downstream)
+                {
+                    return Err(format!("{} is a downstream site", def.id));
+                }
                 if self.retired.contains(&def.id) {
                     return Err(format!(
                         "link id {} was removed before; its certificate may still be valid, choose a new id",
@@ -360,6 +416,33 @@ impl wyrm_state::State for Registry {
                 }
                 self.profiles.remove(name);
             }
+            Op::AddPeer(def) => {
+                validate_segment(&def.site).map_err(|e| format!("site: {e}"))?;
+                if self.peers.contains_key(&def.site) {
+                    return Err(format!("peer {} exists", def.site));
+                }
+                if def.dir == PeerDir::Downstream && self.links.contains_key(&def.site) {
+                    return Err(format!(
+                        "{} is a link id (down/{} would be both)",
+                        def.site, def.site
+                    ));
+                }
+                if (def.dir == PeerDir::Upstream) == def.endpoint.is_empty() {
+                    return Err("an upstream peer needs an endpoint, a downstream one none".into());
+                }
+                self.peers.insert(def.site.clone(), def.clone());
+            }
+            Op::RemovePeer(site) => {
+                self.peers
+                    .remove(site)
+                    .ok_or_else(|| format!("no peer {site}"))?;
+            }
+            Op::SetPeerEnabled { site, on } => {
+                self.peers
+                    .get_mut(site)
+                    .ok_or_else(|| format!("no peer {site}"))?
+                    .enabled = *on;
+            }
             Op::SetOption { name, on } => match name.as_str() {
                 "allow_all_links" => self.options.allow_all_links = *on,
                 "enable_quarantine" => self.options.enable_quarantine = *on,
@@ -394,6 +477,48 @@ mod tests {
         for bad in [".", "..", ".hidden", "a/b", "admin", "broker", "~x", ""] {
             assert!(validate_link_id(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn peers_and_link_ids_do_not_overlap() {
+        let mut r = Registry::default();
+        let peer = |site: &str, dir, endpoint: &str| PeerDef {
+            site: site.into(),
+            dir,
+            endpoint: endpoint.into(),
+            ca_pem: "pem".into(),
+            enabled: true,
+            created: 0,
+        };
+        r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
+            .unwrap();
+        r.apply(&Op::AddPeer(peer(
+            "cloud",
+            PeerDir::Upstream,
+            "quic/c:7448",
+        )))
+        .unwrap();
+        assert!(r
+            .apply(&Op::AddPeer(peer("x", PeerDir::Upstream, "")))
+            .is_err());
+        assert!(r
+            .apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
+            .is_err());
+        let mut d = def("edge", Mode::External);
+        assert!(r.apply(&Op::Install(d.clone())).is_err(), "downstream name");
+        d.id = "plc".into();
+        r.apply(&Op::Install(d)).unwrap();
+        assert!(r
+            .apply(&Op::AddPeer(peer("plc", PeerDir::Downstream, "")))
+            .is_err());
+        r.apply(&Op::SetPeerEnabled {
+            site: "cloud".into(),
+            on: false,
+        })
+        .unwrap();
+        assert!(!r.peers["cloud"].enabled);
+        r.apply(&Op::RemovePeer("edge".into())).unwrap();
+        assert!(r.apply(&Op::RemovePeer("edge".into())).is_err());
     }
 
     #[test]

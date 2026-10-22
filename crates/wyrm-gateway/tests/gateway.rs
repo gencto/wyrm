@@ -838,7 +838,7 @@ fn read_sites_map_to_own_roles_without_a_token() {
     let mut cfg = GatewayConfig::new(SITE, temp_dir("readsites"), "127.0.0.1:0".parse().unwrap());
     cfg.read_sites = vec!["edge".into()];
     let gw = Gateway::open(cfg, b"k").unwrap();
-    assert_eq!(gw.read_site_of("wy/edge/down/m/p"), Some("edge"));
+    assert_eq!(gw.read_site_of("wy/edge/down/m/p").as_deref(), Some("edge"));
     assert_eq!(gw.read_site_of("wy/edgex/down"), None);
     assert_eq!(gw.read_site_of("wy/other/down"), None);
     assert_eq!(gw.as_own("wy/edge/down/m/p"), format!("wy/{SITE}/down/m/p"));
@@ -861,4 +861,8 @@ fn read_sites_map_to_own_roles_without_a_token() {
     assert!(t.token(&format!("wy/{SITE}/down/m/p/~set")).is_some());
     assert!(t.token("wy/edge/down/m/p/~meta").is_none());
     assert!(t.token(&format!("wy/{SITE}x/down/~meta")).is_none());
+    // peers added or removed at runtime (sys/downstream) change the list
+    gw.set_read_sites(vec!["plant".into()]);
+    assert_eq!(gw.read_site_of("wy/plant/down").as_deref(), Some("plant"));
+    assert_eq!(gw.read_site_of("wy/edge/down/m/p"), None);
 }

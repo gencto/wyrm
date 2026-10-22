@@ -5754,6 +5754,7 @@ dependencies = [
  "wyrm-core",
  "wyrm-link-sdk",
  "wyrm-state",
+ "x509-parser",
  "zenoh",
  "zeroize",
 ]

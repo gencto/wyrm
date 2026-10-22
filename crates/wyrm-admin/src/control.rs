@@ -13,7 +13,9 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditRecord};
-use crate::registry::{LinkDef, Mode, Op, Options, Origin, Registry, OPTION_NAMES};
+use crate::registry::{
+    LinkDef, Mode, Op, Options, Origin, PeerDef, PeerDir, Registry, OPTION_NAMES,
+};
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -27,7 +29,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use wyrm_core::meta::Writable;
 use wyrm_core::meta::{
-    is_code, ActionResult, ParamMeta, Profile, EDITOR_PASSWORD, GROUP_EDIT, GROUP_NEW,
+    is_code, ActionResult, ParamMeta, Profile, EDITOR_PASSWORD, EDITOR_TEXTAREA, GROUP_EDIT,
+    GROUP_NEW,
 };
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
@@ -215,12 +218,40 @@ pub struct Control {
 /// `(path, peer site)` reference nodes of one peer link.
 type PeerNodes = Vec<(String, String)>;
 
-/// Router-to-router setup (iteration 4): peer sites and their CA files.
+/// Router-to-router setup from `wyrmd.json5` (iteration 4): peer sites and
+/// their CA files. Peers added at runtime live in the registry.
 #[derive(Debug, Clone, Default)]
 pub struct PeerConfig {
     pub peers: acl::Peers,
-    /// CA certificates of peer sites; trusted only on the QUIC broker listener.
+    /// CA certificates of downstream sites; trusted only on the QUIC broker
+    /// listener.
     pub trusted_cas: Vec<PathBuf>,
+    /// `(site, quic endpoint, CA file)` of each upstream site.
+    pub upstream: Vec<(String, String, PathBuf)>,
+    /// `peers.listen` is set: downstream sites can connect.
+    pub listen: bool,
+}
+
+/// Largest accepted CA certificate (PEM).
+const MAX_CA_PEM: usize = 16 * 1024;
+
+/// One CA certificate in PEM: parsed, with the CA basic constraint.
+fn check_ca_pem(pem: &str) -> Result<(), String> {
+    if pem.len() > MAX_CA_PEM {
+        return Err("CA certificate: larger than 16 KiB".into());
+    }
+    let (rest, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
+        .map_err(|e| format!("CA certificate: {e}"))?;
+    if block.label != "CERTIFICATE" || !rest.iter().all(u8::is_ascii_whitespace) {
+        return Err("CA certificate: expected exactly one PEM CERTIFICATE".into());
+    }
+    let cert = block
+        .parse_x509()
+        .map_err(|e| format!("CA certificate: {e}"))?;
+    if !cert.is_ca() {
+        return Err("not a CA certificate (no CA basic constraint)".into());
+    }
+    Ok(())
 }
 
 fn now_s() -> u64 {
@@ -325,15 +356,14 @@ impl Control {
             .clone()
     }
 
-    /// The router ACL generated from the current registry and peers.
+    /// The router ACL generated from the current registry and every peer.
     fn acl(&self) -> serde_json::Value {
-        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         acl::access_control_with_peers(
             &self.cfg.site,
             &self.registry(),
             &self.cfg.operators,
             self.cfg.dev,
-            &peers.peers,
+            &self.peers(),
         )
     }
 
@@ -638,22 +668,72 @@ impl Control {
         self.cfg.data_dir.join("pki").join("peer-trust.pem")
     }
 
-    /// Set peer brokers (takes effect on the next broker build).
+    /// Set peer brokers from `wyrmd.json5` (takes effect on the next broker
+    /// build).
     pub fn set_peers(&self, p: PeerConfig) {
         *self.peers.lock().unwrap_or_else(|e| e.into_inner()) = p;
     }
 
-    /// The configured peer sites.
+    fn config_peers(&self) -> PeerConfig {
+        self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Every peer site in force: `wyrmd.json5` plus runtime ones (enabled
+    /// upstream sites only). The ACL, the peer nodes, the router endpoints
+    /// and the link-id checks all use this list.
     pub fn peers(&self) -> acl::Peers {
-        self.peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .peers
-            .clone()
+        let mut p = self.config_peers().peers;
+        for d in self.registry().peers.values() {
+            match d.dir {
+                PeerDir::Upstream if d.enabled => p.upstream.push(d.site.clone()),
+                PeerDir::Upstream => {}
+                PeerDir::Downstream => p.downstream.push(d.site.clone()),
+            }
+        }
+        p
+    }
+
+    /// CA file of a runtime peer site (written from the registry).
+    fn peer_ca_path(&self, site: &str) -> PathBuf {
+        self.cfg
+            .data_dir
+            .join("pki")
+            .join("peers")
+            .join(format!("{site}.pem"))
+    }
+
+    /// `(quic endpoint, CA file)` of every upstream site to connect to.
+    pub fn upstream_endpoints(&self) -> Vec<(String, PathBuf)> {
+        let mut out: Vec<(String, PathBuf)> = self
+            .config_peers()
+            .upstream
+            .into_iter()
+            .map(|(_, ep, ca)| (ep, ca))
+            .collect();
+        for d in self.registry().peers.values() {
+            if d.dir == PeerDir::Upstream && d.enabled {
+                out.push((d.endpoint.clone(), self.peer_ca_path(&d.site)));
+            }
+        }
+        out
+    }
+
+    /// The router needs broker certificates for peer links.
+    pub fn has_peers(&self) -> bool {
+        let p = self.peers();
+        !p.upstream.is_empty() || !p.downstream.is_empty()
     }
 
     pub fn configure_zenoh(&self, c: &mut zenoh::Config, tls: bool) -> Result<(), Error> {
-        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut trusted = self.config_peers().trusted_cas;
+        for d in self.registry().peers.values() {
+            let path = self.peer_ca_path(&d.site);
+            std::fs::create_dir_all(path.parent().unwrap_or(&self.cfg.data_dir))?;
+            std::fs::write(&path, &d.ca_pem)?;
+            if d.dir == PeerDir::Downstream {
+                trusted.push(path);
+            }
+        }
         if tls {
             let pki_dir = self.cfg.data_dir.join("pki");
             let cn = format!("broker:{}", self.cfg.site);
@@ -664,9 +744,12 @@ impl Control {
             let client = self.pki.issue(&cn, &[], false, &pki_dir, "broker-client")?;
             // Peer CAs are trusted only on the QUIC broker listener (see
             // `peer_trust_path`); the global root is our own CA alone.
-            if !peers.trusted_cas.is_empty() {
+            if trusted.is_empty() {
+                // no downstream site left: nothing may stay trusted
+                let _ = std::fs::remove_file(self.peer_trust_path());
+            } else {
                 let mut bundle = String::new();
-                for ca in &peers.trusted_cas {
+                for ca in &trusted {
                     let pem = std::fs::read_to_string(ca)
                         .map_err(|e| format!("trusted CA {}: {e}", ca.display()))?;
                     if !pem.contains("BEGIN CERTIFICATE") {
@@ -1205,6 +1288,142 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     Ok(())
 }
 
+fn site_param() -> ParamMeta {
+    str_param()
+        .required(true)
+        .display("Name")
+        .description("Site name of that broker")
+}
+
+fn ca_param() -> ParamMeta {
+    str_param()
+        .required(true)
+        .display("CA Certificate")
+        .editor(EDITOR_TEXTAREA)
+        .description("PEM of that site's CA (its data_dir/pki/ca.pem)")
+}
+
+/// `sys/upstream` and `sys/downstream`: peer brokers, as DSA's
+/// `/sys/upstream`. Peers from `wyrmd.json5` are shown read-only.
+async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    ctx.declare_node("upstream", NodeMeta::folder().display("Upstream"))
+        .await?;
+    ctx.declare_action(
+        "upstream",
+        "add",
+        ActionMeta::new()
+            .display("Add Upstream Connection")
+            .group(GROUP_NEW)
+            .param("name", site_param())
+            .param(
+                "url",
+                str_param()
+                    .required(true)
+                    .display("Url")
+                    .placeholder("quic/central.example:7448"),
+            )
+            .param("ca", ca_param())
+            .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled"))
+            .level(Perm::Config),
+    )
+    .await?;
+    ctx.declare_node("downstream", NodeMeta::folder().display("Downstream"))
+        .await?;
+    ctx.declare_action(
+        "downstream",
+        "add",
+        ActionMeta::new()
+            .display("Add Downstream Broker")
+            .group(GROUP_NEW)
+            .param("name", site_param())
+            .param("ca", ca_param())
+            .level(Perm::Config),
+    )
+    .await?;
+    let cfg = ctl.config_peers();
+    for (site, ep, _) in &cfg.upstream {
+        declare_upstream(ctx, site, ep, true, false).await?;
+    }
+    for site in &cfg.peers.downstream {
+        declare_downstream(ctx, site, false).await?;
+    }
+    for d in ctl.registry().peers.values() {
+        match d.dir {
+            PeerDir::Upstream => {
+                declare_upstream(ctx, &d.site, &d.endpoint, d.enabled, true).await?
+            }
+            PeerDir::Downstream => declare_downstream(ctx, &d.site, true).await?,
+        }
+    }
+    Ok(())
+}
+
+fn origin(runtime: bool) -> &'static str {
+    if runtime {
+        "runtime"
+    } else {
+        "config"
+    }
+}
+
+/// `upstream/<site>`: `url`, `enabled` (writable when added at runtime),
+/// `remove`.
+async fn declare_upstream(
+    ctx: &LinkCtx,
+    site: &str,
+    endpoint: &str,
+    enabled: bool,
+    runtime: bool,
+) -> wyrm_link_sdk::Result<()> {
+    let p = format!("upstream/{site}");
+    ctx.declare_node(&p, NodeMeta::folder().attr("origin", origin(runtime)))
+        .await?;
+    let url = format!("{p}/url");
+    ctx.declare_node(&url, NodeMeta::leaf(TypeCode::String).display("Url"))
+        .await?;
+    ctx.update(
+        &url,
+        Value::Str(endpoint.to_owned()),
+        Quality::Good,
+        now_us(),
+    )
+    .await?;
+    let mut on = NodeMeta::leaf(TypeCode::Bool).display("Enabled");
+    if runtime {
+        on = on.writable(Writable::Config);
+    }
+    let en = format!("{p}/enabled");
+    ctx.declare_node(&en, on).await?;
+    ctx.update(&en, Value::Bool(enabled), Quality::Good, now_us())
+        .await?;
+    if runtime {
+        declare_peer_remove(ctx, &p).await?;
+    }
+    Ok(())
+}
+
+async fn declare_downstream(ctx: &LinkCtx, site: &str, runtime: bool) -> wyrm_link_sdk::Result<()> {
+    let p = format!("downstream/{site}");
+    ctx.declare_node(&p, NodeMeta::folder().attr("origin", origin(runtime)))
+        .await?;
+    if runtime {
+        declare_peer_remove(ctx, &p).await?;
+    }
+    Ok(())
+}
+
+async fn declare_peer_remove(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<()> {
+    ctx.declare_action(
+        path,
+        "remove",
+        ActionMeta::new()
+            .display("Remove")
+            .group(GROUP_EDIT)
+            .level(Perm::Config),
+    )
+    .await
+}
+
 /// Rows of the generated router ACL: one per (subject, rule).
 fn acl_rows(acl: &serde_json::Value) -> Vec<Value> {
     let strs = |v: &serde_json::Value| -> Vec<String> {
@@ -1280,6 +1499,7 @@ impl Link for Admin {
         .await?;
         declare_sys_values(&ctx, &cfg.ctl).await?;
         declare_sys_actions(&ctx, &cfg.ctl).await?;
+        declare_peers(&ctx, &cfg.ctl).await?;
         ctx.declare_node("links", NodeMeta::folder()).await?;
         ctx.declare_action(
             "links",
@@ -1377,6 +1597,12 @@ impl Link for Admin {
         value: Value,
         who: &Caller,
     ) -> wyrm_link_sdk::Result<()> {
+        if let ["upstream", site, "enabled"] = path.split('/').collect::<Vec<_>>().as_slice() {
+            let Value::Bool(on) = value else {
+                return Err(LinkError::invalid_parameter("enabled: true or false"));
+            };
+            return self.enable_peer(site, on, &sub_of(who)).await;
+        }
         if !OPTION_NAMES.contains(&path) {
             return Err(LinkError::not_supported(format!("{path}/~set")));
         }
@@ -1449,6 +1675,9 @@ impl Link for Admin {
             (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
             (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
             ([""], "clear_conns") => self.clear_conns(&sub).await,
+            (["upstream"], "add") => self.add_peer(PeerDir::Upstream, &args, &sub).await,
+            (["downstream"], "add") => self.add_peer(PeerDir::Downstream, &args, &sub).await,
+            (["upstream" | "downstream", site], "remove") => self.remove_peer(site, &sub).await,
             ([""], "get_permissions") => {
                 let mut rows: Vec<Value> = self
                     .ctl
@@ -1986,6 +2215,139 @@ impl Admin {
             reply.insert("token".into(), Value::Str(t));
         }
         Ok(Some(Value::Map(reply)))
+    }
+
+    /// `upstream/~act/add {name, url, ca, enabled}` or
+    /// `downstream/~act/add {name, ca}`: trust that site's CA on the QUIC
+    /// broker link and rebuild the router with it (ADR 0007).
+    async fn add_peer(
+        &self,
+        dir: PeerDir,
+        args: &Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        let need = |k: &str| {
+            arg_str(args, k)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| LinkError::invalid_parameter(format!("{k}: required")))
+        };
+        let site = need("name")?;
+        let ca_pem = need("ca")?;
+        wyrm_core::keyspace::validate_segment(site)
+            .map_err(|e| LinkError::invalid_parameter(format!("name: {e}")))?;
+        let configured = self.ctl.config_peers();
+        if site == self.ctl.cfg.site
+            || configured.peers.upstream.iter().any(|u| u == site)
+            || configured.peers.downstream.iter().any(|d| d == site)
+            || self.ctl.registry().peers.contains_key(site)
+        {
+            return Err(LinkError::invalid_parameter(format!(
+                "site {site} is this broker or already a peer"
+            )));
+        }
+        check_ca_pem(ca_pem).map_err(LinkError::invalid_parameter)?;
+        let (endpoint, enabled) = match dir {
+            PeerDir::Upstream => {
+                let url = need("url")?;
+                if !url.starts_with("quic/") || url.contains(['#', '?', ';']) || url.len() > 256 {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "url {url}: expected quic/<host>:<port>"
+                    )));
+                }
+                let on = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
+                (url.to_owned(), on)
+            }
+            PeerDir::Downstream => {
+                if !configured.listen {
+                    return Err(LinkError::not_supported(
+                        "no peers.listen in wyrmd.json5: downstream brokers cannot connect",
+                    ));
+                }
+                (String::new(), true)
+            }
+        };
+        self.ctl
+            .apply(Op::AddPeer(PeerDef {
+                site: site.to_owned(),
+                dir,
+                endpoint: endpoint.clone(),
+                ca_pem: format!("{ca_pem}\n"),
+                enabled,
+                created: now_s(),
+            }))
+            .map_err(rejected)?;
+        let kind = match dir {
+            PeerDir::Upstream => "upstream",
+            PeerDir::Downstream => "downstream",
+        };
+        self.ctl.record(
+            sub,
+            "peer_add",
+            site,
+            Status::Ok,
+            &format!("{kind} {endpoint}"),
+        );
+        match dir {
+            PeerDir::Upstream => {
+                declare_upstream(&self.ctx, site, &endpoint, enabled, true).await?
+            }
+            PeerDir::Downstream => declare_downstream(&self.ctx, site, true).await?,
+        }
+        self.ctl.schedule_reload();
+        Ok(None)
+    }
+
+    async fn remove_peer(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let Some(def) = self.ctl.registry().peers.get(site).cloned() else {
+            return Err(LinkError::not_supported(
+                "not a runtime peer; peers from wyrmd.json5 are removed there",
+            ));
+        };
+        self.ctl
+            .apply(Op::RemovePeer(site.to_owned()))
+            .map_err(rejected)?;
+        let _ = std::fs::remove_file(self.ctl.peer_ca_path(site));
+        self.ctl.record(sub, "peer_remove", site, Status::Ok, "");
+        let kind = match def.dir {
+            PeerDir::Upstream => "upstream",
+            PeerDir::Downstream => "downstream",
+        };
+        self.ctx.remove_node(&format!("{kind}/{site}")).await?;
+        self.ctl.schedule_reload();
+        Ok(None)
+    }
+
+    async fn enable_peer(&self, site: &str, on: bool, sub: &str) -> wyrm_link_sdk::Result<()> {
+        if !self
+            .ctl
+            .registry()
+            .peers
+            .get(site)
+            .is_some_and(|d| d.dir == PeerDir::Upstream)
+        {
+            return Err(LinkError::not_supported(
+                "not a runtime upstream peer; peers from wyrmd.json5 are changed there",
+            ));
+        }
+        self.ctl
+            .apply(Op::SetPeerEnabled {
+                site: site.to_owned(),
+                on,
+            })
+            .map_err(rejected)?;
+        self.ctl
+            .record(sub, "peer_enable", site, Status::Ok, &on.to_string());
+        self.ctx
+            .update(
+                &format!("upstream/{site}/enabled"),
+                Value::Bool(on),
+                Quality::Good,
+                now_us(),
+            )
+            .await?;
+        self.ctl.schedule_reload();
+        Ok(())
     }
 
     async fn reject(&self, cn: &str, sub: &str) -> wyrm_link_sdk::Result<()> {
