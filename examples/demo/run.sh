@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Two-site demo: `central` (upstream) and `edge` (downstream, connectors),
-# linked over QUIC + mTLS, each with a user gateway for the Flutter app.
+# Three-site demo, a chain over QUIC + mTLS: `plant` → `edge` (connectors)
+# → `central`. Each site has a user gateway for the Flutter app; central
+# reads edge and, through edge, plant.
 #
 #   examples/demo/run.sh            build, start everything, Ctrl+C stops it
 #   examples/demo/run.sh --clean    also delete ./data first (fresh sites)
 #
-# App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8445 (central)
-# or :8444 (edge), user admin, password $WYRM_GATEWAY_ADMIN_PASSWORD.
+# App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8445 (central),
+# :8444 (edge) or :8446 (plant), user admin, password
+# $WYRM_GATEWAY_ADMIN_PASSWORD.
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT=../..
@@ -22,6 +24,7 @@ mkdir -p data
 # Each site's CA must exist before the other site trusts it.
 $BIN/wyrmd -c central.json5 ca >/dev/null
 $BIN/wyrmd -c edge.json5 ca >/dev/null
+$BIN/wyrmd -c plant.json5 ca >/dev/null
 
 pids=()
 stop() { kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; }
@@ -37,13 +40,17 @@ fi
 RUST_LOG=info,zenoh=warn $BIN/wyrmd -c central.json5 >data/central.log 2>&1 & pids+=($!)
 sleep 1
 RUST_LOG=info,zenoh=warn $BIN/wyrmd -c edge.json5 >data/edge.log 2>&1 & pids+=($!)
+sleep 1
+RUST_LOG=info,zenoh=warn $BIN/wyrmd -c plant.json5 >data/plant.log 2>&1 & pids+=($!)
 
 cat <<MSG
 Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   central: zenoh tcp/127.0.0.1:7447, gateway http://127.0.0.1:8445
   edge:    zenoh tcp/127.0.0.1:7457, gateway http://127.0.0.1:8444
+  plant:   zenoh tcp/127.0.0.1:7467, gateway http://127.0.0.1:8446
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
-  roots:   wy/edge/down (edge links; read-only from central), wy/central/down
+  chain:   plant → edge → central; from central: wy/central/down/edge ▸ down ▸
+           plant (read only, sys too), from edge: wy/edge/down/plant
   install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
 MSG
 wait

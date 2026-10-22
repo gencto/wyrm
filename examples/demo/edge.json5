@@ -8,6 +8,9 @@
   peers: {
     upstream: [{ site: "central", endpoint: "quic/127.0.0.1:7449", ca: "./data/central/pki/ca.pem" }],
     upstream_val_hz: 5,
+    // The middle of the chain: plant connects here.
+    listen: "quic/127.0.0.1:7459",
+    downstream: [{ site: "plant", ca: "./data/plant/pki/ca.pem" }],
   },
   gateway: { listen: "127.0.0.1:8444", admin_user: "admin" },
   // "Install Link ▸ from Repository": the index of examples/packages/out,

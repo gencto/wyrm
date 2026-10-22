@@ -1,0 +1,17 @@
+// Demo: the site `plant` at the end of the chain plant → edge → central
+// (see run.sh). It connects to edge; central reads it through edge.
+{
+  site: "plant",
+  profile: "prod",
+  data_dir: "./data/plant",
+  listen: ["tcp/127.0.0.1:7467", "tls/127.0.0.1:7468"],
+  admin_keys: [],
+  peers: {
+    upstream: [{ site: "edge", endpoint: "quic/127.0.0.1:7459", ca: "./data/edge/pki/ca.pem" }],
+  },
+  gateway: { listen: "127.0.0.1:8446", admin_user: "admin" },
+  links: {
+    // A production line: 8 points at 1 Hz in two folders.
+    line: { driver: "mock", params: { points: 8, rate_hz: 1, depth: 1, fanout: 2 } },
+  },
+}

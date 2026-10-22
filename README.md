@@ -106,12 +106,15 @@ peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "cent
 // central
 peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.pem" }] },
 ```
-Each side trusts the other's CA only on the QUIC broker link (certificate CN `broker:<site>`). The upstream site may subscribe and query `~meta|~val|~def|~state` under `wy/<edge>/{down,flows}/**`, never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
+Each side trusts the other's CA only on the QUIC broker link (certificate CN `broker:<site>`). The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{down,flows,sys,up}/**` (and `~def|~state` under `down`/`flows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
 
-Demo with two sites, connectors and the Flutter app: `examples/demo/run.sh`
-starts `central` and `edge` (mock, framework mock `lab`, modbus process link
-against `wyrm-modbus-sim`), each with a gateway (`:8445`, `:8444`, user
-`admin`, password `wyrm-demo-1`). `wyrmd -c <cfg> ca` creates a site's CA
+A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge, read only (ADR 0007).
+
+Demo with a chain of three sites, connectors and the Flutter app:
+`examples/demo/run.sh` starts `central`, `edge` (mock, framework mock `lab`,
+modbus process link against `wyrm-modbus-sim`) and `plant` (a mock line,
+connected to edge), each with a gateway (`:8445`, `:8444`, `:8446`, user
+`admin`, password `wyrm-demo-1`); central reads plant through edge. `wyrmd -c <cfg> ca` creates a site's CA
 before the other site trusts it. App: `cd dart/wyrm_flutter/example &&
 flutter create --platforms=macos . && flutter run -d macos` (raise
 `MACOSX_DEPLOYMENT_TARGET` to 12.0 and add the `network.client`

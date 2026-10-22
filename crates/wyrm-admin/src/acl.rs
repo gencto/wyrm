@@ -99,13 +99,43 @@ fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Va
 /// that matches a link rule.
 #[derive(Debug, Clone, Default)]
 pub struct Peers {
-    /// Sites this broker connects to; they may only read our `down/**` and
-    /// `flows/**` (subscribe, liveliness, queries on `~meta|~val|~def|~state`;
-    /// no `~set`/`~act`).
+    /// Sites this broker connects to; they may only read our `down/**`,
+    /// `flows/**`, `sys/**` and `up/**`, and those of the sites we reach
+    /// (subscribe, liveliness, queries on `~meta|~val`, and `~def|~state`
+    /// under `down`/`flows`; no `~set`/`~act`).
     pub upstream: Vec<String>,
     /// Sites that connect to this broker; they serve their own `wy/<site>/**`.
     pub downstream: Vec<String>,
+    /// Sites a downstream site relays from further down (a chain
+    /// `plant → edge → here`: `edge → [plant]`); it may serve their keys too.
+    pub via: std::collections::BTreeMap<String, Vec<String>>,
 }
+
+impl Peers {
+    /// A downstream site and the sites it relays.
+    pub fn sites_through(&self, d: &str) -> Vec<String> {
+        let mut out = vec![d.to_owned()];
+        out.extend(self.via.get(d).into_iter().flatten().cloned());
+        out
+    }
+
+    /// Every site below this broker: the downstream sites and those they
+    /// relay.
+    pub fn reachable(&self) -> Vec<String> {
+        self.downstream
+            .iter()
+            .flat_map(|d| self.sites_through(d))
+            .collect()
+    }
+}
+
+/// Sections of a site an upstream site reads, with the suffixes it may query.
+const UP_READ: [(&str, &[&str]); 4] = [
+    ("down", &["~meta", "~val", "~def", "~state"]),
+    ("flows", &["~meta", "~val", "~def", "~state"]),
+    ("sys", &["~meta", "~val"]),
+    ("up", &["~meta", "~val"]),
+];
 
 /// The `access_control` section for the router config.
 pub fn access_control(site: &str, reg: &Registry, operators: &[String], dev: bool) -> Value {
@@ -125,7 +155,7 @@ pub fn access_control_with_peers(
     // `wy/<d>/**` over the peer link; their ACL keeps us read-only).
     let mut requester_keys = all_site.clone();
     let mut adv_keys = vec![format!("wy/{site}/**/@adv/sub/**")];
-    for d in &peers.downstream {
+    for d in peers.reachable() {
         requester_keys.push(format!("wy/{d}/**"));
         adv_keys.push(format!("wy/{d}/**/@adv/sub/**"));
     }
@@ -241,7 +271,15 @@ pub fn access_control_with_peers(
         }));
     }
     if !peers.upstream.is_empty() {
-        let readable = vec![format!("wy/{site}/down/**"), format!("wy/{site}/flows/**")];
+        // This site and every site below it, as a DSA upstream sees its
+        // downstream broker (owner decision 2026-10-22: sys too, read only).
+        let sites: Vec<String> = std::iter::once(site.to_owned())
+            .chain(peers.reachable())
+            .collect();
+        let readable: Vec<String> = sites
+            .iter()
+            .flat_map(|s| UP_READ.iter().map(move |(t, _)| format!("wy/{s}/{t}/**")))
+            .collect();
         rules.push(rule(
             "upstream-in",
             &["ingress"],
@@ -253,12 +291,12 @@ pub fn access_control_with_peers(
             &readable,
         ));
         // Read-only: queries only on read suffixes, never `~set`/`~act`.
-        let read_suffixes: Vec<String> = ["down", "flows"]
+        let read_suffixes: Vec<String> = sites
             .iter()
-            .flat_map(|t| {
-                ["~meta", "~val", "~def", "~state"]
+            .flat_map(|s| {
+                UP_READ
                     .iter()
-                    .map(move |sfx| format!("wy/{site}/{t}/**/{sfx}"))
+                    .flat_map(move |(t, sfx)| sfx.iter().map(move |x| format!("wy/{s}/{t}/**/{x}")))
             })
             .collect();
         rules.push(rule(
@@ -330,11 +368,17 @@ pub fn access_control_with_peers(
         }
     }
     for d in &peers.downstream {
+        // its own keys and those of the sites it relays
+        let keys: Vec<String> = peers
+            .sites_through(d)
+            .iter()
+            .map(|s| format!("wy/{s}/**"))
+            .collect();
         rules.push(rule(
             &format!("site-{d}"),
             &["ingress", "egress"],
             ALL,
-            &[format!("wy/{d}/**")],
+            &keys,
         ));
         subjects.push(json!({
             "id": format!("broker-{d}"),
@@ -459,16 +503,39 @@ mod tests {
         let peers = Peers {
             upstream: vec!["cloud".into()],
             downstream: vec!["plant-b".into()],
+            ..Default::default()
         };
         let acl = access_control_with_peers("plant-a", &Registry::default(), &[], false, &peers);
         let text = acl.to_string();
         assert!(text.contains(r#""cert_common_names":["broker:cloud"]"#));
         assert!(text.contains("wy/plant-a/down/**"));
-        assert!(
-            !text.contains("wy/plant-a/sys/**"),
-            "upstream never reads sys"
-        );
         assert!(text.contains(r#""key_exprs":["wy/plant-b/**"]"#));
+        // the upstream reads sys and up too, never ~set/~act anywhere
+        let keys = |id: &str| -> Vec<String> {
+            acl["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == id)
+                .map(|r| {
+                    r["key_exprs"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|k| k.as_str().unwrap().to_owned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let q = keys("upstream-query");
+        assert!(q.contains(&"wy/plant-a/sys/**/~meta".to_owned()));
+        assert!(q.contains(&"wy/plant-a/up/**/~val".to_owned()));
+        assert!(
+            q.contains(&"wy/plant-b/sys/**/~meta".to_owned()),
+            "and below"
+        );
+        assert!(q.iter().all(|k| !k.contains("~set") && !k.contains("~act")));
+        assert!(!q.iter().any(|k| k.starts_with("wy/plant-a/sys/**/~def")));
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &text).unwrap();
     }
@@ -480,6 +547,7 @@ mod tests {
         let peers = Peers {
             upstream: vec!["cloud".into(), "hq".into()],
             downstream: vec!["plant-b".into()],
+            ..Default::default()
         };
         let mut reg = Registry::default();
         reg.links
@@ -539,5 +607,36 @@ mod tests {
         let dev = access_control("s", &reg, &[], true).to_string();
         assert!(dev.contains("local-all"));
         c.insert_json5("access_control", &dev).unwrap();
+    }
+
+    /// A chain `cell → plant-b → plant-a → cloud`: plant-a lets plant-b
+    /// serve the site it relays and lets cloud read both; nothing else.
+    #[test]
+    fn chains_of_brokers() {
+        let peers = Peers {
+            upstream: vec!["cloud".into()],
+            downstream: vec!["plant-b".into()],
+            via: [("plant-b".to_owned(), vec!["cell".to_owned()])].into(),
+        };
+        assert_eq!(peers.reachable(), ["plant-b", "cell"]);
+        let acl = access_control_with_peers("plant-a", &Registry::default(), &[], false, &peers);
+        let rule = |id: &str| {
+            acl["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == id)
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            rule("site-plant-b")["key_exprs"],
+            serde_json::json!(["wy/plant-b/**", "wy/cell/**"])
+        );
+        let q = rule("upstream-query").to_string();
+        assert!(q.contains("wy/cell/down/**/~val") && q.contains("wy/cell/sys/**/~meta"));
+        assert!(rule("requester-in").to_string().contains("wy/cell/**"));
+        let mut c = zenoh::Config::default();
+        c.insert_json5("access_control", &acl.to_string()).unwrap();
     }
 }

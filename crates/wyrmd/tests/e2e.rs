@@ -35,6 +35,16 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
+/// `Daemon::open` after the broker's log subscriber is in place. Zenoh's
+/// storage plugin installs its own global subscriber when a router starts
+/// if none is set yet, and `wyrmd`'s main installs ours first; tests in one
+/// process must do the same, or the log tests' level control has no
+/// subscriber behind it.
+fn open_daemon(cfg: Config, exe: PathBuf) -> Result<Daemon, wyrmd::Error> {
+    let _ = wyrm_admin::logs::install_quiet();
+    Daemon::open(cfg, exe)
+}
+
 struct Env {
     port: u16,
     tls: u16,
@@ -71,7 +81,7 @@ impl Env {
         let mut tries = 0;
         let daemon = loop {
             let cfg = Config::from_json5(&text).unwrap();
-            match Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
+            match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
                 Ok(d) => break d,
                 Err(e) if tries < 50 && e.to_string().contains("in use") => {
                     tries += 1;
@@ -1606,8 +1616,8 @@ async fn two_brokers_over_quic() {
     .unwrap();
     // Both CAs exist once both daemons are open; brokers read them at start.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
-    let central = Daemon::open(central, exe.clone()).unwrap();
-    let edge = Daemon::open(edge, exe).unwrap();
+    let central = open_daemon(central, exe.clone()).unwrap();
+    let edge = open_daemon(edge, exe).unwrap();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
@@ -1716,6 +1726,162 @@ async fn two_brokers_over_quic() {
     let _ = e_stop.send(());
     e_task.await.unwrap().unwrap();
     c_task.await.unwrap().unwrap();
+}
+
+/// A chain `plant → edge → central` (owner decision 2026-10-22): central
+/// lists `via: ["plant"]` for edge, so it reads plant through edge; every
+/// upstream reads `sys` and `up` of the sites below it, never commands them.
+#[tokio::test(flavor = "multi_thread")]
+async fn chain_of_three_brokers() {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir, p_dir) = (
+        temp_dir("ch-central"),
+        temp_dir("ch-edge"),
+        temp_dir("ch-plant"),
+    );
+    let (c_tcp, c_quic, e_tcp, e_quic, p_tcp) = (
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+    );
+    let ca = |d: &PathBuf| d.join("pki/ca.pem").display().to_string();
+    let cfg = |text: String| Config::from_json5(&text).unwrap();
+    let central = cfg(format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}",
+                        downstream: [{{ site: "edge", ca: "{}", via: ["plant"] }}] }} }}"#,
+        c_dir.display(),
+        ca(&e_dir)
+    ));
+    let edge = cfg(format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{e_quic}",
+                        upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
+                        downstream: [{{ site: "plant", ca: "{}" }}] }},
+              links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+        e_dir.display(),
+        ca(&c_dir),
+        ca(&p_dir)
+    ));
+    let plant = cfg(format!(
+        r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ upstream: [{{ site: "edge", endpoint: "quic/127.0.0.1:{e_quic}", ca: "{}" }}] }},
+              links: {{ pm: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+        p_dir.display(),
+        ca(&e_dir)
+    ));
+    // Every CA exists once all daemons are open; brokers read them at start.
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let mut stops = Vec::new();
+    let mut tasks = Vec::new();
+    for d in [central, edge, plant] {
+        let d = open_daemon(d, exe.clone()).unwrap();
+        stops.push(d);
+    }
+    let mut senders = Vec::new();
+    for d in stops.drain(..) {
+        let (tx, rx) = oneshot::channel::<()>();
+        senders.push(tx);
+        tasks.push(tokio::spawn(d.run_until(async {
+            let _ = rx.await;
+        })));
+    }
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{c_tcp}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "5000").unwrap();
+    let session = zenoh::open(zc).await.unwrap();
+    let c = WyrmClient::new(session)
+        .with_tokens(Arc::new(SigningTokens::new(key, "plant")))
+        .with_timeout(Duration::from_secs(3));
+    let names = |key: &'static str| {
+        let c = &c;
+        async move {
+            let mut n: Vec<String> = c
+                .children(key)
+                .await
+                .ok()?
+                .into_iter()
+                .map(|c| c.name)
+                .collect();
+            n.sort();
+            Some(n)
+        }
+    };
+    // two hops down: plant's links, through edge
+    let pm = eventually("plant's links seen from central", 20, || async {
+        names("wy/plant/down")
+            .await
+            .filter(|n| n.contains(&"pm".to_owned()))
+    })
+    .await;
+    assert_eq!(pm, ["pm"]);
+    // edge shows plant beside its links, connected
+    eventually(
+        "edge's down/plant connected, seen from central",
+        10,
+        || async {
+            (last_val(&c, "wy/edge/down/plant/connected").await == Some(Value::Bool(true)))
+                .then_some(())
+        },
+    )
+    .await;
+    // sys and up of the sites below, read only
+    let sys = names("wy/edge/sys").await.expect("edge sys from central");
+    // the folder `packages` and the count `packages_total`: two nodes
+    for n in ["links", "packages", "packages_total"] {
+        assert!(sys.contains(&n.to_owned()), "{n}: {sys:?}");
+    }
+    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock"]);
+    assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["pm"]);
+    assert_eq!(names("wy/plant/up").await.unwrap(), ["edge"]);
+    assert_eq!(
+        names("wy/central/up").await.unwrap(),
+        Vec::<String>::new(),
+        "up always there"
+    );
+    // samples come up two hops
+    let mut vals = c.subscribe("wy/plant/down/pm/g0/p0").await.unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(8), async {
+        while let Some(ev) = vals.next().await {
+            if let ValEvent::Sample { .. } = ev {
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    assert_eq!(got, Ok(true), "plant samples reach central");
+    // never commands: no set below, no sys action below
+    assert!(c.set("wy/plant/down/pm/g0/p0", 1.0).await.is_err());
+    assert!(c
+        .invoke_one(
+            "wy/edge/sys/links/mock",
+            "stop",
+            Value::Map(Default::default())
+        )
+        .await
+        .is_err());
+    drop(vals);
+    let _ = c.session().close().await;
+    for tx in senders.into_iter().rev() {
+        let _ = tx.send(());
+    }
+    for t in tasks.into_iter().rev() {
+        t.await.unwrap().unwrap();
+    }
 }
 
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
@@ -1908,7 +2074,7 @@ async fn user_cli_offline_only() {
 
     // While the broker runs, the stores are locked.
     let cfg = Config::from_json5(&std::fs::read_to_string(&cfg_path).unwrap()).unwrap();
-    let daemon = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let daemon = open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let gw = daemon.gateway().unwrap();
     assert!(gw.list_users().iter().any(|(n, _, _)| n == "bob"));
     let out = wyrmd(&["user", "list"], None);
@@ -2187,27 +2353,27 @@ fn state_anchor_refuses_a_cut_wal() {
     assert!(cfg(&dir.join("heads")).is_err());
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     // the directory is the operator's (another medium): not created for them
-    assert!(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).is_err());
+    assert!(open_daemon(cfg(&anchors).unwrap(), exe.clone()).is_err());
     std::fs::create_dir_all(&anchors).unwrap();
-    drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
-    drop(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).unwrap());
+    drop(open_daemon(cfg(&anchors).unwrap(), exe.clone()).unwrap());
+    drop(open_daemon(cfg(&anchors).unwrap(), exe.clone()).unwrap());
     // the anchor says the registry WAL was longer than it is now
     std::fs::write(
         anchors.join("state.head"),
         format!("999 {}\n", "00".repeat(32)),
     )
     .unwrap();
-    let e = Daemon::open(cfg(&anchors).unwrap(), exe.clone())
+    let e = open_daemon(cfg(&anchors).unwrap(), exe.clone())
         .err()
         .expect("refused");
     assert!(e.to_string().contains("anchor"), "{e}");
     // a deleted anchor is refused too, until `wyrmd init-anchors`
     std::fs::remove_file(anchors.join("state.head")).unwrap();
-    assert!(Daemon::open(cfg(&anchors).unwrap(), exe.clone()).is_err());
+    assert!(open_daemon(cfg(&anchors).unwrap(), exe.clone()).is_err());
     let mut init = cfg(&anchors).unwrap();
     init.init_anchors = true;
-    drop(Daemon::open(init, exe.clone()).unwrap());
-    drop(Daemon::open(cfg(&anchors).unwrap(), exe).unwrap());
+    drop(open_daemon(init, exe.clone()).unwrap());
+    drop(open_daemon(cfg(&anchors).unwrap(), exe).unwrap());
 }
 
 /// T11 / runtime edits: a runtime-installed link's params can be updated
@@ -2295,7 +2461,7 @@ fn verify_state_finds_a_tampered_wal() {
         ))
         .unwrap()
     };
-    drop(Daemon::open(cfg(), env!("CARGO_BIN_EXE_wyrmd").into()).unwrap());
+    drop(open_daemon(cfg(), env!("CARGO_BIN_EXE_wyrmd").into()).unwrap());
     let checks = wyrmd::verify_state(&cfg());
     assert!(checks.iter().any(|c| c.name == "registry"));
     assert!(checks.iter().all(|c| c.ok()), "clean stores");
@@ -2427,8 +2593,8 @@ async fn runtime_peers_over_quic() {
     ))
     .unwrap();
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
-    let central = Daemon::open(central, exe.clone()).unwrap();
-    let edge = Daemon::open(edge, exe).unwrap();
+    let central = open_daemon(central, exe.clone()).unwrap();
+    let edge = open_daemon(edge, exe).unwrap();
     let e_ctl = edge.control();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
@@ -2554,7 +2720,7 @@ async fn runtime_peers_over_quic() {
         e_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
-    let central = Daemon::open(central, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let central = open_daemon(central, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let c_ctl = central.control();
     assert!(c_ctl.registry().peers.is_empty(), "json5 wins");
     assert_eq!(c_ctl.peers().downstream, ["edge"]);
@@ -2578,7 +2744,7 @@ fn spawn_daemon(
     oneshot::Sender<()>,
     tokio::task::JoinHandle<Result<(), wyrmd::Error>>,
 ) {
-    let d = Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let d = open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let (tx, rx) = oneshot::channel::<()>();
     (
         tx,
@@ -2632,7 +2798,8 @@ async fn samples(s: &zenoh::Session, key: &str, secs: u64) -> Vec<String> {
 }
 
 /// ADR 0007 boundaries between real brokers (T12):
-/// 1. the upstream reads `down/**` of the downstream site, never `sys/**`;
+/// 1. the upstream reads `down/**` and `sys/**` (`~meta`, `~val`) of the
+///    downstream site, never a `sys` action (owner decision 2026-10-22);
 /// 2. the upstream cannot `invoke`, even with a token the edge trusts;
 /// 3. the downstream cannot write or query outside its own `wy/<edge>/**`;
 /// 4. a broker with a certificate from an untrusted CA cannot join, even
@@ -2685,8 +2852,8 @@ async fn two_brokers_isolation() {
     };
     // Both CAs exist once both daemons are open; brokers read them at start.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
-    let central = Daemon::open(central, exe.clone()).unwrap();
-    let edge = Daemon::open(edge_cfg(&e_dir, e_tcp, "mock"), exe).unwrap();
+    let central = open_daemon(central, exe.clone()).unwrap();
+    let edge = open_daemon(edge_cfg(&e_dir, e_tcp, "mock"), exe).unwrap();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
@@ -2706,26 +2873,32 @@ async fn two_brokers_isolation() {
     })
     .await;
 
-    // 1. down/** is readable from central, sys/** is not.
+    // 1. down/** and sys/** are readable from central (~meta, ~val), sys
+    //    actions and any other suffix are not.
     assert!(
         !replies(&cs, "wy/edge/down/mock/**/~meta").await.is_empty(),
         "control: central reads the edge's down/**"
+    );
+    assert!(
+        !replies(&cs, "wy/edge/sys/**/~meta").await.is_empty(),
+        "central reads the edge's sys/** (DSA upstream)"
     );
     for k in [
         "wy/edge/sys/**",
         "wy/edge/sys/links/**",
         "wy/edge/sys/audit/**",
-        "wy/edge/sys/**/~meta",
+        "wy/edge/sys/~act/get_log",
+        "wy/edge/sys/audit/~act/tail",
     ] {
         assert_eq!(replies(&cs, k).await, Vec::<String>::new(), "query {k}");
     }
-    // The edge publishes its metrics every 200 ms; none reach central.
+    // The edge publishes its metrics every 200 ms; they reach central too.
     let (down, sys) = tokio::join!(
         samples(&cs, "wy/edge/down/**", 2),
         samples(&cs, "wy/edge/sys/**", 2)
     );
     assert!(!down.is_empty(), "control: edge values reach central");
-    assert_eq!(sys, Vec::<String>::new(), "edge sys/** samples at central");
+    assert!(!sys.is_empty(), "edge sys/** values reach central");
 
     // 2. No commands across sites, even with a token the edge trusts.
     let args = Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(1))]));
@@ -2744,7 +2917,7 @@ async fn two_brokers_isolation() {
     let es = loopback_session(e_tcp).await;
     assert!(
         !samples(&es, "wy/edge/sys/**", 1).await.is_empty(),
-        "control: the edge does publish sys/** (check 1 is not vacuous)"
+        "control: the edge does publish sys/**"
     );
     let watch_central = samples(&cs, "wy/central/**", 3);
     let watch_other = samples(&cs, "wy/other/**", 3);

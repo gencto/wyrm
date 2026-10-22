@@ -457,6 +457,12 @@ pub struct PeerDef {
     pub enabled: bool,
     #[n(5)]
     pub created: u64,
+    /// Downstream only: sites it relays from further down (a chain); it may
+    /// serve their keys, and our upstream may read them.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub via: Vec<String>,
 }
 
 /// Broker options changed at runtime, as DSA's `allowAllLinks` and
@@ -570,7 +576,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 12;
+    const SCHEMA: u32 = 13;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -864,6 +870,21 @@ impl wyrm_state::State for Registry {
                 if (def.dir == PeerDir::Upstream) == def.endpoint.is_empty() {
                     return Err("an upstream peer needs an endpoint, a downstream one none".into());
                 }
+                if def.dir == PeerDir::Upstream && !def.via.is_empty() {
+                    return Err("only a downstream peer relays sites".into());
+                }
+                for v in &def.via {
+                    validate_segment(v).map_err(|e| format!("via: {e}"))?;
+                    let taken = *v == def.site
+                        || self
+                            .peers
+                            .values()
+                            .any(|p| p.site == *v || p.via.contains(v))
+                        || def.via.iter().filter(|x| *x == v).count() > 1;
+                    if taken {
+                        return Err(format!("via {v}: already a peer site or relayed"));
+                    }
+                }
                 self.peers.insert(def.site.clone(), def.clone());
             }
             Op::RemovePeer(site) => {
@@ -927,6 +948,7 @@ mod tests {
             ca_pem: "pem".into(),
             enabled: true,
             created: 0,
+            via: Vec::new(),
         };
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
             .unwrap();

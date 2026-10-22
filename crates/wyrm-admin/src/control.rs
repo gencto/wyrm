@@ -230,7 +230,7 @@ const SYS_STATUS: [(&str, &str, &str, &str); 14] = [
         "",
         "Unknown certificates waiting in quarantine.",
     ),
-    ("packages", "Packages", "", "Installed link packages."),
+    ("packages_total", "Packages", "", "Installed link packages."),
     (
         "sessions",
         "Open Sessions",
@@ -922,7 +922,12 @@ impl Control {
             match d.dir {
                 PeerDir::Upstream if d.enabled => p.upstream.push(d.site.clone()),
                 PeerDir::Upstream => {}
-                PeerDir::Downstream => p.downstream.push(d.site.clone()),
+                PeerDir::Downstream => {
+                    p.downstream.push(d.site.clone());
+                    if !d.via.is_empty() {
+                        p.via.insert(d.site.clone(), d.via.clone());
+                    }
+                }
             }
         }
         p
@@ -1162,14 +1167,14 @@ impl Control {
                 )
             })
             .collect();
-        if !peers.upstream.is_empty() {
-            let nodes = peers
-                .upstream
-                .iter()
-                .map(|u| (u.clone(), u.clone()))
-                .collect();
-            plan.push(("up".into(), format!("wy/{site}/up"), nodes));
-        }
+        // `up` always, empty without upstream sites: a client opening a
+        // site finds its four sections (down, flows, sys, up).
+        let nodes = peers
+            .upstream
+            .iter()
+            .map(|u| (u.clone(), u.clone()))
+            .collect();
+        plan.push(("up".into(), format!("wy/{site}/up"), nodes));
         let mut out = Vec::new();
         for (id, root, nodes) in plan {
             let mut lcfg = LinkConfig::new(site.clone(), id.clone());
@@ -1943,6 +1948,16 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
             .group(GROUP_NEW)
             .param("name", site_param())
             .param("ca", ca_param())
+            .param(
+                "via",
+                str_param()
+                    .display("Via")
+                    .placeholder("plant, cell")
+                    .description(
+                        "Sites that broker relays from further down (a chain); \
+                         it may serve their keys, and our upstream may read them.",
+                    ),
+            )
             .level(Perm::Config),
     )
     .await?;
@@ -1950,14 +1965,15 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
         declare_upstream(ctx, site, ep, true, false).await?;
     }
     for site in &cfg.peers.downstream {
-        declare_downstream(ctx, site, false).await?;
+        let via = cfg.peers.via.get(site).cloned().unwrap_or_default();
+        declare_downstream(ctx, site, &via, false).await?;
     }
     for d in &ctl.runtime_peers() {
         match d.dir {
             PeerDir::Upstream => {
                 declare_upstream(ctx, &d.site, &d.endpoint, d.enabled, true).await?
             }
-            PeerDir::Downstream => declare_downstream(ctx, &d.site, true).await?,
+            PeerDir::Downstream => declare_downstream(ctx, &d.site, &d.via, true).await?,
         }
     }
     Ok(())
@@ -2007,10 +2023,18 @@ async fn declare_upstream(
     Ok(())
 }
 
-async fn declare_downstream(ctx: &LinkCtx, site: &str, runtime: bool) -> wyrm_link_sdk::Result<()> {
+async fn declare_downstream(
+    ctx: &LinkCtx,
+    site: &str,
+    via: &[String],
+    runtime: bool,
+) -> wyrm_link_sdk::Result<()> {
     let p = format!("downstream/{site}");
-    ctx.declare_node(&p, NodeMeta::folder().attr("origin", origin(runtime)))
-        .await?;
+    let mut m = NodeMeta::folder().attr("origin", origin(runtime));
+    if !via.is_empty() {
+        m = m.attr("via", via.join(", "));
+    }
+    ctx.declare_node(&p, m).await?;
     if runtime {
         declare_peer_remove(ctx, &p).await?;
     }
@@ -3554,6 +3578,32 @@ impl Admin {
                 (String::new(), true)
             }
         };
+        // Sites a downstream broker relays (`plant, cell`): none may be this
+        // site, a peer or a site another peer relays.
+        let via: Vec<String> = match dir {
+            PeerDir::Upstream => Vec::new(),
+            PeerDir::Downstream => arg_str(args, "via")
+                .unwrap_or_default()
+                .split([',', ' '])
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        };
+        let all = self.ctl.peers();
+        for v in &via {
+            wyrm_core::keyspace::validate_segment(v)
+                .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
+            if *v == self.ctl.cfg.site
+                || *v == site
+                || all.upstream.contains(v)
+                || all.reachable().contains(v)
+            {
+                return Err(LinkError::invalid_parameter(format!(
+                    "via {v}: this broker, a peer or already relayed"
+                )));
+            }
+        }
         self.ctl
             .apply(Op::AddPeer(PeerDef {
                 site: site.to_owned(),
@@ -3562,6 +3612,7 @@ impl Admin {
                 ca_pem: format!("{ca_pem}\n"),
                 enabled,
                 created: now_s(),
+                via: via.clone(),
             }))
             .map_err(rejected)?;
         let kind = match dir {
@@ -3579,7 +3630,7 @@ impl Admin {
             PeerDir::Upstream => {
                 declare_upstream(&self.ctx, site, &endpoint, enabled, true).await?
             }
-            PeerDir::Downstream => declare_downstream(&self.ctx, site, true).await?,
+            PeerDir::Downstream => declare_downstream(&self.ctx, site, &via, true).await?,
         }
         self.ctl.schedule_reload();
         Ok(None)
@@ -4295,7 +4346,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         )
         .await;
         set("quarantined", reg.quarantine.len() as f64).await;
-        set("packages", reg.packages.len() as f64).await;
+        set("packages_total", reg.packages.len() as f64).await;
         set("upstream_connected", count(&peers.upstream) as f64).await;
         set("downstream_connected", count(&peers.downstream) as f64).await;
         let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
@@ -4424,6 +4475,7 @@ zenoh_rx_bytes_total_extra 7
         let peers = crate::acl::Peers {
             upstream: vec!["cloud".into()],
             downstream: vec!["plant-b".into()],
+            ..Default::default()
         };
         let ok = |cn| super::admissible(&reg, &ops, &peers, cn);
         assert!(ok("new-device"));
@@ -4456,10 +4508,12 @@ zenoh_rx_bytes_total_extra 7
             ca_pem: String::new(),
             enabled: true,
             created: 0,
+            via: Vec::new(),
         };
         let config = crate::acl::Peers {
             upstream: vec!["cloud".into()],
             downstream: vec!["edge".into()],
+            ..Default::default()
         };
         let runtime = vec![
             def("cloud", PeerDir::Upstream),
@@ -4473,6 +4527,7 @@ zenoh_rx_bytes_total_extra 7
         let merged = crate::acl::Peers {
             upstream: config.upstream.clone(),
             downstream: vec!["edge".into(), "plant".into()],
+            ..Default::default()
         };
         let acl = crate::acl::access_control_with_peers(
             "central",

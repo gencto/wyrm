@@ -174,6 +174,11 @@ pub struct DownstreamPeer {
     pub site: String,
     /// CA certificate (PEM) of that site.
     pub ca: PathBuf,
+    /// Sites that broker relays from further down (a chain `plant → edge →
+    /// here`: edge has `via: ["plant"]`). It may serve their keys, and this
+    /// broker's upstream may read them.
+    #[serde(default)]
+    pub via: Vec<String>,
 }
 
 impl PeersSection {
@@ -216,6 +221,17 @@ impl PeersSection {
         }
         for d in &self.downstream {
             path("peers.downstream ca", &d.ca)?;
+            for v in &d.via {
+                wyrm_core::keyspace::validate_segment(v)
+                    .map_err(|e| format!("peers.downstream {} via: {e}", d.site))?;
+                if v == own_site || !seen.insert(v.clone()) {
+                    return Err(format!(
+                        "peers.downstream {} via: site {v} repeated, own or a peer",
+                        d.site
+                    )
+                    .into());
+                }
+            }
         }
         match (&self.listen, self.downstream.is_empty()) {
             (Some(ep), _) => quic("peers.listen", ep)?,
@@ -235,6 +251,12 @@ impl PeersSection {
             peers: wyrm_admin::acl::Peers {
                 upstream: self.upstream.iter().map(|u| u.site.clone()).collect(),
                 downstream: self.downstream.iter().map(|d| d.site.clone()).collect(),
+                via: self
+                    .downstream
+                    .iter()
+                    .filter(|d| !d.via.is_empty())
+                    .map(|d| (d.site.clone(), d.via.clone()))
+                    .collect(),
             },
             trusted_cas: self.downstream.iter().map(|d| d.ca.clone()).collect(),
             upstream: self
@@ -650,7 +672,7 @@ impl Broker {
         let admin = ctl.attach(session.clone()).await?;
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (sys/downstream)
-            g.set_read_sites(ctl.peers().downstream);
+            g.set_read_sites(ctl.peers().reachable());
         }
         // The engine trusts admin keys and the gateway's (user requests),
         // never the flow key: flow tokens do not command flows.
@@ -872,12 +894,8 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
-    gc.read_sites = cfg
-        .peers
-        .downstream
-        .iter()
-        .map(|d| d.site.clone())
-        .collect();
+    // every site below this one, also through a chain
+    gc.read_sites = cfg.peers.peer_config().peers.reachable();
     gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
     gc.anchor_init = cfg.init_anchors;
     if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {
