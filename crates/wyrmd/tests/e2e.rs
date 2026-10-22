@@ -12,6 +12,10 @@ use wyrm_core::Value;
 use wyrmd::{Config, Daemon};
 
 const SEED: [u8; 32] = [9; 32];
+
+/// Held while a test opens a daemon with a gateway: `Daemon::open` reads and
+/// clears `WYRM_GATEWAY_ADMIN_PASSWORD`, a process-wide variable.
+static GATEWAY_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const SITE: &str = "e2e";
 
 fn free_port() -> u16 {
@@ -475,6 +479,91 @@ async fn sys_values_and_admission_options() {
     env.stop().await;
 }
 
+/// DSA Authorize / Deauthorize on `sys/quarantine` (owner decisions
+/// 2026-10-22): `dsid` lists the quarantined CNs, `name` is the display
+/// name, `group` gives a gateway role write on the link; Deauthorize puts
+/// the link back into quarantine (not retired), and allow-all does not
+/// re-admit it.
+#[tokio::test(flavor = "multi_thread")]
+async fn authorize_and_deauthorize() {
+    let gw_port = free_port();
+    let env_lock = GATEWAY_ENV.lock().await;
+    let env = Env::start(
+        "authz",
+        &format!(r#"{MOCK} gateway: {{ listen: "127.0.0.1:{gw_port}", admin_user: "nobody" }},"#),
+    )
+    .await;
+    drop(env_lock);
+    let gw = env.gateway.clone().expect("gateway");
+    gw.add_user("boss", "boss-password-1", vec!["admin".into()])
+        .unwrap();
+    let c = env.client().await;
+    let q = format!("wy/{SITE}/sys/quarantine");
+    let _dev = env.tls_session("dev-7").await;
+    let meta = eventually("dev-7 in the Authorize list", 5, || async {
+        let m = c.meta(&q).await.ok()?;
+        let a = m.actions.as_ref()?.get("authorize")?.clone();
+        let cns = a.params.get("dsid")?.enum_values.clone()?;
+        cns.contains(&"dev-7".to_owned()).then_some(a)
+    })
+    .await;
+    let groups = meta.params["group"].enum_values.clone().unwrap();
+    assert!(groups.contains(&"operator".to_owned()) && groups[0] == "-");
+
+    let args = |pairs: &[(&str, &str)]| {
+        Value::Map(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), Value::from(*v)))
+                .collect(),
+        )
+    };
+    let reply = c
+        .invoke_one(
+            &q,
+            "authorize",
+            args(&[("dsid", "dev-7"), ("name", "Pump 7"), ("group", "operator")]),
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(&reply, Some(Value::Map(m)) if m.contains_key("token") && !m.contains_key("warning")),
+        "{reply:?}"
+    );
+    let def = env.ctl.registry().links["dev-7"].clone();
+    assert_eq!(def.display.as_deref(), Some("Pump 7"));
+    assert!(gw.role_table().get("operator").unwrap().contains(&(
+        "wy/{site}/down/dev-7/**".to_string(),
+        wyrm_core::Perm::Write
+    )));
+
+    // Deauthorize (after the ACL rebuild): back to quarantine, not retired
+    eventually("deauthorize", 15, || async {
+        let c = env.client().await;
+        c.invoke_one(&q, "deauthorize", args(&[("link", "dev-7")]))
+            .await
+            .ok()
+    })
+    .await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("dev-7") && !reg.retired.contains("dev-7"));
+    assert!(reg.quarantine.contains_key("dev-7") && reg.held.contains("dev-7"));
+
+    // allow-all does not re-admit a deauthorized CN
+    eventually("allow all on", 15, || async {
+        let c = env.client().await;
+        c.set(&format!("wy/{SITE}/sys/allow_all_links"), true)
+            .await
+            .ok()
+    })
+    .await;
+    let _again = env.tls_session("dev-7").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(!env.ctl.registry().links.contains_key("dev-7"));
+    assert!(env.ctl.audit_tail(50).iter().any(|r| r.op == "deauthorize"));
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
@@ -841,6 +930,7 @@ async fn two_brokers_over_quic() {
 async fn gateway_in_wyrmd() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let port = free_port();
+    let env_lock = GATEWAY_ENV.lock().await;
     std::env::set_var(
         wyrmd::GATEWAY_ADMIN_PASSWORD_ENV,
         "correct-horse-battery-staple",
@@ -850,6 +940,7 @@ async fn gateway_in_wyrmd() {
         &format!(r#"{MOCK} gateway: {{ listen: "127.0.0.1:{port}", admin_user: "root" }},"#),
     )
     .await;
+    drop(env_lock);
     let gw = env.gateway.clone().expect("gateway configured");
     let addr = gw.local_addr().await;
     assert_eq!(addr.port(), port);

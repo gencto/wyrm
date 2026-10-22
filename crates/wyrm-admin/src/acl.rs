@@ -318,6 +318,7 @@ mod tests {
             rev: 1,
             origin: Origin::Runtime,
             created: 0,
+            display: None,
         }
     }
 

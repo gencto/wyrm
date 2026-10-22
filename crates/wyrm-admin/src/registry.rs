@@ -91,6 +91,11 @@ pub struct LinkDef {
     /// Unix seconds.
     #[n(7)]
     pub created: u64,
+    /// Name for people (`sys/links/<id>` display); the id stays the
+    /// certificate CN.
+    #[n(8)]
+    #[serde(default)]
+    pub display: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -169,6 +174,15 @@ pub enum Op {
         site: String,
         #[n(1)]
         on: bool,
+    },
+    /// DSA Deauthorize: an external runtime link goes back to quarantine
+    /// (not retired); only a manual Authorize admits it again.
+    #[n(13)]
+    Deauthorize {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        seen: u64,
     },
 }
 
@@ -260,6 +274,10 @@ pub struct Registry {
     /// Peer brokers added at runtime, by site.
     #[serde(default)]
     pub peers: BTreeMap<String, PeerDef>,
+    /// Deauthorized CNs: in quarantine, admitted again only by a manual
+    /// Authorize (never by `allow_all_links`).
+    #[serde(default)]
+    pub held: BTreeSet<String>,
 }
 
 /// Replaced params kept per link.
@@ -303,7 +321,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 6;
+    const SCHEMA: u32 = 7;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -330,6 +348,7 @@ impl wyrm_state::State for Registry {
                     return Err(format!("{} link needs a token", def.mode.name()));
                 }
                 self.quarantine.remove(&def.id);
+                self.held.remove(&def.id);
                 self.links.insert(def.id.clone(), def.clone());
             }
             Op::Remove(id) => {
@@ -386,6 +405,7 @@ impl wyrm_state::State for Registry {
                 e.attempts += 1;
             }
             Op::Approve(cn) => {
+                self.held.remove(cn);
                 self.quarantine
                     .remove(cn)
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
@@ -394,7 +414,27 @@ impl wyrm_state::State for Registry {
                 self.quarantine
                     .remove(cn)
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
+                self.held.remove(cn);
                 self.blocklist.insert(cn.clone());
+            }
+            Op::Deauthorize { id, seen } => {
+                let def = self.links.get(id).ok_or_else(|| format!("no link {id}"))?;
+                if def.mode != Mode::External || def.origin != Origin::Runtime {
+                    return Err(format!(
+                        "{id} is not an authorized external link (installed at runtime)"
+                    ));
+                }
+                self.links.remove(id);
+                self.history.remove(id);
+                self.quarantine.insert(
+                    id.clone(),
+                    QuarantineEntry {
+                        first_seen: *seen,
+                        last_seen: *seen,
+                        attempts: 0,
+                    },
+                );
+                self.held.insert(id.clone());
             }
             Op::PutProfile { name, cbor } => {
                 let def: ProfileDef = wyrm_core::codec::from_slice(cbor)
@@ -468,6 +508,7 @@ mod tests {
             rev: 1,
             origin: Origin::Runtime,
             created: 0,
+            display: None,
         }
     }
 
@@ -519,6 +560,30 @@ mod tests {
         assert!(!r.peers["cloud"].enabled);
         r.apply(&Op::RemovePeer("edge".into())).unwrap();
         assert!(r.apply(&Op::RemovePeer("edge".into())).is_err());
+    }
+
+    #[test]
+    fn deauthorized_links_go_back_to_quarantine() {
+        let mut r = Registry::default();
+        r.apply(&Op::Install(def("dev", Mode::External))).unwrap();
+        r.apply(&Op::Install(def("emb", Mode::Embedded))).unwrap();
+        assert!(r
+            .apply(&Op::Deauthorize {
+                id: "emb".into(),
+                seen: 5
+            })
+            .is_err());
+        r.apply(&Op::Deauthorize {
+            id: "dev".into(),
+            seen: 5,
+        })
+        .unwrap();
+        assert!(!r.links.contains_key("dev") && !r.retired.contains("dev"));
+        assert!(r.quarantine.contains_key("dev") && r.held.contains("dev"));
+        // a manual Authorize (approve + install) clears the hold
+        r.apply(&Op::Approve("dev".into())).unwrap();
+        assert!(!r.held.contains("dev"));
+        r.apply(&Op::Install(def("dev", Mode::External))).unwrap();
     }
 
     #[test]

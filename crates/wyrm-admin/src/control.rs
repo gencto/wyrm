@@ -622,6 +622,7 @@ impl Control {
                         rev: 1,
                         origin: Origin::Config,
                         created: now_s(),
+                        display: None,
                     }))?;
                     if l.mode.is_remote() {
                         self.link_cert(&l.id)?;
@@ -1067,8 +1068,11 @@ fn str_param() -> ParamMeta {
 }
 
 fn link_node(def: &LinkDef) -> NodeMeta {
-    NodeMeta::folder()
-        .is("wy:link-def")
+    let node = match &def.display {
+        Some(d) => NodeMeta::folder().display(d.as_str()),
+        None => NodeMeta::folder(),
+    };
+    node.is("wy:link-def")
         .attr("driver", def.driver.as_str())
         .attr("mode", def.mode.name())
         .attr("rev", u64::from(def.rev))
@@ -1202,10 +1206,92 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     .await
 }
 
+/// "No role" in the Authorize `group` list (not a valid role name).
+const NO_ROLE: &str = "-";
+
+/// Role names of the user gateway, for the Authorize `group` list.
+fn role_names(ctl: &Control) -> Vec<String> {
+    let mut roles: Vec<String> = ctl
+        .role_grants()
+        .map(|r| r.grants().into_iter().map(|(role, ..)| role).collect())
+        .unwrap_or_default();
+    roles.dedup();
+    roles
+}
+
+/// DSA Authorize: `dsid` (folder action only), `group` (a gateway role that
+/// gets `write` on the link), `name` (display name), driver and params.
+fn authorize_meta(dsid: Option<ParamMeta>, roles: &[String]) -> ActionMeta {
+    let mut a = ActionMeta::new().display("Authorize");
+    if let Some(p) = dsid {
+        a = a.param("dsid", p);
+    }
+    let group = if roles.is_empty() {
+        str_param().display("Group").placeholder("no user gateway")
+    } else {
+        str_param()
+            .enum_values(std::iter::once(NO_ROLE.to_owned()).chain(roles.iter().cloned()))
+            .display("Group")
+            .description("Gateway role that gets write on the new link")
+    };
+    a.param("group", group)
+        .param(
+            "name",
+            str_param().display("Name").placeholder("display name"),
+        )
+        .param("driver", str_param().display("Driver"))
+        .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
+        .result(ActionResult::Type(TypeCode::Map))
+        .level(Perm::Config)
+}
+
+/// `quarantine/~act/authorize` and `deauthorize` (DSA): their CN, link and
+/// role lists are enums, so they are declared again after each change
+/// (with each quarantined node's own Authorize).
+async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkError> {
+    let reg = ctl.registry();
+    let roles = role_names(ctl);
+    let pick = |vals: Vec<String>, display: &str, none: &str| {
+        let p = str_param().required(true).display(display);
+        if vals.is_empty() {
+            p.placeholder(none)
+        } else {
+            p.enum_values(vals)
+        }
+    };
+    let cns: Vec<String> = reg.quarantine.keys().cloned().collect();
+    ctx.declare_action(
+        "quarantine",
+        "authorize",
+        authorize_meta(Some(pick(cns, "DsId", "nothing in quarantine")), &roles),
+    )
+    .await?;
+    let links: Vec<String> = reg
+        .links
+        .values()
+        .filter(|d| d.mode == Mode::External && d.origin == Origin::Runtime)
+        .map(|d| d.id.clone())
+        .collect();
+    ctx.declare_action(
+        "quarantine",
+        "deauthorize",
+        ActionMeta::new()
+            .display("Deauthorize")
+            .param("link", pick(links, "Link", "no external links"))
+            .level(Perm::Config),
+    )
+    .await?;
+    for (cn, e) in &reg.quarantine {
+        declare_quarantined(ctx, cn, e, &roles).await?;
+    }
+    Ok(())
+}
+
 async fn declare_quarantined(
     ctx: &LinkCtx,
     cn: &str,
     e: &crate::registry::QuarantineEntry,
+    roles: &[String],
 ) -> Result<(), LinkError> {
     let p = format!("quarantine/{cn}");
     ctx.declare_node(
@@ -1217,17 +1303,8 @@ async fn declare_quarantined(
             .attr("attempts", e.attempts),
     )
     .await?;
-    ctx.declare_action(
-        &p,
-        "approve",
-        ActionMeta::new()
-            .display("Approve")
-            .param("driver", str_param().display("Driver"))
-            .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
-            .result(ActionResult::Type(TypeCode::Map))
-            .level(Perm::Config),
-    )
-    .await?;
+    ctx.declare_action(&p, "approve", authorize_meta(None, roles))
+        .await?;
     ctx.declare_action(
         &p,
         "reject",
@@ -1600,9 +1677,7 @@ impl Link for Admin {
         )
         .await?;
         ctx.declare_node("quarantine", NodeMeta::folder()).await?;
-        for (cn, e) in &reg.quarantine {
-            declare_quarantined(&ctx, cn, e).await?;
-        }
+        refresh_quarantine(&ctx, &cfg.ctl).await?;
         ctx.declare_node("metrics", NodeMeta::folder()).await?;
         ctx.declare_node("metrics/broker", NodeMeta::folder())
             .await?;
@@ -1719,6 +1794,14 @@ impl Link for Admin {
             (["links", id], "set_secret") => self.set_secret(id, &args, &sub),
             (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
             (["quarantine", cn], "approve") => self.approve(cn, &args, &sub).await,
+            (["quarantine"], "authorize") => match arg_str(&args, "dsid") {
+                Some(cn) => self.approve(cn, &args, &sub).await,
+                None => Err(LinkError::invalid_parameter("dsid: required")),
+            },
+            (["quarantine"], "deauthorize") => match arg_str(&args, "link") {
+                Some(id) => self.deauthorize(id, &sub).await,
+                None => Err(LinkError::invalid_parameter("link: required")),
+            },
             (["quarantine", cn], "reject") => self.reject(cn, &sub).await.map(|_| None),
             (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
             (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
@@ -1788,6 +1871,24 @@ impl Link for Admin {
             }
             _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         };
+        // the Authorize/Deauthorize lists follow links, quarantine and roles
+        if result.is_ok()
+            && matches!(
+                action,
+                "install"
+                    | "remove"
+                    | "approve"
+                    | "reject"
+                    | "authorize"
+                    | "deauthorize"
+                    | "clear_conns"
+                    | "update_permissions"
+            )
+        {
+            if let Err(e) = refresh_quarantine(&self.ctx, &self.ctl).await {
+                debug!("quarantine actions: {e}");
+            }
+        }
         match result {
             Ok(Some(v)) => out.reply(v).await,
             Ok(None) => Ok(()),
@@ -1852,6 +1953,7 @@ impl Admin {
             rev: 1,
             origin: Origin::Runtime,
             created: now_s(),
+            display: None,
         };
         ctl.secrets
             .drop_link(&id)
@@ -2257,12 +2359,82 @@ impl Admin {
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
-        let token = admit(&self.ctl, &self.ctx, cn, driver, params, sub, "approve").await?;
+        let text = |k: &str| {
+            arg_str(args, k)
+                .map(str::trim)
+                .filter(|v| !v.is_empty() && *v != NO_ROLE)
+        };
+        let display = text("name").map(str::to_owned);
+        if display.as_ref().is_some_and(|d| d.chars().count() > 64) {
+            return Err(LinkError::invalid_parameter("name: at most 64 characters"));
+        }
+        // Group = a gateway role that gets write on the link (owner
+        // decision 2026-10-22); checked before anything is installed.
+        let grant = match text("group") {
+            None => None,
+            Some(role) => {
+                let roles = self
+                    .ctl
+                    .role_grants()
+                    .ok_or_else(|| LinkError::not_supported("group: no user gateway"))?;
+                if !role_names(&self.ctl).iter().any(|r| r == role) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "group: no role {role}"
+                    )));
+                }
+                Some((roles, role.to_owned()))
+            }
+        };
+        let how = Admission {
+            driver,
+            params,
+            display,
+        };
+        let token = admit(&self.ctl, &self.ctx, cn, how, sub, "approve").await?;
         let mut reply = BTreeMap::new();
         if let Some(t) = token {
             reply.insert("token".into(), Value::Str(t));
         }
+        if let Some((roles, role)) = grant {
+            let key = format!("wy/{{site}}/down/{cn}/**");
+            match roles.set_grant(&role, &key, Perm::Write) {
+                Ok(()) => self.ctl.record(
+                    sub,
+                    "update_permissions",
+                    &role,
+                    Status::Ok,
+                    &format!("{key} write"),
+                ),
+                Err(e) => {
+                    reply.insert("warning".into(), Value::Str(format!("group: {e}")));
+                }
+            }
+        }
         Ok(Some(Value::Map(reply)))
+    }
+
+    /// DSA Deauthorize (owner decision 2026-10-22): the external link goes
+    /// back to quarantine instead of being retired; its token and secrets
+    /// go, and only a manual Authorize admits the CN again.
+    async fn deauthorize(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let seen = now_s();
+        self.ctl
+            .apply(Op::Deauthorize {
+                id: id.to_owned(),
+                seen,
+            })
+            .map_err(rejected)?;
+        self.ctl
+            .secrets
+            .drop_link(id)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
+        if let Ok(dir) = self.ctl.link_dir(id) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        self.ctx.remove_node(&format!("links/{id}")).await?;
+        self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
+        self.ctl.schedule_reload();
+        Ok(None)
     }
 
     /// `upstream/~act/add {name, url, ca, enabled}` or
@@ -2407,6 +2579,13 @@ impl Admin {
     }
 }
 
+/// What an admitted CN becomes: its driver name, params and display name.
+struct Admission {
+    driver: String,
+    params: Value,
+    display: Option<String>,
+}
+
 /// Install `cn`, a certificate CN signed by our CA, as an external link:
 /// approved from quarantine, or on first sight with `allow_all_links`.
 /// Returns the link token once (also kept in `links/<cn>/token`, 0600).
@@ -2414,11 +2593,15 @@ async fn admit(
     ctl: &Control,
     ctx: &LinkCtx,
     cn: &str,
-    driver: String,
-    params: Value,
+    how: Admission,
     sub: &str,
     op: &str,
 ) -> wyrm_link_sdk::Result<Option<String>> {
+    let Admission {
+        driver,
+        params,
+        display,
+    } = how;
     let reg = ctl.registry();
     if reg.links.contains_key(cn) {
         return Err(LinkError::invalid_parameter(format!("link {cn} exists")));
@@ -2443,6 +2626,7 @@ async fn admit(
         rev: 1,
         origin: Origin::Runtime,
         created: now_s(),
+        display,
     };
     ctl.secrets
         .drop_link(cn)
@@ -2575,25 +2759,24 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
             continue;
         }
         let opts = ctl.options();
-        if opts.allow_all_links {
-            let empty = Value::Map(Default::default());
-            match admit(
-                &ctl,
-                &ctx,
-                &cn,
-                "unknown".into(),
-                empty,
-                "system",
-                "auto_install",
-            )
-            .await
-            {
+        // a deauthorized CN stays in quarantine until a manual Authorize
+        let held = ctl.registry().held.contains(&cn);
+        if opts.allow_all_links && !held {
+            let how = Admission {
+                driver: "unknown".into(),
+                params: Value::Map(Default::default()),
+                display: None,
+            };
+            match admit(&ctl, &ctx, &cn, how, "system", "auto_install").await {
                 Ok(_) => info!(cn = %cn, "unknown certificate: installed (allow_all_links)"),
                 Err(e) => warn!(cn = %cn, "allow_all_links install failed: {e}"),
             }
+            if let Err(e) = refresh_quarantine(&ctx, &ctl).await {
+                debug!("quarantine actions: {e}");
+            }
             continue;
         }
-        if !opts.enable_quarantine {
+        if !opts.enable_quarantine && !held {
             debug!(cn = %cn, "unknown certificate ignored (quarantine off)");
             continue;
         }
@@ -2614,10 +2797,8 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
             &ev.link().src().to_string(),
         );
         info!(cn = %cn, "unknown certificate: quarantined");
-        if let Some(e) = ctl.registry().quarantine.get(&cn) {
-            if let Err(e) = declare_quarantined(&ctx, &cn, e).await {
-                debug!("quarantine node: {e}");
-            }
+        if let Err(e) = refresh_quarantine(&ctx, &ctl).await {
+            debug!("quarantine actions: {e}");
         }
     }
 }
@@ -2918,6 +3099,7 @@ zenoh_rx_bytes_total_extra 7
             rev: 1,
             origin: Origin::Runtime,
             created: 0,
+            display: None,
         };
         for op in [
             Op::Install(def("known")),
