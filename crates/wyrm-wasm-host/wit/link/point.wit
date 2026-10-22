@@ -19,3 +19,29 @@ world point {
   /// the point back (ADR 0004).
   export write: func(point: list<u8>, value: list<u8>) -> result<_, string>;
 }
+
+/// TCP to the addresses and ports the link's `net` list allows (ADR 0012).
+/// Addresses are IP literals; every timeout is capped at the time left in
+/// the current call.
+interface tcp {
+  /// Open a connection; returns its handle (at most 4 open at a time).
+  connect: func(addr: string, port: u16, timeout-ms: u32) -> result<u32, string>;
+
+  /// Send all of `data`.
+  send: func(conn: u32, data: list<u8>) -> result<_, string>;
+
+  /// Up to `max` bytes (at most 64 KiB) as they arrive; empty at the end
+  /// of the stream.
+  recv: func(conn: u32, max: u32, timeout-ms: u32) -> result<list<u8>, string>;
+
+  close: func(conn: u32);
+}
+
+/// A point driver with network access (ADR 0012): `point` plus `tcp`.
+world driver {
+  import tcp;
+
+  export init: func(config: list<u8>) -> result<_, string>;
+  export read: func(point: list<u8>) -> result<list<u8>, string>;
+  export write: func(point: list<u8>, value: list<u8>) -> result<_, string>;
+}

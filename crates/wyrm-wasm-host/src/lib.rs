@@ -10,12 +10,15 @@
 //! - `wyrm:link/point` (`wit/link/point.wit`): the read/write surface of a
 //!   driver point. `init(config)`, `read(point) -> sample`,
 //!   `write(point, value)`. All arguments are canonical CBOR.
+//! - `wyrm:link/driver` (same file, ADR 0012): `point` plus the one import
+//!   the host defines, `wyrm:link/tcp`, limited by the instance's
+//!   [`NetPolicy`].
 //!
 //! # Sandbox
-//! - **No imports.** The linker defines nothing: no WASI, no files, no
-//!   sockets, no clocks, no random. A component that imports anything is
-//!   rejected at load with [`Error::Denied`] naming the import. Future
-//!   capabilities (`~def.capabilities`) come only as explicit host imports.
+//! - **No imports** but `wyrm:link/tcp` for the `driver` world. The linker
+//!   defines nothing else: no WASI, no files, no clocks, no random. A
+//!   component that imports anything else is rejected at load with
+//!   [`Error::Denied`] naming the import.
 //! - **Fuel** ([`Limits::fuel`]): the store gets a fresh budget before each
 //!   call; exhaustion is [`Error::Fuel`].
 //! - **Memory** ([`Limits::memory_bytes`]): a resource limiter turns any
@@ -37,8 +40,10 @@
 
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
@@ -48,6 +53,10 @@ mod flow_world {
 
 mod link_world {
     wasmtime::component::bindgen!({ path: "wit/link", world: "point" });
+}
+
+mod driver_world {
+    wasmtime::component::bindgen!({ path: "wit/link", world: "driver" });
 }
 
 /// Epoch tick of the time limit.
@@ -84,13 +93,28 @@ impl Limits {
         memory_bytes: 256 << 20,
         time: Duration::from_secs(1),
     };
+
+    /// Default of a link driver call (`wyrm:link/driver`, ADR 0012): the
+    /// time includes host network I/O.
+    pub const LINK: Limits = Limits {
+        fuel: 100_000_000,
+        memory_bytes: 16 << 20,
+        time: Duration::from_secs(2),
+    };
+
+    /// Upper bounds of a link driver call.
+    pub const LINK_MAX: Limits = Limits {
+        fuel: 1_000_000_000,
+        memory_bytes: 64 << 20,
+        time: Duration::from_secs(10),
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("invalid component: {0}")]
     Invalid(String),
-    #[error("import {0} denied: components get no host imports")]
+    #[error("import {0} denied: only wyrm:link/tcp, for link drivers")]
     Denied(String),
     #[error("fuel limit of {0} exhausted")]
     Fuel(u64),
@@ -124,6 +148,210 @@ pub fn is_sha256_hex(s: &str) -> bool {
 pub struct Ctx {
     memory_bytes: usize,
     memory_hit: bool,
+    net: Net,
+}
+
+// ---------- network (ADR 0012) ----------
+
+/// Open connections per instance.
+pub const MAX_CONNS: usize = 4;
+/// Largest `recv`.
+pub const MAX_RECV: u32 = 64 << 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Allow {
+    net: IpAddr,
+    prefix: u8,
+    port: u16,
+}
+
+/// Where a `driver` instance may connect: `<ip>/<prefix>:<port>` entries,
+/// IP literals only (ADR 0012). Empty: no network.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NetPolicy(Vec<Allow>);
+
+/// An IPv4-mapped IPv6 address is its IPv4 address.
+fn plain(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(a) => a.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    }
+}
+
+/// The special class of an address (loopback 1, link-local 2, multicast
+/// 3, broadcast 4, unspecified 5) and the prefix length of that class.
+fn class(ip: IpAddr) -> Option<(u8, u8)> {
+    match ip {
+        IpAddr::V4(a) if a.is_loopback() => Some((1, 8)),
+        IpAddr::V4(a) if a.is_link_local() => Some((2, 16)),
+        IpAddr::V4(a) if a.is_multicast() => Some((3, 4)),
+        IpAddr::V4(a) if a.is_broadcast() => Some((4, 32)),
+        IpAddr::V4(a) if a.is_unspecified() => Some((5, 32)),
+        IpAddr::V6(a) if a.is_loopback() => Some((1, 128)),
+        IpAddr::V6(a) if (a.segments()[0] & 0xffc0) == 0xfe80 => Some((2, 10)),
+        IpAddr::V6(a) if a.is_multicast() => Some((3, 8)),
+        IpAddr::V6(a) if a.is_unspecified() => Some((5, 128)),
+        _ => None,
+    }
+}
+
+fn bits(ip: IpAddr) -> (u128, u8) {
+    match ip {
+        IpAddr::V4(a) => (u32::from(a) as u128, 32),
+        IpAddr::V6(a) => (u128::from(a), 128),
+    }
+}
+
+impl NetPolicy {
+    /// Entries separated by commas, spaces or new lines:
+    /// `10.0.5.0/24:502`, `192.168.1.20:502` (one address), `[fd00::]/64:502`.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut out = Vec::new();
+        for e in text
+            .split([',', ' ', '\n', '\r', '\t'])
+            .filter(|e| !e.is_empty())
+        {
+            let (addr, port) = e
+                .rsplit_once(':')
+                .ok_or_else(|| format!("{e}: <ip>[/<prefix>]:<port>"))?;
+            let port: u16 = port.parse().map_err(|_| format!("{e}: bad port"))?;
+            let (ip, prefix) = match addr.split_once('/') {
+                Some((ip, p)) => (ip, Some(p)),
+                None => (addr, None),
+            };
+            let ip: IpAddr = ip
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse()
+                .map_err(|_| format!("{e}: an IP literal"))?;
+            let ip = plain(ip);
+            let max = bits(ip).1;
+            let prefix = match prefix {
+                Some(p) => p
+                    .trim_end_matches(']')
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|p| *p <= max)
+                    .ok_or_else(|| format!("{e}: bad prefix"))?,
+                None => max,
+            };
+            out.push(Allow {
+                net: ip,
+                prefix,
+                port,
+            });
+        }
+        Ok(Self(out))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// `ip:port` is inside an entry. A special address (loopback,
+    /// link-local, …) only inside an entry of the same class that is no
+    /// wider than the class: `0.0.0.0/0` does not reach `127.0.0.1`.
+    pub fn allows(&self, ip: IpAddr, port: u16) -> bool {
+        let ip = plain(ip);
+        let (a, n) = bits(ip);
+        let cls = class(ip);
+        self.0.iter().any(|e| {
+            let (b, m) = bits(e.net);
+            if n != m || e.port != port {
+                return false;
+            }
+            if let Some((c, len)) = cls {
+                if class(e.net).map(|x| x.0) != Some(c) || e.prefix < len {
+                    return false;
+                }
+            }
+            let shift = u32::from(n - e.prefix);
+            shift >= 128 || (a >> shift) == (b >> shift)
+        })
+    }
+}
+
+/// Network state of one instance: its policy, open connections and the
+/// wall-clock end of the current call.
+#[derive(Default)]
+struct Net {
+    policy: NetPolicy,
+    conns: HashMap<u32, TcpStream>,
+    next: u32,
+    deadline: Option<Instant>,
+}
+
+impl Net {
+    /// `ms` capped at the time left in the call; an error when none is left.
+    fn budget(&self, ms: u32) -> Result<Duration, String> {
+        let left = self
+            .deadline
+            .map(|d| d.saturating_duration_since(Instant::now()))
+            .unwrap_or(Duration::ZERO);
+        if left < Duration::from_millis(1) {
+            return Err("no time left in this call".into());
+        }
+        Ok(Duration::from_millis(ms.max(1).into()).min(left))
+    }
+
+    fn conn(&mut self, h: u32) -> Result<&mut TcpStream, String> {
+        self.conns
+            .get_mut(&h)
+            .ok_or_else(|| format!("no connection {h}"))
+    }
+}
+
+impl driver_world::wyrm::link::tcp::Host for Ctx {
+    fn connect(&mut self, addr: String, port: u16, timeout_ms: u32) -> Result<u32, String> {
+        let ip: IpAddr = addr.parse().map_err(|_| format!("{addr}: an IP literal"))?;
+        if !self.net.policy.allows(ip, port) {
+            return Err(format!("{addr}:{port} is not in the link's net list"));
+        }
+        if self.net.conns.len() >= MAX_CONNS {
+            return Err(format!("at most {MAX_CONNS} connections"));
+        }
+        let t = self.net.budget(timeout_ms)?;
+        let s = TcpStream::connect_timeout(&SocketAddr::new(ip, port), t)
+            .map_err(|e| format!("connect {addr}:{port}: {e}"))?;
+        let _ = s.set_nodelay(true);
+        self.net.next = self.net.next.wrapping_add(1);
+        let h = self.net.next;
+        self.net.conns.insert(h, s);
+        Ok(h)
+    }
+
+    fn send(&mut self, conn: u32, data: Vec<u8>) -> Result<(), String> {
+        let t = self.net.budget(u32::MAX)?;
+        let s = self.net.conn(conn)?;
+        s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
+        s.write_all(&data).map_err(|e| format!("send: {e}"))
+    }
+
+    fn recv(&mut self, conn: u32, max: u32, timeout_ms: u32) -> Result<Vec<u8>, String> {
+        let t = self.net.budget(timeout_ms)?;
+        let s = self.net.conn(conn)?;
+        s.set_read_timeout(Some(t)).map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; max.min(MAX_RECV) as usize];
+        match s.read(&mut buf) {
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                Err("recv: timeout".into())
+            }
+            Err(e) => Err(format!("recv: {e}")),
+        }
+    }
+
+    fn close(&mut self, conn: u32) {
+        self.net.conns.remove(&conn);
+    }
 }
 
 impl ResourceLimiter for Ctx {
@@ -176,6 +404,14 @@ mod sealed {
 pub trait World: sealed::Sealed + Sized + 'static {
     #[doc(hidden)]
     type Pre: Clone + Send + Sync;
+    /// The one import this world may have (`wyrm:link/tcp` for `driver`).
+    #[doc(hidden)]
+    const IMPORT: Option<&'static str> = None;
+    /// The linker with exactly the imports of this world.
+    #[doc(hidden)]
+    fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
+        Ok(Linker::new(engine))
+    }
     #[doc(hidden)]
     fn pre(linker: &Linker<Ctx>, c: &Component) -> wasmtime::Result<Self::Pre>;
     #[doc(hidden)]
@@ -190,8 +426,34 @@ pub struct NodeWorld(flow_world::Node);
 /// `wyrm:link/point`.
 pub struct PointWorld(link_world::Point);
 
+/// `wyrm:link/driver`: `point` plus `wyrm:link/tcp` (ADR 0012).
+pub struct DriverWorld(driver_world::Driver);
+
 impl sealed::Sealed for NodeWorld {}
 impl sealed::Sealed for PointWorld {}
+impl sealed::Sealed for DriverWorld {}
+
+impl World for DriverWorld {
+    type Pre = driver_world::DriverPre<Ctx>;
+    const IMPORT: Option<&'static str> = Some("wyrm:link/tcp@0.1.0");
+    fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
+        let mut l = Linker::new(engine);
+        driver_world::wyrm::link::tcp::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
+            &mut l,
+            |c| c,
+        )?;
+        Ok(l)
+    }
+    fn pre(linker: &Linker<Ctx>, c: &Component) -> wasmtime::Result<Self::Pre> {
+        driver_world::DriverPre::new(linker.instantiate_pre(c)?)
+    }
+    fn instantiate(pre: &Self::Pre, store: &mut Store<Ctx>) -> wasmtime::Result<Self> {
+        pre.instantiate(store).map(DriverWorld)
+    }
+    fn init(&self, store: &mut Store<Ctx>, config: &[u8]) -> wasmtime::Result<Result<(), String>> {
+        self.0.call_init(store, config)
+    }
+}
 
 impl World for NodeWorld {
     type Pre = flow_world::NodePre<Ctx>;
@@ -271,10 +533,14 @@ impl Host {
                 Component::new(&self.engine, bytes).map_err(|e| Error::Invalid(format!("{e:#}")))?
             }
         };
-        if let Some((name, _)) = component.component_type().imports(&self.engine).next() {
+        if let Some((name, _)) = component
+            .component_type()
+            .imports(&self.engine)
+            .find(|(name, _)| Some(*name) != W::IMPORT)
+        {
             return Err(Error::Denied(name.to_owned()));
         }
-        let linker = Linker::<Ctx>::new(&self.engine);
+        let linker = W::linker(&self.engine).map_err(|e| Error::Invalid(format!("{e:#}")))?;
         let pre = W::pre(&linker, &component).map_err(|e| Error::Invalid(format!("{e:#}")))?;
         // Only components that passed every check stay compiled.
         if cached.is_none() {
@@ -323,6 +589,7 @@ impl<W: World> Artifact<W> {
 
 pub type NodeArtifact = Artifact<NodeWorld>;
 pub type PointArtifact = Artifact<PointWorld>;
+pub type DriverArtifact = Artifact<DriverWorld>;
 
 /// The artifact runners use; [`Slot::swap`] is the hot reload.
 pub struct Slot<W: World>(Arc<RwLock<(u64, Artifact<W>)>>);
@@ -370,6 +637,7 @@ struct Runner<W: World> {
     slot: Slot<W>,
     config: Vec<u8>,
     limits: Limits,
+    net: NetPolicy,
     live: Option<Live<W>>,
     fuel_used: u64,
 }
@@ -380,6 +648,7 @@ impl<W: World> Runner<W> {
             slot,
             config,
             limits,
+            net: NetPolicy::default(),
             live: None,
             fuel_used: 0,
         }
@@ -387,6 +656,8 @@ impl<W: World> Runner<W> {
 
     fn arm(store: &mut Store<Ctx>, limits: &Limits) -> Result<(), Error> {
         store.data_mut().memory_hit = false;
+        // Host I/O timeouts end with the call (ADR 0012).
+        store.data_mut().net.deadline = Some(Instant::now() + limits.time);
         store
             .set_fuel(limits.fuel)
             .map_err(|e| Error::Trap(format!("fuel: {e:#}")))?;
@@ -422,6 +693,10 @@ impl<W: World> Runner<W> {
             Ctx {
                 memory_bytes: self.limits.memory_bytes,
                 memory_hit: false,
+                net: Net {
+                    policy: self.net.clone(),
+                    ..Net::default()
+                },
             },
         );
         store.limiter(|c| c);
@@ -530,5 +805,35 @@ impl PointDriver {
 
     pub fn slot(&self) -> &Slot<PointWorld> {
         &self.0.slot
+    }
+}
+
+/// A link point driver with network access (`wyrm:link/driver`, ADR 0012).
+/// Host I/O blocks: run it on a thread of its own, not on an async worker.
+pub struct LinkDriver(Runner<DriverWorld>);
+
+impl LinkDriver {
+    /// `limits.time` is the budget of one call, host I/O included.
+    pub fn new(slot: Slot<DriverWorld>, config: Vec<u8>, limits: Limits, net: NetPolicy) -> Self {
+        let mut r = Runner::new(slot, config, limits);
+        r.net = net;
+        Self(r)
+    }
+
+    pub fn start(&mut self) -> Result<(), Error> {
+        self.0.ensure()
+    }
+
+    /// `read(point)` → the reading as canonical CBOR.
+    pub fn read(&mut self, point: &[u8]) -> Result<Vec<u8>, Error> {
+        self.0.call(|w, s| w.0.call_read(s, point))
+    }
+
+    pub fn write(&mut self, point: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.0.call(|w, s| w.0.call_write(s, point, value))
+    }
+
+    pub fn fuel_used(&self) -> u64 {
+        self.0.fuel_used
     }
 }

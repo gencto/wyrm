@@ -185,3 +185,92 @@ pub fn register() -> Vec<u8> {
     );
     wat::parse_str(text).expect("guest WAT")
 }
+
+/// Link driver (`wyrm:link/driver`, ADR 0012): `init(config)` takes the
+/// port as two bytes (big-endian); `read` connects to 127.0.0.1:port, sends
+/// `ping`, returns what comes back (up to 16 bytes) and closes; any host
+/// error comes back as the guest's error.
+pub fn tcp_ping() -> Vec<u8> {
+    let text = r#"(component
+  (import "wyrm:link/tcp@0.1.0" (instance $tcp
+    (export "connect" (func (param "addr" string) (param "port" u16) (param "timeout-ms" u32)
+      (result (result u32 (error string)))))
+    (export "send" (func (param "conn" u32) (param "data" (list u8)) (result (result (error string)))))
+    (export "recv" (func (param "conn" u32) (param "max" u32) (param "timeout-ms" u32)
+      (result (result (list u8) (error string)))))
+    (export "close" (func (param "conn" u32)))))
+  (core module $libc
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (func (export "cabi_realloc")
+      (param $old i32) (param $old_size i32) (param $align i32) (param $size i32) (result i32)
+      (local $p i32)
+      (local.set $p
+        (i32.and
+          (i32.add (global.get $heap) (i32.sub (local.get $align) (i32.const 1)))
+          (i32.sub (i32.const 0) (local.get $align))))
+      (global.set $heap (i32.add (local.get $p) (local.get $size)))
+      (if (i32.gt_u (global.get $heap) (i32.mul (memory.size) (i32.const 65536)))
+        (then (if (i32.eq (memory.grow (i32.const 1)) (i32.const -1)) (then unreachable))))
+      (local.get $p)))
+  (core instance $libc (instantiate $libc))
+  (core func $connect (canon lower (func $tcp "connect")
+    (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc"))))
+  (core func $send (canon lower (func $tcp "send")
+    (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc"))))
+  (core func $recv (canon lower (func $tcp "recv")
+    (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc"))))
+  (core func $close (canon lower (func $tcp "close")))
+  (core module $main
+    (import "libc" "memory" (memory 1))
+    (import "tcp" "connect" (func $connect (param i32 i32 i32 i32 i32)))
+    (import "tcp" "send" (func $send (param i32 i32 i32 i32)))
+    (import "tcp" "recv" (func $recv (param i32 i32 i32 i32)))
+    (import "tcp" "close" (func $close (param i32)))
+    (global $port (mut i32) (i32.const 0))
+    (data (i32.const 512) "127.0.0.1")
+    (data (i32.const 528) "ping")
+    ;; err(<the error string of the result at $ra>) as the export's result
+    (func $fail (param $ra i32) (result i32)
+      (i32.store8 (i32.const 0) (i32.const 1))
+      (i32.store offset=4 (i32.const 0) (i32.load offset=4 (local.get $ra)))
+      (i32.store offset=8 (i32.const 0) (i32.load offset=8 (local.get $ra)))
+      (i32.const 0))
+    (func (export "init") (param $c i32) (param $cl i32) (result i32)
+      (global.set $port
+        (i32.or (i32.shl (i32.load8_u (local.get $c)) (i32.const 8))
+                (i32.load8_u offset=1 (local.get $c))))
+      (i32.store8 (i32.const 0) (i32.const 0))
+      (i32.const 0))
+    (func (export "read") (param i32 i32) (result i32)
+      (local $h i32)
+      (call $connect (i32.const 512) (i32.const 9) (global.get $port) (i32.const 1000) (i32.const 64))
+      (if (i32.load8_u (i32.const 64)) (then (return (call $fail (i32.const 64)))))
+      (local.set $h (i32.load offset=4 (i32.const 64)))
+      (call $send (local.get $h) (i32.const 528) (i32.const 4) (i32.const 80))
+      (if (i32.load8_u (i32.const 80)) (then (return (call $fail (i32.const 80)))))
+      (call $recv (local.get $h) (i32.const 16) (i32.const 5000) (i32.const 96))
+      (if (i32.load8_u (i32.const 96)) (then (return (call $fail (i32.const 96)))))
+      (call $close (local.get $h))
+      (i32.store8 (i32.const 0) (i32.const 0))
+      (i32.store offset=4 (i32.const 0) (i32.load offset=4 (i32.const 96)))
+      (i32.store offset=8 (i32.const 0) (i32.load offset=8 (i32.const 96)))
+      (i32.const 0))
+    (func (export "write") (param i32 i32 i32 i32) (result i32)
+      (i32.store8 (i32.const 0) (i32.const 0))
+      (i32.const 0)))
+  (core instance $i (instantiate $main
+    (with "libc" (instance $libc))
+    (with "tcp" (instance
+      (export "connect" (func $connect))
+      (export "send" (func $send))
+      (export "recv" (func $recv))
+      (export "close" (func $close))))))
+  (func (export "init") (param "config" (list u8)) (result (result (error string)))
+    (canon lift (core func $i "init") (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc"))))
+  (func (export "read") (param "point" (list u8)) (result (result (list u8) (error string)))
+    (canon lift (core func $i "read") (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc"))))
+  (func (export "write") (param "point" (list u8)) (param "value" (list u8)) (result (result (error string)))
+    (canon lift (core func $i "write") (memory (core memory $libc "memory")) (realloc (core func $libc "cabi_realloc")))))"#;
+    wat::parse_str(text).expect("guest WAT")
+}
