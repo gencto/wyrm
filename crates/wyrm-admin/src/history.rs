@@ -224,7 +224,8 @@ fn timerange_param() -> ParamMeta {
 pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
     ctx.declare_node(
         ROOT,
-        NodeMeta::folder().display("History").attr(
+        // the key, lowercase, as the other folders of sys
+        NodeMeta::folder().attr(
             "description",
             "The embedded historian: watch groups record points into data_dir/history.",
         ),

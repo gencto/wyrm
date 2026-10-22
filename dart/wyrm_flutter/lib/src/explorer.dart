@@ -112,6 +112,9 @@ class WyExplorer extends StatefulWidget {
 /// `wy/<site>`: a site root.
 bool _isSiteKey(String k) => RegExp(r'^wy/[^/]+$').hasMatch(k);
 
+/// `wy/<site>/down`: the links of a site, listed by liveliness.
+bool _isLinksRoot(String k) => RegExp(r'^wy/[^/]+/down$').hasMatch(k);
+
 /// The site key a peer-broker node refers to (`@root`).
 String? _refRoot(NodeMeta m) => switch (m.attr?['root']) {
       VStr(:final v) when _isSiteKey(v) => v,
@@ -1232,6 +1235,12 @@ class _WyMetricsState extends State<WyMetrics> {
   Future<void> _load() async {
     final k = widget.nodeKey;
     if (k == null) return;
+    // A site root and its `down` are built by the client (sections; links
+    // by liveliness): no `~meta`, no values of their own.
+    if (_isSiteKey(k) || _isLinksRoot(k)) {
+      setState(() => _meta = NodeMeta(hasChildren: true));
+      return;
+    }
     try {
       final m = await widget.api.meta(k);
       final kids = m.isContainer ? await widget.api.children(k) : const <Child>[];
@@ -1242,7 +1251,7 @@ class _WyMetricsState extends State<WyMetrics> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e is WyrmException ? e.message : '$e');
     }
   }
 
@@ -1301,7 +1310,7 @@ class _WyMetricsState extends State<WyMetrics> {
         ]),
       ),
       if (_error != null)
-        Padding(padding: const EdgeInsets.all(10), child: Text(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent))),
+        Padding(padding: const EdgeInsets.all(10), child: Text(_error!, style: WyStyle.label.copyWith(color: WyStyle.error))),
       Expanded(child: ListView(children: rows)),
     ]);
   }

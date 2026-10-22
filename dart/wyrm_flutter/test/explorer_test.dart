@@ -68,6 +68,8 @@ class ActApi implements WyrmApi {
 
   @override
   Future<NodeMeta> meta(String key) async => switch (key) {
+        // as a broker: the links root has no responder
+        'wy/s/down' => throw WyrmException.of(Status.disconnected, 'wy/s/down/~meta is not connected'),
         'wy/s/down/m' => metaM,
         'wy/s/down/c' => metaC,
         'wy/s/down/c/temp' => metaT,
@@ -302,5 +304,17 @@ void main() {
     await t.tap(find.byTooltip('Close'));
     await t.pumpAndSettle();
     expect(find.textContaining('History: '), findsNothing);
+  });
+
+  testWidgets('Metrics of a links root: no ~meta call, no error', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s'))));
+    await t.pumpAndSettle();
+    await t.tap(find.text('downstream'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('not connected'), findsNothing);
+    expect(find.textContaining('WyrmException'), findsNothing);
   });
 }
