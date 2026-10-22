@@ -735,7 +735,7 @@ async fn two_brokers_over_quic() {
 
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
 /// the environment; a login is audited; the gateway's per-user tokens are
-/// accepted by links (its key is trusted like an admin key).
+/// accepted by links and by the admin, within each user's grants.
 #[tokio::test(flavor = "multi_thread")]
 async fn gateway_in_wyrmd() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -788,6 +788,34 @@ async fn gateway_in_wyrmd() {
     c.set(&format!("wy/{SITE}/down/mock/g0/p0"), 5.0)
         .await
         .expect("a gateway token is accepted by the link");
+    // The control plane trusts the gateway too; the user's grants decide:
+    // the admin role reaches sys/**, viewer and engineer do not.
+    let history = format!("wy/{SITE}/sys/links/mock");
+    let none = || Value::Map(BTreeMap::new());
+    c.invoke_one(&history, "history", none())
+        .await
+        .expect("an admin user runs a control-plane action");
+    // sys/audit keeps its tail action (regression in 0f3bab6)
+    let mut n = BTreeMap::new();
+    n.insert("n".to_owned(), Value::UInt(3));
+    let tail = c
+        .invoke_one(&format!("wy/{SITE}/sys/audit"), "tail", Value::Map(n))
+        .await
+        .expect("audit tail");
+    assert!(matches!(tail, Some(Value::Array(_))), "{tail:?}");
+    for role in ["viewer", "engineer"] {
+        let mut q = p.clone();
+        q.name = format!("{role}-user");
+        q.grants = wyrm_gateway::RoleTable::default().grants(SITE, &[role.to_owned()]);
+        let cu = WyrmClient::new(env.session().await)
+            .with_tokens(Arc::new(gw.tokens_for(&q)))
+            .with_timeout(Duration::from_secs(3));
+        let e = cu
+            .invoke_one(&history, "history", none())
+            .await
+            .expect_err("no grant on sys/**");
+        assert!(e.is(wyrm_core::Status::PermissionDenied), "{role}: {e}");
+    }
     assert!(env
         .ctl
         .audit_tail(50)

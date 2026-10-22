@@ -944,8 +944,8 @@ impl Daemon {
             Some(g) => Some(open_gateway(&cfg, g, true)?),
         };
         // The gateway signs one token per user request with that user's
-        // grants. Links (and the flow engine) trust its key; the admin does
-        // not, so the control plane stays with operator keys.
+        // grants. Links, the flow engine and the admin trust its key; the
+        // grants decide (only the admin role reaches `sys/**`).
         // Caps: flows never get config (spec 06); gateway tokens carry the
         // user's grants, up to config on devices.
         let devices = vec![format!("wy/{}/down", cfg.site)];
@@ -963,6 +963,11 @@ impl Daemon {
             site: cfg.site.clone(),
             data_dir: cfg.data_dir.clone(),
             admin_keys: cfg.admin_keys()?,
+            control_keys: gateway
+                .as_ref()
+                .map(|g| g.verifying_key())
+                .into_iter()
+                .collect(),
             link_keys,
             operators: cfg.operators.clone(),
             dev: cfg.profile == Profile::Dev,

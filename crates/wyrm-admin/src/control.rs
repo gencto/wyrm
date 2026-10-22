@@ -60,6 +60,11 @@ pub struct ControlConfig {
     pub site: String,
     pub data_dir: PathBuf,
     pub admin_keys: Vec<VerifyingKey>,
+    /// Keys the admin (the control plane, `sys/**`) trusts besides
+    /// `admin_keys`: the user gateway's, whose tokens carry each user's
+    /// grants, so only roles with `config` on `wy/<site>/sys/**` pass
+    /// (owner decision 2026-10-22, ADR 0009).
+    pub control_keys: Vec<VerifyingKey>,
     /// Extra keys trusted by links only, never by the admin itself (the flow
     /// engine signs flow commands with one: a flow may command devices, not
     /// the control plane).
@@ -688,6 +693,8 @@ impl Control {
         let mut lcfg = LinkConfig::new(self.cfg.site.clone(), "admin");
         lcfg.root = Some(format!("wy/{}/sys", self.cfg.site));
         lcfg.admin_keys = self.cfg.admin_keys.clone();
+        lcfg.admin_keys
+            .extend(self.cfg.control_keys.iter().copied());
         lcfg.open_actions = vec!["hello".into()];
         lcfg.audit = false; // the admin writes its own journal directly
         let admin = wyrm_link_sdk::spawn::<Admin>(
@@ -1082,6 +1089,16 @@ impl Link for Admin {
         .await?;
         ctx.declare_node("audit", NodeMeta::number().is("wy:audit"))
             .await?;
+        ctx.declare_action(
+            "audit",
+            "tail",
+            ActionMeta::new()
+                .display("Tail")
+                .param("n", ParamMeta::of(TypeCode::Number).display("Records"))
+                .result(ActionResult::Type(TypeCode::Array))
+                .level(Perm::Config),
+        )
+        .await?;
         // `wy/<site>/sys/broker` liveliness: process links re-publish when it returns.
         ctx.set_dynamic("broker", true).await?;
         Ok(Admin {
