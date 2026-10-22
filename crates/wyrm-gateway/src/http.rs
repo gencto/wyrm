@@ -27,6 +27,9 @@ const MAX_BODY: usize = 64 * 1024;
 const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
 /// Longest wait for an invoke over HTTP: install actions fetch and unpack.
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
+/// Longest upload of a `POST /api/invoke` body: a slow sender cannot hold
+/// one of the two slots for long.
+const BODY_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -392,16 +395,25 @@ async fn invoke(
             return Err(e);
         }
     };
+    let busy = |why: &str| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, why);
+    // One upload per user, two in all.
+    let Some(_slot) = st.gw.upload_slot(&p.name) else {
+        let _ = axum::body::to_bytes(body, MAX_BODY).await;
+        return Err(busy("an upload of this user is in progress"));
+    };
     let Ok(_permit) = st.gw.bulk.try_acquire() else {
         let _ = axum::body::to_bytes(body, MAX_BODY).await;
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            Status::Busy,
-            "too many uploads at once",
-        ));
+        return Err(busy("too many uploads at once"));
     };
-    let bytes = axum::body::to_bytes(body, MAX_INVOKE_BODY)
+    let bytes = tokio::time::timeout(BODY_TIMEOUT, axum::body::to_bytes(body, MAX_INVOKE_BODY))
         .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                Status::Timeout,
+                format!("body not received in {} s", BODY_TIMEOUT.as_secs()),
+            )
+        })?
         .map_err(|_| {
             ApiError::new(
                 StatusCode::PAYLOAD_TOO_LARGE,

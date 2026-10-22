@@ -33,7 +33,12 @@ sealed class Value {
     throw ArgumentError('no WYRM Value for ${o.runtimeType}');
   }
 
-  static Value decode(CborReader r) {
+  /// Deepest nesting of arrays, maps and tags in one value (spec README,
+  /// rule 6): input from anyone cannot make the decoder recurse past it.
+  static const maxDepth = 32;
+
+  static Value decode(CborReader r, [int depth = 0]) {
+    if (depth > maxDepth) throw CborError('nesting deeper than $maxDepth');
     switch (r.peek()) {
       case CborType.uint:
       case CborType.nint:
@@ -49,11 +54,11 @@ sealed class Value {
         final out = <Value>[];
         if (n == null) {
           while (!r.takeBreak()) {
-            out.add(decode(r));
+            out.add(decode(r, depth + 1));
           }
         } else {
           for (var i = 0; i < n; i++) {
-            out.add(decode(r));
+            out.add(decode(r, depth + 1));
           }
         }
         return VArray(out);
@@ -63,18 +68,18 @@ sealed class Value {
         if (n == null) {
           while (!r.takeBreak()) {
             final k = _key(r);
-            out[k] = decode(r);
+            out[k] = decode(r, depth + 1);
           }
         } else {
           for (var i = 0; i < n; i++) {
             final k = _key(r);
-            out[k] = decode(r);
+            out[k] = decode(r, depth + 1);
           }
         }
         return VMap(out);
       case CborType.tag:
         r.skipTagHead();
-        return decode(r);
+        return decode(r, depth + 1);
       case CborType.simple:
         final any = r.readAny();
         if (any is bool) return VBool(any);

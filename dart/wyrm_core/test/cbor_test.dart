@@ -56,6 +56,16 @@ void main() {
     expect((v.toDart() as Map)['b'], 2.5);
   });
 
+  test('nesting is bounded (spec rule 6)', () {
+    Uint8List nested(int depth, int head) => Uint8List.fromList([...List.filled(depth, head), 0xf6]);
+    expect(Value.fromCbor(nested(Value.maxDepth, 0x81)), isA<VArray>());
+    for (final head in [0x81, 0xc0]) {
+      expect(() => Value.fromCbor(nested(Value.maxDepth + 1, head)), throwsA(isA<CborError>()));
+    }
+    // far past the limit: refused, not a stack overflow
+    expect(() => Value.fromCbor(nested(1000000, 0x81)), throwsA(isA<CborError>()));
+  });
+
   test('truncated input fails', () {
     expect(() => Value.fromCbor(hexDecode('1b0006')), throwsA(isA<CborError>()));
     expect(() => Value.fromCbor(hexDecode('0000')), throwsA(isA<CborError>()));

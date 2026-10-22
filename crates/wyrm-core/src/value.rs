@@ -125,8 +125,23 @@ pub fn encode_str_map<W: encode::Write, C>(
     Ok(())
 }
 
+/// Deepest nesting of arrays, maps and tags in one [`Value`] (spec README,
+/// rule 6): input from anyone cannot make the decoder recurse past it.
+pub const MAX_DEPTH: usize = 32;
+
 impl<'b, C> Decode<'b, C> for Value {
-    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, decode::Error> {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, decode::Error> {
+        decode_value(d, 0)
+    }
+}
+
+fn decode_value(d: &mut Decoder<'_>, depth: usize) -> Result<Value, decode::Error> {
+    if depth > MAX_DEPTH {
+        return Err(decode::Error::message(format!(
+            "nesting deeper than {MAX_DEPTH}"
+        )));
+    }
+    {
         Ok(match d.datatype()? {
             Type::Null | Type::Undefined => {
                 d.skip()?;
@@ -141,9 +156,21 @@ impl<'b, C> Decode<'b, C> for Value {
             Type::String | Type::StringIndef => Value::Str(decode_str(d)?),
             Type::Bytes | Type::BytesIndef => Value::Bytes(decode_bytes(d)?),
             Type::Array | Type::ArrayIndef => {
+                // No capacity from the header: it is the sender's claim.
                 let mut out = Vec::new();
-                for item in d.array_iter_with::<C, Value>(ctx)? {
-                    out.push(item?);
+                match d.array()? {
+                    Some(n) => {
+                        for _ in 0..n {
+                            out.push(decode_value(d, depth + 1)?);
+                        }
+                    }
+                    None => loop {
+                        if d.datatype()? == Type::Break {
+                            d.skip()?;
+                            break;
+                        }
+                        out.push(decode_value(d, depth + 1)?);
+                    },
                 }
                 Value::Array(out)
             }
@@ -161,7 +188,7 @@ impl<'b, C> Decode<'b, C> for Value {
                         break;
                     }
                     let k = decode_str(d)?;
-                    let v = Value::decode(d, ctx)?;
+                    let v = decode_value(d, depth + 1)?;
                     out.insert(k, v);
                     i += 1;
                 }
@@ -169,7 +196,7 @@ impl<'b, C> Decode<'b, C> for Value {
             }
             Type::Tag => {
                 d.tag()?;
-                Value::decode(d, ctx)?
+                decode_value(d, depth + 1)?
             }
             t => return Err(decode::Error::message(format!("unsupported CBOR type {t}"))),
         })
@@ -283,5 +310,42 @@ impl Value {
             Value::Float(f) => Some(*f),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `depth` nested one-element arrays around a null.
+    fn nested(depth: usize, head: u8) -> Vec<u8> {
+        let mut b = vec![head; depth];
+        b.push(0xf6);
+        b
+    }
+
+    #[test]
+    fn nesting_is_bounded() {
+        let ok: Value = crate::codec::from_slice(&nested(MAX_DEPTH, 0x81)).unwrap();
+        assert!(matches!(ok, Value::Array(_)));
+        for head in [0x81, 0x9f, 0xc0] {
+            // array, indefinite array, tag
+            let mut deep = nested(MAX_DEPTH + 1, head);
+            if head == 0x9f {
+                deep.extend(std::iter::repeat_n(0xff, MAX_DEPTH + 1));
+            }
+            assert!(
+                crate::codec::from_slice::<Value>(&deep).is_err(),
+                "{head:#x}"
+            );
+        }
+        // far past the limit: refused, not a stack overflow
+        assert!(crate::codec::from_slice::<Value>(&nested(1_000_000, 0x81)).is_err());
+        let mut map = Vec::new();
+        for _ in 0..=MAX_DEPTH {
+            map.extend([0xa1, 0x61, b'k']);
+        }
+        map.push(0xf6);
+        assert!(crate::codec::from_slice::<Value>(&map).is_err());
     }
 }

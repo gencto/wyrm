@@ -172,6 +172,9 @@ pub struct Gateway {
     hashing: Semaphore,
     /// Bounds concurrent `POST /api/invoke` bodies (up to 64 MiB each).
     bulk: Semaphore,
+    /// Users with a `POST /api/invoke` in progress: one each (see
+    /// [`Gateway::upload_slot`]).
+    uploading: Mutex<std::collections::HashSet<String>>,
     audit: RwLock<Option<AuditHook>>,
     addr: watch::Sender<Option<SocketAddr>>,
     /// WebSocket tickets: hex(16 random bytes) → ticket.
@@ -179,6 +182,21 @@ pub struct Gateway {
     /// Downstream sites read through this gateway (starts as
     /// `cfg.read_sites`; peers added at runtime change it).
     read_sites: RwLock<Vec<String>>,
+}
+
+pub(crate) struct UploadSlot<'a> {
+    gw: &'a Gateway,
+    user: String,
+}
+
+impl Drop for UploadSlot<'_> {
+    fn drop(&mut self) {
+        self.gw
+            .uploading
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.user);
+    }
 }
 
 struct Ticket {
@@ -221,6 +239,7 @@ impl Gateway {
             limiter: limit::LoginLimiter::new(LOGIN_FAILURES, LOGIN_WINDOW),
             hashing: Semaphore::new(4),
             bulk: Semaphore::new(2),
+            uploading: Mutex::new(Default::default()),
             audit: RwLock::new(None),
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),
@@ -290,6 +309,16 @@ impl Gateway {
             .iter()
             .find(|s| s.as_str() == site)
             .cloned()
+    }
+
+    /// The one `POST /api/invoke` slot of `user`; `None` while another of
+    /// theirs runs. Freed when the guard drops.
+    pub(crate) fn upload_slot(&self, user: &str) -> Option<UploadSlot<'_>> {
+        let mut u = self.uploading.lock().unwrap_or_else(|p| p.into_inner());
+        u.insert(user.to_owned()).then(|| UploadSlot {
+            gw: self,
+            user: user.to_owned(),
+        })
     }
 
     /// Downstream sites readable through the gateway (the broker's peers).

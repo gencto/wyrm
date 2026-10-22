@@ -7,3 +7,4 @@
 - 0.1.5 (2026-10-21): 01 — peer broker nodes: downstream sites at `down/<d>`, upstream at `up/<u>` (`wy:broker`, `attr.root`, `connected`); `up/` is no longer a reserved virtual prefix. No fixture change.
 - 0.1.6 (2026-10-22): 02 — UI fields: action `display`, `group`; param-meta `display`, `description`, `placeholder`, `editor` (`password`, `textarea`); fixture `meta_action_ui`.
 - 0.1.7 (2026-10-22): 02 — param-meta `editor: "file"` (binary parameter from a local file). No fixture change.
+- 0.1.8 (2026-10-22): README rule 6 — nesting of arrays, maps and tags in one value is at most 32; deeper input is `invalid_message`. No fixture change (every fixture is shallower).
