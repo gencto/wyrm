@@ -55,41 +55,73 @@ pub struct Supervisor {
 const LINK_LINES: usize = 2000;
 const LINK_BYTES: usize = 1 << 20;
 
-/// Read `out` line by line until it closes: each line goes to the broker's
-/// own stderr (as before the pipe) and into `ring`. Reading never stops
+/// Longest line kept from a link's output; the rest of a longer line is
+/// dropped as it arrives, so one line never holds more than this.
+const MAX_OUT_LINE: usize = 4096;
+
+/// One finished line of a link's output: to the broker's stderr (as before
+/// the pipe) and into `ring`.
+fn take_line(raw: &[u8], cut: bool, ring: &Mutex<Ring>, id: &str, err: bool) {
+    let raw = String::from_utf8_lossy(raw);
+    let raw = raw.trim_end_matches('\r');
+    eprintln!("{raw}{}", if cut { "…" } else { "" });
+    let text = strip_ansi(raw);
+    // `<time> <LEVEL> <target>: <message>`, as tracing's text output
+    let level = text
+        .split_whitespace()
+        .take(3)
+        .find_map(|w| match w {
+            "ERROR" => Some(Level::ERROR),
+            "WARN" => Some(Level::WARN),
+            "INFO" => Some(Level::INFO),
+            "DEBUG" => Some(Level::DEBUG),
+            "TRACE" => Some(Level::TRACE),
+            _ => None,
+        })
+        .unwrap_or(if err { Level::WARN } else { Level::INFO });
+    ring.lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(LogLine {
+            t: now_ms(),
+            level,
+            target: if err { "stderr" } else { "stdout" }.into(),
+            link: Some(id.to_owned()),
+            message: text,
+        });
+}
+
+/// Read `out` until it closes, in chunks: each line (at most
+/// [`MAX_OUT_LINE`] bytes) goes through [`take_line`]. Reading never stops
 /// while the child runs, so a full pipe never blocks it.
 async fn drain(
-    out: impl tokio::io::AsyncRead + Unpin,
+    mut out: impl tokio::io::AsyncRead + Unpin,
     ring: Arc<Mutex<Ring>>,
     id: String,
     err: bool,
 ) {
-    use tokio::io::AsyncBufReadExt;
-    let mut lines = tokio::io::BufReader::new(out).lines();
-    while let Ok(Some(raw)) = lines.next_line().await {
-        eprintln!("{raw}");
-        let text = strip_ansi(&raw);
-        // `<time> <LEVEL> <target>: <message>`, as tracing's text output
-        let level = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
-            .into_iter()
-            .find(|l| text.split_whitespace().take(3).any(|w| w == *l))
-            .map(|l| match l {
-                "ERROR" => Level::ERROR,
-                "WARN" => Level::WARN,
-                "INFO" => Level::INFO,
-                "DEBUG" => Level::DEBUG,
-                _ => Level::TRACE,
-            })
-            .unwrap_or(if err { Level::WARN } else { Level::INFO });
-        ring.lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push(LogLine {
-                t: now_ms(),
-                level,
-                target: if err { "stderr" } else { "stdout" }.into(),
-                link: Some(id.clone()),
-                message: text,
-            });
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 8192];
+    let mut line: Vec<u8> = Vec::with_capacity(256);
+    let mut cut = false;
+    loop {
+        let n = match out.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        for &b in &chunk[..n] {
+            if b == b'\n' {
+                take_line(&line, cut, &ring, &id, err);
+                line.clear();
+                cut = false;
+            } else if line.len() < MAX_OUT_LINE {
+                line.push(b);
+            } else {
+                cut = true;
+            }
+        }
+    }
+    if !line.is_empty() {
+        take_line(&line, cut, &ring, &id, err);
     }
 }
 
@@ -286,6 +318,20 @@ async fn monitor(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn output_lines_are_bounded() {
+        let ring = Arc::new(Mutex::new(Ring::new(100, 1 << 20)));
+        let long = "x".repeat(100_000);
+        let input = format!("2026 \u{1b}[33m WARN\u{1b}[0m a: first\n{long}\nlast");
+        drain(input.as_bytes(), ring.clone(), "pm".into(), false).await;
+        let lines = ring.lock().unwrap().tail(10, Level::TRACE, "", None);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].level, Level::WARN);
+        assert_eq!(lines[0].message, "2026  WARN a: first");
+        assert!(lines[1].message.len() <= MAX_OUT_LINE);
+        assert_eq!(lines[2].message, "last");
+    }
 
     fn spec(id: &str, script: &str, max: u32) -> ProcSpec {
         ProcSpec {
