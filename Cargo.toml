@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/packages/process-link"]
 
 [workspace.package]
 version = "0.1.0"

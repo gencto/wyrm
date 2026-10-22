@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, TypeCode, Value};
 use wyrm_link_sdk::driver::{Driver, DriverError, PointId};
-use wyrm_link_sdk::Params;
+use wyrm_link_sdk::{ParamEnum, Params};
 use wyrm_wasm_host::{DriverWorld, Host, Limits, LinkDriver, NetPolicy, Slot};
 
 /// Component stores of the brokers in this process (one in `wyrmd`; tests
@@ -73,8 +73,20 @@ pub struct Dev {
     pub note: String,
 }
 
+/// The type a point shows (and an app sends on `set`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+pub enum ValueType {
+    Number,
+    Bool,
+    Text,
+    Any,
+}
+
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct Point {
+    /// The type of the point's value.
+    #[param(enum, default = "number", display = "Type")]
+    pub value: ValueType,
     /// JSON given to the component's `read` and `write`.
     #[param(default = "{}", display = "Point config", editor = "textarea")]
     pub cfg: String,
@@ -290,7 +302,13 @@ impl Driver for Wasm {
     }
 
     fn point_meta(p: &Point) -> NodeMeta {
-        let mut m = NodeMeta::leaf(TypeCode::Dynamic).writable(if p.writable {
+        let ty = match p.value {
+            ValueType::Number => TypeCode::Number,
+            ValueType::Bool => TypeCode::Bool,
+            ValueType::Text => TypeCode::String,
+            ValueType::Any => TypeCode::Dynamic,
+        };
+        let mut m = NodeMeta::leaf(ty).writable(if p.writable {
             Writable::Write
         } else {
             Writable::Never

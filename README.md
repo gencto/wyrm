@@ -68,9 +68,13 @@ target/release/wyr bench list wy/local/down/mock
 
 | Node | Actions / value |
 |---|---|
-| `sys/links` | `~act/install {id, driver, mode, params}` |
+| `sys` | values as on a DSA broker (versions, start time, traffic per second, `allow_all_links`, `enable_quarantine`); `~act/clear_conns`, `get_permissions`, `update_permissions {role, path, level}` |
+| `sys/links` | Install Link ▸ `~act/install {id, driver, mode, params}` (from Driver), `install_zip {name, zip}`, `install_url {name, url}`, `install_git {name, url, ref}`, `install_repo {name, package}`, `install_wasm {name, wasm}` — packages run as process or WASM links; see [`docs/links.md`](docs/links.md) |
+| `sys/packages/<name>` | installed link package (version, kind, source, SHA-256); `~act/remove` |
+| `sys/upstream`, `sys/downstream` | peer brokers added at runtime (`~act/add`, `<site>/~act/remove`, `<site>/enabled`) |
 | `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`, `update {params}`, `history`, `rollback {rev}` (runtime-installed links; the last 10 params revisions are kept); child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
-| `sys/quarantine/<cn>` | unknown CA-signed certificate; `~act/approve {driver, params}`, `reject` |
+| `sys/quarantine` | `~act/authorize {dsid, group, name}`, `deauthorize {link}` (back to quarantine) |
+| `sys/quarantine/<cn>` | unknown CA-signed certificate; `~act/approve {driver, params, group, name}`, `reject` |
 | `sys/metrics/broker/acl_denied_total` | router access-control drops |
 | `sys/audit` | `~act/tail {n}` — HMAC-chained audit records |
 | `sys/broker` | liveliness of the broker |

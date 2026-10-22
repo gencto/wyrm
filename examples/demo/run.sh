@@ -28,6 +28,12 @@ stop() { kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap stop EXIT INT TERM
 
 $BIN/wyrm-modbus-sim --listen 127.0.0.1:5020 >data/modbus-sim.log 2>&1 & pids+=($!)
+# Example link packages for "Install Link ▸ from Repository" (edge.json5
+# packages.repository); build them first with examples/packages/build.sh.
+if [[ -f ../packages/out/index.json ]]; then
+  python3 -m http.server 8090 --bind 127.0.0.1 --directory ../packages/out \
+    >data/packages-http.log 2>&1 & pids+=($!)
+fi
 RUST_LOG=info,zenoh=warn $BIN/wyrmd -c central.json5 >data/central.log 2>&1 & pids+=($!)
 sleep 1
 RUST_LOG=info,zenoh=warn $BIN/wyrmd -c edge.json5 >data/edge.log 2>&1 & pids+=($!)
@@ -38,5 +44,6 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   edge:    zenoh tcp/127.0.0.1:7457, gateway http://127.0.0.1:8444
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
   roots:   wy/edge/down (edge links; read-only from central), wy/central/down
+  install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
 MSG
 wait

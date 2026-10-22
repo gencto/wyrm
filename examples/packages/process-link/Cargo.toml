@@ -1,0 +1,20 @@
+[package]
+name = "wyrm-example-link"
+description = "Example link package: a framework driver (mockdev) built as its own binary, to install with Install Link ▸ from Zip"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "wyrm-example-link"
+path = "src/main.rs"
+
+[dependencies]
+wyrm-link-sdk = { workspace = true, features = ["process"] }
+wyrm-link-mock.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true

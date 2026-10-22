@@ -1050,6 +1050,21 @@ async fn wasm_link_reads_a_device_over_tcp() {
         (last_val(&c, &p).await == Some(Value::UInt(7))).then_some(())
     })
     .await;
+    // a number point (the default type): written, then read back
+    let meta = c.meta(&p).await.unwrap();
+    assert_eq!(meta.ty, Some(wyrm_core::TypeCode::Number));
+    c.invoke_one(
+        &format!("{main}/d1/p"),
+        "edit",
+        args(vec![("writable", Value::Bool(true))]),
+    )
+    .await
+    .expect("make p writable");
+    eventually("p = 9 after set", 10, || async {
+        c.set(&p, Value::UInt(9)).await.ok()?;
+        (last_val(&c, &p).await == Some(Value::UInt(9))).then_some(())
+    })
+    .await;
     env.stop().await;
 }
 

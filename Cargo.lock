@@ -5806,6 +5806,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-example-link"
+version = "1.0.0"
+dependencies = [
+ "tokio",
+ "tracing-subscriber",
+ "wyrm-link-mock",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-ffi"
 version = "0.1.0"
 dependencies = [
