@@ -611,7 +611,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   final _text = <String, TextEditingController>{};
   final _bool = <String, bool>{};
   final _enum = <String, String?>{};
-  final _results = <String>[];
+  final _results = <Value>[];
   _Status _status = _Status.idle;
   String? _error;
 
@@ -663,7 +663,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         }
         await for (final v in widget.api.invoke(widget.nodeKey, widget.action, VMap(args))) {
           if (!mounted) return;
-          setState(() => _results.addAll(_lines(v)));
+          setState(() => _results.add(v));
         }
       }
       if (mounted) setState(() => _status = _Status.ok);
@@ -676,12 +676,6 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       }
     }
   }
-
-  List<String> _lines(Value v) => switch (v) {
-        VMap(:final v) => [for (final e in v.entries) '${e.key}: ${formatValue(e.value, null)}'],
-        VArray(:final v) => [for (final e in v) formatValue(e, null)],
-        _ => [formatValue(v, null)],
-      };
 
   @override
   Widget build(BuildContext context) => Material(
@@ -697,7 +691,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
               Row(children: [
                 Expanded(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(_params.isEmpty ? 0 : _labelWidth + _gap, 5, 0, 5),
+                    padding: EdgeInsets.fromLTRB(_params.isEmpty ? 0 : _labelWidth + _gap, 6, 0, 6),
                     child: _Button(
                         label: widget.meta == null ? 'Set' : 'Invoke',
                         onTap: _status == _Status.running ? null : _invoke),
@@ -718,11 +712,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
                   padding: const EdgeInsets.all(5),
                   child: Text(_error!, style: WyStyle.label.copyWith(color: Colors.redAccent)),
                 ),
-              for (final r in _results)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  child: SelectableText(r, style: WyStyle.label.copyWith(color: WyStyle.accent)),
-                ),
+              if (_results.isNotEmpty) const SizedBox(height: 8),
+              for (final r in _results) _ResultView(r),
             ]),
           ),
         ),
@@ -811,6 +802,72 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   }
 }
 
+/// An action result as DSA shows it (a table by `$columns`): an array of
+/// maps is a table with a header row, a map is key/value rows, nested
+/// values are short text (the full text in a tooltip).
+class _ResultView extends StatelessWidget {
+  final Value value;
+  const _ResultView(this.value);
+
+  static String compact(Value v) => switch (v) {
+        VMap(:final v) => '{${v.entries.map((e) => '${e.key}: ${compact(e.value)}').join(', ')}}',
+        VArray(:final v) => '[${v.map(compact).join(', ')}]',
+        VStr(:final v) => v,
+        _ => formatValue(v, null),
+      };
+
+  static Widget _cell(Value v, {bool head = false}) {
+    final text = head ? (v as VStr).v : compact(v);
+    final style = head ? WyStyle.label.copyWith(color: WyStyle.disabled) : WyStyle.label.copyWith(color: WyStyle.accent);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: Tooltip(
+        message: text,
+        waitDuration: const Duration(milliseconds: 600),
+        child: Text(text, maxLines: 3, overflow: TextOverflow.ellipsis, style: style),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value;
+    if (v is VArray && v.v.isNotEmpty && v.v.every((e) => e is VMap)) {
+      final cols = <String>[];
+      for (final row in v.v) {
+        for (final k in (row as VMap).v.keys) {
+          if (!cols.contains(k)) cols.add(k);
+        }
+      }
+      return Table(
+        defaultColumnWidth: const IntrinsicColumnWidth(flex: 1),
+        border: const TableBorder(horizontalInside: BorderSide(color: WyStyle.line)),
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: WyStyle.line))),
+            children: [for (final c in cols) _cell(VStr(c), head: true)],
+          ),
+          for (final row in v.v)
+            TableRow(children: [for (final c in cols) _cell((row as VMap).v[c] ?? const VNull())]),
+        ],
+      );
+    }
+    if (v is VMap) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final e in v.v.entries)
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(width: _labelWidth, child: _cell(VStr(e.key), head: true)),
+            Expanded(child: _cell(e.value)),
+          ]),
+      ]);
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: SelectableText(compact(v), style: WyStyle.label.copyWith(color: WyStyle.accent)),
+    );
+  }
+}
+
 /// Form layout: width, label column, gap between label and field.
 const _formWidth = 340.0;
 const _labelWidth = 120.0;
@@ -857,7 +914,7 @@ class _ButtonState extends State<_Button> {
         onTapCancel: () => setState(() => _down = false),
         onTap: widget.onTap,
         child: Container(
-          height: 20,
+          height: 26, // as tall as the fields
           alignment: Alignment.center,
           decoration: BoxDecoration(
               color: bg, border: Border.all(color: WyStyle.line), borderRadius: BorderRadius.circular(4)),

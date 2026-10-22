@@ -18,6 +18,7 @@ class ActApi implements WyrmApi {
   static final metaM = NodeMeta(hasChildren: true, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
+    'history': ActionMeta(display: 'History'),
   });
 
   /// A driver connection: groups `new` and `edit` (spec 02 0.1.6).
@@ -51,6 +52,12 @@ class ActApi implements WyrmApi {
   @override
   Stream<Value> invoke(String key, String action, [Value? args]) {
     invoked.add((key, action, args));
+    if (action == 'history') {
+      // like the admin's link history: one record per revision
+      return Stream.value(VArray([
+        VMap({'rev': const VInt(1), 'params': VMap({'points': const VInt(16)})}),
+      ]));
+    }
     return Stream.value(const VInt(7));
   }
 
@@ -185,5 +192,22 @@ void main() {
     final pw = t.widgetList<TextField>(find.byType(TextField)).where((f) => f.obscureText).toList();
     expect(pw, hasLength(1));
     expect(pw.single.decoration?.hintText, 'secret (optional)');
+  });
+
+  testWidgets('a result of records is a table with columns', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('m'));
+    await t.tap(find.text('History'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect(find.byType(Table), findsOneWidget);
+    expect(find.text('rev'), findsOneWidget);
+    expect(find.text('params'), findsOneWidget);
+    expect(find.text('{points: 16}'), findsOneWidget);
   });
 }
