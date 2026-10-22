@@ -5,7 +5,7 @@ Broker with IOT-DSA semantics (node tree, reactive list/subscribe/invoke, manage
 ## Language and docs
 - Code, comments, commit messages: English. Design wiki (Obsidian, outside this repo at `~/Documents/Obsidian/Wiki/Zenoh`) and discussions with the owner: Ukrainian.
 - `spec/` is **normative**. Any change there → update `spec/fixtures/gen.py` → regenerate → every SDK's fixture test must pass → line in `spec/CHANGELOG.md`.
-- Decisions go to `docs/adr/NNNN-*.md`. Read ADR 0001–0010 before touching architecture; ADR 0004 (driver framework) is mandatory reading before writing any `links/*`.
+- Decisions go to `docs/adr/NNNN-*.md`. Read ADR 0001–0011 before touching architecture; ADR 0004 (driver framework) is mandatory reading before writing any `links/*`.
 
 ## Non-negotiable principles
 1. Zenoh = transport; WYRM = semantics via key-space conventions, CBOR attachment, SDKs, static plugins.
