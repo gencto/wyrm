@@ -106,6 +106,18 @@ pub const MIN_INTERVAL_MS: u64 = 100;
 /// Rows waiting for a flush, all groups together; more are dropped
 /// (counted). About 10–20 MiB of memory.
 pub const MAX_PENDING: u64 = 200_000;
+/// A sample's time comes from its source. One further ahead than this, or
+/// further back than [`MAX_BEHIND_US`], is dropped (counted): it would make
+/// a day file that retention and Auto Purge never reach (ADR 0014).
+pub const MAX_AHEAD_US: u64 = 5 * 60 * 1_000_000;
+/// Late samples (a device that buffered while offline) are kept up to 31
+/// days back.
+pub const MAX_BEHIND_US: u64 = 31 * 86_400 * 1_000_000;
+
+/// `t` is close enough to `now` to be stored.
+pub fn plausible(t: u64, now: u64) -> bool {
+    t <= now.saturating_add(MAX_AHEAD_US) && t >= now.saturating_sub(MAX_BEHIND_US)
+}
 
 /// Counters for `sys/history`.
 #[derive(Debug, Default)]
@@ -339,6 +351,10 @@ async fn run_group(
         tokio::select! {
             m = rx.recv() => {
                 let Some((i, s)) = m else { break };
+                if !plausible(s.t, now_us()) {
+                    counters.dropped.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 let p = &mut points[i];
                 let record = match cfg.logging {
                     Logging::Interval => {

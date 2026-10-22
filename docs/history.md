@@ -89,6 +89,7 @@ Files and Oldest Day.
 | Watch groups | 64 |
 | Watches | 10 000 in all, one point each (no wildcards), never `sys` |
 | Rows in memory | 200 000 for all groups; more are dropped (Rows Dropped) |
+| Sample time | the source's time; more than 5 min ahead of the broker's clock or more than 31 days back: dropped (Rows Dropped) |
 | Get History | 10 000 rows per call |
 | Gap at a router rebuild | about a second: samples then are not recorded |
 

@@ -7,6 +7,7 @@ use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
 
 const P: &str = "wy/s/down/mock/p";
 const Q: &str = "wy/s/down/mock/q";
+const R: &str = "wy/s/down/mock/r";
 
 fn temp(name: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("wyrm-hist-e-{name}-{}", std::process::id()));
@@ -127,6 +128,23 @@ async fn logging_types_and_rebuilds() {
             >= 2
     })
     .await;
+    // A source clock far off: neither a day ahead nor a year back is stored.
+    let dropped = || {
+        h.counters()
+            .dropped
+            .load(std::sync::atomic::Ordering::Relaxed)
+    };
+    let before = dropped();
+    h.configure(vec![group("all", Logging::AllData, &[P, R])]);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let now = wyrm_history::engine::now_us();
+    put(&s2, P, 6.0, now + 86_400_000_000).await;
+    put(&s2, R, 7.0, now - 365 * 86_400_000_000).await;
+    eventually("implausible times dropped", || dropped() >= before + 2).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!values(&h, P).contains(&Value::Float(6.0)));
+    assert!(values(&h, R).is_empty());
+    assert_eq!(h.store().days().len(), 1, "no day file for them");
     h.detach().await;
     assert_eq!(
         h.counters()
