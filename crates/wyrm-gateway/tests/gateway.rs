@@ -715,17 +715,31 @@ impl wyrm_link_sdk::Link for Upload {
                 .level(Perm::Write),
         )
         .await?;
+        // longer than the 10 s default wait; declares its own
+        ctx.declare_action(
+            "",
+            "slow",
+            ActionMeta::new()
+                .result(ActionResult::Type(TypeCode::String))
+                .timeout_ms(20_000)
+                .level(Perm::Write),
+        )
+        .await?;
         Ok(Upload)
     }
 
     async fn on_invoke(
         &mut self,
         _path: &str,
-        _action: &str,
+        action: &str,
         args: Value,
         _who: &wyrm_link_sdk::Caller,
         out: wyrm_link_sdk::ReplySink,
     ) -> wyrm_link_sdk::Result<()> {
+        if action == "slow" {
+            tokio::time::sleep(Duration::from_secs(11)).await;
+            return out.reply(Value::from("done")).await;
+        }
         let n = match &args {
             Value::Map(m) => match m.get("data") {
                 Some(Value::Bytes(b)) => b.len(),
@@ -784,6 +798,32 @@ async fn http_invoke_takes_large_arguments() {
     // no session
     let (st, _) = env.http("POST", &put, None, Some(data(10))).await;
     assert_eq!(st, 401);
+
+    // a WebSocket invoke waits for the action's own timeout_ms (spec 05),
+    // not the 10 s default
+    let mut ws = env.ws(&root).await;
+    let id = ws
+        .send(
+            "invoke",
+            &format!("wy/{SITE}/down/upload"),
+            vec![("action", Value::from("slow"))],
+        )
+        .await;
+    let f = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let m = ws.s.next().await.expect("socket open").unwrap();
+            if let Message::Binary(b) = m {
+                let f: Value = from_slice(&b).unwrap();
+                if get(&f, "id") == &Value::UInt(id) {
+                    return f;
+                }
+            }
+        }
+    })
+    .await
+    .expect("an answer");
+    assert_eq!(get(&f, "ok"), &Value::Bool(true), "{f:?}");
+    assert_eq!(get(&f, "result"), &Value::from("done"), "{f:?}");
     up.stop().await;
     env.stop().await;
 }

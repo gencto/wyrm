@@ -390,6 +390,12 @@ impl Conn {
             "invoke" => {
                 let action = req.action.unwrap_or_default();
                 let mut args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
+                // spec 05: the action's `timeout_ms` overrides the default
+                // wait (installs fetch and unpack for minutes).
+                let c = match action_timeout(&c, &req.key, &action).await {
+                    Some(t) => c.with_timeout(t),
+                    None => c,
+                };
                 if action == "deploy" && req.key == format!("wy/{}/flows", self.gw.site()) {
                     self.add_flow_proofs(&c, &mut args);
                 }
@@ -520,6 +526,17 @@ fn visible_child(g: &Grants, parent: &str, name: &str) -> bool {
 
 /// `wy/<site>` or below; a valid key expression; no `~` segments; no
 /// wildcards unless `pattern`.
+/// Longest wait the gateway gives an action (its `timeout_ms`).
+const MAX_ACTION_WAIT: Duration = Duration::from_secs(180);
+
+/// The action's declared `timeout_ms` (plus a margin for the reply), at
+/// most [`MAX_ACTION_WAIT`]; `None`: the client default.
+async fn action_timeout(c: &WyrmClient, key: &str, action: &str) -> Option<Duration> {
+    let m = c.meta_expanded(key).await.ok()?;
+    let ms = m.actions.as_ref()?.get(action)?.timeout_ms?;
+    Some((Duration::from_millis(ms.into()) + Duration::from_secs(5)).min(MAX_ACTION_WAIT))
+}
+
 pub(crate) fn check_key(site: &str, key: &str, pattern: bool) -> Result<(), String> {
     let root = format!("wy/{site}");
     if key != root && !key.starts_with(&format!("{root}/")) {

@@ -1724,14 +1724,16 @@ fn install_meta(display: &str) -> ActionMeta {
         .level(Perm::Config)
 }
 
-/// "from Repository": `package` lists the index once it is fetched; until
-/// then, or when it failed, the field says why.
+/// "from Repository" (always in the menu, as in DSA): `package` lists the
+/// index once it is fetched; until then, when it failed, or without
+/// `packages.repository`, the field says why.
 async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
-    if ctl.cfg.repository.is_none() {
-        return Ok(());
-    }
     let state = ctl.repo.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let package = match state {
+        _ if ctl.cfg.repository.is_none() => str_param()
+            .required(true)
+            .display("Package")
+            .placeholder("set packages.repository in wyrmd.json5"),
         Some(Ok(list)) if !list.is_empty() => str_param()
             .required(true)
             .display("Package")
