@@ -2803,3 +2803,151 @@ async fn two_brokers_isolation() {
     let _ = c_stop.send(());
     c_task.await.unwrap().unwrap();
 }
+
+/// The embedded historian (ADR 0014): a watch group records a mock point,
+/// Get History answers raw rows and rollups, recording goes on across a
+/// router rebuild and the rows survive a restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_records_and_answers() {
+    let dir = temp_dir("history");
+    let env = Env::start_in(&dir, MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let hist = format!("wy/{SITE}/sys/history");
+    c.invoke_one(
+        &hist,
+        "add_watch_group",
+        m(&[
+            ("name", Value::from("g")),
+            ("logging_type", Value::from("All Data")),
+            ("buffer_flush_time", Value::Float(0.2)),
+        ]),
+    )
+    .await
+    .unwrap();
+    let group = format!("{hist}/g");
+    let watch = |path: &str| m(&[("path", Value::from(path))]);
+    c.invoke_one(&group, "add_watch_path", watch("down/mock/g0/p0"))
+        .await
+        .unwrap();
+    for bad in [
+        "wy/other/down/mock/p",
+        "wy/e2e/sys/links/mock",
+        "down/mock/**",
+    ] {
+        assert!(
+            c.invoke_one(&group, "add_watch_path", watch(bad))
+                .await
+                .is_err(),
+            "{bad}"
+        );
+    }
+    let w1 = format!("{group}/w1");
+    let all = || m(&[("timerange", Value::from("2020-01-01/"))]);
+    let rows = |c: WyrmClient, args: Value| {
+        let w1 = w1.clone();
+        async move {
+            match c.invoke_one(&w1, "get_history", args).await {
+                Ok(Some(Value::Array(r))) => Some(r),
+                _ => None,
+            }
+        }
+    };
+    let first = eventually("rows recorded", 15, || async {
+        rows(c.clone(), all()).await.filter(|r| r.len() >= 5)
+    })
+    .await;
+    let Value::Map(row) = &first[0] else {
+        panic!("a record")
+    };
+    assert!(row.contains_key("time") && row.contains_key("value"));
+    assert_eq!(row.get("quality"), Some(&Value::from("good")));
+    let avg = rows(
+        c.clone(),
+        m(&[
+            ("timerange", Value::from("2020-01-01/")),
+            ("interval", Value::from("1d")),
+            ("rollup", Value::from("avg")),
+        ]),
+    )
+    .await
+    .unwrap();
+    assert!(!avg.is_empty() && avg.len() <= 2, "{avg:?}");
+    assert!(matches!(&avg[0], Value::Map(r) if matches!(r.get("value"), Some(Value::Float(_)))));
+    eventually("database values", 10, || async {
+        let n = last_val(&c, &format!("{hist}/rows_written"))
+            .await?
+            .as_f64()?;
+        let size = last_val(&c, &format!("{hist}/database_size"))
+            .await?
+            .as_f64()?;
+        (n >= 5.0 && size > 0.0).then_some(())
+    })
+    .await;
+    eventually("watch dates", 10, || async {
+        matches!(
+            last_val(&c, &format!("{w1}/end_date")).await,
+            Some(Value::Str(_))
+        )
+        .then_some(())
+    })
+    .await;
+
+    // A router rebuild (a new external link changes the ACL): the watch
+    // records into the same store afterwards.
+    let before = first.len();
+    c.invoke_one(
+        &format!("wy/{SITE}/sys/links"),
+        "install",
+        m(&[
+            ("id", Value::from("ext")),
+            ("driver", Value::from("x")),
+            ("mode", Value::from("external")),
+        ]),
+    )
+    .await
+    .unwrap();
+    let grown = eventually("rows after the rebuild", 20, || async {
+        let s = env.try_session().await?;
+        let c = WyrmClient::new(s)
+            .with_tokens(Arc::new(SigningTokens::new(
+                ed25519_dalek::SigningKey::from_bytes(&SEED),
+                SITE,
+            )))
+            .with_timeout(Duration::from_secs(3));
+        let r = rows(c, all()).await?;
+        (r.len() > before + 5).then_some(r.len())
+    })
+    .await;
+
+    // A restart keeps the rows; Unsubscribe and Purge deletes them.
+    env.stop().await;
+    let env = Env::start_in(&dir, MOCK).await;
+    let c = env.client().await;
+    let after = eventually("rows after the restart", 15, || async {
+        rows(c.clone(), all()).await.filter(|r| r.len() >= grown)
+    })
+    .await;
+    assert!(after.len() >= grown);
+    let r = c
+        .invoke_one(&w1, "unsubscribe_purge", Value::Map(Default::default()))
+        .await
+        .unwrap();
+    assert!(
+        matches!(&r, Some(Value::Map(d)) if d.get("deleted").and_then(Value::as_f64).unwrap_or(0.0) >= grown as f64),
+        "{r:?}"
+    );
+    assert!(env.ctl.registry().historian.groups["g"].watches.is_empty());
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "history_watch"));
+    env.stop().await;
+}

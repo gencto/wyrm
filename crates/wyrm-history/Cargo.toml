@@ -1,0 +1,23 @@
+[package]
+name = "wyrm-history"
+description = "WYRM embedded historian: watch groups, a day-partitioned redb store, history queries and rollups"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+redb.workspace = true
+wyrm-core.workspace = true
+minicbor.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wyrm-client.workspace = true
+zenoh.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }

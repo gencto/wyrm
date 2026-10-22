@@ -324,6 +324,8 @@ pub struct Control {
     /// Set while the broker stops for a rebuild: new long actions answer
     /// `busy` instead of starting on a broker that is going away.
     closing: std::sync::atomic::AtomicBool,
+    /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
+    pub(crate) history: Arc<wyrm_history::Historian>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -400,7 +402,7 @@ fn decode_params(b: &[u8]) -> Value {
     wyrm_core::codec::from_slice(b).unwrap_or(Value::Map(Default::default()))
 }
 
-fn rejected(e: StateError) -> LinkError {
+pub(crate) fn rejected(e: StateError) -> LinkError {
     match e {
         StateError::Rejected(why) => LinkError::invalid_parameter(why),
         other => LinkError::internal(other.to_string()),
@@ -442,6 +444,8 @@ impl Control {
         }
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
         let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;
+        let history = wyrm_history::Historian::open(&cfg.data_dir.join("history"))
+            .map_err(|e| e.to_string())?;
         let (reload, rx) = mpsc::unbounded_channel();
         Ok((
             Arc::new(Self {
@@ -459,6 +463,7 @@ impl Control {
                 repo: Mutex::new(None),
                 inflight: Default::default(),
                 closing: Default::default(),
+                history,
             }),
             rx,
         ))
@@ -520,7 +525,7 @@ impl Control {
         r.iter().skip(r.len().saturating_sub(n)).cloned().collect()
     }
 
-    fn apply(&self, op: Op) -> Result<(), StateError> {
+    pub(crate) fn apply(&self, op: Op) -> Result<(), StateError> {
         self.store
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -1244,7 +1249,10 @@ impl Control {
                 Mode::External => {}
             }
         }
+        self.history
+            .attach(session.clone(), crate::history::groups(&self.registry()));
         let tasks = vec![
+            tokio::spawn(crate::history::watch(self.clone(), ctx.clone())),
             tokio::spawn(watch_states(self.clone(), ctx.clone(), embedded.clone())),
             tokio::spawn(watch_quarantine(self.clone(), ctx.clone())),
             tokio::spawn(watch_metrics(self.clone(), ctx.clone())),
@@ -1259,6 +1267,7 @@ impl Control {
             peers,
             embedded,
             tasks,
+            history: self.history.clone(),
         })
     }
 }
@@ -1272,6 +1281,7 @@ pub struct Attached {
     peers: Vec<LinkHandle<crate::peers::PeerRefs>>,
     embedded: Running,
     tasks: Vec<JoinHandle<()>>,
+    history: Arc<wyrm_history::Historian>,
 }
 
 impl Attached {
@@ -1284,6 +1294,8 @@ impl Attached {
         for t in &self.tasks {
             t.abort();
         }
+        // Buffered history rows go to disk before the session closes.
+        self.history.detach().await;
         let links: Vec<_> = self.embedded.lock().await.drain().collect();
         for (_, l) in links {
             l.stop().await;
@@ -2349,6 +2361,7 @@ impl Link for Admin {
                 .level(Perm::Config),
         )
         .await?;
+        crate::history::declare(&ctx, &cfg.ctl).await?;
         // `wy/<site>/sys/broker` liveliness (no node): process links
         // re-publish when it returns, peers show `connected` from it.
         let broker = ctx
@@ -2382,6 +2395,9 @@ impl Link for Admin {
             .ok_or_else(|| LinkError::invalid_parameter("log level: one of the choices"))?;
             Ok((name != "default").then_some(name))
         };
+        if let ["history", rest @ ..] = path.split('/').collect::<Vec<_>>().as_slice() {
+            return crate::history::set(&self.ctl, &self.ctx, rest, value, &sub_of(who)).await;
+        }
         if path == "log_level" {
             let lc =
                 crate::logs::global().ok_or_else(|| LinkError::not_supported("no log control"))?;
@@ -2659,6 +2675,9 @@ impl Link for Admin {
                         })
                         .collect(),
                 )))
+            }
+            (["history", rest @ ..], _) => {
+                crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await
             }
             _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         };
@@ -4161,7 +4180,7 @@ fn memory_mib() -> Option<f64> {
 }
 
 /// Free space on the file system of `dir`, MiB.
-fn disk_free_mib(dir: &std::path::Path) -> Option<f64> {
+pub(crate) fn disk_free_mib(dir: &std::path::Path) -> Option<f64> {
     #[cfg(unix)]
     {
         let v = nix::sys::statvfs::statvfs(dir).ok()?;

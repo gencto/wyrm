@@ -255,6 +255,54 @@ pub enum Op {
         #[n(2)]
         level: u8,
     },
+    /// Add a history watch group or change its settings (its watches stay).
+    #[n(18)]
+    PutWatchGroup {
+        #[n(0)]
+        name: String,
+        /// `wyrm_history::Logging` code.
+        #[n(1)]
+        logging: u8,
+        #[n(2)]
+        interval_ms: u64,
+        #[n(3)]
+        flush_ms: u64,
+    },
+    #[n(19)]
+    RemoveWatchGroup(#[n(0)] String),
+    /// Watch a point key in a group; the watch gets the next id `w<N>`.
+    #[n(20)]
+    AddWatch {
+        #[n(0)]
+        group: String,
+        #[n(1)]
+        key: String,
+    },
+    #[n(21)]
+    SetWatchEnabled {
+        #[n(0)]
+        group: String,
+        #[n(1)]
+        id: String,
+        #[n(2)]
+        on: bool,
+    },
+    #[n(22)]
+    RemoveWatch {
+        #[n(0)]
+        group: String,
+        #[n(1)]
+        id: String,
+    },
+    #[n(23)]
+    SetHistoryOptions {
+        #[n(0)]
+        auto_purge: bool,
+        #[n(1)]
+        keep_free_mib: u64,
+        #[n(2)]
+        retention_days: u32,
+    },
 }
 
 /// How a package's links run (ADR 0011).
@@ -310,6 +358,72 @@ pub struct PackageDef {
     #[cbor(default)]
     #[serde(default)]
     pub requester: Vec<(String, u8)>,
+}
+
+/// The embedded historian's settings (`sys/history`, ADR 0014). The rows
+/// live in `data_dir/history`, not here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorianDef {
+    pub groups: BTreeMap<String, WatchGroupDef>,
+    /// Delete the oldest day while the disk has less than `keep_free_mib`.
+    pub auto_purge: bool,
+    pub keep_free_mib: u64,
+    /// Delete days older than this many days; 0 keeps them.
+    pub retention_days: u32,
+}
+
+impl Default for HistorianDef {
+    fn default() -> Self {
+        Self {
+            groups: BTreeMap::new(),
+            auto_purge: true,
+            keep_free_mib: 1024,
+            retention_days: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WatchGroupDef {
+    /// `wyrm_history::Logging` code.
+    pub logging: u8,
+    pub interval_ms: u64,
+    pub flush_ms: u64,
+    /// By id (`w1`, `w2`, …).
+    pub watches: BTreeMap<String, WatchDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WatchDef {
+    /// Point key `wy/<site>/down/…` or `wy/<site>/flows/…`.
+    pub key: String,
+    pub enabled: bool,
+}
+
+/// At most this many watch groups and watches in all.
+pub const MAX_WATCH_GROUPS: usize = 64;
+pub const MAX_WATCHES: usize = 10_000;
+/// Bounds of a group's intervals (ms).
+pub const INTERVAL_MS: std::ops::RangeInclusive<u64> = 100..=86_400_000;
+pub const FLUSH_MS: std::ops::RangeInclusive<u64> = 100..=600_000;
+
+/// A watch key: `wy/<site>/down/<link>[/…]` or `wy/<site>/flows/<flow>[/…]`,
+/// plain segments (no wildcards, no `~` suffixes). Which sites are allowed
+/// is the caller's check.
+pub fn check_watch_key(key: &str) -> Result<(), String> {
+    let segs: Vec<&str> = key.split('/').collect();
+    if segs.len() < 4 || segs[0] != "wy" || !matches!(segs[2], "down" | "flows") {
+        return Err(format!(
+            "{key}: a point under wy/<site>/down/<link> or wy/<site>/flows/<flow>"
+        ));
+    }
+    for s in &segs[1..] {
+        validate_segment(s).map_err(|e| format!("{key}: {e}"))?;
+        if s.starts_with('~') {
+            return Err(format!("{key}: a node key, no suffix"));
+        }
+    }
+    Ok(())
 }
 
 /// Which side a peer broker is on (ADR 0007).
@@ -410,6 +524,9 @@ pub struct Registry {
     /// Log level of the broker set from `sys/log_level`; `None`: `RUST_LOG`.
     #[serde(default)]
     pub log_level: Option<String>,
+    /// Watch groups and purge settings of the embedded historian.
+    #[serde(default)]
+    pub historian: HistorianDef,
 }
 
 /// Replaced params kept per link.
@@ -453,7 +570,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 11;
+    const SCHEMA: u32 = 12;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -567,6 +684,103 @@ impl wyrm_state::State for Registry {
                     def.grants.push((path.clone(), level.code()));
                     def.grants.sort();
                 }
+            }
+            Op::PutWatchGroup {
+                name,
+                logging,
+                interval_ms,
+                flush_ms,
+            } => {
+                validate_segment(name).map_err(|e| format!("group: {e}"))?;
+                if name.starts_with('.') || name.starts_with('~') {
+                    return Err(format!("group {name:?}: starts with a letter or digit"));
+                }
+                if wyrm_history::Logging::from_code(*logging).is_none() {
+                    return Err(format!("logging code {logging}?"));
+                }
+                if !INTERVAL_MS.contains(interval_ms) || !FLUSH_MS.contains(flush_ms) {
+                    return Err(format!(
+                        "interval {interval_ms} ms (100 ms to 1 day), flush {flush_ms} ms (100 ms to 10 min)"
+                    ));
+                }
+                let h = &mut self.historian;
+                if !h.groups.contains_key(name) && h.groups.len() >= MAX_WATCH_GROUPS {
+                    return Err(format!("at most {MAX_WATCH_GROUPS} watch groups"));
+                }
+                let g = h.groups.entry(name.clone()).or_insert(WatchGroupDef {
+                    logging: *logging,
+                    interval_ms: *interval_ms,
+                    flush_ms: *flush_ms,
+                    watches: BTreeMap::new(),
+                });
+                g.logging = *logging;
+                g.interval_ms = *interval_ms;
+                g.flush_ms = *flush_ms;
+            }
+            Op::RemoveWatchGroup(name) => {
+                self.historian
+                    .groups
+                    .remove(name)
+                    .ok_or_else(|| format!("no watch group {name}"))?;
+            }
+            Op::AddWatch { group, key } => {
+                check_watch_key(key)?;
+                let total: usize = self
+                    .historian
+                    .groups
+                    .values()
+                    .map(|g| g.watches.len())
+                    .sum();
+                if total >= MAX_WATCHES {
+                    return Err(format!("at most {MAX_WATCHES} watches"));
+                }
+                let g = self
+                    .historian
+                    .groups
+                    .get_mut(group)
+                    .ok_or_else(|| format!("no watch group {group}"))?;
+                if g.watches.values().any(|w| w.key == *key) {
+                    return Err(format!("{key} is watched in {group}"));
+                }
+                let next = g
+                    .watches
+                    .keys()
+                    .filter_map(|id| id.strip_prefix('w')?.parse::<u32>().ok())
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                g.watches.insert(
+                    format!("w{next}"),
+                    WatchDef {
+                        key: key.clone(),
+                        enabled: true,
+                    },
+                );
+            }
+            Op::SetWatchEnabled { group, id, on } => {
+                self.historian
+                    .groups
+                    .get_mut(group)
+                    .and_then(|g| g.watches.get_mut(id))
+                    .ok_or_else(|| format!("no watch {group}/{id}"))?
+                    .enabled = *on;
+            }
+            Op::RemoveWatch { group, id } => {
+                self.historian
+                    .groups
+                    .get_mut(group)
+                    .and_then(|g| g.watches.remove(id))
+                    .ok_or_else(|| format!("no watch {group}/{id}"))?;
+            }
+            Op::SetHistoryOptions {
+                auto_purge,
+                keep_free_mib,
+                retention_days,
+            } => {
+                let h = &mut self.historian;
+                h.auto_purge = *auto_purge;
+                h.keep_free_mib = *keep_free_mib;
+                h.retention_days = *retention_days;
             }
             Op::SetLogLevel { link, level } => {
                 if let Some(l) = level {
@@ -855,6 +1069,67 @@ mod tests {
         ] {
             assert!(r.apply(&grant(path, level)).is_err(), "{path} {level:?}");
         }
+    }
+
+    #[test]
+    fn watch_groups_and_watches() {
+        let mut r = Registry::default();
+        let group = |name: &str, logging: u8, interval_ms: u64| Op::PutWatchGroup {
+            name: name.into(),
+            logging,
+            interval_ms,
+            flush_ms: 1000,
+        };
+        let watch = |key: &str| Op::AddWatch {
+            group: "g".into(),
+            key: key.into(),
+        };
+        r.apply(&group("g", 2, 60_000)).unwrap();
+        r.apply(&watch("wy/s/down/mock/g0/p0")).unwrap();
+        r.apply(&watch("wy/s/flows/f1/out")).unwrap();
+        assert!(r.apply(&watch("wy/s/down/mock/g0/p0")).is_err(), "twice");
+        for bad in [
+            "wy/s/sys/links",
+            "wy/s/down",
+            "wy/s/down/mock/**",
+            "wy/s/down/mock/p/~val",
+            "down/mock/p",
+        ] {
+            assert!(r.apply(&watch(bad)).is_err(), "{bad}");
+        }
+        let g = &r.historian.groups["g"];
+        assert_eq!(g.watches.keys().collect::<Vec<_>>(), ["w1", "w2"]);
+        // ids are not reused after a removal of an earlier one
+        r.apply(&Op::RemoveWatch {
+            group: "g".into(),
+            id: "w1".into(),
+        })
+        .unwrap();
+        r.apply(&watch("wy/s/down/mock/g0/p1")).unwrap();
+        assert!(r.historian.groups["g"].watches.contains_key("w3"));
+        r.apply(&Op::SetWatchEnabled {
+            group: "g".into(),
+            id: "w3".into(),
+            on: false,
+        })
+        .unwrap();
+        assert!(!r.historian.groups["g"].watches["w3"].enabled);
+        // an edit keeps the watches
+        r.apply(&group("g", 1, 5_000)).unwrap();
+        assert_eq!(r.historian.groups["g"].watches.len(), 2);
+        assert_eq!(r.historian.groups["g"].logging, 1);
+        assert!(r.apply(&group("bad", 9, 1000)).is_err(), "logging code");
+        assert!(r.apply(&group("bad", 1, 10)).is_err(), "interval");
+        assert!(r.apply(&group("~x", 1, 1000)).is_err(), "name");
+        r.apply(&Op::RemoveWatchGroup("g".into())).unwrap();
+        assert!(r.historian.groups.is_empty());
+        r.apply(&Op::SetHistoryOptions {
+            auto_purge: false,
+            keep_free_mib: 10,
+            retention_days: 30,
+        })
+        .unwrap();
+        assert_eq!(r.historian.retention_days, 30);
     }
 
     #[test]

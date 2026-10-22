@@ -17,6 +17,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrm-link-sdk` | `trait Link`, `LinkCtx`, node tree, one queryable per link, `ptok` checks, liveliness, `TestHarness`, process host (`run::<L>()`) |
 | `crates/wyrm-client` | `list` / `subscribe` as streams, `set`, `invoke`, `meta`, `resolve`, token sources |
 | `crates/wyrm-state` | control-plane state: WAL (CBOR, CRC32C per record, HMAC chain) + postcard snapshot |
+| `crates/wyrm-history` | embedded historian: watch groups (None / Interval / All Data / Point Change), redb store with one file per day, Get History with rollups (ADR 0014, [`docs/history.md`](docs/history.md)) |
 | `crates/wyrm-admin` | registry, link tokens (argon2id), internal CA, generated ACL (links, operators, peer sites), supervisor, quarantine, audit, encrypted link secrets — the `wy/<site>/sys/**` tree |
 | `crates/wyrm-flow` | data-flow engine: `~def` compiler, 15 node types, rhai sandbox, hot swap, node state in `wyrm-state` |
 | `crates/wyrm-gateway` | user gateway: logins (argon2id), sessions, roles → grants, WebSocket CBOR proxy with per-point filtering |
@@ -31,7 +32,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `tools/wyrm-mcp` | MCP server over the tree for AI tools: browse, read, dry-run first, human approval for config-level changes (`docs/mcp.md`, ADR 0005) |
 | `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`/`watch`, `tree`, `set`, `invoke`, `bench`, `keygen`, `token` (human approval), `admin …`, `flow …`, and dev commands `new link\|flow`, `dev`, `sim`, `record`, `replay` (`tools/wyr/README.md`) |
 
-Planned: `wyrm-history`, `wyrm-mcp`, more links.
+Planned: more links, `~val?history=` (spec 01/03) and a history view in the explorer.
 
 ## Quick start
 `examples/wyrmd.json5` uses the current config format:
@@ -77,6 +78,7 @@ target/release/wyr bench list wy/local/down/mock
 | `sys/quarantine/<cn>` | unknown CA-signed certificate; `~act/approve {driver, params, group, name}`, `reject` |
 | `sys/log_level`, `sys/~act/get_log {lines, level, filter, link}` | broker log level (saved) and its last log lines; `sys/links/<id>/log_level` and `~act/get_log` for each embedded or process link |
 | `sys/acl_denied` | router access-control drops (with the other broker status values: uptime, links, sessions, CPU, memory, disk) |
+| `sys/history` | embedded historian (ADR 0014): database values, `auto_purge`, `disk_space_remaining`, `retention_days`; `~act/add_watch_group {name, logging_type, interval, buffer_flush_time}`, `purge {timerange}`; `sys/history/<group>`: `edit`, `add_watch_path {path}`, `remove {purge}`; `sys/history/<group>/w<N>`: `enabled`, `start_date`, `end_date`, `get_history {timerange, interval, rollup, limit}`, `purge`, `unsubscribe`, `unsubscribe_purge` — see [`docs/history.md`](docs/history.md) |
 | `sys/audit` | `~act/tail {n}` — HMAC-chained audit records |
 | `wy/<site>/sys/broker` | liveliness token of the broker (no node); `sys` `~meta` carries `attr.proto`, `version`, `site` |
 
