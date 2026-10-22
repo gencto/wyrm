@@ -90,6 +90,9 @@ pub struct Config {
     /// Router-to-router links to other sites (iteration 4), QUIC + mTLS.
     #[serde(default)]
     pub peers: PeersSection,
+    /// Link packages installed at runtime (ADR 0011).
+    #[serde(default)]
+    pub packages: PackagesSection,
     /// User gateway (HTTP + WebSocket, iteration 5). Off when absent.
     #[serde(default)]
     pub gateway: Option<GatewaySection>,
@@ -141,6 +144,17 @@ pub struct PeersSection {
     /// 1.10 keeps one budget per rule and connection, so all points share it.
     #[serde(default)]
     pub upstream_val_hz: Option<f64>,
+}
+
+/// Link packages (ADR 0011).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackagesSection {
+    /// Index for "Install Link ▸ from Repository", JSON
+    /// `[{name, version, description, url, sha256}]` (as DSA's
+    /// `linkRepositoryUrl`); https, or http to loopback.
+    #[serde(default)]
+    pub repository: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1025,6 +1039,7 @@ impl Daemon {
             },
             anchor_dir: cfg.state_anchor_dir.clone(),
             anchor_init: cfg.init_anchors,
+            repository: cfg.packages.repository.clone(),
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         ctl.set_peers(cfg.peers.peer_config());
@@ -1097,6 +1112,10 @@ impl Daemon {
                 _ = shutdown.as_mut() => false,
                 r = self.reload.recv() => r.is_some(),
             };
+            if reload {
+                // A package install in flight finishes on this broker.
+                self.ctl.idle(Duration::from_secs(180)).await;
+            }
             broker.stop().await?;
             if !reload {
                 break;

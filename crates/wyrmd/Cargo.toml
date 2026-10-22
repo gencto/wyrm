@@ -40,3 +40,4 @@ wyrm-link-modbus = { workspace = true, features = ["sim"] }
 wyrm-client.workspace = true
 ed25519-dalek.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+sha2.workspace = true

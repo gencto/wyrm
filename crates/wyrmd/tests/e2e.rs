@@ -735,6 +735,215 @@ async fn install_link_from_zip() {
     env.stop().await;
 }
 
+/// A tiny HTTP/1.1 server on loopback: `path → (status, extra headers, body)`.
+async fn serve_files(files: std::collections::HashMap<String, (u16, String, Vec<u8>)>) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let files = Arc::new(files);
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            let files = files.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let path = req.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let (status, headers, body) =
+                    files
+                        .get(&path)
+                        .cloned()
+                        .unwrap_or((404, String::new(), Vec::new()));
+                let head = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n",
+                    body.len()
+                );
+                let _ = s.write_all(head.as_bytes()).await;
+                let _ = s.write_all(&body).await;
+            });
+        }
+    });
+    port
+}
+
+/// "Install Link ▸ from Url | from Repository | from Git" (ADR 0011): the
+/// same package checks as from Zip; Url follows a redirect; Repository
+/// lists its index in the background and checks the SHA-256; Git clones
+/// (file:// only in the dev profile) without `.git`.
+#[tokio::test(flavor = "multi_thread")]
+async fn install_link_from_url_repository_git() {
+    use sha2::Digest;
+    let v1 = mock_package("1.0.0");
+    let v2 = mock_package("2.0.0");
+    let sha = |b: &[u8]| hex::encode(sha2::Sha256::digest(b));
+    // one server for the zips; the index (with their URLs) on a second one
+    let mut files = std::collections::HashMap::new();
+    files.insert("/v1.zip".to_owned(), (200, String::new(), v1.clone()));
+    files.insert("/v2.zip".to_owned(), (200, String::new(), v2.clone()));
+    files.insert(
+        "/moved".to_owned(),
+        (302, "Location: /v1.zip\r\n".to_owned(), Vec::new()),
+    );
+    let port = serve_files(files.clone()).await;
+    let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
+    let index = serde_json::json!([
+        { "name": "mockpkg", "version": "2.0.0", "url": url("/v2.zip"), "sha256": sha(&v2) },
+        { "name": "tampered", "version": "1.0.0", "url": url("/v1.zip"), "sha256": sha(&v2) },
+    ]);
+    files.insert(
+        "/index.json".to_owned(),
+        (200, String::new(), index.to_string().into_bytes()),
+    );
+    let port = serve_files(files).await;
+    let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
+
+    let env = Env::start(
+        "pkgsrc",
+        &format!(
+            r#"profile: "dev", packages: {{ repository: "{}" }},"#,
+            url("/index.json")
+        ),
+    )
+    .await;
+    let links = format!("wy/{SITE}/sys/links");
+    let args = |pairs: &[(&str, &str)]| {
+        Value::Map(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), Value::from(*v)))
+                .collect(),
+        )
+    };
+    let call = |action: &'static str, a: Value| {
+        let env = &env;
+        let links = links.clone();
+        async move {
+            eventually(action, 30, || {
+                let (links, a) = (links.clone(), a.clone());
+                async move {
+                    let s = env.try_session().await?;
+                    let seed = ed25519_dalek::SigningKey::from_bytes(&SEED);
+                    let c = WyrmClient::new(s)
+                        .with_tokens(Arc::new(SigningTokens::new(seed, SITE)))
+                        .with_timeout(Duration::from_secs(10));
+                    let Some(Value::Map(m)) = c.invoke_one(&links, action, a).await.ok()? else {
+                        return None;
+                    };
+                    let ok = m.get("success") == Some(&Value::Bool(true));
+                    let Some(Value::Str(msg)) = m.get("message").cloned() else {
+                        return None;
+                    };
+                    // the index loads in the background: wait for it
+                    (!msg.contains("loading")).then_some((ok, msg))
+                }
+            })
+            .await
+        }
+    };
+
+    // from Url, through a redirect
+    let (ok, msg) = call(
+        "install_url",
+        args(&[("name", "u1"), ("url", &url("/moved"))]),
+    )
+    .await;
+    assert!(ok, "{msg}");
+    assert_eq!(env.ctl.registry().packages["mockpkg"].version, "1.0.0");
+    assert!(env.ctl.registry().packages["mockpkg"]
+        .source
+        .starts_with("url "));
+    // plain http off loopback is refused
+    let (ok, msg) = call(
+        "install_url",
+        args(&[("name", "u2"), ("url", "http://pkg.example/x.zip")]),
+    )
+    .await;
+    assert!(!ok && msg.contains("loopback"), "{msg}");
+
+    // from Repository: the index lists mockpkg 2.0.0 → an upgrade
+    let (ok, msg) = call(
+        "install_repo",
+        args(&[("name", "r1"), ("package", "mockpkg")]),
+    )
+    .await;
+    assert!(ok && msg.contains("1.0.0 → 2.0.0"), "{msg}");
+    let (ok, msg) = call(
+        "install_repo",
+        args(&[("name", "r2"), ("package", "tampered")]),
+    )
+    .await;
+    assert!(!ok && msg.contains("does not match"), "{msg}");
+
+    // from Git (file:// in dev): a checkout of a built package
+    let repo = temp_dir("pkg-git");
+    std::fs::create_dir_all(repo.join("bin")).unwrap();
+    let manifest = serde_json::json!({
+        "name": "gitpkg",
+        "version": "3.0.0",
+        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+        "kind": "process",
+        "entries": { wyrm_admin::packages::platform(): "bin/run" },
+    });
+    std::fs::write(
+        repo.join(wyrm_admin::packages::MANIFEST),
+        manifest.to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.join("bin/run"),
+        format!(
+            "#!/bin/sh\nexec \"{}\" link mock\n",
+            env!("CARGO_BIN_EXE_wyrmd")
+        ),
+    )
+    .unwrap();
+    let git = |a: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(a)
+            .output()
+            .expect("git is installed");
+        assert!(
+            out.status.success(),
+            "git {a:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "-m",
+        "pkg",
+    ]);
+    let file_url = format!("file://{}", repo.display());
+    let (ok, msg) = call(
+        "install_git",
+        args(&[("name", "g1"), ("url", &file_url), ("ref", "main")]),
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let p = env.ctl.registry().packages["gitpkg"].clone();
+    assert!(p.source.starts_with("git file://"), "{}", p.source);
+    let (ok, msg) = call(
+        "install_git",
+        args(&[
+            ("name", "g2"),
+            ("url", &file_url),
+            ("ref", "--upload-pack=x"),
+        ]),
+    )
+    .await;
+    assert!(!ok && msg.contains("ref"), "{msg}");
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));

@@ -13,7 +13,7 @@ wyrm-core.workspace = true
 wyrm-state.workspace = true
 wyrm-link-sdk.workspace = true
 zenoh = { workspace = true, features = ["unstable"] }
-tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs", "net"] }
 minicbor.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -25,6 +25,15 @@ argon2.workspace = true
 rcgen.workspace = true
 x509-parser.workspace = true
 zip.workspace = true
+# Package downloads (ADR 0011): HTTPS over tokio-rustls with the ring provider.
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types.workspace = true
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+webpki-roots.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+bytes.workspace = true
 sha2.workspace = true
 ring.workspace = true
 flate2.workspace = true

@@ -100,6 +100,9 @@ pub struct ControlConfig {
     pub anchor_dir: Option<PathBuf>,
     /// Create the anchors from the current heads (operator step).
     pub anchor_init: bool,
+    /// Index of link packages for "Install Link ▸ from Repository" (ADR
+    /// 0011), as DSA's `linkRepositoryUrl`.
+    pub repository: Option<String>,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -222,6 +225,23 @@ pub struct Control {
     /// Broker start (unix seconds), `sys/start_time`; survives reloads.
     started: u64,
     role_grants: Mutex<Option<Arc<dyn RoleGrants>>>,
+    /// The repository index: `None` until fetched, then the entries or why
+    /// it failed. Fetched in the background on every broker build.
+    repo: Mutex<Option<Result<Vec<packages::RepoEntry>, String>>>,
+    /// Long admin actions in flight (package installs): a rebuild waits for
+    /// them ([`Control::idle`]) instead of stopping them halfway.
+    inflight: std::sync::atomic::AtomicUsize,
+}
+
+/// One long admin action in flight; see [`Control::idle`].
+struct Busy<'a>(&'a Control);
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.0
+            .inflight
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// `(path, peer site)` reference nodes of one peer link.
@@ -343,6 +363,8 @@ impl Control {
                 peers: Mutex::new(PeerConfig::default()),
                 started: now_s(),
                 role_grants: Mutex::new(None),
+                repo: Mutex::new(None),
+                inflight: Default::default(),
             }),
             rx,
         ))
@@ -906,6 +928,24 @@ impl Control {
         });
     }
 
+    fn busy(&self) -> Busy<'_> {
+        self.inflight
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Busy(self)
+    }
+
+    /// Wait (at most `max`) until no long admin action runs: called before
+    /// the broker stops for a rebuild, so an install in flight finishes on
+    /// the broker that started it.
+    pub async fn idle(&self, max: Duration) {
+        let until = tokio::time::Instant::now() + max;
+        while self.inflight.load(std::sync::atomic::Ordering::SeqCst) > 0
+            && tokio::time::Instant::now() < until
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     /// Stop all supervised processes (broker exit).
     pub async fn shutdown(&self) {
         self.supervisor.stop_all().await;
@@ -1005,6 +1045,7 @@ impl Control {
             tokio::spawn(watch_metrics(self.clone(), ctx.clone())),
             tokio::spawn(watch_audit(self.clone(), ctx.clone())),
             tokio::spawn(serve_profiles(self.clone(), session.clone())),
+            tokio::spawn(load_repository(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -1631,6 +1672,73 @@ const INSTALL_GROUP: &str = "Install Link";
 /// Fetch, unpack and start of a package can take a while.
 const INSTALL_TIMEOUT_MS: u32 = 120_000;
 
+/// Download of a package (Url, Repository).
+const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// An "Install Link ▸" action: config level, `{success, message}`, time
+/// for a fetch and unpack.
+fn install_meta(display: &str) -> ActionMeta {
+    ActionMeta::new()
+        .display(display)
+        .group(INSTALL_GROUP)
+        .result(ActionResult::Type(TypeCode::Map))
+        .timeout_ms(INSTALL_TIMEOUT_MS)
+        .level(Perm::Config)
+}
+
+/// "from Repository": `package` lists the index once it is fetched; until
+/// then, or when it failed, the field says why.
+async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    if ctl.cfg.repository.is_none() {
+        return Ok(());
+    }
+    let state = ctl.repo.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let package = match state {
+        Some(Ok(list)) if !list.is_empty() => str_param()
+            .required(true)
+            .display("Package")
+            .enum_values(list.iter().map(|e| e.name.clone())),
+        Some(Ok(_)) => str_param()
+            .required(true)
+            .display("Package")
+            .placeholder("the repository is empty"),
+        Some(Err(e)) => str_param()
+            .required(true)
+            .display("Package")
+            .placeholder(format!("repository unreachable: {e}")),
+        None => str_param()
+            .required(true)
+            .display("Package")
+            .placeholder("loading the repository index"),
+    };
+    ctx.declare_action(
+        "links",
+        "install_repo",
+        install_meta("from Repository")
+            .param("name", link_name_param())
+            .param("package", package),
+    )
+    .await
+}
+
+/// Fetch the repository index in the background, never on the start path;
+/// then list its packages in "from Repository".
+async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
+    let Some(url) = ctl.cfg.repository.clone() else {
+        return;
+    };
+    let r = crate::fetch::get(&url, packages::MAX_INDEX, Duration::from_secs(15))
+        .await
+        .and_then(|b| packages::parse_index(&b));
+    if let Err(e) = &r {
+        warn!(%url, "repository index: {e}");
+    }
+    *ctl.repo.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
+    if let Err(e) = declare_repo_action(&ctx, &ctl).await {
+        debug!("install_repo: {e}");
+    }
+}
+
 fn link_name_param() -> ParamMeta {
     str_param()
         .required(true)
@@ -1746,6 +1854,39 @@ impl Link for Admin {
                 .level(Perm::Config),
         )
         .await?;
+        ctx.declare_action(
+            "links",
+            "install_url",
+            install_meta("from Url")
+                .param("name", link_name_param())
+                .param(
+                    "url",
+                    str_param()
+                        .required(true)
+                        .display("Url")
+                        .placeholder("https://example.com/link.zip"),
+                ),
+        )
+        .await?;
+        ctx.declare_action(
+            "links",
+            "install_git",
+            install_meta("from Git")
+                .param("name", link_name_param())
+                .param(
+                    "url",
+                    str_param()
+                        .required(true)
+                        .display("Url")
+                        .placeholder("https://git.example.com/link.git"),
+                )
+                .param(
+                    "ref",
+                    str_param().display("Ref").placeholder("branch or tag"),
+                ),
+        )
+        .await?;
+        declare_repo_action(&ctx, &cfg.ctl).await?;
         let reg = cfg.ctl.registry();
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
@@ -1881,6 +2022,43 @@ impl Link for Admin {
                     _ => Err("zip: required".into()),
                 };
                 Ok(Some(outcome(r)))
+            }
+            (["links"], "install_url") => {
+                let _busy = self.ctl.busy();
+                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
+                let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
+                let r = match crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
+                    Ok(zip) => {
+                        self.install_package(&name, zip, format!("url {url}"), &sub)
+                            .await
+                    }
+                    Err(e) => Err(e),
+                };
+                Ok(Some(outcome(r)))
+            }
+            (["links"], "install_git") => {
+                let _busy = self.ctl.busy();
+                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
+                let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
+                let git_ref = arg_str(&args, "ref").unwrap_or_default().trim().to_owned();
+                let root = self.ctl.packages_root();
+                // file:// only in the dev profile (tests, a local checkout)
+                let r = match crate::git::clone_zip(&url, &git_ref, self.ctl.cfg.dev, &root).await {
+                    Ok((zip, commit)) => {
+                        let source = format!("git {url} {git_ref} {commit}");
+                        self.install_package(&name, zip, source, &sub).await
+                    }
+                    Err(e) => Err(e),
+                };
+                Ok(Some(outcome(r)))
+            }
+            (["links"], "install_repo") => {
+                let _busy = self.ctl.busy();
+                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
+                let package = arg_str(&args, "package").unwrap_or_default().to_owned();
+                Ok(Some(outcome(
+                    self.install_from_repo(&name, &package, &sub).await,
+                )))
             }
             (["packages", name], "remove") => self.remove_package(name, &sub).await,
             (["links", id], "hello") => self.hello(id, &args).await,
@@ -2142,6 +2320,7 @@ impl Admin {
         source: String,
         sub: &str,
     ) -> Result<String, String> {
+        let _busy = self.ctl.busy();
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
         let now = now_s();
@@ -2215,6 +2394,44 @@ impl Admin {
             message.push_str(&format!("; link {link} installed"));
         }
         Ok(message)
+    }
+
+    /// "from Repository": the index entry's zip, which must match its
+    /// SHA-256.
+    async fn install_from_repo(
+        &self,
+        link: &str,
+        package: &str,
+        sub: &str,
+    ) -> Result<String, String> {
+        let index = self
+            .ctl
+            .cfg
+            .repository
+            .clone()
+            .ok_or("no packages.repository")?;
+        let state = self
+            .ctl
+            .repo
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let list = match state {
+            Some(Ok(list)) => list,
+            Some(Err(e)) => return Err(format!("repository unreachable: {e}")),
+            None => return Err("the repository index is still loading".into()),
+        };
+        let e = list
+            .into_iter()
+            .find(|e| e.name == package)
+            .ok_or_else(|| format!("no package {package} in the repository"))?;
+        let zip = crate::fetch::get(&e.url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
+        let got = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&zip));
+        if !got.eq_ignore_ascii_case(&e.sha256) {
+            return Err(format!("{package}: sha256 {got} does not match the index"));
+        }
+        self.install_package(link, zip, format!("repository {index}"), sub)
+            .await
     }
 
     async fn remove_package(&self, name: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {

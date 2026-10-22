@@ -37,6 +37,42 @@ struct Manifest {
     entry: Option<String>,
 }
 
+/// One package of a repository index (`packages.repository`, as DSA's
+/// `linkRepositoryUrl`): `[{name, version, description, url, sha256}]`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepoEntry {
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    pub url: String,
+    pub sha256: String,
+}
+
+/// Largest repository index.
+pub const MAX_INDEX: usize = 4 << 20;
+
+/// Parse and check a repository index: at most 1000 entries, unique valid
+/// names, a 64-hex SHA-256 each.
+pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
+    let list: Vec<RepoEntry> = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
+    if list.len() > MAX_FILES {
+        return Err(format!("index: more than {MAX_FILES} packages"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for e in &list {
+        crate::registry::validate_link_id(&e.name).map_err(|x| format!("index: {x}"))?;
+        if !seen.insert(e.name.as_str()) {
+            return Err(format!("index: {} twice", e.name));
+        }
+        if e.sha256.len() != 64 || !e.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("index: {}: sha256 must be 64 hex digits", e.name));
+        }
+    }
+    Ok(list)
+}
+
 /// Key of this host in a manifest's `entries`: `<os>-<arch>`
 /// (`linux-aarch64`, `macos-aarch64`, `linux-x86_64`).
 pub fn platform() -> String {
@@ -266,6 +302,24 @@ pub(crate) mod tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp"))
             .collect();
         assert!(left.is_empty(), "temp dirs removed");
+    }
+
+    #[test]
+    fn repository_index() {
+        let h = "a".repeat(64);
+        let ok =
+            format!(r#"[{{"name":"m1","version":"1","url":"https://x/m1.zip","sha256":"{h}"}}]"#);
+        assert_eq!(parse_index(ok.as_bytes()).unwrap()[0].name, "m1");
+        for bad in [
+            r#"[{"name":"m1","version":"1","url":"u","sha256":"zz"}]"#.to_string(),
+            format!(r#"[{{"name":"../x","version":"1","url":"u","sha256":"{h}"}}]"#),
+            format!(
+                r#"[{{"name":"m","version":"1","url":"u","sha256":"{h}"}},{{"name":"m","version":"2","url":"u","sha256":"{h}"}}]"#
+            ),
+            "{}".to_string(),
+        ] {
+            assert!(parse_index(bad.as_bytes()).is_err(), "{bad}");
+        }
     }
 
     #[test]

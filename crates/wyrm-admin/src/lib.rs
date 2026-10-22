@@ -5,6 +5,8 @@
 pub mod acl;
 pub mod audit;
 pub mod control;
+pub mod fetch;
+pub mod git;
 pub mod packages;
 pub mod peers;
 pub mod registry;
