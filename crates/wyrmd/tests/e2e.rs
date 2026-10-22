@@ -522,7 +522,7 @@ async fn authorize_and_deauthorize() {
         .invoke_one(
             &q,
             "authorize",
-            args(&[("dsid", "dev-7"), ("name", "Pump 7"), ("group", "operator")]),
+            args(&[("dsid", "dev-7"), ("name", "Pump 7"), ("group", "viewer")]),
         )
         .await
         .unwrap();
@@ -532,13 +532,13 @@ async fn authorize_and_deauthorize() {
     );
     let def = env.ctl.registry().links["dev-7"].clone();
     assert_eq!(def.display.as_deref(), Some("Pump 7"));
-    assert!(gw.role_table().get("operator").unwrap().contains(&(
+    assert!(gw.role_table().get("viewer").unwrap().contains(&(
         "wy/{site}/down/dev-7/**".to_string(),
         wyrm_core::Perm::Write
     )));
 
-    // a restrictive grant made by hand (viewer: list only on this link)
-    gw.set_grant("viewer", "wy/{site}/down/dev-7/**", wyrm_core::Perm::List)
+    // a restrictive grant made by hand (operator: list only on this link)
+    gw.set_grant("operator", "wy/{site}/down/dev-7/**", wyrm_core::Perm::List)
         .unwrap();
 
     // Deauthorize (after the ACL rebuild): back to quarantine, not retired
@@ -553,18 +553,18 @@ async fn authorize_and_deauthorize() {
     assert!(!reg.links.contains_key("dev-7") && !reg.retired.contains("dev-7"));
     assert!(
         !gw.role_table()
-            .get("operator")
+            .get("viewer")
             .unwrap()
             .iter()
             .any(|(k, _)| k.contains("dev-7")),
-        "the group grant goes with the link"
+        "the widening group grant goes with the link"
     );
     assert!(
         gw.role_table()
-            .get("viewer")
+            .get("operator")
             .unwrap()
             .contains(&("wy/{site}/down/dev-7/**".to_string(), wyrm_core::Perm::List)),
-        "a grant made by hand stays"
+        "a restrictive grant made by hand stays"
     );
     assert!(reg.quarantine.contains_key("dev-7") && reg.held.contains("dev-7"));
 

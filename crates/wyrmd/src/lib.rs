@@ -905,6 +905,16 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
             .set_grant(role, key, level)
             .map_err(|e| e.to_string())
     }
+
+    fn revoke_widening(
+        &self,
+        keys: &[String],
+        probe: &str,
+    ) -> Result<Vec<(String, String, wyrm_core::Perm)>, String> {
+        self.0
+            .revoke_widening(keys, probe)
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Gateway events into the admin journal (no passwords or tokens in them).

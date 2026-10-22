@@ -690,6 +690,33 @@ fn role_grants_change_persist_and_keep_an_admin() {
     );
 }
 
+/// When a link goes, grants that widen a role on its branch are revoked;
+/// neutral and restrictive ones stay (ADR 0006).
+#[test]
+fn revoke_widening_keeps_restrictive_grants() {
+    let cfg = GatewayConfig::new(SITE, temp_dir("revoke"), "127.0.0.1:0".parse().unwrap());
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    gw.ensure_admin("root", ADMIN_PW).unwrap();
+    let key = "wy/{site}/down/d1/**".to_string();
+    gw.set_grant("viewer", &key, Perm::Write).unwrap(); // widens read
+    gw.set_grant("operator", &key, Perm::List).unwrap(); // restricts write
+    gw.set_grant("engineer", &key, Perm::Config).unwrap(); // neutral
+    let gone = gw
+        .revoke_widening(
+            &[key.clone(), format!("wy/{SITE}/down/d1/**")],
+            &format!("wy/{SITE}/down/d1/~val"),
+        )
+        .unwrap();
+    assert_eq!(gone, vec![("viewer".to_string(), key.clone(), Perm::Write)]);
+    let t = gw.role_table();
+    assert!(!t.get("viewer").unwrap().iter().any(|(k, _)| *k == key));
+    assert!(t
+        .get("operator")
+        .unwrap()
+        .contains(&(key.clone(), Perm::List)));
+    assert!(t.get("engineer").unwrap().contains(&(key, Perm::Config)));
+}
+
 #[test]
 fn signing_key_persists() {
     let dir = temp_dir("key");

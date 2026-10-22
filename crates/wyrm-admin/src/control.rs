@@ -107,6 +107,13 @@ pub trait RoleGrants: Send + Sync {
     fn grants(&self) -> Vec<(String, String, Perm)>;
     /// Add or change (above `none`) or remove (`none`) one grant of `role`.
     fn set_grant(&self, role: &str, key: &str, level: Perm) -> Result<(), String>;
+    /// Remove the grants on exactly one of `keys` that widen their role's
+    /// access to `probe`; returns `(role, key, level)` of each.
+    fn revoke_widening(
+        &self,
+        keys: &[String],
+        probe: &str,
+    ) -> Result<Vec<(String, String, Perm)>, String>;
 }
 
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
@@ -1069,10 +1076,13 @@ fn str_param() -> ParamMeta {
 }
 
 fn link_node(def: &LinkDef) -> NodeMeta {
-    let node = match &def.display {
+    let mut node = match &def.display {
         Some(d) => NodeMeta::folder().display(d.as_str()),
         None => NodeMeta::folder(),
     };
+    if let Some(role) = &def.granted {
+        node = node.attr("group", role.as_str());
+    }
     node.is("wy:link-def")
         .attr("driver", def.driver.as_str())
         .attr("mode", def.mode.name())
@@ -2336,7 +2346,7 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
-        self.revoke_link_grant(&def, sub);
+        self.revoke_link_grants(id, sub);
         Ok(
             def.mode.is_remote()
                 || def.driver == AGENT_DRIVER
@@ -2438,35 +2448,38 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
-        self.revoke_link_grant(&def, sub);
+        self.revoke_link_grants(&def.id, sub);
         self.ctl.schedule_reload();
         Ok(None)
     }
 
-    /// Revoke the one grant Authorize `group` gave on this link, if it is
-    /// still `write` on exactly the link's branch. Grants made or changed by
-    /// hand (Update Permissions) stay: they may be restrictive overrides.
-    fn revoke_link_grant(&self, def: &LinkDef, sub: &str) {
-        let (Some(role), Some(roles)) = (&def.granted, self.ctl.role_grants()) else {
+    /// When a link goes (Deauthorize, Remove): revoke every gateway grant
+    /// on exactly its branch that gives a role more than its other grants
+    /// would (the Authorize `group` grant, or a widening one made by hand),
+    /// so a CN authorized again starts without them. Restrictive overrides
+    /// stay.
+    fn revoke_link_grants(&self, id: &str, sub: &str) {
+        let Some(roles) = self.ctl.role_grants() else {
             return;
         };
-        let key = format!("wy/{{site}}/down/{}/**", def.id);
-        let ours = roles
-            .grants()
-            .iter()
-            .any(|(r, k, p)| r == role && *k == key && *p == Perm::Write);
-        if !ours {
-            return;
-        }
-        match roles.set_grant(role, &key, Perm::None) {
-            Ok(()) => self.ctl.record(
-                sub,
-                "update_permissions",
-                role,
-                Status::Ok,
-                &format!("{key} none (link {} gone)", def.id),
-            ),
-            Err(e) => warn!(%role, %key, "grant not revoked: {e}"),
+        let site = &self.ctl.cfg.site;
+        let keys = [
+            format!("wy/{{site}}/down/{id}/**"),
+            format!("wy/{site}/down/{id}/**"),
+        ];
+        match roles.revoke_widening(&keys, &format!("wy/{site}/down/{id}/~val")) {
+            Ok(gone) => {
+                for (role, key, p) in gone {
+                    self.ctl.record(
+                        sub,
+                        "update_permissions",
+                        &role,
+                        Status::Ok,
+                        &format!("{key} none (was {}; link {id} gone)", p.name()),
+                    );
+                }
+            }
+            Err(e) => warn!(link = %id, "grants not revoked: {e}"),
         }
     }
 

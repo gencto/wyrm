@@ -444,6 +444,34 @@ impl Gateway {
         t
     }
 
+    /// Remove each grant on exactly one of `keys` that gives its role more
+    /// on `probe` than the role's other grants would (it widens access);
+    /// restrictive and neutral grants stay. Returns `(role, key, level)` of
+    /// each removed grant. Used when a link goes away (ADR 0006).
+    pub fn revoke_widening(
+        &self,
+        keys: &[String],
+        probe: &str,
+    ) -> Result<Vec<(String, String, Perm)>> {
+        let mut out = Vec::new();
+        for (role, grants) in self.role_table().iter() {
+            for (k, p) in grants.iter().filter(|(k, _)| keys.contains(k)) {
+                let rest: Vec<(String, Perm)> =
+                    grants.iter().filter(|(k2, _)| k2 != k).cloned().collect();
+                let mut alone = RoleTable::empty();
+                alone.insert(role, rest);
+                let without = alone.grants(&self.cfg.site, &[role.to_owned()]).perm(probe);
+                if *p > without {
+                    out.push((role.to_owned(), k.clone(), *p));
+                }
+            }
+        }
+        for (role, k, _) in &out {
+            self.set_grant(role, k, Perm::None)?;
+        }
+        Ok(out)
+    }
+
     /// Add, change or (at `none`) remove the grant on `key` of `role`; a new
     /// role starts empty. Refused when no enabled user would keep `config`
     /// on `wy/<site>/sys/**` (user management needs one). Sessions see the
