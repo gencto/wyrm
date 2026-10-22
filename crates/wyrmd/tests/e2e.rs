@@ -1108,6 +1108,132 @@ async fn wasm_link_reads_a_device_over_tcp() {
     env.stop().await;
 }
 
+/// Logs in sys (owner request 2026-10-22): the broker's ring and level, an
+/// embedded link's lines by its span and its own level, a process link's
+/// output and its RUST_LOG (applied by a restart).
+#[tokio::test(flavor = "multi_thread")]
+async fn logs_and_log_levels() {
+    let lc = wyrm_admin::logs::install_quiet();
+    let env = Env::start(
+        "logs",
+        r#"links: {
+            mock: { driver: "mock", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
+            pm: { driver: "mock", mode: "process", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
+        },"#,
+    )
+    .await;
+    let c = env.client().await;
+    let sys = format!("wy/{SITE}/sys");
+    let args = |pairs: Vec<(&str, Value)>| {
+        Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+    };
+    let rows = |v: Option<Value>| -> Vec<BTreeMap<String, Value>> {
+        match v {
+            Some(Value::Array(a)) => a
+                .into_iter()
+                .filter_map(|r| match r {
+                    Value::Map(m) => Some(m),
+                    _ => None,
+                })
+                .collect(),
+            other => panic!("rows: {other:?}"),
+        }
+    };
+    let text = |m: &BTreeMap<String, Value>, k: &str| match m.get(k) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => String::new(),
+    };
+
+    // the broker: level debug, saved; its log has the admin's lines
+    c.set(&format!("{sys}/log_level"), Value::UInt(3))
+        .await
+        .unwrap();
+    assert_eq!(lc.level(), "debug");
+    assert_eq!(env.ctl.registry().log_level.as_deref(), Some("debug"));
+    let all = rows(
+        c.invoke_one(&sys, "get_log", args(vec![("lines", Value::UInt(2000))]))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        all.iter()
+            .any(|r| text(r, "message").contains("admin attached")),
+        "{all:?}"
+    );
+    assert!(all
+        .iter()
+        .all(|r| !text(r, "time").is_empty() && !text(r, "level").is_empty()));
+    let warns = rows(
+        c.invoke_one(&sys, "get_log", args(vec![("level", Value::from("warn"))]))
+            .await
+            .unwrap(),
+    );
+    assert!(warns
+        .iter()
+        .all(|r| ["warn", "error"].contains(&text(r, "level").as_str())));
+
+    // an embedded link: back to info for the broker, debug for `mock` alone;
+    // a refused token (debug, inside the link's span) shows under its id
+    c.set(&format!("{sys}/log_level"), Value::UInt(2))
+        .await
+        .unwrap();
+    // choices: default, error, warn, info, debug, trace (an enum takes its index)
+    c.set(&format!("{sys}/links/mock/log_level"), Value::UInt(4))
+        .await
+        .unwrap();
+    assert_eq!(
+        env.ctl.registry().links["mock"].log_level.as_deref(),
+        Some("debug")
+    );
+    let stranger = WyrmClient::new(env.session().await)
+        .with_tokens(Arc::new(SigningTokens::new(
+            ed25519_dalek::SigningKey::from_bytes(&[7; 32]),
+            SITE,
+        )))
+        .with_timeout(Duration::from_secs(3));
+    let _ = stranger
+        .set(&format!("wy/{SITE}/down/mock/g0/p0"), 1.0)
+        .await;
+    let mine = eventually("the link's debug line", 5, || async {
+        let r = rows(
+            c.invoke_one(&format!("{sys}/links/mock"), "get_log", args(vec![]))
+                .await
+                .ok()?,
+        );
+        r.iter()
+            .any(|r| text(r, "message").contains("ptok rejected"))
+            .then_some(r)
+    })
+    .await;
+    assert!(mine.iter().all(|r| text(r, "link") == "mock"));
+
+    // a process link: its output, and RUST_LOG from its level
+    eventually("process output", 15, || async {
+        let r = rows(
+            c.invoke_one(&format!("{sys}/links/pm"), "get_log", args(vec![]))
+                .await
+                .ok()?,
+        );
+        r.iter()
+            .any(|r| text(r, "message").contains("link process up"))
+            .then_some(())
+    })
+    .await;
+    c.set(&format!("{sys}/links/pm/log_level"), Value::UInt(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        env.ctl.registry().links["pm"].log_level.as_deref(),
+        Some("warn")
+    );
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "log_level" && r.key == "pm"));
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));

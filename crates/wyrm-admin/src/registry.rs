@@ -101,6 +101,11 @@ pub struct LinkDef {
     #[n(9)]
     #[serde(default)]
     pub granted: Option<String>,
+    /// Log level of this link (one of `logs::LEVELS`); `None`: the broker's
+    /// (embedded) or the process default.
+    #[n(10)]
+    #[serde(default)]
+    pub log_level: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -195,6 +200,15 @@ pub enum Op {
     /// Refused while a link runs the package.
     #[n(15)]
     RemovePackage(#[n(0)] String),
+    /// Log level of the broker (`link: None`) or of one link; `level: None`
+    /// goes back to the default.
+    #[n(16)]
+    SetLogLevel {
+        #[n(0)]
+        link: Option<String>,
+        #[n(1)]
+        level: Option<String>,
+    },
 }
 
 /// How a package's links run (ADR 0011).
@@ -341,6 +355,9 @@ pub struct Registry {
     /// Link packages by name (ADR 0011).
     #[serde(default)]
     pub packages: BTreeMap<String, PackageDef>,
+    /// Log level of the broker set from `sys/log_level`; `None`: `RUST_LOG`.
+    #[serde(default)]
+    pub log_level: Option<String>,
 }
 
 /// Replaced params kept per link.
@@ -384,7 +401,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 9;
+    const SCHEMA: u32 = 10;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -484,6 +501,22 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
                 self.held.remove(cn);
                 self.blocklist.insert(cn.clone());
+            }
+            Op::SetLogLevel { link, level } => {
+                if let Some(l) = level {
+                    if crate::logs::parse_level(l).is_none() {
+                        return Err(format!("level {l:?}: one of {:?}", crate::logs::LEVELS));
+                    }
+                }
+                match link {
+                    None => self.log_level = level.clone(),
+                    Some(id) => {
+                        self.links
+                            .get_mut(id)
+                            .ok_or_else(|| format!("no link {id}"))?
+                            .log_level = level.clone();
+                    }
+                }
             }
             Op::PutPackage(def) => {
                 validate_link_id(&def.name).map_err(|e| format!("package {e}"))?;
@@ -591,6 +624,7 @@ mod tests {
             created: 0,
             display: None,
             granted: None,
+            log_level: None,
         }
     }
 

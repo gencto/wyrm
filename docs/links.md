@@ -252,7 +252,22 @@ component new`). WYRM does not ship a guest template yet: the example
 components in `examples/packages` are written by hand in the component text
 format.
 
-## 9. Repository
+## 9. Logs
+
+- `sys/links/<id>` ▸ **Get Log** `{lines, level, filter}` shows the link's
+  last lines: an embedded link's lines in the broker log (they carry its
+  id), a process link's stdout and stderr (the last 2000 lines, also
+  written to the broker's stderr). An external link logs on its own host.
+- `sys/links/<id>/log_level`: `default` or a level. For an embedded link it
+  sets the level of its lines alone; for a process link it sets its
+  `RUST_LOG` and restarts it. Saved in the registry.
+- The broker's own: `sys/log_level` and `sys` ▸ Get Log (filter by `link`
+  to see one embedded link).
+- A process package should log with `tracing-subscriber` (as
+  `examples/packages/process-link`): the level names in its lines become
+  the level column.
+
+## 10. Repository
 
 Set `packages: { repository: "https://…/index.json" }` in `wyrmd.json5` (as
 DSA's `linkRepositoryUrl`). The index is a JSON array:
@@ -267,7 +282,7 @@ The broker fetches the index in the background on every start and rebuild;
 network starts as usual: the field then says why the list is empty. Without
 `packages.repository` the item is still in the menu and says how to set it.
 
-## 10. Trust and security
+## 11. Trust and security
 
 - **Who can install:** users with `config` on `wy/<site>/sys/**`. Each
   install and removal is in the audit journal (`sys/audit`) with the user,
@@ -284,7 +299,7 @@ network starts as usual: the field then says why the list is empty. Without
 - Threat model entries: `docs/security/threats.md` (Link packages, WASM
   links).
 
-## 11. Limits
+## 12. Limits
 
 | What | Limit |
 |---|---|
@@ -298,7 +313,7 @@ network starts as usual: the field then says why the list is empty. Without
 | WASM call | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
 | WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
 
-## 12. When an install fails
+## 13. When an install fails
 
 | Message | Meaning |
 |---|---|
@@ -315,7 +330,7 @@ network starts as usual: the field then says why the list is empty. Without
 | `the broker is restarting; try again` | Another install rebuilt the router; repeat the action. |
 | `… is not in the link's net list` (point error) | Add the device address and port to the connection's Network. |
 
-## 13. Try it in the demo
+## 14. Try it in the demo
 
 1. Run `examples/packages/build.sh`. It writes the packages to
    `examples/packages/out/`.

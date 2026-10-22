@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{info, warn, Level};
+
+use crate::logs::{now_ms, strip_ansi, LogLine, Ring};
 
 const STOP_GRACE: Duration = Duration::from_secs(10);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
@@ -40,9 +42,55 @@ struct Proc {
     state: Arc<Mutex<ProcState>>,
 }
 
+/// Last output lines of each link process (`sys/links/<id>/~act/get_log`).
+type Logs = Arc<Mutex<HashMap<String, Arc<Mutex<Ring>>>>>;
+
 #[derive(Default)]
 pub struct Supervisor {
     procs: Mutex<HashMap<String, Proc>>,
+    logs: Logs,
+}
+
+/// Lines and bytes kept per link process.
+const LINK_LINES: usize = 2000;
+const LINK_BYTES: usize = 1 << 20;
+
+/// Read `out` line by line until it closes: each line goes to the broker's
+/// own stderr (as before the pipe) and into `ring`. Reading never stops
+/// while the child runs, so a full pipe never blocks it.
+async fn drain(
+    out: impl tokio::io::AsyncRead + Unpin,
+    ring: Arc<Mutex<Ring>>,
+    id: String,
+    err: bool,
+) {
+    use tokio::io::AsyncBufReadExt;
+    let mut lines = tokio::io::BufReader::new(out).lines();
+    while let Ok(Some(raw)) = lines.next_line().await {
+        eprintln!("{raw}");
+        let text = strip_ansi(&raw);
+        // `<time> <LEVEL> <target>: <message>`, as tracing's text output
+        let level = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
+            .into_iter()
+            .find(|l| text.split_whitespace().take(3).any(|w| w == *l))
+            .map(|l| match l {
+                "ERROR" => Level::ERROR,
+                "WARN" => Level::WARN,
+                "INFO" => Level::INFO,
+                "DEBUG" => Level::DEBUG,
+                _ => Level::TRACE,
+            })
+            .unwrap_or(if err { Level::WARN } else { Level::INFO });
+        ring.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(LogLine {
+                t: now_ms(),
+                level,
+                target: if err { "stderr" } else { "stdout" }.into(),
+                link: Some(id.clone()),
+                message: text,
+            });
+    }
 }
 
 fn set(state: &Mutex<ProcState>, s: ProcState) {
@@ -74,8 +122,39 @@ impl Supervisor {
         let (stop, rx) = watch::channel(false);
         let state = Arc::new(Mutex::new(ProcState::Starting));
         let id = spec.id.clone();
-        let task = tokio::spawn(monitor(spec, rx, state.clone()));
+        let ring = self
+            .logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(id.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(Ring::new(LINK_LINES, LINK_BYTES))))
+            .clone();
+        let task = tokio::spawn(monitor(spec, rx, state.clone(), ring));
         procs.insert(id, Proc { stop, task, state });
+    }
+
+    /// The last output of link process `id` (see [`Ring::tail`]).
+    pub fn log_tail(&self, id: &str, n: usize, min: Level, contains: &str) -> Vec<LogLine> {
+        let ring = self
+            .logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .cloned();
+        ring.map(|r| {
+            r.lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .tail(n, min, contains, None)
+        })
+        .unwrap_or_default()
+    }
+
+    /// Forget the output of a removed link.
+    pub fn forget_log(&self, id: &str) {
+        self.logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
     }
 
     /// SIGTERM, wait up to 10 s, then kill. No-op if not supervised.
@@ -116,7 +195,12 @@ impl Supervisor {
 /// Broker variables a link process may inherit (logging, locale, time zone).
 const INHERITED_ENV: &[&str] = &["RUST_LOG", "RUST_BACKTRACE", "TZ", "LANG", "LC_ALL", "PATH"];
 
-async fn monitor(spec: ProcSpec, mut stop: watch::Receiver<bool>, state: Arc<Mutex<ProcState>>) {
+async fn monitor(
+    spec: ProcSpec,
+    mut stop: watch::Receiver<bool>,
+    state: Arc<Mutex<ProcState>>,
+    ring: Arc<Mutex<Ring>>,
+) {
     let mut restarts = 0u32;
     let mut backoff = Duration::from_secs(1);
     loop {
@@ -133,6 +217,8 @@ async fn monitor(spec: ProcSpec, mut stop: watch::Receiver<bool>, state: Arc<Mut
             )
             .envs(spec.env.iter().cloned())
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
         let started = Instant::now();
         let child = cmd.spawn();
@@ -143,6 +229,12 @@ async fn monitor(spec: ProcSpec, mut stop: watch::Receiver<bool>, state: Arc<Mut
             }
             Ok(mut child) => {
                 let pid = child.id().unwrap_or(0);
+                if let Some(o) = child.stdout.take() {
+                    tokio::spawn(drain(o, ring.clone(), spec.id.clone(), false));
+                }
+                if let Some(e) = child.stderr.take() {
+                    tokio::spawn(drain(e, ring.clone(), spec.id.clone(), true));
+                }
                 info!(link = %spec.id, pid, "link process started");
                 set(&state, ProcState::Running(pid));
                 tokio::select! {

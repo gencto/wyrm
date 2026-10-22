@@ -749,6 +749,7 @@ impl Control {
                         created: now_s(),
                         display: None,
                         granted: None,
+                        log_level: None,
                     }))?;
                     if l.mode.is_remote() {
                         self.link_cert(&l.id)?;
@@ -1024,6 +1025,11 @@ impl Control {
                 ("WYRM_DATA_DIR".into(), data.display().to_string()),
             ]
             .into_iter()
+            .chain(
+                def.log_level
+                    .as_deref()
+                    .map(|l| ("RUST_LOG".to_owned(), crate::logs::env_directive(l))),
+            )
             .chain(self.cfg.link_limits.to_env())
             .collect(),
             max_restarts: self.cfg.max_restarts,
@@ -1131,6 +1137,20 @@ impl Control {
             }
             if let Err(e) = self.ensure_store_key(&def.id) {
                 warn!(link = %def.id, "store key: {e}");
+            }
+        }
+        // Saved log levels: the broker's and each embedded link's.
+        if let Some(lc) = crate::logs::global() {
+            let reg = self.registry();
+            if let Some(l) = &reg.log_level {
+                if let Err(e) = lc.set_level(l) {
+                    warn!("log level {l}: {e}");
+                }
+            }
+            for def in reg.links.values().filter(|d| d.mode == Mode::Embedded) {
+                if let Err(e) = lc.set_link_level(&def.id, def.log_level.as_deref()) {
+                    warn!(link = %def.id, "log level: {e}");
+                }
             }
         }
         let embedded: Running = Arc::new(AsyncMutex::new(HashMap::new()));
@@ -1405,7 +1425,117 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
             .param("token", ParamMeta::of(TypeCode::Binary).required(true))
             .result(ActionResult::Type(TypeCode::Map)),
     )
-    .await
+    .await?;
+    // External links log on their own host.
+    if def.mode == Mode::External {
+        return Ok(());
+    }
+    let level = format!("{p}/log_level");
+    ctx.declare_node(
+        &level,
+        NodeMeta::leaf(TypeCode::Enum)
+            .enum_values(link_levels())
+            .writable(Writable::Config)
+            .display("Log Level")
+            .attr(
+                "description",
+                if def.mode == Mode::Process {
+                    "RUST_LOG of the link process; a change restarts it."
+                } else {
+                    "Level of this link's lines in the broker log."
+                },
+            ),
+    )
+    .await?;
+    let idx = def
+        .log_level
+        .as_deref()
+        .and_then(|l| crate::logs::LEVELS.iter().position(|x| *x == l))
+        .map_or(0, |i| i + 1);
+    ctx.update(&level, Value::UInt(idx as u64), Quality::Good, now_us())
+        .await?;
+    ctx.declare_action(&p, "get_log", log_action(false)).await
+}
+
+/// `default` and the level names: a link's `log_level` choices.
+fn link_levels() -> Vec<String> {
+    std::iter::once("default")
+        .chain(crate::logs::LEVELS)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `get_log {lines, level, filter[, link]}` → a table of log lines.
+fn log_action(broker: bool) -> ActionMeta {
+    let mut a = ActionMeta::new()
+        .display("Get Log")
+        .param(
+            "lines",
+            ParamMeta::of(TypeCode::Number)
+                .display("Lines")
+                .placeholder("200 (at most 2000)"),
+        )
+        .param(
+            "level",
+            str_param()
+                .enum_values(crate::logs::LEVELS.iter().rev().map(|l| l.to_string()))
+                .display("Level")
+                .description("This level and more severe"),
+        )
+        .param(
+            "filter",
+            str_param()
+                .display("Filter")
+                .placeholder("text in the target or message"),
+        );
+    if broker {
+        a = a.param(
+            "link",
+            str_param()
+                .display("Link")
+                .placeholder("lines of one embedded link"),
+        );
+    }
+    a.result(ActionResult::Type(TypeCode::Array))
+        .level(Perm::Config)
+}
+
+/// Log lines as table rows.
+fn log_rows(lines: Vec<crate::logs::LogLine>) -> Value {
+    Value::Array(
+        lines
+            .into_iter()
+            .map(|l| {
+                let mut m = BTreeMap::new();
+                m.insert("time".to_owned(), Value::Str(iso_utc_ms(l.t)));
+                m.insert(
+                    "level".to_owned(),
+                    Value::from(crate::logs::level_name(l.level)),
+                );
+                m.insert("target".to_owned(), Value::Str(l.target));
+                if let Some(id) = l.link {
+                    m.insert("link".to_owned(), Value::Str(id));
+                }
+                m.insert("message".to_owned(), Value::Str(l.message));
+                Value::Map(m)
+            })
+            .collect(),
+    )
+}
+
+/// `(lines, min level, filter)` of a `get_log` call.
+fn log_args(args: &Value) -> Result<(usize, tracing::Level, String), LinkError> {
+    let n = arg(args, "lines")
+        .and_then(Value::as_f64)
+        .unwrap_or(200.0)
+        .clamp(1.0, 2000.0) as usize;
+    let level = match arg_str(args, "level").filter(|l| !l.is_empty()) {
+        Some(l) => crate::logs::parse_level(l)
+            .ok_or_else(|| LinkError::invalid_parameter(format!("level: {l}?")))?,
+        None => tracing::Level::TRACE,
+    };
+    let filter = arg_str(args, "filter").unwrap_or_default().to_owned();
+    Ok((n, level, filter))
 }
 
 /// "No role" in the Authorize `group` list (not a valid role name).
@@ -1561,6 +1691,32 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                 .attr("description", RATES_NOTE),
         )
         .await?;
+    }
+    if let Some(lc) = crate::logs::global() {
+        ctx.declare_node(
+            "log_level",
+            NodeMeta::leaf(TypeCode::Enum)
+                .enum_values(crate::logs::LEVELS)
+                .writable(Writable::Config)
+                .display("Log Level")
+                .attr(
+                    "description",
+                    "Level of the broker log (zenoh stays at warn below trace); replaces RUST_LOG.",
+                ),
+        )
+        .await?;
+        let idx = crate::logs::LEVELS
+            .iter()
+            .position(|l| *l == lc.level())
+            .unwrap_or(2);
+        ctx.update(
+            "log_level",
+            Value::UInt(idx as u64),
+            Quality::Good,
+            now_us(),
+        )
+        .await?;
+        ctx.declare_action("", "get_log", log_action(true)).await?;
     }
     let opts = ctl.options();
     for (name, (display, about)) in OPTION_NAMES.iter().zip(OPTION_INFO) {
@@ -1934,6 +2090,12 @@ async fn declare_package(ctx: &LinkCtx, p: &PackageDef) -> wyrm_link_sdk::Result
     .await
 }
 
+/// Unix milliseconds as ISO 8601 UTC with milliseconds.
+fn iso_utc_ms(ms: u64) -> String {
+    let s = iso_utc(ms / 1000);
+    format!("{}.{:03}Z", s.trim_end_matches('Z'), ms % 1000)
+}
+
 /// `secs` since the epoch as ISO 8601 UTC (`2026-10-22T03:43:00Z`).
 fn iso_utc(secs: u64) -> String {
     let (y, m, d) = secret::civil_from_days((secs / 86_400) as i64);
@@ -2129,6 +2291,42 @@ impl Link for Admin {
         value: Value,
         who: &Caller,
     ) -> wyrm_link_sdk::Result<()> {
+        let level_of = |v: &Value, choices: &[String]| -> Result<Option<String>, LinkError> {
+            let name = match v {
+                Value::UInt(i) => choices.get(*i as usize).cloned(),
+                Value::Str(s) => choices.iter().find(|c| *c == s).cloned(),
+                _ => None,
+            }
+            .ok_or_else(|| LinkError::invalid_parameter("log level: one of the choices"))?;
+            Ok((name != "default").then_some(name))
+        };
+        if path == "log_level" {
+            let lc =
+                crate::logs::global().ok_or_else(|| LinkError::not_supported("no log control"))?;
+            let levels: Vec<String> = crate::logs::LEVELS.iter().map(|l| l.to_string()).collect();
+            let level = level_of(&value, &levels)?.unwrap_or_else(|| "info".into());
+            lc.set_level(&level).map_err(LinkError::invalid_parameter)?;
+            self.ctl
+                .apply(Op::SetLogLevel {
+                    link: None,
+                    level: Some(level.clone()),
+                })
+                .map_err(rejected)?;
+            self.ctl
+                .record(&sub_of(who), "log_level", "broker", Status::Ok, &level);
+            let idx = crate::logs::LEVELS
+                .iter()
+                .position(|l| *l == level)
+                .unwrap_or(2);
+            return self
+                .ctx
+                .update(path, Value::UInt(idx as u64), Quality::Good, now_us())
+                .await;
+        }
+        if let ["links", id, "log_level"] = path.split('/').collect::<Vec<_>>().as_slice() {
+            let level = level_of(&value, &link_levels())?;
+            return self.set_link_log_level(id, level, &sub_of(who)).await;
+        }
         if let ["upstream", site, "enabled"] = path.split('/').collect::<Vec<_>>().as_slice() {
             let Value::Bool(on) = value else {
                 return Err(LinkError::invalid_parameter("enabled: true or false"));
@@ -2247,6 +2445,29 @@ impl Link for Admin {
                 self.update_params(id, params, &sub, "update").await
             }
             (["links", id], "history") => self.params_history(id),
+            (["links", id], "get_log") => {
+                let (n, level, filter) = log_args(&args)?;
+                let def = self.def(id)?;
+                let lines = match def.mode {
+                    Mode::Process => self.ctl.supervisor.log_tail(id, n, level, &filter),
+                    Mode::Embedded => crate::logs::global()
+                        .map(|lc| lc.tail(n, level, &filter, Some(id)))
+                        .unwrap_or_default(),
+                    Mode::External => {
+                        return Err(LinkError::not_supported(
+                            "an external link logs on its own host",
+                        ))
+                    }
+                };
+                Ok(Some(log_rows(lines)))
+            }
+            ([""], "get_log") => {
+                let (n, level, filter) = log_args(&args)?;
+                let lc = crate::logs::global()
+                    .ok_or_else(|| LinkError::not_supported("no log control"))?;
+                let link = arg_str(&args, "link").filter(|l| !l.is_empty());
+                Ok(Some(log_rows(lc.tail(n, level, &filter, link))))
+            }
             (["links", id], "rollback") => {
                 let rev = arg(&args, "rev")
                     .and_then(Value::as_f64)
@@ -2455,6 +2676,7 @@ impl Admin {
             created: now_s(),
             display: None,
             granted: None,
+            log_level: None,
         };
         ctl.secrets
             .drop_link(&id)
@@ -3001,6 +3223,10 @@ impl Admin {
             let _ = std::fs::remove_dir_all(dir);
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
+        self.ctl.supervisor.forget_log(id);
+        if let Some(lc) = crate::logs::global() {
+            let _ = lc.set_link_level(id, None);
+        }
         self.ctl.record(sub, "remove", id, Status::Ok, "");
         self.revoke_link_grants(id, sub);
         Ok(
@@ -3269,6 +3495,49 @@ impl Admin {
         Ok(())
     }
 
+    /// `links/<id>/log_level`: an embedded link's span directive in the
+    /// broker filter; a process link's `RUST_LOG`, applied by a restart.
+    async fn set_link_log_level(
+        &self,
+        id: &str,
+        level: Option<String>,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<()> {
+        let def = self.def(id)?;
+        self.ctl
+            .apply(Op::SetLogLevel {
+                link: Some(id.to_owned()),
+                level: level.clone(),
+            })
+            .map_err(rejected)?;
+        match def.mode {
+            Mode::Embedded => {
+                if let Some(lc) = crate::logs::global() {
+                    lc.set_link_level(id, level.as_deref())
+                        .map_err(LinkError::invalid_parameter)?;
+                }
+            }
+            Mode::Process => {
+                if self.ctl.supervisor.state(id).is_some() {
+                    self.stop_link(id, sub).await?;
+                    self.start_link(id, sub).await?;
+                }
+            }
+            Mode::External => {}
+        }
+        let shown = level.as_deref().unwrap_or("default");
+        self.ctl.record(sub, "log_level", id, Status::Ok, shown);
+        let idx = link_levels().iter().position(|l| l == shown).unwrap_or(0);
+        self.ctx
+            .update(
+                &format!("links/{id}/log_level"),
+                Value::UInt(idx as u64),
+                Quality::Good,
+                now_us(),
+            )
+            .await
+    }
+
     async fn reject(&self, cn: &str, sub: &str) -> wyrm_link_sdk::Result<()> {
         self.ctl
             .apply(Op::Reject(cn.to_owned()))
@@ -3330,6 +3599,7 @@ async fn admit(
         created: now_s(),
         display,
         granted,
+        log_level: None,
     };
     ctl.secrets
         .drop_link(cn)
@@ -3962,6 +4232,7 @@ zenoh_rx_bytes_total_extra 7
             created: 0,
             display: None,
             granted: None,
+            log_level: None,
         };
         for op in [
             Op::Install(def("known")),

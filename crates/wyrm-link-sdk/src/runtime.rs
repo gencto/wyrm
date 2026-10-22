@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 use tracing::{debug, warn};
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
@@ -201,6 +202,11 @@ pub async fn spawn<L: Link>(
 ) -> Result<LinkHandle<L>> {
     keyspace::validate_segment(&cfg.site)?;
     keyspace::validate_segment(&cfg.link)?;
+    // Every task of the link runs in this span: its log lines carry the link
+    // id, and the broker can set this link's level alone (wyrm-admin `logs`).
+    // Error level: the span exists whatever the log level, so a link level
+    // set later still finds it.
+    let span = tracing::error_span!("link", id = %cfg.link);
     let root = NodeMeta {
         is: Some(Profile::Code(is_code::LINK)),
         ..Default::default()
@@ -258,13 +264,19 @@ pub async fn spawn<L: Link>(
     let profiles = shared.profiles.clone();
     let (psession, psite) = (session.clone(), cfg.site.clone());
     // One task: aborting it stops the queryable and the profile follower.
-    let query_task = tokio::spawn(async move {
-        tokio::join!(
-            serve(shared, queryable),
-            follow_profiles(psession, psite, profiles)
-        );
-    });
-    let link = match guarded(L::start(link_cfg, ctx.clone())).await {
+    let query_task = tokio::spawn(
+        async move {
+            tokio::join!(
+                serve(shared, queryable),
+                follow_profiles(psession, psite, profiles)
+            );
+        }
+        .instrument(span.clone()),
+    );
+    let link = match guarded(L::start(link_cfg, ctx.clone()))
+        .instrument(span.clone())
+        .await
+    {
         Ok(Ok(l)) => l,
         Ok(Err(e)) => {
             query_task.abort();
@@ -277,14 +289,14 @@ pub async fn spawn<L: Link>(
             return Err(LinkError::internal("driver panicked in start"));
         }
     };
-    let actor = tokio::spawn(run_driver(ctx.clone(), link, rx));
+    let actor = tokio::spawn(run_driver(ctx.clone(), link, rx).instrument(span.clone()));
     let token = session
         .liveliness()
         .declare_token(ctx.0.prefix.clone())
         .await?;
     let watcher = cfg
         .republish_on
-        .map(|key| tokio::spawn(republish_on(ctx.clone(), key)));
+        .map(|key| tokio::spawn(republish_on(ctx.clone(), key).instrument(span)));
     Ok(LinkHandle {
         ctx,
         verifier,
@@ -644,24 +656,30 @@ impl<C: Send + 'static> Shared<C> {
             }
             SUFFIX_SET => {
                 let sh = self.clone();
-                tokio::spawn(async move {
-                    let att = match sh.set(&q, &path).await {
-                        Ok(()) => status_att(Status::Ok),
-                        Err(e) => sh.fail(e),
-                    };
-                    reply_here(&q, Vec::new(), att, true).await;
-                });
+                tokio::spawn(
+                    async move {
+                        let att = match sh.set(&q, &path).await {
+                            Ok(()) => status_att(Status::Ok),
+                            Err(e) => sh.fail(e),
+                        };
+                        reply_here(&q, Vec::new(), att, true).await;
+                    }
+                    .in_current_span(),
+                );
             }
             s => match s.strip_prefix("~act/") {
                 Some(action) => {
                     let sh = self.clone();
                     let action = action.to_owned();
-                    tokio::spawn(async move {
-                        if let Err(e) = sh.invoke(&q, &path, &action).await {
-                            let att = sh.fail(e);
-                            reply_here(&q, Vec::new(), att, true).await;
+                    tokio::spawn(
+                        async move {
+                            if let Err(e) = sh.invoke(&q, &path, &action).await {
+                                let att = sh.fail(e);
+                                reply_here(&q, Vec::new(), att, true).await;
+                            }
                         }
-                    });
+                        .in_current_span(),
+                    );
                 }
                 None => {
                     let (payload, att) = match self.doc(&q, &path, s) {

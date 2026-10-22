@@ -320,6 +320,7 @@ mod tests {
             created: 0,
             display: None,
             granted: None,
+            log_level: None,
         }
     }
 

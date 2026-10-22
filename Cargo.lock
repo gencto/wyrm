@@ -5765,6 +5765,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "tracing-subscriber",
  "webpki-roots",
  "wyrm-core",
  "wyrm-link-sdk",

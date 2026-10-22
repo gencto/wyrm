@@ -36,6 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 use tracing::{debug, warn};
 use wyrm_core::meta::{ActionResult, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
@@ -707,24 +708,24 @@ impl<D: Driver> Framework<D> {
                         }
                     }
                 }
-                tickers.push(tokio::spawn(poll_ticker::<D>(
-                    tx.clone(),
-                    dev.clone(),
-                    gi,
-                    g.period,
-                    g.inflight.clone(),
-                    pubs,
-                    self.poll_unsubscribed,
-                    rx.clone(),
-                )));
+                tickers.push(tokio::spawn(
+                    poll_ticker::<D>(
+                        tx.clone(),
+                        dev.clone(),
+                        gi,
+                        g.period,
+                        g.inflight.clone(),
+                        pubs,
+                        self.poll_unsubscribed,
+                        rx.clone(),
+                    )
+                    .in_current_span(),
+                ));
             }
             if let Some(period) = D::ping_period(&run.cfg) {
-                tickers.push(tokio::spawn(ping_ticker::<D>(
-                    tx.clone(),
-                    dev.clone(),
-                    period,
-                    rx.clone(),
-                )));
+                tickers.push(tokio::spawn(
+                    ping_ticker::<D>(tx.clone(), dev.clone(), period, rx.clone()).in_current_span(),
+                ));
             }
         }
         (tickers, tick_stop)
@@ -769,14 +770,17 @@ impl<D: Driver> Framework<D> {
                 }
                 let (tx, rx) = mpsc::channel(256);
                 let (stop, stop_rx) = watch::channel(false);
-                let owner = tokio::spawn(owner::<D>(
-                    self.ctx.clone(),
-                    name.to_owned(),
-                    cfg,
-                    devs.clone(),
-                    rx,
-                    stop_rx,
-                ));
+                let owner = tokio::spawn(
+                    owner::<D>(
+                        self.ctx.clone(),
+                        name.to_owned(),
+                        cfg,
+                        devs.clone(),
+                        rx,
+                        stop_rx,
+                    )
+                    .in_current_span(),
+                );
                 let (tickers, tick_stop) = self.start_tickers(name, &devs, &tx).await;
                 self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
                     tx,

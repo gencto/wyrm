@@ -13,12 +13,13 @@ wyrm-core.workspace = true
 wyrm-state.workspace = true
 wyrm-link-sdk.workspace = true
 zenoh = { workspace = true, features = ["unstable"] }
-tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs", "net"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs", "net", "io-util"] }
 minicbor.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 hex.workspace = true
 getrandom.workspace = true
 argon2.workspace = true

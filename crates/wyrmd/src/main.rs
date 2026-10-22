@@ -119,12 +119,9 @@ fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,zenoh=warn".into()),
-        )
-        .init();
+    // Text on stdout as before, plus the ring and level behind sys/get_log
+    // and sys/log_level.
+    wyrm_admin::logs::install();
     let args = Args::parse();
     if matches!(args.cmd, Some(Cmd::Link { .. })) {
         // Before the runtime: no_new_privs reaches only threads created
