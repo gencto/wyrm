@@ -5987,6 +5987,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wat",
+ "wyrm-core",
+ "wyrm-link-sdk",
+ "wyrm-wasm-host",
+]
+
+[[package]]
 name = "wyrm-mcp"
 version = "0.1.0"
 dependencies = [

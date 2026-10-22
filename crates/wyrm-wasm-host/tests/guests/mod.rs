@@ -187,7 +187,8 @@ pub fn register() -> Vec<u8> {
 }
 
 /// Link driver (`wyrm:link/driver`, ADR 0012): `init(config)` takes the
-/// port as two bytes (big-endian); `read` connects to 127.0.0.1:port, sends
+/// port as two bytes (big-endian), or as a CBOR uint16 (`0x19 hi lo`, what a
+/// JSON port number becomes); `read` connects to 127.0.0.1:port, sends
 /// `ping`, returns what comes back (up to 16 bytes) and closes; any host
 /// error comes back as the guest's error.
 pub fn tcp_ping() -> Vec<u8> {
@@ -237,6 +238,8 @@ pub fn tcp_ping() -> Vec<u8> {
       (i32.store offset=8 (i32.const 0) (i32.load offset=8 (local.get $ra)))
       (i32.const 0))
     (func (export "init") (param $c i32) (param $cl i32) (result i32)
+      (if (i32.eq (i32.load8_u (local.get $c)) (i32.const 0x19))
+        (then (local.set $c (i32.add (local.get $c) (i32.const 1)))))
       (global.set $port
         (i32.or (i32.shl (i32.load8_u (local.get $c)) (i32.const 8))
                 (i32.load8_u offset=1 (local.get $c))))

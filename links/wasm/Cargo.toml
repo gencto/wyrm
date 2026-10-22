@@ -1,0 +1,22 @@
+[package]
+name = "wyrm-link-wasm"
+description = "WYRM wasm driver: link points read and written by a WebAssembly component with a TCP allowlist (ADR 0011, ADR 0012)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-wasm-host.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+wat.workspace = true
