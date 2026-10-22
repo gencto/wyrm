@@ -725,14 +725,8 @@ impl Broker {
         if let Some(a) = self.admin.take() {
             a.stop().await;
         }
-        // A close that times out (a busy peer link) must not end the
-        // daemon: during a rebuild the next broker starts anyway.
-        if let Err(e) = self.session.close().await {
-            tracing::warn!("broker session close: {e}");
-        }
-        if let Err(e) = self.runtime.close().await {
-            tracing::warn!("router runtime close: {e}");
-        }
+        self.session.close().await?;
+        self.runtime.close().await?;
         Ok(())
     }
 }
@@ -1130,8 +1124,15 @@ impl Daemon {
                 // A package install in flight finishes on this broker; new
                 // ones answer `busy` until the next broker is up.
                 self.ctl.quiesce(Duration::from_secs(180)).await;
+                // Fail closed: an old runtime that did not close may keep
+                // sessions under the old ACL, so the daemon ends and its
+                // supervisor starts it clean.
+                broker.stop().await?;
+            } else if let Err(e) = broker.stop().await {
+                // At exit a close that times out (a busy peer link) is only
+                // reported: nothing runs after it.
+                tracing::warn!("closing the broker at exit: {e}");
             }
-            broker.stop().await?;
             if !reload {
                 break;
             }
