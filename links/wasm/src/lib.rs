@@ -79,11 +79,13 @@ pub struct Point {
     pub unit: String,
 }
 
+/// Each point's reading (CBOR) or the component's error.
+type Readings = Vec<(PointId, Result<Vec<u8>, String>)>;
+
 enum Req {
-    Read(
-        Vec<(PointId, Vec<u8>)>,
-        oneshot::Sender<Vec<(PointId, Result<Vec<u8>, String>)>>,
-    ),
+    /// `(point, cfg CBOR)` of one poll.
+    Read(Vec<(PointId, Vec<u8>)>, oneshot::Sender<Readings>),
+    /// `(cfg, value)` CBOR.
     Write(Vec<u8>, Vec<u8>, oneshot::Sender<Result<(), String>>),
 }
 
