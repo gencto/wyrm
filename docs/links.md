@@ -323,8 +323,8 @@ network starts as usual: the field then says why the list is empty. Without
    edge site's `packages.repository` points there.
 3. Log in to the edge gateway (`http://127.0.0.1:8444`, user `admin`).
 4. Open `wy/edge/sys/links` ▸ Install Link ▸ from Zip, choose
-   `example-link-<os>-<arch>.zip`, Name `ex1`, Invoke. Then open
-   `wy/edge/down/ex1` ▸ Add Connection, Add Device, Add Point.
+   `example-link-<os>-<arch>.zip`, Name `example`, Invoke. Then open
+   `wy/edge/down/example` ▸ Add Connection, Add Device, Add Point.
 5. Install Link ▸ from WASM, choose `register.wasm`, Name `reg`. Open
    `wy/edge/down/reg/main` ▸ Add Device, then Add Point with Writable on.
    The point reads 7; write a number below 24 and read it back.
