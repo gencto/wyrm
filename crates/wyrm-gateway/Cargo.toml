@@ -15,7 +15,7 @@ wyrm-state.workspace = true
 wyrm-flow.workspace = true
 zenoh.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net"] }
-axum = { workspace = true, features = ["http1", "tokio", "ws"] }
+axum = { workspace = true, features = ["http1", "tokio", "ws", "query"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }

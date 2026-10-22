@@ -3,7 +3,7 @@
 use crate::users::MAX_PASSWORD;
 use crate::{AuditEvent, Error, Gateway, LoginError, Principal};
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequestParts, Path, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequestParts, Path, Query, State};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{info, warn};
-use wyrm_core::{Status, Value};
+use wyrm_core::{Perm, Status, Value};
 use zeroize::Zeroizing;
 
 /// Largest HTTP body.
@@ -122,10 +122,8 @@ fn router(st: AppState) -> Router {
         .route("/api/users/{name}/disabled", post(set_disabled))
         .route("/api/ws-ticket", post(ws_ticket))
         .route("/api/ws", get(crate::ws::upgrade))
-        .route(
-            "/api/invoke",
-            post(invoke).layer(DefaultBodyLimit::max(MAX_INVOKE_BODY)),
-        )
+        // The body is read in the handler after the checks, with its own limit.
+        .route("/api/invoke", post(invoke))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(st)
 }
@@ -333,58 +331,166 @@ async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult 
     ))
 }
 
-/// `POST /api/invoke` `{key, action, args}`: one invoke whose arguments are
-/// too large for a WebSocket frame (a `file` parameter, ADR 0011). The same
-/// checks as a WebSocket `invoke`; replies `{result}` with the last value.
-async fn invoke(State(st): State<AppState>, Auth(p): Auth, body: Bytes) -> ApiResult {
-    let mut m = body_map(&body)?;
-    let key = text(&mut m, "key")?;
-    let action = text(&mut m, "action")?;
-    let args = m
-        .remove("args")
-        .unwrap_or_else(|| Value::Map(BTreeMap::new()));
-    let gw = &st.gw;
-    if let Some(d) = gw.read_site_of(&key) {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            Status::PermissionDenied,
-            format!("{d} is a downstream site: read only"),
-        ));
+#[derive(serde::Deserialize)]
+pub(crate) struct InvokeQuery {
+    key: String,
+    action: String,
+}
+
+/// Most CBOR data items in a `POST /api/invoke` body: its size is for file
+/// contents (one byte string each), not for a tree that decodes to many
+/// times its size.
+const MAX_ARG_ITEMS: usize = 10_000;
+
+/// Data items of `b`, refused past `max`, without building a value.
+fn cbor_items(b: &[u8], max: usize) -> Result<usize, ApiError> {
+    let mut d = minicbor::Decoder::new(b);
+    let mut n = 0;
+    for t in d.tokens() {
+        t.map_err(|e| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                Status::InvalidMessage,
+                format!("args: {e}"),
+            )
+        })?;
+        n += 1;
+        if n > max {
+            return Err(ApiError::bad(format!("args: more than {max} items")));
+        }
     }
-    crate::ws::check_key(gw.site(), &key, false).map_err(ApiError::bad)?;
-    wyrm_core::keyspace::validate_segment(&action)
-        .map_err(|_| ApiError::bad("action: valid segment required"))?;
-    if p.grants.perm(&format!("{key}/~act/{action}")) < wyrm_core::Perm::Read {
-        gw.audit(AuditEvent::Denied {
-            user: p.name.clone(),
-            op: "invoke".into(),
-            key,
-        });
-        return Err(ApiError::forbidden());
-    }
-    let c = wyrm_client::WyrmClient::new(st.session.clone())
-        .with_tokens(Arc::new(gw.tokens_for(&p)))
-        .with_timeout(INVOKE_TIMEOUT);
-    let failed = |e: wyrm_client::ClientError| {
-        let status = match e.status {
-            wyrm_core::status::StatusCode::Known(s) => s,
-            _ => Status::InternalError,
-        };
-        ApiError::new(StatusCode::BAD_GATEWAY, status, e.message)
+    Ok(n)
+}
+
+fn client_failure(e: wyrm_client::ClientError) -> ApiError {
+    let status = match e.status {
+        wyrm_core::status::StatusCode::Known(s) => s,
+        _ => Status::InternalError,
     };
-    let mut s = c.invoke(&key, &action, args).await.map_err(failed)?;
+    ApiError::new(StatusCode::BAD_GATEWAY, status, e.message)
+}
+
+/// `POST /api/invoke?key=<node>&action=<a>`, body = the CBOR `args` map: one
+/// invoke of an action with an `editor: file` parameter whose arguments are
+/// too large for a WebSocket frame (ADR 0011). Before the body is read: the
+/// key, the file parameter (from the node's `~meta`) and the user's grant at
+/// the action's level ([`check_invoke`]). Then at most [`MAX_ARG_ITEMS`]
+/// items are decoded; two such calls run at a time. Replies `{result}` with
+/// the last value.
+async fn invoke(
+    State(st): State<AppState>,
+    Auth(p): Auth,
+    Query(q): Query<InvokeQuery>,
+    body: axum::body::Body,
+) -> ApiResult {
+    let c = match check_invoke(&st, &p, &q).await {
+        Ok(c) => c,
+        Err(e) => {
+            // Read a small body anyway, so the client gets the answer and not
+            // a reset; a big one is cut off.
+            let _ = axum::body::to_bytes(body, MAX_BODY).await;
+            return Err(e);
+        }
+    };
+    let Ok(_permit) = st.gw.bulk.try_acquire() else {
+        let _ = axum::body::to_bytes(body, MAX_BODY).await;
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            Status::Busy,
+            "too many uploads at once",
+        ));
+    };
+    let bytes = axum::body::to_bytes(body, MAX_INVOKE_BODY)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Status::InvalidParameter,
+                format!("body over {} MiB", MAX_INVOKE_BODY >> 20),
+            )
+        })?;
+    cbor_items(&bytes, MAX_ARG_ITEMS)?;
+    let args = match wyrm_core::codec::from_slice::<Value>(&bytes) {
+        Ok(v @ Value::Map(_)) => v,
+        Ok(_) => return Err(ApiError::bad("args: a CBOR map")),
+        Err(e) => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                Status::InvalidMessage,
+                format!("args: {e}"),
+            ))
+        }
+    };
+    let mut s = c
+        .invoke(&q.key, &q.action, args)
+        .await
+        .map_err(client_failure)?;
     let mut last = None;
     while let Some(item) = futures_util::StreamExt::next(&mut s).await {
         match item {
             Ok(Some(v)) => last = Some(v),
             Ok(None) => {}
-            Err(e) => return Err(failed(e)),
+            Err(e) => return Err(client_failure(e)),
         }
     }
     Ok(cbor(
         StatusCode::OK,
         &map([("result", last.unwrap_or(Value::Null))]),
     ))
+}
+
+/// The checks of [`invoke`] before its body is read; returns the client
+/// with the user's tokens.
+async fn check_invoke(
+    st: &AppState,
+    p: &Principal,
+    q: &InvokeQuery,
+) -> Result<wyrm_client::WyrmClient, ApiError> {
+    let gw = &st.gw;
+    let (key, action) = (&q.key, &q.action);
+    if let Some(d) = gw.read_site_of(key) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            Status::PermissionDenied,
+            format!("{d} is a downstream site: read only"),
+        ));
+    }
+    crate::ws::check_key(gw.site(), key, false).map_err(ApiError::bad)?;
+    wyrm_core::keyspace::validate_segment(action)
+        .map_err(|_| ApiError::bad("action: valid segment required"))?;
+    let deny = || {
+        gw.audit(AuditEvent::Denied {
+            user: p.name.clone(),
+            op: "invoke".into(),
+            key: key.clone(),
+        });
+        ApiError::forbidden()
+    };
+    let act_key = format!("{key}/~act/{action}");
+    if p.grants.perm(&act_key) < Perm::Read {
+        return Err(deny());
+    }
+    let c = wyrm_client::WyrmClient::new(st.session.clone())
+        .with_tokens(Arc::new(gw.tokens_for(p)))
+        .with_timeout(INVOKE_TIMEOUT);
+    let meta = c.meta_expanded(key).await.map_err(client_failure)?;
+    let Some(am) = meta.actions.as_ref().and_then(|a| a.get(action)) else {
+        return Err(ApiError::bad(format!("no action {action} on {key}")));
+    };
+    if !am
+        .params
+        .values()
+        .any(|p| p.editor.as_deref() == Some(wyrm_core::meta::EDITOR_FILE))
+    {
+        return Err(ApiError::bad(format!(
+            "{action} takes no file: invoke it over the WebSocket"
+        )));
+    }
+    // The action's own level, before 64 MiB arrive (the link checks again).
+    if p.grants.perm(&act_key) < am.level.unwrap_or(Perm::Read).max(Perm::Read) {
+        return Err(deny());
+    }
+    Ok(c)
 }
 
 async fn me(State(st): State<AppState>, Auth(p): Auth) -> ApiResult {

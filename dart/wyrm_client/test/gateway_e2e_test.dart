@@ -129,13 +129,13 @@ void main() {
   });
 
   test('large arguments go over POST /api/invoke, not a frame', () async {
-    // 100 KiB do not fit a 64 KiB frame; the link sees them and refuses the
-    // unknown parameter, and the socket stays usable.
+    // 100 KiB do not fit a 64 KiB frame: the gateway's HTTP route answers
+    // (only actions with a file parameter may use it), and the socket stays
+    // usable.
     final big = VMap({'blob': VBytes(Uint8List(100 * 1024))});
     await expectLater(
         c.invoke(root, 'reset', big).toList(),
-        throwsA(isA<WyrmException>()
-            .having((e) => e.message, 'message', contains('unknown param blob'))));
+        throwsA(isA<WyrmException>().having((e) => e.message, 'message', contains('takes no file'))));
     await c.invoke(root, 'reset').toList();
   });
 

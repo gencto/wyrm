@@ -690,47 +690,79 @@ fn role_grants_change_persist_and_keep_an_admin() {
     );
 }
 
-/// `POST /api/invoke` (ADR 0011): arguments larger than a WebSocket frame
-/// and the same grant check as a WebSocket invoke.
+/// A link with one action that takes a file (`editor: file`).
+struct Upload;
+
+impl wyrm_link_sdk::Link for Upload {
+    const NAME: &'static str = "upload";
+    const VERSION: &'static str = "0";
+    type Config = ();
+
+    async fn start(_: (), ctx: wyrm_link_sdk::LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_FILE};
+        use wyrm_core::{ActionMeta, TypeCode};
+        ctx.declare_action(
+            "",
+            "put",
+            ActionMeta::new()
+                .param(
+                    "data",
+                    ParamMeta::of(TypeCode::Binary)
+                        .editor(EDITOR_FILE)
+                        .required(true),
+                )
+                .result(ActionResult::Type(TypeCode::Number))
+                .level(Perm::Write),
+        )
+        .await?;
+        Ok(Upload)
+    }
+
+    async fn on_invoke(
+        &mut self,
+        _path: &str,
+        _action: &str,
+        args: Value,
+        _who: &wyrm_link_sdk::Caller,
+        out: wyrm_link_sdk::ReplySink,
+    ) -> wyrm_link_sdk::Result<()> {
+        let n = match &args {
+            Value::Map(m) => match m.get("data") {
+                Some(Value::Bytes(b)) => b.len(),
+                _ => 0,
+            },
+            _ => 0,
+        };
+        out.reply(Value::UInt(n as u64)).await
+    }
+}
+
+/// `POST /api/invoke?key=…&action=…` (ADR 0011): file arguments larger than
+/// a WebSocket frame; key, file parameter and the action's level are checked
+/// before the body is read; the body's item count is bounded.
 #[tokio::test(flavor = "multi_thread")]
 async fn http_invoke_takes_large_arguments() {
     let env = Env::start("httpinvoke", Duration::from_secs(600)).await;
+    let mut lc = LinkConfig::new(SITE, "upload");
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    let up = wyrm_link_sdk::spawn::<Upload>(env.session.clone(), lc, ())
+        .await
+        .unwrap();
     let root = env.session("root", ADMIN_PW).await;
     env.gw
-        .add_user("fo", "flows only pw", vec!["flows_only".into()])
+        .add_user("viewer1", "viewer pw 1", vec!["viewer".into()])
         .unwrap();
-    let fo = env.session("fo", "flows only pw").await;
-    let big = Value::Bytes(vec![7u8; 300 * 1024]);
-    let body = |blob: Value| {
-        map([
-            ("key", Value::from(ROOT)),
-            ("action", Value::from("reset")),
-            ("args", map([("blob", blob)])),
-        ])
-    };
-    // 300 KiB reach the link, which checks them against the action's params
+    let viewer = env.session("viewer1", "viewer pw 1").await;
+    let put = format!("/api/invoke?key=wy/{SITE}/down/upload&action=put");
+    let data = |n: usize| map([("data", Value::Bytes(vec![7u8; n]))]);
+
     let (st, v) = env
-        .http("POST", "/api/invoke", Some(&root), Some(body(big)))
-        .await;
-    assert_eq!(st, 502, "{v:?}");
-    assert_eq!(get(&v, "message"), &Value::from("unknown param blob"));
-    let (st, v) = env
-        .http(
-            "POST",
-            "/api/invoke",
-            Some(&root),
-            Some(map([
-                ("key", Value::from(ROOT)),
-                ("action", Value::from("reset")),
-            ])),
-        )
+        .http("POST", &put, Some(&root), Some(data(300 * 1024)))
         .await;
     assert_eq!(st, 200, "{v:?}");
-    assert!(f_has(&v, "result"), "{v:?}");
-    // no grant on devices: refused by the gateway, audited
-    let (st, _) = env
-        .http("POST", "/api/invoke", Some(&fo), Some(body(Value::Null)))
-        .await;
+    assert_eq!(get(&v, "result"), &Value::UInt(300 * 1024));
+    // read rights pass the first check, not the action's level (write)
+    let (st, _) = env.http("POST", &put, Some(&viewer), Some(data(10))).await;
     assert_eq!(st, 403);
     assert!(env
         .audit
@@ -738,11 +770,21 @@ async fn http_invoke_takes_large_arguments() {
         .unwrap()
         .iter()
         .any(|e| matches!(e, AuditEvent::Denied { op, .. } if op == "invoke")));
+    // an action without a file parameter goes over the WebSocket
+    let reset = format!("/api/invoke?key={ROOT}&action=reset");
+    let (st, v) = env.http("POST", &reset, Some(&root), Some(map([]))).await;
+    assert_eq!(st, 400, "{v:?}");
+    // a body that would decode to a big tree is refused before decoding
+    let many = map([
+        ("data", Value::Bytes(vec![1])),
+        ("x", Value::Array(vec![Value::UInt(1); 20_000])),
+    ]);
+    let (st, v) = env.http("POST", &put, Some(&root), Some(many)).await;
+    assert_eq!(st, 400, "{v:?}");
     // no session
-    let (st, _) = env
-        .http("POST", "/api/invoke", None, Some(body(Value::Null)))
-        .await;
+    let (st, _) = env.http("POST", &put, None, Some(data(10))).await;
     assert_eq!(st, 401);
+    up.stop().await;
     env.stop().await;
 }
 

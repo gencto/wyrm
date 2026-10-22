@@ -11,9 +11,10 @@
 //!   30 s, so the long-lived session never appears in a URL
 //! * `GET /api/ws?ticket=…` (or `Authorization: Bearer`) — binary CBOR
 //!   frames (64 KiB each), see [`ws`]
-//! * `POST /api/invoke` (bearer session) `{key, action, args}` → `{result}`:
-//!   one invoke with arguments too large for a frame (64 MiB body, ADR 0011),
-//!   checked like a WebSocket invoke
+//! * `POST /api/invoke?key=…&action=…` (bearer session), body = CBOR `args`
+//!   → `{result}`: one invoke of an action with an `editor: file` parameter
+//!   whose arguments do not fit a frame (64 MiB, ADR 0011); key, grant and
+//!   the file parameter are checked before the body is read
 //! * user management (`config` on `wy/<site>/sys/**`): `GET|POST /api/users`,
 //!   `POST /api/users/{name}/password|roles|disabled`, `DELETE /api/users/{name}`
 
@@ -169,6 +170,8 @@ pub struct Gateway {
     limiter: limit::LoginLimiter,
     /// Bounds concurrent argon2 runs (CPU and ~19 MiB each).
     hashing: Semaphore,
+    /// Bounds concurrent `POST /api/invoke` bodies (up to 64 MiB each).
+    bulk: Semaphore,
     audit: RwLock<Option<AuditHook>>,
     addr: watch::Sender<Option<SocketAddr>>,
     /// WebSocket tickets: hex(16 random bytes) → ticket.
@@ -217,6 +220,7 @@ impl Gateway {
             users: Mutex::new(users),
             limiter: limit::LoginLimiter::new(LOGIN_FAILURES, LOGIN_WINDOW),
             hashing: Semaphore::new(4),
+            bulk: Semaphore::new(2),
             audit: RwLock::new(None),
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),

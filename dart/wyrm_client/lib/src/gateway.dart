@@ -4,8 +4,9 @@
 //   POST /api/login {user, password}   → {session, exp}
 //   POST /api/ws-ticket (Bearer)       → {ticket, exp}   (single use, 30 s)
 //   GET  /api/ws?ticket=…              → WebSocket
-//   POST /api/invoke (Bearer) {key, action, args} → {result}  (args too
-//        large for a WebSocket frame, ADR 0011)
+//   POST /api/invoke?key=…&action=… (Bearer), body = args → {result}
+//        (an action with a file parameter whose args do not fit a
+//        WebSocket frame, ADR 0011)
 
 import 'dart:async';
 import 'dart:io';
@@ -57,22 +58,24 @@ class WyrmGateway {
     return FrameClient(WebSocketTransport(sock), bulk: invoke);
   }
 
-  /// `POST /api/invoke`: one invoke whose arguments are too large for a
-  /// WebSocket frame (a file parameter); returns its last result.
+  /// `POST /api/invoke`: one invoke of an action with a file parameter
+  /// whose arguments are too large for a WebSocket frame; returns its last
+  /// result.
   Future<Value> invoke(String key, String action, Value args) async {
-    final r = await _post(_http, base.resolve('/api/invoke'),
-        bearer: _session, body: {'key': VStr(key), 'action': VStr(action), 'args': args});
+    final url = base.resolve('/api/invoke').replace(queryParameters: {'key': key, 'action': action});
+    final r = await _post(_http, url, bearer: _session, raw: args.toCbor());
     return r['result'] ?? const VNull();
   }
 
   /// Close the HTTP client (open sockets stay until their clients close).
   void dispose() => _http.close();
 
-  static Future<Value> _post(HttpClient c, Uri url, {Map<String, Value>? body, String? bearer}) async {
+  static Future<Value> _post(HttpClient c, Uri url,
+      {Map<String, Value>? body, Uint8List? raw, String? bearer}) async {
     final req = await c.postUrl(url);
     req.headers.contentType = ContentType('application', 'cbor');
     if (bearer != null) req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
-    final bytes = body == null ? Uint8List(0) : VMap(body).toCbor();
+    final bytes = raw ?? (body == null ? Uint8List(0) : VMap(body).toCbor());
     req.contentLength = bytes.length;
     req.add(bytes);
     return _read(await req.close());
