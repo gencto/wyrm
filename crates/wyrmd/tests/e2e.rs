@@ -1059,7 +1059,7 @@ async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::s
     let r = s
         .get(format!("wy/{SITE}/sys/links/{id}/~act/hello"))
         .payload(wyrm_core::codec::to_vec(&Value::Map(args)).unwrap())
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(5)) // argon2 in a debug build on a busy CI runner
         .await
         .unwrap();
     let reply = r.recv_async().await.ok()?;

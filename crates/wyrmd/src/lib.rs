@@ -725,8 +725,14 @@ impl Broker {
         if let Some(a) = self.admin.take() {
             a.stop().await;
         }
-        self.session.close().await?;
-        self.runtime.close().await?;
+        // A close that times out (a busy peer link) must not end the
+        // daemon: during a rebuild the next broker starts anyway.
+        if let Err(e) = self.session.close().await {
+            tracing::warn!("broker session close: {e}");
+        }
+        if let Err(e) = self.runtime.close().await {
+            tracing::warn!("router runtime close: {e}");
+        }
         Ok(())
     }
 }
