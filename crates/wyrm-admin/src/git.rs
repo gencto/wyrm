@@ -22,9 +22,18 @@ fn valid_ref(r: &str) -> bool {
 }
 
 /// Check the clone source: `https://` always; `file://` only when
-/// `allow_file` (the `dev` profile, for tests). Never an option.
+/// `allow_file` (the `dev` profile, for tests). Never an option, never
+/// credentials in the URL: it is kept as the package source (registry,
+/// `sys/packages`, audit), so a token in it would be on show.
 pub fn check_url(url: &str, allow_file: bool) -> Result<(), String> {
     let ok = url.starts_with("https://") || (allow_file && url.starts_with("file://"));
+    let authority = url
+        .split_once("://")
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
+        .unwrap_or("");
+    if authority.contains('@') {
+        return Err("url: no credentials in the URL (only public repositories)".into());
+    }
     if !ok || url.contains(char::is_whitespace) || url.len() > 512 {
         return Err(format!(
             "url {url}: https:// only{}",
@@ -198,6 +207,11 @@ mod tests {
         assert!(check_url("file:///tmp/x", true).is_ok());
         assert!(check_url("-c x", true).is_err());
         assert!(check_url("ssh://git@h/x", true).is_err());
+        let err = check_url("https://user:tok3n@git.example/x.git", false).unwrap_err();
+        assert!(
+            err.contains("credentials") && !err.contains("tok3n"),
+            "{err}"
+        );
     }
 
     #[test]

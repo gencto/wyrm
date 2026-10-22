@@ -34,19 +34,23 @@ fn parse(url: &str) -> Result<Target, String> {
     } else if let Some(r) = url.strip_prefix("http://") {
         (false, r)
     } else {
-        return Err(format!("{url}: https:// only"));
+        return Err("url: https:// only".into());
     };
     let (authority, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, "/"),
     };
+    if authority.contains('@') {
+        // never echo it: the part before '@' may be a token
+        return Err("url: no credentials in the URL".into());
+    }
     let (host, port) = match authority.rsplit_once(':') {
         Some((h, p)) if !h.ends_with(']') || authority.starts_with('[') => {
             (h, p.parse::<u16>().map_err(|_| format!("{url}: bad port"))?)
         }
         _ => (authority, if tls { 443 } else { 80 }),
     };
-    if host.is_empty() || host.contains(['@', ' ', '/', '\\']) {
+    if host.is_empty() || host.contains([' ', '/', '\\']) {
         return Err(format!("{url}: bad host"));
     }
     if !tls && !loopback(host) {
@@ -190,7 +194,8 @@ mod tests {
             "plain http off loopback"
         );
         assert!(parse("ftp://h/x").is_err());
-        assert!(parse("https://user@h/x").is_err());
+        let err = parse("https://user:s3cret@h/x").unwrap_err();
+        assert!(!err.contains("s3cret"), "{err}");
         assert!(parse("https://h:99999/x").is_err());
         let t = parse("http://127.0.0.1:9/a").unwrap();
         assert_eq!(redirect(&t, "/b"), "http://127.0.0.1:9/b");
