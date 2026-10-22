@@ -4,7 +4,8 @@
 //! the process supervisor. [`Control::attach`] runs, per broker instance, the
 //! `wy/<site>/sys/**` responder (an SDK link rooted at `sys`) and three
 //! watchers: link states (liveliness + supervisor), quarantine (link events
-//! with an unknown certificate CN) and `acl_denied_total` (router metrics).
+//! with an unknown certificate CN) and router metrics (`acl_denied_total`,
+//! traffic rates as values of `sys`, as on a DSA broker).
 //!
 //! Zenoh 1.10 cannot reload `access_control` live (ADR 0006), so changes that
 //! alter the ACL (install/remove of a process or external link, approve) ask
@@ -12,7 +13,7 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditRecord};
-use crate::registry::{LinkDef, Mode, Op, Origin, Registry};
+use crate::registry::{LinkDef, Mode, Op, Options, Origin, Registry, OPTION_NAMES};
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -24,6 +25,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
+use wyrm_core::meta::Writable;
 use wyrm_core::meta::{
     is_code, ActionResult, ParamMeta, Profile, EDITOR_PASSWORD, GROUP_EDIT, GROUP_NEW,
 };
@@ -95,6 +97,15 @@ pub struct ControlConfig {
     pub anchor_init: bool,
 }
 
+/// Role grants of the user gateway, shown and edited from `sys` (Get and
+/// Update Permissions, as on a DSA broker). `wyrmd` wires the gateway in.
+pub trait RoleGrants: Send + Sync {
+    /// `(role, key expression, level)`, each role's grants in match order.
+    fn grants(&self) -> Vec<(String, String, Perm)>;
+    /// Add or change (above `none`) or remove (`none`) one grant of `role`.
+    fn set_grant(&self, role: &str, key: &str, level: Perm) -> Result<(), String>;
+}
+
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
 /// secret and every other link trusts it, capped at `write`.
 pub const AGENT_DRIVER: &str = "agent";
@@ -120,6 +131,72 @@ const STATES: [&str; 6] = [
     "failed",
 ];
 
+/// Read-only text values of `wy/<site>/sys` (as the DSA broker's `sys`):
+/// key, display name.
+const SYS_INFO: [(&str, &str); 4] = [
+    ("version", "WYRM Version"),
+    ("zenoh_version", "Zenoh Version"),
+    ("start_time", "Start Time"),
+    ("distribution", "Distribution"),
+];
+
+/// Router counters shown as rates: key, display name, unit, counter.
+const SYS_RATES: [(&str, &str, &str, &str); 6] = [
+    (
+        "messages_in_per_second",
+        "Messages In Per Second",
+        "msg/s",
+        "zenoh_rx_network_message_total",
+    ),
+    (
+        "messages_out_per_second",
+        "Messages Out Per Second",
+        "msg/s",
+        "zenoh_tx_network_message_total",
+    ),
+    (
+        "frames_in_per_second",
+        "Frames In Per Second",
+        "frame/s",
+        "zenoh_rx_transport_message_total",
+    ),
+    (
+        "frames_out_per_second",
+        "Frames Out Per Second",
+        "frame/s",
+        "zenoh_tx_transport_message_total",
+    ),
+    (
+        "data_in_per_second",
+        "Data In Per Second",
+        "B/s",
+        "zenoh_rx_bytes_total",
+    ),
+    (
+        "data_out_per_second",
+        "Data Out Per Second",
+        "B/s",
+        "zenoh_tx_bytes_total",
+    ),
+];
+
+const RATES_NOTE: &str = "Average over the metrics interval of this router's network \
+    sessions (TCP, TLS, QUIC); embedded links talk in-process and are not counted.";
+
+/// Display name and description of the [`Options`] values.
+const OPTION_INFO: [(&str, &str); 2] = [
+    (
+        "Allow All Links",
+        "Install every unknown certificate CN signed by this broker's CA as an \
+         external link, without quarantine. The link token stays in the broker's \
+         data_dir (links/<id>/token) for the operator to copy to the device.",
+    ),
+    (
+        "Enable Quarantine",
+        "Record unknown certificate CNs under quarantine for approval; off: ignore them.",
+    ),
+];
+
 pub struct Control {
     cfg: ControlConfig,
     store: Mutex<Store<Registry>>,
@@ -130,6 +207,9 @@ pub struct Control {
     host: Arc<dyn EmbeddedHost>,
     reload: mpsc::UnboundedSender<()>,
     peers: Mutex<PeerConfig>,
+    /// Broker start (unix seconds), `sys/start_time`; survives reloads.
+    started: u64,
+    role_grants: Mutex<Option<Arc<dyn RoleGrants>>>,
 }
 
 /// `(path, peer site)` reference nodes of one peer link.
@@ -189,6 +269,12 @@ impl Control {
                 audit = audit.with_anchor(dir.join("audit.head"))?;
             }
         }
+        if store.state().options.allow_all_links {
+            warn!(
+                "allow_all_links is on: every certificate this CA signs becomes a link \
+                 without approval (sys/allow_all_links)"
+            );
+        }
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
         let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;
         let (reload, rx) = mpsc::unbounded_channel();
@@ -203,6 +289,8 @@ impl Control {
                 host,
                 reload,
                 peers: Mutex::new(PeerConfig::default()),
+                started: now_s(),
+                role_grants: Mutex::new(None),
             }),
             rx,
         ))
@@ -222,6 +310,41 @@ impl Control {
 
     pub fn ca_path(&self) -> PathBuf {
         self.pki.ca_path()
+    }
+
+    /// The user gateway's roles for `sys` Get/Update Permissions; set before
+    /// the broker starts.
+    pub fn set_role_grants(&self, r: Arc<dyn RoleGrants>) {
+        *self.role_grants.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
+    }
+
+    fn role_grants(&self) -> Option<Arc<dyn RoleGrants>> {
+        self.role_grants
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// The router ACL generated from the current registry and peers.
+    fn acl(&self) -> serde_json::Value {
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        acl::access_control_with_peers(
+            &self.cfg.site,
+            &self.registry(),
+            &self.cfg.operators,
+            self.cfg.dev,
+            &peers.peers,
+        )
+    }
+
+    /// Broker options (`sys/allow_all_links`, `sys/enable_quarantine`).
+    pub fn options(&self) -> Options {
+        self.store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .state()
+            .options
+            .clone()
     }
 
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
@@ -573,14 +696,7 @@ impl Control {
             "adminspace",
             r#"{ enabled: true, permissions: { read: true, write: false } }"#,
         )?;
-        let acl = acl::access_control_with_peers(
-            &self.cfg.site,
-            &self.registry(),
-            &self.cfg.operators,
-            self.cfg.dev,
-            &peers.peers,
-        );
-        c.insert_json5("access_control", &acl.to_string())?;
+        c.insert_json5("access_control", &self.acl().to_string())?;
         Ok(())
     }
 
@@ -1003,6 +1119,149 @@ fn arg_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
     }
 }
 
+/// The DSA-style values of `sys`: broker info, traffic rates, options.
+async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    let info = [
+        env!("CARGO_PKG_VERSION").to_owned(),
+        zenoh::GIT_VERSION.to_owned(),
+        iso_utc(ctl.started),
+        format!("rust ({})", if ctl.cfg.dev { "dev" } else { "prod" }),
+    ];
+    for ((key, display), v) in SYS_INFO.iter().zip(info) {
+        ctx.declare_node(key, NodeMeta::leaf(TypeCode::String).display(*display))
+            .await?;
+        ctx.update(key, Value::Str(v), Quality::Good, now_us())
+            .await?;
+    }
+    for (key, display, unit, _) in SYS_RATES {
+        ctx.declare_node(
+            key,
+            NodeMeta::number()
+                .display(display)
+                .unit(unit)
+                .attr("description", RATES_NOTE),
+        )
+        .await?;
+    }
+    let opts = ctl.options();
+    for (name, (display, about)) in OPTION_NAMES.iter().zip(OPTION_INFO) {
+        ctx.declare_node(
+            name,
+            NodeMeta::leaf(TypeCode::Bool)
+                .display(display)
+                .writable(Writable::Config)
+                .attr("description", about),
+        )
+        .await?;
+        let on = opts.get(name).unwrap_or_default();
+        ctx.update(name, Value::Bool(on), Quality::Good, now_us())
+            .await?;
+    }
+    Ok(())
+}
+
+/// The DSA-style actions of `sys`: Clear Conns, Get/Update Permissions.
+async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    ctx.declare_action(
+        "",
+        "clear_conns",
+        ActionMeta::new().display("Clear Conns").level(Perm::Config),
+    )
+    .await?;
+    ctx.declare_action(
+        "",
+        "get_permissions",
+        ActionMeta::new()
+            .display("Get Permissions")
+            .result(ActionResult::Type(TypeCode::Array))
+            .level(Perm::Config),
+    )
+    .await?;
+    if ctl.role_grants().is_some() {
+        ctx.declare_action(
+            "",
+            "update_permissions",
+            ActionMeta::new()
+                .display("Update Permissions")
+                .param("role", str_param().required(true).display("Role"))
+                .param(
+                    "path",
+                    str_param()
+                        .required(true)
+                        .display("Path")
+                        .placeholder("wy/{site}/down/**"),
+                )
+                .param(
+                    "level",
+                    str_param()
+                        .required(true)
+                        .enum_values(Perm::ALL.iter().map(|p| p.name()))
+                        .display("Level"),
+                )
+                .level(Perm::Config),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Rows of the generated router ACL: one per (subject, rule).
+fn acl_rows(acl: &serde_json::Value) -> Vec<Value> {
+    let strs = |v: &serde_json::Value| -> Vec<String> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| x.as_str().map(str::to_owned))
+            .collect()
+    };
+    let rules: HashMap<String, &serde_json::Value> = acl["rules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| Some((r["id"].as_str()?.to_owned(), r)))
+        .collect();
+    let mut rows = Vec::new();
+    for policy in acl["policies"].as_array().into_iter().flatten() {
+        for subject in strs(&policy["subjects"]) {
+            for id in strs(&policy["rules"]) {
+                let Some(rule) = rules.get(&id) else { continue };
+                rows.push(perm_row(
+                    "acl",
+                    &subject,
+                    &strs(&rule["key_exprs"]).join(" "),
+                    &format!(
+                        "{} ({})",
+                        strs(&rule["messages"]).join(", "),
+                        strs(&rule["flows"]).join("/")
+                    ),
+                ));
+            }
+        }
+    }
+    rows
+}
+
+fn perm_row(source: &str, subject: &str, path: &str, level: &str) -> Value {
+    Value::Map(BTreeMap::from([
+        ("source".to_owned(), Value::Str(source.to_owned())),
+        ("subject".to_owned(), Value::Str(subject.to_owned())),
+        ("path".to_owned(), Value::Str(path.to_owned())),
+        ("level".to_owned(), Value::Str(level.to_owned())),
+    ]))
+}
+
+/// `secs` since the epoch as ISO 8601 UTC (`2026-10-22T03:43:00Z`).
+fn iso_utc(secs: u64) -> String {
+    let (y, m, d) = secret::civil_from_days((secs / 86_400) as i64);
+    let t = secs % 86_400;
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        t / 3600,
+        t % 3600 / 60,
+        t % 60
+    )
+}
+
 impl Link for Admin {
     const NAME: &'static str = "admin";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -1019,6 +1278,8 @@ impl Link for Admin {
             .attr("site", cfg.ctl.cfg.site.as_str()),
         )
         .await?;
+        declare_sys_values(&ctx, &cfg.ctl).await?;
+        declare_sys_actions(&ctx, &cfg.ctl).await?;
         ctx.declare_node("links", NodeMeta::folder()).await?;
         ctx.declare_action(
             "links",
@@ -1108,6 +1369,41 @@ impl Link for Admin {
         })
     }
 
+    /// `sys/allow_all_links`, `sys/enable_quarantine` (level `config`).
+    /// Neither changes the ACL by itself; only links admitted later do.
+    async fn on_set(
+        &mut self,
+        path: &str,
+        value: Value,
+        who: &Caller,
+    ) -> wyrm_link_sdk::Result<()> {
+        if !OPTION_NAMES.contains(&path) {
+            return Err(LinkError::not_supported(format!("{path}/~set")));
+        }
+        let Value::Bool(on) = value else {
+            return Err(LinkError::invalid_parameter(format!(
+                "{path}: true or false"
+            )));
+        };
+        self.ctl
+            .apply(Op::SetOption {
+                name: path.to_owned(),
+                on,
+            })
+            .map_err(rejected)?;
+        self.ctl.record(
+            &sub_of(who),
+            "set_option",
+            path,
+            Status::Ok,
+            &on.to_string(),
+        );
+        info!(option = path, on, "broker option changed");
+        self.ctx
+            .update(path, Value::Bool(on), Quality::Good, now_us())
+            .await
+    }
+
     async fn on_invoke(
         &mut self,
         path: &str,
@@ -1152,6 +1448,48 @@ impl Link for Admin {
             (["quarantine", cn], "reject") => self.reject(cn, &sub).await.map(|_| None),
             (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
             (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
+            ([""], "clear_conns") => self.clear_conns(&sub).await,
+            ([""], "get_permissions") => {
+                let mut rows: Vec<Value> = self
+                    .ctl
+                    .role_grants()
+                    .map(|r| r.grants())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
+                    .collect();
+                rows.extend(acl_rows(&self.ctl.acl()));
+                Ok(Some(Value::Array(rows)))
+            }
+            ([""], "update_permissions") => {
+                let roles = self
+                    .ctl
+                    .role_grants()
+                    .ok_or_else(|| LinkError::not_supported("no user gateway"))?;
+                let need = |k: &str| {
+                    arg_str(&args, k)
+                        .filter(|v| !v.is_empty())
+                        .ok_or_else(|| LinkError::invalid_parameter(format!("{k}: required")))
+                };
+                let (role, path) = (need("role")?, need("path")?);
+                let level = need("level")?;
+                let level = Perm::ALL
+                    .iter()
+                    .copied()
+                    .find(|p| p.name() == level)
+                    .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
+                roles
+                    .set_grant(role, path, level)
+                    .map_err(LinkError::invalid_parameter)?;
+                self.ctl.record(
+                    &sub,
+                    "update_permissions",
+                    role,
+                    Status::Ok,
+                    &format!("{path} {}", level.name()),
+                );
+                Ok(None)
+            }
             (["audit"], "tail") => {
                 let n = arg(&args, "n").and_then(Value::as_f64).unwrap_or(50.0) as usize;
                 Ok(Some(Value::Array(
@@ -1546,6 +1884,56 @@ impl Admin {
     }
 
     async fn remove(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<()> {
+        if self.unlink(id, sub).await? {
+            self.ctl.schedule_reload();
+        }
+        Ok(())
+    }
+
+    /// DSA `clearConns`: forget the runtime-installed external links that
+    /// are not connected now. Their ids are retired like any removed remote
+    /// link (ADR 0006): a device needs a new id to come back. Replies the
+    /// removed ids, nothing when there were none.
+    async fn clear_conns(&self, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let key = format!("wy/{}/down/*", self.ctl.cfg.site);
+        let replies = self
+            .ctx
+            .client()
+            .liveliness()
+            .get(&key)
+            .timeout(Duration::from_secs(2))
+            .await
+            .map_err(|e| LinkError::internal(format!("link presence: {e}")))?;
+        let mut up = HashSet::new();
+        while let Ok(r) = replies.recv_async().await {
+            if let Ok(s) = r.result() {
+                if let Some(id) = s.key_expr().as_str().rsplit('/').next() {
+                    up.insert(id.to_owned());
+                }
+            }
+        }
+        let gone: Vec<String> = self
+            .ctl
+            .registry()
+            .links
+            .values()
+            .filter(|d| {
+                d.mode == Mode::External && d.origin == Origin::Runtime && !up.contains(&d.id)
+            })
+            .map(|d| d.id.clone())
+            .collect();
+        let mut reload = false;
+        for id in &gone {
+            reload |= self.unlink(id, sub).await?;
+        }
+        if reload {
+            self.ctl.schedule_reload();
+        }
+        Ok((!gone.is_empty()).then(|| Value::Array(gone.into_iter().map(Value::Str).collect())))
+    }
+
+    /// Remove a runtime-installed link; `true` if the ACL must be rebuilt.
+    async fn unlink(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<bool> {
         let def = self.def(id)?;
         if def.origin == Origin::Config {
             return Err(LinkError::not_supported(
@@ -1567,11 +1955,11 @@ impl Admin {
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "remove", id, Status::Ok, "");
-        if def.mode.is_remote() || def.driver == AGENT_DRIVER || self.ctl.cfg.per_link_router_rules
-        {
-            self.ctl.schedule_reload();
-        }
-        Ok(())
+        Ok(
+            def.mode.is_remote()
+                || def.driver == AGENT_DRIVER
+                || self.ctl.cfg.per_link_router_rules,
+        )
     }
 
     async fn approve(
@@ -1592,38 +1980,7 @@ impl Admin {
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
-        if self.ctl.registry().links.contains_key(cn) {
-            return Err(LinkError::invalid_parameter(format!("link {cn} exists")));
-        }
-        if self.ctl.peers().downstream.iter().any(|d| d == cn) {
-            return Err(LinkError::invalid_parameter(format!(
-                "{cn:?} is a downstream site (down/{cn} is its broker node)"
-            )));
-        }
-        crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
-        let (token_hash, token) = self.ctl.new_token_for(cn, Mode::External)?;
-        self.ctl
-            .apply(Op::Approve(cn.to_owned()))
-            .map_err(rejected)?;
-        let def = LinkDef {
-            id: cn.to_owned(),
-            driver,
-            mode: Mode::External,
-            params: encode_params(&params)?,
-            token_hash,
-            rev: 1,
-            origin: Origin::Runtime,
-            created: now_s(),
-        };
-        self.ctl
-            .secrets
-            .drop_link(cn)
-            .map_err(|e| LinkError::internal(e.to_string()))?;
-        self.ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
-        self.ctl.record(sub, "approve", cn, Status::Ok, "");
-        self.ctx.remove_node(&format!("quarantine/{cn}")).await?;
-        declare_link(&self.ctx, &def).await?;
-        self.ctl.schedule_reload();
+        let token = admit(&self.ctl, &self.ctx, cn, driver, params, sub, "approve").await?;
         let mut reply = BTreeMap::new();
         if let Some(t) = token {
             reply.insert("token".into(), Value::Str(t));
@@ -1638,6 +1995,56 @@ impl Admin {
         self.ctl.record(sub, "reject", cn, Status::Ok, "");
         self.ctx.remove_node(&format!("quarantine/{cn}")).await
     }
+}
+
+/// Install `cn`, a certificate CN signed by our CA, as an external link:
+/// approved from quarantine, or on first sight with `allow_all_links`.
+/// Returns the link token once (also kept in `links/<cn>/token`, 0600).
+async fn admit(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    cn: &str,
+    driver: String,
+    params: Value,
+    sub: &str,
+    op: &str,
+) -> wyrm_link_sdk::Result<Option<String>> {
+    let reg = ctl.registry();
+    if reg.links.contains_key(cn) {
+        return Err(LinkError::invalid_parameter(format!("link {cn} exists")));
+    }
+    if ctl.peers().downstream.iter().any(|d| d == cn) {
+        return Err(LinkError::invalid_parameter(format!(
+            "{cn:?} is a downstream site (down/{cn} is its broker node)"
+        )));
+    }
+    crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
+    let (token_hash, token) = ctl.new_token_for(cn, Mode::External)?;
+    let queued = reg.quarantine.contains_key(cn);
+    if queued {
+        ctl.apply(Op::Approve(cn.to_owned())).map_err(rejected)?;
+    }
+    let def = LinkDef {
+        id: cn.to_owned(),
+        driver,
+        mode: Mode::External,
+        params: encode_params(&params)?,
+        token_hash,
+        rev: 1,
+        origin: Origin::Runtime,
+        created: now_s(),
+    };
+    ctl.secrets
+        .drop_link(cn)
+        .map_err(|e| LinkError::internal(e.to_string()))?;
+    ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
+    ctl.record(sub, op, cn, Status::Ok, "");
+    if queued {
+        ctx.remove_node(&format!("quarantine/{cn}")).await?;
+    }
+    declare_link(ctx, &def).await?;
+    ctl.schedule_reload();
+    Ok(token)
 }
 
 /// `links/<id>/state` from liveliness (`down/<id>`), the supervisor and the
@@ -1711,7 +2118,24 @@ async fn watch_states(ctl: Arc<Control>, ctx: LinkCtx, embedded: Running) {
     }
 }
 
-/// Sessions whose certificate CN is not a known link or operator.
+/// May an unknown certificate CN become a link (quarantine or
+/// `allow_all_links`)? Never a known link, a rejected or retired id, an
+/// operator, a peer broker, a downstream site's name or an invalid id.
+fn admissible(reg: &Registry, operators: &[String], peers: &acl::Peers, cn: &str) -> bool {
+    let known = reg.links.contains_key(cn)
+        || reg.blocklist.contains(cn)
+        || reg.retired.contains(cn)
+        || operators.iter().any(|o| o == cn)
+        // `down/<d>` is a downstream site's node; never a link.
+        || peers.downstream.iter().any(|d| d == cn)
+        || cn == "broker";
+    !known && crate::registry::validate_link_id(cn).is_ok()
+}
+
+/// Sessions whose certificate CN is not a known link or operator: installed
+/// with `allow_all_links`, else quarantined with `enable_quarantine`, else
+/// ignored. Only TLS sessions count: the link listener trusts our CA alone,
+/// while a peer site's CA (QUIC) can sign any CN.
 async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
     let events = match ctx
         .client()
@@ -1733,15 +2157,34 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
         let Some(cn) = ev.link().auth_identifier().map(str::to_owned) else {
             continue;
         };
-        let reg = ctl.registry();
-        let known = reg.links.contains_key(&cn)
-            || reg.blocklist.contains(&cn)
-            || reg.retired.contains(&cn)
-            || ctl.cfg.operators.contains(&cn)
-            // `down/<d>` is a downstream site's node; never a link.
-            || ctl.peers().downstream.contains(&cn)
-            || cn == "broker";
-        if known || crate::registry::validate_link_id(&cn).is_err() {
+        if !admissible(&ctl.registry(), &ctl.cfg.operators, &ctl.peers(), &cn) {
+            continue;
+        }
+        if ev.link().src().protocol().as_str() != "tls" {
+            debug!(cn = %cn, "unknown CN outside the TLS link listener: ignored");
+            continue;
+        }
+        let opts = ctl.options();
+        if opts.allow_all_links {
+            let empty = Value::Map(Default::default());
+            match admit(
+                &ctl,
+                &ctx,
+                &cn,
+                "unknown".into(),
+                empty,
+                "system",
+                "auto_install",
+            )
+            .await
+            {
+                Ok(_) => info!(cn = %cn, "unknown certificate: installed (allow_all_links)"),
+                Err(e) => warn!(cn = %cn, "allow_all_links install failed: {e}"),
+            }
+            continue;
+        }
+        if !opts.enable_quarantine {
+            debug!(cn = %cn, "unknown certificate ignored (quarantine off)");
             continue;
         }
         if ctl
@@ -1926,36 +2369,79 @@ pub fn acl_denied(metrics: &str) -> u64 {
         .sum::<f64>() as u64
 }
 
+/// Sum of every series of the counter `name` (exact name, all labels).
+pub fn counter(metrics: &str, name: &str) -> f64 {
+    metrics
+        .lines()
+        .filter(|l| {
+            l.strip_prefix(name)
+                .is_some_and(|rest| rest.starts_with(['{', ' ']))
+        })
+        .filter_map(|l| l.rsplit(' ').next()?.parse::<f64>().ok())
+        .sum()
+}
+
+/// Per-second rates from two readings of a counter `elapsed` seconds apart;
+/// `None` after a reset (the counter went down).
+fn rate(prev: f64, now: f64, elapsed: f64) -> Option<f64> {
+    (now >= prev && elapsed > 0.0).then(|| ((now - prev) / elapsed * 10.0).round() / 10.0)
+}
+
+async fn fetch_metrics(session: &Session, key: &str) -> Option<String> {
+    let replies = session
+        .get(key)
+        .timeout(Duration::from_secs(2))
+        .await
+        .ok()?;
+    let reply = replies.recv_async().await.ok()?;
+    let raw = reply.result().ok()?.payload().to_bytes();
+    if raw.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut text = String::new();
+        flate2::read::GzDecoder::new(&raw[..])
+            .read_to_string(&mut text)
+            .ok()?;
+        return Some(text);
+    }
+    Some(String::from_utf8_lossy(&raw).into_owned())
+}
+
+/// Router metrics into `sys`. Only `@/<zid>/router/metrics` is read: in
+/// Zenoh 1.10.1 the admin-space handlers for `subscriber/**`, `queryable/**`
+/// and the like reply while holding the routing tables' read lock, and a
+/// declaration waiting for the write lock meanwhile deadlocks the router
+/// (seen in `two_brokers_isolation`). The `resources_declared` gauge is never
+/// updated in 1.10.1 either, so DSA's "Active Subscriptions" is not shown.
 async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
     let session = ctx.client().clone();
     let key = format!("@/{}/router/metrics", session.zid());
     let mut last = 0u64;
+    let mut prev: Option<(std::time::Instant, Vec<f64>)> = None;
     let mut tick = tokio::time::interval(ctl.cfg.metrics_interval);
     loop {
         tick.tick().await;
         if ctx.is_closed() {
             return;
         }
-        let Ok(replies) = session.get(&key).timeout(Duration::from_secs(2)).await else {
+        let Some(text) = fetch_metrics(&session, &key).await else {
             continue;
         };
-        let Ok(reply) = replies.recv_async().await else {
-            continue;
-        };
-        let Ok(sample) = reply.result() else { continue };
-        let raw = sample.payload().to_bytes();
-        let mut text = String::new();
-        if raw.starts_with(&[0x1f, 0x8b]) {
-            use std::io::Read;
-            if flate2::read::GzDecoder::new(&raw[..])
-                .read_to_string(&mut text)
-                .is_err()
-            {
-                continue;
+        let now = std::time::Instant::now();
+        let counters: Vec<f64> = SYS_RATES
+            .iter()
+            .map(|(_, _, _, name)| counter(&text, name))
+            .collect();
+        if let Some((then, old)) = &prev {
+            let secs = now.duration_since(*then).as_secs_f64();
+            for ((path, ..), (o, c)) in SYS_RATES.iter().zip(old.iter().zip(&counters)) {
+                if let Some(r) = rate(*o, *c, secs) {
+                    let _ = ctx
+                        .update(path, Value::Float(r), Quality::Good, now_us())
+                        .await;
+                }
             }
-        } else {
-            text = String::from_utf8_lossy(&raw).into_owned();
         }
+        prev = Some((now, counters));
         let total = acl_denied(&text);
         let _ = ctx
             .update(
@@ -1989,5 +2475,76 @@ zenoh_rx_network_message_dropped_payload_per_transport_bytes_count{reason="acces
 zenoh_tx_network_message_dropped_payload_bytes_count{reason="congestion"} 9
 "#;
         assert_eq!(super::acl_denied(m), 5);
+    }
+
+    #[test]
+    fn counters_and_rates() {
+        let m = r#"# TYPE zenoh_rx_bytes_total counter
+zenoh_rx_bytes_total{protocol="tcp"} 100
+zenoh_rx_bytes_total{protocol="tls"} 50
+zenoh_rx_per_link_bytes_total{protocol="tcp"} 999
+zenoh_rx_bytes_total_extra 7
+"#;
+        assert_eq!(super::counter(m, "zenoh_rx_bytes_total"), 150.0);
+        assert_eq!(super::counter(m, "zenoh_tx_bytes_total"), 0.0);
+        assert_eq!(super::rate(100.0, 150.0, 10.0), Some(5.0));
+        assert_eq!(super::rate(100.0, 101.0, 3.0), Some(0.3));
+        assert_eq!(super::rate(150.0, 20.0, 10.0), None, "reset");
+    }
+
+    #[test]
+    fn admissible_cns() {
+        use crate::registry::{LinkDef, Mode, Op, Origin, Registry};
+        use wyrm_state::State;
+        let mut reg = Registry::default();
+        let def = |id: &str| LinkDef {
+            id: id.into(),
+            driver: "x".into(),
+            mode: Mode::External,
+            params: vec![0xa0],
+            token_hash: "h".into(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 0,
+        };
+        for op in [
+            Op::Install(def("known")),
+            Op::Install(def("gone")),
+            Op::Remove("gone".into()),
+            Op::Quarantine {
+                cn: "bad".into(),
+                seen: 0,
+            },
+            Op::Reject("bad".into()),
+        ] {
+            reg.apply(&op).unwrap();
+        }
+        let ops = vec!["tool".to_string()];
+        let peers = crate::acl::Peers {
+            upstream: vec!["cloud".into()],
+            downstream: vec!["plant-b".into()],
+        };
+        let ok = |cn| super::admissible(&reg, &ops, &peers, cn);
+        assert!(ok("new-device"));
+        for cn in [
+            "known",
+            "gone",
+            "bad",
+            "tool",
+            "plant-b",
+            "broker",
+            "broker:cloud",
+            "a/b",
+            "",
+        ] {
+            assert!(!ok(cn), "{cn:?} is not admissible");
+        }
+    }
+
+    #[test]
+    fn iso_dates() {
+        assert_eq!(super::iso_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(super::iso_utc(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(super::iso_utc(1_792_640_580), "2026-10-22T03:43:00Z");
     }
 }

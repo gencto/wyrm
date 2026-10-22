@@ -54,6 +54,16 @@ impl RoleTable {
         self.roles.contains_key(role)
     }
 
+    /// Grants of one role, in match order.
+    pub fn get(&self, role: &str) -> Option<&[(String, Perm)]> {
+        self.roles.get(role).map(Vec::as_slice)
+    }
+
+    /// Every role with its grants, by role name.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &[(String, Perm)])> {
+        self.roles.iter().map(|(r, g)| (r.as_str(), g.as_slice()))
+    }
+
     /// Check every key expression once `{site}` is filled in.
     pub fn validate(&self, site: &str) -> Result<(), String> {
         for (role, grants) in &self.roles {
@@ -78,6 +88,38 @@ impl RoleTable {
             .collect();
         Grants::new(list)
     }
+}
+
+/// `grants` with `key` set to `level`: an existing grant on the same key
+/// changes (or, at `none`, goes away); a new one goes before the first grant
+/// whose key expression includes it, so a narrower grant is not shadowed.
+pub fn with_grant(
+    grants: &[(String, Perm)],
+    key: &str,
+    level: Perm,
+) -> Result<Vec<(String, Perm)>, String> {
+    let mut out = grants.to_vec();
+    if let Some(i) = out.iter().position(|(k, _)| k == key) {
+        if level == Perm::None {
+            out.remove(i);
+        } else {
+            out[i].1 = level;
+        }
+        return Ok(out);
+    }
+    if level == Perm::None {
+        return Err(format!("no grant on {key}"));
+    }
+    // `{site}` stands for one segment in both, so it compares as one.
+    let probe = |k: &str| k.replace("{site}", "site");
+    let new = probe(key);
+    let new = keyexpr::new(&new).map_err(|e| format!("{key}: {e}"))?;
+    let at = out
+        .iter()
+        .position(|(k, _)| keyexpr::new(&probe(k)).is_ok_and(|k| k.includes(new)))
+        .unwrap_or(out.len());
+    out.insert(at, (key.to_owned(), level));
+    Ok(out)
 }
 
 /// Effective grants of one user. `max` = the highest level among them.
@@ -169,6 +211,28 @@ mod tests {
         assert!(!e.covers("wy/s/sys/links/**", Perm::Write));
         let a = t.grants("s", &roles(&["admin"]));
         assert!(a.covers("wy/s/sys/**", Perm::Config));
+    }
+
+    #[test]
+    fn grant_edits_keep_narrow_grants_first() {
+        let op = RoleTable::default().get("operator").unwrap().to_vec();
+        let narrow = with_grant(&op, "wy/{site}/down/plc1/**", Perm::Read).unwrap();
+        assert_eq!(narrow[0], ("wy/{site}/down/plc1/**".into(), Perm::Read));
+        let mut t = RoleTable::empty();
+        t.insert("operator", narrow.clone());
+        let g = t.grants("s", &roles(&["operator"]));
+        assert_eq!(g.perm("wy/s/down/plc1/p/~set"), Perm::Read, "not shadowed");
+        assert_eq!(g.perm("wy/s/down/plc2/p/~set"), Perm::Write);
+        // broader than all: last
+        let wide = with_grant(&op, "wy/**", Perm::List).unwrap();
+        assert_eq!(wide.last().unwrap(), &("wy/**".to_string(), Perm::List));
+        // change in place, then remove
+        let changed = with_grant(&narrow, "wy/{site}/down/plc1/**", Perm::Write).unwrap();
+        assert_eq!(changed[0].1, Perm::Write);
+        let removed = with_grant(&changed, "wy/{site}/down/plc1/**", Perm::None).unwrap();
+        assert_eq!(removed, op);
+        assert!(with_grant(&op, "wy/{site}/nothing/**", Perm::None).is_err());
+        assert!(with_grant(&op, "wy//bad", Perm::Read).is_err());
     }
 
     #[test]

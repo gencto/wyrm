@@ -374,6 +374,99 @@ async fn unknown_cert_quarantine_and_acl_denied() {
     env.stop().await;
 }
 
+/// DSA-style `sys` values (broker info, traffic rates) and
+/// the two options that decide what happens to an unknown certificate.
+#[tokio::test(flavor = "multi_thread")]
+async fn sys_values_and_admission_options() {
+    let env = Env::start("sysvals", MOCK).await;
+    let c = env.client().await;
+    let sys = format!("wy/{SITE}/sys");
+    let text = |v: Option<Value>| match v {
+        Some(Value::Str(s)) => s,
+        other => panic!("not a string: {other:?}"),
+    };
+    assert!(!text(last_val(&c, &format!("{sys}/version")).await).is_empty());
+    assert!(text(last_val(&c, &format!("{sys}/zenoh_version")).await).starts_with("v1."));
+    let started = text(last_val(&c, &format!("{sys}/start_time")).await);
+    assert!(started.len() == 20 && started.ends_with('Z'), "{started}");
+    assert_eq!(
+        text(last_val(&c, &format!("{sys}/distribution")).await),
+        "rust (prod)"
+    );
+    let meta = c.meta(&format!("{sys}/data_in_per_second")).await.unwrap();
+    assert_eq!(
+        meta.attr_value("display"),
+        Some(&Value::Str("Data In Per Second".into()))
+    );
+    eventually("traffic rates", 5, || async {
+        match last_val(&c, &format!("{sys}/data_in_per_second")).await {
+            Some(Value::Float(r)) if r > 0.0 => Some(()),
+            _ => None,
+        }
+    })
+    .await;
+
+    // Quarantine off: an unknown certificate is ignored.
+    let quarantine = format!("{sys}/enable_quarantine");
+    assert_eq!(last_val(&c, &quarantine).await, Some(Value::Bool(true)));
+    c.set(&quarantine, false).await.unwrap();
+    assert_eq!(last_val(&c, &quarantine).await, Some(Value::Bool(false)));
+    let ghost = env.tls_session("ghost-1").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(c.meta(&format!("{sys}/quarantine/ghost-1")).await.is_err());
+    // closed first: once allow-all is on, its reconnect would be admitted
+    ghost.close().await.unwrap();
+
+    // Allow all links: the next unknown certificate becomes an external link.
+    let allow = format!("{sys}/allow_all_links");
+    assert_eq!(last_val(&c, &allow).await, Some(Value::Bool(false)));
+    c.set(&allow, true).await.unwrap();
+    let dev = env.tls_session("dev-1").await;
+    let key = format!("wy/{SITE}/down/dev-1/t/~val");
+    eventually("auto-installed link may publish", 15, || async {
+        let c2 = WyrmClient::new(env.try_session().await?);
+        dev.put(&key, sample(3.0)).await.ok()?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        (last_val(&c2, &format!("wy/{SITE}/down/dev-1/t")).await == Some(Value::Float(3.0)))
+            .then_some(())
+    })
+    .await;
+    let reg = env.ctl.registry();
+    assert!(reg.links.contains_key("dev-1"));
+    assert!(
+        !reg.links.contains_key("ghost-1"),
+        "seen while quarantine was off"
+    );
+    assert!(reg.options.allow_all_links && !reg.options.enable_quarantine);
+    let audit = env.ctl.audit_tail(50);
+    for op in ["set_option", "auto_install"] {
+        assert!(audit.iter().any(|r| r.op == op), "audit has {op}");
+    }
+
+    // Clear Conns forgets the external link once it is gone (DSA clearConns).
+    dev.close().await.unwrap();
+    let cleared = eventually("clear conns removes dev-1", 15, || async {
+        let c2 = env.try_session().await?;
+        let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+        let c2 = WyrmClient::new(c2)
+            .with_tokens(Arc::new(SigningTokens::new(key, SITE)))
+            .with_timeout(Duration::from_secs(3));
+        match c2
+            .invoke_one(&sys, "clear_conns", Value::Map(Default::default()))
+            .await
+        {
+            Ok(Some(v)) => Some(v),
+            _ => None,
+        }
+    })
+    .await;
+    assert_eq!(cleared, Value::Array(vec![Value::from("dev-1")]));
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("dev-1") && reg.retired.contains("dev-1"));
+    assert!(reg.links.contains_key("mock"), "embedded links stay");
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
@@ -816,11 +909,58 @@ async fn gateway_in_wyrmd() {
             .expect_err("no grant on sys/**");
         assert!(e.is(wyrm_core::Status::PermissionDenied), "{role}: {e}");
     }
-    assert!(env
-        .ctl
-        .audit_tail(50)
+    // sys Update/Get Permissions edit the gateway's role grants (DSA style)
+    let sys = format!("wy/{SITE}/sys");
+    let grant = |role: &str, path: &str, level: &str| {
+        let mut m = BTreeMap::new();
+        m.insert("role".to_owned(), Value::from(role));
+        m.insert("path".to_owned(), Value::from(path));
+        m.insert("level".to_owned(), Value::from(level));
+        Value::Map(m)
+    };
+    let reply = c
+        .invoke_one(
+            &sys,
+            "update_permissions",
+            grant("viewer", "wy/{site}/sys/audit/**", "read"),
+        )
+        .await
+        .expect("update permissions");
+    assert!(reply.is_none(), "{reply:?}");
+    assert_eq!(
+        gw.grants_of(&["viewer".to_owned()])
+            .perm(&format!("{sys}/audit/~meta")),
+        wyrm_core::Perm::Read,
+        "applied to the role at once"
+    );
+    let Some(Value::Array(rows)) = c.invoke_one(&sys, "get_permissions", none()).await.unwrap()
+    else {
+        panic!("permission rows")
+    };
+    let has = |source: &str, subject: &str, path: &str| {
+        rows.iter().any(|r| {
+            let Value::Map(m) = r else { return false };
+            m.get("source") == Some(&Value::from(source))
+                && m.get("subject") == Some(&Value::from(subject))
+                && m.get("path")
+                    .is_some_and(|p| matches!(p, Value::Str(p) if p.contains(path)))
+        })
+    };
+    assert!(has("gateway", "viewer", "wy/{site}/sys/audit/**"));
+    assert!(has("gateway", "admin", "wy/**"));
+    assert!(has("acl", "local", &format!("wy/{SITE}/**")));
+    let e = c
+        .invoke_one(&sys, "update_permissions", grant("admin", "wy/**", "none"))
+        .await
+        .expect_err("the last admin grant stays");
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    let audit = env.ctl.audit_tail(50);
+    assert!(audit
         .iter()
         .any(|r| r.op == "login" && r.sub == "user:root"));
+    assert!(audit
+        .iter()
+        .any(|r| r.op == "update_permissions" && r.sub == "user:root"));
     env.stop().await;
 }
 

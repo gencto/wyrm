@@ -149,7 +149,49 @@ pub enum Op {
     },
     #[n(8)]
     RemoveProfile(#[n(0)] String),
+    /// A broker option (`sys/<name>`, see [`Options`]).
+    #[n(9)]
+    SetOption {
+        #[n(0)]
+        name: String,
+        #[n(1)]
+        on: bool,
+    },
 }
+
+/// Broker options changed at runtime, as DSA's `allowAllLinks` and
+/// `quarantine` (`wy/<site>/sys/allow_all_links`, `.../enable_quarantine`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Options {
+    /// Install every unknown certificate CN signed by our CA as an
+    /// external link, without quarantine. Off by default.
+    pub allow_all_links: bool,
+    /// Record unknown CNs in `sys/quarantine` (off: drop them unrecorded).
+    pub enable_quarantine: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            allow_all_links: false,
+            enable_quarantine: true,
+        }
+    }
+}
+
+impl Options {
+    /// The option `name` (one of [`OPTION_NAMES`]).
+    pub fn get(&self, name: &str) -> Option<bool> {
+        match name {
+            "allow_all_links" => Some(self.allow_all_links),
+            "enable_quarantine" => Some(self.enable_quarantine),
+            _ => None,
+        }
+    }
+}
+
+/// Names of the [`Options`] fields, as `SetOption` takes them.
+pub const OPTION_NAMES: [&str; 2] = ["allow_all_links", "enable_quarantine"];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Registry {
@@ -167,6 +209,8 @@ pub struct Registry {
     /// [`LINK_HISTORY`] (T11: version history and rollback).
     #[serde(default)]
     pub history: BTreeMap<String, Vec<(u32, Vec<u8>)>>,
+    #[serde(default)]
+    pub options: Options,
 }
 
 /// Replaced params kept per link.
@@ -210,7 +254,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 4;
+    const SCHEMA: u32 = 5;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -316,6 +360,11 @@ impl wyrm_state::State for Registry {
                 }
                 self.profiles.remove(name);
             }
+            Op::SetOption { name, on } => match name.as_str() {
+                "allow_all_links" => self.options.allow_all_links = *on,
+                "enable_quarantine" => self.options.enable_quarantine = *on,
+                other => return Err(format!("no option {other}")),
+            },
         }
         Ok(())
     }

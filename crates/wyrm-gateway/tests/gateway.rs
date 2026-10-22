@@ -637,6 +637,59 @@ fn plain_http_only_on_loopback() {
     assert!(Gateway::open(cfg, b"k").is_err());
 }
 
+/// `sys` Update Permissions: grants of a role change at runtime, persist,
+/// apply to existing users, and never leave the gateway without an admin.
+#[test]
+fn role_grants_change_persist_and_keep_an_admin() {
+    let dir = temp_dir("roles");
+    let cfg = GatewayConfig::new(SITE, &dir, "127.0.0.1:0".parse().unwrap());
+    let gw = Gateway::open(cfg.clone(), b"k").unwrap();
+    gw.ensure_admin("root", ADMIN_PW).unwrap();
+    gw.add_user("op", "operator pw", vec!["operator".into()])
+        .unwrap();
+    let key = format!("wy/{SITE}/down/plc1/p/~set");
+    let op = || gw.grants_of(&gw.user("op").unwrap().roles);
+    assert_eq!(op().perm(&key), Perm::Write);
+
+    // narrower grant goes first, so it is not shadowed by down/**
+    gw.set_grant("operator", "wy/{site}/down/plc1/**", Perm::Read)
+        .unwrap();
+    assert_eq!(op().perm(&key), Perm::Read);
+    assert_eq!(
+        op().perm(&format!("wy/{SITE}/down/plc2/p/~set")),
+        Perm::Write
+    );
+
+    // a new role, then a user with it
+    gw.set_grant("auditor", "wy/{site}/sys/audit/**", Perm::Read)
+        .unwrap();
+    gw.add_user("aud", "auditor pw", vec!["auditor".into()])
+        .unwrap();
+
+    // lockout: the only admin's grant cannot go
+    assert!(gw.set_grant("admin", "wy/**", Perm::Write).is_err());
+    assert!(gw.set_grant("admin", "wy/**", Perm::None).is_err());
+    assert!(gw.set_grant("operator", "nope/**", Perm::Read).is_err());
+    assert!(gw.set_grant("bad role", "wy/**", Perm::Read).is_err());
+
+    // persisted
+    drop(gw);
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    let t = gw.role_table();
+    assert_eq!(
+        t.get("operator").unwrap()[0],
+        ("wy/{site}/down/plc1/**".to_string(), Perm::Read)
+    );
+    assert!(t.contains("auditor"));
+    // removing it brings the default back
+    gw.set_grant("operator", "wy/{site}/down/plc1/**", Perm::None)
+        .unwrap();
+    assert_eq!(
+        gw.role_table().get("operator"),
+        RoleTable::default().get("operator")
+    );
+}
+
 #[test]
 fn signing_key_persists() {
     let dir = temp_dir("key");

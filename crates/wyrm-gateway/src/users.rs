@@ -58,6 +58,16 @@ pub enum Op {
     },
     #[n(4)]
     RemoveUser(#[n(0)] String),
+    /// Replace the grants of one role (`sys/~act/update_permissions`); the
+    /// stored list overrides the configured role of the same name.
+    #[n(5)]
+    SetRole {
+        #[n(0)]
+        role: String,
+        /// `(key expression, Perm code)` in match order.
+        #[n(1)]
+        grants: Vec<(String, u8)>,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -65,6 +75,9 @@ pub struct UserDb {
     pub users: BTreeMap<String, User>,
     /// Next generation; survives `RemoveUser`.
     pub next_gen: u64,
+    /// Roles changed at runtime: role → `(key expression, Perm code)`.
+    #[serde(default)]
+    pub roles: BTreeMap<String, Vec<(String, u8)>>,
 }
 
 impl UserDb {
@@ -81,7 +94,7 @@ impl UserDb {
 }
 
 impl wyrm_state::State for UserDb {
-    const SCHEMA: u32 = 2;
+    const SCHEMA: u32 = 3;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -123,6 +136,18 @@ impl wyrm_state::State for UserDb {
                 self.users
                     .remove(name)
                     .ok_or_else(|| format!("no user {name}"))?;
+            }
+            Op::SetRole { role, grants } => {
+                if !valid_name(role) {
+                    return Err(format!("bad role name {role:?}"));
+                }
+                if let Some((_, c)) = grants
+                    .iter()
+                    .find(|(_, c)| wyrm_core::Perm::try_from(*c).is_err())
+                {
+                    return Err(format!("bad level code {c}"));
+                }
+                self.roles.insert(role.clone(), grants.clone());
             }
         }
         Ok(())

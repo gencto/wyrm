@@ -23,7 +23,7 @@ pub mod session;
 pub mod users;
 pub mod ws;
 
-pub use roles::{Grants, RoleTable};
+pub use roles::{with_grant, Grants, RoleTable};
 pub use session::SessionClaims;
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
@@ -347,7 +347,7 @@ impl Gateway {
         if self.user(name).is_some() {
             return Ok(false);
         }
-        if !self.cfg.roles.contains("admin") {
+        if !self.role_table().contains("admin") {
             return Err(Error::Config("no `admin` role in the role table".into()));
         }
         self.add_user(name, password, vec!["admin".into()])?;
@@ -356,7 +356,8 @@ impl Gateway {
     }
 
     fn check_roles(&self, roles: &[String]) -> Result<()> {
-        match roles.iter().find(|r| !self.cfg.roles.contains(r)) {
+        let table = self.role_table();
+        match roles.iter().find(|r| !table.contains(r)) {
             Some(r) => Err(Error::Rejected(format!("unknown role {r}"))),
             None => Ok(()),
         }
@@ -413,7 +414,62 @@ impl Gateway {
     }
 
     pub fn grants_of(&self, roles: &[String]) -> Grants {
-        self.cfg.roles.grants(&self.cfg.site, roles)
+        self.role_table().grants(&self.cfg.site, roles)
+    }
+
+    /// The configured roles with the runtime changes from the store on top.
+    pub fn role_table(&self) -> RoleTable {
+        self.table_of(self.store().state())
+    }
+
+    fn table_of(&self, db: &UserDb) -> RoleTable {
+        let mut t = self.cfg.roles.clone();
+        for (role, grants) in &db.roles {
+            let grants = grants
+                .iter()
+                .filter_map(|(k, c)| Some((k.clone(), Perm::try_from(*c).ok()?)))
+                .collect();
+            t.insert(role.clone(), grants);
+        }
+        t
+    }
+
+    /// Add, change or (at `none`) remove the grant on `key` of `role`; a new
+    /// role starts empty. Refused when no enabled user would keep `config`
+    /// on `wy/<site>/sys/**` (user management needs one). Sessions see the
+    /// change on their next request.
+    pub fn set_grant(&self, role: &str, key: &str, level: Perm) -> Result<()> {
+        if !users::valid_name(role) {
+            return Err(Error::Rejected(format!("invalid role name {role:?}")));
+        }
+        let concrete = key.replace("{site}", &self.cfg.site);
+        if !concrete.starts_with("wy/") {
+            return Err(Error::Rejected(format!("{key}: grants are on wy/**")));
+        }
+        zenoh::key_expr::keyexpr::new(&concrete)
+            .map_err(|e| Error::Rejected(format!("{key}: {e}")))?;
+        let mut store = self.store();
+        let mut table = self.table_of(store.state());
+        let grants = roles::with_grant(table.get(role).unwrap_or_default(), key, level)
+            .map_err(Error::Rejected)?;
+        table.insert(role, grants.clone());
+        let sys = format!("wy/{}/sys/**", self.cfg.site);
+        let admin_left = store.state().users.values().any(|u| {
+            !u.disabled
+                && table
+                    .grants(&self.cfg.site, &u.roles)
+                    .covers(&sys, Perm::Config)
+        });
+        if !admin_left {
+            return Err(Error::Rejected(
+                "no enabled user would keep config on sys/** (user management)".into(),
+            ));
+        }
+        store.apply(Op::SetRole {
+            role: role.into(),
+            grants: grants.iter().map(|(k, p)| (k.clone(), p.code())).collect(),
+        })?;
+        Ok(())
     }
 
     /// Verify a session token and resolve it against the store: the user

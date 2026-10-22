@@ -875,6 +875,29 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     Ok(gw)
 }
 
+/// The gateway's roles behind `sys` Get/Update Permissions.
+struct GatewayRoles(Arc<Gateway>);
+
+impl wyrm_admin::control::RoleGrants for GatewayRoles {
+    fn grants(&self) -> Vec<(String, String, wyrm_core::Perm)> {
+        self.0
+            .role_table()
+            .iter()
+            .flat_map(|(role, grants)| {
+                grants
+                    .iter()
+                    .map(move |(k, p)| (role.to_owned(), k.clone(), *p))
+            })
+            .collect()
+    }
+
+    fn set_grant(&self, role: &str, key: &str, level: wyrm_core::Perm) -> Result<(), String> {
+        self.0
+            .set_grant(role, key, level)
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// Gateway events into the admin journal (no passwords or tokens in them).
 fn gateway_audit(ctl: &Control, e: AuditEvent) {
     use wyrm_core::Status;
@@ -1012,6 +1035,7 @@ impl Daemon {
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
             gw.set_audit(move |e| gateway_audit(&audit, e));
+            ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
         }
         ctl.bootstrap(&cfg.config_links())?;
         Ok(Self {
