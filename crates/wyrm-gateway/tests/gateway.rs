@@ -1031,3 +1031,86 @@ fn read_sites_map_to_own_roles_without_a_token() {
     assert_eq!(gw.read_site_of("wy/plant/down").as_deref(), Some("plant"));
     assert_eq!(gw.read_site_of("wy/edge/down/m/p"), None);
 }
+
+/// `history` (spec 01 `~val?history=`) needs read on the point itself:
+/// a user without read on a branch gets none of its history.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_follows_point_grants() {
+    use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
+    let env = Env::start("history", wyrm_gateway::SESSION_TTL).await;
+    let dir = temp_dir("history-store");
+    let h = Historian::open(&dir).unwrap();
+    let watch = |id: &str, key: String| WatchCfg {
+        id: id.into(),
+        key,
+        enabled: true,
+    };
+    h.attach(
+        env.session.clone(),
+        vec![GroupCfg {
+            name: "g".into(),
+            logging: Logging::AllData,
+            interval_ms: 1000,
+            flush_ms: 100,
+            watches: vec![
+                watch("w1", format!("{ROOT}/g0/p0")),
+                watch("w2", format!("{ROOT}/g1/p1")),
+            ],
+        }],
+        vec![format!("{ROOT}/**/~val")],
+    );
+    let admin = env.session("root", ADMIN_PW).await;
+    let tok = env.add_user(&admin, "guest", &["limited"]).await;
+    let mut ws = env.ws(&tok).await;
+    let args = || vec![("args", map([("from", Value::from("2020-01-01"))]))];
+    let mut rows = Vec::new();
+    for _ in 0..50 {
+        let r = ws.call("history", &format!("{ROOT}/g0/p0"), args()).await;
+        assert!(is_ok(&r), "{r:?}");
+        if let Value::Array(a) = get(&r, "result") {
+            if a.len() >= 3 {
+                rows = a.clone();
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(rows.len() >= 3, "rows recorded: {rows:?}");
+    assert!(
+        matches!(&rows[0], Value::Array(r) if r.len() == 3 && matches!(r[0], Value::UInt(_))),
+        "[t, v, q]: {:?}",
+        rows[0]
+    );
+    let agg = ws
+        .call(
+            "history",
+            &format!("{ROOT}/g0/p0"),
+            vec![(
+                "args",
+                map([
+                    ("from", Value::from("2020-01-01")),
+                    ("agg", Value::from("count")),
+                ]),
+            )],
+        )
+        .await;
+    assert!(
+        matches!(get(&agg, "result"), Value::Array(a) if a.len() == 1),
+        "{agg:?}"
+    );
+    // no read on g1: refused before the query leaves the gateway
+    let r = ws.call("history", &format!("{ROOT}/g1/p1"), args()).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied));
+    // bad arguments come back from the historian
+    let r = ws
+        .call(
+            "history",
+            &format!("{ROOT}/g0/p0"),
+            vec![("args", map([("from", Value::from("yesterday"))]))],
+        )
+        .await;
+    assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+    h.detach().await;
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}

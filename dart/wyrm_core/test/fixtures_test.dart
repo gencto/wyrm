@@ -28,6 +28,7 @@ Uint8List _typedRoundTrip(String name, Uint8List bytes) {
   }
 
   if (name.startsWith('val_')) return rt(Sample.decode, (w, s) => s.encode(w));
+  if (name.startsWith('hist_')) return rt(HistRow.decodeList, HistRow.encodeList);
   if (name == 'meta_view_list') return rt(NodeMeta.decodeList, NodeMeta.encodeList);
   if (name == 'meta_view_keys') return rt(decodeKeyList, encodeKeyList);
   if (name == 'meta_patch') return rt(MetaPatch.decode, (w, p) => p.encode(w));

@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET};
 use wyrm_core::status::StatusCode;
-use wyrm_core::{Attachment, NodeMeta, SetRequest, Status, StatusGroup, Value};
+use wyrm_core::{Attachment, HistRow, NodeMeta, SetRequest, Status, StatusGroup, Value};
 use zenoh::handlers::FifoChannelHandler;
 use zenoh::qos::{CongestionControl, Priority};
 use zenoh::query::{ConsolidationMode, Reply};
@@ -137,6 +137,82 @@ pub(crate) fn is_links_root(key: &str) -> bool {
 
 fn suffixed(node: &str, suffix: &str) -> String {
     format!("{node}/{suffix}")
+}
+
+/// A history read (spec 01 `~val?history=`): `from`/`to` in RFC 3339 (`to`
+/// empty = now), optional `agg` (`avg`, `min`, `max`, `sum`, `count`,
+/// `first`, `last`, `delta`, `and`, `or`), `window` (`5m`, `1h`, …) and
+/// `limit` (rows; the broker caps it).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HistoryQuery {
+    pub from: String,
+    pub to: String,
+    pub agg: Option<String>,
+    pub window: Option<String>,
+    pub limit: Option<usize>,
+}
+
+/// History rows as a frame result: `[[t, v, q] | [t_start, v], …]`.
+pub fn history_value(rows: Vec<HistRow>) -> Value {
+    Value::Array(
+        rows.into_iter()
+            .map(|r| {
+                let mut a = vec![Value::UInt(r.t), r.v];
+                a.extend(r.q.map(|q| Value::UInt(q.code().into())));
+                Value::Array(a)
+            })
+            .collect(),
+    )
+}
+
+impl HistoryQuery {
+    /// From `from` to now.
+    pub fn since(from: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            ..Default::default()
+        }
+    }
+
+    /// From the frame args of the gateway and the FFI:
+    /// `{from, to?, agg?, window?, limit?}` (texts; `limit` a number).
+    pub fn from_args(args: Option<&Value>) -> Self {
+        let empty = std::collections::BTreeMap::new();
+        let m = match args {
+            Some(Value::Map(m)) => m,
+            _ => &empty,
+        };
+        let text = |k: &str| match m.get(k) {
+            Some(Value::Str(s)) if !s.trim().is_empty() => Some(s.trim().to_owned()),
+            _ => None,
+        };
+        Self {
+            from: text("from").unwrap_or_default(),
+            to: text("to").unwrap_or_default(),
+            agg: text("agg"),
+            window: text("window"),
+            limit: m
+                .get("limit")
+                .and_then(Value::as_f64)
+                .filter(|n| n.is_finite() && *n >= 1.0)
+                .map(|n| n as usize),
+        }
+    }
+
+    /// The selector parameters, `&`-separated as spec 01 writes them.
+    pub fn params(&self) -> String {
+        let mut p = format!("history={}..{}", self.from.trim(), self.to.trim());
+        if let Some(a) = self.agg.as_deref().filter(|a| !a.is_empty()) {
+            p.push_str(&format!("&agg={a}"));
+        }
+        if let Some(w) = self.window.as_deref().filter(|w| !w.is_empty()) {
+            p.push_str(&format!("&window={w}"));
+        }
+        if let Some(l) = self.limit {
+            p.push_str(&format!("&limit={l}"));
+        }
+        p
+    }
 }
 
 impl WyrmClient {
@@ -255,6 +331,34 @@ impl WyrmClient {
         } else {
             ClientError::new(Status::Disconnected, format!("{owner} is not connected"))
         }
+    }
+
+    /// `get node/~val?history=…` (spec 03): the rows in time order, raw
+    /// `[t, v, q]` or, with `agg`, `[t_start, v]`. Empty when nobody records
+    /// the point. Rights as `subscribe`: the session's ACL on `node/~val`.
+    pub async fn history(&self, node: &str, q: &HistoryQuery) -> Result<Vec<HistRow>> {
+        let selector = format!("{}?{}", suffixed(node, keyspace::SUFFIX_VAL), q.params());
+        let rx = self
+            .query(&selector, None, Attachment::default(), false, self.timeout)
+            .await?;
+        let mut chunks: Vec<Vec<HistRow>> = Vec::new();
+        while let Some(r) = next_response(&rx).await {
+            let r = r?;
+            if let Some(s) = r.att.status {
+                if s.group() == StatusGroup::Error {
+                    return Err(ClientError {
+                        status: s,
+                        message: r.att.err.unwrap_or_default(),
+                    });
+                }
+            }
+            // The storage answers the same key with the last value (a map).
+            if let Ok(rows) = from_slice::<Vec<HistRow>>(&r.payload) {
+                chunks.push(rows);
+            }
+        }
+        chunks.sort_by_key(|c| c.first().map_or(0, |r| r.t));
+        Ok(chunks.into_iter().flatten().collect())
     }
 
     /// `get node/~meta` (full). Retries once with a `ptok` on `permission_denied`

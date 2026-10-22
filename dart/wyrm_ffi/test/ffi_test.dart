@@ -70,6 +70,10 @@ void main() {
     expect(s.key, '$root/g0/p2');
   });
 
+  test('history: the native call answers; nobody records the mock', () async {
+    expect(await c.history('$root/g0/p0', from: '2020-01-01'), isEmpty);
+  });
+
   test('invoke a stream action', () async {
     final out = await c.invoke(root, 'count', VMap({'n': const VInt(4)})).toList();
     expect(out, [const VInt(0), const VInt(1), const VInt(2), const VInt(3)]);

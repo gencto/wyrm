@@ -246,6 +246,30 @@ class FrameClient implements WyrmApi {
   }
 
   @override
+  Future<List<HistRow>> history(String key,
+      {required String from, String to = '', String? agg, String? window, int? limit}) async {
+    final args = <String, Value>{
+      'from': VStr(from),
+      if (to.isNotEmpty) 'to': VStr(to),
+      if (agg != null && agg.isNotEmpty) 'agg': VStr(agg),
+      if (window != null && window.isNotEmpty) 'window': VStr(window),
+      if (limit != null) 'limit': VInt(limit),
+    };
+    final r = await _oneShot('history', key, args: VMap(args));
+    if (r is! VArray) throw _bad('history');
+    return [for (final row in r.v) _histRow(row)];
+  }
+
+  static HistRow _histRow(Value row) {
+    if (row is! VArray || row.v.length < 2 || row.v.length > 3) throw _bad('history row');
+    final t = switch (row.v[0]) { VInt(:final v) => v, _ => throw _bad('history time') };
+    final q = row.v.length == 3
+        ? switch (row.v[2]) { VInt(:final v) => Quality.fromCode(v), _ => null }
+        : null;
+    return HistRow(t, row.v[1], q);
+  }
+
+  @override
   Future<void> close() async {
     if (_closed) return;
     _onGone();

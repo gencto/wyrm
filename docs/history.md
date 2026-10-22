@@ -61,6 +61,28 @@ The answer is a table (in the explorer: output ▸ **Table..**):
 Each watch also shows **Start Date** and **End Date**. It does not show
 its last value (DSA's Last Written Value): the point itself has it.
 
+### Without `sys`: the point's own history
+
+Everyone who may read a point's value may read its history; no `sys` rights
+are needed (spec 05 0.1.10):
+
+| Where | How |
+|---|---|
+| Explorer | right-click a point (in Data or Metrics) ▸ **View History**: presets 1 h, 24 h, 7 d, 30 d, or From/To, Interval, Rollup ▸ Load; a chart of the numeric values (bad samples as red dots) and the rows |
+| Zenoh | `get wy/<site>/down/<link>/<point>/~val?history=2026-10-22T08:00:00Z..&agg=avg&window=5m` (spec 01/03): one or more replies, each a CBOR array of `[t, v, q]` (or `[t_start, v]`) |
+| Rust | `WyrmClient::history(node, &HistoryQuery { from, to, agg, window, limit })` |
+| Dart | `api.history(key, from: …, to: …, agg: …, window: …)` (gateway and FFI) |
+| CLI | `wyr values wy/<site>/down/mock/g0/p0 --from 2026-10-22 --agg avg --window 1h` |
+| Gateway WS | op `history`, `args {from, to, agg, window, limit}`; needs `read` on the point |
+
+- Parameters: `history=<from>..<to>` (an empty end is now) or `since=<from>`;
+  `agg` and `window` as Rollup and Interval above; `limit` rows (10 000 by
+  default, at most 100 000).
+- This site's broker answers for its points; a downstream site's broker
+  answers for the points it records.
+- A point nobody records has no history: the answer is empty. A wrong
+  parameter or a wildcard in the key is an error.
+
 ## 4. Space and purging
 
 `sys/history` shows Rows Written, Writes Per Second, Rows Pending, Rows
@@ -90,7 +112,8 @@ Files and Oldest Day.
 | Watches | 10 000 in all, one point each (no wildcards), never `sys` |
 | Rows in memory | 200 000 for all groups; more are dropped (Rows Dropped) |
 | Sample time | the source's time; more than 5 min ahead of the broker's clock or more than 31 days back: dropped (Rows Dropped) |
-| Get History | 10 000 rows per call |
+| Get History | 10 000 rows per call (`~val?history=`: 100 000) |
+| One read | at most 5 000 000 rows scanned (a longer range is refused: ask for a shorter one); 4 reads at a time, others wait up to 5 s |
 | Gap at a router rebuild | about a second: samples then are not recorded |
 
 ## 6. Other historians
@@ -102,6 +125,6 @@ it a `read` grant on the points (`requester` in its package, or `sys/links/<id>`
 
 ## 7. Not yet
 
-- `get <point>/~val?history=…` (spec 01/03) and a history view in the explorer
-  for any point: planned next.
-- A watch for a whole subtree (`down/<link>/**`).
+- A watch for a whole subtree (`down/<link>/**`): today one watch is one
+  point.
+- MCP tool `history` (`tools/wyrm-mcp`).

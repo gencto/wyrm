@@ -19,7 +19,7 @@ pub use attachment::Attachment;
 pub use meta::{ActionMeta, NodeMeta, Perm, TypeCode, Writable};
 pub use ptok::PtokClaims;
 pub use status::{Status, StatusGroup};
-pub use value::{Quality, Sample, SetRequest, Value};
+pub use value::{HistRow, Quality, Sample, SetRequest, Value};
 
 /// Protocol major version published as `attr.proto` of `wy/<site>/sys/~meta`.
 pub const PROTO_VERSION: u8 = 1;

@@ -266,6 +266,58 @@ impl<'b, C> Decode<'b, C> for Sample {
     }
 }
 
+/// One row of a history answer (`get ~val?history=`, spec 03): a sample
+/// `[t, v, q]`, or with `agg` a rollup `[t_start, v]` (no quality).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistRow {
+    /// Microseconds since the Unix epoch: the sample's time, or the start
+    /// of its window.
+    pub t: u64,
+    pub v: Value,
+    /// `None` for a rollup row.
+    pub q: Option<Quality>,
+}
+
+impl<C> Encode<C> for HistRow {
+    fn encode<W: encode::Write>(
+        &self,
+        e: &mut Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), encode::Error<W::Error>> {
+        e.array(if self.q.is_some() { 3 } else { 2 })?;
+        e.u64(self.t)?;
+        self.v.encode(e, ctx)?;
+        if let Some(q) = self.q {
+            e.u8(q.code())?;
+        }
+        Ok(())
+    }
+}
+
+impl<'b, C> Decode<'b, C> for HistRow {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, decode::Error> {
+        let n = d
+            .array()?
+            .ok_or_else(|| decode::Error::message("indefinite history row"))?;
+        if !(2..=3).contains(&n) {
+            return Err(decode::Error::message(format!(
+                "history row of {n} items (2 or 3)"
+            )));
+        }
+        let t = d.u64()?;
+        let v = Value::decode(d, ctx)?;
+        let q = if n == 3 {
+            Some(
+                Quality::try_from(d.u8()?)
+                    .map_err(|x| decode::Error::message(format!("bad quality {x}")))?,
+            )
+        } else {
+            None
+        };
+        Ok(HistRow { t, v, q })
+    }
+}
+
 /// `~set` request payload: `{0: v}` (spec 05-methods).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetRequest {

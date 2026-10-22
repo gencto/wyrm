@@ -95,6 +95,26 @@ enum Cmd {
         #[arg(long)]
         reliable: bool,
     },
+    /// Recorded values of a point (`~val?history=`, needs a watch in
+    /// `sys/history`): `--from 2026-10-22T08:00:00Z [--to …] [--agg avg
+    /// --window 5m]`. (`wyr history` is a link's params history.)
+    Values {
+        node: String,
+        /// RFC 3339 or a date (`2026-10-22` = its midnight UTC).
+        #[arg(long)]
+        from: String,
+        /// Default: now.
+        #[arg(long, default_value = "")]
+        to: String,
+        /// avg, min, max, sum, count, first, last, delta, and, or.
+        #[arg(long)]
+        agg: Option<String>,
+        /// One row per window: 30s, 5m, 1h, 1d.
+        #[arg(long)]
+        window: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
     /// Write a value: `true`, `21.5`, `3`, `null` or any text.
     Set { node: String, value: String },
     /// Run an action with `name=value` arguments.
@@ -264,6 +284,31 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Sub { pattern, reliable } => sub(&client, &pattern, reliable).await,
+        Cmd::Values {
+            node,
+            from,
+            to,
+            agg,
+            window,
+            limit,
+        } => {
+            let q = wyrm_client::HistoryQuery {
+                from,
+                to,
+                agg,
+                window,
+                limit,
+            };
+            for r in client.history(&node, &q).await? {
+                let q = r.q.map_or("", |q| q.name());
+                out!(
+                    "{} {} {q}",
+                    wyrm_history::time::iso_us(r.t),
+                    fmt_value(&r.v)
+                );
+            }
+            Ok(())
+        }
         Cmd::Set { node, value } => {
             client
                 .with_site(&node, &cli.key)?

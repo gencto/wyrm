@@ -2,7 +2,7 @@
 //! detach, and a new session after a "rebuild".
 
 use std::time::Duration;
-use wyrm_core::{codec, Quality, Sample, Value};
+use wyrm_core::{codec, HistRow, Quality, Sample, Value};
 use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
 
 const P: &str = "wy/s/down/mock/p";
@@ -29,6 +29,25 @@ async fn put(s: &zenoh::Session, key: &str, v: f64, t: u64) {
     })
     .unwrap();
     s.put(format!("{key}/~val"), payload).await.unwrap();
+}
+
+/// The array replies of a `get` (other replies are skipped).
+async fn history(s: &zenoh::Session, selector: &str) -> Vec<Vec<HistRow>> {
+    let rx = s
+        .get(selector)
+        .consolidation(zenoh::query::ConsolidationMode::None)
+        .timeout(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Ok(r) = rx.recv_async().await {
+        if let Ok(smp) = r.result() {
+            if let Ok(rows) = codec::from_slice::<Vec<HistRow>>(&smp.payload().to_bytes()) {
+                out.push(rows);
+            }
+        }
+    }
+    out
 }
 
 fn group(name: &str, logging: Logging, keys: &[&str]) -> GroupCfg {
@@ -82,6 +101,7 @@ async fn logging_types_and_rebuilds() {
             group("all", Logging::AllData, &[P]),
             group("change", Logging::PointChange, &[Q]),
         ],
+        vec!["wy/s/down/**/~val".into()],
     );
     tokio::time::sleep(Duration::from_millis(300)).await; // subscribers up
     let t0 = wyrm_history::engine::now_us();
@@ -107,6 +127,7 @@ async fn logging_types_and_rebuilds() {
             group("all", Logging::AllData, &[P]),
             group("change", Logging::PointChange, &[Q]),
         ],
+        vec!["wy/s/down/**/~val".into()],
     );
     tokio::time::sleep(Duration::from_millis(300)).await;
     put(&s2, P, 3.0, t0 + 4).await;
@@ -115,6 +136,29 @@ async fn logging_types_and_rebuilds() {
     eventually("new session records", || values(&h, P).len() == 6).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(values(&h, Q).len(), 3, "unchanged after the rebuild");
+
+    // `get <point>/~val?history=…` (spec 03): arrays of rows; a point that
+    // is not recorded and a plain `~val` get get no answer from it.
+    let rows = history(&s2, &format!("{P}/~val?history=2020-01-01..")).await;
+    assert_eq!(rows.len(), 1, "one reply");
+    assert_eq!(rows[0].len(), 6);
+    assert_eq!(rows[0][5].v, Value::Float(4.0));
+    assert!(rows[0].iter().all(|r| r.q == Some(Quality::Good)));
+    let agg = history(&s2, &format!("{P}/~val?history=2020-01-01..&agg=max")).await;
+    assert_eq!(
+        agg[0],
+        [HistRow {
+            t: agg[0][0].t,
+            v: Value::Float(4.0),
+            q: None
+        }]
+    );
+    assert!(
+        history(&s2, "wy/s/down/mock/none/~val?history=2020-01-01..")
+            .await
+            .is_empty()
+    );
+    assert!(history(&s2, &format!("{P}/~val")).await.is_empty());
 
     // Reconfigure: interval logging samples the last value.
     h.configure(vec![group("all", Logging::Interval, &[P])]);

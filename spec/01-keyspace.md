@@ -39,7 +39,8 @@ Downstream — те, що підключається до брокера: лін
 | `depth` | `~meta?view=keys` | 1..∞ (default ∞) |
 | `rev` | `~meta` | повернути `status=ok,rev` без тіла, якщо не змінилось |
 | `field` | `~set` | `cfg.<name>` \| `attr.<name>` — запис метаданих замість значення |
-| `history` | `~val` | `<from>..<to>` RFC 3339 або `since=<ts>` |
-| `agg`, `window` | `~val?history` | `avg|min|max|sum|count|first|last|delta`, `1m|5m|1h|1d` |
+| `history`, `since` | `~val` | `history=<from>..<to>` RFC 3339 (дата — її північ UTC; порожній `<to>` — зараз) або `since=<from>` |
+| `agg`, `window` | `~val?history` | `avg|min|max|sum|count|first|last|delta|and|or`; вікно `<n>s|m|h|d|w` (`5m`, `1h`) від `<from>`; `agg` без `window` — один рядок на весь діапазон, `window` без `agg` — перше значення вікна |
+| `limit` | `~val?history` | рядків відповіді, 1..100 000 (default 10 000) |
 | `close` | `~act/<a>` | `<rid>` — закрити стрім |
 | `dry_run` | `sys/**/~act/*` | `true` |

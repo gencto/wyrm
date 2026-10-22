@@ -5,7 +5,7 @@
 //! * [`wyrm_open`] connects a Zenoh client session to an endpoint and
 //!   returns a handle. Each handle owns its own tokio runtime.
 //! * Requests (`wyrm_meta`, `wyrm_children`, `wyrm_list`, `wyrm_subscribe`,
-//!   `wyrm_set`, `wyrm_invoke`, `wyrm_unsubscribe`) carry a caller-chosen
+//!   `wyrm_set`, `wyrm_invoke`, `wyrm_history`, `wyrm_unsubscribe`) carry a caller-chosen
 //!   request id and return at once. Their results come as events.
 //! * [`wyrm_next_event`] blocks up to a timeout and hands out one event: a
 //!   canonical CBOR map in the frame format of the user gateway WebSocket
@@ -564,6 +564,42 @@ pub unsafe extern "C" fn wyrm_set(
         h.rt.spawn(async move {
             let f = match inner.client.set(&key, v).await {
                 Ok(()) => ok_frame(id, None),
+                Err(e) => client_err(id, &e),
+            };
+            inner.emit(f).await;
+        });
+        WYRM_OK
+    })
+}
+
+/// Recorded values of the point `key` (spec 01 `~val?history=`), `args` a
+/// CBOR map `{from, to?, agg?, window?, limit?}`; result:
+/// `[[t, v, q] | [t_start, v], …]`.
+///
+/// # Safety
+/// `h` is a live handle; `key` is a NUL-terminated string; `args` is valid
+/// for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn wyrm_history(
+    h: *const WyrmHandle,
+    id: u64,
+    key: *const c_char,
+    args: *const u8,
+    len: usize,
+) -> i32 {
+    guard(|| {
+        let (h, key) = match request(h, key) {
+            Ok(x) => x,
+            Err(e) => return e,
+        };
+        let Some(args) = bytes(args, len).and_then(|b| from_slice::<Value>(b).ok()) else {
+            return WYRM_ERR_ARG;
+        };
+        let q = wyrm_client::HistoryQuery::from_args(Some(&args));
+        let inner = h.inner.clone();
+        h.rt.spawn(async move {
+            let f = match inner.client.history(&key, &q).await {
+                Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
                 Err(e) => client_err(id, &e),
             };
             inner.emit(f).await;

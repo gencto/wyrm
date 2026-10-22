@@ -9,3 +9,4 @@
 - 0.1.7 (2026-10-22): 02 — param-meta `editor: "file"` (binary parameter from a local file). No fixture change.
 - 0.1.9 (2026-10-22): README rule 4 — the protocol version is `attr.proto` of `wy/<site>/sys/~meta`; `wy/<site>/sys/broker` stays the broker's liveliness token, without a node. No fixture change.
 - 0.1.8 (2026-10-22): README rule 6 — nesting of arrays, maps and tags in one value is at most 32; deeper input is `invalid_message`. No fixture change (every fixture is shallower).
+- 0.1.10 (2026-10-22): 01, 03, 05 — history: `since=`, `agg` `and|or`, any `<n>s|m|h|d|w` window, `limit` ≤ 100 000; the answer is one or more arrays from the broker's historian (ADR 0014), errors as a status attachment; rights as `subscribe` (session ACL on `~val`), no `history:read` token (owner decision). Fixtures `hist_raw`, `hist_agg` (`HistRow` in both SDKs).

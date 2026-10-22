@@ -1249,8 +1249,17 @@ impl Control {
                 Mode::External => {}
             }
         }
-        self.history
-            .attach(session.clone(), crate::history::groups(&self.registry()));
+        // `~val?history=` of this site's points; a downstream site's broker
+        // answers for its own.
+        let site = &self.cfg.site;
+        self.history.attach(
+            session.clone(),
+            crate::history::groups(&self.registry()),
+            vec![
+                format!("wy/{site}/down/**/~val"),
+                format!("wy/{site}/flows/**/~val"),
+            ],
+        );
         let tasks = vec![
             tokio::spawn(crate::history::watch(self.clone(), ctx.clone())),
             tokio::spawn(watch_states(self.clone(), ctx.clone(), embedded.clone())),

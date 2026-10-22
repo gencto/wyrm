@@ -80,6 +80,22 @@ class ActApi implements WyrmApi {
         'wy/s/down/c' => [Child('dev', NodeMeta(hasChildren: true)), Child('temp', metaT)],
         _ => [],
       };
+  final histories = <(String, String, String?, String?)>[];
+
+  /// `temp` has three recorded rows, the last one bad.
+  @override
+  Future<List<HistRow>> history(String key,
+      {required String from, String to = '', String? agg, String? window, int? limit}) async {
+    histories.add((key, from, agg, window));
+    if (key != 'wy/s/down/c/temp') return [];
+    if (agg != null) return [const HistRow(1760000000000000, VFloat(21.5))];
+    return const [
+      HistRow(1760000000000000, VFloat(21.0), Quality.good),
+      HistRow(1760000001000000, VFloat(22.0), Quality.good),
+      HistRow(1760000002000000, VNull(), Quality.bad),
+    ];
+  }
+
   @override
   Future<void> close() async {}
 }
@@ -251,5 +267,40 @@ void main() {
     await t.tap(find.byTooltip('Close'));
     await t.pumpAndSettle();
     expect(find.text('rev'), findsNothing);
+  });
+
+  testWidgets('View History on a point: rows, a rollup, the window closes', (t) async {
+    t.view.physicalSize = const Size(1400, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    // a folder has no "View History"
+    await rightClick(t, find.text('c'));
+    expect(find.text('View History'), findsNothing);
+    await t.tapAt(const Offset(5, 5));
+    await t.pumpAndSettle();
+    // select c: its point temp is in Metrics with a menu
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('temp').last);
+    await t.tap(find.text('View History'));
+    await t.pumpAndSettle();
+    expect(api.histories.last.$1, 'wy/s/down/c/temp');
+    expect(find.text('3 rows'), findsOneWidget);
+    expect(find.text('2025-10-09T08:53:20.000Z'), findsWidgets, reason: 'UTC time of the first row');
+    expect(find.text('bad'), findsOneWidget);
+    // a rollup: one row per range
+    await t.tap(find.text('none').last);
+    await t.pumpAndSettle();
+    await t.tap(find.text('avg').last);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Load'));
+    await t.pumpAndSettle();
+    expect(api.histories.last.$3, 'avg');
+    expect(find.text('1 rows'), findsOneWidget);
+    await t.tap(find.byTooltip('Close'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('History: '), findsNothing);
   });
 }

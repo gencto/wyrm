@@ -111,6 +111,13 @@ abstract interface class WyrmApi {
   /// One-shot children of [key].
   Future<List<Child>> children(String key);
 
+  /// Recorded values of the point [key] (spec 01 `~val?history=`), in time
+  /// order: `[t, v, q]` rows, or with [agg] or [window] `[t_start, v]` rows
+  /// (`q` null). [from] and [to] are RFC 3339 (`to` empty: now). Empty when
+  /// nobody records the point (a watch in `sys/history` does).
+  Future<List<HistRow>> history(String key,
+      {required String from, String to = '', String? agg, String? window, int? limit});
+
   /// End every stream and the connection.
   Future<void> close();
 }

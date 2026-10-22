@@ -25,7 +25,7 @@
 ## Consequences
 - Principle 3 ("the broker owns only itself") gets one exception: the broker keeps time series of points it watches, by the owner's decision. The node tree and the last values are still owned by links and the memory storage.
 - `data_dir/history` grows with the watches; Auto Purge and Retention Days bound it. It is not HMAC-protected like the registry (it is data, not control state); `wyrmd verify` does not check it.
-- The spec read path `~val?history=` is not served yet: it needs a queryable beside the memory storage (two answers per query, the client keeps the array) and a decision on spec 05's `history:read` token. Planned with the explorer's history view (D2).
+- **Read path (D2, spec 0.1.10):** the historian answers `get <point>/~val?history=…` with a queryable on `wy/<site>/{down,flows}/**/~val` beside the memory storage; it ignores selectors without `history`/`since` and points it does not record, and answers one or more arrays (≤ 5000 rows each), errors as a status attachment. The storage still answers the same query with the last value (a map): `WyrmClient::history` keeps the arrays. Rights as `subscribe` (owner decision 2026-10-22): the session ACL on `~val`, no `history:read` token; the gateway's op `history` needs `read` on the point. Bounds: `limit` ≤ 100 000, 5 000 000 rows scanned (refused beyond, never cut), 4 reads at a time. Clients: Rust `history`, `wyr values`, Dart `history` (gateway and FFI `wyrm_history`), explorer "View History" (chart and rows).
 - The CLAUDE.md layout named `history/{rocksdb,influxdb}` as `HistoryStore` backends. RocksDB would bring a C++ build into every cross-compile for the ARM boards; InfluxDB is an external server and fits better as a requester link.
 
 ## Alternatives

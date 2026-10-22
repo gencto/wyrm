@@ -34,6 +34,10 @@ def fixtures():
     add("val_binary", "~val: сирі байти", {0: b"\x01\x02\x03\x04", 1: 0, 2: TS})
     add("val_uncertain", "~val: uncertain/stale після рестарту", {0: 21.4, 1: 1, 2: TS})
 
+    # ~val?history=
+    add("hist_raw", "~val?history=: рядки [t, v, q]", [[TS, 21.4, 0], [TS + 500000, 21.5, 1], [TS + 1000000, None, 2]])
+    add("hist_agg", "~val?history=&agg=avg&window=1m: рядки [t_start, v]", [[TS, 21.45], [TS + 60000000, 22]])
+
     # ~meta
     add("meta_number_full", "~meta повний для листового числового вузла (is=wy:number, type=number)",
         {0: 2, 1: 1, 2: "°C", 4: 0, 5: 0,

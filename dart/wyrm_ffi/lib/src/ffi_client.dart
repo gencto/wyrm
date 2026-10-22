@@ -68,6 +68,7 @@ class _Lib {
   late final unsubscribe = lib.lookupFunction<_UnsubN, _Unsub>('wyrm_unsubscribe');
   late final set = lib.lookupFunction<_SetN, _Set>('wyrm_set');
   late final invoke = lib.lookupFunction<_InvokeN, _Invoke>('wyrm_invoke');
+  late final history = lib.lookupFunction<_SetN, _Set>('wyrm_history');
 
   _OpenMock get openTestMock => lib.lookupFunction<_OpenMockN, _OpenMock>('wyrm_open_test_mock');
 
@@ -234,6 +235,9 @@ class FfiTransport implements FrameTransport {
         case 'set':
           final v = (frame['value'] ?? const VNull()).toCbor();
           return _l.set(_h, id, s(key), buf(v), v.length);
+        case 'history':
+          final a = (frame['args'] ?? const VMap({})).toCbor();
+          return _l.history(_h, id, s(key), buf(a), a.length);
         case 'invoke':
           final a = (frame['args'] ?? const VMap({})).toCbor();
           final action = switch (frame['action']) { VStr(:final v) => v, _ => '' };

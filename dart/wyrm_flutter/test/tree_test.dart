@@ -40,6 +40,10 @@ class FakeApi implements WyrmApi {
   @override
   Future<List<Child>> children(String key) async => [];
   @override
+  Future<List<HistRow>> history(String key,
+          {required String from, String to = '', String? agg, String? window, int? limit}) async =>
+      [];
+  @override
   Future<void> close() async {}
 }
 

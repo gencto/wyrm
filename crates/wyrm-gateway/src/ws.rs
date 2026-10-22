@@ -3,9 +3,11 @@
 //! Client → gateway:
 //! `{id: uint, op: tstr, key: tstr, value?, action?: tstr, args?, sub?: uint}`
 //! with `op` one of `meta`, `children`, `list`, `subscribe`, `unsubscribe`,
-//! `set`, `invoke`. `key` is a full node key (`wy/<site>/…`, no suffix);
-//! `subscribe` takes a pattern (`*`, `**`). `unsubscribe` ends the `list` or
-//! `subscribe` stream whose request id is `sub`.
+//! `set`, `invoke`, `history`. `key` is a full node key (`wy/<site>/…`, no
+//! suffix); `subscribe` takes a pattern (`*`, `**`). `unsubscribe` ends the
+//! `list` or `subscribe` stream whose request id is `sub`. `history` takes
+//! `args {from, to?, agg?, window?, limit?}` (spec 01 `~val?history=`) and
+//! answers `result: [[t, v, q] | [t_start, v], …]`.
 //!
 //! Gateway → client:
 //! * `{id, ok: true, result?}` / `{id, ok: false, error: {status, message}}`
@@ -21,7 +23,8 @@
 //! with the SDK's `NodeMeta` codec. `status` is a spec-04 status code.
 //!
 //! Every request is checked against the user's grants first (`list`/`meta`/
-//! `children` ≥ list, `subscribe` ≥ read on some part of the pattern, `set`
+//! `children` ≥ list, `subscribe` ≥ read on some part of the pattern,
+//! `history` ≥ read on the point, `set`
 //! ≥ write, `invoke` ≥ read with the action's own level left to the
 //! responder), then sent with a fresh `ptok`. Samples and children the user
 //! may not see are dropped before they reach the socket.
@@ -274,7 +277,10 @@ impl Conn {
         let pattern = req.op == "subscribe";
         // A downstream site (ADR 0007): read only, checked as the own site.
         if let Some(d) = self.gw.read_site_of(&req.key) {
-            if !matches!(req.op.as_str(), "meta" | "children" | "list" | "subscribe") {
+            if !matches!(
+                req.op.as_str(),
+                "meta" | "children" | "list" | "subscribe" | "history"
+            ) {
                 self.send(err_frame(
                     req.id,
                     Status::PermissionDenied.code(),
@@ -293,6 +299,8 @@ impl Conn {
         let allowed = match req.op.as_str() {
             "meta" | "children" | "list" => p.grants.perm(&format!("{own}/~meta")) >= Perm::List,
             "subscribe" => p.grants.any(&format!("{own}/~val"), Perm::Read),
+            // as reading the point's value (spec 05 0.1.10)
+            "history" => p.grants.perm(&format!("{own}/~val")) >= Perm::Read,
             "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
             "invoke" => match req.action.as_deref() {
                 Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
@@ -368,6 +376,13 @@ impl Conn {
                 Ok(m) => ok_frame(id, Some(meta_bytes(&m))),
                 Err(e) => client_err(id, &e),
             },
+            "history" => {
+                let q = wyrm_client::HistoryQuery::from_args(req.args.as_ref());
+                match c.history(&req.key, &q).await {
+                    Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
+                    Err(e) => client_err(id, &e),
+                }
+            }
             "children" => match c.children(&req.key).await {
                 Ok(kids) => {
                     let g = self.grants.borrow().clone();

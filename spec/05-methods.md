@@ -6,7 +6,7 @@
 | `meta(path)` | `get path/~meta[?rev=]` | — | map або `status=ok,rev` без тіла | лише `cfg.restricted` |
 | `resolve(path, match, depth)` | `get path/~meta?view=keys&match=&depth=` | — | array of tstr (стиснуті) | лише `cfg.restricted` |
 | `subscribe(pattern, qos)` | `get pattern/~val` (storage) + `subscribe pattern/~val` | — | `Stream<Sample{key, v, q, t}>` | ні (ACL сесії) |
-| `history(path, from, to, agg?)` | `get path/~val?history=` | — | array | `history:read` |
+| `history(path, from, to, agg?)` | `get path/~val?history=` | — | array (один або кілька reply, 03) | ні (ACL сесії на `~val`, як `subscribe`) |
 | `set(path, v)` | `get path/~set` | `{0: v}` | attachment `status` | так |
 | `set_meta(path, field, v)` | `get path/~set?field=` | `{0: v}` | `status` | так (config) |
 | `invoke(path, action, args)` | `get path/~act/<a>` | map args (tstr keys) | одна відповідь або стрім | так |

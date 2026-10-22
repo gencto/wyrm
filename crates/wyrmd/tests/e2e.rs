@@ -2890,6 +2890,38 @@ async fn history_records_and_answers() {
         (n >= 5.0 && size > 0.0).then_some(())
     })
     .await;
+    // spec 03 through the router: `get <point>/~val?history=`
+    let point = format!("wy/{SITE}/down/mock/g0/p0");
+    let since = wyrm_client::HistoryQuery::since("2020-01-01");
+    let h = c.history(&point, &since).await.unwrap();
+    assert!(h.len() >= 5 && h.iter().all(|r| r.q.is_some()), "{h:?}");
+    assert!(h.windows(2).all(|w| w[0].t <= w[1].t), "time order");
+    let counted = c
+        .history(
+            &point,
+            &wyrm_client::HistoryQuery {
+                agg: Some("count".into()),
+                ..since.clone()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(counted.as_slice(), [r] if r.q.is_none()),
+        "{counted:?}"
+    );
+    assert!(
+        c.history(&format!("wy/{SITE}/down/mock/g0/p2"), &since)
+            .await
+            .unwrap()
+            .is_empty(),
+        "not recorded"
+    );
+    let bad = c
+        .history(&point, &wyrm_client::HistoryQuery::since("yesterday"))
+        .await
+        .expect_err("bad range");
+    assert!(bad.is(wyrm_core::Status::InvalidParameter), "{bad}");
     eventually("watch dates", 10, || async {
         matches!(
             last_val(&c, &format!("{w1}/end_date")).await,

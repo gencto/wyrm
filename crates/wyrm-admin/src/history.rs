@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_history::time::{iso_us, parse_interval, parse_range, US_PER_DAY};
-use wyrm_history::{Folder, GroupCfg, Logging, Rollup, WatchCfg};
+use wyrm_history::{GroupCfg, HistoryQuery, Logging, Rollup, WatchCfg};
 use wyrm_link_sdk::{now_us, LinkCtx, LinkError};
 
 type Result<T> = wyrm_link_sdk::Result<T>;
@@ -904,20 +904,20 @@ pub(crate) async fn query(
     rollup: Rollup,
     limit: usize,
 ) -> Result<Vec<Value>> {
-    let st = ctl.history.store().clone();
-    let k = key.to_owned();
-    let raw = interval.is_none() && rollup == Rollup::None;
-    let out = tokio::task::spawn_blocking(move || {
-        let Some(series) = st.series_id(&k, false)? else {
-            return Ok(Vec::new());
-        };
-        let mut f = Folder::new(from, interval, rollup, limit);
-        st.scan(series, from, to, |r| f.push(r))?;
-        Ok::<_, wyrm_history::store::Error>(f.finish())
-    })
-    .await
-    .map_err(|e| LinkError::internal(e.to_string()))?
-    .map_err(|e| LinkError::internal(e.to_string()))?;
+    let q = HistoryQuery {
+        from,
+        to,
+        interval,
+        rollup,
+        limit,
+    };
+    let out = ctl
+        .history
+        .query(key, &q)
+        .await
+        .map_err(|e| LinkError::new(e.status(), e.to_string()))?
+        .unwrap_or_default();
+    let raw = q.raw();
     Ok(out
         .into_iter()
         .map(|(t, v, q)| {

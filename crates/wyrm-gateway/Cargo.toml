@@ -34,6 +34,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-history.workspace = true
 wyrm-link-mock.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util"] }
 tokio-tungstenite.workspace = true

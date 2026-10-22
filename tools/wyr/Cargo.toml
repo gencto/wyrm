@@ -13,6 +13,7 @@ zeroize.workspace = true
 wyrm-core.workspace = true
 wyrm-flow.workspace = true
 wyrm-client = { workspace = true, features = ["advanced"] }
+wyrm-history.workspace = true
 zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_unixsock-stream"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
 clap = { workspace = true, features = ["env"] }

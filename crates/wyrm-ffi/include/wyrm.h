@@ -58,6 +58,10 @@ int32_t wyrm_list(const WyrmHandle *h, uint64_t id, const char *key);
 int32_t wyrm_subscribe(const WyrmHandle *h, uint64_t id, const char *pattern);
 int32_t wyrm_unsubscribe(const WyrmHandle *h, uint64_t id, uint64_t sub);
 int32_t wyrm_set(const WyrmHandle *h, uint64_t id, const char *key, const uint8_t *value, size_t len);
+
+/* Recorded values of the point `key` (spec 01 `~val?history=`); `args` is a
+   CBOR map {from, to?, agg?, window?, limit?}. Result: [[t, v, q] | [t, v], ...]. */
+int32_t wyrm_history(const WyrmHandle *h, uint64_t id, const char *key, const uint8_t *args, size_t len);
 int32_t wyrm_invoke(const WyrmHandle *h, uint64_t id, const char *key, const char *action,
                     const uint8_t *args, size_t len);
 

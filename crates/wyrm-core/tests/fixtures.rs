@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::meta::MetaPatch;
-use wyrm_core::{Attachment, NodeMeta, PtokClaims, Sample, Value};
+use wyrm_core::{Attachment, HistRow, NodeMeta, PtokClaims, Sample, Value};
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -67,12 +67,13 @@ where
 #[test]
 fn all_fixtures_roundtrip() {
     let fx = fixtures();
-    assert_eq!(fx.len(), 24, "fixture count changed — update bindings too");
+    assert_eq!(fx.len(), 26, "fixture count changed — update bindings too");
     for f in &fx {
         let bytes = hex::decode(&f.hex).unwrap();
         let n = f.name.as_str();
         match n {
             _ if n.starts_with("val_") => roundtrip::<Sample>(n, &bytes),
+            _ if n.starts_with("hist_") => roundtrip::<Vec<HistRow>>(n, &bytes),
             "meta_view_list" => roundtrip::<Vec<NodeMeta>>(n, &bytes),
             "meta_view_keys" => roundtrip::<Vec<String>>(n, &bytes),
             "meta_patch" => roundtrip::<MetaPatch>(n, &bytes),

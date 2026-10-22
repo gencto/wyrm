@@ -153,6 +153,8 @@ struct Running {
 struct Run {
     session: Option<Session>,
     groups: HashMap<String, Running>,
+    /// The `~val?history=` queryables of this session.
+    serve: Option<JoinHandle<()>>,
 }
 
 pub struct Historian {
@@ -161,6 +163,8 @@ pub struct Historian {
     /// Last row written per point key.
     last: Arc<Mutex<HashMap<String, Row>>>,
     run: Mutex<Run>,
+    /// Reads at the same time ([`crate::query::MAX_QUERIES`]).
+    pub(crate) reads: tokio::sync::Semaphore,
 }
 
 pub fn now_us() -> u64 {
@@ -177,6 +181,7 @@ impl Historian {
             counters: Arc::default(),
             last: Arc::default(),
             run: Mutex::default(),
+            reads: tokio::sync::Semaphore::new(crate::query::MAX_QUERIES),
         }))
     }
 
@@ -205,9 +210,24 @@ impl Historian {
             .remove(key);
     }
 
-    /// Bind to `session` (a new router runtime) and run `groups`.
-    pub fn attach(&self, session: Session, groups: Vec<GroupCfg>) {
-        self.run.lock().unwrap_or_else(|p| p.into_inner()).session = Some(session);
+    /// Bind to `session` (a new router runtime), run `groups`, and answer
+    /// `get <point>/~val?history=…` on `serve` (key expressions such as
+    /// `wy/<site>/down/**/~val`).
+    pub fn attach(self: &Arc<Self>, session: Session, groups: Vec<GroupCfg>, serve: Vec<String>) {
+        {
+            let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());
+            run.session = Some(session.clone());
+            if let Some(old) = run.serve.take() {
+                old.abort();
+            }
+            if !serve.is_empty() {
+                run.serve = Some(tokio::spawn(crate::query::serve(
+                    self.clone(),
+                    session,
+                    serve,
+                )));
+            }
+        }
         self.configure(groups);
     }
 
@@ -216,6 +236,9 @@ impl Historian {
         let groups: Vec<Running> = {
             let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());
             run.session = None;
+            if let Some(serve) = run.serve.take() {
+                serve.abort();
+            }
             run.groups.drain().map(|(_, r)| r).collect()
         };
         for r in groups {

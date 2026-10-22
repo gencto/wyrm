@@ -58,6 +58,57 @@ class Sample {
   String toString() => 'Sample($v, ${q.wireName}, $t)';
 }
 
+/// One row of a history answer (`get ~val?history=`, spec 03): a sample
+/// `[t, v, q]`, or with `agg` a rollup `[t_start, v]` (`q` null).
+class HistRow {
+  /// Microseconds since the Unix epoch: the sample's time or its window's start.
+  final int t;
+  final Value v;
+  final Quality? q;
+
+  const HistRow(this.t, this.v, [this.q]);
+
+  void encode(CborWriter w) {
+    w.arrayHeader(q == null ? 2 : 3);
+    w.uint(t);
+    v.encode(w);
+    if (q case final q?) w.uint(q.code);
+  }
+
+  static HistRow decode(CborReader r) {
+    final n = r.readArrayHeader() ?? (throw CborError('indefinite history row'));
+    if (n < 2 || n > 3) throw CborError('history row of $n items (2 or 3)');
+    final t = r.readUint();
+    final v = r.readValue();
+    Quality? q;
+    if (n == 3) {
+      final c = r.readUint();
+      q = Quality.fromCode(c) ?? (throw CborError('bad quality $c'));
+    }
+    return HistRow(t, v, q);
+  }
+
+  static List<HistRow> decodeList(CborReader r) {
+    final n = r.readArrayHeader() ?? (throw CborError('indefinite history'));
+    return [for (var i = 0; i < n; i++) decode(r)];
+  }
+
+  static void encodeList(CborWriter w, List<HistRow> l) {
+    w.arrayHeader(l.length);
+    for (final row in l) {
+      row.encode(w);
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is HistRow && other.t == t && other.v == v && other.q == q;
+  @override
+  int get hashCode => Object.hash(t, v, q);
+  @override
+  String toString() => 'HistRow($t, $v, ${q?.wireName})';
+}
+
 /// `~set` request payload `{0: v}` (spec 05).
 Uint8List encodeSetRequest(Value v) => encodeCbor((w) {
       w.mapHeader(1);

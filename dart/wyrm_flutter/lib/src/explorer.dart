@@ -13,6 +13,8 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'explorer_theme.dart';
 import 'tree.dart' show formatValue;
 
+part 'history.dart';
+
 /// Tab bar: 40px, `#1d1c1c`, active tab `#2ebed7` with a 2px
 /// underline, 12px text with 10px side margins, 10px bar padding.
 class WyTabBar extends StatelessWidget {
@@ -388,7 +390,8 @@ List<_Entry> _menuEntries(NodeMeta m) {
 }
 
 /// The node's context menu: its actions by group (`New ▸`, the top level,
-/// `Edit ▸`), `@set` for a writable node, a separator and "Copy Path".
+/// `Edit ▸`), `@set` for a writable node, a separator, "View History" for
+/// a point and "Copy Path".
 /// Every action opens its form to the right of its row: its params (if
 /// any), Invoke, the status and the result.
 abstract final class WyContextMenu {
@@ -485,6 +488,16 @@ abstract final class WyContextMenu {
               return panel(0, entries, m, tail: [
                 if (entries.isEmpty) const _MenuItem(label: 'No actions', disabled: true),
                 Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 2), color: WyStyle.line),
+                // A point (no children): its recorded values (sys/history).
+                if (!m.isContainer)
+                  _MenuItem(
+                    label: 'View History',
+                    onHover: (_) => closeFrom(1),
+                    onTap: (_) {
+                      close();
+                      WyHistory.open(context, api, key);
+                    },
+                  ),
                 _MenuItem(
                   label: 'Copy Path',
                   onHover: (_) => closeFrom(1),
