@@ -24,14 +24,25 @@ abstract interface class FrameTransport {
 }
 
 /// [WyrmApi] over a [FrameTransport].
+/// One invoke outside the frame transport: `(key, action, args)` → the last
+/// result. For arguments larger than a frame ([maxFrameArgs]).
+typedef BulkInvoke = Future<Value> Function(String key, String action, Value args);
+
+/// Largest invoke arguments sent in a frame: the gateway's WebSocket frames
+/// are at most 64 KiB (ADR 0011).
+const int maxFrameArgs = 60 * 1024;
+
 class FrameClient implements WyrmApi {
   final FrameTransport _t;
+  final BulkInvoke? _bulk;
   final Map<int, _Pending> _pending = {};
   late final StreamSubscription<Value> _sub;
   int _nextId = 1; // id 0 is the server's "unparsable frame"
   bool _closed = false;
 
-  FrameClient(this._t) {
+  /// [bulk] carries invokes whose arguments do not fit a frame (the
+  /// gateway's `POST /api/invoke`); without it they go in a frame anyway.
+  FrameClient(this._t, {BulkInvoke? bulk}) : _bulk = bulk {
     _sub = _t.incoming.listen(_onFrame, onDone: _onGone, onError: (Object _) => _onGone());
   }
 
@@ -190,6 +201,11 @@ class FrameClient implements WyrmApi {
 
   @override
   Stream<Value> invoke(String key, String action, [Value? args]) {
+    final a = args ?? const VMap({});
+    final bulk = _bulk;
+    if (bulk != null && a.toCbor().length > maxFrameArgs) {
+      return Stream.fromFuture(bulk(key, action, a)).where((v) => v is! VNull);
+    }
     late StreamController<Value> ctl;
     ctl = StreamController<Value>(onListen: () {
       final id = _id();
@@ -205,7 +221,7 @@ class FrameClient implements WyrmApi {
         },
       );
       try {
-        _send(id, 'invoke', key, action: action, args: args ?? const VMap({}));
+        _send(id, 'invoke', key, action: action, args: a);
       } catch (e) {
         _pending.remove(id);
         ctl.addError(e);

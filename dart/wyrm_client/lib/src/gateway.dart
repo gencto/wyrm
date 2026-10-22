@@ -4,6 +4,8 @@
 //   POST /api/login {user, password}   → {session, exp}
 //   POST /api/ws-ticket (Bearer)       → {ticket, exp}   (single use, 30 s)
 //   GET  /api/ws?ticket=…              → WebSocket
+//   POST /api/invoke (Bearer) {key, action, args} → {result}  (args too
+//        large for a WebSocket frame, ADR 0011)
 
 import 'dart:async';
 import 'dart:io';
@@ -52,7 +54,15 @@ class WyrmGateway {
       queryParameters: {'ticket': ticket},
     );
     final sock = await WebSocket.connect(ws.toString(), customClient: _http);
-    return FrameClient(WebSocketTransport(sock));
+    return FrameClient(WebSocketTransport(sock), bulk: invoke);
+  }
+
+  /// `POST /api/invoke`: one invoke whose arguments are too large for a
+  /// WebSocket frame (a file parameter); returns its last result.
+  Future<Value> invoke(String key, String action, Value args) async {
+    final r = await _post(_http, base.resolve('/api/invoke'),
+        bearer: _session, body: {'key': VStr(key), 'action': VStr(action), 'args': args});
+    return r['result'] ?? const VNull();
   }
 
   /// Close the HTTP client (open sockets stay until their clients close).

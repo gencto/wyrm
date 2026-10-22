@@ -12,6 +12,8 @@ dependencies:
     sdk: flutter
   wyrm_client:
     path: ../wyrm_client
+  # `editor: file` params (spec 02 0.1.7): macOS, Windows, Linux, web.
+  file_selector: ^1.0.3
 
 dev_dependencies:
   flutter_test:

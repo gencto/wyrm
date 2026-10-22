@@ -10,7 +10,10 @@
 //! * `POST /api/ws-ticket` (bearer session) → `{ticket, exp}`: single use,
 //!   30 s, so the long-lived session never appears in a URL
 //! * `GET /api/ws?ticket=…` (or `Authorization: Bearer`) — binary CBOR
-//!   frames, see [`ws`]
+//!   frames (64 KiB each), see [`ws`]
+//! * `POST /api/invoke` (bearer session) `{key, action, args}` → `{result}`:
+//!   one invoke with arguments too large for a frame (64 MiB body, ADR 0011),
+//!   checked like a WebSocket invoke
 //! * user management (`config` on `wy/<site>/sys/**`): `GET|POST /api/users`,
 //!   `POST /api/users/{name}/password|roles|disabled`, `DELETE /api/users/{name}`
 

@@ -520,7 +520,7 @@ fn visible_child(g: &Grants, parent: &str, name: &str) -> bool {
 
 /// `wy/<site>` or below; a valid key expression; no `~` segments; no
 /// wildcards unless `pattern`.
-fn check_key(site: &str, key: &str, pattern: bool) -> Result<(), String> {
+pub(crate) fn check_key(site: &str, key: &str, pattern: bool) -> Result<(), String> {
     let root = format!("wy/{site}");
     if key != root && !key.starts_with(&format!("{root}/")) {
         return Err(format!("key must be under {root}"));

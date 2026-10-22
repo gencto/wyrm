@@ -5,6 +5,7 @@
 
 import 'dart:async';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -621,6 +622,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   final _text = <String, TextEditingController>{};
   final _bool = <String, bool>{};
   final _enum = <String, String?>{};
+
+  /// `editor: file` params (spec 02 0.1.7): the chosen file, if any.
+  final _files = <String, ({String name, Uint8List bytes})?>{};
   final _results = <Value>[];
   _Status _status = _Status.idle;
   String? _error;
@@ -631,7 +635,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     for (final e in _params.entries) {
       final p = e.value;
       final d = p.defaultValue;
-      if (p.ty == TypeCode.bool_) {
+      if (p.isFile) {
+        _files[e.key] = null;
+      } else if (p.ty == TypeCode.bool_) {
         _bool[e.key] = d is VBool && d.v;
       } else if (p.enumValues != null && p.enumValues!.isNotEmpty) {
         _enum[e.key] = d is VStr ? d.v : p.enumValues!.first;
@@ -642,6 +648,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
   }
 
   Value _value(String k, ParamMeta p) {
+    if (_files.containsKey(k)) return VBytes(_files[k]!.bytes);
     if (_bool.containsKey(k)) return VBool(_bool[k]!);
     if (_enum.containsKey(k)) {
       final s = _enum[k]!;
@@ -669,6 +676,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         final args = <String, Value>{};
         for (final e in _params.entries) {
           if (_text.containsKey(e.key) && _text[e.key]!.text.trim().isEmpty) continue;
+          if (_files.containsKey(e.key) && _files[e.key] == null) continue;
           args[e.key] = _value(e.key, e.value);
         }
         await for (final v in widget.api.invoke(widget.nodeKey, widget.action, VMap(args))) {
@@ -803,7 +811,38 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     return p.placeholder == null ? 'optional' : '${p.placeholder} (optional)';
   }
 
+  /// Pick a local file for an `editor: file` param.
+  Future<void> _pick(String name) async {
+    final f = await openFile();
+    if (f == null) return;
+    final bytes = await f.readAsBytes();
+    if (mounted) setState(() => _files[name] = (name: f.name, bytes: bytes));
+  }
+
   Widget _editor(String name, ParamMeta p) {
+    if (_files.containsKey(name)) {
+      final f = _files[name];
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => _pick(name),
+          child: _FieldBox(
+            child: Row(children: [
+              const Icon(Icons.attach_file, size: 14, color: WyStyle.placeholder),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  f == null ? 'Choose File…' : '${f.name} (${(f.bytes.length / 1024).ceil()} KiB)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: f == null ? WyStyle.input.copyWith(color: WyStyle.placeholder) : WyStyle.input,
+                ),
+              ),
+            ]),
+          ),
+        ),
+      );
+    }
     if (_bool.containsKey(name)) {
       return Align(
         alignment: Alignment.centerLeft,

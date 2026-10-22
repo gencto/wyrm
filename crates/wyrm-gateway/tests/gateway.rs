@@ -690,6 +690,62 @@ fn role_grants_change_persist_and_keep_an_admin() {
     );
 }
 
+/// `POST /api/invoke` (ADR 0011): arguments larger than a WebSocket frame
+/// and the same grant check as a WebSocket invoke.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_invoke_takes_large_arguments() {
+    let env = Env::start("httpinvoke", Duration::from_secs(600)).await;
+    let root = env.session("root", ADMIN_PW).await;
+    env.gw
+        .add_user("fo", "flows only pw", vec!["flows_only".into()])
+        .unwrap();
+    let fo = env.session("fo", "flows only pw").await;
+    let big = Value::Bytes(vec![7u8; 300 * 1024]);
+    let body = |blob: Value| {
+        map([
+            ("key", Value::from(ROOT)),
+            ("action", Value::from("reset")),
+            ("args", map([("blob", blob)])),
+        ])
+    };
+    // 300 KiB reach the link, which checks them against the action's params
+    let (st, v) = env
+        .http("POST", "/api/invoke", Some(&root), Some(body(big)))
+        .await;
+    assert_eq!(st, 502, "{v:?}");
+    assert_eq!(get(&v, "message"), &Value::from("unknown param blob"));
+    let (st, v) = env
+        .http(
+            "POST",
+            "/api/invoke",
+            Some(&root),
+            Some(map([
+                ("key", Value::from(ROOT)),
+                ("action", Value::from("reset")),
+            ])),
+        )
+        .await;
+    assert_eq!(st, 200, "{v:?}");
+    assert!(f_has(&v, "result"), "{v:?}");
+    // no grant on devices: refused by the gateway, audited
+    let (st, _) = env
+        .http("POST", "/api/invoke", Some(&fo), Some(body(Value::Null)))
+        .await;
+    assert_eq!(st, 403);
+    assert!(env
+        .audit
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, AuditEvent::Denied { op, .. } if op == "invoke")));
+    // no session
+    let (st, _) = env
+        .http("POST", "/api/invoke", None, Some(body(Value::Null)))
+        .await;
+    assert_eq!(st, 401);
+    env.stop().await;
+}
+
 /// When a link goes, grants that widen a role on its branch are revoked;
 /// neutral and restrictive ones stay (ADR 0006).
 #[test]

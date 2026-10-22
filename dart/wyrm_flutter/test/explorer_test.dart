@@ -31,6 +31,7 @@ class ActApi implements WyrmApi {
       'name': ParamMeta(ty: TypeCode.string, required: true),
       'password': ParamMeta(ty: TypeCode.string, editor: 'password', placeholder: 'secret'),
       'table': ParamMeta(ty: TypeCode.enum_, enumValues: ['coil', 'holding'], defaultValue: const VStr('coil')),
+      'map': ParamMeta(ty: TypeCode.binary, editor: 'file', display: 'Map file'),
     }),
     'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'host': ParamMeta(ty: TypeCode.string)}),
     'remove': ActionMeta(display: 'Remove', group: 'edit'),
@@ -195,6 +196,9 @@ void main() {
     final pw = t.widgetList<TextField>(find.byType(TextField)).where((f) => f.obscureText).toList();
     expect(pw, hasLength(1));
     expect(pw.single.decoration?.hintText, 'secret (optional)');
+    // a file param is a picker, not a text field
+    expect(find.text('Map file'), findsOneWidget);
+    expect(find.text('Choose File…'), findsOneWidget);
     // an enum field opens its options over the menu and takes a pick
     await t.tap(find.text('coil'));
     await t.pumpAndSettle();

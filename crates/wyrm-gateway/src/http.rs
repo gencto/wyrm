@@ -22,6 +22,11 @@ use zeroize::Zeroizing;
 
 /// Largest HTTP body.
 const MAX_BODY: usize = 64 * 1024;
+/// Largest `POST /api/invoke` body: a link package zip or a WASM component
+/// (ADR 0011). WebSocket frames stay at 64 KiB.
+const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
+/// Longest wait for an invoke over HTTP: install actions fetch and unpack.
+const INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -117,6 +122,10 @@ fn router(st: AppState) -> Router {
         .route("/api/users/{name}/disabled", post(set_disabled))
         .route("/api/ws-ticket", post(ws_ticket))
         .route("/api/ws", get(crate::ws::upgrade))
+        .route(
+            "/api/invoke",
+            post(invoke).layer(DefaultBodyLimit::max(MAX_INVOKE_BODY)),
+        )
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(st)
 }
@@ -321,6 +330,60 @@ async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult 
     Ok(cbor(
         StatusCode::OK,
         &map([("ticket", Value::Str(ticket)), ("exp", Value::UInt(exp))]),
+    ))
+}
+
+/// `POST /api/invoke` `{key, action, args}`: one invoke whose arguments are
+/// too large for a WebSocket frame (a `file` parameter, ADR 0011). The same
+/// checks as a WebSocket `invoke`; replies `{result}` with the last value.
+async fn invoke(State(st): State<AppState>, Auth(p): Auth, body: Bytes) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let key = text(&mut m, "key")?;
+    let action = text(&mut m, "action")?;
+    let args = m
+        .remove("args")
+        .unwrap_or_else(|| Value::Map(BTreeMap::new()));
+    let gw = &st.gw;
+    if let Some(d) = gw.read_site_of(&key) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            Status::PermissionDenied,
+            format!("{d} is a downstream site: read only"),
+        ));
+    }
+    crate::ws::check_key(gw.site(), &key, false).map_err(ApiError::bad)?;
+    wyrm_core::keyspace::validate_segment(&action)
+        .map_err(|_| ApiError::bad("action: valid segment required"))?;
+    if p.grants.perm(&format!("{key}/~act/{action}")) < wyrm_core::Perm::Read {
+        gw.audit(AuditEvent::Denied {
+            user: p.name.clone(),
+            op: "invoke".into(),
+            key,
+        });
+        return Err(ApiError::forbidden());
+    }
+    let c = wyrm_client::WyrmClient::new(st.session.clone())
+        .with_tokens(Arc::new(gw.tokens_for(&p)))
+        .with_timeout(INVOKE_TIMEOUT);
+    let failed = |e: wyrm_client::ClientError| {
+        let status = match e.status {
+            wyrm_core::status::StatusCode::Known(s) => s,
+            _ => Status::InternalError,
+        };
+        ApiError::new(StatusCode::BAD_GATEWAY, status, e.message)
+    };
+    let mut s = c.invoke(&key, &action, args).await.map_err(failed)?;
+    let mut last = None;
+    while let Some(item) = futures_util::StreamExt::next(&mut s).await {
+        match item {
+            Ok(Some(v)) => last = Some(v),
+            Ok(None) => {}
+            Err(e) => return Err(failed(e)),
+        }
+    }
+    Ok(cbor(
+        StatusCode::OK,
+        &map([("result", last.unwrap_or(Value::Null))]),
     ))
 }
 

@@ -9,6 +9,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:test/test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -125,6 +126,17 @@ void main() {
   test('invoke a stream action', () async {
     final out = await c.invoke(root, 'count', VMap({'n': const VInt(3)})).toList();
     expect(out.map((v) => v.asDouble), [0, 1, 2]);
+  });
+
+  test('large arguments go over POST /api/invoke, not a frame', () async {
+    // 100 KiB do not fit a 64 KiB frame; the link sees them and refuses the
+    // unknown parameter, and the socket stays usable.
+    final big = VMap({'blob': VBytes(Uint8List(100 * 1024))});
+    await expectLater(
+        c.invoke(root, 'reset', big).toList(),
+        throwsA(isA<WyrmException>()
+            .having((e) => e.message, 'message', contains('unknown param blob'))));
+    await c.invoke(root, 'reset').toList();
   });
 
   test('invoke an unknown action fails', () async {
