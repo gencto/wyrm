@@ -46,3 +46,9 @@ pub use wyrm_link_sdk_derive::{ParamEnum, Params};
 /// secrets, trust lists). A link package names the version it was built for
 /// (`wyrm-link.json` `wyrm_link`, ADR 0011); the broker refuses another one.
 pub const LINK_PROTOCOL: u32 = 1;
+
+/// Link secret with the signing key (32 bytes) of a link that has grants
+/// (a requester, as DSA `isRequester`): its `ptok`s for `~set`/`~act` on
+/// other links, which trust the key only up to each grant's level and
+/// path. Created by the broker; see [`LinkCtx::requester_key`].
+pub const REQUESTER_KEY: &str = ".requester_key";

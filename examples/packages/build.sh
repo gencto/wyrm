@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Build the example link packages into examples/packages/out/ (ADR 0011):
 #
-#   example-link-<os>-<arch>.zip  process package: the wyrm-example-link
-#                                 binary (mockdev driver) for this host
-#   register-wasm.zip             wasm package: the register component
+#   example-link-<host>.zip  responder: the mockdev driver as its own binary
+#                            (examples/links/responder)
+#   recorder-<host>.zip      requester: records another link's values to CSV
+#                            (examples/links/requester; asks for a read grant)
+#   average-<host>.zip       both: serves statistics of another link and
+#                            writes its points (examples/links/both; asks for
+#                            a write grant)
+#   register-wasm.zip        WASM package: the register component
 #   register.wasm, tcp-ping.wasm  components for "Install Link ▸ from WASM"
-#   index.json                    repository index for "from Repository",
-#                                 URLs on http://127.0.0.1:${REPO_PORT:-8090}
+#   index.json               repository index for "from Repository", URLs on
+#                            http://127.0.0.1:${REPO_PORT:-8090}
 #
 # examples/demo/run.sh serves out/ on that port when it exists.
 set -euo pipefail
@@ -16,16 +21,16 @@ OUT=out
 PORT=${REPO_PORT:-8090}
 mkdir -p "$OUT"
 
-(cd $ROOT && cargo build --release -p wyrm-example-link)
+(cd $ROOT && cargo build --release -p wyrm-example-link -p wyrm-example-recorder -p wyrm-example-average)
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 
 PROTO=$(sed -n 's/^pub const LINK_PROTOCOL: u32 = \([0-9]*\);/\1/p' $ROOT/crates/wyrm-link-sdk/src/lib.rs)
 
-python3 -I - "$OUT" "$ROOT/target/release/wyrm-example-link" "$PROTO" "$PORT" <<'PY'
+python3 -I - "$OUT" "$ROOT/target/release" "$PROTO" "$PORT" <<'PY'
 import hashlib, json, platform, sys, zipfile
 from pathlib import Path
 
-out, binary, proto, port = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+out, bins, proto, port = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 os_name = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}[platform.system()]
 arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64", "AMD64": "x86_64"}[platform.machine()]
 host = f"{os_name}-{arch}"
@@ -43,15 +48,29 @@ def package(path, manifest, files):
             put(z, name, data, mode)
     return path
 
-entry = f"bin/{host}/wyrm-example-link"
-proc_zip = package(out / f"example-link-{host}.zip", {
-    "name": "example-link",
-    "version": "1.0.0",
-    "description": "Example process link: the mockdev driver as its own binary",
-    "wyrm_link": proto,
-    "kind": "process",
-    "entries": {host: entry},
-}, [(entry, binary.read_bytes(), 0o755)])
+def process(name, binary, description, requester=()):
+    entry = f"bin/{host}/{binary}"
+    manifest = {
+        "name": name,
+        "version": "1.0.0",
+        "description": description,
+        "wyrm_link": proto,
+        "kind": "process",
+        "entries": {host: entry},
+    }
+    if requester:
+        manifest["requester"] = [{"path": p, "level": l} for p, l in requester]
+    return package(out / f"{name}-{host}.zip", manifest,
+                   [(entry, (bins / binary).read_bytes(), 0o755)])
+
+proc_zip = process("example-link", "wyrm-example-link",
+                   "Responder: the mockdev driver as its own binary")
+rec_zip = process("recorder", "wyrm-example-recorder",
+                  "Requester: records the values of wy/{site}/down/mock to CSV",
+                  [("wy/{site}/down/mock", "read")])
+avg_zip = process("average", "wyrm-example-average",
+                  "Responder and requester: statistics of wy/{site}/down/mock, Write All",
+                  [("wy/{site}/down/mock", "write")])
 
 wasm_zip = package(out / "register-wasm.zip", {
     "name": "register",
@@ -72,8 +91,10 @@ def item(name, version, description, path):
     }
 
 index = [
-    item("example-link", "1.0.0", "Example process link (mockdev)", proc_zip),
-    item("register", "1.0.0", "Example WASM link (register)", wasm_zip),
+    item("example-link", "1.0.0", "Responder: the mockdev driver as its own binary", proc_zip),
+    item("recorder", "1.0.0", "Requester: records wy/{site}/down/mock to CSV", rec_zip),
+    item("average", "1.0.0", "Both: statistics of wy/{site}/down/mock, Write All", avg_zip),
+    item("register", "1.0.0", "WASM link: one writable register per point", wasm_zip),
 ]
 (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")
 for p in sorted(out.iterdir()):

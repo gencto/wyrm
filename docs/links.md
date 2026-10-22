@@ -7,7 +7,7 @@ does with it, what goes in a package, and what the limits are.
 
 Decisions behind this page: ADR 0004 (driver framework), ADR 0006 (ACL and
 quarantine), ADR 0010 (WASM host), ADR 0011 (installing links at runtime),
-ADR 0012 (network for WASM links).
+ADR 0012 (network for WASM links), ADR 0013 (links as requesters).
 
 ## 1. How a link runs
 
@@ -32,9 +32,11 @@ down. In the broker's own process it runs only as WASM.
   and `process::run` for a link that runs as its own binary.
 - **WASM host and WIT** (`crates/wyrm-wasm-host/wit/link/point.wit`): the
   component worlds `wyrm:link/point` and `wyrm:link/driver`.
-- **Example packages** (`examples/packages`): a process package (the
-  `mockdev` driver as its own binary), a WASM package and two components,
-  and a repository index. `examples/packages/build.sh` builds them.
+- **Example links** (`examples/links`): a responder (the `mockdev` driver
+  as its own binary), a requester (records another link's values to CSV)
+  and a link that is both (serves statistics of another link and writes its
+  points). `examples/packages/build.sh` packages them with a WASM package,
+  two components and a repository index.
 
 ## 3. The Install Link menu
 
@@ -143,6 +145,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `kind` | yes | `process` or `wasm`. |
 | `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`. One zip can carry several hosts. |
 | `args` | no | Arguments for the executable. |
+| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/down/mock", "level": "read"}]` (section 9). |
 | `entry` | `wasm` | The component file. |
 
 Unknown fields are refused, so a typo does not pass silently.
@@ -150,7 +153,7 @@ Unknown fields are refused, so a typo does not pass silently.
 ## 7. Build a process package
 
 A process package is a binary built on `wyrm-link-sdk` with
-`process::run`. See `examples/packages/process-link`:
+`process::run`. See `examples/links/responder`:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -252,7 +255,54 @@ component new`). WYRM does not ship a guest template yet: the example
 components in `examples/packages` are written by hand in the component text
 format.
 
-## 9. Logs
+## 9. Requester links
+
+A link that only serves its own branch is a **responder**. A link can also
+read and command other links (a **requester**, as `isRequester` in DSA), or
+do both. Give it **grants**, as a role has them:
+
+| Level | The link can |
+|---|---|
+| `list` | list the nodes under the path (`~meta`) and see them come and go |
+| `read` | also read and subscribe to their values (`~val`) |
+| `write` | also `set` them and invoke their actions |
+
+- **Path:** `wy/{site}/down` (every link), `wy/{site}/down/<link>[/…]` (one
+  link or a part of it), or `wy/{site}/flows[/…]` (at most `read`). Plain
+  segments only: no wildcards, no `~` suffixes, never `sys`. A grant covers
+  the path and everything under it. `config` is for people only.
+- **Who grants:** a package asks in `wyrm-link.json` (`requester`, section
+  6); every link installed from it gets these grants, and the install
+  message lists them (`…; grant wy/{site}/down/mock read`). Change them with
+  `sys/links/<id>` ▸ **Grant Access** `{path, level}` (`none` removes).
+  `sys` ▸ Get Permissions lists them (source `link`). Each change is in the
+  audit journal (`link_grant`) and rebuilds the router.
+- **How the link uses them:** with its own session, `ctx.client()`, and
+  `wyrm_client::WyrmClient` over it. The router ACL lets the link's
+  certificate reach the granted paths. For `set` and actions the client
+  signs a `ptok` with the link's requester key, `LinkCtx::requester_key()`
+  (the link secret `.requester_key`, made by the broker for a link with
+  grants). Every link trusts that key up to the grant's level and only
+  under its path:
+
+```rust
+let key = ctx.requester_key().ok_or("no grants")?;
+let tokens = SigningTokens::new(key, ctx.site()).subject(format!("link:{}", ctx.link()));
+let client = WyrmClient::new(ctx.client().clone()).with_tokens(Arc::new(tokens));
+client.set(&point, value).await?;
+```
+
+- **Embedded links** run on the broker's own session and bypass the router
+  ACL, so they read every branch already. A grant gives them the requester
+  key for `set` and actions.
+- A requester key never opens `sys/**`, never deploys a flow, and never
+  passes `config`.
+
+`examples/links/requester` (a `read` grant) and `examples/links/both` (a
+`write` grant) show both kinds; `examples/links/README.md` tells how to
+install them.
+
+## 10. Logs
 
 - `sys/links/<id>` ▸ **Get Log** `{lines, level, filter}` shows the link's
   last lines: an embedded link's lines in the broker log (they carry its
@@ -263,11 +313,10 @@ format.
   `RUST_LOG` and restarts it. Saved in the registry.
 - The broker's own: `sys/log_level` and `sys` ▸ Get Log (filter by `link`
   to see one embedded link).
-- A process package should log with `tracing-subscriber` (as
-  `examples/packages/process-link`): the level names in its lines become
-  the level column.
+- A process package should log with `tracing-subscriber` (as the crates in
+  `examples/links`): the level names in its lines become the level column.
 
-## 10. Repository
+## 11. Repository
 
 Set `packages: { repository: "https://…/index.json" }` in `wyrmd.json5` (as
 DSA's `linkRepositoryUrl`). The index is a JSON array:
@@ -282,15 +331,15 @@ The broker fetches the index in the background on every start and rebuild;
 network starts as usual: the field then says why the list is empty. Without
 `packages.repository` the item is still in the menu and says how to set it.
 
-## 11. Trust and security
+## 12. Trust and security
 
 - **Who can install:** users with `config` on `wy/<site>/sys/**`. Each
   install and removal is in the audit journal (`sys/audit`) with the user,
   the package SHA-256 and the source.
 - **No signing** (owner decision, as in DSA). A process package is code that
   runs on the broker host as the broker's user, limited by rlimits, its own
-  data directory and the ACL of its own branch. Install only packages you
-  trust.
+  data directory and the ACL of its own branch and its grants. Install only
+  packages you trust, and read the grants an install lists.
 - **Fetching** makes the broker connect to the URL you give. Credentials in
   a URL (`https://user:token@…`) are refused: the source is shown under
   `sys/packages` and kept in the audit. *from Git* takes public repositories
@@ -299,7 +348,7 @@ network starts as usual: the field then says why the list is empty. Without
 - Threat model entries: `docs/security/threats.md` (Link packages, WASM
   links).
 
-## 12. Limits
+## 13. Limits
 
 | What | Limit |
 |---|---|
@@ -313,7 +362,7 @@ network starts as usual: the field then says why the list is empty. Without
 | WASM call | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
 | WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
 
-## 13. When an install fails
+## 14. When an install fails
 
 | Message | Meaning |
 |---|---|
@@ -330,7 +379,7 @@ network starts as usual: the field then says why the list is empty. Without
 | `the broker is restarting; try again` | Another install rebuilt the router; repeat the action. |
 | `… is not in the link's net list` (point error) | Add the device address and port to the connection's Network. |
 
-## 14. Try it in the demo
+## 15. Try it in the demo
 
 1. Run `examples/packages/build.sh`. It writes the packages to
    `examples/packages/out/`.
@@ -344,6 +393,10 @@ network starts as usual: the field then says why the list is empty. Without
    `wy/edge/down/reg/main` ▸ Add Device, then Add Point with Writable on.
    The point reads 7; write a number below 24 and read it back.
 6. Install Link ▸ from Repository, Package `register`, Name `reg2`.
+7. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a
+   requester), and ▸ from Url
+   `http://127.0.0.1:8090/average-<os>-<arch>.zip`, Name `avg` (both). See
+   `examples/links/README.md` for what they do.
 
 The macOS example app needs the entitlement
 `com.apple.security.files.user-selected.read-only` in

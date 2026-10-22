@@ -455,6 +455,15 @@ impl LinkCtx {
         &self.0.secrets
     }
 
+    /// This link's requester key, when the broker gave it grants (secret
+    /// [`crate::REQUESTER_KEY`]). Sign each request's `ptok` with it, with
+    /// subject `link:<id>` (for example `wyrm_client::SigningTokens`).
+    pub fn requester_key(&self) -> Option<ed25519_dalek::SigningKey> {
+        let raw = self.0.secrets.get(crate::REQUESTER_KEY)?;
+        let seed: [u8; 32] = raw.expose().try_into().ok()?;
+        Some(ed25519_dalek::SigningKey::from_bytes(&seed))
+    }
+
     pub fn metrics(&self) -> &Metrics {
         &self.0.metrics
     }

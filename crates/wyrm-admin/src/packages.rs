@@ -35,6 +35,16 @@ struct Manifest {
     args: Vec<String>,
     #[serde(default)]
     entry: Option<String>,
+    /// Grants the link needs as a requester: `[{path, level}]`.
+    #[serde(default)]
+    requester: Vec<RequestedGrant>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestedGrant {
+    path: String,
+    level: String,
 }
 
 /// One package of a repository index (`packages.repository`, as DSA's
@@ -177,6 +187,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             source: source.to_owned(),
             description: String::new(),
             installed: now,
+            requester: Vec::new(),
         },
         tmp,
     };
@@ -254,6 +265,15 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&entry_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| e.to_string())?;
+    }
+    for g in &m.requester {
+        let level = wyrm_core::Perm::ALL
+            .iter()
+            .copied()
+            .find(|p| p.name() == g.level && *p != wyrm_core::Perm::None)
+            .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level))?;
+        crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
+        out.def.requester.push((g.path.clone(), level.code()));
     }
     out.def.name = m.name;
     out.def.version = m.version;

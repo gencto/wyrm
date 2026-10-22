@@ -1,0 +1,22 @@
+[package]
+name = "wyrm-example-recorder"
+description = "Example requester link: records the values of another link into CSV files in its data directory"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "wyrm-example-recorder"
+path = "src/main.rs"
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["process"] }
+wyrm-client.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

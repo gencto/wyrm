@@ -554,7 +554,58 @@ impl Control {
     fn link_trust(&self) -> (Vec<VerifyingKey>, Vec<wyrm_link_sdk::LimitedKey>) {
         let mut limited = self.cfg.link_keys.clone();
         limited.extend(self.agent_limited_keys());
+        limited.extend(self.requester_limited_keys());
         (self.cfg.admin_keys.clone(), limited)
+    }
+
+    /// The requester key of a link with grants, one limited key per grant:
+    /// trusted up to that grant's level, under that grant's path.
+    fn requester_limited_keys(&self) -> Vec<wyrm_link_sdk::LimitedKey> {
+        let reg = self.registry();
+        let mut out = Vec::new();
+        for d in reg.links.values().filter(|d| !d.grants.is_empty()) {
+            let Some(key) = self.requester_key_of(&d.id) else {
+                continue;
+            };
+            for (path, code) in &d.grants {
+                let Ok(cap) = Perm::try_from(*code) else {
+                    continue;
+                };
+                out.push(wyrm_link_sdk::LimitedKey {
+                    key,
+                    cap,
+                    scopes: vec![path.replace("{site}", &self.cfg.site)],
+                });
+            }
+        }
+        out
+    }
+
+    fn requester_key_of(&self, id: &str) -> Option<VerifyingKey> {
+        let secrets = self.secrets.for_link(id);
+        let raw = secrets.get(wyrm_link_sdk::REQUESTER_KEY)?;
+        let seed: [u8; 32] = raw[..].try_into().ok()?;
+        Some(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key())
+    }
+
+    /// A link with grants gets its requester key as a link secret, created
+    /// once (it goes away with the link's secrets).
+    fn ensure_requester_key(&self, def: &LinkDef) -> Result<(), Error> {
+        if def.grants.is_empty()
+            || self
+                .secrets
+                .names(&def.id)
+                .iter()
+                .any(|n| n == wyrm_link_sdk::REQUESTER_KEY)
+        {
+            return Ok(());
+        }
+        let mut seed = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
+        self.secrets
+            .set(&def.id, wyrm_link_sdk::REQUESTER_KEY, &seed[..])?;
+        info!(link = %def.id, "requester key created");
+        Ok(())
     }
 
     /// Agent keys at `write`, each only under its link's `allowed_prefixes`.
@@ -750,6 +801,7 @@ impl Control {
                         display: None,
                         granted: None,
                         log_level: None,
+                        grants: Vec::new(),
                     }))?;
                     if l.mode.is_remote() {
                         self.link_cert(&l.id)?;
@@ -1138,6 +1190,9 @@ impl Control {
             if let Err(e) = self.ensure_store_key(&def.id) {
                 warn!(link = %def.id, "store key: {e}");
             }
+            if let Err(e) = self.ensure_requester_key(def) {
+                warn!(link = %def.id, "requester key: {e}");
+            }
         }
         // Saved log levels: the broker's and each embedded link's.
         if let Some(lc) = crate::logs::global() {
@@ -1424,6 +1479,31 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
             .level(Perm::None)
             .param("token", ParamMeta::of(TypeCode::Binary).required(true))
             .result(ActionResult::Type(TypeCode::Map)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
+        "grant",
+        ActionMeta::new()
+            .display("Grant Access")
+            .group("access")
+            .param(
+                "path",
+                str_param()
+                    .required(true)
+                    .display("Path")
+                    .placeholder("wy/{site}/down/<link>")
+                    .description("A node of another link (its subtree), or wy/{site}/flows"),
+            )
+            .param(
+                "level",
+                str_param()
+                    .required(true)
+                    .enum_values(["none", "list", "read", "write"])
+                    .display("Level")
+                    .description("none removes the grant"),
+            )
+            .level(Perm::Config),
     )
     .await?;
     // External links log on their own host.
@@ -2445,6 +2525,16 @@ impl Link for Admin {
                 self.update_params(id, params, &sub, "update").await
             }
             (["links", id], "history") => self.params_history(id),
+            (["links", id], "grant") => {
+                let path = arg_str(&args, "path").unwrap_or_default().trim().to_owned();
+                let level = arg_str(&args, "level").unwrap_or_default();
+                let level = Perm::ALL
+                    .iter()
+                    .copied()
+                    .find(|p| p.name() == level)
+                    .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
+                self.grant(id, &path, level, &sub).map(|_| None)
+            }
             (["links", id], "get_log") => {
                 let (n, level, filter) = log_args(&args)?;
                 let def = self.def(id)?;
@@ -2510,6 +2600,13 @@ impl Link for Admin {
                     .into_iter()
                     .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
                     .collect();
+                for d in self.ctl.registry().links.values() {
+                    for (path, code) in &d.grants {
+                        if let Ok(p) = Perm::try_from(*code) {
+                            rows.push(perm_row("link", &d.id, path, p.name()));
+                        }
+                    }
+                }
                 rows.extend(acl_rows(&self.ctl.acl()));
                 Ok(Some(Value::Array(rows)))
             }
@@ -2677,6 +2774,7 @@ impl Admin {
             display: None,
             granted: None,
             log_level: None,
+            grants: Vec::new(),
         };
         ctl.secrets
             .drop_link(&id)
@@ -2820,6 +2918,13 @@ impl Admin {
             let args = Value::Map(args);
             self.install(&args, sub).await.map_err(|e| e.to_string())?;
             message.push_str(&format!("; link {link} installed"));
+            // the grants the package asks for, shown and audited
+            for (path, code) in &def.requester {
+                let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
+                self.grant(link, path, level, sub)
+                    .map_err(|e| e.to_string())?;
+                message.push_str(&format!("; grant {path} {}", level.name()));
+            }
         }
         Ok(message)
     }
@@ -3495,6 +3600,36 @@ impl Admin {
         Ok(())
     }
 
+    /// `links/<id>/~act/grant`: one requester grant of a link. The router
+    /// ACL (process and external links) and every link's trust list follow
+    /// on the rebuild.
+    fn grant(&self, id: &str, path: &str, level: Perm, sub: &str) -> wyrm_link_sdk::Result<()> {
+        self.def(id)?;
+        if level != Perm::None {
+            crate::registry::check_grant(path, level).map_err(LinkError::invalid_parameter)?;
+        }
+        self.ctl
+            .apply(Op::SetLinkGrant {
+                id: id.to_owned(),
+                path: path.to_owned(),
+                level: level.code(),
+            })
+            .map_err(rejected)?;
+        let def = self.def(id)?;
+        self.ctl
+            .ensure_requester_key(&def)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
+        self.ctl.record(
+            sub,
+            "link_grant",
+            id,
+            Status::Ok,
+            &format!("{path} {}", level.name()),
+        );
+        self.ctl.schedule_reload();
+        Ok(())
+    }
+
     /// `links/<id>/log_level`: an embedded link's span directive in the
     /// broker filter; a process link's `RUST_LOG`, applied by a restart.
     async fn set_link_log_level(
@@ -3600,6 +3735,7 @@ async fn admit(
         display,
         granted,
         log_level: None,
+        grants: Vec::new(),
     };
     ctl.secrets
         .drop_link(cn)
@@ -4233,6 +4369,7 @@ zenoh_rx_bytes_total_extra 7
             display: None,
             granted: None,
             log_level: None,
+            grants: Vec::new(),
         };
         for op in [
             Op::Install(def("known")),

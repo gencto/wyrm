@@ -1,0 +1,22 @@
+[package]
+name = "wyrm-example-average"
+description = "Example link that is a responder and a requester: serves the average of another link's points and writes them all"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "wyrm-example-average"
+path = "src/main.rs"
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["process"] }
+wyrm-client.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

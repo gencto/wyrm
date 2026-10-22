@@ -1234,6 +1234,121 @@ async fn logs_and_log_levels() {
     env.stop().await;
 }
 
+/// The `secrets` map of a `hello` reply.
+async fn hello_secrets(s: &zenoh::Session, id: &str, token: &str) -> BTreeMap<String, Value> {
+    let mut args = BTreeMap::new();
+    args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
+    let r = s
+        .get(format!("wy/{SITE}/sys/links/{id}/~act/hello"))
+        .payload(wyrm_core::codec::to_vec(&Value::Map(args)).unwrap())
+        .timeout(Duration::from_secs(5))
+        .await
+        .unwrap();
+    let reply = r.recv_async().await.unwrap();
+    let v: Value =
+        wyrm_core::codec::from_slice(&reply.result().unwrap().payload().to_bytes()).unwrap();
+    match v {
+        Value::Map(mut m) => match m.remove("secrets") {
+            Some(Value::Map(s)) => s,
+            other => panic!("secrets: {other:?}"),
+        },
+        other => panic!("hello: {other:?}"),
+    }
+}
+
+/// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):
+/// grants open the ACL to other branches and make every link trust its
+/// requester key up to the grant's level and under the grant's path.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_grants_make_a_requester() {
+    let env = Env::start(
+        "requester",
+        &format!(r#"{MOCK} links: {{ rec: {{ driver: "x", mode: "external" }} }},"#)
+            .replace("}, links: {", ","),
+    )
+    .await;
+    let token = std::fs::read_to_string(env.ctl.config().data_dir.join("links/rec/token")).unwrap();
+    let mock = format!("wy/{SITE}/down/mock");
+    let sys = format!("wy/{SITE}/sys/links/rec");
+    let grant = |level: &str| {
+        Value::Map(BTreeMap::from([
+            ("path".to_owned(), Value::from("wy/{site}/down/mock")),
+            ("level".to_owned(), Value::from(level)),
+        ]))
+    };
+    // as link `rec`: tokens signed with its requester key
+    let as_rec = |key: Option<ed25519_dalek::SigningKey>| {
+        let env = &env;
+        async move {
+            let s = env.tls_session("rec").await;
+            let c = WyrmClient::new(s).with_timeout(Duration::from_secs(2));
+            match key {
+                Some(k) => c.with_tokens(Arc::new(
+                    SigningTokens::new(k, SITE).subject("link:rec".to_owned()),
+                )),
+                None => c,
+            }
+        }
+    };
+    let rec = as_rec(None).await;
+    assert!(rec.meta(&mock).await.is_err(), "no grant: the ACL drops it");
+
+    env.client()
+        .await
+        .invoke_one(&sys, "grant", grant("read"))
+        .await
+        .unwrap();
+    assert_eq!(env.ctl.registry().links["rec"].grants.len(), 1);
+    let key = eventually("read after the rebuild", 15, || async {
+        let s = env.tls_session("rec").await;
+        let secrets = hello_secrets(&s, "rec", &token).await;
+        let Some(Value::Bytes(seed)) = secrets.get(wyrm_link_sdk::REQUESTER_KEY) else {
+            return None;
+        };
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed[..].try_into().ok()?);
+        let rec = as_rec(Some(key.clone())).await;
+        rec.meta(&mock).await.ok()?;
+        Some(key)
+    })
+    .await;
+    let rec = as_rec(Some(key.clone())).await;
+    assert!(
+        rec.set(&format!("{mock}/g0/p0"), 5.0).await.is_err(),
+        "read: no set"
+    );
+
+    env.client()
+        .await
+        .invoke_one(&sys, "grant", grant("write"))
+        .await
+        .unwrap();
+    eventually("set after the rebuild", 15, || async {
+        let rec = as_rec(Some(key.clone())).await;
+        rec.set(&format!("{mock}/g0/p0"), 6.0).await.ok()
+    })
+    .await;
+    // the grant does not reach sys
+    let rec = as_rec(Some(key.clone())).await;
+    assert!(
+        rec.meta(&format!("wy/{SITE}/sys/links")).await.is_err(),
+        "never sys"
+    );
+    // grants show in Get Permissions and in the audit
+    let rows = env
+        .client()
+        .await
+        .invoke_one(
+            &format!("wy/{SITE}/sys"),
+            "get_permissions",
+            Value::Map(Default::default()),
+        )
+        .await
+        .unwrap();
+    assert!(format!("{rows:?}").contains("wy/{site}/down/mock"));
+    assert!(env.ctl.audit_tail(50).iter().any(|r| r.op == "link_grant"));
+    env.stop().await;
+}
+
 async fn hello(s: &zenoh::Session, id: &str, token: &str) -> Option<wyrm_core::status::StatusCode> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));

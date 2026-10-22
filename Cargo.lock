@@ -5807,12 +5807,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-example-average"
+version = "1.0.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wyrm-client",
+ "wyrm-core",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-example-link"
 version = "1.0.0"
 dependencies = [
  "tokio",
  "tracing-subscriber",
  "wyrm-link-mock",
+ "wyrm-link-sdk",
+]
+
+[[package]]
+name = "wyrm-example-recorder"
+version = "1.0.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wyrm-client",
+ "wyrm-core",
  "wyrm-link-sdk",
 ]
 

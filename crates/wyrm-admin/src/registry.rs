@@ -106,6 +106,42 @@ pub struct LinkDef {
     #[n(10)]
     #[serde(default)]
     pub log_level: Option<String>,
+    /// What this link may reach as a requester (as DSA `isRequester`):
+    /// `(path, Perm code)`, the path a node key prefix with `{site}`.
+    #[n(11)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub grants: Vec<(String, u8)>,
+}
+
+/// Highest level a link grant gives: `config` stays with people.
+pub const MAX_LINK_GRANT: wyrm_core::Perm = wyrm_core::Perm::Write;
+
+/// A link grant path: `wy/{site}/down[/…]` or `wy/{site}/flows[/…]`, plain
+/// segments (no wildcards, no suffixes). `flows` grants stop at `read`.
+pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), String> {
+    use wyrm_core::Perm;
+    let rest = path
+        .strip_prefix("wy/{site}/")
+        .ok_or_else(|| format!("{path}: starts with wy/{{site}}/down or wy/{{site}}/flows"))?;
+    let mut segs = rest.split('/');
+    let root = segs.next().unwrap_or_default();
+    if !matches!(root, "down" | "flows") {
+        return Err(format!("{path}: only down or flows (never sys)"));
+    }
+    for seg in segs {
+        validate_segment(seg).map_err(|e| format!("{path}: {e}"))?;
+        if seg.starts_with('~') {
+            return Err(format!("{path}: a node path, no suffix"));
+        }
+    }
+    if level > MAX_LINK_GRANT {
+        return Err(format!("level {}: at most write", level.name()));
+    }
+    if root == "flows" && level > Perm::Read {
+        return Err("flows: at most read (flows are commanded by people)".into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -209,6 +245,16 @@ pub enum Op {
         #[n(1)]
         level: Option<String>,
     },
+    /// Add, change or (level `none`) remove one grant of a link.
+    #[n(17)]
+    SetLinkGrant {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        path: String,
+        #[n(2)]
+        level: u8,
+    },
 }
 
 /// How a package's links run (ADR 0011).
@@ -258,6 +304,12 @@ pub struct PackageDef {
     /// Unix seconds.
     #[n(8)]
     pub installed: u64,
+    /// Grants the package asks for (`wyrm-link.json` `requester`): each new
+    /// link of the package gets them, shown in the install result.
+    #[n(9)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub requester: Vec<(String, u8)>,
 }
 
 /// Which side a peer broker is on (ADR 0007).
@@ -401,7 +453,7 @@ impl Registry {
 }
 
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 10;
+    const SCHEMA: u32 = 11;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -501,6 +553,20 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
                 self.held.remove(cn);
                 self.blocklist.insert(cn.clone());
+            }
+            Op::SetLinkGrant { id, path, level } => {
+                let level =
+                    wyrm_core::Perm::try_from(*level).map_err(|c| format!("bad level code {c}"))?;
+                let def = self
+                    .links
+                    .get_mut(id)
+                    .ok_or_else(|| format!("no link {id}"))?;
+                def.grants.retain(|(p, _)| p != path);
+                if level != wyrm_core::Perm::None {
+                    check_grant(path, level)?;
+                    def.grants.push((path.clone(), level.code()));
+                    def.grants.sort();
+                }
             }
             Op::SetLogLevel { link, level } => {
                 if let Some(l) = level {
@@ -625,6 +691,7 @@ mod tests {
             display: None,
             granted: None,
             log_level: None,
+            grants: Vec::new(),
         }
     }
 
@@ -676,6 +743,118 @@ mod tests {
         assert!(!r.peers["cloud"].enabled);
         r.apply(&Op::RemovePeer("edge".into())).unwrap();
         assert!(r.apply(&Op::RemovePeer("edge".into())).is_err());
+    }
+
+    /// Fields added later must not break older WAL records (a field that
+    /// is not an `Option` needs `#[cbor(default)]`).
+    #[test]
+    fn older_records_still_decode() {
+        #[derive(minicbor::Encode)]
+        struct LinkDefV1 {
+            #[n(0)]
+            id: String,
+            #[n(1)]
+            driver: String,
+            #[n(2)]
+            mode: Mode,
+            #[n(3)]
+            #[cbor(with = "minicbor::bytes")]
+            params: Vec<u8>,
+            #[n(4)]
+            token_hash: String,
+            #[n(5)]
+            rev: u32,
+            #[n(6)]
+            origin: Origin,
+            #[n(7)]
+            created: u64,
+        }
+        let old = LinkDefV1 {
+            id: "plc1".into(),
+            driver: "modbus".into(),
+            mode: Mode::Process,
+            params: vec![0xa0],
+            token_hash: "h".into(),
+            rev: 3,
+            origin: Origin::Runtime,
+            created: 7,
+        };
+        let bytes = minicbor::to_vec(&old).unwrap();
+        let d: LinkDef = minicbor::decode(&bytes).expect("an older LinkDef decodes");
+        assert_eq!((d.id.as_str(), d.rev), ("plc1", 3));
+        assert!(d.grants.is_empty() && d.display.is_none() && d.log_level.is_none());
+
+        #[derive(minicbor::Encode)]
+        struct PackageDefV1 {
+            #[n(0)]
+            name: String,
+            #[n(1)]
+            version: String,
+            #[n(2)]
+            kind: PackageKind,
+            #[n(3)]
+            entry: String,
+            #[n(4)]
+            args: Vec<String>,
+            #[n(5)]
+            sha256: String,
+            #[n(6)]
+            source: String,
+            #[n(7)]
+            description: String,
+            #[n(8)]
+            installed: u64,
+        }
+        let old = PackageDefV1 {
+            name: "p".into(),
+            version: "1".into(),
+            kind: PackageKind::Process,
+            entry: "bin/x".into(),
+            args: vec![],
+            sha256: "00".into(),
+            source: "zip".into(),
+            description: String::new(),
+            installed: 1,
+        };
+        let p: PackageDef = minicbor::decode(&minicbor::to_vec(&old).unwrap()).unwrap();
+        assert!(p.requester.is_empty());
+    }
+
+    #[test]
+    fn link_grants() {
+        use wyrm_core::Perm;
+        let mut r = Registry::default();
+        r.apply(&Op::Install(def("rec", Mode::External))).unwrap();
+        let grant = |path: &str, level: Perm| Op::SetLinkGrant {
+            id: "rec".into(),
+            path: path.into(),
+            level: level.code(),
+        };
+        r.apply(&grant("wy/{site}/down/mock", Perm::Read)).unwrap();
+        r.apply(&grant("wy/{site}/down/plc1/c1", Perm::Write))
+            .unwrap();
+        r.apply(&grant("wy/{site}/flows", Perm::List)).unwrap();
+        assert_eq!(r.links["rec"].grants.len(), 3);
+        // a new level replaces, none removes
+        r.apply(&grant("wy/{site}/down/mock", Perm::Write)).unwrap();
+        r.apply(&grant("wy/{site}/flows", Perm::None)).unwrap();
+        assert_eq!(
+            r.links["rec"].grants,
+            [
+                ("wy/{site}/down/mock".to_string(), Perm::Write.code()),
+                ("wy/{site}/down/plc1/c1".to_string(), Perm::Write.code())
+            ]
+        );
+        for (path, level) in [
+            ("wy/{site}/sys/links", Perm::Read),
+            ("wy/other/down/x", Perm::Read),
+            ("wy/{site}/down/**", Perm::Read),
+            ("wy/{site}/down/x/~set", Perm::Read),
+            ("wy/{site}/down/x", Perm::Config),
+            ("wy/{site}/flows/f1", Perm::Write),
+        ] {
+            assert!(r.apply(&grant(path, level)).is_err(), "{path} {level:?}");
+        }
     }
 
     #[test]

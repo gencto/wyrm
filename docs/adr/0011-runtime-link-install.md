@@ -34,6 +34,7 @@ Rust has no stable ABI, and principle 2 forbids dynamic plugins. Code that arriv
 - **Fetching** (`wyrm_admin::fetch`): webpki roots, ring provider, at most 3 redirects, 64 MiB per package and 4 MiB per index, 90 s; plain `http://` only to loopback. `git` runs with a cleared environment, no system or global config, and `file://` only in the `dev` profile (tests).
 - **Result** of every source: `{success: bool, message: string}`, as in DSA, so the explorer shows two output rows; a failed fetch or a bad package is `success: false` with the reason, not an error status.
 - **Trust** (owner decision 2026-10-22): no package signing; level `config` is enough, as in DSA. A `process` package is code that runs on the broker host with the link's rights. Every install and removal is audited with the SHA-256 and the source.
+- **Requester grants** (2026-10-22, ADR 0013): a package may ask for grants in `wyrm-link.json` `requester: [{path, level}]` (at most `write`, never `sys`). Each new link of the package gets them at install; the install message lists them.
 
 ## Consequences
 - A `config` user (also through the gateway, ADR 0009) can run arbitrary code on the host as the broker's user, limited by rlimits and the process link's ACL. Recorded in `docs/security/threats.md`; signing, a separate uid and seccomp stay possible later.

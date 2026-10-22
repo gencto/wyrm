@@ -40,6 +40,59 @@ fn rule(id: &str, flows: &[&str], messages: &[&str], keys: &[String]) -> Value {
     json!({ "id": id, "permission": "allow", "flows": flows, "messages": messages, "key_exprs": keys })
 }
 
+/// ACL rules of a link's grants (it acts as a requester, ADR 0006):
+/// `list` → `~meta` queries and liveliness; `read` → also `~val` queries and
+/// subscriptions; `write` → any query (`~set`, `~act`) under the path. The
+/// answers flow back (egress `put`, `delete`, `reply`, `liveliness_token`).
+fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Value)> {
+    use wyrm_core::Perm;
+    let (mut meta, mut val, mut sub, mut all, mut watch, mut back) =
+        (vec![], vec![], vec![], vec![], vec![], vec![]);
+    for (path, code) in grants {
+        let Ok(level) = Perm::try_from(*code) else {
+            continue;
+        };
+        let p = path.replace("{site}", site);
+        if level >= Perm::List {
+            meta.push(format!("{p}/**/~meta"));
+            watch.push(p.clone());
+            watch.push(format!("{p}/**"));
+            back.push(p.clone());
+            back.push(format!("{p}/**"));
+        }
+        if level >= Perm::Read {
+            val.push(format!("{p}/**/~val"));
+            sub.push(format!("{p}/**"));
+        }
+        if level >= Perm::Write {
+            all.push(format!("{p}/**"));
+        }
+    }
+    let mut out = Vec::new();
+    let mut add = |name: &str, flow: &str, msgs: &[&str], keys: Vec<String>| {
+        if !keys.is_empty() {
+            let rid = format!("grant-{id}-{name}");
+            out.push((rid.clone(), rule(&rid, &[flow], msgs, &keys)));
+        }
+    };
+    let queries: Vec<String> = meta.into_iter().chain(val).chain(all).collect();
+    add("query", "ingress", &["query"], queries);
+    add(
+        "watch",
+        "ingress",
+        &["declare_liveliness_subscriber", "liveliness_query"],
+        watch,
+    );
+    add("sub", "ingress", &["declare_subscriber"], sub);
+    add(
+        "back",
+        "egress",
+        &["put", "delete", "reply", "liveliness_token"],
+        back,
+    );
+    out
+}
+
 /// Other brokers this one talks to (wiki "Два брокери"), by site name.
 /// Broker certificates carry CN `broker:<site>`; brokers talk over QUIC,
 /// links and operators over TLS, so a peer CA cannot mint a link identity
@@ -165,11 +218,25 @@ pub fn access_control_with_peers(
             &["put"],
             &[format!("wy/{site}/sys/audit/{id}")],
         ));
+        let mut link_rules = vec![
+            json!(format!("link-{id}")),
+            json!(format!("hello-{id}")),
+            json!(format!("audit-{id}")),
+            json!("broker-watch"),
+            json!("broker-token"),
+            json!("pub-in"),
+            json!("pub-out"),
+        ];
+        // As a requester (link grants): read and command other branches.
+        for (rid, r) in grant_rules(site, id, &def.grants) {
+            rules.push(r);
+            link_rules.push(json!(rid));
+        }
         // TLS only: the main listener trusts our own CA alone; peer CAs are
         // trusted only on the QUIC broker listener.
         subjects.push(json!({ "id": format!("cn-{id}"), "cert_common_names": [id], "link_protocols": ["tls"] }));
         policies.push(json!({
-            "rules": [format!("link-{id}"), format!("hello-{id}"), format!("audit-{id}"), "broker-watch", "broker-token", "pub-in", "pub-out"],
+            "rules": link_rules,
             "subjects": [format!("cn-{id}")],
         }));
     }
@@ -321,7 +388,70 @@ mod tests {
             display: None,
             granted: None,
             log_level: None,
+            grants: Vec::new(),
         }
+    }
+
+    #[test]
+    fn link_grants_open_other_branches() {
+        use wyrm_core::Perm;
+        let mut reg = Registry::default();
+        let mut d = def("rec", Mode::External);
+        d.grants = vec![
+            ("wy/{site}/down/mock".into(), Perm::Read.code()),
+            ("wy/{site}/down/plc1".into(), Perm::Write.code()),
+            ("wy/{site}/flows".into(), Perm::List.code()),
+        ];
+        reg.links.insert("rec".into(), d);
+        let acl = access_control("s", &reg, &[], false);
+        let rule = |id: &str| {
+            acl["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == id)
+                .cloned()
+                .unwrap_or_else(|| panic!("rule {id}"))
+        };
+        let keys = |id: &str| -> Vec<String> {
+            rule(id)["key_exprs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap().to_owned())
+                .collect()
+        };
+        let q = keys("grant-rec-query");
+        assert!(q.contains(&"wy/s/down/mock/**/~val".into()));
+        assert!(q.contains(&"wy/s/flows/**/~meta".into()));
+        assert!(q.contains(&"wy/s/down/plc1/**".into()), "write: ~set, ~act");
+        assert!(
+            !q.contains(&"wy/s/down/mock/**".into()),
+            "read: no ~set/~act"
+        );
+        assert!(
+            !q.iter().any(|k| k.starts_with("wy/s/flows/**/~val")),
+            "list: no values"
+        );
+        assert!(keys("grant-rec-sub")
+            .iter()
+            .all(|k| !k.starts_with("wy/s/flows")));
+        assert!(q
+            .iter()
+            .chain(&keys("grant-rec-back"))
+            .all(|k| !k.contains("/sys")));
+        let policy = acl["policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["subjects"][0] == "cn-rec")
+            .unwrap();
+        assert!(policy["rules"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("grant-rec-query")));
+        // a link without grants gets none of these rules
+        assert!(!acl.to_string().contains("grant-mock"));
     }
 
     #[test]
