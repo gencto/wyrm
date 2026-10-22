@@ -157,6 +157,8 @@ pub struct Ctx {
 pub const MAX_CONNS: usize = 4;
 /// Largest `recv`.
 pub const MAX_RECV: u32 = 64 << 10;
+/// Largest `send`: a guest sends more in pieces, each within the call.
+pub const MAX_SEND: usize = 64 << 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Allow {
@@ -178,19 +180,40 @@ fn plain(ip: IpAddr) -> IpAddr {
     }
 }
 
-/// The special class of an address (loopback 1, link-local 2, multicast
-/// 3, broadcast 4, unspecified 5) and the prefix length of that class.
+/// The special class of an address and the prefix length of that class:
+/// loopback 1, link-local (and IPv6 site-local) 2, multicast 3, broadcast
+/// 4, "this network" 5, IPv6 that carries an IPv4 address (IPv4-compatible,
+/// NAT64, 6to4) 6, cloud metadata 7. Everything else, private ranges
+/// included, is ordinary.
 fn class(ip: IpAddr) -> Option<(u8, u8)> {
     match ip {
         IpAddr::V4(a) if a.is_loopback() => Some((1, 8)),
         IpAddr::V4(a) if a.is_link_local() => Some((2, 16)),
         IpAddr::V4(a) if a.is_multicast() => Some((3, 4)),
         IpAddr::V4(a) if a.is_broadcast() => Some((4, 32)),
-        IpAddr::V4(a) if a.is_unspecified() => Some((5, 32)),
-        IpAddr::V6(a) if a.is_loopback() => Some((1, 128)),
-        IpAddr::V6(a) if (a.segments()[0] & 0xffc0) == 0xfe80 => Some((2, 10)),
-        IpAddr::V6(a) if a.is_multicast() => Some((3, 8)),
-        IpAddr::V6(a) if a.is_unspecified() => Some((5, 128)),
+        IpAddr::V4(a) if a.octets()[0] == 0 => Some((5, 8)),
+        IpAddr::V6(a) => {
+            let s = a.segments();
+            if a.is_loopback() {
+                Some((1, 128))
+            } else if a.is_unspecified() {
+                Some((5, 128))
+            } else if (s[0] & 0xffc0) == 0xfe80 || (s[0] & 0xffc0) == 0xfec0 {
+                Some((2, 10))
+            } else if a.is_multicast() {
+                Some((3, 8))
+            } else if s[..6] == [0; 6] || s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                Some((6, 96)) // ::a.b.c.d, NAT64
+            } else if s[..3] == [0x64, 0xff9b, 1] {
+                Some((6, 48)) // local-use NAT64
+            } else if s[0] == 0x2002 {
+                Some((6, 16)) // 6to4
+            } else if s[..2] == [0xfd00, 0x0ec2] {
+                Some((7, 32)) // cloud metadata
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -321,10 +344,31 @@ impl driver_world::wyrm::link::tcp::Host for Ctx {
     }
 
     fn send(&mut self, conn: u32, data: Vec<u8>) -> Result<(), String> {
-        let t = self.net.budget(u32::MAX)?;
-        let s = self.net.conn(conn)?;
-        s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
-        s.write_all(&data).map_err(|e| format!("send: {e}"))
+        if data.len() > MAX_SEND {
+            return Err(format!("send: at most {MAX_SEND} bytes at a time"));
+        }
+        let mut off = 0;
+        while off < data.len() {
+            // the time left, again before every piece
+            let t = self.net.budget(u32::MAX)?;
+            let s = self.net.conn(conn)?;
+            s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
+            match s.write(&data[off..]) {
+                Ok(0) => return Err("send: connection closed".into()),
+                Ok(n) => off += n,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Err("send: timeout".into())
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(format!("send: {e}")),
+            }
+        }
+        Ok(())
     }
 
     fn recv(&mut self, conn: u32, max: u32, timeout_ms: u32) -> Result<Vec<u8>, String> {

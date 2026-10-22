@@ -307,15 +307,29 @@ fn net_policy() {
     assert!(any.allows(ip("8.8.8.8"), 502));
     for special in [
         "127.0.0.1",
-        "169.254.1.1",
+        "169.254.169.254",
         "0.0.0.0",
+        "0.1.2.3",
         "224.0.0.1",
         "::1",
         "fe80::1",
+        "fec0::1",
         "::ffff:127.0.0.1",
+        "::7f00:1",
+        "64:ff9b::7f00:1",
+        "64:ff9b:1::7f00:1",
+        "2002:7f00:1::1",
+        "fd00:ec2::254",
     ] {
         assert!(!any.allows(ip(special), 502), "{special}");
     }
+    // private ranges are ordinary: devices live there
+    for private in ["10.1.2.3", "192.168.1.5", "172.16.0.9", "fd12::5"] {
+        assert!(any.allows(ip(private), 502), "{private}");
+    }
+    // a special address needs an entry of its class
+    let nat64 = NetPolicy::parse("[64:ff9b::]/96:502").unwrap();
+    assert!(nat64.allows(ip("64:ff9b::a00:5"), 502));
     for bad in [
         "10.0.0.1",
         "host.example:502",
