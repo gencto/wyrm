@@ -291,7 +291,7 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
                     .placeholder("downstream/<link>/<point>")
                     .description(
                         "A point of this site (downstream/…, dataflows/… or storage/…, or the full wy/<site>/… key) \
-                         or of a downstream site (wy/<site>/…).",
+                         or of a site below (wy/<site>/…, or its path in the tree as Copy Path gives it).",
                     ),
             )
             .level(Perm::Config),
@@ -518,11 +518,15 @@ fn watch_key(ctl: &Control, path: &str) -> Result<String> {
     } else {
         path.to_owned()
     };
+    // a route copied from an explorer's tree (through peer brokers) is the
+    // key of the site it ends in
+    let below = ctl.peers().reachable();
+    let key = wyrm_core::keyspace::route_key(&key, |s| below.iter().any(|d| d == s));
     check_watch_key(&key).map_err(LinkError::invalid_parameter)?;
     let s = key.split('/').nth(1).unwrap_or_default();
-    if s != site && !ctl.peers().downstream.iter().any(|d| d == s) {
+    if s != site && !below.iter().any(|d| d == s) {
         return Err(LinkError::invalid_parameter(format!(
-            "{key}: site {s} is neither this site nor a downstream one"
+            "{key}: site {s} is neither this site nor one below it"
         )));
     }
     Ok(key)

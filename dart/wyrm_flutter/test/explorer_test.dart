@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_flutter/wyrm_flutter.dart';
 
@@ -182,6 +183,37 @@ class GrowingApi extends ActApi {
       : super.children(key);
 }
 
+/// A chain as in the demo: central lists edge (`@root wy/edge`), edge lists
+/// plant (`@root wy/plant`), plant has `line/g0/p0`.
+class ChainApi extends ActApi {
+  static NodeMeta ref(String site) => NodeMeta(hasChildren: true, attr: {'root': VStr('wy/$site')});
+  static final point = NodeMeta(ty: TypeCode.number, hasChildren: false);
+
+  static List<Child> kids(String key) => switch (key) {
+        'wy/central/downstream' => [Child('edge', ref('edge'))],
+        'wy/edge/downstream' => [Child('plant', ref('plant'))],
+        'wy/plant/downstream' => [Child('line', NodeMeta(hasChildren: true))],
+        'wy/plant/downstream/line' => [Child('g0', NodeMeta(hasChildren: true))],
+        'wy/plant/downstream/line/g0' => [Child('p0', point)],
+        _ => <Child>[],
+      };
+
+  @override
+  Stream<ListUpdate> list(String key) {
+    final c = StreamController<ListUpdate>();
+    lists[key] = c;
+    c.add(ListRefreshed(kids(key)));
+    return c.stream;
+  }
+
+  @override
+  Future<List<Child>> children(String key) async => kids(key);
+
+  @override
+  Future<NodeMeta> meta(String key) async =>
+      key.endsWith('/p0') ? point : NodeMeta(hasChildren: true);
+}
+
 Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
   await t.pumpAndSettle();
@@ -299,6 +331,44 @@ void main() {
     await t.pumpAndSettle();
     await doubleTap('m');
     expect(api.lists.keys, contains('wy/s/downstream/m'));
+  });
+
+  testWidgets('Copy Path copies the tree route of a point two brokers down (as DSA)', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    String? copied;
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+      return null;
+    });
+    final api = ChainApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/central'))));
+    await t.pumpAndSettle();
+    Future<void> open(Finder f) async {
+      await t.tap(f);
+      await t.pump(const Duration(milliseconds: 50));
+      await t.tap(f);
+      await t.pumpAndSettle();
+    }
+
+    await open(find.text('downstream').first); // central's
+    await open(find.text('edge'));
+    await open(find.text('downstream').at(1)); // edge's
+    await open(find.text('plant'));
+    await open(find.text('downstream').at(2)); // plant's
+    await open(find.text('line'));
+    await t.tap(find.text('g0'));
+    await t.pumpAndSettle(const Duration(milliseconds: 400));
+    await rightClick(t, find.text('p0'));
+    await t.tap(find.text('Copy Path'));
+    await t.pumpAndSettle();
+    const route = 'wy/central/downstream/edge/downstream/plant/downstream/line/g0';
+    expect(copied, '$route/p0');
+    // the folder in the tree too
+    await rightClick(t, find.text('g0'));
+    await t.tap(find.text('Copy Path'));
+    await t.pumpAndSettle();
+    expect(copied, route);
   });
 
   testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {

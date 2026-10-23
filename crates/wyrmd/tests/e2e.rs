@@ -2142,6 +2142,36 @@ async fn chain_of_three_brokers() {
         .await
         .expect_err("hello from above");
     assert!(e.is(wyrm_core::Status::Timeout), "{e}");
+    // a route copied from central's tree is plant's key (as DSA's Copy Path)
+    let cc = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(
+            ed25519_dalek::SigningKey::from_bytes(&SEED),
+            "central",
+        )))
+        .with_timeout(Duration::from_secs(3));
+    let arg = |k: &str, v: &str| Value::Map(BTreeMap::from([(k.to_owned(), Value::from(v))]));
+    cc.invoke_one(
+        "wy/central/sys/history",
+        "add_watch_group",
+        arg("name", "g"),
+    )
+    .await
+    .unwrap();
+    cc.invoke_one(
+        "wy/central/sys/history/g",
+        "add_watch_path",
+        arg(
+            "path",
+            "wy/central/downstream/edge/downstream/plant/downstream/pm/g0/p0",
+        ),
+    )
+    .await
+    .unwrap();
+    let w = cc.meta("wy/central/sys/history/g/w1").await.unwrap();
+    assert_eq!(
+        w.attr_value("path"),
+        Some(&Value::from("wy/plant/downstream/pm/g0/p0"))
+    );
     assert!(c
         .invoke_one("wy/plant/sys", "get_permissions", none())
         .await

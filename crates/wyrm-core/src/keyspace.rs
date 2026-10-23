@@ -73,6 +73,36 @@ pub fn renamed(key: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// The key of a tree route, as an explorer shows and copies it (DSA's Copy
+/// Path): `wy/central/downstream/edge/downstream/plant/x` → `wy/plant/x`.
+/// A `downstream/<s>` or `upstream/<s>` step where `is_site(s)` is a peer
+/// broker node, so the route goes on in that site's own keys. Other keys
+/// come back as they are.
+pub fn route_key(route: &str, is_site: impl Fn(&str) -> bool) -> String {
+    let segs: Vec<&str> = route.split('/').collect();
+    if segs.len() < 2 || segs[0] != ROOT {
+        return route.to_owned();
+    }
+    let mut site = segs[1];
+    let mut start = 2;
+    let mut i = 2;
+    while i + 1 < segs.len() {
+        if matches!(segs[i], "downstream" | "upstream") && is_site(segs[i + 1]) {
+            site = segs[i + 1];
+            start = i + 2;
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    let rest = segs[start..].join("/");
+    if rest.is_empty() {
+        format!("{ROOT}/{site}")
+    } else {
+        format!("{ROOT}/{site}/{rest}")
+    }
+}
+
 /// Split a full key into `(base, suffix)` at the first `/~` boundary.
 /// For `.../~act/<name>` the suffix is `~act/<name>`. `None` if no suffix.
 pub fn split_suffix(key: &str) -> Option<(&str, &str)> {
@@ -135,6 +165,29 @@ pub fn expand_keys<I: IntoIterator<Item = S>, S: AsRef<str>>(items: I) -> Vec<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_routes_become_keys() {
+        let sites = |s: &str| matches!(s, "edge" | "plant" | "central");
+        assert_eq!(
+            route_key(
+                "wy/central/downstream/edge/downstream/plant/downstream/line/g0/p0",
+                sites
+            ),
+            "wy/plant/downstream/line/g0/p0"
+        );
+        assert_eq!(
+            route_key("wy/central/downstream/edge/sys/history", sites),
+            "wy/edge/sys/history"
+        );
+        assert_eq!(route_key("wy/edge/upstream/central", sites), "wy/central");
+        // a link named like no site, and plain keys, stay
+        assert_eq!(
+            route_key("wy/central/downstream/mock/g0/p0", sites),
+            "wy/central/downstream/mock/g0/p0"
+        );
+        assert_eq!(route_key("downstream/edge/x", sites), "downstream/edge/x");
+    }
 
     #[test]
     fn sections_renamed_by_spec_0_2() {

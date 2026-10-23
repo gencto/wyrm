@@ -90,7 +90,13 @@ class _Row {
   final String name;
   final NodeMeta meta;
   final int depth;
-  const _Row(this.key, this.name, this.meta, this.depth);
+
+  /// Where the node sits in this tree, as DSA's Copy Path gives it: from
+  /// the root through the peer brokers opened on the way
+  /// (`wy/central/downstream/edge/downstream/plant/…`). Not a key: the key
+  /// keeps the node's own site (`wy/plant/…`, spec 01).
+  final String route;
+  const _Row(this.key, this.name, this.meta, this.depth, this.route);
 }
 
 /// Data panel over Metrics panel. [rootKey] is a node key
@@ -232,26 +238,33 @@ class _WyExplorerState extends State<WyExplorer> {
         }
       });
 
+  /// The tree route of each listed key (see [_Row.route]).
+  final _routes = <String, String>{};
+
   List<_Row> _rows() {
     final out = <_Row>[];
-    // `path`: the sites opened on the way here.
-    void walk(String key, int depth, Set<String> path) {
+    _routes.clear();
+    // `path`: the sites opened on the way here; `route`: `key` as reached.
+    void walk(String key, int depth, Set<String> path, String route) {
       for (final c in _kids[key] ?? const <Child>[]) {
         // Value points go to the Metrics panel, not the tree.
         if (_isPoint(c.meta)) continue;
         final k = '$key/${c.name}';
-        out.add(_Row(k, c.meta.displayName ?? c.name, c.meta, depth));
+        final r = '$route/${c.name}';
+        out.add(_Row(k, c.meta.displayName ?? c.name, c.meta, depth, r));
+        _routes[k] = r;
         if (!_expanded.contains(k)) continue;
-        walk(k, depth + 1, path);
+        walk(k, depth + 1, path, r);
         final ref = _refRoot(c.meta);
         if (ref != null && !path.contains(ref)) {
           _site(ref);
-          walk(ref, depth + 1, {...path, ref});
+          // the peer's sections show under this node, as on a DSA broker
+          walk(ref, depth + 1, {...path, ref}, r);
         }
       }
     }
 
-    walk(widget.rootKey, 0, {widget.rootKey});
+    walk(widget.rootKey, 0, {widget.rootKey}, widget.rootKey);
     return out;
   }
 
@@ -287,6 +300,7 @@ class _WyExplorerState extends State<WyExplorer> {
               key: ValueKey(_selected),
               api: widget.api,
               nodeKey: _selected == null || _synthetic(_selected!) ? null : _selected,
+              route: _routes[_selected],
             ),
           ),
         ]),
@@ -311,7 +325,7 @@ class _WyExplorerState extends State<WyExplorer> {
       onSecondaryTapDown: (d) {
         setState(() => _selected = r.key);
         if (_synthetic(r.key)) return;
-        WyContextMenu.show(context, d.globalPosition, widget.api, r.key);
+        WyContextMenu.show(context, d.globalPosition, widget.api, r.key, route: r.route);
       },
       child: Container(
         color: selected ? WyStyle.selected : null,
@@ -429,11 +443,12 @@ List<_Entry> _menuEntries(NodeMeta m) {
 
 /// The node's context menu: its actions by group (`New ▸`, the top level,
 /// `Edit ▸`), `@set` for a writable node, a separator, "View History" for
-/// a point and "Copy Path".
+/// a point and "Copy Path" (its [route] in the tree, as DSA; the key
+/// without one).
 /// Every action opens its form to the right of its row: its params (if
 /// any), Invoke, the status and the result.
 abstract final class WyContextMenu {
-  static void show(BuildContext context, Offset at, WyrmApi api, String key) {
+  static void show(BuildContext context, Offset at, WyrmApi api, String key, {String? route}) {
     final overlay = Overlay.of(context);
     // layers[0]: the backdrop and the menu; then submenus and forms.
     final layers = <OverlayEntry>[];
@@ -540,7 +555,7 @@ abstract final class WyContextMenu {
                   label: 'Copy Path',
                   onHover: (_) => closeFrom(1),
                   onTap: (_) {
-                    Clipboard.setData(ClipboardData(text: key));
+                    Clipboard.setData(ClipboardData(text: route ?? key));
                     close();
                   },
                 ),
@@ -1266,7 +1281,10 @@ class _ButtonState extends State<_Button> {
 class WyMetrics extends StatefulWidget {
   final WyrmApi api;
   final String? nodeKey;
-  const WyMetrics({super.key, required this.api, this.nodeKey});
+
+  /// [nodeKey]'s place in the tree, for Copy Path; the key when absent.
+  final String? route;
+  const WyMetrics({super.key, required this.api, this.nodeKey, this.route});
 
   @override
   State<WyMetrics> createState() => _WyMetricsState();
@@ -1316,11 +1334,16 @@ class _WyMetricsState extends State<WyMetrics> {
     bool match(String s) => q.isEmpty || s.toLowerCase().contains(q);
     if (m != null && widget.nodeKey != null) {
       if (!m.isContainer && m.ty != null && match('value')) {
-        rows.add(_MetricRow(api: widget.api, name: 'value', key2: widget.nodeKey!, meta: m));
+        rows.add(_MetricRow(
+            api: widget.api, name: 'value', key2: widget.nodeKey!, route: widget.route ?? widget.nodeKey!, meta: m));
       }
       for (final c in _children.where((c) => _isPoint(c.meta) && match(c.meta.displayName ?? c.name))) {
         rows.add(_MetricRow(
-            api: widget.api, name: c.meta.displayName ?? c.name, key2: '${widget.nodeKey}/${c.name}', meta: c.meta));
+            api: widget.api,
+            name: c.meta.displayName ?? c.name,
+            key2: '${widget.nodeKey}/${c.name}',
+            route: '${widget.route ?? widget.nodeKey}/${c.name}',
+            meta: c.meta));
       }
       final info = <String, String?>{
         r'$is': m.profileName,
@@ -1392,8 +1415,12 @@ class _MetricRow extends StatefulWidget {
   final WyrmApi api;
   final String name;
   final String key2;
+
+  /// Its place in the tree, for Copy Path.
+  final String route;
   final NodeMeta meta;
-  const _MetricRow({required this.api, required this.name, required this.key2, required this.meta});
+  const _MetricRow(
+      {required this.api, required this.name, required this.key2, required this.route, required this.meta});
   @override
   State<_MetricRow> createState() => _MetricRowState();
 }
@@ -1590,7 +1617,8 @@ class _MetricRowState extends State<_MetricRow> {
     // A point has actions too (edit, remove, @set): right click as in the tree.
     final menuRow = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onSecondaryTapDown: (d) => WyContextMenu.show(context, d.globalPosition, widget.api, widget.key2),
+      onSecondaryTapDown: (d) =>
+          WyContextMenu.show(context, d.globalPosition, widget.api, widget.key2, route: widget.route),
       child: row,
     );
     final failed = _setError == null
