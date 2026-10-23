@@ -6,6 +6,22 @@ owner saw or asked for, what we know of the cause, a proposal, and the
 decisions it needs. Numbers follow the owner's list (9 and 10 added the
 same day: meta elements `@unit` and `@history`).
 
+## Decided (owner, 2026-10-23)
+
+Order: stage 1 — items 7, 8, 6, 9; stage 2 — items 2, 3, 4; stage 3 — items
+10, 5, 1 (each with its ADR).
+
+| Item | Decision |
+|---|---|
+| 1 | A downstream accepts `write` from above on `down`/`dataflows` always; `config` on `sys` only when that downstream allows it explicitly. |
+| 2 | Nodes and site sections lowercase; actions keep readable display names (`Add Device`). |
+| 3 | `sys/downstream` and `sys/upstream` both move to the sections `down`/`up`. |
+| 4 | Rename the key: `flows` → `dataflows` (spec change, before 1.0). |
+| 5 | The section is `storage`. |
+| 8 | Deauthorize lists links only; a downstream broker is removed with an action on `down/<d>`. |
+| 9 | Spec 02: `unit` (key 2) joins the `view=list` summary. |
+| 10 | Broker-held meta overlays (option 1); `attr.history` is an array of keys; existing watches get it automatically. |
+
 Already fixed on the day: the Metrics panel showed
 `WyrmException(disconnected): wy/central/down/~meta is not connected` when
 `downstream` was selected (commit `bfa3c88`: no `~meta` for a site root or

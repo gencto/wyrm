@@ -328,6 +328,10 @@ class NodeMeta {
 
   bool get isWritable => writable == Writable.write;
 
+  /// Settable by someone: `write`, or `config` (the responder checks the
+  /// caller's level).
+  bool get isSettable => writable == Writable.write || writable == Writable.config;
+
   /// The `(key, writer)` pairs that are present, in canonical key order.
   List<(int, void Function(CborWriter))> _fields() => [
         if (is_ != null) (0, is_!.encode),

@@ -19,6 +19,10 @@ class ActApi implements WyrmApi {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
     'history': ActionMeta(display: 'History', result: const ResultType(TypeCode.array)),
+    // a list with nothing in it yet (as sys/quarantine Deauthorize)
+    'deauthorize': ActionMeta(display: 'Deauthorize', params: {
+      'link': ParamMeta(ty: TypeCode.string, required: true, enumValues: [], placeholder: 'no external links'),
+    }),
   });
 
   /// A driver connection: groups `new` and `edit` (spec 02 0.1.6).
@@ -100,6 +104,41 @@ class ActApi implements WyrmApi {
 
   @override
   Future<void> close() async {}
+}
+
+/// `c` with two config-level values: a bool and an enum; setting the enum
+/// to `warn` is refused.
+class SettableApi extends ActApi {
+  final sets = <(String, Value)>[];
+  static final opt = NodeMeta(ty: TypeCode.bool_, writable: Writable.config, hasChildren: false);
+  static final lvl = NodeMeta(
+      ty: TypeCode.enum_, writable: Writable.config, enumValues: ['debug', 'info', 'warn'], hasChildren: false);
+
+  @override
+  Future<List<Child>> children(String key) async =>
+      key == 'wy/s/down/c' ? [Child('opt', opt), Child('lvl', lvl)] : super.children(key);
+
+  @override
+  Future<NodeMeta> meta(String key) async => switch (key) {
+        'wy/s/down/c/opt' => opt,
+        'wy/s/down/c/lvl' => lvl,
+        _ => super.meta(key),
+      };
+
+  @override
+  Stream<ValEvent> subscribe(String pattern) => switch (pattern) {
+        'wy/s/down/c/opt' => Stream.value(ValSample(pattern, const Sample(VBool(false), t: 1))),
+        'wy/s/down/c/lvl' => Stream.value(ValSample(pattern, const Sample(VInt(1), t: 1))),
+        _ => const Stream.empty(),
+      };
+
+  @override
+  Future<void> set(String key, Value value) async {
+    sets.add((key, value));
+    if (key.endsWith('/lvl') && value == const VInt(2)) {
+      throw WyrmException.of(Status.permissionDenied, 'not allowed');
+    }
+  }
 }
 
 Future<void> rightClick(WidgetTester t, Finder f) async {
@@ -316,5 +355,47 @@ void main() {
     await t.pumpAndSettle();
     expect(find.textContaining('not connected'), findsNothing);
     expect(find.textContaining('WyrmException'), findsNothing);
+  });
+
+  testWidgets('Metrics: config values are set with a switch and a list; a refusal shows', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = SettableApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
+    // bool: a switch
+    await t.tap(find.byType(Switch));
+    await t.pumpAndSettle();
+    expect(api.sets, [('wy/s/down/c/opt', const VBool(true))]);
+    // enum: the label, then the list; a refused choice shows its message
+    await t.tap(find.text('info'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('warn').last);
+    await t.pumpAndSettle();
+    expect(api.sets.last, ('wy/s/down/c/lvl', const VInt(2)));
+    expect(find.text('not allowed'), findsOneWidget);
+    expect(find.textContaining('WyrmException'), findsNothing);
+  });
+
+  testWidgets('an empty list stays a list: shown dimmed, not typed, not sent', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('m'));
+    await t.tap(find.text('Deauthorize'));
+    await t.pumpAndSettle();
+    expect(find.text('no external links'), findsOneWidget);
+    // tapping it opens nothing (no choices)
+    await t.tap(find.text('no external links'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    final (_, action, args) = api.invoked.last;
+    expect(action, 'deauthorize');
+    expect((args as VMap).v.containsKey('link'), isFalse);
   });
 }

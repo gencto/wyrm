@@ -1691,13 +1691,13 @@ fn authorize_meta(dsid: Option<ParamMeta>, roles: &[String]) -> ActionMeta {
 async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkError> {
     let reg = ctl.registry();
     let roles = role_names(ctl);
+    // Always a list, also an empty one (the UI shows `none` in it).
     let pick = |vals: Vec<String>, display: &str, none: &str| {
-        let p = str_param().required(true).display(display);
-        if vals.is_empty() {
-            p.placeholder(none)
-        } else {
-            p.enum_values(vals)
-        }
+        str_param()
+            .required(true)
+            .display(display)
+            .placeholder(none)
+            .enum_values(vals)
     };
     let cns: Vec<String> = reg.quarantine.keys().cloned().collect();
     ctx.declare_action(

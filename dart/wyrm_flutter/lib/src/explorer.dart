@@ -364,7 +364,7 @@ List<_Entry> _menuEntries(NodeMeta m) {
     if (e.value.level == Perm.none) continue;
     groups.putIfAbsent(e.value.group, () => []).add(_Act(e.key, e.value));
   }
-  if (m.isWritable) groups.putIfAbsent(null, () => []).add(const _Act('@set', null));
+  if (m.isSettable) groups.putIfAbsent(null, () => []).add(const _Act('@set', null));
   for (final g in groups.values) {
     g.sort((a, b) => a.label.compareTo(b.label));
   }
@@ -661,8 +661,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         _files[e.key] = null;
       } else if (p.ty == TypeCode.bool_) {
         _bool[e.key] = d is VBool && d.v;
-      } else if (p.enumValues != null && p.enumValues!.isNotEmpty) {
-        _enum[e.key] = d is VStr ? d.v : p.enumValues!.first;
+      } else if (p.enumValues != null) {
+        // A list, also an empty one (nothing to choose: shown, not typed).
+        _enum[e.key] = d is VStr ? d.v : p.enumValues!.firstOrNull;
       } else {
         _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : formatValue(d, null));
       }
@@ -673,7 +674,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     if (_files.containsKey(k)) return VBytes(_files[k]!.bytes);
     if (_bool.containsKey(k)) return VBool(_bool[k]!);
     if (_enum.containsKey(k)) {
-      final s = _enum[k]!;
+      final s = _enum[k] ?? '';
       // An enum node value is its index; an action param travels as text.
       final i = widget.meta == null ? (p.enumValues ?? const []).indexOf(s) : -1;
       return i >= 0 ? VInt(i) : VStr(s);
@@ -699,6 +700,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         for (final e in _params.entries) {
           if (_text.containsKey(e.key) && _text[e.key]!.text.trim().isEmpty) continue;
           if (_files.containsKey(e.key) && _files[e.key] == null) continue;
+          if (_enum.containsKey(e.key) && _enum[e.key] == null) continue;
           args[e.key] = _value(e.key, e.value);
         }
         await for (final v in widget.api.invoke(widget.nodeKey, widget.action, VMap(args))) {
@@ -906,6 +908,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       return _EnumField(
         value: _enum[name],
         options: p.enumValues!,
+        empty: p.placeholder ?? 'nothing to choose',
         onChanged: (v) => setState(() => _enum[name] = v),
       );
     }
@@ -953,7 +956,10 @@ class _EnumField extends StatefulWidget {
   final String? value;
   final List<String> options;
   final ValueChanged<String> onChanged;
-  const _EnumField({required this.value, required this.options, required this.onChanged});
+
+  /// Shown, dimmed, when there are no options; the field does not open.
+  final String empty;
+  const _EnumField({required this.value, required this.options, required this.onChanged, this.empty = '—'});
 
   @override
   State<_EnumField> createState() => _EnumFieldState();
@@ -1000,18 +1006,27 @@ class _EnumFieldState extends State<_EnumField> {
   }
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: _open,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: _FieldBox(
-            child: Row(children: [
-              Expanded(child: Text(widget.value ?? '', style: WyStyle.input, overflow: TextOverflow.ellipsis)),
-              const Icon(Icons.arrow_drop_down, size: 18, color: WyStyle.text),
-            ]),
-          ),
+  Widget build(BuildContext context) {
+    final none = widget.options.isEmpty;
+    return GestureDetector(
+      onTap: none ? null : _open,
+      child: MouseRegion(
+        cursor: none ? MouseCursor.defer : SystemMouseCursors.click,
+        child: _FieldBox(
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                none ? widget.empty : widget.value ?? '',
+                style: none ? WyStyle.input.copyWith(color: WyStyle.disabled) : WyStyle.input,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(Icons.arrow_drop_down, size: 18, color: none ? WyStyle.disabled : WyStyle.text),
+          ]),
         ),
-      );
+      ),
+    );
+  }
 }
 
 /// A tabular result (an array of records, or of values) in its own window:
@@ -1401,6 +1416,9 @@ class _MetricRowState extends State<_MetricRow> {
     super.dispose();
   }
 
+  /// Why the last `set` was refused, shown under the row.
+  String? _setError;
+
   Future<void> _commit() async {
     final t = _edit!.text.trim();
     setState(() => _edit = null);
@@ -1409,11 +1427,53 @@ class _MetricRowState extends State<_MetricRow> {
       TypeCode.bool_ => VBool(t == 'true' || t == '1'),
       _ => VStr(t),
     };
+    await _set(v);
+  }
+
+  Future<void> _set(Value v) async {
+    setState(() => _setError = null);
     try {
       await widget.api.set(widget.key2, v);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) setState(() => _setError = e is WyrmException ? e.message : '$e');
     }
+  }
+
+  /// The value as an editor when someone may set it: a switch for a bool,
+  /// the choices for an enum, else the text (tap to edit). `null` when the
+  /// node is read only.
+  Widget? _valueEditor(ValSample? s, String text, Color color) {
+    if (!_meta.isSettable) return null;
+    final v = s?.sample.v;
+    if (_meta.ty == TypeCode.bool_) {
+      return SizedBox(
+        height: WyStyle.rowHeight,
+        child: Transform.scale(
+          scale: 0.6,
+          alignment: Alignment.centerLeft,
+          child: Switch(
+            value: v is VBool && v.v,
+            activeThumbColor: WyStyle.accent,
+            onChanged: (on) => _set(VBool(on)),
+          ),
+        ),
+      );
+    }
+    final labels = _meta.enumValues;
+    if (_meta.ty == TypeCode.enum_ && labels != null && labels.isNotEmpty) {
+      // An enum node's value is the index of its label.
+      final i = v is VInt ? v.v : -1;
+      return SizedBox(
+        // a menu panel is at least 160 wide: the list fits under the field
+        width: 160,
+        child: _EnumField(
+          value: i >= 0 && i < labels.length ? labels[i] : null,
+          options: labels,
+          onChanged: (label) => _set(VInt(labels.indexOf(label))),
+        ),
+      );
+    }
+    return null;
   }
 
   @override
@@ -1468,13 +1528,15 @@ class _MetricRowState extends State<_MetricRow> {
               ),
             ),
           )
+        else if (_valueEditor(s, text, color) case final editor?)
+          editor
         else
           GestureDetector(
-            onTap: _meta.isWritable
+            onTap: _meta.isSettable
                 ? () => setState(() => _edit = TextEditingController(text: s == null ? '' : text))
                 : null,
             child: MouseRegion(
-              cursor: _meta.isWritable ? SystemMouseCursors.text : MouseCursor.defer,
+              cursor: _meta.isSettable ? SystemMouseCursors.text : MouseCursor.defer,
               child: s == null
                   ? const SizedBox.shrink()
                   : Text(
@@ -1491,9 +1553,19 @@ class _MetricRowState extends State<_MetricRow> {
       onSecondaryTapDown: (d) => WyContextMenu.show(context, d.globalPosition, widget.api, widget.key2),
       child: row,
     );
-    if (!_open) return menuRow;
+    final failed = _setError == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.fromLTRB(_metricInset, 0, 10, 6),
+            child: Text(_setError!, style: WyStyle.label.copyWith(color: WyStyle.error)),
+          );
+    if (!_open && failed == null) return menuRow;
+    if (!_open) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [menuRow, failed!]);
+    }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       menuRow,
+      if (failed != null) failed,
       FutureBuilder<NodeMeta>(
         future: _full,
         builder: (context, snap) => snap.hasData
