@@ -1691,10 +1691,16 @@ fn upstream_entry(site: &str, quic: u16, dir: &std::path::Path, me: &str) -> Str
 
 #[tokio::test(flavor = "multi_thread")]
 async fn two_brokers_over_quic() {
+    // central's admin key signs the client's tokens; edge has its own
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
     let admin = hex::encode(key.verifying_key().to_bytes());
+    let edge_admin = hex::encode(
+        ed25519_dalek::SigningKey::from_bytes(&[11; 32])
+            .verifying_key()
+            .to_bytes(),
+    );
     let (c_dir, e_dir) = (temp_dir("central"), temp_dir("edge"));
-    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let (c_tcp, c_quic, e_tcp, c_gw) = (free_port(), free_port(), free_port(), free_port());
     let central = Config::from_json5(&format!(
         r#"{{
             site: "central",
@@ -1705,6 +1711,7 @@ async fn two_brokers_over_quic() {
                 listen: "quic/127.0.0.1:{c_quic}",
                 downstream: [{{ site: "edge" }}],
             }},
+            gateway: {{ listen: "127.0.0.1:{c_gw}", admin_user: "root" }},
         }}"#,
         c_dir.display(),
     ))
@@ -1715,7 +1722,7 @@ async fn two_brokers_over_quic() {
             site: "edge",
             data_dir: "{}",
             listen: ["tcp/127.0.0.1:{e_tcp}"],
-            admin_keys: ["{admin}"],
+            admin_keys: ["{edge_admin}"],
             peers: {{
                 upstream: [{up}],
                 upstream_val_hz: 5,
@@ -1730,8 +1737,13 @@ async fn two_brokers_over_quic() {
     .unwrap();
     // Central first: opening it issues the edge's certificate.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let env_lock = GATEWAY_ENV.lock().await;
+    std::env::set_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV, "two-brokers-root");
     let central = open_daemon(central, exe.clone()).unwrap();
+    drop(env_lock);
+    let gw = central.gateway().expect("central gateway");
     let edge = open_daemon(edge, exe).unwrap();
+    let e_ctl = edge.control();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
@@ -1752,9 +1764,18 @@ async fn two_brokers_over_quic() {
         .unwrap();
     zc.insert_json5("connect/timeout_ms", "5000").unwrap();
     let session = zenoh::open(zc).await.unwrap();
-    let c = WyrmClient::new(session)
+    let c = WyrmClient::new(session.clone())
         .with_tokens(Arc::new(SigningTokens::new(key, "edge")))
         .with_timeout(Duration::from_secs(3));
+    // Edge follows central's signing keys (ADR 0018); learning them rebuilds
+    // edge once, so wait for that before timing anything.
+    eventually("edge trusts central's keys", 30, || async {
+        match last_val(&c, "wy/edge/sys/signing_keys").await {
+            Some(Value::Map(m)) => m.contains_key("central").then_some(()),
+            _ => None,
+        }
+    })
+    .await;
 
     let names = eventually("edge links seen from central", 15, || {
         let c = &c;
@@ -1829,8 +1850,73 @@ async fn two_brokers_over_quic() {
     })
     .await;
     assert!(n >= 5, "slow link starved: {n} samples in 4 s");
-    // The upstream site is read-only: the edge ACL drops its commands.
-    assert!(c.set("wy/edge/downstream/mock/g0/p0", 1.0).await.is_err());
+    // Commands from above (ADR 0018): write on edge's devices with
+    // central's key; sys only with allow_config (not set here); a key
+    // neither site signs with is refused.
+    eventually("central sets an edge point", 20, || async {
+        c.set("wy/edge/downstream/mock/g0/p0", 1.0).await.ok()
+    })
+    .await;
+    assert!(c
+        .invoke_one(
+            "wy/edge/sys",
+            "get_permissions",
+            Value::Map(Default::default())
+        )
+        .await
+        .is_err());
+    let stranger = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(
+            ed25519_dalek::SigningKey::from_bytes(&[13; 32]),
+            "edge",
+        )))
+        .with_timeout(Duration::from_secs(3));
+    let e = stranger
+        .set("wy/edge/downstream/mock/g0/p0", 1.0)
+        .await
+        .expect_err("an unknown key");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // A user of central's gateway: the token for edge carries the role's
+    // own-site grants rewritten to edge; edge trusts the gateway's key
+    // through central and records where the user came from.
+    let user = |role: &str| {
+        let p = wyrm_gateway::Principal {
+            name: format!("{role}1"),
+            roles: vec![role.to_owned()],
+            grants: wyrm_gateway::RoleTable::default().grants("central", &[role.to_owned()]),
+            claims: wyrm_gateway::SessionClaims {
+                sub: format!("{role}1"),
+                roles: vec![role.to_owned()],
+                exp: u64::MAX,
+                iat: 0,
+                jti: [0; 16],
+                gen: 0,
+            },
+        };
+        WyrmClient::new(session.clone())
+            .with_tokens(Arc::new(gw.tokens_for(&p)))
+            .with_timeout(Duration::from_secs(3))
+    };
+    eventually("an operator at central sets an edge point", 20, || async {
+        user("operator")
+            .set("wy/edge/downstream/mock/g0/p0", 2.0)
+            .await
+            .ok()
+    })
+    .await;
+    let e = user("viewer")
+        .set("wy/edge/downstream/mock/g0/p0", 3.0)
+        .await
+        .expect_err("a viewer");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    eventually("edge's audit names the central user", 10, || async {
+        e_ctl
+            .audit_tail(200)
+            .iter()
+            .any(|r| r.sub == "claimed:user:operator1@central")
+            .then_some(())
+    })
+    .await;
 
     // Quiet first: a live 160 samples/s stream slows the broker's close.
     drain.abort();
@@ -1840,6 +1926,7 @@ async fn two_brokers_over_quic() {
     let _ = e_stop.send(());
     e_task.await.unwrap().unwrap();
     c_task.await.unwrap().unwrap();
+    drop(e_ctl);
 }
 
 /// A chain `plant → edge → central` (owner decision 2026-10-22): central
@@ -1847,8 +1934,17 @@ async fn two_brokers_over_quic() {
 /// upstream reads `sys` and `upstream` of the sites below it, never commands them.
 #[tokio::test(flavor = "multi_thread")]
 async fn chain_of_three_brokers() {
+    // one admin key per site: central's signs the client's tokens
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
     let admin = hex::encode(key.verifying_key().to_bytes());
+    let own = |seed: u8| {
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
+                .verifying_key()
+                .to_bytes(),
+        )
+    };
+    let (edge_admin, plant_admin) = (own(11), own(12));
     let (c_dir, e_dir, p_dir) = (
         temp_dir("ch-central"),
         temp_dir("ch-edge"),
@@ -1869,10 +1965,12 @@ async fn chain_of_three_brokers() {
                         downstream: [{{ site: "edge", via: ["plant"] }}] }} }}"#,
         c_dir.display(),
     ));
-    let up = upstream_entry("central", c_quic, &c_dir, "edge");
+    // edge lets central run sys actions; plant does not let edge (ADR 0018)
+    let up =
+        upstream_entry("central", c_quic, &c_dir, "edge").replace(" }", ", allow_config: true }");
     let edge = cfg(format!(
         r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
-              admin_keys: ["{admin}"],
+              admin_keys: ["{edge_admin}"],
               peers: {{ listen: "quic/127.0.0.1:{e_quic}",
                         upstream: [{up}],
                         downstream: [{{ site: "plant" }}] }},
@@ -1882,7 +1980,7 @@ async fn chain_of_three_brokers() {
     let up = upstream_entry("edge", e_quic, &e_dir, "plant");
     let plant = cfg(format!(
         r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
-              admin_keys: ["{admin}"],
+              admin_keys: ["{plant_admin}"],
               peers: {{ upstream: [{up}] }},
               links: {{ pm: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
         p_dir.display(),
@@ -1914,9 +2012,20 @@ async fn chain_of_three_brokers() {
         .unwrap();
     zc.insert_json5("connect/timeout_ms", "5000").unwrap();
     let session = zenoh::open(zc).await.unwrap();
-    let c = WyrmClient::new(session)
-        .with_tokens(Arc::new(SigningTokens::new(key, "plant")))
+    let c = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "plant")))
         .with_timeout(Duration::from_secs(3));
+    // plant learns central's keys through edge (two rebuilds: edge, then
+    // plant); wait before timing anything
+    eventually("plant trusts central's keys", 40, || async {
+        match last_val(&c, "wy/plant/sys/signing_keys").await {
+            Some(Value::Map(m)) => {
+                (m.contains_key("central") && m.contains_key("edge")).then_some(())
+            }
+            _ => None,
+        }
+    })
+    .await;
     let names = |key: &'static str| {
         let c = &c;
         async move {
@@ -1949,7 +2058,7 @@ async fn chain_of_three_brokers() {
         },
     )
     .await;
-    // sys and up of the sites below, read only
+    // sys and up of the sites below, readable
     let sys = names("wy/edge/sys").await.expect("edge sys from central");
     // the folder `packages` and the count `packages_total`: two nodes
     for n in ["links", "packages", "packages_total"] {
@@ -1976,14 +2085,25 @@ async fn chain_of_three_brokers() {
     })
     .await;
     assert_eq!(got, Ok(true), "plant samples reach central");
-    // never commands: no set below, no sys action below
-    assert!(c.set("wy/plant/downstream/pm/g0/p0", 1.0).await.is_err());
+    // Commands two hops down (ADR 0018): plant's devices take central's
+    // key; edge's sys too (edge allows central); plant's sys does not
+    // (plant does not allow edge, through which central comes).
+    eventually("central sets a plant point", 20, || async {
+        c.set("wy/plant/downstream/pm/g0/p0", 1.0).await.ok()
+    })
+    .await;
+    let none = || Value::Map(Default::default());
+    let ce = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key, "edge")))
+        .with_timeout(Duration::from_secs(3));
+    eventually("central runs an edge sys action", 20, || async {
+        ce.invoke_one("wy/edge/sys", "get_permissions", none())
+            .await
+            .ok()
+    })
+    .await;
     assert!(c
-        .invoke_one(
-            "wy/edge/sys/links/mock",
-            "stop",
-            Value::Map(Default::default())
-        )
+        .invoke_one("wy/plant/sys", "get_permissions", none())
         .await
         .is_err());
     drop(vals);
@@ -3065,7 +3185,15 @@ async fn runtime_peers_over_quic() {
     shown.sort();
     assert_eq!(
         shown,
-        ["ca", "certificate", "enabled", "key", "status", "url"]
+        [
+            "allow_config",
+            "ca",
+            "certificate",
+            "enabled",
+            "key",
+            "status",
+            "url"
+        ]
     );
     assert_eq!(
         text(last_val(&e, "wy/edge/sys/upstream/central/status").await),
@@ -3173,6 +3301,26 @@ async fn runtime_peers_over_quic() {
     ] {
         assert!(c_audit.iter().any(|r| r.op == op), "central audit has {op}");
     }
+    // 8. allow_config at runtime (ADR 0018): edge lets central run its sys
+    //    actions once it rebuilds.
+    let from_central = || async {
+        client(c_tcp, "edge")
+            .await
+            .invoke_one("wy/edge/sys", "get_permissions", args(&[]))
+            .await
+    };
+    assert!(from_central().await.is_err(), "not allowed yet");
+    client(e_tcp, "edge")
+        .await
+        .set("wy/edge/sys/upstream/central/allow_config", true)
+        .await
+        .expect("allow_config");
+    assert!(e_ctl.registry().peers["central"].allow_config);
+    eventually("central runs an edge sys action", 30, || async {
+        from_central().await.ok()
+    })
+    .await;
+
     let e = client(e_tcp, "edge").await;
     e.invoke_one("wy/edge/sys/upstream/central", "remove", args(&[]))
         .await
@@ -3360,7 +3508,8 @@ async fn samples(s: &zenoh::Session, key: &str, secs: u64) -> Vec<String> {
 /// ADR 0007 boundaries between real brokers (T12):
 /// 1. the upstream reads `downstream/**` and `sys/**` (`~meta`, `~val`) of the
 ///    downstream site, never a `sys` action (owner decision 2026-10-22);
-/// 2. the upstream cannot `invoke`, even with a token the edge trusts;
+/// 2. the upstream's commands reach the edge's devices (ADR 0018) with a
+///    token the edge trusts, never its `sys` without `allow_config`;
 /// 3. the downstream cannot write or query outside its own `wy/<edge>/**`;
 /// 4. a broker with a certificate from an untrusted CA cannot join, even
 ///    with a configured site name (`broker:edge`);
@@ -3479,15 +3628,21 @@ async fn two_brokers_isolation() {
         raw.iter().find(|k| !k.ends_with("/~val"))
     );
 
-    // 2. No commands across sites, even with a token the edge trusts.
+    // 2. Commands from above reach the edge's devices (ADR 0018); its sys
+    //    actions stay closed (no allow_config, the queries in 1.).
     let args = Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(1))]));
+    eventually("a command from above", 20, || async {
+        c.invoke_one("wy/edge/downstream/mock", "count", args.clone())
+            .await
+            .ok()
+    })
+    .await;
     assert!(c
-        .invoke_one("wy/edge/downstream/mock", "count", args)
-        .await
-        .is_err());
-    let args = Value::Map(BTreeMap::new());
-    assert!(c
-        .invoke_one("wy/edge/downstream/mock", "reset", args)
+        .invoke_one(
+            "wy/edge/sys",
+            "get_permissions",
+            Value::Map(BTreeMap::new())
+        )
         .await
         .is_err());
 

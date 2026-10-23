@@ -8,7 +8,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 - **Iteration 1 (core)** — done. `modbus` and `mockdev` run on the driver framework (ADR 0004); the bench `mock` stays on the raw layer.
 - **Iteration 2 (control plane)** — done: link registry, tokens, internal CA, generated ACL, supervisor, quarantine, audit, encrypted link secrets.
 - **Iteration 3 (flow)** — engine in `wyrmd` (`wy/<site>/dataflows`); deploys prove the deployer's rights on every command target.
-- **Iteration 4 (two brokers)** — `peers` over QUIC + mTLS; upstream sites read only; optional `~val` downsampling.
+- **Iteration 4 (two brokers)** — `peers` over QUIC + mTLS; upstream sites command devices below, `sys` only where allowed (ADR 0018); optional `~val` downsampling.
 - **Iteration 5 (security)** — user gateway (HTTP + WebSocket, roles → per-request `ptok`), responder rate limits, audit of every `set`/`invoke`.
 
 | Crate | Purpose |
@@ -118,9 +118,11 @@ As in DSA (ADR 0015), the downstream broker adds the connection itself: on edge,
 
 Edge then connects on 7449 and shows up in `wy/central/downstream/edge`; **Deauthorize** sends it back to quarantine. Central's QUIC listeners trust its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection.
 
-Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream,storage}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
+Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream,storage}/**` (and `~def|~state` under `downstream`/`dataflows`). Requesters at the central broker may read `wy/<edge>/**`.
 
-A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge, read only (ADR 0007).
+Commands from above (ADR 0018): central's users (through its gateway) and operators (with central's admin key, `SigningTokens::new(key, "edge")`) may `set` and `invoke` on edge's `downstream`, `dataflows` and `storage`, as far as their grants at central go (`wy/central/x` grants count as `wy/edge/x`); edge's `sys` only when edge allows it: `allow_config: true` on the `peers.upstream` entry, or `sys/upstream/central/allow_config`. Edge learns the keys that sign these requests from `wy/central/sys/signing_keys` (central's admin keys and gateway key, and the keys above central) and trusts them only within its own site, at those levels; learning new keys rebuilds edge once. Edge's audit names the user as `user:<name>@central`. Clocks must agree within a few minutes (tokens live 5 minutes).
+
+A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge (ADR 0007) and commands it as plant allows (`allow_config` at each hop for `sys`).
 
 Demo with a chain of three sites, connectors and the Flutter app:
 `examples/demo/run.sh` starts `central`, `edge` (mock, framework mock `lab`,

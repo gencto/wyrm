@@ -52,6 +52,17 @@ two layers as on one site:
 config on `sys` too: install links, purge, peers); whether the trust is per
 peer in `wyrmd.json5` / `sys/upstream`.
 
+**Done (2026-10-24, ADR 0018, spec 01 0.2.3):** as DSA's per-upstream
+`Group`, fixed to the decided levels. Every upstream gets `write` on
+`downstream`, `dataflows` and `storage` (storage added: DSA's group covers
+`/data`); `sys` at `config` only with `allow_config` on that upstream
+(`peers.upstream[].allow_config`, `sys/upstream/<u>/allow_config`), at every
+hop of a chain. The upstream publishes the keys that sign requests
+(`sys/signing_keys`: its admin and gateway keys and those above it); the
+downstream follows them over the peer link and trusts them as capped,
+scoped keys. The gateway mints tokens for the downstream site with the
+user's grants rewritten to it and the subject `user:<name>@<site>`.
+
 ## 2. One form for all node names, lowercase
 
 **Asked:** go through every node of the broker and give the names one form,

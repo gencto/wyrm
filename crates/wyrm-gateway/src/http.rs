@@ -460,14 +460,9 @@ async fn check_invoke(
 ) -> Result<wyrm_client::WyrmClient, ApiError> {
     let gw = &st.gw;
     let (key, action) = (&q.key, &q.action);
-    if let Some(d) = gw.read_site_of(key) {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            Status::PermissionDenied,
-            format!("{d} is a downstream site: read only"),
-        ));
-    }
-    crate::ws::check_key(gw.site(), key, false).map_err(ApiError::bad)?;
+    // A downstream site is checked as the own site (ADR 0018).
+    let own = gw.as_own(key);
+    crate::ws::check_key(gw.site(), &own, false).map_err(ApiError::bad)?;
     wyrm_core::keyspace::validate_segment(action)
         .map_err(|_| ApiError::bad("action: valid segment required"))?;
     let deny = || {
@@ -478,7 +473,7 @@ async fn check_invoke(
         });
         ApiError::forbidden()
     };
-    let act_key = format!("{key}/~act/{action}");
+    let act_key = format!("{own}/~act/{action}");
     if p.grants.perm(&act_key) < Perm::Read {
         return Err(deny());
     }

@@ -82,11 +82,11 @@ pub struct GatewayConfig {
     pub anchor: Option<PathBuf>,
     /// Create the anchor from the current head (operator step).
     pub anchor_init: bool,
-    /// Downstream sites (peers, ADR 0007) whose trees users may browse:
-    /// read operations only, under the same roles as the own site
-    /// (`wy/<d>/x` is checked as `wy/<site>/x`), without a ptok (the
-    /// downstream links do not trust this gateway's key).
-    pub read_sites: Vec<String>,
+    /// Downstream sites (peers, ADR 0007) users may reach through this
+    /// gateway, under the same roles as the own site (`wy/<d>/x` is checked
+    /// as `wy/<site>/x`). Writes carry a token for that site, which it
+    /// trusts through its upstream as far as it allows (ADR 0018).
+    pub downstream_sites: Vec<String>,
 }
 
 impl GatewayConfig {
@@ -101,25 +101,58 @@ impl GatewayConfig {
             roles: RoleTable::default(),
             anchor: None,
             anchor_init: false,
-            read_sites: Vec::new(),
+            downstream_sites: Vec::new(),
         }
     }
 }
 
-/// Per-request tokens for the own site only: requests to a read site go
-/// without one (its links would refuse a token they do not trust).
-pub struct OwnSiteTokens {
-    root: String,
-    inner: wyrm_client::SigningTokens,
+/// Per-request tokens of one user: for the own site, and for a downstream
+/// site with the own-site grants rewritten to it (`wy/<site>/…` →
+/// `wy/<d>/…`, `wy/**` as it is) and the subject `user:<name>@<site>`
+/// (ADR 0018). No token for other sites.
+pub struct UserTokens {
+    site: String,
+    signing: SigningKey,
+    sub: String,
+    grants: Vec<wyrm_core::ptok::Grant>,
+    max: Perm,
+    downstream: Vec<String>,
 }
 
-impl wyrm_client::TokenSource for OwnSiteTokens {
+impl UserTokens {
+    fn for_site(&self, site: &str) -> wyrm_client::SigningTokens {
+        let tokens = wyrm_client::SigningTokens::new(self.signing.clone(), site)
+            .max(self.max)
+            .ttl(PTOK_TTL);
+        if site == self.site {
+            return tokens.subject(&self.sub).grants(self.grants.clone());
+        }
+        let own = format!("wy/{}", self.site);
+        let grants = self
+            .grants
+            .iter()
+            .map(|g| {
+                let k = match g.k.strip_prefix(&own) {
+                    Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+                        format!("wy/{site}{rest}")
+                    }
+                    _ => g.k.clone(),
+                };
+                wyrm_core::ptok::Grant { k, p: g.p }
+            })
+            .collect();
+        tokens
+            .subject(format!("{}@{}", self.sub, self.site))
+            .grants(grants)
+    }
+}
+
+impl wyrm_client::TokenSource for UserTokens {
     fn token(&self, key: &str) -> Option<Vec<u8>> {
-        let own = key == self.root
-            || key
-                .strip_prefix(self.root.as_str())
-                .is_some_and(|r| r.starts_with('/'));
-        own.then(|| self.inner.token(key)).flatten()
+        let site = key.strip_prefix("wy/")?.split('/').next()?;
+        (site == self.site || self.downstream.iter().any(|d| d == site))
+            .then(|| self.for_site(site).token(key))
+            .flatten()
     }
 }
 
@@ -179,9 +212,9 @@ pub struct Gateway {
     addr: watch::Sender<Option<SocketAddr>>,
     /// WebSocket tickets: hex(16 random bytes) → ticket.
     tickets: Mutex<std::collections::HashMap<String, Ticket>>,
-    /// Downstream sites read through this gateway (starts as
-    /// `cfg.read_sites`; peers added at runtime change it).
-    read_sites: RwLock<Vec<String>>,
+    /// Downstream sites reached through this gateway (starts as
+    /// `cfg.downstream_sites`; peers added at runtime change it).
+    downstream_sites: RwLock<Vec<String>>,
 }
 
 pub(crate) struct UploadSlot<'a> {
@@ -243,7 +276,7 @@ impl Gateway {
             audit: RwLock::new(None),
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),
-            read_sites: RwLock::new(cfg.read_sites.clone()),
+            downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
             cfg,
         }))
     }
@@ -299,11 +332,11 @@ impl Gateway {
         &self.cfg.site
     }
 
-    /// The downstream site `key` belongs to, if it is one of `read_sites`.
-    pub fn read_site_of(&self, key: &str) -> Option<String> {
+    /// The downstream site `key` belongs to, if it is one of `downstream_sites`.
+    pub fn downstream_site_of(&self, key: &str) -> Option<String> {
         let rest = key.strip_prefix("wy/")?;
         let site = rest.split('/').next()?;
-        self.read_sites
+        self.downstream_sites
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .iter()
@@ -321,15 +354,18 @@ impl Gateway {
         })
     }
 
-    /// Downstream sites readable through the gateway (the broker's peers).
-    pub fn set_read_sites(&self, sites: Vec<String>) {
-        *self.read_sites.write().unwrap_or_else(|p| p.into_inner()) = sites;
+    /// Downstream sites reached through the gateway (the broker's peers).
+    pub fn set_downstream_sites(&self, sites: Vec<String>) {
+        *self
+            .downstream_sites
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = sites;
     }
 
-    /// `key` with a read site's prefix replaced by the own site's (roles
+    /// `key` with a downstream site's prefix replaced by the own site's (roles
     /// are written for the own site); other keys unchanged.
     pub fn as_own(&self, key: &str) -> String {
-        match self.read_site_of(key) {
+        match self.downstream_site_of(key) {
             Some(d) => format!("wy/{}{}", self.cfg.site, &key[3 + d.len()..]),
             None => key.to_owned(),
         }
@@ -621,14 +657,18 @@ impl Gateway {
 
     /// A ptok source for `p`: subject `user:<name>`, the user's grants and
     /// max, 5 min lifetime, one token per request scoped to its key.
-    pub fn tokens_for(&self, p: &Principal) -> OwnSiteTokens {
-        OwnSiteTokens {
-            root: format!("wy/{}", self.cfg.site),
-            inner: wyrm_client::SigningTokens::new(self.signing.clone(), &self.cfg.site)
-                .subject(format!("user:{}", p.name))
-                .grants(p.grants.list.clone())
-                .max(p.grants.max)
-                .ttl(PTOK_TTL),
+    pub fn tokens_for(&self, p: &Principal) -> UserTokens {
+        UserTokens {
+            site: self.cfg.site.clone(),
+            signing: self.signing.clone(),
+            sub: format!("user:{}", p.name),
+            grants: p.grants.list.clone(),
+            max: p.grants.max,
+            downstream: self
+                .downstream_sites
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
         }
     }
 

@@ -1026,21 +1026,22 @@ async fn flow_deploy_proofs_come_from_the_user() {
     env.stop().await;
 }
 
-/// ADR 0007: a downstream site in `read_sites` is checked under the own
-/// site's roles, and its requests carry no ptok (its links do not trust
-/// this gateway's key); other sites stay out of reach.
+/// ADR 0007: a downstream site in `downstream_sites` is checked under the own
+/// site's roles; a token for it names that site, the user with our site,
+/// and the own-site grants rewritten to it (ADR 0018); other sites stay out
+/// of reach.
 #[test]
-fn read_sites_map_to_own_roles_without_a_token() {
+fn downstream_sites_map_to_own_roles() {
     use wyrm_client::TokenSource;
     let mut cfg = GatewayConfig::new(SITE, temp_dir("readsites"), "127.0.0.1:0".parse().unwrap());
-    cfg.read_sites = vec!["edge".into()];
+    cfg.downstream_sites = vec!["edge".into()];
     let gw = Gateway::open(cfg, b"k").unwrap();
     assert_eq!(
-        gw.read_site_of("wy/edge/downstream/m/p").as_deref(),
+        gw.downstream_site_of("wy/edge/downstream/m/p").as_deref(),
         Some("edge")
     );
-    assert_eq!(gw.read_site_of("wy/edgex/downstream"), None);
-    assert_eq!(gw.read_site_of("wy/other/downstream"), None);
+    assert_eq!(gw.downstream_site_of("wy/edgex/downstream"), None);
+    assert_eq!(gw.downstream_site_of("wy/other/downstream"), None);
     assert_eq!(
         gw.as_own("wy/edge/downstream/m/p"),
         format!("wy/{SITE}/downstream/m/p")
@@ -1060,17 +1061,37 @@ fn read_sites_map_to_own_roles_without_a_token() {
             gen: 0,
         },
     };
+    let mut p = p;
+    p.grants = RoleTable::default().grants(SITE, &["operator".into()]);
     let t = gw.tokens_for(&p);
-    assert!(t.token(&format!("wy/{SITE}/downstream/m/p/~set")).is_some());
-    assert!(t.token("wy/edge/downstream/m/p/~meta").is_none());
-    assert!(t.token(&format!("wy/{SITE}x/downstream/~meta")).is_none());
-    // downstream brokers installed or removed at runtime change the list
-    gw.set_read_sites(vec!["plant".into()]);
+    let claims = |tok: Vec<u8>| -> wyrm_core::PtokClaims {
+        let parts = wyrm_core::ptok::split(&tok).unwrap();
+        from_slice(parts.claims).unwrap()
+    };
+    let own = claims(t.token(&format!("wy/{SITE}/downstream/m/p/~set")).unwrap());
+    assert_eq!((own.site.as_str(), own.sub.as_str()), (SITE, "user:op"));
+    let down = claims(t.token("wy/edge/downstream/m/p/~set").unwrap());
+    assert_eq!(down.site, "edge");
+    assert_eq!(down.sub, format!("user:op@{SITE}"));
+    // one grant, on the key, at the level of the rewritten operator grant
+    assert_eq!(down.grants.len(), 1);
     assert_eq!(
-        gw.read_site_of("wy/plant/downstream").as_deref(),
+        (down.grants[0].k.as_str(), down.grants[0].p),
+        ("wy/edge/downstream/m/p/~set", Perm::Write)
+    );
+    assert!(
+        t.token("wy/edge/sys/~act/install").is_none(),
+        "no operator grant on sys"
+    );
+    assert!(t.token(&format!("wy/{SITE}x/downstream/~meta")).is_none());
+    assert!(t.token("wy/other/downstream/m/p/~set").is_none());
+    // downstream brokers installed or removed at runtime change the list
+    gw.set_downstream_sites(vec!["plant".into()]);
+    assert_eq!(
+        gw.downstream_site_of("wy/plant/downstream").as_deref(),
         Some("plant")
     );
-    assert_eq!(gw.read_site_of("wy/edge/downstream/m/p"), None);
+    assert_eq!(gw.downstream_site_of("wy/edge/downstream/m/p"), None);
 }
 
 /// `history` (spec 01 `~val?history=`) needs read on the point itself:

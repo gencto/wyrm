@@ -176,6 +176,10 @@ pub struct UpstreamPeer {
     /// `data_dir/peers/<this site>/broker.pem`) and its key (`broker.key`).
     pub cert: PathBuf,
     pub key: PathBuf,
+    /// Its users may run `config` actions on our `sys` (ADR 0018); `write`
+    /// on devices, flows and storage they always have.
+    #[serde(default)]
+    pub allow_config: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -275,6 +279,12 @@ impl PeersSection {
                     .map(|d| (d.site.clone(), d.via.clone()))
                     .collect(),
                 enroll: self.enroll.is_some(),
+                config_from: self
+                    .upstream
+                    .iter()
+                    .filter(|u| u.allow_config)
+                    .map(|u| u.site.clone())
+                    .collect(),
             },
             upstream: self
                 .upstream
@@ -285,6 +295,7 @@ impl PeersSection {
                     ca: u.ca.clone(),
                     cert: u.cert.clone(),
                     key: u.key.clone(),
+                    allow_config: u.allow_config,
                 })
                 .collect(),
             listen: self.listen.is_some(),
@@ -711,7 +722,7 @@ impl Broker {
         let admin = ctl.attach(session.clone()).await?;
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
-            g.set_read_sites(ctl.peers().reachable());
+            g.set_downstream_sites(ctl.peers().reachable());
         }
         // The engine trusts admin keys and the gateway's (user requests),
         // never the flow key: flow tokens do not command flows.
@@ -720,6 +731,8 @@ impl Broker {
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
         lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
         lcfg.admin_keys = engine_keys.clone();
+        // upstream sites at write (ADR 0018); deploys need config
+        lcfg.limited_keys = ctl.upstream_trust("dataflows");
         let flow_key = flows.verifying_key();
         let flows = match wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
@@ -738,7 +751,8 @@ impl Broker {
             }
         };
         // Storage (ADR 0017): the admin keys, users through the gateway and
-        // flows at write, each only under `storage`.
+        // flows at write, each only under `storage`; upstream sites at
+        // write (ADR 0018).
         let root = format!("wy/{}/storage", cfg.site);
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::STORAGE_LINK);
         lcfg.root = Some(root.clone());
@@ -751,6 +765,7 @@ impl Broker {
                 scopes: vec![root.clone()],
                 subject: None,
             })
+            .chain(ctl.upstream_trust("storage"))
             .collect();
         let storage = match wyrm_link_sdk::spawn::<Storage>(
             session.clone(),
@@ -971,7 +986,7 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
     // every site below this one, also through a chain
-    gc.read_sites = cfg.peers.peer_config().peers.reachable();
+    gc.downstream_sites = cfg.peers.peer_config().peers.reachable();
     gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
     gc.anchor_init = cfg.init_anchors;
     if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {

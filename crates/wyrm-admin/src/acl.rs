@@ -113,6 +113,10 @@ pub struct Peers {
     /// QUIC session may ask `wy/<site>/sys/~act/enroll` and get its reply,
     /// nothing else (ADR 0015).
     pub enroll: bool,
+    /// Upstream sites whose requests may reach our `sys` (and the relayed
+    /// sites' `sys`) at `config`; every upstream gets `write` on the other
+    /// sections (ADR 0018).
+    pub config_from: Vec<String>,
 }
 
 impl Peers {
@@ -141,6 +145,31 @@ const UP_READ: [(&str, &[&str]); 5] = [
     ("upstream", &["~meta", "~val"]),
     ("storage", &["~meta", "~val"]),
 ];
+
+/// Sections an upstream site may send `~set`/`~act` queries to (ADR 0018);
+/// `sys` only with `allow_config`.
+const UP_WRITE: [&str; 3] = ["downstream", "dataflows", "storage"];
+
+/// The value a site publishes with the keys it signs requests with, which
+/// its downstream sites read (ADR 0018).
+pub fn signing_keys_key(site: &str) -> String {
+    format!("wy/{site}/sys/signing_keys/~val")
+}
+
+/// `~set` and `~act/<a>` keys of `sections` on `sites`.
+fn command_keys(sites: &[String], sections: &[&str]) -> Vec<String> {
+    sites
+        .iter()
+        .flat_map(|s| {
+            sections.iter().flat_map(move |t| {
+                [
+                    format!("wy/{s}/{t}/**/~set"),
+                    format!("wy/{s}/{t}/**/~act/*"),
+                ]
+            })
+        })
+        .collect()
+}
 
 /// The `access_control` section for the router config.
 pub fn access_control(site: &str, reg: &Registry, operators: &[String], dev: bool) -> Value {
@@ -360,6 +389,21 @@ pub fn access_control_with_peers(
             &["put", "delete", "reply"],
             &data,
         ));
+        // Commands from above (ADR 0018): `write` sections for every
+        // upstream; the tokens and the links' caps decide the rest.
+        let commands = command_keys(&sites, &UP_WRITE);
+        rules.push(rule(
+            "upstream-write-in",
+            &["ingress"],
+            &["query"],
+            &commands,
+        ));
+        rules.push(rule(
+            "upstream-write-out",
+            &["egress"],
+            &["reply"],
+            &commands,
+        ));
         let cns: Vec<String> = peers
             .upstream
             .iter()
@@ -369,7 +413,7 @@ pub fn access_control_with_peers(
             json!({ "id": "upstream", "cert_common_names": cns, "link_protocols": ["quic"] }),
         );
         policies
-            .push(json!({ "rules": ["upstream-in", "upstream-sub", "upstream-query", "upstream-out", "upstream-data", "pub-in", "pub-out"], "subjects": ["upstream"] }));
+            .push(json!({ "rules": ["upstream-in", "upstream-sub", "upstream-query", "upstream-out", "upstream-data", "upstream-write-in", "upstream-write-out", "pub-in", "pub-out"], "subjects": ["upstream"] }));
         // Presence (`upstream/<u>/connected` here, `downstream/<site>/connected` there):
         // per upstream site, so one site cannot declare another's token,
         // and a peer never declares a token on our own key.
@@ -401,6 +445,26 @@ pub fn access_control_with_peers(
                 std::slice::from_ref(&own),
             ));
             rules.push(rule(&ids[3], &["egress"], WATCH, &[theirs]));
+            // Its signing keys: it declares one queryable, we ask, it
+            // answers (ADR 0018).
+            let signers = vec![signing_keys_key(u)];
+            let mut ids = ids.to_vec();
+            ids.push(format!("signers-{u}-out"));
+            rules.push(rule(&ids[4], &["egress"], &["query"], &signers));
+            ids.push(format!("signers-{u}-in"));
+            rules.push(rule(
+                &ids[5],
+                &["ingress"],
+                &["declare_queryable", "reply"],
+                &signers,
+            ));
+            if peers.config_from.contains(u) {
+                let sys = command_keys(&sites, &["sys"]);
+                ids.push(format!("upstream-{u}-config-in"));
+                rules.push(rule(&ids[6], &["ingress"], &["query"], &sys));
+                ids.push(format!("upstream-{u}-config-out"));
+                rules.push(rule(&ids[7], &["egress"], &["reply"], &sys));
+            }
             subjects.push(json!({
                 "id": format!("upstream-{u}"),
                 "cert_common_names": [format!("broker:{u}")],
@@ -442,8 +506,23 @@ pub fn access_control_with_peers(
             TOKEN,
             &[own],
         ));
+        // It reads the keys we sign requests with from our one queryable
+        // on that key (ADR 0018).
+        let signers = vec![signing_keys_key(site)];
+        rules.push(rule(
+            &format!("signers-{d}-in"),
+            &["ingress"],
+            &["query"],
+            &signers,
+        ));
+        rules.push(rule(
+            &format!("signers-{d}-out"),
+            &["egress"],
+            &["declare_queryable", "reply"],
+            &signers,
+        ));
         policies.push(json!({
-            "rules": [format!("site-{d}"), format!("presence-{d}-watch-in"), format!("presence-{d}-token-out")],
+            "rules": [format!("site-{d}"), format!("presence-{d}-watch-in"), format!("presence-{d}-token-out"), format!("signers-{d}-in"), format!("signers-{d}-out")],
             "subjects": [format!("broker-{d}")],
         }));
     }
@@ -550,6 +629,61 @@ mod tests {
             .contains(&json!("grant-rec-query")));
         // a link without grants gets none of these rules
         assert!(!acl.to_string().contains("grant-mock"));
+    }
+
+    /// ADR 0018: every upstream may send `~set`/`~act` to the write
+    /// sections of this site and the relayed ones; `sys` only an upstream
+    /// with `allow_config`; signing keys pass on exactly one key each way.
+    #[test]
+    fn commands_from_upstream() {
+        let peers = Peers {
+            upstream: vec!["cloud".into(), "hq".into()],
+            downstream: vec!["cell".into()],
+            via: std::collections::BTreeMap::from([("cell".into(), vec!["far".into()])]),
+            config_from: vec!["hq".into()],
+            ..Default::default()
+        };
+        let acl = access_control_with_peers("plant", &Registry::default(), &[], false, &peers);
+        let rule = |id: &str| -> Option<(Vec<String>, Vec<String>, Vec<String>)> {
+            let r = acl["rules"].as_array()?.iter().find(|r| r["id"] == id)?;
+            let list = |f: &str| -> Vec<String> {
+                r[f].as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|k| k.as_str().unwrap().to_owned())
+                    .collect()
+            };
+            Some((list("flows"), list("messages"), list("key_exprs")))
+        };
+        let (flows, msgs, keys) = rule("upstream-write-in").unwrap();
+        assert_eq!(
+            (flows, msgs),
+            (vec!["ingress".into()], vec!["query".into()])
+        );
+        for k in [
+            "wy/plant/downstream/**/~set",
+            "wy/plant/storage/**/~act/*",
+            "wy/far/dataflows/**/~act/*",
+        ] {
+            assert!(keys.contains(&k.to_owned()), "{k}: {keys:?}");
+        }
+        assert!(keys.iter().all(|k| !k.contains("/sys/")));
+        assert!(rule("upstream-write-out").is_some());
+        assert!(
+            rule("upstream-cloud-config-in").is_none(),
+            "cloud not allowed"
+        );
+        let (_, _, sys) = rule("upstream-hq-config-in").unwrap();
+        assert!(sys.contains(&"wy/plant/sys/**/~act/*".to_owned()));
+        assert!(sys.contains(&"wy/far/sys/**/~set".to_owned()));
+        let (_, msgs, keys) = rule("signers-cloud-in").unwrap();
+        assert_eq!(msgs, ["declare_queryable", "reply"]);
+        assert_eq!(keys, ["wy/cloud/sys/signing_keys/~val"]);
+        let (_, msgs, keys) = rule("signers-cell-out").unwrap();
+        assert_eq!(msgs, ["declare_queryable", "reply"]);
+        assert_eq!(keys, ["wy/plant/sys/signing_keys/~val"]);
+        let mut c = zenoh::Config::default();
+        c.insert_json5("access_control", &acl.to_string()).unwrap();
     }
 
     #[test]

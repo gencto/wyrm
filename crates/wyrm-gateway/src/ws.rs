@@ -275,21 +275,8 @@ impl Conn {
             return true;
         }
         let pattern = req.op == "subscribe";
-        // A downstream site (ADR 0007): read only, checked as the own site.
-        if let Some(d) = self.gw.read_site_of(&req.key) {
-            if !matches!(
-                req.op.as_str(),
-                "meta" | "children" | "list" | "subscribe" | "history"
-            ) {
-                self.send(err_frame(
-                    req.id,
-                    Status::PermissionDenied.code(),
-                    &format!("{d} is a downstream site: read only"),
-                ))
-                .await;
-                return true;
-            }
-        }
+        // A downstream site is checked as the own site (ADR 0007); a write
+        // carries a token for it, and it decides too (ADR 0018).
         let own = self.gw.as_own(&req.key);
         if let Err(msg) = check_key(self.gw.site(), &own, pattern) {
             self.send(err_frame(req.id, Status::InvalidParameter.code(), &msg))

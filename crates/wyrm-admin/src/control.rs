@@ -41,6 +41,8 @@ use wyrm_link_sdk::{
 use wyrm_state::{StateError, Store};
 use zenoh::Session;
 
+mod signers;
+
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A link running in-process; stopped on remove or broker reload.
@@ -321,6 +323,8 @@ pub struct UpstreamConf {
     pub ca: PathBuf,
     pub cert: PathBuf,
     pub key: PathBuf,
+    /// Its users may run `config` actions on our `sys` (ADR 0018).
+    pub allow_config: bool,
 }
 
 /// Largest accepted CA certificate (PEM).
@@ -728,6 +732,7 @@ impl Control {
         let mut limited = self.cfg.link_keys.clone();
         limited.extend(self.agent_limited_keys());
         limited.extend(self.requester_limited_keys());
+        limited.extend(self.upstream_trust("downstream"));
         (self.cfg.admin_keys.clone(), limited)
     }
 
@@ -1082,7 +1087,12 @@ impl Control {
         p.enroll = cfg.enroll;
         for d in &self.runtime_peers() {
             match d.dir {
-                PeerDir::Upstream if d.enabled => p.upstream.push(d.site.clone()),
+                PeerDir::Upstream if d.enabled => {
+                    p.upstream.push(d.site.clone());
+                    if d.allow_config {
+                        p.config_from.push(d.site.clone());
+                    }
+                }
                 PeerDir::Upstream => {}
                 PeerDir::Downstream => {
                     p.downstream.push(d.site.clone());
@@ -1176,6 +1186,7 @@ impl Control {
                     ca: self.peer_ca_path(&d.site),
                     cert: self.peer_file(&d.site, "cert.pem"),
                     key: self.peer_file(&d.site, "key"),
+                    allow_config: d.allow_config,
                 });
             }
         }
@@ -1417,6 +1428,8 @@ impl Control {
         lcfg.admin_keys = self.cfg.admin_keys.clone();
         lcfg.admin_keys
             .extend(self.cfg.control_keys.iter().copied());
+        // upstream sites with `allow_config` (ADR 0018)
+        lcfg.limited_keys = self.upstream_trust("sys");
         lcfg.open_actions = vec!["hello".into(), "enroll".into()];
         // the admin publishes overlays; it lays none over itself
         lcfg.overlays = false;
@@ -1469,6 +1482,8 @@ impl Control {
             tokio::spawn(load_repository(self.clone(), ctx.clone())),
             tokio::spawn(enroll_upstreams(self.clone(), ctx.clone())),
             tokio::spawn(expire_enrollments(self.clone(), ctx.clone())),
+            tokio::spawn(signers::follow_signers(self.clone(), ctx.clone())),
+            tokio::spawn(signers::serve_signing_keys(self.clone(), session.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -2197,6 +2212,7 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
                     .description("From its sys/tokens, if it gave one: admitted at once"),
             )
             .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled"))
+            .param("allow_config", allow_config_param())
             .level(Perm::Config),
     )
     .await?;
@@ -2209,6 +2225,7 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
             cert_pem: &pem(&u.cert),
             key_sha256: "",
             enabled: true,
+            allow_config: u.allow_config,
         };
         declare_upstream(ctx, &shown, false).await?;
     }
@@ -2237,6 +2254,14 @@ struct Upstream<'a> {
     cert_pem: &'a str,
     key_sha256: &'a str,
     enabled: bool,
+    allow_config: bool,
+}
+
+/// `allow_config` of an upstream site (ADR 0018).
+fn allow_config_param() -> ParamMeta {
+    ParamMeta::of(TypeCode::Bool)
+        .display("Allow Config")
+        .description("Its users may run config actions here (sys), as far as their own grants go")
 }
 
 impl<'a> Upstream<'a> {
@@ -2252,6 +2277,7 @@ impl<'a> Upstream<'a> {
             cert_pem: &d.cert_pem,
             key_sha256: &d.key_sha256,
             enabled: d.enabled,
+            allow_config: d.allow_config,
         }
     }
 }
@@ -2296,8 +2322,20 @@ async fn declare_upstream(
         on = on.writable(Writable::Config);
     }
     let en = format!("{p}/enabled");
-    ctx.declare_node(&en, on).await?;
+    ctx.declare_node(&en, on.clone()).await?;
     ctx.update(&en, Value::Bool(u.enabled), Quality::Good, t)
+        .await?;
+    // what its requests may do here (ADR 0018)
+    let ac = format!("{p}/allow_config");
+    ctx.declare_node(
+        &ac,
+        on.attr(
+            "description",
+            "Its users may run config actions here (sys); write on devices, flows and storage they always have",
+        ),
+    )
+    .await?;
+    ctx.update(&ac, Value::Bool(u.allow_config), Quality::Good, t)
         .await?;
     if runtime {
         declare_remove(ctx, &p).await?;
@@ -2870,6 +2908,7 @@ impl Link for Admin {
         declare_sys_actions(&ctx, &cfg.ctl).await?;
         declare_peers(&ctx, &cfg.ctl).await?;
         publish_overlays(&ctx, &cfg.ctl).await?;
+        signers::publish_signing_keys(&ctx, &cfg.ctl).await?;
         ctx.declare_node("links", NodeMeta::folder()).await?;
         ctx.declare_action(
             "links",
@@ -3094,6 +3133,12 @@ impl Link for Admin {
                 return Err(LinkError::invalid_parameter("enabled: true or false"));
             };
             return self.enable_peer(site, on, &sub_of(who)).await;
+        }
+        if let ["upstream", site, "allow_config"] = path.split('/').collect::<Vec<_>>().as_slice() {
+            let Value::Bool(on) = value else {
+                return Err(LinkError::invalid_parameter("allow_config: true or false"));
+            };
+            return self.allow_config(site, on, &sub_of(who)).await;
         }
         if !OPTION_NAMES.contains(&path) {
             return Err(LinkError::not_supported(format!("{path}/~set")));
@@ -4231,6 +4276,7 @@ impl Admin {
             .map(str::trim)
             .filter(|t| !t.is_empty());
         let enabled = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
+        let allow_config = matches!(arg(args, "allow_config"), Some(Value::Bool(true)));
         let (key, key_sha256) =
             secret::new_broker_key().map_err(|e| LinkError::internal(e.to_string()))?;
         let store = peer_secret(site);
@@ -4257,6 +4303,7 @@ impl Admin {
             cert_pem: String::new(),
             enroll: url.to_owned(),
             key_sha256,
+            allow_config,
         };
         if let Err(e) = self.ctl.apply(Op::AddPeer(def.clone())) {
             let _ = self.ctl.secrets.drop_link(&store);
@@ -4650,6 +4697,33 @@ impl Admin {
         self.ctx
             .update(
                 &format!("upstream/{site}/enabled"),
+                Value::Bool(on),
+                Quality::Good,
+                now_us(),
+            )
+            .await?;
+        self.ctl.schedule_reload();
+        Ok(())
+    }
+
+    /// `upstream/<site>/allow_config` of a runtime upstream site: the ACL
+    /// and the admin's trust follow on the rebuild (ADR 0018).
+    async fn allow_config(&self, site: &str, on: bool, sub: &str) -> wyrm_link_sdk::Result<()> {
+        self.ctl
+            .apply(Op::SetPeerAllowConfig {
+                site: site.to_owned(),
+                on,
+            })
+            .map_err(|_| {
+                LinkError::not_supported(
+                    "not a runtime upstream peer; peers from wyrmd.json5 are changed there",
+                )
+            })?;
+        self.ctl
+            .record(sub, "peer_allow_config", site, Status::Ok, &on.to_string());
+        self.ctx
+            .update(
+                &format!("upstream/{site}/allow_config"),
                 Value::Bool(on),
                 Quality::Good,
                 now_us(),
@@ -5573,6 +5647,7 @@ zenoh_rx_bytes_total_extra 7
             cert_pem: String::new(),
             enroll: String::new(),
             key_sha256: String::new(),
+            allow_config: false,
         };
         let config = crate::acl::Peers {
             upstream: vec!["cloud".into()],

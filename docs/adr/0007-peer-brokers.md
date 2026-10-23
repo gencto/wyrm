@@ -1,6 +1,6 @@
 # ADR 0007 — Peer brokers: QUIC + mTLS, read-only upstream
 
-**Status:** accepted · 2026-10-20 · trust and admission amended by ADR 0015 (2026-10-23): downstream brokers hold certificates from the upstream's CA; `peer-trust.pem`, `peers.downstream[].ca` and `sys/downstream` are gone, and the accepted peer-CA risk below no longer applies. The text below records the design before that
+**Status:** accepted · 2026-10-20 · "read-only upstream" reversed by ADR 0018 (2026-10-24: commands from above on devices, flows and storage; `sys` with `allow_config`) · trust and admission amended by ADR 0015 (2026-10-23): downstream brokers hold certificates from the upstream's CA; `peer-trust.pem`, `peers.downstream[].ca` and `sys/downstream` are gone, and the accepted peer-CA risk below no longer applies. The text below records the design before that
 
 ## Context
 Iteration 4 connects brokers of different sites (plant → central, edge → cloud). Each site has its own CA (`wyrm-admin` PKI) and its own ACL (ADR 0006). An upstream site must see a downstream site's tree and values without becoming able to command its devices, and a peer CA must not be able to mint identities that the local ACL treats as links or operators. Full site names are used everywhere (spec 01), so routing needs no prefix rewriting.

@@ -399,6 +399,53 @@ pub enum Op {
     /// a held broker's).
     #[n(32)]
     DropEnrollment(#[n(0)] String),
+    /// Let an upstream site run `config` actions on our `sys` or not.
+    #[n(33)]
+    SetPeerAllowConfig {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        on: bool,
+    },
+    /// The keys an upstream site signs requests with, by signing site (its
+    /// own and those above it), as it publishes them; empty: none
+    /// (ADR 0018).
+    #[n(34)]
+    SetSigners {
+        #[n(0)]
+        upstream: String,
+        /// Signing site → Ed25519 public keys (hex).
+        #[n(1)]
+        keys: BTreeMap<String, Vec<String>>,
+    },
+}
+
+/// At most this many signing sites per upstream site, and keys per site.
+pub const MAX_SIGNER_SITES: usize = 16;
+pub const MAX_SIGNER_KEYS: usize = 8;
+
+/// Signing keys as an upstream publishes them: valid site names, at most
+/// [`MAX_SIGNER_SITES`] sites of at most [`MAX_SIGNER_KEYS`] Ed25519 keys
+/// (hex), each a valid point.
+pub fn check_signers(keys: &BTreeMap<String, Vec<String>>) -> Result<(), String> {
+    if keys.len() > MAX_SIGNER_SITES {
+        return Err(format!("more than {MAX_SIGNER_SITES} signing sites"));
+    }
+    for (site, ks) in keys {
+        validate_segment(site).map_err(|e| format!("signing site: {e}"))?;
+        if ks.is_empty() || ks.len() > MAX_SIGNER_KEYS {
+            return Err(format!("{site}: 1 to {MAX_SIGNER_KEYS} keys"));
+        }
+        for k in ks {
+            let raw: [u8; 32] = hex::decode(k)
+                .ok()
+                .and_then(|b| b.try_into().ok())
+                .ok_or_else(|| format!("{site}: a key is not 32 bytes of hex"))?;
+            ed25519_dalek::VerifyingKey::from_bytes(&raw)
+                .map_err(|_| format!("{site}: not an Ed25519 key"))?;
+        }
+    }
+    Ok(())
 }
 
 /// How a package's links run (ADR 0011).
@@ -582,6 +629,12 @@ pub struct PeerDef {
     #[cbor(default)]
     #[serde(default)]
     pub key_sha256: String,
+    /// Upstream only: its users may run `config` actions on our `sys`
+    /// (ADR 0018); `write` on devices, flows and storage they always have.
+    #[n(10)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub allow_config: bool,
 }
 
 /// A downstream broker's request for a certificate, waiting in quarantine
@@ -697,6 +750,10 @@ pub struct Registry {
     /// Admission tokens for downstream brokers, by id.
     #[serde(default)]
     pub tokens: BTreeMap<String, TokenDef>,
+    /// Upstream site → the keys it signs requests with, by signing site
+    /// (hex), as last published there (ADR 0018).
+    #[serde(default)]
+    pub signers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 /// Replaced params kept per link.
@@ -769,8 +826,9 @@ fn renamed_keys(op: &Op) -> Option<Op> {
 
 impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
-    // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015)
-    const SCHEMA: u32 = 16;
+    // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015);
+    // 17: `PeerDef::allow_config`, `signers` (ADR 0018)
+    const SCHEMA: u32 = 17;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -1106,6 +1164,7 @@ impl wyrm_state::State for Registry {
                 self.peers
                     .remove(site)
                     .ok_or_else(|| format!("no peer {site}"))?;
+                self.signers.remove(site);
             }
             Op::IssueBroker(site) => {
                 validate_segment(site).map_err(|e| format!("site: {e}"))?;
@@ -1220,6 +1279,7 @@ impl wyrm_state::State for Registry {
                         cert_pem: cert_pem.clone(),
                         enroll: String::new(),
                         key_sha256: key_sha256.clone(),
+                        allow_config: false,
                     },
                 );
             }
@@ -1277,6 +1337,23 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("no peer {site}"))?
                     .enabled = *on;
             }
+            Op::SetPeerAllowConfig { site, on } => {
+                let p = self
+                    .peers
+                    .get_mut(site)
+                    .filter(|p| p.dir == PeerDir::Upstream)
+                    .ok_or_else(|| format!("no upstream peer {site}"))?;
+                p.allow_config = *on;
+            }
+            Op::SetSigners { upstream, keys } => {
+                validate_segment(upstream).map_err(|e| format!("upstream: {e}"))?;
+                check_signers(keys)?;
+                if keys.is_empty() {
+                    self.signers.remove(upstream);
+                } else {
+                    self.signers.insert(upstream.clone(), keys.clone());
+                }
+            }
             Op::SetOption { name, on } => match name.as_str() {
                 "allow_all_links" => self.options.allow_all_links = *on,
                 "enable_quarantine" => self.options.enable_quarantine = *on,
@@ -1309,6 +1386,62 @@ mod tests {
         }
     }
 
+    /// ADR 0018: an upstream's signing keys are checked, stored by
+    /// upstream, cleared by an empty map and dropped with the peer.
+    #[test]
+    fn signers_are_checked_and_follow_the_peer() {
+        let key = hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[3; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        let one = |site: &str, keys: Vec<String>| BTreeMap::from([(site.to_owned(), keys)]);
+        let mut r = Registry::default();
+        let set = |r: &mut Registry, keys| {
+            r.apply(&Op::SetSigners {
+                upstream: "hq".into(),
+                keys,
+            })
+        };
+        assert!(
+            set(&mut r, one("hq", vec!["00".into()])).is_err(),
+            "not a key"
+        );
+        assert!(set(&mut r, one("h q", vec![key.clone()])).is_err(), "site");
+        assert!(set(&mut r, one("hq", vec![key.clone(); MAX_SIGNER_KEYS + 1])).is_err());
+        let many = (0..=MAX_SIGNER_SITES)
+            .map(|i| (format!("s{i}"), vec![key.clone()]))
+            .collect();
+        assert!(set(&mut r, many).is_err(), "too many sites");
+        set(&mut r, one("hq", vec![key.clone()])).unwrap();
+        assert_eq!(r.signers["hq"]["hq"], std::slice::from_ref(&key));
+        set(&mut r, BTreeMap::new()).unwrap();
+        assert!(r.signers.is_empty());
+        r.apply(&Op::AddPeer(PeerDef {
+            site: "hq".into(),
+            dir: PeerDir::Upstream,
+            endpoint: "quic/hq:1".into(),
+            ca_pem: String::new(),
+            enabled: true,
+            created: 0,
+            via: Vec::new(),
+            cert_pem: String::new(),
+            enroll: String::new(),
+            key_sha256: String::new(),
+            allow_config: false,
+        }))
+        .unwrap();
+        set(&mut r, one("hq", vec![key])).unwrap();
+        r.apply(&Op::SetPeerAllowConfig {
+            site: "hq".into(),
+            on: true,
+        })
+        .unwrap();
+        assert!(r.peers["hq"].allow_config);
+        r.apply(&Op::RemovePeer("hq".into())).unwrap();
+        assert!(r.signers.is_empty(), "gone with the peer");
+    }
+
     #[test]
     fn link_ids() {
         assert!(validate_link_id("plc1").is_ok());
@@ -1333,6 +1466,7 @@ mod tests {
             cert_pem: String::new(),
             enroll: String::new(),
             key_sha256: String::new(),
+            allow_config: false,
         };
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
             .unwrap();
@@ -1587,6 +1721,7 @@ mod tests {
             cert_pem: String::new(),
             enroll: String::new(),
             key_sha256: String::new(),
+            allow_config: false,
         };
         r.apply(&Op::IssueBroker("edge".into())).unwrap();
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
