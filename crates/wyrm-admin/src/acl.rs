@@ -584,6 +584,7 @@ mod tests {
         let q = keys("upstream-query");
         assert!(q.contains(&"wy/plant-a/sys/**/~meta".to_owned()));
         assert!(q.contains(&"wy/plant-a/upstream/**/~val".to_owned()));
+        assert!(q.contains(&"wy/plant-a/storage/**/~val".to_owned()));
         assert!(
             q.contains(&"wy/plant-b/sys/**/~meta".to_owned()),
             "and below"
@@ -596,6 +597,7 @@ mod tests {
             let k = keys(id);
             assert!(k.contains(&"wy/plant-a/downstream/**".to_owned()), "{id}");
             assert!(k.contains(&"wy/plant-a/sys/**/~val".to_owned()), "{id}");
+            assert!(k.contains(&"wy/plant-a/storage/**/~val".to_owned()), "{id}");
             assert!(!k.contains(&"wy/plant-a/sys/**".to_owned()), "{id}: {k:?}");
         }
         let mut c = zenoh::Config::default();

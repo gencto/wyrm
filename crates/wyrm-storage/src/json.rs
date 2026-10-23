@@ -60,8 +60,10 @@ pub fn from_json(j: &Json) -> Result<Value> {
 }
 
 /// The subtree at `path` (`nodes` holds it, `path` itself included) as
-/// JSON text: the node's own fields and its children, nested.
-pub fn export(path: &str, nodes: &[(String, Rec)]) -> String {
+/// JSON text: the node's own fields and its children, nested. `None` once
+/// the text would pass `max` bytes: counted while it is built, so a large
+/// subtree never becomes a large tree in memory.
+pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String> {
     fn node(rec: Option<&Rec>) -> Map<String, Json> {
         let mut m = Map::new();
         if let Some(r) = rec {
@@ -93,11 +95,19 @@ pub fn export(path: &str, nodes: &[(String, Rec)]) -> String {
     };
     let own = nodes.iter().find(|(p, _)| p == path).map(|(_, r)| r);
     let mut root = node(own);
+    let mut size = Json::Object(root.clone()).to_string().len();
     for (p, r) in nodes {
         let segs = base(p);
         let Some((last, parents)) = segs.split_last() else {
             continue;
         };
+        let obj = node(Some(r));
+        // At least the object, its quoted name and `:` (commas aside), so
+        // passing `max` here means the text passes it too.
+        size += Json::Object(obj.clone()).to_string().len() + last.len() + 3;
+        if size > max {
+            return None;
+        }
         let mut at = &mut root;
         for s in parents {
             at = match at
@@ -108,9 +118,10 @@ pub fn export(path: &str, nodes: &[(String, Rec)]) -> String {
                 _ => unreachable!("children are objects"),
             };
         }
-        at.insert(last.clone(), Json::Object(node(Some(r))));
+        at.insert(last.clone(), Json::Object(obj));
     }
-    Json::Object(root).to_string()
+    let text = Json::Object(root).to_string();
+    (text.len() <= max).then_some(text)
 }
 
 /// Nodes of an import into the folder `path`, parents first, checked
@@ -257,7 +268,12 @@ mod tests {
             ("a/b/t".to_owned(), num.clone()),
             ("a/note".to_owned(), note.clone()),
         ];
-        let text = export("a", &nodes);
+        let text = export("a", &nodes, usize::MAX).unwrap();
+        assert!(export("a", &nodes, text.len() - 1).is_none());
+        assert_eq!(
+            export("a", &nodes, text.len()).as_deref(),
+            Some(text.as_str())
+        );
         let j: Json = serde_json::from_str(&text).unwrap();
         assert_eq!(j["b"]["t"]["$type"], "number");
         assert_eq!(j["b"]["t"]["?value"], 21.5);

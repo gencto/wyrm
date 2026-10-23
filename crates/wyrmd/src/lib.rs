@@ -1165,6 +1165,19 @@ impl Daemon {
             )
             .into());
         }
+        // The broker storage owns this id since spec 0.2.2 (ADR 0017): a link
+        // stored under it would share its audit records, overlays and logs.
+        if ctl
+            .registry()
+            .links
+            .contains_key(wyrm_admin::control::STORAGE_LINK)
+        {
+            return Err(format!(
+                "a link with id {:?} exists; the id belongs to the broker storage since spec 0.2.2 (ADR 0017): remove the link with the previous wyrmd first",
+                wyrm_admin::control::STORAGE_LINK
+            )
+            .into());
+        }
         // A name our CA issued `broker:<site>` for keeps a valid certificate:
         // as an upstream site it would match that site's ACL subject.
         if let Some(u) = cfg

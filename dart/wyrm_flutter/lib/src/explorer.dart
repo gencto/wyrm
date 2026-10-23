@@ -95,7 +95,7 @@ class _Row {
 
 /// Data panel over Metrics panel. [rootKey] is a node key
 /// (`wy/edge/downstream`) or a site (`wy/central`), which shows `downstream`, `upstream`,
-/// `dataflows` and `sys` (spec 01; a site root has no `~meta` to list). A node
+/// `dataflows`, `storage` and `sys` (spec 01; a site root has no `~meta` to list). A node
 /// with `@root` (a peer broker: `downstream/<site>`, `upstream/<site>`) also opens
 /// that site's sections, so peer sites appear inside the tree
 /// of the connected broker. A site already on the path is not opened

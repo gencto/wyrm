@@ -697,6 +697,9 @@ fn role_grants_change_persist_and_keep_an_admin() {
 /// A link with one action that takes a file (`editor: file`).
 struct Upload;
 
+/// Result of `big`: past the 64 KiB cap on frames the gateway reads.
+const BIG: usize = 100 * 1024;
+
 impl wyrm_link_sdk::Link for Upload {
     const NAME: &'static str = "upload";
     const VERSION: &'static str = "0";
@@ -716,6 +719,15 @@ impl wyrm_link_sdk::Link for Upload {
                         .required(true),
                 )
                 .result(ActionResult::Type(TypeCode::Number))
+                .level(Perm::Write),
+        )
+        .await?;
+        // a result larger than an incoming frame may be (an export)
+        ctx.declare_action(
+            "",
+            "big",
+            ActionMeta::new()
+                .result(ActionResult::Type(TypeCode::String))
                 .level(Perm::Write),
         )
         .await?;
@@ -743,6 +755,9 @@ impl wyrm_link_sdk::Link for Upload {
         if action == "slow" {
             tokio::time::sleep(Duration::from_secs(11)).await;
             return out.reply(Value::from("done")).await;
+        }
+        if action == "big" {
+            return out.reply(Value::Str("x".repeat(BIG))).await;
         }
         let n = match &args {
             Value::Map(m) => match m.get("data") {
@@ -803,9 +818,22 @@ async fn http_invoke_takes_large_arguments() {
     let (st, _) = env.http("POST", &put, None, Some(data(10))).await;
     assert_eq!(st, 401);
 
+    // the frame cap is on what the gateway reads, not on what it sends
+    let mut ws = env.ws(&root).await;
+    let id = ws
+        .send(
+            "invoke",
+            &format!("wy/{SITE}/downstream/upload"),
+            vec![("action", Value::from("big"))],
+        )
+        .await;
+    let f = ws.reply(id).await;
+    assert!(
+        matches!(get(&f, "result"), Value::Str(s) if s.len() == BIG),
+        "a large result reaches the client"
+    );
     // a WebSocket invoke waits for the action's own timeout_ms (spec 05),
     // not the 10 s default
-    let mut ws = env.ws(&root).await;
     let id = ws
         .send(
             "invoke",

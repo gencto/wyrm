@@ -172,10 +172,14 @@ above: crate `wyrm-storage`, a link inside `wyrmd` rooted at
 editor}`, `publish {path, value}`, `export`, `import {data}`; folders also
 `delete {recursive}`, `rename`, `duplicate`; values `~set`. Every action needs
 `write` (as DSA). One redb file, values flushed once a second; limits 10 000
-nodes, 16 levels, 32 KiB per value. Flows may `set`/`invoke` into it, the
+nodes, 16 levels, 32 KiB per value, 64 MiB in all. Flows may `set`/`invoke` into it, the
 historian may watch it (`attr.history` too), upstream sites read it, the
 explorer shows it as a site section. The link id `storage` is reserved for
 new links.
+
+**Follow-up:** the explorer sends text for every value that is not a number:
+a storage value of type `map`, `array` or `binary` can be created but not
+set from the UI, and `publish` from the UI always stores text.
 
 ## 6. `wy/edge/sys/upstream` from central: "no reply"
 

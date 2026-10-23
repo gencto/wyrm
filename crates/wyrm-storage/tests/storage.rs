@@ -256,3 +256,45 @@ async fn limits_hold() {
     h.stop().await;
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn total_size_export_and_file_import() {
+    let dir = temp("total");
+    let limits = Limits {
+        total_bytes: 300,
+        export_bytes: 150,
+        ..Limits::default()
+    };
+    let h = start(Arc::new(Store::open(&dir).unwrap()), limits).await;
+    for n in ["s", "t"] {
+        let a = args(&[
+            ("name", Value::Str(n.into())),
+            ("type", Value::Str("string".into())),
+        ]);
+        assert_eq!(last(&run(&h, "", "add_value", a).await), Status::Ok);
+    }
+    let w = || Some(h.ptok(Perm::Write));
+    assert_eq!(status(&h.set("s", "x".repeat(100), w()).await), Status::Ok);
+    assert_eq!(
+        status(&h.set("t", "y".repeat(200), w()).await),
+        Status::OutOfRange,
+        "total size"
+    );
+    assert_eq!(
+        last(&run(&h, "", "export", Value::Map(Default::default())).await),
+        Status::OutOfRange,
+        "export size"
+    );
+    let file = br#"{"f": {"$type": "number", "?value": 2}}"#.to_vec();
+    let a = args(&[("file", Value::Bytes(file))]);
+    assert_eq!(last(&run(&h, "", "import", a).await), Status::Ok);
+    assert_eq!(value(&h, "f"), Some(Value::UInt(2)));
+    assert!(!h.ctx().has_node("s"), "import replaces the children");
+    assert_eq!(
+        last(&run(&h, "", "import", Value::Map(Default::default())).await),
+        Status::InvalidParameter,
+        "data or file"
+    );
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}

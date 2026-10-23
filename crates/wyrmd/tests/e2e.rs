@@ -249,7 +249,7 @@ async fn list_resolve_set_invoke_over_router() {
 }
 
 /// Broker storage (ADR 0017): nodes and values made over the router come
-/// back after a restart of wyrmd, and an upstream-style reader finds them.
+/// back after a restart of wyrmd.
 #[tokio::test(flavor = "multi_thread")]
 async fn storage_keeps_nodes_and_values_across_restarts() {
     let dir = temp_dir("data-storage");
@@ -1205,7 +1205,9 @@ async fn logs_and_log_levels() {
         },"#,
     )
     .await;
-    let c = env.client().await;
+    // The broker at debug makes every test in this process log more: give
+    // its own requests room.
+    let c = env.client().await.with_timeout(Duration::from_secs(10));
     let sys = format!("wy/{SITE}/sys");
     let args = |pairs: Vec<(&str, Value)>| {
         Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
@@ -1274,10 +1276,13 @@ async fn logs_and_log_levels() {
             SITE,
         )))
         .with_timeout(Duration::from_secs(3));
-    let _ = stranger
-        .set(&format!("wy/{SITE}/downstream/mock/g0/p0"), 1.0)
-        .await;
-    let mine = eventually("the link's debug line", 5, || async {
+    // The log ring is shared by the whole test process (other tests' `mock`
+    // links log under the same id): refuse one set per try, so the line is
+    // fresh when it is read.
+    let mine = eventually("the link's debug line", 10, || async {
+        let _ = stranger
+            .set(&format!("wy/{SITE}/downstream/mock/g0/p0"), 1.0)
+            .await;
         let r = rows(
             c.invoke_one(&format!("{sys}/links/mock"), "get_log", args(vec![]))
                 .await
@@ -2154,6 +2159,39 @@ async fn gateway_in_wyrmd() {
             .expect_err("no grant on sys/**");
         assert!(e.is(wyrm_core::Status::PermissionDenied), "{role}: {e}");
     }
+    // Storage (ADR 0017): the users' grants decide; an import larger than a
+    // WebSocket frame comes as a file over `POST /api/invoke`.
+    let storage = format!("wy/{SITE}/storage");
+    for (role, allowed) in [("viewer", false), ("operator", true)] {
+        let mut q = p.clone();
+        q.name = format!("{role}-user");
+        q.grants = wyrm_gateway::RoleTable::default().grants(SITE, &[role.to_owned()]);
+        let cu = WyrmClient::new(env.session().await)
+            .with_tokens(Arc::new(gw.tokens_for(&q)))
+            .with_timeout(Duration::from_secs(3));
+        let name = BTreeMap::from([("name".to_owned(), Value::from(format!("{role}_dir")))]);
+        let r = cu.invoke_one(&storage, "add_node", Value::Map(name)).await;
+        assert_eq!(r.is_ok(), allowed, "{role}: {r:?}");
+    }
+    let one = format!(
+        r#"{{"$type": "string", "?value": "{}"}}"#,
+        "z".repeat(30_000)
+    );
+    let json = format!(r#"{{"a": {one}, "b": {one}, "c": {one}}}"#);
+    let file = BTreeMap::from([("file".to_owned(), Value::Bytes(json.into_bytes()))]);
+    let (st, v) = http_post(
+        addr,
+        &format!("/api/invoke?key={storage}&action=import"),
+        session,
+        wyrm_core::codec::to_vec(&Value::Map(file)).unwrap(),
+    )
+    .await;
+    assert_eq!(st, 200, "{v:?}");
+    let exported = c.invoke_one(&storage, "export", none()).await.unwrap();
+    assert!(
+        matches!(&exported, Some(Value::Str(t)) if t.len() > 64 * 1024 && t.contains(r#""c":"#)),
+        "the import is there and exports back"
+    );
     // sys Update/Get Permissions edit the gateway's role grants (DSA style)
     let sys = format!("wy/{SITE}/sys");
     let grant = |role: &str, path: &str, level: &str| {
@@ -2207,6 +2245,36 @@ async fn gateway_in_wyrmd() {
         .iter()
         .any(|r| r.op == "update_permissions" && r.sub == "user:root"));
     env.stop().await;
+}
+
+/// `POST` with a CBOR body to the gateway as `session`; the status and the
+/// CBOR answer. One write, so a refusal before the body is read still
+/// reaches us (no reset).
+async fn http_post(
+    addr: std::net::SocketAddr,
+    path: &str,
+    session: &str,
+    body: Vec<u8>,
+) -> (u16, Value) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut msg = format!(
+        "POST {path} HTTP/1.1\r\nHost: gw\r\nConnection: close\r\nContent-Type: application/cbor\r\nAuthorization: Bearer {session}\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    msg.extend_from_slice(&body);
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    s.write_all(&msg).await.unwrap();
+    let mut resp = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp))
+        .await
+        .unwrap()
+        .unwrap();
+    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&resp[..split]).to_string();
+    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+    let v = wyrm_core::codec::from_slice(&resp[split + 4..]).unwrap_or(Value::Null);
+    (status, v)
 }
 
 /// `wyrmd user …` manages gateway users on a stopped broker (password from

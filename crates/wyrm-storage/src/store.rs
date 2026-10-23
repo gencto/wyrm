@@ -30,6 +30,11 @@ impl Rec {
         self.ty.is_none()
     }
 
+    /// Bytes on disk (CBOR); the storage's total limit counts these.
+    pub fn size(&self) -> usize {
+        self.encode().len()
+    }
+
     fn encode(&self) -> Vec<u8> {
         let mut m = BTreeMap::new();
         if let Some(t) = self.ty {
@@ -76,6 +81,8 @@ struct Inner {
     nodes: BTreeMap<String, Rec>,
     /// Values set since the last flush.
     dirty: BTreeSet<String>,
+    /// [`Rec::size`] of every node.
+    bytes: usize,
 }
 
 pub struct Store {
@@ -93,6 +100,7 @@ impl Store {
         std::fs::create_dir_all(dir).map_err(db)?;
         let db_ = Database::create(dir.join("storage.redb")).map_err(db)?;
         let mut nodes = BTreeMap::new();
+        let mut bytes = 0;
         {
             let txn = db_.begin_write().map_err(db)?;
             {
@@ -101,6 +109,7 @@ impl Store {
                     let (k, v) = item.map_err(db)?;
                     match Rec::decode(v.value()) {
                         Some(r) => {
+                            bytes += r.size();
                             nodes.insert(k.value().to_owned(), r);
                         }
                         None => {
@@ -116,6 +125,7 @@ impl Store {
             inner: Mutex::new(Inner {
                 nodes,
                 dirty: BTreeSet::new(),
+                bytes,
             }),
         })
     }
@@ -139,6 +149,11 @@ impl Store {
 
     pub fn is_empty(&self) -> bool {
         self.lock().nodes.is_empty()
+    }
+
+    /// [`Rec::size`] of every node.
+    pub fn bytes(&self) -> usize {
+        self.lock().bytes
     }
 
     /// `path` and every node below it.
@@ -169,11 +184,16 @@ impl Store {
         txn.commit().map_err(db)?;
         for p in delete {
             inner.dirty.remove(&p);
-            inner.nodes.remove(&p);
+            if let Some(old) = inner.nodes.remove(&p) {
+                inner.bytes -= old.size();
+            }
         }
         for (p, r) in put {
             inner.dirty.remove(&p);
-            inner.nodes.insert(p, r);
+            inner.bytes += r.size();
+            if let Some(old) = inner.nodes.insert(p, r) {
+                inner.bytes -= old.size();
+            }
         }
         Ok(())
     }
@@ -185,8 +205,11 @@ impl Store {
         let Some(r) = inner.nodes.get_mut(path) else {
             return false;
         };
+        let old = r.size();
         r.value = Some(v);
         r.t = Some(t);
+        let new = r.size();
+        inner.bytes = inner.bytes - old + new;
         inner.dirty.insert(path.to_owned());
         true
     }
@@ -264,6 +287,8 @@ mod tests {
         }
         let s = Store::open(&dir).unwrap();
         assert_eq!(s.len(), 2);
+        let sum: usize = s.snapshot().values().map(Rec::size).sum();
+        assert_eq!(s.bytes(), sum);
         let x = s.get("a/x").unwrap();
         assert_eq!(
             (x.ty, x.value, x.t),
@@ -272,6 +297,7 @@ mod tests {
         assert_eq!(s.subtree("a").len(), 2);
         s.apply(vec![], vec!["a/x".into(), "a".into()]).unwrap();
         assert!(s.is_empty());
+        assert_eq!(s.bytes(), 0);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

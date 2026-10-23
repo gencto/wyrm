@@ -47,6 +47,9 @@ pub struct Limits {
     pub value_bytes: usize,
     pub import_bytes: usize,
     pub export_bytes: usize,
+    /// Every record together (CBOR, [`Rec::size`]): bounds the memory the
+    /// store holds and every export.
+    pub total_bytes: usize,
 }
 
 impl Default for Limits {
@@ -58,6 +61,7 @@ impl Default for Limits {
             value_bytes: 32 * 1024,
             import_bytes: 4 * 1024 * 1024,
             export_bytes: 4 * 1024 * 1024,
+            total_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -77,6 +81,13 @@ impl Limits {
         LinkError::new(
             Status::OutOfRange,
             format!("the storage holds at most {} nodes", self.nodes),
+        )
+    }
+
+    fn too_large(&self) -> LinkError {
+        LinkError::new(
+            Status::OutOfRange,
+            format!("the storage holds at most {} bytes", self.total_bytes),
         )
     }
 }
@@ -164,14 +175,22 @@ fn export() -> ActionMeta {
     act("Export").result(ActionResult::Type(TypeCode::String))
 }
 
+/// `data` or `file`: a file parameter lets the gateway take JSON larger
+/// than a WebSocket frame (`POST /api/invoke`, ADR 0011).
 fn import() -> ActionMeta {
-    act("Import").param(
-        "data",
-        ParamMeta::of(TypeCode::String)
-            .required(true)
-            .editor(wyrm_core::meta::EDITOR_TEXTAREA)
-            .description("JSON from Export"),
-    )
+    act("Import")
+        .param(
+            "data",
+            ParamMeta::of(TypeCode::String)
+                .editor(wyrm_core::meta::EDITOR_TEXTAREA)
+                .description("JSON from Export"),
+        )
+        .param(
+            "file",
+            ParamMeta::of(TypeCode::Binary)
+                .editor(wyrm_core::meta::EDITOR_FILE)
+                .description("A JSON file from Export, instead of data"),
+        )
 }
 
 fn edits(m: &mut BTreeMap<String, ActionMeta>) {
@@ -299,6 +318,15 @@ impl Storage {
         top: &[String],
         new: Vec<(String, Rec)>,
     ) -> Result<()> {
+        let removed: usize = old
+            .iter()
+            .filter_map(|p| self.store.get(p))
+            .map(|r| r.size())
+            .sum();
+        let added: usize = new.iter().map(|(_, r)| r.size()).sum();
+        if self.store.bytes().saturating_sub(removed) + added > self.limits.total_bytes {
+            return Err(self.limits.too_large());
+        }
         self.store
             .apply(new.clone(), old)
             .map_err(LinkError::internal)?;
@@ -418,6 +446,15 @@ impl Storage {
 
     async fn set(&self, path: &str, v: Value) -> Result<()> {
         let t = now_us();
+        let old = self.rec(path)?;
+        let new = Rec {
+            value: Some(v.clone()),
+            t: Some(t),
+            ..old.clone()
+        };
+        if self.store.bytes() - old.size() + new.size() > self.limits.total_bytes {
+            return Err(self.limits.too_large());
+        }
         if !self.store.set_value(path, v.clone(), t) {
             return Err(LinkError::not_found(path.to_owned()));
         }
@@ -426,20 +463,26 @@ impl Storage {
 
     fn export(&self, path: &str) -> Result<Value> {
         self.folder(path)?;
-        let text = json::export(path, &self.store.subtree(path));
-        if text.len() > self.limits.export_bytes {
-            return Err(LinkError::new(
-                Status::OutOfRange,
-                format!("export: more than {} bytes", self.limits.export_bytes),
-            ));
-        }
-        Ok(Value::Str(text))
+        json::export(path, &self.store.subtree(path), self.limits.export_bytes)
+            .map(Value::Str)
+            .ok_or_else(|| {
+                LinkError::new(
+                    Status::OutOfRange,
+                    format!("export: more than {} bytes", self.limits.export_bytes),
+                )
+            })
     }
 
     /// Replace the children of the folder `path` with the JSON's.
     async fn import(&self, path: &str, args: &Value) -> Result<()> {
         self.folder(path)?;
-        let new = json::import(path, text_arg(args, "data")?, &self.limits)?;
+        let text = match (arg(args, "data"), arg(args, "file")) {
+            (Some(Value::Str(s)), None) => s.as_str(),
+            (None, Some(Value::Bytes(b))) => std::str::from_utf8(b)
+                .map_err(|_| LinkError::invalid_parameter("file: not UTF-8 text"))?,
+            _ => return Err(LinkError::invalid_parameter("import: data or file")),
+        };
+        let new = json::import(path, text, &self.limits)?;
         let old: Vec<String> = self
             .store
             .subtree(path)
@@ -456,6 +499,14 @@ impl Storage {
             .cloned()
             .collect();
         self.replace(old, &top, new).await
+    }
+}
+
+impl Drop for Storage {
+    /// `stop` is skipped when the driver panics: the flusher must not keep
+    /// the store for the rest of the process.
+    fn drop(&mut self) {
+        self.flusher.abort();
     }
 }
 
