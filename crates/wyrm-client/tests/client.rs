@@ -249,3 +249,51 @@ async fn reliable_subscribe_gets_history() {
     }
     h.stop().await;
 }
+
+/// Backlog item 6: one lost `~meta` query (seen once across a peer link)
+/// is asked again, so a listing does not fail on it; a node nobody serves
+/// still fails within the client timeout.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lost_meta_query_is_asked_again() {
+    let session = zenoh::open(wyrm_link_sdk::harness::isolated_config())
+        .await
+        .unwrap();
+    let key = "wy/s/sys/flaky";
+    let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let n = seen.clone();
+    let meta = wyrm_core::codec::to_vec(&NodeMeta::folder()).unwrap();
+    let att = wyrm_core::codec::to_vec(&wyrm_core::Attachment::with_status(Status::Ok)).unwrap();
+    let _qa = session
+        .declare_queryable(format!("{key}/~meta"))
+        .callback(move |q| {
+            // the first query is lost: dropped without a reply
+            if n.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            let (meta, att) = (meta.clone(), att.clone());
+            tokio::spawn(async move {
+                let k = q.key_expr().clone();
+                let _ = q.reply(k, meta).attachment(att).await;
+            });
+        })
+        .await
+        .unwrap();
+    let c = WyrmClient::new(session.clone()).with_timeout(Duration::from_secs(2));
+    let started = std::time::Instant::now();
+    c.meta(key).await.expect("answered on the second try");
+    assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    // nobody serves this one: it fails within about the client timeout
+    let started = std::time::Instant::now();
+    let e = c.meta("wy/s/sys/nobody").await.expect_err("no responder");
+    assert!(e.is(Status::Timeout), "{e}");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+}

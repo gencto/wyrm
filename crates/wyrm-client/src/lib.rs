@@ -301,8 +301,20 @@ impl WyrmClient {
         att: Attachment,
         interactive: bool,
     ) -> Result<Response> {
+        self.one_within(selector, payload, att, interactive, self.timeout)
+            .await
+    }
+
+    async fn one_within(
+        &self,
+        selector: &str,
+        payload: Option<Vec<u8>>,
+        att: Attachment,
+        interactive: bool,
+        timeout: Duration,
+    ) -> Result<Response> {
         let rx = self
-            .query(selector, payload, att, interactive, self.timeout)
+            .query(selector, payload, att, interactive, timeout)
             .await?;
         match next_response(&rx).await {
             Some(r) => r?.check(),
@@ -409,12 +421,28 @@ impl WyrmClient {
         } else {
             format!("{key}?{params}")
         };
-        match self.one(&sel, None, Attachment::default(), false).await {
-            Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
-                self.one(&sel, None, self.token_att(&key), false).await
+        // A read is safe to send twice: two tries of half the timeout each,
+        // so one lost query (seen once across a peer link, backlog item 6)
+        // costs half a timeout, and a missing node no more than one.
+        let half = (self.timeout / 2).max(Duration::from_secs(1));
+        let mut last = None;
+        for _ in 0..2 {
+            let r = match self
+                .one_within(&sel, None, Attachment::default(), false, half)
+                .await
+            {
+                Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
+                    self.one_within(&sel, None, self.token_att(&key), false, half)
+                        .await
+                }
+                r => r,
+            };
+            match r {
+                Err(e) if e.is(Status::Timeout) => last = Some(e),
+                r => return r,
             }
-            r => r,
         }
+        Err(last.unwrap_or_else(|| ClientError::new(Status::Timeout, "no reply")))
     }
 
     /// `view=keys`: descendant paths relative to `node`.

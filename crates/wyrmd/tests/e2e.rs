@@ -1884,6 +1884,85 @@ async fn chain_of_three_brokers() {
     }
 }
 
+/// Backlog item 6: the first queries of edge nodes from central, right
+/// after the peer link comes up, all answer (no lost first query).
+#[tokio::test(flavor = "multi_thread")]
+async fn first_queries_across_peers_answer() {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir) = (temp_dir("fq-central"), temp_dir("fq-edge"));
+    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}", downstream: [{{ site: "edge", ca: "{}" }}] }} }}"#,
+        c_dir.display(),
+        e_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    let edge = Config::from_json5(&format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}] }},
+              links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+        e_dir.display(),
+        c_dir.join("pki/ca.pem").display()
+    ))
+    .unwrap();
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let central = open_daemon(central, exe.clone()).unwrap();
+    let edge = open_daemon(edge, exe).unwrap();
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let (e_stop, e_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    let e_task = tokio::spawn(edge.run_until(async {
+        let _ = e_rx.await;
+    }));
+    let c = WyrmClient::new(loopback_session(c_tcp).await).with_timeout(Duration::from_secs(5));
+    eventually("edge connected at central", 15, || async {
+        (last_val(&c, "wy/central/down/edge/connected").await == Some(Value::Bool(true)))
+            .then_some(())
+    })
+    .await;
+    // every key once, in order, as an explorer opening the tree would
+    let keys = [
+        "wy/edge/sys",
+        "wy/edge/sys/upstream",
+        "wy/edge/sys/upstream/central",
+        "wy/edge/sys/links",
+        "wy/edge/sys/links/mock",
+        "wy/edge/sys/history",
+        "wy/edge/sys/packages",
+        "wy/edge/sys/quarantine",
+        "wy/edge/up",
+        "wy/edge/up/central",
+        "wy/edge/down/mock",
+    ];
+    let mut failed = Vec::new();
+    for k in keys {
+        let started = std::time::Instant::now();
+        if let Err(e) = c.children(k).await {
+            failed.push(format!("{k}: {e} after {:?}", started.elapsed()));
+        }
+    }
+    let mut lists = Vec::new();
+    for k in keys {
+        match c.list(k).await {
+            Ok(mut s) => lists.push(s.next().await.is_some()),
+            Err(e) => failed.push(format!("list {k}: {e}")),
+        }
+    }
+    assert!(failed.is_empty(), "first queries lost: {failed:#?}");
+    assert!(lists.iter().all(|ok| *ok));
+    let _ = c.session().close().await;
+    let _ = c_stop.send(());
+    let _ = e_stop.send(());
+    e_task.await.unwrap().unwrap();
+    c_task.await.unwrap().unwrap();
+}
+
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
 /// the environment; a login is audited; the gateway's per-user tokens are
 /// accepted by links and by the admin, within each user's grants.

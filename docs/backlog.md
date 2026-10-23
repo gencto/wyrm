@@ -137,6 +137,16 @@ the propagation of the downstream's queryable declaration over QUIC (the
 ACL's `declare_queryable` egress), and whether the client should retry
 once on a timeout when the owner's liveliness token is present.
 
+**Done (2026-10-23):** not reproduced — e2e `first_queries_across_peers_answer`
+(fresh pair, first `children`/`list` of eleven edge keys from central) and
+four rounds of sixteen parallel `list`s through the demo's central gateway
+all answered within 10 ms. A query a responder drops ends at once in Zenoh
+(no reply), so the loss was one dropped query, not a slow one. The client
+now asks a `~meta` read twice, each try with half the timeout
+(`a_lost_meta_query_is_asked_again`): one lost query costs at most half a
+timeout, a node nobody serves fails within one. Writes and actions are not
+repeated.
+
 ## 7. Config values cannot be changed in Metrics
 
 **Seen:** `Log Level : info` and `Allow All Links : false` cannot be edited.
