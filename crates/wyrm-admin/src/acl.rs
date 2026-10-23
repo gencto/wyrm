@@ -100,7 +100,7 @@ fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Va
 #[derive(Debug, Clone, Default)]
 pub struct Peers {
     /// Sites this broker connects to; they may only read our `downstream/**`,
-    /// `dataflows/**`, `sys/**` and `upstream/**`, and those of the sites we reach
+    /// `dataflows/**`, `sys/**`, `upstream/**` and `storage/**`, and those of the sites we reach
     /// (subscribe, liveliness, queries on `~meta|~val`, and `~def|~state`
     /// under `downstream`/`dataflows`; no `~set`/`~act`).
     pub upstream: Vec<String>,
@@ -134,11 +134,12 @@ impl Peers {
 }
 
 /// Sections of a site an upstream site reads, with the suffixes it may query.
-const UP_READ: [(&str, &[&str]); 4] = [
+const UP_READ: [(&str, &[&str]); 5] = [
     ("downstream", &["~meta", "~val", "~def", "~state"]),
     ("dataflows", &["~meta", "~val", "~def", "~state"]),
     ("sys", &["~meta", "~val"]),
     ("upstream", &["~meta", "~val"]),
+    ("storage", &["~meta", "~val"]),
 ];
 
 /// The `access_control` section for the router config.
@@ -301,7 +302,7 @@ pub fn access_control_with_peers(
             .iter()
             .flat_map(|s| UP_READ.iter().map(move |(t, _)| format!("wy/{s}/{t}/**")))
             .collect();
-        // Data: `downstream` and `dataflows` whole; `sys` and `upstream` only their values
+        // Data: `downstream` and `dataflows` whole; the others only their values
         // and metadata, so nothing else published under `sys` (the audit
         // records of `sys/audit/<link>`) leaves for the upstream.
         let data: Vec<String> = sites

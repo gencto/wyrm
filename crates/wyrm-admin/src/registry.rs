@@ -19,6 +19,19 @@ pub fn validate_link_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Ids taken by a later broker version, refused for new links only: a link
+/// stored under one still replays (`storage`: spec 01 0.2.2, ADR 0017).
+const RESERVED_NEW: [&str; 1] = [crate::control::STORAGE_LINK];
+
+/// [`validate_link_id`] for a link that does not exist yet.
+pub fn validate_new_link_id(id: &str) -> Result<(), String> {
+    validate_link_id(id)?;
+    if RESERVED_NEW.contains(&id) {
+        return Err(format!("link id {id:?} is reserved"));
+    }
+    Ok(())
+}
+
 /// Certificate CN of a downstream broker (ADR 0015): `broker:<site>`.
 pub fn broker_cn(site: &str) -> String {
     format!("broker:{site}")
@@ -490,14 +503,17 @@ pub const MAX_WATCHES: usize = 10_000;
 pub const INTERVAL_MS: std::ops::RangeInclusive<u64> = 100..=86_400_000;
 pub const FLUSH_MS: std::ops::RangeInclusive<u64> = 100..=600_000;
 
-/// A watch key: `wy/<site>/downstream/<link>[/…]` or `wy/<site>/dataflows/<flow>[/…]`,
-/// plain segments (no wildcards, no `~` suffixes). Which sites are allowed
-/// is the caller's check.
+/// A watch key: `wy/<site>/downstream/<link>[/…]`, `wy/<site>/dataflows/<flow>[/…]`
+/// or `wy/<site>/storage/<node>[/…]`, plain segments (no wildcards, no `~`
+/// suffixes). Which sites are allowed is the caller's check.
 pub fn check_watch_key(key: &str) -> Result<(), String> {
     let segs: Vec<&str> = key.split('/').collect();
-    if segs.len() < 4 || segs[0] != "wy" || !matches!(segs[2], "downstream" | "dataflows") {
+    if segs.len() < 4
+        || segs[0] != "wy"
+        || !matches!(segs[2], "downstream" | "dataflows" | "storage")
+    {
         return Err(format!(
-            "{key}: a point under wy/<site>/downstream/<link> or wy/<site>/dataflows/<flow>"
+            "{key}: a point under wy/<site>/downstream/<link>, wy/<site>/dataflows/<flow> or wy/<site>/storage"
         ));
     }
     for s in &segs[1..] {
@@ -1299,6 +1315,8 @@ mod tests {
         for bad in [".", "..", ".hidden", "a/b", "admin", "broker", "~x", ""] {
             assert!(validate_link_id(bad).is_err(), "{bad:?}");
         }
+        assert!(validate_link_id("storage").is_ok(), "replays");
+        assert!(validate_new_link_id("storage").is_err());
     }
 
     #[test]

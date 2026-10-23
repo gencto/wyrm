@@ -127,6 +127,8 @@ pub const AGENT_DRIVER: &str = "agent";
 
 /// Link id of the flow engine (rooted at `wy/<site>/dataflows`); reserved.
 pub const FLOWS_LINK: &str = "dataflows";
+/// Link id of the broker storage (rooted at `wy/<site>/storage`, ADR 0017).
+pub const STORAGE_LINK: &str = "storage";
 
 /// A link declared in `wyrmd.json5`.
 #[derive(Debug, Clone)]
@@ -1454,6 +1456,7 @@ impl Control {
             vec![
                 format!("wy/{site}/downstream/**/~val"),
                 format!("wy/{site}/dataflows/**/~val"),
+                format!("wy/{site}/storage/**/~val"),
             ],
         );
         let tasks = vec![
@@ -2312,6 +2315,7 @@ pub(crate) fn overlay_maps(
 ) -> BTreeMap<String, BTreeMap<String, Value>> {
     let down = format!("wy/{site}/downstream/");
     let flows = format!("wy/{site}/dataflows/");
+    let storage = format!("wy/{site}/storage/");
     let mut by_link: BTreeMap<String, BTreeMap<String, Vec<Value>>> = BTreeMap::new();
     for (group, g) in &reg.historian.groups {
         for (id, w) in &g.watches {
@@ -2322,6 +2326,8 @@ pub(crate) fn overlay_maps(
                 }
             } else if let Some(rest) = w.key.strip_prefix(&flows) {
                 (FLOWS_LINK.to_owned(), rest.to_owned())
+            } else if let Some(rest) = w.key.strip_prefix(&storage) {
+                (STORAGE_LINK.to_owned(), rest.to_owned())
             } else {
                 // a downstream site's point: its link is another broker's
                 continue;
@@ -2358,6 +2364,7 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     let mut maps = overlay_maps(&reg, &ctl.cfg.site);
     let mut links: BTreeSet<String> = reg.links.keys().cloned().collect();
     links.insert(FLOWS_LINK.to_owned());
+    links.insert(STORAGE_LINK.to_owned());
     links.extend(maps.keys().cloned());
     ctx.declare_node(
         "overlays",
@@ -3415,7 +3422,7 @@ impl Admin {
         let params = arg(args, "params")
             .cloned()
             .unwrap_or(Value::Map(Default::default()));
-        crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
+        crate::registry::validate_new_link_id(&id).map_err(LinkError::invalid_parameter)?;
         if ctl.peers().downstream.contains(&id) {
             return Err(LinkError::invalid_parameter(format!(
                 "link id {id:?} is a downstream site (downstream/{id} is its broker node)"
@@ -4891,7 +4898,7 @@ fn admissible(reg: &Registry, operators: &[String], peers: &acl::Peers, cn: &str
         // a broker of that name waits in quarantine: one node each
         || reg.quarantine.contains_key(&crate::registry::broker_cn(cn))
         || cn == "broker";
-    !known && crate::registry::validate_link_id(cn).is_ok()
+    !known && crate::registry::validate_new_link_id(cn).is_ok()
 }
 
 /// The port of `<host>:<port>` (`[v6]:<port>` too).
@@ -5037,6 +5044,8 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         let key = text("key");
         let root = if link == FLOWS_LINK {
             format!("wy/{}/dataflows", ctl.cfg.site)
+        } else if link == STORAGE_LINK {
+            format!("wy/{}/storage", ctl.cfg.site)
         } else {
             format!("wy/{}/downstream/{link}", ctl.cfg.site)
         };

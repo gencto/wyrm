@@ -29,6 +29,7 @@ use wyrm_link_mqtt::Mqtt;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
 use wyrm_link_wasm::Wasm;
+use wyrm_storage::{Storage, StorageStart};
 use zenoh::internal::plugins::PluginsManager;
 use zenoh::internal::runtime::{Runtime, RuntimeBuilder};
 use zenoh::Session;
@@ -683,6 +684,7 @@ pub struct Broker {
     session: Session,
     admin: Option<Attached>,
     flows: Option<LinkHandle<Engine>>,
+    storage: Option<LinkHandle<Storage>>,
     gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
 }
 
@@ -691,6 +693,7 @@ impl Broker {
         cfg: &Config,
         ctl: &Arc<Control>,
         flows: &Arc<FlowHost>,
+        storage: &Arc<wyrm_storage::Store>,
         gateway: Option<&Arc<Gateway>>,
     ) -> Result<Self, Error> {
         let mut plugins = PluginsManager::static_plugins_only();
@@ -717,6 +720,7 @@ impl Broker {
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
         lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
         lcfg.admin_keys = engine_keys.clone();
+        let flow_key = flows.verifying_key();
         let flows = match wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
             lcfg,
@@ -731,6 +735,38 @@ impl Broker {
             Err(e) => {
                 admin.stop().await;
                 return Err(format!("flow engine: {e}").into());
+            }
+        };
+        // Storage (ADR 0017): the admin keys, users through the gateway and
+        // flows at write, each only under `storage`.
+        let root = format!("wy/{}/storage", cfg.site);
+        let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::STORAGE_LINK);
+        lcfg.root = Some(root.clone());
+        lcfg.admin_keys = ctl.config().admin_keys.clone();
+        lcfg.limited_keys = std::iter::once((flow_key, wyrm_core::Perm::Write))
+            .chain(gateway.map(|g| (g.verifying_key(), wyrm_core::Perm::Config)))
+            .map(|(key, cap)| wyrm_link_sdk::LimitedKey {
+                key,
+                cap,
+                scopes: vec![root.clone()],
+                subject: None,
+            })
+            .collect();
+        let storage = match wyrm_link_sdk::spawn::<Storage>(
+            session.clone(),
+            lcfg,
+            StorageStart {
+                store: storage.clone(),
+                limits: Default::default(),
+            },
+        )
+        .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                flows.stop().await;
+                admin.stop().await;
+                return Err(format!("storage: {e}").into());
             }
         };
         runtime.start().await?;
@@ -754,6 +790,7 @@ impl Broker {
             session,
             admin: Some(admin),
             flows: Some(flows),
+            storage: Some(storage),
             gateway,
         })
     }
@@ -779,6 +816,9 @@ impl Broker {
         }
         if let Some(f) = self.flows.take() {
             f.stop().await;
+        }
+        if let Some(s) = self.storage.take() {
+            s.stop().await;
         }
         if let Some(a) = self.admin.take() {
             a.stop().await;
@@ -1027,6 +1067,8 @@ pub struct Daemon {
     cfg: Config,
     ctl: Arc<Control>,
     flows: Arc<FlowHost>,
+    /// Opened once: every broker build restarts the storage link on it.
+    storage: Arc<wyrm_storage::Store>,
     gateway: Option<Arc<Gateway>>,
     reload: tokio::sync::mpsc::UnboundedReceiver<()>,
 }
@@ -1055,6 +1097,7 @@ impl Daemon {
             &cfg.site,
             flows_anchor.as_deref().map(|a| (a, cfg.init_anchors)),
         )?;
+        let storage = Arc::new(wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?);
         let gateway = match &cfg.gateway {
             None => None,
             Some(g) => Some(open_gateway(&cfg, g, true)?),
@@ -1147,6 +1190,7 @@ impl Daemon {
             cfg,
             ctl,
             flows,
+            storage,
             gateway,
             reload,
         })
@@ -1182,8 +1226,14 @@ impl Daemon {
                     );
                 }
             }
-            let broker =
-                Broker::start(&self.cfg, &self.ctl, &self.flows, self.gateway.as_ref()).await?;
+            let broker = Broker::start(
+                &self.cfg,
+                &self.ctl,
+                &self.flows,
+                &self.storage,
+                self.gateway.as_ref(),
+            )
+            .await?;
             self.ctl.reopen();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {

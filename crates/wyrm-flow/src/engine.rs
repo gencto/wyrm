@@ -13,7 +13,7 @@
 //! carries one token per target key, signed by a key the engine trusts
 //! (admin or gateway), with the deployer's subject and at least
 //! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/downstream/`
-//! (ADR 0008).
+//! or `wy/<site>/storage/` (ADR 0008, ADR 0017).
 //!
 //! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
 //! `wyrm:flow/node` component under `<dir>/artifacts/<sha256>.wasm` and
@@ -648,11 +648,15 @@ fn proves_targets(
         },
         _ => None,
     };
-    let down = format!("wy/{site}/downstream/");
+    let sections = [
+        format!("wy/{site}/downstream/"),
+        format!("wy/{site}/storage/"),
+    ];
     for t in targets(&def, site) {
-        if !t.starts_with(&down) || t.contains(['*', '$']) {
+        if !sections.iter().any(|s| t.starts_with(s)) || t.contains(['*', '$']) {
             return Err(LinkError::invalid_parameter(format!(
-                "{t}: command targets must be exact keys under {down}"
+                "{t}: command targets must be exact keys under {} or {}",
+                sections[0], sections[1]
             )));
         }
         let denied = |why: &str| LinkError::new(Status::PermissionDenied, format!("{t}: {why}"));

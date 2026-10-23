@@ -290,7 +290,7 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
                     .display("Path")
                     .placeholder("downstream/<link>/<point>")
                     .description(
-                        "A point of this site (downstream/… or dataflows/…, or the full wy/<site>/… key) \
+                        "A point of this site (downstream/…, dataflows/… or storage/…, or the full wy/<site>/… key) \
                          or of a downstream site (wy/<site>/…).",
                     ),
             )
@@ -510,7 +510,10 @@ fn apply_groups(ctl: &Control) {
 fn watch_key(ctl: &Control, path: &str) -> Result<String> {
     let path = path.trim().trim_matches('/');
     let site = &ctl.config().site;
-    let key = if path.starts_with("downstream/") || path.starts_with("dataflows/") {
+    let key = if ["downstream/", "dataflows/", "storage/"]
+        .iter()
+        .any(|s| path.starts_with(s))
+    {
         format!("wy/{site}/{path}")
     } else {
         path.to_owned()

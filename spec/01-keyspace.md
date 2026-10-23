@@ -8,6 +8,7 @@ branch     = "downstream/" link ("/" path)? ("/" suffix)?
            | "downstream/" site ("/connected")? ("/" suffix)?  ; downstream broker node
            | "upstream/" site ("/connected")? ("/" suffix)?    ; upstream broker node
            | "dataflows/" flowid ("/" ("~def" | "~meta" | "~val" | "~act/" name | "nodes/" seg "/" suffix))?
+           | "storage" ("/" path)? ("/" suffix)?                ; broker storage (0.2.2)
            | "pub/" profile "/~meta"
            | "sys/" syspath
 path       = seg ("/" seg)*
@@ -27,6 +28,9 @@ profile    = "wy:" seg ; або "<vendor>:" seg
 Віртуальних префіксів (`remote/`) немає: ключ має одне ім'я на всіх брокерах mesh і в UI.
 
 Розділи сайту мають повні імена, без скорочень: `downstream`, `upstream`, `dataflows`, `sys`, `pub` (0.2.0; до неї — `down`, `up`, `flows`). Брокер переносить збережені ключі зі старими іменами (гранти, спостереження історії) під нові; збережені потоки треба розгорнути знову, бо їхні proofs підписані для старих ключів.
+
+## Сховище брокера
+`wy/<site>/storage/**` — вузли і значення, які створюють люди (як `/data` брокера DSA, ADR 0017): папки, значення типу `string`, `number`, `bool`, `array`, `map`, `binary`, `dynamic` з дією `~set`, дії `add_node`, `add_value`, `publish`, `delete`, `rename`, `duplicate`, `export`, `import`. Кожна дія і `~set` потребує `write`. Брокер зберігає дерево і останні значення між перезапусками. Id лінка `storage` зарезервований (0.2.2).
 
 ## Брокери-сусіди
 Downstream — те, що підключається до брокера: лінки і брокери нижчих сайтів; їх вузли поруч у `downstream/`. Брокер сайту `d`, що підключається до нас, — вузол `wy/<site>/downstream/<d>`. Upstream — брокери, до яких підключається наш: `wy/<site>/upstream/<u>`. Ці вузли — посилання, а не копії: `is = wy:broker`, `attr.site`, `attr.root = "wy/<peer>"` і bool-точка `connected` (liveliness `wy/<peer>/sys/broker`). Ключі сусіда лишаються під його власним ім'ям (`wy/<peer>/…`); клієнт іде за `attr.root`. Id лінка не може збігатися з іменем downstream-сайту.

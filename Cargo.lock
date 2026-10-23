@@ -6103,6 +6103,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-storage"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "redb",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-wasm-host"
 version = "0.1.0"
 dependencies = [
@@ -6140,6 +6153,7 @@ dependencies = [
  "wyrm-link-sdk",
  "wyrm-link-wasm",
  "wyrm-state",
+ "wyrm-storage",
  "zenoh",
  "zenoh-plugin-rest",
  "zenoh-plugin-storage-manager",

@@ -18,6 +18,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrm-client` | `list` / `subscribe` as streams, `set`, `invoke`, `meta`, `resolve`, token sources |
 | `crates/wyrm-state` | control-plane state: WAL (CBOR, CRC32C per record, HMAC chain) + postcard snapshot |
 | `crates/wyrm-history` | embedded historian: watch groups (None / Interval / All Data / Point Change), redb store with one file per day, Get History with rollups (ADR 0014, [`docs/history.md`](docs/history.md)) |
+| `crates/wyrm-storage` | broker storage `wy/<site>/storage` (as a DSA broker's `/data`): folders and typed values people create, `publish`, `export`/`import` as JSON, kept in one redb file (ADR 0017) |
 | `crates/wyrm-admin` | registry, link tokens (argon2id), internal CA, generated ACL (links, operators, peer sites), supervisor, quarantine, audit, encrypted link secrets — the `wy/<site>/sys/**` tree |
 | `crates/wyrm-flow` | data-flow engine: `~def` compiler, 15 node types, rhai sandbox, hot swap, node state in `wyrm-state` |
 | `crates/wyrm-gateway` | user gateway: logins (argon2id), sessions, roles → grants, WebSocket CBOR proxy with per-point filtering |
@@ -92,8 +93,11 @@ Link secrets (device passwords, keys) live in `data_dir/secrets.bin` (ChaCha20-P
 ## Profiles
 A node's `~meta.is` names a profile; absent fields come from it, through `extends` (spec 02). The admin serves `wy/<site>/pub/<profile>/~meta` (10 built-ins such as `wy:number`, `wy:folder`, `wy:link`; others stored in its WAL) and changes them with `sys/profiles/~act/put {name, profile}` and `remove {name}` (`config`). `?expand=true` returns a profile with its chain folded in; `WyrmClient::meta_expanded(node)` returns a node's `~meta` with its profile applied. Links and upstream sites may read `pub/**`; nobody but the admin writes it.
 
+## Storage
+`wy/<site>/storage` keeps nodes and values people create, as a DSA broker's `/data` (ADR 0017). The root offers `add_node {name}`, `add_value {name, type, editor}`, `publish {path, value}` (creates the missing folders and a `dynamic` value), `export` and `import {data}` (JSON: `$type`, `@editor`, `?value`, children as objects, binary as `{"$hex": …}`); a folder also offers `delete {recursive}`, `rename {name}` and `duplicate {name}`, a value `~set`, `delete`, `rename` and `duplicate`. Types: `string`, `number`, `bool`, `array`, `map`, `binary`, `dynamic`. Every action and `~set` needs `write`; the admin keys, users through the gateway (viewer `read`, operator `write`, engineer `config`) and flows (at `write`) are trusted. The tree lives in `data_dir/storage/storage.redb`: structure at once, values at most once a second. Limits: 10 000 nodes, 16 levels, 32 KiB per value, 4 MiB per import or export. The historian may watch storage values (`add_watch_path {path: "storage/…"}`); an upstream site reads them.
+
 ## Flows
-`wy/<site>/dataflows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/downstream/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
+`wy/<site>/dataflows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/downstream/` or `wy/<site>/storage/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
 ```
 wyr --key admin.key flow validate local peak.json5     # compile only
 wyr --key admin.key flow deploy   local peak.json5     # signs one proof per invoke/set target
@@ -114,7 +118,7 @@ As in DSA (ADR 0015), the downstream broker adds the connection itself: on edge,
 
 Edge then connects on 7449 and shows up in `wy/central/downstream/edge`; **Deauthorize** sends it back to quarantine. Central's QUIC listeners trust its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection.
 
-Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
+Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream,storage}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
 
 A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge, read only (ADR 0007).
 

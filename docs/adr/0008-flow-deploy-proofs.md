@@ -13,7 +13,7 @@ The flow engine (`crates/wyrm-flow`, responder for `wy/<site>/dataflows/**`) run
 - **`deploy {def, proofs}`.** Before compiling, the engine checks (`crates/wyrm-flow/src/engine.rs`):
   1. `caller_covers`: `permissions.maxperm` ≤ the deployer's effective permission on the deploy action.
   2. `proves_targets`: for every command target of the definition (`command_targets`: full keys of `…/~act/<a>` and `…/~set`, relative keys resolved under `wy/<site>/`):
-     - the target is an exact key under `wy/<site>/downstream/` (no `*`, no `$`, so no `sys/**`, no `dataflows/**`, no other site);
+     - the target is an exact key under `wy/<site>/downstream/` or, since ADR 0017, `wy/<site>/storage/` (no `*`, no `$`, so no `sys/**`, no `dataflows/**`, no other site);
      - `proofs[target]` is a `ptok` for that exact key, verified by the engine's keys (admin keys and the gateway key, so admin- or gateway-signed);
      - the proof has the **same subject** as the deploy caller;
      - the proof gives at least `max(maxperm, write)` on that key.

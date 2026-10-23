@@ -248,6 +248,59 @@ async fn list_resolve_set_invoke_over_router() {
     env.stop().await;
 }
 
+/// Broker storage (ADR 0017): nodes and values made over the router come
+/// back after a restart of wyrmd, and an upstream-style reader finds them.
+#[tokio::test(flavor = "multi_thread")]
+async fn storage_keeps_nodes_and_values_across_restarts() {
+    let dir = temp_dir("data-storage");
+    let env = Env::start_in(&dir, "").await;
+    let c = env.client().await;
+    let root = format!("wy/{SITE}/storage");
+    let args = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    c.invoke_one(&root, "add_node", args(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    let number = args(&[("name", "temp".into()), ("type", Value::from("number"))]);
+    c.invoke_one(&format!("{root}/plant"), "add_value", number)
+        .await
+        .unwrap();
+    c.set(&format!("{root}/plant/temp"), 21.5).await.unwrap();
+    let publish = args(&[("path", "plant/count".into()), ("value", Value::UInt(3))]);
+    c.invoke_one(&root, "publish", publish).await.unwrap();
+    assert_eq!(
+        last_val(&c, &format!("{root}/plant/temp")).await,
+        Some(Value::Float(21.5))
+    );
+    let wrong = c.set(&format!("{root}/plant/temp"), "warm").await;
+    assert!(wrong.is_err(), "a number node refuses text");
+    drop(c);
+    env.stop().await;
+
+    let env = Env::start_in(&dir, "").await;
+    let c = env.client().await;
+    let names: Vec<String> = c
+        .children(&format!("{root}/plant"))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(names, ["count", "temp"]);
+    let temp = format!("{root}/plant/temp");
+    let v = eventually("value after restart", 5, || async {
+        last_val(&c, &temp).await
+    })
+    .await;
+    assert_eq!(v, Value::Float(21.5));
+    env.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn subscribe_reads_storage_first() {
     let env = Env::start("storage", MOCK).await;
@@ -1534,6 +1587,11 @@ async fn flow_commands_a_link_through_wyrmd() {
                     ]),
                 ),
                 ("res", m(&[("type", s("publish")), ("node", s("res"))])),
+                // a flow may write broker storage too (ADR 0017)
+                (
+                    "keep",
+                    m(&[("type", s("set")), ("path", s("storage/plant/copy"))]),
+                ),
             ]),
         ),
         (
@@ -1542,10 +1600,19 @@ async fn flow_commands_a_link_through_wyrmd() {
                 edge("a.out", "al.in"),
                 edge("al.out", "cmd.in"),
                 edge("cmd.out", "res.in"),
+                edge("a.out", "keep.in"),
             ]),
         ),
         ("permissions", m(&[("maxperm", s("write"))])),
     ]);
+    let storage = format!("wy/{SITE}/storage");
+    c.invoke_one(&storage, "add_node", m(&[("name", s("plant"))]))
+        .await
+        .unwrap();
+    let number = m(&[("name", s("copy")), ("type", Value::from("number"))]);
+    c.invoke_one(&format!("{storage}/plant"), "add_value", number)
+        .await
+        .unwrap();
     let flows = format!("wy/{SITE}/dataflows");
     let proofs = wyrm_flow::command_targets(&def, SITE)
         .unwrap()
@@ -1575,6 +1642,9 @@ async fn flow_commands_a_link_through_wyrmd() {
         wyrm_core::Quality::Good,
         "the mock accepted the flow token"
     );
+    let copy = format!("{storage}/plant/copy");
+    let v = eventually("flow set into storage", 10, || last_val(&c, &copy)).await;
+    assert!(v.as_f64().is_some(), "{v:?}");
 
     // `put ~def` is not a deploy path
     let mut other = def;
@@ -3713,6 +3783,39 @@ async fn history_overlays_mark_recorded_points() {
         };
         assert_eq!((flag("p0"), flag("p1")), (Some(true), None), "{link}");
     }
+
+    // a storage value (ADR 0017): recorded, marked and answered like a point
+    let storage = format!("wy/{SITE}/storage");
+    let number = m(&[
+        ("name", Value::from("setpoint")),
+        ("type", Value::from("number")),
+    ]);
+    c.invoke_one(&storage, "add_value", number).await.unwrap();
+    c.invoke_one(
+        &group,
+        "add_watch_path",
+        m(&[("path", Value::from("storage/setpoint"))]),
+    )
+    .await
+    .unwrap();
+    let sp = format!("{storage}/setpoint");
+    let want = Value::Array(vec![Value::from(format!("{group}/w3"))]);
+    eventually("the watch key on the storage value", 20, || async {
+        (history(sp.clone()).await.as_ref() == Some(&want)).then_some(())
+    })
+    .await;
+    let mut n = 0.0;
+    let since = wyrm_client::HistoryQuery::since("2020-01-01");
+    eventually("the storage value recorded", 20, || {
+        n += 1.0;
+        let (c, sp, since) = (&c, sp.clone(), since.clone());
+        async move {
+            c.set(&sp, n).await.ok()?;
+            let rows = c.history(&sp, &since).await.ok()?;
+            (!rows.is_empty()).then_some(())
+        }
+    })
+    .await;
 
     // a loopback client cannot put the broker's attributes (prod)
     let raw = loopback_session(env.port).await;

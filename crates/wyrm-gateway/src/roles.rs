@@ -18,15 +18,21 @@ impl Default for RoleTable {
     /// The example roles from the wiki, scoped to the gateway's own site.
     fn default() -> Self {
         let mut t = Self::empty();
+        // `storage` (ADR 0017): roles changed in a users store keep their
+        // own grants; an admin adds `storage` to them.
         t.insert(
             "viewer",
-            vec![("wy/{site}/downstream/**".into(), Perm::Read)],
+            vec![
+                ("wy/{site}/downstream/**".into(), Perm::Read),
+                ("wy/{site}/storage/**".into(), Perm::Read),
+            ],
         );
         t.insert(
             "operator",
             vec![
                 ("wy/{site}/downstream/**".into(), Perm::Write),
                 ("wy/{site}/dataflows/**".into(), Perm::Read),
+                ("wy/{site}/storage/**".into(), Perm::Write),
             ],
         );
         t.insert(
@@ -34,6 +40,7 @@ impl Default for RoleTable {
             vec![
                 ("wy/{site}/downstream/**".into(), Perm::Config),
                 ("wy/{site}/dataflows/**".into(), Perm::Config),
+                ("wy/{site}/storage/**".into(), Perm::Config),
             ],
         );
         t.insert("admin", vec![("wy/**".into(), Perm::Config)]);
@@ -209,6 +216,9 @@ mod tests {
         assert_eq!(v.perm("wy/s/downstream/mock/p0/~set"), Perm::Read);
         assert_eq!(v.perm("wy/other/downstream/mock/p0/~val"), Perm::None);
         assert_eq!(v.perm("wy/s/dataflows/f/~val"), Perm::None);
+        assert_eq!(v.perm("wy/s/storage/a/~val"), Perm::Read);
+        let o = t.grants("s", &roles(&["operator"]));
+        assert_eq!(o.perm("wy/s/storage/a/~act/add_node"), Perm::Write);
         let e = t.grants("s", &roles(&["engineer"]));
         // the admin does not trust the gateway key (ADR 0009): no sys rights
         assert!(!e.covers("wy/s/sys/links/**", Perm::Write));

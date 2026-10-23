@@ -129,7 +129,13 @@ class _WyExplorerState extends State<WyExplorer> {
   String? _error;
 
   /// Site sections (spec 01 keys, also their names).
-  static const _sections = ['downstream', 'dataflows', 'sys', 'upstream'];
+  static const _sections = [
+    'downstream',
+    'dataflows',
+    'storage',
+    'sys',
+    'upstream',
+  ];
 
   /// Site roots: built here, not listed.
   final _sites = <String>{};

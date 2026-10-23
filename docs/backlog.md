@@ -166,6 +166,17 @@ admin, as a DSA broker's `/data`:
 **Decide:** the name (`storage`, `data`); limits (nodes, value size); who may
 create nodes (`config`) and who may set values (`write`).
 
+**Done (2026-10-24, ADR 0017):** as a DSA broker's `/data`, not the proposal
+above: crate `wyrm-storage`, a link inside `wyrmd` rooted at
+`wy/<site>/storage` (spec 01 0.2.2). Root `add_node`, `add_value {name, type,
+editor}`, `publish {path, value}`, `export`, `import {data}`; folders also
+`delete {recursive}`, `rename`, `duplicate`; values `~set`. Every action needs
+`write` (as DSA). One redb file, values flushed once a second; limits 10 000
+nodes, 16 levels, 32 KiB per value. Flows may `set`/`invoke` into it, the
+historian may watch it (`attr.history` too), upstream sites read it, the
+explorer shows it as a site section. The link id `storage` is reserved for
+new links.
+
 ## 6. `wy/edge/sys/upstream` from central: "no reply"
 
 **Seen:** expanding `edge ▸ sys ▸ upstream` in the explorer connected to
