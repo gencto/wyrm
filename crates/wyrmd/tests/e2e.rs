@@ -2898,10 +2898,23 @@ async fn runtime_peers_over_quic() {
     }
     assert_eq!(c_ctl.registry().quarantine["broker:cell5"].attempts, 1);
 
-    // 3. Authorize: the edge gets its certificate and connects.
-    c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))
-        .await
-        .expect("authorize");
+    // 3. Authorize, bound to the key the administrator compared: another
+    // key is refused; with it the edge gets its certificate and connects.
+    let wrong = c
+        .invoke_one(
+            "wy/central/sys/quarantine/edge",
+            "approve",
+            args(&[("key", Value::from("00"))]),
+        )
+        .await;
+    assert!(wrong.is_err(), "authorize with another key");
+    c.invoke_one(
+        "wy/central/sys/quarantine/edge",
+        "approve",
+        args(&[("key", Value::from(edge_key.as_str()))]),
+    )
+    .await
+    .expect("authorize");
     edge_seen("edge links seen from central").await;
     let e = client(e_tcp, "edge").await;
     let mut shown: Vec<String> = e
@@ -2969,9 +2982,13 @@ async fn runtime_peers_over_quic() {
         .await
         .expect_err("an issued name is never an upstream");
     assert!(err.to_string().contains("downstream broker"), "{err}");
-    c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))
-        .await
-        .expect("authorize again");
+    c.invoke_one(
+        "wy/central/sys/quarantine/edge",
+        "approve",
+        args(&[("key", Value::from(edge_key.as_str()))]),
+    )
+    .await
+    .expect("authorize again");
     edge_seen("edge back after Authorize").await;
 
     // 6. A token admits at once, once.

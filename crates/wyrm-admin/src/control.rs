@@ -367,6 +367,27 @@ struct EnrollSeen {
     conflicts: u64,
 }
 
+/// One poll at `now`: the waiting key's poll keeps the request alive; one
+/// with another key only counts.
+fn touch_seen(
+    seen: &mut HashMap<String, EnrollSeen>,
+    site: &str,
+    now: u64,
+    conflict: bool,
+) -> EnrollSeen {
+    let s = seen.entry(site.to_owned()).or_insert(EnrollSeen {
+        last: now,
+        ..Default::default()
+    });
+    if conflict {
+        s.conflicts += 1;
+    } else {
+        s.last = now;
+        s.attempts += 1;
+    }
+    *s
+}
+
 /// Sites whose request waits (not held) and was not asked again for `ttl`
 /// seconds; a site without a record since this broker started counts from
 /// `now` (it gets the whole time).
@@ -580,16 +601,20 @@ impl Control {
         ))
     }
 
-    /// One more poll of the waiting request of `site` (in memory).
+    /// One more poll of the waiting request of `site` (in memory; only for
+    /// a name that waits). A request with another key counts as a conflict
+    /// and keeps nothing alive: it does not touch `last`.
     fn enroll_touch(&self, site: &str, conflict: bool) -> EnrollSeen {
         let mut seen = self.enroll_seen.lock().unwrap_or_else(|p| p.into_inner());
-        let s = seen.entry(site.to_owned()).or_default();
-        s.last = now_s();
-        s.attempts += 1;
-        if conflict {
-            s.conflicts += 1;
-        }
-        *s
+        touch_seen(&mut seen, site, now_s(), conflict)
+    }
+
+    /// Forget the polls of `site` (admitted, rejected, expired).
+    fn enroll_forget(&self, site: &str) {
+        self.enroll_seen
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(site);
     }
 
     fn enroll_seen_of(&self, site: &str) -> Option<EnrollSeen> {
@@ -1847,6 +1872,12 @@ fn authorize_meta(dsid: Option<ParamMeta>, roles: &[String]) -> ActionMeta {
         .param("driver", str_param().display("Driver"))
         .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
         .param("via", via_param())
+        .param(
+            "key",
+            str_param()
+                .display("Key")
+                .description("Downstream brokers: the SHA-256 of its key you compared"),
+        )
         .result(ActionResult::Type(TypeCode::Map))
         .level(Perm::Config)
 }
@@ -1947,10 +1978,21 @@ async fn declare_quarantined(
             .attr("conflicts", a.conflicts);
     }
     ctx.declare_node(&p, m).await?;
-    // a downstream broker needs only the sites it relays
+    // a downstream broker needs only the sites it relays, and the key it
+    // was reviewed with (one choice: a changed request needs a new look)
     let approve = if kind == "broker" {
+        let mut key = str_param()
+            .display("Key")
+            .description("SHA-256 of its key: the same as its sys/upstream/<this site>/key");
+        if let Some(k) = asked
+            .map(|a| a.key_sha256.as_str())
+            .filter(|k| !k.is_empty())
+        {
+            key = key.required(true).enum_values([k.to_owned()]);
+        }
         ActionMeta::new()
             .display("Authorize")
+            .param("key", key)
             .param("via", via_param())
             .level(Perm::Config)
     } else {
@@ -2415,10 +2457,16 @@ async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
         tokio::time::sleep(Duration::from_secs(60)).await;
         let reg = ctl.registry();
         if reg.enrollments.is_empty() {
+            ctl.enroll_seen
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clear();
             continue;
         }
         let stale = {
             let mut seen = ctl.enroll_seen.lock().unwrap_or_else(|p| p.into_inner());
+            // nothing kept for a name that does not wait
+            seen.retain(|site, _| reg.enrollments.contains_key(site));
             stale_enrollments(&reg, &mut seen, now_s(), ENROLL_STALE_S)
         };
         for site in stale {
@@ -4228,6 +4276,7 @@ impl Admin {
                 seen: now_s(),
             })
             .map_err(rejected)?;
+        self.ctl.enroll_forget(site);
         self.ctl.record(
             sub,
             how,
@@ -4249,13 +4298,28 @@ impl Admin {
         args: &Value,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
-        let e = self
-            .ctl
-            .registry()
-            .enrollments
-            .get(site)
-            .cloned()
-            .unwrap_or_default();
+        let reg = self.ctl.registry();
+        // Bound to the request the administrator looked at: its key's
+        // SHA-256 must come with Authorize (the request may have expired
+        // and come back with another key in between).
+        let given = arg_str(args, "key").map(str::trim).unwrap_or_default();
+        let e = match reg.enrollments.get(site) {
+            Some(e) if e.key_sha256.is_empty() || e.key_sha256 == given => e.clone(),
+            Some(_) => {
+                return Err(LinkError::invalid_parameter(
+                    "key: not the key of the waiting request; look at it again",
+                ))
+            }
+            // a broker seen only by its certificate (no request): by name
+            None if reg
+                .quarantine
+                .contains_key(&crate::registry::broker_cn(site))
+                && given.is_empty() =>
+            {
+                Default::default()
+            }
+            None => return Err(LinkError::not_found(format!("no request of {site}"))),
+        };
         // the Via field, else what the broker asked for
         let via = match arg(args, "via") {
             Some(v) if !via_list(Some(v)).is_empty() => via_list(Some(v)),
@@ -4397,9 +4461,10 @@ impl Admin {
             .enrollments
             .get(&site)
             .is_none_or(|e| e.key_sha256 != key || e.via != via || e.csr_pem.is_empty());
-        self.ctl.enroll_touch(&site, false);
         if changed {
             wait(&self.ctl)?;
+            // counted once it waits (a refused name leaves no trace)
+            self.ctl.enroll_touch(&site, false);
             self.ctl.record(
                 &format!("broker:{site}"),
                 "quarantine",
@@ -4409,6 +4474,8 @@ impl Admin {
             );
             info!(site = %site, "downstream broker waits in quarantine");
             refresh_quarantine(&self.ctx, &self.ctl).await?;
+        } else {
+            self.ctl.enroll_touch(&site, false);
         }
         pending()
     }
@@ -4584,6 +4651,9 @@ impl Admin {
         self.ctl
             .apply(Op::Reject(cn.to_owned()))
             .map_err(rejected)?;
+        if let Some(site) = crate::registry::broker_site(cn) {
+            self.ctl.enroll_forget(site);
+        }
         self.ctl.record(sub, "reject", cn, Status::Ok, "");
         self.ctx
             .remove_node(&format!("quarantine/{}", quarantine_node(cn)))
@@ -5325,6 +5395,9 @@ zenoh_rx_bytes_total_extra 7
             ("fresh".to_owned(), seen_at(1000)),
             ("old-held".to_owned(), seen_at(0)),
         ]);
+        // another key's polls do not keep a request alive
+        super::touch_seen(&mut seen, "old", 1000, true);
+        assert_eq!(seen["old"].conflicts, 1);
         let stale = super::stale_enrollments(&reg, &mut seen, 1000, 600);
         assert_eq!(stale, ["old"]);
         // an unseen one counts from now
