@@ -17,6 +17,8 @@
     upstream_val_hz: 5,
     // The middle of the chain: plant connects here.
     listen: "quic/127.0.0.1:7459",
+    // another broker asks for its certificate here (ADR 0015)
+    enroll: "quic/127.0.0.1:7460",
     downstream: [{ site: "plant" }],
   },
   gateway: { listen: "127.0.0.1:8444", admin_user: "admin" },

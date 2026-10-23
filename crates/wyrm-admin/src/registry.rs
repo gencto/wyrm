@@ -329,6 +329,59 @@ pub enum Op {
         #[n(1)]
         seen: u64,
     },
+    /// A downstream broker asks for a certificate and waits in quarantine.
+    /// A request with another key for a waiting name only counts as a
+    /// conflict; the first request stays.
+    #[n(26)]
+    EnrollRequest {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        csr_pem: String,
+        #[n(2)]
+        key_sha256: String,
+        #[n(3)]
+        via: Vec<String>,
+        #[n(4)]
+        seen: u64,
+    },
+    /// Admit a downstream broker with the certificate our CA signed for it
+    /// (or by name, empty): it leaves quarantine and becomes a runtime peer.
+    #[n(27)]
+    AdmitBroker {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        via: Vec<String>,
+        #[n(2)]
+        key_sha256: String,
+        #[n(3)]
+        cert_pem: String,
+        #[n(4)]
+        seen: u64,
+    },
+    /// Our certificate from an upstream site arrived (enrollment).
+    #[n(28)]
+    SetPeerCert {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        endpoint: String,
+        #[n(2)]
+        cert_pem: String,
+    },
+    #[n(29)]
+    AddToken {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        def: TokenDef,
+    },
+    /// One admission with the token; at its last use it goes.
+    #[n(30)]
+    UseToken(#[n(0)] String),
+    #[n(31)]
+    RemoveToken(#[n(0)] String),
 }
 
 /// How a package's links run (ADR 0011).
@@ -497,7 +550,55 @@ pub struct PeerDef {
     #[cbor(default)]
     #[serde(default)]
     pub cert_pem: String,
+    /// Upstream added at runtime: its enrollment endpoint (`peers.enroll`
+    /// there), where this broker asks for `cert_pem` (ADR 0015).
+    #[n(8)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub enroll: String,
+    /// SHA-256 (hex) of the broker key: ours towards an upstream site, the
+    /// admitted one of a downstream broker (empty: admitted by name).
+    #[n(9)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub key_sha256: String,
 }
+
+/// A downstream broker's request for a certificate, waiting in quarantine
+/// (`broker:<site>`, ADR 0015), or a Deauthorized broker's last grant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Enrollment {
+    /// The request (empty for a held broker that did not ask again).
+    pub csr_pem: String,
+    pub key_sha256: String,
+    /// Sites it says it relays.
+    pub via: Vec<String>,
+    /// Requests for this name with another key: refused, never swapped in.
+    pub conflicts: u64,
+    /// The certificate it held when it was Deauthorized (same key).
+    pub cert_pem: String,
+}
+
+/// A token that admits a downstream broker at once (DSA `/sys/tokens`),
+/// kept as the SHA-256 of the whole token.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct TokenDef {
+    #[n(0)]
+    pub sha256: String,
+    /// Admissions left; 0 = no limit.
+    #[n(1)]
+    pub uses: u32,
+    /// Unix seconds after which it is refused; 0 = never.
+    #[n(2)]
+    pub expires: u64,
+    #[n(3)]
+    pub created: u64,
+    #[n(4)]
+    pub by: String,
+}
+
+/// At most this many brokers wait in quarantine at a time.
+pub const MAX_ENROLLMENTS: usize = 64;
 
 /// Broker options changed at runtime, as DSA's `allowAllLinks` and
 /// `quarantine` (`wy/<site>/sys/allow_all_links`, `.../enable_quarantine`).
@@ -570,6 +671,12 @@ pub struct Registry {
     /// Sites our CA issued a `broker:<site>` certificate for (ADR 0015).
     #[serde(default)]
     pub issued_brokers: BTreeSet<String>,
+    /// Downstream brokers waiting in quarantine (or held), by site.
+    #[serde(default)]
+    pub enrollments: BTreeMap<String, Enrollment>,
+    /// Admission tokens for downstream brokers, by id.
+    #[serde(default)]
+    pub tokens: BTreeMap<String, TokenDef>,
 }
 
 /// Replaced params kept per link.
@@ -642,8 +749,8 @@ fn renamed_keys(op: &Op) -> Option<Op> {
 
 impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
-    // 15: `PeerDef::cert_pem` (ADR 0015)
-    const SCHEMA: u32 = 15;
+    // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015)
+    const SCHEMA: u32 = 16;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -749,6 +856,9 @@ impl wyrm_state::State for Registry {
                     .remove(cn)
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
                 self.held.remove(cn);
+                if let Some(site) = broker_site(cn) {
+                    self.enrollments.remove(site);
+                }
                 self.blocklist.insert(cn.clone());
             }
             Op::SetLinkGrant { id, path, level } => {
@@ -944,7 +1054,8 @@ impl wyrm_state::State for Registry {
                         def.site, def.site
                     ));
                 }
-                if (def.dir == PeerDir::Upstream) == def.endpoint.is_empty() {
+                let reach = !def.endpoint.is_empty() || !def.enroll.is_empty();
+                if (def.dir == PeerDir::Upstream) != reach {
                     return Err("an upstream peer needs an endpoint, a downstream one none".into());
                 }
                 if def.dir == PeerDir::Upstream && !def.via.is_empty() {
@@ -988,14 +1099,21 @@ impl wyrm_state::State for Registry {
                 self.issued_brokers.insert(site.clone());
             }
             Op::HoldBroker { site, seen } => {
-                if !self
-                    .peers
-                    .get(site)
-                    .is_some_and(|p| p.dir == PeerDir::Downstream)
-                {
-                    return Err(format!("{site} is not a runtime downstream broker"));
-                }
+                let def = match self.peers.get(site) {
+                    Some(p) if p.dir == PeerDir::Downstream => p.clone(),
+                    _ => return Err(format!("{site} is not a runtime downstream broker")),
+                };
                 self.peers.remove(site);
+                // what Authorize gives back: the same key and certificate
+                self.enrollments.insert(
+                    site.clone(),
+                    Enrollment {
+                        key_sha256: def.key_sha256,
+                        via: def.via,
+                        cert_pem: def.cert_pem,
+                        ..Default::default()
+                    },
+                );
                 let cn = broker_cn(site);
                 self.quarantine.insert(
                     cn.clone(),
@@ -1006,6 +1124,122 @@ impl wyrm_state::State for Registry {
                     },
                 );
                 self.held.insert(cn);
+            }
+            Op::EnrollRequest {
+                site,
+                csr_pem,
+                key_sha256,
+                via,
+                seen,
+            } => {
+                validate_segment(site).map_err(|e| format!("site: {e}"))?;
+                let cn = broker_cn(site);
+                if self.peers.contains_key(site) {
+                    return Err(format!("{site} is a peer"));
+                }
+                if self.blocklist.contains(&cn) || self.links.contains_key(site) {
+                    return Err(format!("{site} is refused here"));
+                }
+                if !self.enrollments.contains_key(site) && self.enrollments.len() >= MAX_ENROLLMENTS
+                {
+                    return Err(format!("at most {MAX_ENROLLMENTS} brokers wait"));
+                }
+                let e = self.enrollments.entry(site.clone()).or_default();
+                if e.key_sha256.is_empty() || e.key_sha256 == *key_sha256 {
+                    e.key_sha256 = key_sha256.clone();
+                    e.csr_pem = csr_pem.clone();
+                    e.via = via.clone();
+                } else {
+                    e.conflicts += 1;
+                }
+                let q = self.quarantine.entry(cn).or_insert(QuarantineEntry {
+                    first_seen: *seen,
+                    ..Default::default()
+                });
+                q.last_seen = *seen;
+                q.attempts += 1;
+            }
+            Op::AdmitBroker {
+                site,
+                via,
+                key_sha256,
+                cert_pem,
+                seen,
+            } => {
+                validate_segment(site).map_err(|e| format!("site: {e}"))?;
+                if self.peers.contains_key(site) || self.links.contains_key(site) {
+                    return Err(format!("{site} is a peer or a link"));
+                }
+                for v in via {
+                    validate_segment(v).map_err(|e| format!("via: {e}"))?;
+                    let taken = v == site
+                        || self
+                            .peers
+                            .values()
+                            .any(|p| p.site == *v || p.via.contains(v))
+                        || via.iter().filter(|x| *x == v).count() > 1;
+                    if taken {
+                        return Err(format!("via {v}: already a peer site or relayed"));
+                    }
+                }
+                let cn = broker_cn(site);
+                self.quarantine.remove(&cn);
+                self.held.remove(&cn);
+                self.enrollments.remove(site);
+                self.issued_brokers.insert(site.clone());
+                self.peers.insert(
+                    site.clone(),
+                    PeerDef {
+                        site: site.clone(),
+                        dir: PeerDir::Downstream,
+                        endpoint: String::new(),
+                        ca_pem: String::new(),
+                        enabled: true,
+                        created: *seen,
+                        via: via.clone(),
+                        cert_pem: cert_pem.clone(),
+                        enroll: String::new(),
+                        key_sha256: key_sha256.clone(),
+                    },
+                );
+            }
+            Op::SetPeerCert {
+                site,
+                endpoint,
+                cert_pem,
+            } => {
+                let p = self
+                    .peers
+                    .get_mut(site)
+                    .filter(|p| p.dir == PeerDir::Upstream)
+                    .ok_or_else(|| format!("no upstream peer {site}"))?;
+                p.endpoint = endpoint.clone();
+                p.cert_pem = cert_pem.clone();
+            }
+            Op::AddToken { id, def } => {
+                validate_segment(id).map_err(|e| format!("token id: {e}"))?;
+                if self.tokens.contains_key(id) {
+                    return Err(format!("token {id} exists"));
+                }
+                self.tokens.insert(id.clone(), def.clone());
+            }
+            Op::UseToken(id) => {
+                let t = self
+                    .tokens
+                    .get_mut(id)
+                    .ok_or_else(|| format!("no token {id}"))?;
+                match t.uses {
+                    0 => {}
+                    1 => {
+                        self.tokens.remove(id);
+                    }
+                    _ => t.uses -= 1,
+                }
+            }
+            Op::RemoveToken(id) => {
+                self.tokens
+                    .remove(id)
+                    .ok_or_else(|| format!("no token {id}"))?;
             }
             Op::SetPeerEnabled { site, on } => {
                 self.peers
@@ -1065,6 +1299,8 @@ mod tests {
             created: 0,
             via: Vec::new(),
             cert_pem: String::new(),
+            enroll: String::new(),
+            key_sha256: String::new(),
         };
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
             .unwrap();
@@ -1226,6 +1462,85 @@ mod tests {
 
     /// ADR 0015: a name our CA issued `broker:<site>` for never becomes an
     /// upstream site; a removed downstream broker waits in quarantine, held.
+    /// ADR 0015: a request waits; another key for the same name only
+    /// counts; admission clears it; held brokers keep their grant; tokens.
+    #[test]
+    fn enrollments_and_tokens() {
+        let mut r = Registry::default();
+        let ask = |site: &str, key: &str| Op::EnrollRequest {
+            site: site.into(),
+            csr_pem: format!("csr-{key}"),
+            key_sha256: key.into(),
+            via: vec!["cell".into()],
+            seen: 1,
+        };
+        r.apply(&ask("edge", "k1")).unwrap();
+        r.apply(&ask("edge", "k2")).unwrap();
+        let e = &r.enrollments["edge"];
+        assert_eq!(
+            (e.key_sha256.as_str(), e.csr_pem.as_str(), e.conflicts),
+            ("k1", "csr-k1", 1)
+        );
+        assert_eq!(r.quarantine["broker:edge"].attempts, 2);
+        for i in 1..MAX_ENROLLMENTS {
+            r.apply(&ask(&format!("s{i}"), "k")).unwrap();
+        }
+        assert!(
+            r.apply(&ask("one-more", "k")).is_err(),
+            "at most {MAX_ENROLLMENTS}"
+        );
+        r.apply(&Op::AdmitBroker {
+            site: "edge".into(),
+            via: vec!["cell".into()],
+            key_sha256: "k1".into(),
+            cert_pem: "cert".into(),
+            seen: 2,
+        })
+        .unwrap();
+        assert!(!r.enrollments.contains_key("edge") && !r.quarantine.contains_key("broker:edge"));
+        assert!(r.issued_brokers.contains("edge"));
+        assert!(r.apply(&ask("edge", "k1")).is_err(), "a peer does not wait");
+        r.apply(&Op::HoldBroker {
+            site: "edge".into(),
+            seen: 3,
+        })
+        .unwrap();
+        let held = &r.enrollments["edge"];
+        assert_eq!(
+            (held.key_sha256.as_str(), held.cert_pem.as_str()),
+            ("k1", "cert")
+        );
+        r.apply(&Op::Reject("broker:edge".into())).unwrap();
+        assert!(!r.enrollments.contains_key("edge"));
+        assert!(r.apply(&ask("edge", "k1")).is_err(), "rejected");
+
+        let token = |uses| TokenDef {
+            sha256: "h".into(),
+            uses,
+            expires: 0,
+            created: 0,
+            by: "admin".into(),
+        };
+        r.apply(&Op::AddToken {
+            id: "t1".into(),
+            def: token(2),
+        })
+        .unwrap();
+        r.apply(&Op::UseToken("t1".into())).unwrap();
+        assert_eq!(r.tokens["t1"].uses, 1);
+        r.apply(&Op::UseToken("t1".into())).unwrap();
+        assert!(!r.tokens.contains_key("t1"), "used up");
+        r.apply(&Op::AddToken {
+            id: "t2".into(),
+            def: token(0),
+        })
+        .unwrap();
+        r.apply(&Op::UseToken("t2".into())).unwrap();
+        assert_eq!(r.tokens["t2"].uses, 0, "no limit");
+        r.apply(&Op::RemoveToken("t2".into())).unwrap();
+        assert!(r.tokens.is_empty());
+    }
+
     #[test]
     fn downstream_brokers_issued_and_held() {
         let mut r = Registry::default();
@@ -1238,6 +1553,8 @@ mod tests {
             created: 0,
             via: Vec::new(),
             cert_pem: String::new(),
+            enroll: String::new(),
+            key_sha256: String::new(),
         };
         r.apply(&Op::IssueBroker("edge".into())).unwrap();
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))

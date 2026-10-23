@@ -109,6 +109,10 @@ pub struct Peers {
     /// Sites a downstream site relays from further down (a chain
     /// `plant → edge → here`: `edge → [plant]`); it may serve their keys too.
     pub via: std::collections::BTreeMap<String, Vec<String>>,
+    /// A QUIC enrollment listener without client certificates is open: any
+    /// QUIC session may ask `wy/<site>/sys/~act/enroll` and get its reply,
+    /// nothing else (ADR 0015).
+    pub enroll: bool,
 }
 
 impl Peers {
@@ -426,6 +430,15 @@ pub fn access_control_with_peers(
             "subjects": [format!("broker-{d}")],
         }));
     }
+    if peers.enroll {
+        // No CN in the subject: it matches sessions without a certificate
+        // (and every QUIC broker, which gains nothing it lacks).
+        let key = vec![format!("wy/{site}/sys/~act/enroll")];
+        rules.push(rule("enroll-in", &["ingress"], &["query"], &key));
+        rules.push(rule("enroll-out", &["egress"], &["reply"], &key));
+        subjects.push(json!({ "id": "enroll", "link_protocols": ["quic"] }));
+        policies.push(json!({ "rules": ["enroll-in", "enroll-out"], "subjects": ["enroll"] }));
+    }
     json!({
         "enabled": true,
         "default_permission": "deny",
@@ -574,6 +587,44 @@ mod tests {
 
     /// A peer never declares a liveliness token on our `sys/broker` key
     /// (it would fake our presence); an upstream declares only its own.
+    /// The enrollment listener (ADR 0015): any QUIC session, certificate or
+    /// not, may query one key and get its reply; nothing else.
+    #[test]
+    fn enrollment_reaches_one_key() {
+        let peers = Peers {
+            enroll: true,
+            ..Default::default()
+        };
+        let acl = access_control_with_peers("hub", &Registry::default(), &[], false, &peers);
+        let by_id = |list: &str, id: &str| {
+            acl[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == id)
+                .cloned()
+                .unwrap()
+        };
+        let subject = by_id("subjects", "enroll");
+        assert!(subject.get("cert_common_names").is_none());
+        assert_eq!(subject["link_protocols"], serde_json::json!(["quic"]));
+        for (id, flow, msg) in [
+            ("enroll-in", "ingress", "query"),
+            ("enroll-out", "egress", "reply"),
+        ] {
+            let r = by_id("rules", id);
+            assert_eq!(
+                r["key_exprs"],
+                serde_json::json!(["wy/hub/sys/~act/enroll"])
+            );
+            assert_eq!(r["flows"], serde_json::json!([flow]));
+            assert_eq!(r["messages"], serde_json::json!([msg]));
+        }
+        let off =
+            access_control_with_peers("hub", &Registry::default(), &[], false, &Peers::default());
+        assert!(!off.to_string().contains("enroll"));
+    }
+
     #[test]
     fn presence_tokens_by_direction() {
         let peers = Peers {
@@ -652,6 +703,7 @@ mod tests {
             upstream: vec!["cloud".into()],
             downstream: vec!["plant-b".into()],
             via: [("plant-b".to_owned(), vec!["cell".to_owned()])].into(),
+            ..Default::default()
         };
         assert_eq!(peers.reachable(), ["plant-b", "cell"]);
         let acl = access_control_with_peers("plant-a", &Registry::default(), &[], false, &peers);

@@ -53,5 +53,7 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸
            plant (read only, sys too), from edge: wy/edge/downstream/plant
   install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
+  peers:   another broker adds central in its sys/upstream (Url quic/127.0.0.1:7450,
+           CA data/central/pki/ca.pem); central ▸ sys/quarantine ▸ Authorize
 MSG
 wait

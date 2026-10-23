@@ -10,6 +10,8 @@
   admin_keys: [],
   peers: {
     listen: "quic/127.0.0.1:7449",
+    // another broker asks for its certificate here (ADR 0015)
+    enroll: "quic/127.0.0.1:7450",
     // edge relays plant: central reads wy/plant/** through edge.
     downstream: [{ site: "edge", via: ["plant"] }],
   },

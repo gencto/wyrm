@@ -16,7 +16,7 @@ use crate::audit::{AuditLog, AuditRecord};
 use crate::packages;
 use crate::registry::{
     LinkDef, Mode, Op, Options, Origin, PackageDef, PackageKind, PeerDef, PeerDir, Registry,
-    OPTION_NAMES,
+    TokenDef, OPTION_NAMES,
 };
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
@@ -274,6 +274,8 @@ pub struct Control {
     closing: std::sync::atomic::AtomicBool,
     /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
     pub(crate) history: Arc<wyrm_history::Historian>,
+    /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
+    enroll_wake: tokio::sync::Notify,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -301,6 +303,9 @@ pub struct PeerConfig {
     pub listen: bool,
     /// Its port: a link whose local end has it came in on that listener.
     pub listen_port: Option<u16>,
+    /// `peers.enroll` is set: the enrollment listener without client
+    /// certificates is open (ADR 0015).
+    pub enroll: bool,
 }
 
 /// How to reach one upstream site: its QUIC endpoint, its CA, and the
@@ -337,6 +342,50 @@ fn peer_secret(site: &str) -> String {
 }
 
 const PEER_KEY: &str = "key";
+/// The token for an upstream site's enrollment, until it is used.
+const PEER_TOKEN: &str = "token";
+
+/// While an enrollment waits for Authorize, ask again this often.
+const ENROLL_RETRY: Duration = Duration::from_secs(10);
+/// After a refusal, this often; an unreachable endpoint doubles from 2 s
+/// up to this.
+const ENROLL_BACKOFF: Duration = Duration::from_secs(60);
+
+/// What an upstream site answered an enrollment request.
+enum Answer {
+    Issued { cert: String, port: u16 },
+    Pending,
+    Refused(String),
+}
+
+/// SHA-256 (hex) of an admission token; the registry keeps only this.
+fn token_sha256(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+/// `via` given as a list or as `a, b` text.
+fn via_list(v: Option<&Value>) -> Vec<String> {
+    let mut out: Vec<String> = match v {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| match x {
+                Value::Str(s) => Some(s.trim().to_owned()),
+                _ => None,
+            })
+            .collect(),
+        Some(Value::Str(s)) => s.split([',', ' ']).map(|x| x.trim().to_owned()).collect(),
+        _ => Vec::new(),
+    };
+    out.retain(|s| !s.is_empty());
+    out
+}
+
+/// The host of `quic/<host>:<port>` (`[v6]` kept).
+fn host_of(endpoint: &str) -> Option<&str> {
+    let addr = endpoint.strip_prefix("quic/")?;
+    Some(addr.rsplit_once(':')?.0)
+}
 
 /// `peers` without the sites `config` already names (either direction).
 fn unshadowed(config: &acl::Peers, peers: impl Iterator<Item = PeerDef>) -> Vec<PeerDef> {
@@ -369,21 +418,15 @@ fn check_ca_pem(pem: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The certificate an upstream site issued for this broker: one PEM
-/// CERTIFICATE for `broker:<own site>`, and `key` its private key. Errors
-/// never quote the key.
-fn check_broker_cert(pem: &str, key: &str, own: &str) -> Result<(), String> {
-    if pem.len() > MAX_CA_PEM || key.len() > MAX_CA_PEM {
-        return Err("certificate or private key: larger than 16 KiB".into());
-    }
-    let (rest, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
-        .map_err(|e| format!("certificate: {e}"))?;
-    if block.label != "CERTIFICATE" || !rest.iter().all(u8::is_ascii_whitespace) {
-        return Err("certificate: expected exactly one PEM CERTIFICATE".into());
-    }
+/// The certificate an upstream site sent: for `broker:<own site>` and for
+/// our key (SHA-256 of its public key).
+fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
+        .map_err(|e| format!("bad answer: certificate: {e}"))?;
     let cert = block
         .parse_x509()
-        .map_err(|e| format!("certificate: {e}"))?;
+        .map_err(|e| format!("bad answer: certificate: {e}"))?;
     let want = crate::registry::broker_cn(own);
     let cn = cert
         .subject()
@@ -391,16 +434,10 @@ fn check_broker_cert(pem: &str, key: &str, own: &str) -> Result<(), String> {
         .next()
         .and_then(|a| a.as_str().ok());
     if cn != Some(want.as_str()) {
-        return Err(format!(
-            "certificate: issued for {}, not {want}",
-            cn.unwrap_or("?")
-        ));
+        return Err(format!("bad answer: certificate for {}", cn.unwrap_or("?")));
     }
-    let pair = rcgen::KeyPair::from_pem(key.trim())
-        .map_err(|_| "private key: not a PEM private key".to_string())?;
-    use rcgen::PublicKeyData;
-    if pair.subject_public_key_info() != cert.public_key().raw {
-        return Err("private key: does not belong to the certificate".into());
+    if hex::encode(Sha256::digest(cert.public_key().raw)) != key_sha256 {
+        return Err("bad answer: certificate for another key".into());
     }
     Ok(())
 }
@@ -421,16 +458,6 @@ fn cert_summary(pem: &str) -> String {
         "{cn}, valid until {}",
         cert.validity().not_after.to_datetime().date()
     )
-}
-
-/// A text argument given as text or as a file's bytes (UTF-8).
-fn text_or_file(args: &Value, name: &str) -> Option<String> {
-    match arg(args, name) {
-        Some(Value::Str(s)) => Some(s.clone()),
-        Some(Value::Bytes(b)) => String::from_utf8(b.clone()).ok(),
-        _ => None,
-    }
-    .filter(|v| !v.trim().is_empty())
 }
 
 fn now_s() -> u64 {
@@ -507,9 +534,20 @@ impl Control {
                 inflight: Default::default(),
                 closing: Default::default(),
                 history,
+                enroll_wake: tokio::sync::Notify::new(),
             }),
             rx,
         ))
+    }
+
+    /// The id of a valid admission token (known, not used up, not expired):
+    /// `<id>.<secret>`, compared by SHA-256.
+    fn token_id(&self, token: &str) -> Option<String> {
+        let (id, _) = token.split_once('.')?;
+        let reg = self.registry();
+        let def = reg.tokens.get(id)?;
+        let fresh = def.expires == 0 || now_s() < def.expires;
+        (fresh && def.sha256 == token_sha256(token)).then(|| id.to_owned())
     }
 
     pub fn config(&self) -> &ControlConfig {
@@ -952,7 +990,9 @@ impl Control {
     /// upstream sites only). The ACL, the peer nodes, the router endpoints
     /// and the link-id checks all use this list.
     pub fn peers(&self) -> acl::Peers {
-        let mut p = self.config_peers().peers;
+        let cfg = self.config_peers();
+        let mut p = cfg.peers;
+        p.enroll = cfg.enroll;
         for d in &self.runtime_peers() {
             match d.dir {
                 PeerDir::Upstream if d.enabled => p.upstream.push(d.site.clone()),
@@ -1290,7 +1330,7 @@ impl Control {
         lcfg.admin_keys = self.cfg.admin_keys.clone();
         lcfg.admin_keys
             .extend(self.cfg.control_keys.iter().copied());
-        lcfg.open_actions = vec!["hello".into()];
+        lcfg.open_actions = vec!["hello".into(), "enroll".into()];
         lcfg.audit = false; // the admin writes its own journal directly
         let admin = wyrm_link_sdk::spawn::<Admin>(
             session.clone(),
@@ -1337,6 +1377,7 @@ impl Control {
             tokio::spawn(watch_audit(self.clone(), ctx.clone())),
             tokio::spawn(serve_profiles(self.clone(), session.clone())),
             tokio::spawn(load_repository(self.clone(), ctx.clone())),
+            tokio::spawn(enroll_upstreams(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -1770,23 +1811,33 @@ async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkErro
         authorize_meta(Some(pick(cns, "DsId", "nothing in quarantine")), &roles),
     )
     .await?;
-    let links: Vec<String> = reg
+    // everything connected downstream that can go back: runtime external
+    // links and runtime downstream brokers (as DSA's Deauthorize)
+    let mut links: Vec<String> = reg
         .links
         .values()
         .filter(|d| d.mode == Mode::External && d.origin == Origin::Runtime)
         .map(|d| d.id.clone())
         .collect();
+    links.extend(
+        reg.peers
+            .values()
+            .filter(|p| p.dir == PeerDir::Downstream)
+            .map(|p| p.site.clone()),
+    );
+    links.sort();
     ctx.declare_action(
         "quarantine",
         "deauthorize",
         ActionMeta::new()
             .display("Deauthorize")
-            .param("link", pick(links, "Link", "no external links"))
+            .param("link", pick(links, "Link", "nothing connected downstream"))
             .level(Perm::Config),
     )
     .await?;
     for (cn, e) in &reg.quarantine {
-        declare_quarantined(ctx, cn, e, &roles).await?;
+        let asked = crate::registry::broker_site(cn).and_then(|s| reg.enrollments.get(s));
+        declare_quarantined(ctx, cn, e, asked, &roles).await?;
     }
     Ok(())
 }
@@ -1801,6 +1852,7 @@ async fn declare_quarantined(
     ctx: &LinkCtx,
     cn: &str,
     e: &crate::registry::QuarantineEntry,
+    asked: Option<&crate::registry::Enrollment>,
     roles: &[String],
 ) -> Result<(), LinkError> {
     let p = format!("quarantine/{}", quarantine_node(cn));
@@ -1809,16 +1861,20 @@ async fn declare_quarantined(
     } else {
         "link"
     };
-    ctx.declare_node(
-        &p,
-        NodeMeta::folder()
-            .is("wy:quarantine")
-            .attr("kind", kind)
-            .attr("first_seen", e.first_seen)
-            .attr("last_seen", e.last_seen)
-            .attr("attempts", e.attempts),
-    )
-    .await?;
+    let mut m = NodeMeta::folder()
+        .is("wy:quarantine")
+        .attr("kind", kind)
+        .attr("first_seen", e.first_seen)
+        .attr("last_seen", e.last_seen)
+        .attr("attempts", e.attempts);
+    // what the administrators compare on both sides before Authorize
+    if let Some(a) = asked {
+        m = m
+            .attr("key", a.key_sha256.as_str())
+            .attr("via", a.via.join(", "))
+            .attr("conflicts", a.conflicts);
+    }
+    ctx.declare_node(&p, m).await?;
     // a downstream broker needs only the sites it relays
     let approve = if kind == "broker" {
         ActionMeta::new()
@@ -1994,8 +2050,8 @@ fn ca_param() -> ParamMeta {
 
 /// `sys/upstream`: the brokers this one connects to, as DSA's
 /// `/sys/upstream` (ADR 0015). Downstream brokers have no section here: they
-/// come in as links do, through `sys/links` (Install Link ▸ Downstream
-/// Broker) and quarantine. Peers from `wyrmd.json5` are shown read-only.
+/// add us themselves and come in through a token, `allow_all_links` or
+/// quarantine. Peers from `wyrmd.json5` are shown read-only.
 async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     ctx.declare_node("upstream", NodeMeta::folder()).await?;
     ctx.declare_action(
@@ -2010,26 +2066,16 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
                 str_param()
                     .required(true)
                     .display("Url")
-                    .placeholder("quic/central.example:7448"),
+                    .placeholder("quic/central.example:7450")
+                    .description("Its enrollment endpoint (peers.enroll there)"),
             )
             .param("ca", ca_param())
             .param(
-                "certificate",
+                "token",
                 str_param()
-                    .required(true)
-                    .display("Certificate")
-                    .editor(EDITOR_TEXTAREA)
-                    .description(
-                        "PEM the upstream issued for this broker (its data_dir/peers/<this site>/broker.pem)",
-                    ),
-            )
-            .param(
-                "private_key",
-                ParamMeta::of(TypeCode::Binary)
-                    .required(true)
-                    .display("Private Key")
-                    .editor(EDITOR_FILE)
-                    .description("The key file of that certificate (broker.key); kept sealed"),
+                    .display("Token")
+                    .editor(EDITOR_PASSWORD)
+                    .description("From its sys/tokens, if it gave one: admitted at once"),
             )
             .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled"))
             .level(Perm::Config),
@@ -2039,9 +2085,10 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
         let pem = |p: &PathBuf| std::fs::read_to_string(p).unwrap_or_default();
         let shown = Upstream {
             site: &u.site,
-            endpoint: &u.endpoint,
+            url: &u.endpoint,
             ca_pem: &pem(&u.ca),
             cert_pem: &pem(&u.cert),
+            key_sha256: "",
             enabled: true,
         };
         declare_upstream(ctx, &shown, false).await?;
@@ -2065,9 +2112,11 @@ fn origin(runtime: bool) -> &'static str {
 /// What `sys/upstream/<site>` shows of one upstream site.
 struct Upstream<'a> {
     site: &'a str,
-    endpoint: &'a str,
+    /// Its enrollment endpoint (added at runtime) or its peer endpoint.
+    url: &'a str,
     ca_pem: &'a str,
     cert_pem: &'a str,
+    key_sha256: &'a str,
     enabled: bool,
 }
 
@@ -2075,9 +2124,14 @@ impl<'a> Upstream<'a> {
     fn of(d: &'a PeerDef) -> Self {
         Self {
             site: &d.site,
-            endpoint: &d.endpoint,
+            url: if d.enroll.is_empty() {
+                &d.endpoint
+            } else {
+                &d.enroll
+            },
             ca_pem: &d.ca_pem,
             cert_pem: &d.cert_pem,
+            key_sha256: &d.key_sha256,
             enabled: d.enabled,
         }
     }
@@ -2085,7 +2139,8 @@ impl<'a> Upstream<'a> {
 
 /// `upstream/<site>`: the parameters it was added with (`url`, `enabled`,
 /// writable when added at runtime; `ca` and `certificate` as subject and
-/// expiry; never the key) and `remove`.
+/// expiry; `key` as the SHA-256 of our public key, never the key; never the
+/// token), the enrollment `status`, and `remove`.
 async fn declare_upstream(
     ctx: &LinkCtx,
     u: &Upstream<'_>,
@@ -2095,10 +2150,22 @@ async fn declare_upstream(
     ctx.declare_node(&p, NodeMeta::folder().attr("origin", origin(runtime)))
         .await?;
     let t = now_us();
+    let status = match (runtime, u.cert_pem.is_empty()) {
+        (false, _) => "configured in wyrmd.json5",
+        (true, true) => "waiting",
+        (true, false) => "issued",
+    };
+    let certificate = if u.cert_pem.is_empty() {
+        String::new()
+    } else {
+        cert_summary(u.cert_pem)
+    };
     for (key, v) in [
-        ("url", u.endpoint.to_owned()),
+        ("url", u.url.to_owned()),
         ("ca", cert_summary(u.ca_pem)),
-        ("certificate", cert_summary(u.cert_pem)),
+        ("certificate", certificate),
+        ("key", u.key_sha256.to_owned()),
+        ("status", status.to_owned()),
     ] {
         let k = format!("{p}/{key}");
         ctx.declare_node(&k, NodeMeta::leaf(TypeCode::String))
@@ -2119,26 +2186,239 @@ async fn declare_upstream(
     Ok(())
 }
 
-/// `links/<site>` of a downstream broker (ADR 0015): beside the links it
-/// was installed or authorized as; its live node is `downstream/<site>`.
-async fn declare_broker_link(
-    ctx: &LinkCtx,
-    site: &str,
-    via: &[String],
-    runtime: bool,
-) -> wyrm_link_sdk::Result<()> {
-    let p = format!("links/{site}");
-    let mut m = NodeMeta::folder()
-        .attr("driver", "broker")
-        .attr("origin", origin(runtime));
-    if !via.is_empty() {
-        m = m.attr("via", via.join(", "));
-    }
-    ctx.declare_node(&p, m).await?;
-    if runtime {
+/// `sys/tokens` (as DSA's `/sys/tokens`, ADR 0015): Add Token, and one node
+/// per token with `uses` left and `expires`; never the token itself.
+async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    ctx.declare_node(
+        "tokens",
+        NodeMeta::folder().attr(
+            "description",
+            "Tokens that admit a downstream broker at once (its Add Upstream Connection).",
+        ),
+    )
+    .await?;
+    ctx.declare_action(
+        "tokens",
+        "add",
+        ActionMeta::new()
+            .display("Add Token")
+            .group(GROUP_NEW)
+            .param(
+                "count",
+                ParamMeta::of(TypeCode::Number)
+                    .display("Count")
+                    .placeholder("1")
+                    .description("Admissions it allows; 0: no limit"),
+            )
+            .param(
+                "hours",
+                ParamMeta::of(TypeCode::Number)
+                    .display("Hours")
+                    .placeholder("24")
+                    .description("Valid for this long; 0: never expires"),
+            )
+            .result(ActionResult::Type(TypeCode::Map))
+            .level(Perm::Config),
+    )
+    .await?;
+    let t = now_us();
+    for (id, def) in &ctl.registry().tokens {
+        let p = format!("tokens/{id}");
+        ctx.declare_node(
+            &p,
+            NodeMeta::folder()
+                .attr("created", def.created)
+                .attr("by", def.by.as_str()),
+        )
+        .await?;
+        let expires = if def.expires == 0 {
+            "never".to_owned()
+        } else {
+            iso_utc(def.expires)
+        };
+        for (key, v) in [
+            ("uses", Value::UInt(def.uses.into())),
+            ("expires", Value::Str(expires)),
+        ] {
+            let k = format!("{p}/{key}");
+            let m = match key {
+                "uses" => NodeMeta::number().attr("description", "Admissions left; 0: no limit"),
+                _ => NodeMeta::leaf(TypeCode::String),
+            };
+            ctx.declare_node(&k, m).await?;
+            ctx.update(&k, v, Quality::Good, t).await?;
+        }
         declare_remove(ctx, &p).await?;
     }
     Ok(())
+}
+
+/// Runtime upstream sites without our certificate ask for it (ADR 0015):
+/// at once for a new or re-enabled one, every 10 s while it waits for
+/// Authorize, every 60 s after a refusal. The status shows in
+/// `sys/upstream/<site>/status`.
+async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
+    let mut next: HashMap<String, std::time::Instant> = HashMap::new();
+    let mut failures: HashMap<String, u32> = HashMap::new();
+    loop {
+        let waiting: Vec<PeerDef> = ctl
+            .registry()
+            .peers
+            .into_values()
+            .filter(|p| {
+                p.dir == PeerDir::Upstream
+                    && p.enabled
+                    && p.cert_pem.is_empty()
+                    && !p.enroll.is_empty()
+            })
+            .collect();
+        next.retain(|site, _| waiting.iter().any(|p| &p.site == site));
+        failures.retain(|site, _| waiting.iter().any(|p| &p.site == site));
+        for def in waiting {
+            let now = std::time::Instant::now();
+            if next.get(&def.site).is_some_and(|t| *t > now) {
+                continue;
+            }
+            let answer = ask_certificate(&ctl, &def).await;
+            if answer.is_ok() {
+                failures.remove(&def.site);
+            }
+            let (status, wait) = match answer {
+                Ok(Answer::Issued { cert, port }) => {
+                    let endpoint = match host_of(&def.enroll) {
+                        Some(h) => format!("quic/{h}:{port}"),
+                        None => continue,
+                    };
+                    let applied = ctl.apply(Op::SetPeerCert {
+                        site: def.site.clone(),
+                        endpoint,
+                        cert_pem: cert.clone(),
+                    });
+                    if applied.is_err() {
+                        continue;
+                    }
+                    let _ = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN);
+                    ctl.record("system", "peer_cert", &def.site, Status::Ok, "issued");
+                    info!(site = %def.site, "certificate from the upstream site: connecting");
+                    let k = format!("upstream/{}/certificate", def.site);
+                    let _ = ctx
+                        .update(&k, Value::Str(cert_summary(&cert)), Quality::Good, now_us())
+                        .await;
+                    ctl.schedule_reload();
+                    ("issued".to_owned(), None)
+                }
+                Ok(Answer::Pending) => (
+                    format!("pending authorization on {}", def.site),
+                    Some(ENROLL_RETRY),
+                ),
+                Ok(Answer::Refused(why)) => (format!("refused: {why}"), Some(ENROLL_BACKOFF)),
+                Err(e) => {
+                    debug!(site = %def.site, "enrollment: {e}");
+                    let n = failures.entry(def.site.clone()).or_default();
+                    *n = n.saturating_add(1);
+                    let wait = Duration::from_secs(1 << (*n).min(6)).min(ENROLL_BACKOFF);
+                    (e, Some(wait))
+                }
+            };
+            let k = format!("upstream/{}/status", def.site);
+            let _ = ctx
+                .update(&k, Value::Str(status), Quality::Good, now_us())
+                .await;
+            match wait {
+                Some(w) => next.insert(def.site.clone(), now + w),
+                None => next.remove(&def.site),
+            };
+        }
+        tokio::select! {
+            _ = ctl.enroll_wake.notified() => next.clear(),
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+    }
+}
+
+/// One enrollment request to an upstream site over its enrollment
+/// endpoint (server-auth TLS with that site's CA, no client certificate):
+/// its answer, or why there is none (unreachable, a bad answer).
+async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String> {
+    let sealed = ctl.secrets.for_link(&peer_secret(&def.site));
+    let key = sealed
+        .get(PEER_KEY)
+        .and_then(|k| std::str::from_utf8(k).ok())
+        .ok_or("no key for this upstream site: add it again")?;
+    let csr = secret::broker_csr(&ctl.cfg.site, key).map_err(|e| e.to_string())?;
+    let ca = ctl.peer_ca_path(&def.site);
+    if let Some(dir) = ca.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&ca, &def.ca_pem).map_err(|e| e.to_string())?;
+    let mut zc = zenoh::Config::default();
+    let tls = serde_json::json!({ "root_ca_certificate": ca, "enable_mtls": false });
+    for (k, v) in [
+        ("mode", r#""client""#.to_owned()),
+        (
+            "connect/endpoints",
+            serde_json::json!([def.enroll]).to_string(),
+        ),
+        ("scouting/multicast/enabled", "false".to_owned()),
+        ("connect/timeout_ms", "5000".to_owned()),
+        ("transport/link/tls", tls.to_string()),
+    ] {
+        zc.insert_json5(k, &v).map_err(|e| e.to_string())?;
+    }
+    let session = zenoh::open(zc)
+        .await
+        .map_err(|e| format!("unreachable: {}: {e}", def.enroll))?;
+    let mut args = BTreeMap::from([
+        ("site".to_owned(), Value::Str(ctl.cfg.site.clone())),
+        ("csr".to_owned(), Value::Str(csr)),
+        (
+            "via".to_owned(),
+            Value::Array(
+                ctl.peers()
+                    .reachable()
+                    .into_iter()
+                    .map(Value::Str)
+                    .collect(),
+            ),
+        ),
+    ]);
+    if let Some(t) = sealed
+        .get(PEER_TOKEN)
+        .and_then(|t| std::str::from_utf8(t).ok())
+    {
+        args.insert("token".to_owned(), Value::Str(t.to_owned()));
+    }
+    let client = wyrm_client::WyrmClient::new(session.clone()).with_timeout(Duration::from_secs(5));
+    let answer = client
+        .invoke_one(&format!("wy/{}/sys", def.site), "enroll", Value::Map(args))
+        .await;
+    let _ = session.close().await;
+    let m = match answer {
+        Ok(Some(Value::Map(m))) => m,
+        Ok(_) => return Err("no answer".into()),
+        Err(e) => return Err(format!("unreachable: {e}")),
+    };
+    match m.get("status") {
+        Some(Value::Str(s)) if s == "pending" => Ok(Answer::Pending),
+        Some(Value::Str(s)) if s == "refused" => Ok(Answer::Refused(match m.get("reason") {
+            Some(Value::Str(r)) => r.clone(),
+            _ => String::new(),
+        })),
+        Some(Value::Str(s)) if s == "issued" => {
+            let cert = match m.get("certificate") {
+                Some(Value::Str(c)) => c.clone(),
+                _ => return Err("bad answer: no certificate".into()),
+            };
+            check_issued_cert(&cert, &ctl.cfg.site, &def.key_sha256)?;
+            let port = m
+                .get("port")
+                .and_then(Value::as_f64)
+                .filter(|p| (1.0..=65535.0).contains(p))
+                .ok_or("bad answer: no port")? as u16;
+            Ok(Answer::Issued { cert, port })
+        }
+        _ => Err("bad answer".into()),
+    }
 }
 
 async fn declare_remove(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<()> {
@@ -2449,26 +2729,23 @@ impl Link for Admin {
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
         }
-        // Downstream brokers come in as links do (ADR 0015).
-        let peers = cfg.ctl.config_peers();
-        if peers.listen {
+        // Downstream brokers ask for a certificate and come in as DSA links
+        // do: token, allow_all_links or quarantine (ADR 0015).
+        if cfg.ctl.config_peers().enroll {
             ctx.declare_action(
-                "links",
-                "install_broker",
-                install_meta("Downstream Broker")
-                    .param("name", site_param())
-                    .param("via", via_param()),
+                "",
+                "enroll",
+                // open (see `open_actions`); level none hides it from people
+                ActionMeta::new()
+                    .level(Perm::None)
+                    .param("site", str_param().required(true))
+                    .param("csr", str_param().required(true))
+                    .param("token", str_param())
+                    .param("via", ParamMeta::of(TypeCode::Array))
+                    .result(ActionResult::Type(TypeCode::Map)),
             )
             .await?;
-        }
-        for site in &peers.peers.downstream {
-            let via = peers.peers.via.get(site).cloned().unwrap_or_default();
-            declare_broker_link(&ctx, site, &via, false).await?;
-        }
-        for d in cfg.ctl.runtime_peers() {
-            if d.dir == PeerDir::Downstream {
-                declare_broker_link(&ctx, &d.site, &d.via, true).await?;
-            }
+            declare_tokens(&ctx, &cfg.ctl).await?;
         }
         ctx.declare_node("packages", NodeMeta::folder()).await?;
         for p in reg.packages.values() {
@@ -2624,9 +2901,9 @@ impl Link for Admin {
         let segs: Vec<&str> = path.split('/').collect();
         let result = match (segs.as_slice(), action) {
             (["links"], "install") => self.install(&args, &sub).await,
-            (["links"], "install_broker") => {
-                Ok(Some(outcome(self.install_broker(&args, &sub).await)))
-            }
+            ([""], "enroll") => self.enroll(&args).await,
+            (["tokens"], "add") => self.add_token(&args, &sub).await,
+            (["tokens", id], "remove") => self.remove_token(id, &sub).await,
             (["links"], "install_zip") => {
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
@@ -2692,9 +2969,6 @@ impl Link for Admin {
             (["links", id], "hello") => self.hello(id, &args).await,
             (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
-            (["links", id], "remove") if self.ctl.peers().downstream.iter().any(|d| d == id) => {
-                self.remove_broker(id, &sub).await
-            }
             (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
             (["links", id], "update") => {
                 let params = arg(&args, "params")
@@ -3544,22 +3818,7 @@ impl Admin {
             return Err(LinkError::not_found(cn.to_owned()));
         }
         if let Some(site) = crate::registry::broker_site(cn) {
-            let via = self.via_arg(site, args)?;
-            self.ctl
-                .apply(Op::Approve(cn.to_owned()))
-                .map_err(rejected)?;
-            self.ctx.remove_node(&format!("quarantine/{site}")).await?;
-            self.admit_broker(site, via.clone())
-                .await
-                .map_err(LinkError::invalid_parameter)?;
-            self.ctl.record(
-                sub,
-                "approve",
-                cn,
-                Status::Ok,
-                &format!("via [{}]", via.join(", ")),
-            );
-            return Ok(None);
+            return self.authorize_broker(site, args, sub).await;
         }
         let driver = arg_str(args, "driver").unwrap_or("unknown").to_owned();
         if driver == AGENT_DRIVER {
@@ -3629,6 +3888,32 @@ impl Admin {
     /// back to quarantine instead of being retired; its token and secrets
     /// go, and only a manual Authorize admits the CN again.
     async fn deauthorize(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        // a downstream broker is a link to DSA too: held in quarantine,
+        // its key and certificate kept for Authorize (ADR 0015)
+        if self
+            .ctl
+            .registry()
+            .peers
+            .get(id)
+            .is_some_and(|p| p.dir == PeerDir::Downstream)
+        {
+            self.ctl
+                .apply(Op::HoldBroker {
+                    site: id.to_owned(),
+                    seen: now_s(),
+                })
+                .map_err(rejected)?;
+            self.ctl.record(
+                sub,
+                "deauthorize",
+                &crate::registry::broker_cn(id),
+                Status::Ok,
+                "",
+            );
+            refresh_quarantine(&self.ctx, &self.ctl).await?;
+            self.ctl.schedule_reload();
+            return Ok(None);
+        }
         let def = self.def(id)?;
         let seen = now_s();
         self.ctl
@@ -3681,9 +3966,10 @@ impl Admin {
         }
     }
 
-    /// `sys/upstream ▸ Add Upstream Connection` (ADR 0015): that site's CA,
-    /// the certificate it issued for this broker and the key (sealed in the
-    /// secret store, never in the registry).
+    /// `sys/upstream ▸ Add Upstream Connection` (ADR 0015, as DSA's): that
+    /// site's enrollment endpoint, its CA and an optional token. This broker
+    /// makes its own key (sealed, it never leaves the site) and asks for its
+    /// certificate in the background ([`enroll_upstreams`]).
     async fn add_upstream(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
         let need = |k: &str| {
             arg_str(args, k)
@@ -3693,10 +3979,6 @@ impl Admin {
         };
         let site = need("name")?;
         let ca_pem = need("ca")?;
-        let cert_pem = need("certificate")?;
-        let key = text_or_file(args, "private_key")
-            .ok_or_else(|| LinkError::invalid_parameter("private_key: required"))?;
-        let key = zeroize::Zeroizing::new(key);
         wyrm_core::keyspace::validate_segment(site)
             .map_err(|e| LinkError::invalid_parameter(format!("name: {e}")))?;
         self.check_new_site(site)?;
@@ -3706,32 +3988,45 @@ impl Admin {
             )));
         }
         check_ca_pem(ca_pem).map_err(LinkError::invalid_parameter)?;
-        check_broker_cert(cert_pem, &key, &self.ctl.cfg.site)
-            .map_err(LinkError::invalid_parameter)?;
         let url = need("url")?;
         if !url.starts_with("quic/") || url.contains(['#', '?', ';']) || url.len() > 256 {
             return Err(LinkError::invalid_parameter(format!(
-                "url {url}: expected quic/<host>:<port>"
+                "url {url}: expected quic/<host>:<port> (its peers.enroll)"
             )));
         }
+        let token = arg_str(args, "token")
+            .map(str::trim)
+            .filter(|t| !t.is_empty());
         let enabled = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
-        let secret = peer_secret(site);
-        self.ctl
+        let (key, key_sha256) =
+            secret::new_broker_key().map_err(|e| LinkError::internal(e.to_string()))?;
+        let store = peer_secret(site);
+        let sealed = self
+            .ctl
             .secrets
-            .set(&secret, PEER_KEY, key.trim().as_bytes())
-            .map_err(|e| LinkError::internal(e.to_string()))?;
+            .set(&store, PEER_KEY, key.as_bytes())
+            .and_then(|_| match token {
+                Some(t) => self.ctl.secrets.set(&store, PEER_TOKEN, t.as_bytes()),
+                None => Ok(()),
+            });
+        if let Err(e) = sealed {
+            let _ = self.ctl.secrets.drop_link(&store);
+            return Err(LinkError::internal(e.to_string()));
+        }
         let def = PeerDef {
             site: site.to_owned(),
             dir: PeerDir::Upstream,
-            endpoint: url.to_owned(),
+            endpoint: String::new(),
             ca_pem: format!("{ca_pem}\n"),
             enabled,
             created: now_s(),
             via: Vec::new(),
-            cert_pem: format!("{cert_pem}\n"),
+            cert_pem: String::new(),
+            enroll: url.to_owned(),
+            key_sha256,
         };
         if let Err(e) = self.ctl.apply(Op::AddPeer(def.clone())) {
-            let _ = self.ctl.secrets.remove(&secret, PEER_KEY);
+            let _ = self.ctl.secrets.drop_link(&store);
             return Err(rejected(e));
         }
         self.ctl.record(
@@ -3742,12 +4037,12 @@ impl Admin {
             &format!("upstream {url}"),
         );
         declare_upstream(&self.ctx, &Upstream::of(&def), true).await?;
-        self.ctl.schedule_reload();
+        self.ctl.enroll_wake.notify_one();
         Ok(None)
     }
 
     /// A new peer site: not this broker, not a peer (either direction, from
-    /// `wyrmd.json5` or the registry), not a site a peer relays, not a link.
+    /// `wyrmd.json5` or the registry), not a site a peer relays.
     fn check_new_site(&self, site: &str) -> wyrm_link_sdk::Result<()> {
         let all = self.ctl.peers();
         if site == self.ctl.cfg.site
@@ -3778,7 +4073,7 @@ impl Admin {
         self.ctl
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;
-        let _ = self.ctl.secrets.remove(&peer_secret(site), PEER_KEY);
+        let _ = self.ctl.secrets.drop_link(&peer_secret(site));
         for ext in ["pem", "cert.pem", "key"] {
             let _ = std::fs::remove_file(self.ctl.peer_file(site, ext));
         }
@@ -3789,125 +4084,270 @@ impl Admin {
         Ok(None)
     }
 
-    /// Sites a downstream broker relays (`plant, cell`): none may be this
-    /// site, the broker itself, a peer or a site another peer relays.
-    fn via_arg(&self, site: &str, args: &Value) -> wyrm_link_sdk::Result<Vec<String>> {
+    /// The sites a downstream broker relays (`via`) are free here: none is
+    /// this site, the broker itself, a peer or a site a peer relays.
+    fn via_free(&self, site: &str, via: &[String]) -> Result<(), String> {
         let all = self.ctl.peers();
-        let via: Vec<String> = arg_str(args, "via")
-            .unwrap_or_default()
-            .split([',', ' '])
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .collect();
-        for v in &via {
-            wyrm_core::keyspace::validate_segment(v)
-                .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
+        for v in via {
+            wyrm_core::keyspace::validate_segment(v).map_err(|e| format!("via: {e}"))?;
             if *v == self.ctl.cfg.site
                 || *v == site
                 || all.upstream.contains(v)
                 || all.downstream.contains(v)
                 || all.reachable().contains(v)
+                || via.iter().filter(|x| *x == v).count() > 1
             {
-                return Err(LinkError::invalid_parameter(format!(
-                    "via {v}: this broker, a peer or already relayed"
-                )));
+                return Err(format!("via {v}: this broker, a peer or already relayed"));
             }
         }
-        Ok(via)
+        Ok(())
     }
 
-    /// Admit a downstream broker (Install Link ▸ Downstream Broker, or
-    /// Authorize from quarantine): a runtime downstream peer, its
-    /// certificate issued (kept if it exists), shown in `sys/links`.
-    async fn admit_broker(&self, site: &str, via: Vec<String>) -> Result<CertFiles, String> {
-        let ctl = &self.ctl;
+    /// Admit a downstream broker (ADR 0015): out of quarantine, a runtime
+    /// downstream peer with the key and certificate it was given (empty:
+    /// admitted by name, its certificate came another way).
+    async fn admit_broker(
+        &self,
+        site: &str,
+        via: Vec<String>,
+        key_sha256: String,
+        cert_pem: String,
+        sub: &str,
+        how: &str,
+    ) -> wyrm_link_sdk::Result<()> {
         // also on Authorize: peers may have changed since it was quarantined
-        self.check_new_site(site).map_err(|e| e.to_string())?;
-        if !ctl.config_peers().listen {
-            return Err("no peers.listen in wyrmd.json5: downstream brokers cannot connect".into());
-        }
-        if ctl.registry().links.contains_key(site) {
-            return Err(format!("{site} is a link id"));
-        }
-        ctl.apply(Op::IssueBroker(site.to_owned()))
-            .map_err(|e| e.to_string())?;
-        let files = ctl.broker_cert(site).map_err(|e| e.to_string())?;
-        ctl.apply(Op::AddPeer(PeerDef {
-            site: site.to_owned(),
-            dir: PeerDir::Downstream,
-            endpoint: String::new(),
-            ca_pem: String::new(),
-            enabled: true,
-            created: now_s(),
-            via: via.clone(),
-            cert_pem: String::new(),
-        }))
-        .map_err(|e| e.to_string())?;
-        declare_broker_link(&self.ctx, site, &via, true)
-            .await
-            .map_err(|e| e.to_string())?;
-        ctl.schedule_reload();
-        Ok(files)
-    }
-
-    /// `sys/links ▸ Install Link ▸ Downstream Broker {name, via}` (ADR
-    /// 0015): the files to copy to that broker are named in the message;
-    /// the key is never sent.
-    async fn install_broker(&self, args: &Value, sub: &str) -> Result<String, String> {
-        let site = arg_str(args, "name").unwrap_or_default().trim().to_owned();
-        wyrm_core::keyspace::validate_segment(&site).map_err(|e| format!("name: {e}"))?;
-        self.check_new_site(&site).map_err(|e| e.to_string())?;
-        let via = self.via_arg(&site, args).map_err(|e| e.to_string())?;
-        let cn = crate::registry::broker_cn(&site);
-        // an explicit install admits a broker waiting in quarantine
-        if self.ctl.registry().quarantine.contains_key(&cn) {
-            self.ctl.apply(Op::Approve(cn)).map_err(|e| e.to_string())?;
-            let _ = self.ctx.remove_node(&format!("quarantine/{site}")).await;
-        }
-        let files = self.admit_broker(&site, via.clone()).await?;
-        self.ctl.record(
-            sub,
-            "install_broker",
-            &site,
-            Status::Ok,
-            &format!("via [{}]", via.join(", ")),
-        );
-        Ok(format!(
-            "Downstream broker {site} installed. Copy to it: {}, {} (keep it secret) and the CA {}; \
-             it connects with them through Add Upstream Connection or peers.upstream.",
-            files.cert.display(),
-            files.key.display(),
-            self.ctl.pki.ca_path().display()
-        ))
-    }
-
-    /// Remove a runtime downstream broker (ADR 0015): its name goes to
-    /// quarantine, held, since its certificate stays valid; only Authorize
-    /// admits it again.
-    async fn remove_broker(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
-        if !self
-            .ctl
-            .registry()
-            .peers
-            .get(site)
-            .is_some_and(|d| d.dir == PeerDir::Downstream)
-        {
-            return Err(LinkError::not_supported(
-                "a downstream broker from wyrmd.json5 is removed there",
-            ));
-        }
+        self.check_new_site(site)?;
+        self.via_free(site, &via)
+            .map_err(LinkError::invalid_parameter)?;
         self.ctl
-            .apply(Op::HoldBroker {
+            .apply(Op::AdmitBroker {
                 site: site.to_owned(),
+                via: via.clone(),
+                key_sha256,
+                cert_pem,
                 seen: now_s(),
             })
             .map_err(rejected)?;
-        self.ctl
-            .record(sub, "broker_remove", site, Status::Ok, "held in quarantine");
-        self.ctx.remove_node(&format!("links/{site}")).await?;
+        self.ctl.record(
+            sub,
+            how,
+            &crate::registry::broker_cn(site),
+            Status::Ok,
+            &format!("via [{}]", via.join(", ")),
+        );
+        let _ = self.ctx.remove_node(&format!("quarantine/{site}")).await;
         refresh_quarantine(&self.ctx, &self.ctl).await?;
         self.ctl.schedule_reload();
+        Ok(())
+    }
+
+    /// Sign the waiting request of `site` (or give back the certificate it
+    /// held when Deauthorized) and admit it: Authorize of a broker.
+    async fn authorize_broker(
+        &self,
+        site: &str,
+        args: &Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        let e = self
+            .ctl
+            .registry()
+            .enrollments
+            .get(site)
+            .cloned()
+            .unwrap_or_default();
+        // the Via field, else what the broker asked for
+        let via = match arg(args, "via") {
+            Some(v) if !via_list(Some(v)).is_empty() => via_list(Some(v)),
+            _ => e.via.clone(),
+        };
+        let cert = if !e.csr_pem.is_empty() {
+            self.ctl
+                .pki
+                .sign_broker_csr(site, &e.csr_pem)
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?
+        } else {
+            e.cert_pem.clone()
+        };
+        self.admit_broker(site, via, e.key_sha256, cert, sub, "approve")
+            .await?;
+        Ok(None)
+    }
+
+    /// `sys/~act/enroll` (ADR 0015, an open action: no ptok, the
+    /// unverified-caller rate limit): a downstream broker asks for its
+    /// certificate with `{site, csr, token, via}`. Answers `{status: issued,
+    /// certificate, port}` or `{status: pending}`; a refusal is an error.
+    async fn enroll(&self, args: &Value) -> wyrm_link_sdk::Result<Option<Value>> {
+        let site = arg_str(args, "site").unwrap_or_default().trim().to_owned();
+        let csr = arg_str(args, "csr").unwrap_or_default().to_owned();
+        let via = via_list(arg(args, "via"));
+        wyrm_core::keyspace::validate_segment(&site)
+            .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
+        // a refusal is an answer, with its reason, for the asking broker
+        let refused = |why: &str| -> wyrm_link_sdk::Result<Option<Value>> {
+            Ok(Some(Value::Map(BTreeMap::from([
+                ("status".to_owned(), Value::from("refused")),
+                ("reason".to_owned(), Value::from(why)),
+            ]))))
+        };
+        let cfg = self.ctl.config_peers();
+        let port = cfg
+            .listen_port
+            .ok_or_else(|| LinkError::not_supported("no peers.listen"))?;
+        let key = secret::broker_csr_key(&site, &csr)
+            .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+        let issued = |cert: String| {
+            Ok(Some(Value::Map(BTreeMap::from([
+                ("status".to_owned(), Value::from("issued")),
+                ("certificate".to_owned(), Value::Str(cert)),
+                ("port".to_owned(), Value::UInt(port.into())),
+            ]))))
+        };
+        let reg = self.ctl.registry();
+        let cn = crate::registry::broker_cn(&site);
+        if let Some(p) = reg.peers.get(&site) {
+            // asked again (it lost the answer): the same key, the same answer
+            if p.dir == PeerDir::Downstream && p.key_sha256 == key && !p.cert_pem.is_empty() {
+                return issued(p.cert_pem.clone());
+            }
+            return refused("admitted with another key");
+        }
+        if cfg.peers.downstream.contains(&site) {
+            return refused("configured in wyrmd.json5: it uses the files of `wyrmd ca`");
+        }
+        if self.check_new_site(&site).is_err() {
+            return refused("this name is the broker's own, a peer's or a relayed site's");
+        }
+        if reg.links.contains_key(&site) || reg.blocklist.contains(&cn) {
+            return refused("this name is refused here");
+        }
+        let pending = || {
+            Ok(Some(Value::Map(BTreeMap::from([(
+                "status".to_owned(),
+                Value::from("pending"),
+            )]))))
+        };
+        let wait = |ctl: &Control| -> wyrm_link_sdk::Result<()> {
+            ctl.apply(Op::EnrollRequest {
+                site: site.clone(),
+                csr_pem: csr.clone(),
+                key_sha256: key.clone(),
+                via: via.clone(),
+                seen: now_s(),
+            })
+            .map_err(rejected)
+        };
+        if reg
+            .enrollments
+            .get(&site)
+            .is_some_and(|e| !e.key_sha256.is_empty() && e.key_sha256 != key)
+        {
+            // counted as a conflict; the waiting request stays
+            wait(&self.ctl)?;
+            self.ctl.record(
+                &format!("broker:{site}"),
+                "enroll",
+                &cn,
+                Status::PermissionDenied,
+                "another key waits for this name",
+            );
+            refresh_quarantine(&self.ctx, &self.ctl).await?;
+            return refused("another key waits for this name");
+        }
+        let opts = self.ctl.options();
+        if !reg.held.contains(&cn) && self.via_free(&site, &via).is_ok() {
+            let token = arg_str(args, "token").and_then(|t| self.ctl.token_id(t));
+            if token.is_some() || opts.allow_all_links {
+                let cert = self
+                    .ctl
+                    .pki
+                    .sign_broker_csr(&site, &csr)
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+                let how = match &token {
+                    Some(id) => {
+                        self.ctl.apply(Op::UseToken(id.clone())).map_err(rejected)?;
+                        let _ = self.ctx.remove_node(&format!("tokens/{id}")).await;
+                        declare_tokens(&self.ctx, &self.ctl).await?;
+                        "enroll_token"
+                    }
+                    None => "auto_install",
+                };
+                self.admit_broker(
+                    &site,
+                    via,
+                    key,
+                    cert.clone(),
+                    &format!("broker:{site}"),
+                    how,
+                )
+                .await?;
+                return issued(cert);
+            }
+        }
+        if !opts.enable_quarantine && !reg.held.contains(&cn) {
+            return refused("not admitted (quarantine is off)");
+        }
+        wait(&self.ctl)?;
+        self.ctl.record(
+            &format!("broker:{site}"),
+            "quarantine",
+            &cn,
+            Status::PermissionDenied,
+            "enrollment",
+        );
+        info!(site = %site, "downstream broker waits in quarantine");
+        refresh_quarantine(&self.ctx, &self.ctl).await?;
+        pending()
+    }
+
+    /// `sys/tokens ▸ Add Token {count, hours}` (as DSA's `/sys/tokens`): a
+    /// token that admits a downstream broker at once; returned once, kept
+    /// as its SHA-256.
+    async fn add_token(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let num = |k: &str, d: f64| arg(args, k).and_then(Value::as_f64).unwrap_or(d);
+        let (count, hours) = (num("count", 1.0), num("hours", 24.0));
+        if !(0.0..=1e6).contains(&count) || !(0.0..=87_600.0).contains(&hours) {
+            return Err(LinkError::invalid_parameter(
+                "count 0..1000000 (0: no limit), hours 0..87600 (0: never)",
+            ));
+        }
+        let id =
+            secret::new_token().map_err(|e| LinkError::internal(e.to_string()))?[..12].to_owned();
+        let secret_part = secret::new_token().map_err(|e| LinkError::internal(e.to_string()))?;
+        let token = zeroize::Zeroizing::new(format!("{id}.{}", secret_part.as_str()));
+        let now = now_s();
+        let def = TokenDef {
+            sha256: token_sha256(&token),
+            uses: count as u32,
+            expires: if hours == 0.0 {
+                0
+            } else {
+                now + (hours * 3600.0) as u64
+            },
+            created: now,
+            by: sub.to_owned(),
+        };
+        self.ctl
+            .apply(Op::AddToken {
+                id: id.clone(),
+                def,
+            })
+            .map_err(rejected)?;
+        self.ctl.record(sub, "token_add", &id, Status::Ok, "");
+        declare_tokens(&self.ctx, &self.ctl).await?;
+        Ok(Some(Value::Map(BTreeMap::from([(
+            "token".to_owned(),
+            Value::Str(token.to_string()),
+        )]))))
+    }
+
+    async fn remove_token(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        self.ctl
+            .apply(Op::RemoveToken(id.to_owned()))
+            .map_err(rejected)?;
+        self.ctl.record(sub, "token_remove", id, Status::Ok, "");
+        self.ctx.remove_node(&format!("tokens/{id}")).await?;
         Ok(None)
     }
 
@@ -3942,6 +4382,7 @@ impl Admin {
             .map_err(rejected)?;
         self.ctl
             .record(sub, "peer_enable", site, Status::Ok, &on.to_string());
+        self.ctl.enroll_wake.notify_one();
         self.ctx
             .update(
                 &format!("upstream/{site}/enabled"),
@@ -4820,6 +5261,8 @@ zenoh_rx_bytes_total_extra 7
             created: 0,
             via: Vec::new(),
             cert_pem: String::new(),
+            enroll: String::new(),
+            key_sha256: String::new(),
         };
         let config = crate::acl::Peers {
             upstream: vec!["cloud".into()],

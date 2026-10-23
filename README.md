@@ -72,9 +72,11 @@ target/release/wyr bench list wy/local/downstream/mock
 | `sys` | values as on a DSA broker (versions, start time, traffic per second, `allow_all_links`, `enable_quarantine`); `~act/clear_conns`, `get_permissions`, `update_permissions {role, path, level}` |
 | `sys/links` | Install Link ▸ `~act/install {id, driver, mode, params}` (from Driver), `install_zip {name, zip}`, `install_url {name, url}`, `install_git {name, url, ref}`, `install_repo {name, package}`, `install_wasm {name, wasm}` — packages run as process or WASM links; see [`docs/links.md`](docs/links.md) |
 | `sys/packages/<name>` | installed link package (version, kind, source, SHA-256); `~act/remove` |
-| `sys/upstream` | brokers this one connects to, added at runtime (`~act/add {name, url, ca, certificate, private_key, enabled}`, `<site>/~act/remove`, `<site>/enabled`; shows `url`, `ca`, `certificate`, never the key). Downstream brokers come in through `sys/links` ▸ Install Link ▸ Downstream Broker and quarantine (ADR 0015) |
+| `sys/upstream` | brokers this one connects to (as DSA's): `~act/add {name, url, ca, token, enabled}` with `url` the upstream's `peers.enroll`; this broker makes its own key and asks for its certificate; `<site>` shows `url`, `ca`, `certificate`, `key` (SHA-256 of our public key), `status` (`pending authorization`, `issued`, a refusal), writable `enabled`; `~act/remove` (ADR 0015) |
+| `sys/tokens` | `~act/add {count, hours}` → a token (shown once) that admits a downstream broker at once; `<id>` shows `uses` and `expires`, `~act/remove` |
+| `sys/~act/enroll` | open action on the `peers.enroll` listener: a downstream broker's `{site, csr, token, via}` → `{status: issued, certificate, port}`, `pending` or `refused` |
 | `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`, `update {params}`, `history`, `rollback {rev}` (runtime-installed links; the last 10 params revisions are kept), `grant {path, level}` (requester grants, ADR 0013); child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
-| `sys/quarantine` | `~act/authorize {dsid, group, name}`, `deauthorize {link}` (back to quarantine) |
+| `sys/quarantine` | `~act/authorize {dsid, group, name, via}`, `deauthorize {link}` (a runtime external link or downstream broker goes back to quarantine) |
 | `sys/quarantine/<cn>` | unknown CA-signed certificate (a link over `tls`, or a downstream broker `broker:<site>` over `quic`, `attr.kind`); `~act/approve {driver, params, group, name}` (`{via}` for a broker), `reject` |
 | `sys/log_level`, `sys/~act/get_log {lines, level, filter, link}` | broker log level (saved) and its last log lines; `sys/links/<id>/log_level` and `~act/get_log` for each embedded or process link |
 | `sys/acl_denied` | router access-control drops (with the other broker status values: uptime, links, sessions, CPU, memory, disk) |
@@ -101,13 +103,17 @@ wyr --key admin.key flow stop|start|reload|remove local peak
 
 ## Two brokers
 ```json5
-// central
-peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge" }] },
-// edge: central's CA and the certificate central issued for it
-peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449",
-          ca: "central-ca.pem", cert: "broker.pem", key: "broker.key" }], upstream_val_hz: 1 },
+// central: brokers connect on 7449; they ask for their certificate on 7450
+peers: { listen: "quic/0.0.0.0:7449", enroll: "quic/0.0.0.0:7450" },
 ```
-`wyrmd -c central.json5 ca` issues edge's certificate into `data_dir/peers/edge/broker.{pem,key}` (ADR 0015); copy them and central's `data_dir/pki/ca.pem` to edge. Central's QUIC listener trusts its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
+As in DSA (ADR 0015), the downstream broker adds the connection itself: on edge, `sys/upstream` ▸ **Add Upstream Connection** {Name `central`, Url `quic/central.example:7450`, CA (central's `data_dir/pki/ca.pem`), Token (optional)}. Edge makes its own key and asks central for a certificate. Central admits it:
+1. at once with a token from its `sys/tokens` ▸ Add Token;
+2. at once with `sys/allow_all_links` on, when the sites edge relays are free;
+3. else edge waits in `sys/quarantine/edge` (`kind: broker`): compare its `key` with edge's `sys/upstream/central/key`, then **Authorize** (Via: the sites edge relays).
+
+Edge then connects on 7449 and shows up in `wy/central/downstream/edge`; **Deauthorize** sends it back to quarantine. Central's QUIC listeners trust its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection.
+
+Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
 
 A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge, read only (ADR 0007).
 

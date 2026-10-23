@@ -135,6 +135,11 @@ pub struct PeersSection {
     /// trusts this broker's CA alone (ADR 0015).
     #[serde(default)]
     pub listen: Option<String>,
+    /// QUIC listener without client certificates where a downstream broker
+    /// asks for its certificate (`quic/0.0.0.0:7450`, ADR 0015); needs
+    /// `listen`.
+    #[serde(default)]
+    pub enroll: Option<String>,
     /// Sites this broker connects to.
     #[serde(default)]
     pub upstream: Vec<UpstreamPeer>,
@@ -238,6 +243,12 @@ impl PeersSection {
                 }
             }
         }
+        if let Some(ep) = &self.enroll {
+            quic("peers.enroll", ep)?;
+            if self.listen.is_none() {
+                return Err("peers.enroll needs peers.listen".into());
+            }
+        }
         match (&self.listen, self.downstream.is_empty()) {
             (Some(ep), _) => quic("peers.listen", ep)?,
             (None, false) => return Err("peers.downstream needs peers.listen".into()),
@@ -262,6 +273,7 @@ impl PeersSection {
                     .filter(|d| !d.via.is_empty())
                     .map(|d| (d.site.clone(), d.via.clone()))
                     .collect(),
+                enroll: self.enroll.is_some(),
             },
             upstream: self
                 .upstream
@@ -280,6 +292,7 @@ impl PeersSection {
                 .as_deref()
                 .and_then(|ep| ep.rsplit_once(':'))
                 .and_then(|(_, p)| p.parse().ok()),
+            enroll: self.enroll.is_some(),
         }
     }
 }
@@ -526,6 +539,11 @@ impl Config {
         // whenever it is configured, so an unknown broker reaches quarantine.
         let mut listen = self.listen.clone();
         listen.extend(self.peers.listen.clone());
+        // Server-auth TLS only: a downstream broker without a certificate
+        // yet asks for one there (the ACL lets it reach one key).
+        if let Some(ep) = &self.peers.enroll {
+            listen.push(format!("{ep}#enable_mtls=false"));
+        }
         // An upstream site's CA and the certificate it issued for us, on
         // its endpoint alone; certificate and key always together, as files
         // (Zenoh logs endpoint strings).

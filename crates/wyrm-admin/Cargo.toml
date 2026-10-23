@@ -12,6 +12,7 @@ authors.workspace = true
 wyrm-core.workspace = true
 wyrm-state.workspace = true
 wyrm-history.workspace = true
+wyrm-client.workspace = true
 wyrm-link-sdk.workspace = true
 zenoh = { workspace = true, features = ["unstable"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs", "net", "io-util"] }

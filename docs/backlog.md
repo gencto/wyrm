@@ -18,9 +18,9 @@ Order: stage 1 — items 7, 8, 6, 9; stage 2 — items 2, 3, 4; stage 3 — item
 | 3 | Superseded 2026-10-23 (owner): `sys/upstream` stays (Add Upstream Connection → `sys/upstream/<name>` with its parameters); `sys/downstream` goes; the root sections `upstream` (where this broker connects) and `downstream` (everything that connects to it: links and downstream brokers) show the live connections, under their full names. Downstream brokers come in through link install and quarantine only; no actions on `downstream`. |
 | 4 | Rename the key: `flows` → `dataflows` (spec change, before 1.0). |
 | 3, 4 (2026-10-23) | Keys `down` → `downstream`, `up` → `upstream` and `flows` → `dataflows` in one spec 0.2.0 with one migration of stored paths; done before the item 3 admission work. |
-| 3 (2026-10-23) | A downstream broker connects with a `broker:<d>` certificate issued by the upstream's CA, as an external link does: an unknown one goes to quarantine (Authorize), or Install issues it in advance; the upstream trusts no other CA (ends ADR 0007's accepted peer-CA risk). On the downstream, Add Upstream Connection takes that certificate and its key (a sealed secret). `via` becomes a parameter of Install/Authorize. |
+| 3 (2026-10-23, revised) | As in DSA: the downstream broker adds its upstream itself and asks the upstream's CA for a `broker:<d>` certificate on a separate enrollment port (`peers.enroll`); a token or `allow_all_links` admits at once, else quarantine → Authorize `{via}`; no install step, no `sys/links` entry. |
 | 5 | The section is `storage`. |
-| 8 | Deauthorize lists links only. How a downstream broker is removed follows item 3 (link install and quarantine). |
+| 8 | Deauthorize is a list (no text box). Revised 2026-10-23: as in DSA it lists every runtime connection downstream, downstream brokers included. |
 | 9 | Spec 02: `unit` (key 2) joins the `view=list` summary. |
 | 10 | Broker-held meta overlays (option 1); `attr.history` is an array of keys; existing watches get it automatically. |
 
@@ -104,19 +104,20 @@ it is (as DSA's `/sys/upstream`); `sys/downstream` goes. The site root has
 connections. A downstream broker is not added by an action: it comes in as
 links do, through install and quarantine.
 
-**Done (2026-10-23, ADR 0015):** `sys/downstream` is gone; `sys/upstream`
-stays and shows `url`, `enabled`, `ca` and `certificate` (subject, valid
-until), never the key. The root sections `downstream`/`upstream` show the
-live connections (keys renamed in spec 0.2.0). A downstream broker holds a
-certificate from the upstream's CA: `wyrmd ca` and Install Link ▸
-Downstream Broker issue it into `data_dir/peers/<d>/`; a `broker:<x>`
-session over QUIC goes to quarantine (`kind: broker`), Authorize `{via}`
-admits it; it is listed in `sys/links/<d>` (driver `broker`), whose Remove
-holds it in quarantine. The QUIC listener trusts the site's own CA alone,
-which closes ADR 0007's accepted peer-CA risk. Found on the way: after a
-router rebuild the QUIC listener could not bind (the old runtime drains its
-UDP socket), so downstream brokers never came back; a broker start now
-waits for the port.
+**Done (2026-10-23, ADR 0015, revised the same day):** `sys/downstream` is
+gone; `sys/upstream` stays. The first version (Install Link ▸ Downstream
+Broker, brokers in `sys/links`) was not how DSA works (owner); now, as in
+DSA, the downstream broker adds its upstream itself (`sys/upstream` ▸ Add
+Upstream Connection {url, ca, token}), makes its own key and asks for a
+certificate on the upstream's `peers.enroll` port (owner decision: a
+separate port); the upstream signs at once for a `sys/tokens` token or with
+`allow_all_links` (owner decision: as DSA), else the broker waits in
+`sys/quarantine/<d>` with its key's SHA-256 until Authorize `{via}`.
+Deauthorize lists downstream brokers too (as DSA's). The QUIC listeners
+trust the site's own CA alone, which closes ADR 0007's accepted peer-CA
+risk. Found on the way: after a router rebuild the QUIC listener could not
+bind (the old runtime drains its UDP socket), so downstream brokers never
+came back; a broker start now waits for the port.
 
 ## 4. Rename `flows` to `dataflows`
 

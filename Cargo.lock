@@ -5777,6 +5777,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "webpki-roots",
+ "wyrm-client",
  "wyrm-core",
  "wyrm-history",
  "wyrm-link-sdk",

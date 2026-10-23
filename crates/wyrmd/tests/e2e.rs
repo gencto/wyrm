@@ -1880,13 +1880,8 @@ async fn chain_of_three_brokers() {
     for n in ["links", "packages", "packages_total"] {
         assert!(sys.contains(&n.to_owned()), "{n}: {sys:?}");
     }
-    // a downstream broker is listed with the links (ADR 0015)
-    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock", "plant"]);
-    let plant = c.meta("wy/edge/sys/links/plant").await.unwrap();
-    assert_eq!(
-        plant.attr_value("driver"),
-        Some(&Value::Str("broker".into()))
-    );
+    // a downstream broker is not a sys/links entry (as in DSA, ADR 0015)
+    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock"]);
     assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["pm"]);
     assert_eq!(names("wy/plant/upstream").await.unwrap(), ["edge"]);
     assert_eq!(
@@ -2693,22 +2688,24 @@ async fn process_link_keeps_runtime_edits() {
     env.stop().await;
 }
 
-/// Peer brokers added at runtime (ADR 0015): no peers in either
-/// `wyrmd.json5` (central only has `peers.listen`). Central installs the
-/// edge as a downstream broker (Install Link ▸ Downstream Broker), the edge
-/// connects with the certificate central issued (Add Upstream Connection);
-/// disabling the upstream ends the link; Remove holds the edge in
-/// quarantine (its certificate stays valid) until Authorize; the key is
-/// never shown or stored in the registry.
+/// Downstream brokers come in as DSA links do (ADR 0015). No peers in
+/// either `wyrmd.json5` (central has `peers.listen` and `peers.enroll`).
+/// The edge adds central (Add Upstream Connection), asks for its
+/// certificate and waits in central's quarantine with its key's SHA-256;
+/// another key for that name only counts; Authorize lets it in. Deauthorize
+/// holds it (its certificate still connects, gets nothing; the name never
+/// becomes an upstream); Authorize again. A token admits at once (once);
+/// `allow_all_links` admits a broker whose relayed sites are free.
 #[tokio::test(flavor = "multi_thread")]
 async fn runtime_peers_over_quic() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
     let admin = hex::encode(key.verifying_key().to_bytes());
     let (c_dir, e_dir) = (temp_dir("rt-central"), temp_dir("rt-edge"));
-    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let (c_tcp, c_quic, c_enroll, e_tcp) = (free_port(), free_port(), free_port(), free_port());
     let central = Config::from_json5(&format!(
         r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
-              admin_keys: ["{admin}"], peers: {{ listen: "quic/127.0.0.1:{c_quic}" }} }}"#,
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}", enroll: "quic/127.0.0.1:{c_enroll}" }} }}"#,
         c_dir.display()
     ))
     .unwrap();
@@ -2747,15 +2744,9 @@ async fn runtime_peers_over_quic() {
                 .collect(),
         )
     };
-    let success = |r: Option<Value>| match r {
-        Some(Value::Map(m)) => (
-            m.get("success") == Some(&Value::Bool(true)),
-            match m.get("message") {
-                Some(Value::Str(s)) => s.clone(),
-                _ => String::new(),
-            },
-        ),
-        other => panic!("install result {other:?}"),
+    let text = |v: Option<Value>| match v {
+        Some(Value::Str(s)) => s,
+        other => panic!("{other:?}"),
     };
     let edge_seen = |what: &'static str| {
         eventually(what, 20, move || async move {
@@ -2764,102 +2755,135 @@ async fn runtime_peers_over_quic() {
             ch.iter().any(|c| c.name == "mock").then_some(())
         })
     };
-
-    // Central installs the edge: its certificate, named in the message.
-    let c = client(c_tcp, "central").await;
-    let r = c
-        .invoke_one(
-            "wy/central/sys/links",
-            "install_broker",
-            args(&[("name", Value::from("edge"))]),
-        )
-        .await
-        .unwrap();
-    let (ok, message) = success(r);
-    assert!(ok, "{message}");
-    assert!(message.contains("broker.key") && !message.contains("PRIVATE KEY"));
-    for bad in ["central", "edge", "no/site"] {
-        let r = c
-            .invoke_one(
-                "wy/central/sys/links",
-                "install_broker",
-                args(&[("name", Value::from(bad))]),
-            )
-            .await
-            .unwrap();
-        assert!(!success(r).0, "{bad}");
-    }
-    let issued = c_dir.join("peers/edge");
-    let cert = std::fs::read_to_string(issued.join("broker.pem")).unwrap();
-    let key_file = std::fs::read(issued.join("broker.key")).unwrap();
-    let ca = std::fs::read_to_string(c_dir.join("pki/ca.pem")).unwrap();
-    // central's own client certificate: another CN, another key
-    let other_cert = std::fs::read_to_string(c_dir.join("pki/broker-client.pem")).unwrap();
-    let other_key = std::fs::read(c_dir.join("pki/broker-client.key")).unwrap();
-    assert!(c
-        .meta("wy/central/sys/links/edge")
-        .await
-        .unwrap()
-        .attr_value("driver")
-        .is_some_and(|d| *d == Value::Str("broker".into())));
-
-    let e = client(e_tcp, "edge").await;
-    let up_add = |name: &str, ca: &str, cert: &str, key: &[u8], url: String| {
-        args(&[
-            ("name", Value::from(name)),
-            ("url", Value::from(url.as_str())),
-            ("ca", Value::from(ca)),
-            ("certificate", Value::from(cert)),
-            ("private_key", Value::Bytes(key.to_vec())),
-        ])
+    let edge_gone = |what: &'static str| {
+        eventually(what, 20, move || async move {
+            let c = client(c_tcp, "edge").await;
+            match c.children("wy/edge/downstream").await {
+                Ok(ch) if !ch.is_empty() => None,
+                _ => Some(()),
+            }
+        })
     };
-    let url = format!("quic/127.0.0.1:{c_quic}");
-    for (ca, cert, key, url, why) in [
-        ("not a pem", &cert, &key_file, url.clone(), "CA"),
-        (
-            &ca,
-            &cert,
-            &key_file,
-            format!("tcp/127.0.0.1:{c_quic}"),
-            "url",
-        ),
-        (&ca, &other_cert, &other_key, url.clone(), "CN"),
-        (
-            &ca,
-            &cert,
-            &other_key,
-            url.clone(),
-            "key of another certificate",
-        ),
+    let ca = std::fs::read_to_string(c_dir.join("pki/ca.pem")).unwrap();
+    let enroll_url = format!("quic/127.0.0.1:{c_enroll}");
+    // A broker without a session of its own: one request on the enrollment
+    // endpoint, as a downstream broker sends it.
+    let ask = |site: &'static str, token: Option<String>, via: &'static [&'static str]| {
+        let (ca_file, url) = (c_dir.join("pki/ca.pem"), enroll_url.clone());
+        async move {
+            let (key, _) = wyrm_admin::secret::new_broker_key().unwrap();
+            let csr = wyrm_admin::secret::broker_csr(site, &key).unwrap();
+            let mut zc = zenoh::Config::default();
+            zc.insert_json5("mode", r#""client""#).unwrap();
+            zc.insert_json5("connect/endpoints", &format!(r#"["{url}"]"#))
+                .unwrap();
+            zc.insert_json5("scouting/multicast/enabled", "false")
+                .unwrap();
+            zc.insert_json5(
+                "transport/link/tls",
+                &serde_json::json!({ "root_ca_certificate": ca_file, "enable_mtls": false })
+                    .to_string(),
+            )
+            .unwrap();
+            let s = zenoh::open(zc).await.unwrap();
+            let mut a = vec![
+                ("site".to_string(), Value::from(site)),
+                ("csr".to_string(), Value::from(csr.as_str())),
+                (
+                    "via".to_string(),
+                    Value::Array(via.iter().map(|v| Value::from(*v)).collect()),
+                ),
+            ];
+            if let Some(t) = token {
+                a.push(("token".to_string(), Value::from(t.as_str())));
+            }
+            let r = WyrmClient::new(s.clone())
+                .with_timeout(Duration::from_secs(3))
+                .invoke_one(
+                    "wy/central/sys",
+                    "enroll",
+                    Value::Map(a.into_iter().collect()),
+                )
+                .await;
+            let _ = s.close().await;
+            r
+        }
+    };
+    let status = |r: &Result<Option<Value>, wyrm_client::ClientError>| match r {
+        Ok(Some(Value::Map(m))) => match m.get("status") {
+            Some(Value::Str(s)) => s.clone(),
+            other => format!("{other:?}"),
+        },
+        other => format!("{other:?}"),
+    };
+
+    // 1. The edge adds central: wrong inputs are refused.
+    let e = client(e_tcp, "edge").await;
+    let up_add = |ca: &str, url: &str, token: Option<&str>| {
+        let mut a = vec![
+            ("name", Value::from("central")),
+            ("url", Value::from(url)),
+            ("ca", Value::from(ca)),
+        ];
+        if let Some(t) = token {
+            a.push(("token", Value::from(t)));
+        }
+        args(&a)
+    };
+    for (ca, url, why) in [
+        ("not a pem", enroll_url.as_str(), "CA"),
+        (ca.as_str(), "tcp/127.0.0.1:1", "url"),
     ] {
         let err = e
-            .invoke_one(
-                "wy/edge/sys/upstream",
-                "add",
-                up_add("central", ca, cert, key, url),
-            )
+            .invoke_one("wy/edge/sys/upstream", "add", up_add(ca, url, None))
             .await
             .expect_err(why);
         assert!(err.is(wyrm_core::Status::InvalidParameter), "{why}: {err}");
-        assert!(!err.to_string().contains("PRIVATE"), "{why}: {err}");
     }
     e.invoke_one(
         "wy/edge/sys/upstream",
         "add",
-        up_add("central", &ca, &cert, &key_file, url.clone()),
+        up_add(&ca, &enroll_url, None),
     )
     .await
-    .expect("connect upstream");
+    .expect("add the upstream");
 
-    // tokens for the site being read (the edge checks them)
-    edge_seen("edge links seen from central").await;
-    eventually("edge sees central connected", 10, || async {
-        let e = client(e_tcp, "edge").await;
-        (last_val(&e, "wy/edge/upstream/central/connected").await == Some(Value::Bool(true)))
+    // 2. It waits in central's quarantine, the same key on both sides.
+    eventually("the edge waits in quarantine", 20, || async {
+        c_ctl
+            .registry()
+            .enrollments
+            .contains_key("edge")
             .then_some(())
     })
     .await;
-    // sys/upstream/central shows what it was added with, never the key
+    let e = client(e_tcp, "edge").await;
+    let edge_key = text(last_val(&e, "wy/edge/sys/upstream/central/key").await);
+    let c = client(c_tcp, "central").await;
+    let q = c.meta("wy/central/sys/quarantine/edge").await.unwrap();
+    assert_eq!(q.attr_value("kind"), Some(&Value::Str("broker".into())));
+    assert_eq!(q.attr_value("key"), Some(&Value::Str(edge_key.clone())));
+    eventually("the edge shows it waits", 20, || async {
+        let e = client(e_tcp, "edge").await;
+        let s = text(last_val(&e, "wy/edge/sys/upstream/central/status").await);
+        s.starts_with("pending").then_some(())
+    })
+    .await;
+    // another key for a waiting name: refused, counted, never swapped in
+    let r = ask("edge", None, &[]).await;
+    assert_eq!(status(&r), "refused");
+    assert!(format!("{r:?}").contains("another key"), "{r:?}");
+    let waiting = c_ctl.registry().enrollments["edge"].clone();
+    assert_eq!(
+        (waiting.key_sha256.as_str(), waiting.conflicts),
+        (edge_key.as_str(), 1)
+    );
+
+    // 3. Authorize: the edge gets its certificate and connects.
+    c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))
+        .await
+        .expect("authorize");
+    edge_seen("edge links seen from central").await;
     let e = client(e_tcp, "edge").await;
     let mut shown: Vec<String> = e
         .children("wy/edge/sys/upstream/central")
@@ -2869,86 +2893,110 @@ async fn runtime_peers_over_quic() {
         .map(|c| c.name)
         .collect();
     shown.sort();
-    assert_eq!(shown, ["ca", "certificate", "enabled", "url"]);
-    let text = |v: Option<Value>| match v {
-        Some(Value::Str(s)) => s,
-        other => panic!("{other:?}"),
-    };
+    assert_eq!(
+        shown,
+        ["ca", "certificate", "enabled", "key", "status", "url"]
+    );
+    assert_eq!(
+        text(last_val(&e, "wy/edge/sys/upstream/central/status").await),
+        "issued"
+    );
     let summary = text(last_val(&e, "wy/edge/sys/upstream/central/certificate").await);
     assert!(
         summary.starts_with("broker:edge, valid until "),
         "{summary}"
     );
-    let peer = e_ctl.registry().peers["central"].clone();
-    assert!(peer.enabled && peer.endpoint.ends_with(&c_quic.to_string()));
-    assert!(peer.cert_pem.contains("BEGIN CERTIFICATE"));
     assert!(!format!("{:?}", e_ctl.registry()).contains("PRIVATE KEY"));
+    assert_eq!(c_ctl.registry().peers["edge"].key_sha256, edge_key);
 
-    // disabled: the edge drops the connection, central loses the edge tree
+    // 4. Disabled: the edge drops the connection; enabled: back.
     e.set("wy/edge/sys/upstream/central/enabled", false)
         .await
         .unwrap();
-    eventually("edge gone from central", 20, || async {
-        let c = client(c_tcp, "edge").await;
-        match c.children("wy/edge/downstream").await {
-            Ok(ch) if !ch.is_empty() => None,
-            _ => Some(()),
-        }
-    })
-    .await;
-    assert!(!e_ctl.peers().upstream.contains(&"central".to_string()));
+    edge_gone("edge gone from central").await;
     let e = client(e_tcp, "edge").await;
     e.set("wy/edge/sys/upstream/central/enabled", true)
         .await
         .unwrap();
     edge_seen("edge back after enable").await;
 
-    // Central removes the edge: held in quarantine; its certificate still
-    // connects but gets nothing, and its name never becomes an upstream.
+    // 5. Deauthorize (a downstream broker is in its list): held.
     let c = client(c_tcp, "central").await;
-    c.invoke_one("wy/central/sys/links/edge", "remove", args(&[]))
-        .await
-        .expect("remove the downstream broker");
+    c.invoke_one(
+        "wy/central/sys/quarantine",
+        "deauthorize",
+        args(&[("link", Value::from("edge"))]),
+    )
+    .await
+    .expect("deauthorize the edge");
     assert!(c_ctl.registry().held.contains("broker:edge"));
-    eventually("removed edge gone from central", 20, || async {
-        let c = client(c_tcp, "edge").await;
-        match c.children("wy/edge/downstream").await {
-            Ok(ch) if !ch.is_empty() => None,
-            _ => Some(()),
-        }
-    })
-    .await;
+    edge_gone("deauthorized edge gone from central").await;
     eventually("the edge's sessions land in quarantine", 20, || async {
         let q = c_ctl.registry().quarantine.get("broker:edge").cloned()?;
         (q.attempts > 0).then_some(())
     })
     .await;
-    assert!(!c_ctl.peers().downstream.contains(&"edge".to_string()));
     let c = client(c_tcp, "central").await;
-    let q = c.meta("wy/central/sys/quarantine/edge").await.unwrap();
-    assert_eq!(q.attr_value("kind"), Some(&Value::Str("broker".into())));
     let err = c
         .invoke_one(
             "wy/central/sys/upstream",
             "add",
-            up_add("edge", &ca, &cert, &key_file, url.clone()),
+            args(&[
+                ("name", Value::from("edge")),
+                ("url", Value::from(enroll_url.as_str())),
+                ("ca", Value::from(ca.as_str())),
+            ]),
         )
         .await
         .expect_err("an issued name is never an upstream");
     assert!(err.to_string().contains("downstream broker"), "{err}");
-    // Authorize admits it again
     c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))
         .await
-        .expect("authorize");
+        .expect("authorize again");
     edge_seen("edge back after Authorize").await;
-    assert!(!c_ctl.registry().held.contains("broker:edge"));
+
+    // 6. A token admits at once, once.
+    let c = client(c_tcp, "central").await;
+    let token = match c
+        .invoke_one(
+            "wy/central/sys/tokens",
+            "add",
+            args(&[("count", Value::UInt(1))]),
+        )
+        .await
+        .unwrap()
+    {
+        Some(Value::Map(m)) => text(m.get("token").cloned()),
+        other => panic!("{other:?}"),
+    };
+    assert!(!format!("{:?}", c_ctl.registry()).contains(&token));
+    let r = ask("plant", Some(token.clone()), &[]).await;
+    assert_eq!(status(&r), "issued");
+    assert!(c_ctl.registry().peers.contains_key("plant"));
+    assert!(c_ctl.registry().tokens.is_empty(), "used up");
+    assert_eq!(status(&ask("cell", Some(token), &[]).await), "pending");
+
+    // 7. allow_all_links admits a broker whose relayed sites are free.
+    c.set("wy/central/sys/allow_all_links", true).await.unwrap();
+    assert_eq!(status(&ask("cell2", None, &["far"]).await), "issued");
+    assert_eq!(c_ctl.registry().peers["cell2"].via, ["far"]);
+    assert_eq!(status(&ask("cell3", None, &["edge"]).await), "pending");
+    c.set("wy/central/sys/allow_all_links", false)
+        .await
+        .unwrap();
 
     let e_audit = e_ctl.audit_tail(50);
-    for op in ["peer_add", "peer_enable"] {
+    for op in ["peer_add", "peer_enable", "peer_cert"] {
         assert!(e_audit.iter().any(|r| r.op == op), "edge audit has {op}");
     }
-    let c_audit = c_ctl.audit_tail(50);
-    for op in ["install_broker", "broker_remove", "approve"] {
+    let c_audit = c_ctl.audit_tail(100);
+    for op in [
+        "quarantine",
+        "approve",
+        "deauthorize",
+        "enroll_token",
+        "auto_install",
+    ] {
         assert!(c_audit.iter().any(|r| r.op == op), "central audit has {op}");
     }
     let e = client(e_tcp, "edge").await;
@@ -2976,8 +3024,11 @@ async fn runtime_peers_over_quic() {
     .unwrap();
     let central = open_daemon(central, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let c_ctl = central.control();
-    assert!(c_ctl.registry().peers.is_empty(), "json5 wins");
-    assert_eq!(c_ctl.peers().downstream, ["edge"]);
+    assert!(!c_ctl.registry().peers.contains_key("edge"), "json5 wins");
+    assert_eq!(
+        c_ctl.peers().downstream.first().map(String::as_str),
+        Some("edge")
+    );
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
         let _ = c_rx.await;
@@ -2987,6 +3038,87 @@ async fn runtime_peers_over_quic() {
         c.meta("wy/central/downstream/edge").await.ok()
     })
     .await;
+    let _ = c_stop.send(());
+    c_task.await.unwrap().unwrap();
+}
+
+/// The enrollment listener (ADR 0015): server-auth TLS only. A session
+/// there without a client certificate may ask `sys/~act/enroll` and get the
+/// reply, nothing else: no other query, subscription or put.
+#[tokio::test(flavor = "multi_thread")]
+async fn enroll_listener_reaches_one_key() {
+    let (c_dir, c_tcp, c_quic, c_enroll) =
+        (temp_dir("enroll"), free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}", enroll: "quic/127.0.0.1:{c_enroll}" }},
+              {MOCK} }}"#,
+        c_dir.display()
+    ))
+    .unwrap();
+    let (c_stop, c_task) = spawn_daemon(central);
+    let local = loopback_session(c_tcp).await;
+    eventually("central up", 10, || async {
+        (!replies(&local, "wy/central/sys/~meta").await.is_empty()).then_some(())
+    })
+    .await;
+
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["quic/127.0.0.1:{c_enroll}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5(
+        "transport/link/tls",
+        &serde_json::json!({
+            "root_ca_certificate": c_dir.join("pki/ca.pem"),
+            "enable_mtls": false,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let anon = zenoh::open(zc).await.unwrap();
+    // the one key: the admin answers (here an error: no such action yet)
+    assert!(
+        !replies(&anon, "wy/central/sys/~act/enroll")
+            .await
+            .is_empty(),
+        "enroll query answered"
+    );
+    for key in [
+        "wy/central/sys/~meta",
+        "wy/central/downstream/**",
+        "wy/central/downstream/mock/~meta",
+        "wy/central/sys/~act/hello",
+    ] {
+        assert_eq!(replies(&anon, key).await, Vec::<String>::new(), "{key}");
+    }
+    let (seen, control) = tokio::join!(
+        samples(&anon, "wy/central/downstream/**", 2),
+        samples(&local, "wy/central/downstream/**", 2)
+    );
+    assert!(!control.is_empty(), "control: the mock publishes");
+    assert_eq!(
+        seen,
+        Vec::<String>::new(),
+        "no samples without a certificate"
+    );
+    let watch = local
+        .declare_subscriber("wy/central/downstream/mock/forged/**")
+        .await
+        .unwrap();
+    anon.put("wy/central/downstream/mock/forged/~val", "x")
+        .await
+        .unwrap();
+    let forged = tokio::time::timeout(Duration::from_secs(1), watch.recv_async()).await;
+    assert!(forged.is_err(), "a put without a certificate arrived");
+
+    let _ = anon.close().await;
+    let _ = local.close().await;
     let _ = c_stop.send(());
     c_task.await.unwrap().unwrap();
 }

@@ -53,14 +53,10 @@ and **message** (what happened, or why it failed).
 | from Git | Name, Url, Ref | Clones a repository that holds a **built** package, then as *from Zip*. |
 | from Repository | Name, Package | Takes a package from the index in `packages.repository`, checks its SHA-256, then as *from Zip*. |
 | from WASM | Name, Component (a `.wasm` file) | Wraps one component as a WASM package named *Name* and runs it. |
-| Downstream Broker | Name, Via | Admits the broker of site *Name* below this one (ADR 0015): this broker's CA issues its certificate into `data_dir/peers/<Name>/broker.{pem,key}`. Copy those two files and `data_dir/pki/ca.pem` to that site; it connects with them (`sys/upstream` ▸ Add Upstream Connection, or `peers.upstream` with `ca`, `cert`, `key`). *Via*: the sites it relays from further down. Only with `peers.listen`. |
 
-A downstream broker is listed in `sys/links/<Name>` (driver `broker`) and
-shown live at `wy/<site>/downstream/<Name>`; its **Remove** puts it back in
-quarantine, held: its certificate stays valid, so only **Authorize** lets it
-in again. A broker this site's CA signed but never installed (`broker:<x>`
-over QUIC) lands in `sys/quarantine/<x>` (`kind: broker`); Authorize {Via}
-admits it. Brokers are never admitted by `allow_all_links`.
+A downstream broker is not installed here: as in DSA, it adds this broker
+itself and comes in through a token, `allow_all_links` or quarantine
+(README, Two brokers; ADR 0015).
 
 *Name* is the new link's id: `wy/<site>/downstream/<Name>`. It is a key segment
 (letters, digits, `.`, `_`, `-`; not starting with `.`), and must not be the
