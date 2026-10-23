@@ -108,10 +108,27 @@ impl Store {
         {
             let txn = index.begin_write().map_err(db)?;
             {
-                let t = txn.open_table(SERIES).map_err(db)?;
+                let mut t = txn.open_table(SERIES).map_err(db)?;
                 for item in t.iter().map_err(db)? {
                     let (k, v) = item.map_err(db)?;
                     series.insert(k.value().to_owned(), v.value());
+                }
+                // Series recorded before spec 0.2.0 (`wy/<site>/down/…`) go on
+                // under their new names, so watches renamed by the registry
+                // find their rows.
+                let old: Vec<(String, String, u32)> = series
+                    .iter()
+                    .filter_map(|(k, id)| {
+                        let new = wyrm_core::keyspace::renamed(k);
+                        (new != k.as_str() && !series.contains_key(new.as_ref()))
+                            .then(|| (k.clone(), new.into_owned(), *id))
+                    })
+                    .collect();
+                for (k, new, id) in old {
+                    t.remove(k.as_str()).map_err(db)?;
+                    t.insert(new.as_str(), id).map_err(db)?;
+                    series.remove(&k);
+                    series.insert(new, id);
                 }
             }
             txn.commit().map_err(db)?;
@@ -418,6 +435,24 @@ mod tests {
 
     fn row(s: u32, t: u64, v: f64) -> NewRow {
         (s, t, encode_row(&Value::Float(v), Quality::Good))
+    }
+
+    #[test]
+    fn series_before_spec_0_2_are_renamed() {
+        let dir = temp("renamed");
+        let id = {
+            let st = Store::open(&dir).unwrap();
+            let id = st.series_id("wy/s/down/m/p0", true).unwrap().unwrap();
+            st.series_id("wy/s/sys/x", true).unwrap();
+            id
+        };
+        let st = Store::open(&dir).unwrap();
+        assert_eq!(
+            st.series_id("wy/s/downstream/m/p0", false).unwrap(),
+            Some(id)
+        );
+        assert_eq!(st.series_id("wy/s/down/m/p0", false).unwrap(), None);
+        assert!(st.series_id("wy/s/sys/x", false).unwrap().is_some());
     }
 
     #[test]
