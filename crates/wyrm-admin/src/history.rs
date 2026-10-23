@@ -27,64 +27,43 @@ const MAX_ROWS: usize = 10_000;
 /// How often retention and free space are checked.
 const PURGE_EVERY: Duration = Duration::from_secs(60);
 
-/// Database values: key, display name, unit, description.
-const DB_VALUES: [(&str, &str, &str, &str); 9] = [
-    (
-        "rows_written",
-        "Rows Written",
-        "",
-        "Rows written since the broker started.",
-    ),
+/// Database values: key, unit, description.
+const DB_VALUES: [(&str, &str, &str); 9] = [
+    ("rows_written", "", "Rows written since the broker started."),
     (
         "writes_per_second",
-        "Writes Per Second",
         "rows/s",
         "Rows written per second over the metrics interval.",
     ),
     (
         "rows_pending",
-        "Rows Pending",
         "",
         "Rows in memory waiting for the next flush.",
     ),
     (
         "rows_dropped",
-        "Rows Dropped",
         "",
         "Rows lost since the broker started: a full buffer or a failed write.",
     ),
-    (
-        "last_flush",
-        "Last Flush Duration",
-        "ms",
-        "Time of the last write to disk.",
-    ),
+    ("last_flush", "ms", "Time of the last write to disk."),
     (
         "database_size",
-        "Database Size",
         "MiB",
         "Size of data_dir/history: one file per day (UTC) and the index.",
     ),
     (
         "space_available",
-        "Space Available",
         "MiB",
         "Free space on the file system of data_dir/history.",
     ),
-    ("series", "Series", "", "Points that were ever recorded."),
-    (
-        "day_files",
-        "Day Files",
-        "",
-        "Day files on disk (one per UTC day).",
-    ),
+    ("series", "", "Points that were ever recorded."),
+    ("day_files", "", "Day files on disk (one per UTC day)."),
 ];
 
-/// Writable settings: key, display name, type, unit, description.
-const OPTIONS: [(&str, &str, TypeCode, &str, &str); 3] = [
+/// Writable settings: key, type, unit, description.
+const OPTIONS: [(&str, TypeCode, &str, &str); 3] = [
     (
         "auto_purge",
-        "Auto Purge",
         TypeCode::Bool,
         "",
         "Delete the oldest day while the disk has less free space than \
@@ -92,14 +71,12 @@ const OPTIONS: [(&str, &str, TypeCode, &str, &str); 3] = [
     ),
     (
         "disk_space_remaining",
-        "Disk Space Remaining",
         TypeCode::Number,
         "MiB",
         "Free space Auto Purge keeps on the disk of data_dir/history.",
     ),
     (
         "retention_days",
-        "Retention Days",
         TypeCode::Number,
         "d",
         "Delete days older than this; 0 keeps every day.",
@@ -231,10 +208,8 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
         ),
     )
     .await?;
-    for (key, display, unit, about) in DB_VALUES {
-        let mut m = NodeMeta::number()
-            .display(display)
-            .attr("description", about);
+    for (key, unit, about) in DB_VALUES {
+        let mut m = NodeMeta::number().attr("description", about);
         if !unit.is_empty() {
             m = m.unit(unit);
         }
@@ -242,9 +217,7 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
     }
     ctx.declare_node(
         &format!("{ROOT}/oldest_day"),
-        NodeMeta::leaf(TypeCode::String)
-            .display("Oldest Day")
-            .attr("description", "The oldest day on disk (UTC)."),
+        NodeMeta::leaf(TypeCode::String).attr("description", "The oldest day on disk (UTC)."),
     )
     .await?;
     let h = ctl.registry().historian;
@@ -253,9 +226,8 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
         Value::UInt(h.keep_free_mib),
         Value::UInt(h.retention_days.into()),
     ];
-    for ((key, display, ty, unit, about), v) in OPTIONS.into_iter().zip(current) {
+    for ((key, ty, unit, about), v) in OPTIONS.into_iter().zip(current) {
         let mut m = NodeMeta::leaf(ty)
-            .display(display)
             .writable(Writable::Config)
             .attr("description", about);
         if !unit.is_empty() {
@@ -303,8 +275,7 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
 
 async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()> {
     let p = format!("{ROOT}/{name}");
-    ctx.declare_node(&p, NodeMeta::folder().display(name))
-        .await?;
+    ctx.declare_node(&p, NodeMeta::folder()).await?;
     group_values(ctx, name, g).await?;
     ctx.declare_action(
         &p,
@@ -354,7 +325,7 @@ async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()
     let t = now_us();
     ctx.declare_node(
         &format!("{p}/logging_type"),
-        NodeMeta::leaf(TypeCode::String).display("Logging Type"),
+        NodeMeta::leaf(TypeCode::String),
     )
     .await?;
     ctx.update(
@@ -364,13 +335,12 @@ async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()
         t,
     )
     .await?;
-    for (key, display, ms) in [
-        ("interval", "Interval", g.interval_ms),
-        ("buffer_flush_time", "Buffer Flush Time", g.flush_ms),
+    for (key, ms) in [
+        ("interval", g.interval_ms),
+        ("buffer_flush_time", g.flush_ms),
     ] {
         let k = format!("{p}/{key}");
-        ctx.declare_node(&k, NodeMeta::number().display(display).unit("s"))
-            .await?;
+        ctx.declare_node(&k, NodeMeta::number().unit("s")).await?;
         ctx.update(&k, Value::Float(ms as f64 / 1000.0), Quality::Good, t)
             .await?;
     }
@@ -405,9 +375,7 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
     .await?;
     ctx.declare_node(
         &format!("{p}/enabled"),
-        NodeMeta::leaf(TypeCode::Bool)
-            .display("Enabled")
-            .writable(Writable::Config),
+        NodeMeta::leaf(TypeCode::Bool).writable(Writable::Config),
     )
     .await?;
     ctx.update(
@@ -417,12 +385,9 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
         now_us(),
     )
     .await?;
-    for (key, display) in [("start_date", "Start Date"), ("end_date", "End Date")] {
-        ctx.declare_node(
-            &format!("{p}/{key}"),
-            NodeMeta::leaf(TypeCode::String).display(display),
-        )
-        .await?;
+    for key in ["start_date", "end_date"] {
+        ctx.declare_node(&format!("{p}/{key}"), NodeMeta::leaf(TypeCode::String))
+            .await?;
     }
     // No "Last Written Value" (DSA has one): sys would publish point values
     // to everyone who may read sys, not only to who may read the point.

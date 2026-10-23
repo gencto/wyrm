@@ -15,10 +15,10 @@ Order: stage 1 — items 7, 8, 6, 9; stage 2 — items 2, 3, 4; stage 3 — item
 |---|---|
 | 1 | A downstream accepts `write` from above on `down`/`dataflows` always; `config` on `sys` only when that downstream allows it explicitly. |
 | 2 | Nodes and site sections lowercase; actions keep readable display names (`Add Device`). |
-| 3 | `sys/downstream` and `sys/upstream` both move to the sections `down`/`up`. |
+| 3 | Superseded 2026-10-23 (owner): `sys/upstream` stays (Add Upstream Connection → `sys/upstream/<name>` with its parameters); `sys/downstream` goes; the root sections `upstream` (where this broker connects) and `downstream` (everything that connects to it: links and downstream brokers) show the live connections, under their full names. Downstream brokers come in through link install and quarantine only; no actions on `downstream`. |
 | 4 | Rename the key: `flows` → `dataflows` (spec change, before 1.0). |
 | 5 | The section is `storage`. |
-| 8 | Deauthorize lists links only; a downstream broker is removed with an action on `down/<d>`. |
+| 8 | Deauthorize lists links only. How a downstream broker is removed follows item 3 (link install and quarantine). |
 | 9 | Spec 02: `unit` (key 2) joins the `view=list` summary. |
 | 10 | Broker-held meta overlays (option 1); `attr.history` is an array of keys; existing watches get it automatically. |
 
@@ -70,6 +70,15 @@ explorer's section labels the keys or one lowercase set. A test that walks
 **Decide:** actions and parameters too (`Add Watch Group` → `add watch
 group`?), or nodes only.
 
+**Done (2026-10-23):** nodes of the broker carry no display names: `sys`
+values and settings, `sys/history` (values, settings, a group's
+`logging_type`/`interval`/`buffer_flush_time`, a watch's `enabled`/
+`start_date`/`end_date`), a link's `log_level`, a peer's `url`/`enabled`.
+Kept: actions and parameters, a link's name given at Authorize, a watch's
+point key, a flow's description. e2e `sys_values_and_admission_options`
+walks `sys` and fails on a display name or an uppercase key. The section
+labels follow item 3 (keys `downstream`/`upstream`).
+
 ## 3. No `downstream` node in `sys`
 
 **Asked:** `sys/downstream` should not be in `sys`.
@@ -86,6 +95,12 @@ keys (the links root is listed by liveliness today), and the per-peer
 remove/edit actions move to the `down/<d>` reference nodes.
 
 **Decide:** the same for `sys/upstream` (move to `wy/<site>/up`)?
+
+**Owner, 2026-10-23 (replaces the proposal above):** `sys/upstream` stays as
+it is (as DSA's `/sys/upstream`); `sys/downstream` goes. The site root has
+`upstream` and `downstream` (full names, not `up`/`down`) with the live
+connections. A downstream broker is not added by an action: it comes in as
+links do, through install and quarantine.
 
 ## 4. Rename `flows` to `dataflows`
 

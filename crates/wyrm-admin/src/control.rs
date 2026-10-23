@@ -148,51 +148,32 @@ const STATES: [&str; 6] = [
 
 /// Read-only text values of `wy/<site>/sys` (as the DSA broker's `sys`):
 /// key, display name.
-const SYS_INFO: [(&str, &str); 4] = [
-    ("version", "WYRM Version"),
-    ("zenoh_version", "Zenoh Version"),
-    ("start_time", "Start Time"),
-    ("distribution", "Distribution"),
-];
+const SYS_INFO: [&str; 4] = ["version", "zenoh_version", "start_time", "distribution"];
 
 /// Router counters shown as rates: key, display name, unit, counter.
-const SYS_RATES: [(&str, &str, &str, &str); 6] = [
+const SYS_RATES: [(&str, &str, &str); 6] = [
     (
         "messages_in_per_second",
-        "Messages In Per Second",
         "msg/s",
         "zenoh_rx_network_message_total",
     ),
     (
         "messages_out_per_second",
-        "Messages Out Per Second",
         "msg/s",
         "zenoh_tx_network_message_total",
     ),
     (
         "frames_in_per_second",
-        "Frames In Per Second",
         "frame/s",
         "zenoh_rx_transport_message_total",
     ),
     (
         "frames_out_per_second",
-        "Frames Out Per Second",
         "frame/s",
         "zenoh_tx_transport_message_total",
     ),
-    (
-        "data_in_per_second",
-        "Data In Per Second",
-        "B/s",
-        "zenoh_rx_bytes_total",
-    ),
-    (
-        "data_out_per_second",
-        "Data Out Per Second",
-        "B/s",
-        "zenoh_tx_bytes_total",
-    ),
+    ("data_in_per_second", "B/s", "zenoh_rx_bytes_total"),
+    ("data_out_per_second", "B/s", "zenoh_tx_bytes_total"),
 ];
 
 const RATES_NOTE: &str = "Average over the metrics interval of this router's network \
@@ -201,105 +182,72 @@ const RATES_NOTE: &str = "Average over the metrics interval of this router's net
 /// Messages the router's access control dropped (`sys/acl_denied`).
 const ACL_DENIED: &str = "acl_denied";
 
-/// Linux has the current resident size; elsewhere only the peak is known.
-const MEMORY_DISPLAY: &str = if cfg!(target_os = "linux") {
-    "Memory"
-} else {
-    "Peak Memory"
-};
-
 /// Broker status values of `sys`, measured every metrics interval: key,
 /// display name, unit, description.
-const SYS_STATUS: [(&str, &str, &str, &str); 14] = [
-    (
-        "uptime",
-        "Uptime",
-        "s",
-        "Seconds since the broker process started.",
-    ),
-    ("links_total", "Links", "", "Installed links."),
+const SYS_STATUS: [(&str, &str, &str); 14] = [
+    ("uptime", "s", "Seconds since the broker process started."),
+    ("links_total", "", "Installed links."),
     (
         "links_connected",
-        "Links Connected",
         "",
         "Links whose liveliness token is present (they serve their tree).",
     ),
     (
         "quarantined",
-        "Quarantined",
         "",
         "Unknown certificates waiting in quarantine.",
     ),
-    ("packages_total", "Packages", "", "Installed link packages."),
+    ("packages_total", "", "Installed link packages."),
     (
         "sessions",
-        "Open Sessions",
         "",
         "Network sessions of the router: links, peer brokers, the gateway's users go \
          through one in-process session and are not counted.",
     ),
     (
         "upstream_connected",
-        "Upstream Connected",
         "",
         "Upstream brokers that are connected.",
     ),
     (
         "downstream_connected",
-        "Downstream Connected",
         "",
         "Downstream brokers that are connected.",
     ),
     (
         ACL_DENIED,
-        "ACL Denied",
         "",
         "Messages the router's access control dropped since the router started.",
     ),
     (
         "cpu",
-        "CPU Usage",
         "%",
         "CPU time of the broker process over the metrics interval; 100 = one core.",
     ),
     (
         "memory",
-        MEMORY_DISPLAY,
         "MiB",
         "Resident memory of the broker process (peak on systems without /proc).",
     ),
     (
         "disk_free",
-        "Disk Free",
         "MiB",
         "Free space on the file system of data_dir.",
     ),
     (
         "data_size",
-        "Data Size",
         "MiB",
         "Size of data_dir, measured every minute.",
     ),
-    (
-        "audit_records",
-        "Audit Records",
-        "",
-        "Records in the audit journal.",
-    ),
+    ("audit_records", "", "Records in the audit journal."),
 ];
 
 /// Display name and description of the [`Options`] values.
-const OPTION_INFO: [(&str, &str); 2] = [
-    (
-        "Allow All Links",
-        "Install every unknown certificate CN signed by this broker's CA as an \
+const OPTION_INFO: [&str; 2] = [
+    "Install every unknown certificate CN signed by this broker's CA as an \
          external link, without quarantine. The link token stays in the broker's \
          data_dir (links/<id>/token) for the operator to copy to the device.",
-    ),
-    (
-        "Enable Quarantine",
-        "Record unknown certificate CNs under quarantine for approval; off: ignore them.",
-    ),
+    "Record unknown certificate CNs under quarantine for approval; off: ignore them.",
 ];
 
 pub struct Control {
@@ -1544,7 +1492,6 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         NodeMeta::leaf(TypeCode::Enum)
             .enum_values(link_levels())
             .writable(Writable::Config)
-            .display("Log Level")
             .attr(
                 "description",
                 if def.mode == Mode::Process {
@@ -1775,26 +1722,23 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         iso_utc(ctl.started),
         format!("rust ({})", if ctl.cfg.dev { "dev" } else { "prod" }),
     ];
-    for ((key, display), v) in SYS_INFO.iter().zip(info) {
-        ctx.declare_node(key, NodeMeta::leaf(TypeCode::String).display(*display))
+    for (key, v) in SYS_INFO.iter().zip(info) {
+        ctx.declare_node(key, NodeMeta::leaf(TypeCode::String))
             .await?;
         ctx.update(key, Value::Str(v), Quality::Good, now_us())
             .await?;
     }
-    for (key, display, unit, about) in SYS_STATUS {
-        let mut m = NodeMeta::number()
-            .display(display)
-            .attr("description", about);
+    for (key, unit, about) in SYS_STATUS {
+        let mut m = NodeMeta::number().attr("description", about);
         if !unit.is_empty() {
             m = m.unit(unit);
         }
         ctx.declare_node(key, m).await?;
     }
-    for (key, display, unit, _) in SYS_RATES {
+    for (key, unit, _) in SYS_RATES {
         ctx.declare_node(
             key,
             NodeMeta::number()
-                .display(display)
                 .unit(unit)
                 .attr("description", RATES_NOTE),
         )
@@ -1806,7 +1750,6 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
             NodeMeta::leaf(TypeCode::Enum)
                 .enum_values(crate::logs::LEVELS)
                 .writable(Writable::Config)
-                .display("Log Level")
                 .attr(
                     "description",
                     "Level of the broker log (zenoh stays at warn below trace); replaces RUST_LOG.",
@@ -1827,11 +1770,10 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         ctx.declare_action("", "get_log", log_action(true)).await?;
     }
     let opts = ctl.options();
-    for (name, (display, about)) in OPTION_NAMES.iter().zip(OPTION_INFO) {
+    for (name, about) in OPTION_NAMES.iter().zip(OPTION_INFO) {
         ctx.declare_node(
             name,
             NodeMeta::leaf(TypeCode::Bool)
-                .display(display)
                 .writable(Writable::Config)
                 .attr("description", about),
         )
@@ -2000,7 +1942,7 @@ async fn declare_upstream(
     ctx.declare_node(&p, NodeMeta::folder().attr("origin", origin(runtime)))
         .await?;
     let url = format!("{p}/url");
-    ctx.declare_node(&url, NodeMeta::leaf(TypeCode::String).display("Url"))
+    ctx.declare_node(&url, NodeMeta::leaf(TypeCode::String))
         .await?;
     ctx.update(
         &url,
@@ -2009,7 +1951,7 @@ async fn declare_upstream(
         now_us(),
     )
     .await?;
-    let mut on = NodeMeta::leaf(TypeCode::Bool).display("Enabled");
+    let mut on = NodeMeta::leaf(TypeCode::Bool);
     if runtime {
         on = on.writable(Writable::Config);
     }
@@ -4382,7 +4324,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         set("sessions", counter(&text, "zenoh_transports_opened")).await;
         let counters: Vec<f64> = SYS_RATES
             .iter()
-            .map(|(_, _, _, name)| counter(&text, name))
+            .map(|(_, _, name)| counter(&text, name))
             .collect();
         if let Some((then, old)) = &prev {
             let secs = now.duration_since(*then).as_secs_f64();

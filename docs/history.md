@@ -8,7 +8,7 @@ the broker, how to read it back, and what the limits are. Decision: ADR 0014.
 | What | Where | How long | Who reads it |
 |---|---|---|---|
 | The **last value** of every point (`wy/**/~val`) | Zenoh storage, `memory` volume, in RAM | until the broker stops | every `subscribe` (the stored value first, then live), `get ~val` |
-| **History** of the points you watch | `data_dir/history`, one file per UTC day | until Retention Days or Auto Purge deletes the day | `sys/history/<group>/<watch>` ▸ Get History |
+| **History** of the points you watch | `data_dir/history`, one file per UTC day | until `retention_days` or `auto_purge` deletes the day | `sys/history/<group>/<watch>` ▸ Get History |
 | Control-plane state (links, ACL, flows, settings) | `data_dir/state` (WAL + snapshot) | always | the admin |
 
 The last values are not saved: after a restart a point has a value again when
@@ -35,7 +35,7 @@ Open `wy/<site>/sys/history`.
   to disk in one write. A longer time writes less often; a crash loses the
   rows in memory.
 - **Interval** (seconds, 0.1 to 86 400): Interval logging only.
-- Change them with the group's ▸ **Edit**. A watch's **Enabled** pauses one
+- Change them with the group's ▸ **Edit**. A watch's `enabled` pauses one
   point.
 - After a restart or a router rebuild the group goes on; the first value it
   sees is not stored again if it is the one already stored.
@@ -58,7 +58,7 @@ The answer is a table (in the explorer: output ▸ **Table..**):
 - with an Interval or a Rollup: `time` (the interval start) and `value`.
   Rollups skip `bad` samples; intervals without samples give no row.
 
-Each watch also shows **Start Date** and **End Date**. It does not show
+Each watch also shows `start_date` and `end_date`. It does not show
 its last value (DSA's Last Written Value): the point itself has it.
 
 ### Without `sys`: the point's own history
@@ -85,15 +85,16 @@ are needed (spec 05 0.1.10):
 
 ## 4. Space and purging
 
-`sys/history` shows Rows Written, Writes Per Second, Rows Pending, Rows
-Dropped, Last Flush Duration, Database Size, Space Available, Series, Day
-Files and Oldest Day.
+`sys/history` shows `rows_written`, `writes_per_second`, `rows_pending`,
+`rows_dropped`, `last_flush`, `database_size`, `space_available`, `series`,
+`day_files` and `oldest_day`. A group shows its `logging_type`, `interval`
+and `buffer_flush_time`.
 
 | Setting | Default | Effect |
 |---|---|---|
-| Auto Purge | on | Every minute: while the disk has less free space than Disk Space Remaining, delete the oldest day. |
-| Disk Space Remaining | 1024 MiB | The free space Auto Purge keeps. |
-| Retention Days | 0 (keep) | Every minute: delete days older than this. |
+| `auto_purge` | on | Every minute: while the disk has less free space than `disk_space_remaining`, delete the oldest day. |
+| `disk_space_remaining` | 1024 MiB | The free space `auto_purge` keeps. |
+| `retention_days` | 0 (keep) | Every minute: delete days older than this. |
 
 - The current day is never deleted by these two.
 - ▸ **Purge** {Timerange} on `sys/history` deletes every point's rows in the

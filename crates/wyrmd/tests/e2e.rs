@@ -418,11 +418,24 @@ async fn sys_values_and_admission_options() {
         text(last_val(&c, &format!("{sys}/distribution")).await),
         "rust (prod)"
     );
-    let meta = c.meta(&format!("{sys}/data_in_per_second")).await.unwrap();
-    assert_eq!(
-        meta.attr_value("display"),
-        Some(&Value::Str("Data In Per Second".into()))
-    );
+    // A node's name is its key: no display names in sys (actions and their
+    // parameters keep theirs; a link keeps the name given at Authorize).
+    let mut todo = vec![sys.clone()];
+    let mut walked = 0;
+    let links = format!("{sys}/links/");
+    while let Some(key) = todo.pop() {
+        let meta = c.meta(&key).await.unwrap();
+        let link = key.strip_prefix(&links).is_some_and(|id| !id.contains('/'));
+        if !link {
+            assert_eq!(meta.attr_value("display"), None, "{key}");
+        }
+        assert_eq!(key, key.to_lowercase());
+        for name in meta.children.unwrap_or_default() {
+            todo.push(format!("{key}/{name}"));
+        }
+        walked += 1;
+    }
+    assert!(walked > 40, "{walked} nodes");
     // sys itself carries the protocol version; no broker or metrics nodes,
     // but the broker's liveliness token is there
     let root = c.meta(&sys).await.unwrap();
