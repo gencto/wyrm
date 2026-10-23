@@ -3633,3 +3633,146 @@ async fn history_records_and_answers() {
         .any(|r| r.op == "history_watch"));
     env.stop().await;
 }
+
+/// ADR 0016: a watch lays `attr.history` (the watch key) over the point it
+/// records, for an embedded and a process link; the list summary carries
+/// `has_history`; Unsubscribe clears it; a router rebuild publishes it again;
+/// a loopback put on the overlay key (prod) changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_overlays_mark_recorded_points() {
+    let env = Env::start(
+        "overlays",
+        r#"links: {
+            mock: { driver: "mock", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
+            pm: { driver: "mock", mode: "process", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
+        },"#,
+    )
+    .await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let hist = format!("wy/{SITE}/sys/history");
+    c.invoke_one(
+        &hist,
+        "add_watch_group",
+        m(&[
+            ("name", Value::from("g")),
+            ("logging_type", Value::from("All Data")),
+        ]),
+    )
+    .await
+    .unwrap();
+    let group = format!("{hist}/g");
+    for link in ["mock", "pm"] {
+        eventually("the link is up", 20, || async {
+            c.meta(&format!("wy/{SITE}/downstream/{link}/g0/p0"))
+                .await
+                .ok()
+        })
+        .await;
+        c.invoke_one(
+            &group,
+            "add_watch_path",
+            m(&[("path", Value::from(format!("downstream/{link}/g0/p0")))]),
+        )
+        .await
+        .unwrap();
+    }
+    let history = |key: String| {
+        let c = &c;
+        async move {
+            c.meta(&key)
+                .await
+                .ok()
+                .and_then(|m| m.attr_value("history").cloned())
+        }
+    };
+    for (link, w) in [("mock", "w1"), ("pm", "w2")] {
+        let want = Value::Array(vec![Value::from(format!("{group}/{w}"))]);
+        eventually("the watch key in the point's meta", 20, || async {
+            (history(format!("wy/{SITE}/downstream/{link}/g0/p0"))
+                .await
+                .as_ref()
+                == Some(&want))
+            .then_some(())
+        })
+        .await;
+        let kids = c
+            .children(&format!("wy/{SITE}/downstream/{link}/g0"))
+            .await
+            .unwrap();
+        let flag = |name: &str| {
+            kids.iter()
+                .find(|k| k.name == name)
+                .and_then(|k| k.meta.has_history)
+        };
+        assert_eq!((flag("p0"), flag("p1")), (Some(true), None), "{link}");
+    }
+
+    // a loopback client cannot put the broker's attributes (prod)
+    let raw = loopback_session(env.port).await;
+    let forged = wyrm_core::Sample {
+        v: m(&[("g0/p1", m(&[("history", Value::Array(vec!["x".into()]))]))]),
+        q: wyrm_core::Quality::Good,
+        t: 1,
+    };
+    let _ = raw
+        .put(
+            format!("wy/{SITE}/sys/overlays/mock/~val"),
+            wyrm_core::codec::to_vec(&forged).unwrap(),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        history(format!("wy/{SITE}/downstream/mock/g0/p1")).await,
+        None
+    );
+    let _ = raw.close().await;
+
+    // Unsubscribe clears it
+    c.invoke_one(&format!("{group}/w2"), "unsubscribe", m(&[]))
+        .await
+        .unwrap();
+    eventually("the process link's overlay cleared", 20, || async {
+        history(format!("wy/{SITE}/downstream/pm/g0/p0"))
+            .await
+            .is_none()
+            .then_some(())
+    })
+    .await;
+
+    // a router rebuild (a new link) publishes it again
+    c.invoke_one(
+        &format!("wy/{SITE}/sys/links"),
+        "install",
+        m(&[
+            ("id", Value::from("extra")),
+            ("driver", Value::from("mock")),
+            ("mode", Value::from("embedded")),
+            (
+                "params",
+                m(&[
+                    ("points", Value::UInt(1)),
+                    ("rate_hz", Value::UInt(1)),
+                    ("depth", Value::UInt(1)),
+                    ("fanout", Value::UInt(1)),
+                ]),
+            ),
+        ]),
+    )
+    .await
+    .unwrap();
+    eventually("the overlay after a rebuild", 30, || async {
+        let c = env.client().await;
+        let key = format!("wy/{SITE}/downstream/mock/g0/p0");
+        let h = c.meta(&key).await.ok()?.attr_value("history").cloned()?;
+        (h == Value::Array(vec![Value::from(format!("{group}/w1"))])).then_some(())
+    })
+    .await;
+    env.stop().await;
+}

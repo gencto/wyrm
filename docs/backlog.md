@@ -297,3 +297,15 @@ and Metrics rows); click → the history window (as View History) on the
 **Decide:** option 1 (overlays) or 2 (index); a single key or an array;
 whether watches added before the change get `@history` by a one-time
 pass.
+
+**Done (2026-10-23, ADR 0016):** as a DSA broker keeps override attributes
+(`@@getHistory`), the admin publishes the attributes it holds for each
+link's nodes at `sys/overlays/<link>` and the link's SDK lays them over its
+`~meta` (a layer of its own, kept across re-declares; `rev` moves). Today
+the only source is the historian: `attr.history` = the watch keys that
+record a point, derived from the watches (existing ones included, nothing
+new stored). Spec 02 0.2.1: `view=list` key 16 `has_history`. Explorer: a
+history mark after a recorded point's name (tree and Metrics); a click
+opens its history, with the store shown (a choice when several); a site's
+historian is read at the point itself. Not covered: points of downstream
+sites (another broker's links).

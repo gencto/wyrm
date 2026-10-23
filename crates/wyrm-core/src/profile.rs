@@ -115,6 +115,7 @@ pub fn inherit(own: &NodeMeta, base: &NodeMeta) -> NodeMeta {
         has_override: own.has_override,
         children_count: own.children_count,
         q: own.q,
+        has_history: own.has_history,
     }
 }
 

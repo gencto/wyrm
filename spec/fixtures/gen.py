@@ -59,7 +59,7 @@ def fixtures():
     add("meta_profile_only", "~meta дитини, що повністю відповідає профілю", {0: 2, 10: 3})
     add("meta_view_list", "~meta?view=list: масив дітей скорочено", [
         {0: 2, 1: 1, 2: "°C", 11: False, 10: 17, 12: "Supply air temp"},
-        {0: 2, 1: 1, 11: False, 10: 9},
+        {0: 2, 1: 1, 11: False, 10: 9, 16: True},
         {0: 4, 1: 3, 11: False, 10: 2, 4: 2, 13: True},
     ])
     add("meta_view_keys", "~meta?view=keys: префіксно стиснуті ключі ('/'-суфікс = push, '' = pop)",

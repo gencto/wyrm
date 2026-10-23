@@ -20,7 +20,7 @@ use crate::registry::{
 };
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -1416,6 +1416,8 @@ impl Control {
         lcfg.admin_keys
             .extend(self.cfg.control_keys.iter().copied());
         lcfg.open_actions = vec!["hello".into(), "enroll".into()];
+        // the admin publishes overlays; it lays none over itself
+        lcfg.overlays = false;
         lcfg.audit = false; // the admin writes its own journal directly
         let admin = wyrm_link_sdk::spawn::<Admin>(
             session.clone(),
@@ -2300,6 +2302,81 @@ async fn declare_upstream(
     Ok(())
 }
 
+/// The broker's attributes for link nodes (ADR 0016), today only
+/// `history`: for each recorded point of this site, the keys of the watch
+/// nodes that record it, by link: `{<path>: {"history": [<watch key>…]}}`.
+/// Derived from the registry's watches, so nothing more is stored.
+pub(crate) fn overlay_maps(
+    reg: &Registry,
+    site: &str,
+) -> BTreeMap<String, BTreeMap<String, Value>> {
+    let down = format!("wy/{site}/downstream/");
+    let flows = format!("wy/{site}/dataflows/");
+    let mut by_link: BTreeMap<String, BTreeMap<String, Vec<Value>>> = BTreeMap::new();
+    for (group, g) in &reg.historian.groups {
+        for (id, w) in &g.watches {
+            let (link, path) = if let Some(rest) = w.key.strip_prefix(&down) {
+                match rest.split_once('/') {
+                    Some((l, p)) => (l.to_owned(), p.to_owned()),
+                    None => continue,
+                }
+            } else if let Some(rest) = w.key.strip_prefix(&flows) {
+                (FLOWS_LINK.to_owned(), rest.to_owned())
+            } else {
+                // a downstream site's point: its link is another broker's
+                continue;
+            };
+            by_link
+                .entry(link)
+                .or_default()
+                .entry(path)
+                .or_default()
+                .push(Value::Str(format!("wy/{site}/sys/history/{group}/{id}")));
+        }
+    }
+    by_link
+        .into_iter()
+        .map(|(link, paths)| {
+            let attrs = paths
+                .into_iter()
+                .map(|(p, keys)| {
+                    let a = BTreeMap::from([("history".to_owned(), Value::Array(keys))]);
+                    (p, Value::Map(a))
+                })
+                .collect();
+            (link, attrs)
+        })
+        .collect()
+}
+
+/// Publish every link's overlay map at `sys/overlays/<link>` (ADR 0016):
+/// after each broker build (the memory storage starts empty) and after each
+/// watch change. Links without overlays get an empty map, which clears any
+/// they had.
+pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    let reg = ctl.registry();
+    let mut maps = overlay_maps(&reg, &ctl.cfg.site);
+    let mut links: BTreeSet<String> = reg.links.keys().cloned().collect();
+    links.insert(FLOWS_LINK.to_owned());
+    links.extend(maps.keys().cloned());
+    ctx.declare_node(
+        "overlays",
+        NodeMeta::folder().attr(
+            "description",
+            "Attributes the broker lays over link nodes (ADR 0016): attr.history of recorded points.",
+        ),
+    )
+    .await?;
+    let t = now_us();
+    for link in links {
+        let m = maps.remove(&link).unwrap_or_default();
+        let k = format!("overlays/{link}");
+        ctx.declare_node(&k, NodeMeta::leaf(TypeCode::Map)).await?;
+        ctx.update(&k, Value::Map(m), Quality::Good, t).await?;
+    }
+    Ok(())
+}
+
 /// `sys/tokens` (as DSA's `/sys/tokens`, ADR 0015): Add Token, and one node
 /// per token with `uses` left and `expires`; never the token itself.
 async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
@@ -2785,6 +2862,7 @@ impl Link for Admin {
         declare_sys_values(&ctx, &cfg.ctl).await?;
         declare_sys_actions(&ctx, &cfg.ctl).await?;
         declare_peers(&ctx, &cfg.ctl).await?;
+        publish_overlays(&ctx, &cfg.ctl).await?;
         ctx.declare_node("links", NodeMeta::folder()).await?;
         ctx.declare_action(
             "links",

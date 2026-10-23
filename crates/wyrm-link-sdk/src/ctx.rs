@@ -475,6 +475,16 @@ impl LinkCtx {
         self.0.data_dir.as_deref()
     }
 
+    /// Lay the broker's overlays over the tree (ADR 0016) and publish the
+    /// `~meta` of every node they changed (and of its parent).
+    pub(crate) async fn apply_overlays(&self, overlays: crate::tree::Overlays) -> Result<()> {
+        let paths = self.tree_mut().set_overlays(overlays);
+        for p in paths {
+            self.publish_meta(&p).await?;
+        }
+        Ok(())
+    }
+
     async fn publish_changed(&self, path: &str, changed: Changed) -> Result<()> {
         if changed.node {
             self.publish_meta(path).await?;

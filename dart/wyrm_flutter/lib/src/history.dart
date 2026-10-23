@@ -57,12 +57,23 @@ class _HistoryWindowState extends State<_HistoryWindow> {
   /// The point's own meta: its unit for the rows and the chart.
   NodeMeta? _meta;
 
+  /// The store shown (one of `attr.history`); `null` before the meta came.
+  String? _store;
+
   @override
   void initState() {
     super.initState();
     _from.text = _iso(DateTime.now().subtract(const Duration(hours: 1)));
     widget.api.meta(widget.nodeKey).then((m) {
-      if (mounted) setState(() => _meta = m);
+      if (!mounted) return;
+      final stores = historyStores(m);
+      final store = stores.isEmpty ? null : stores.first;
+      final reload = historyReadKey(widget.nodeKey, store) != historyReadKey(widget.nodeKey, _store);
+      setState(() {
+        _meta = m;
+        _store = store;
+      });
+      if (reload) _load();
     }, onError: (Object _) {});
     _load();
   }
@@ -83,7 +94,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
     final interval = _interval.text.trim();
     try {
       final rows = await widget.api.history(
-        widget.nodeKey,
+        historyReadKey(widget.nodeKey, _store),
         from: _from.text.trim(),
         to: _to.text.trim(),
         agg: _rollup == 'none' ? null : _rollup,
@@ -158,6 +169,24 @@ class _HistoryWindowState extends State<_HistoryWindow> {
                 child: Text('History: ${widget.nodeKey}',
                     overflow: TextOverflow.ellipsis, style: WyStyle.tab.copyWith(fontSize: 14)),
               ),
+              // the store that records it (attr.history); a choice when several
+              if (historyStores(_meta) case final stores when stores.isNotEmpty)
+                stores.length == 1
+                    ? Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Text('store ${stores.first}', style: WyStyle.formLabel),
+                      )
+                    : SizedBox(
+                        width: 320,
+                        child: _EnumField(
+                          value: _store,
+                          options: stores,
+                          onChanged: (v) {
+                            setState(() => _store = v);
+                            _load();
+                          },
+                        ),
+                      ),
               IconButton(
                 tooltip: 'Close',
                 icon: const Icon(Icons.close, size: 18, color: WyStyle.text),

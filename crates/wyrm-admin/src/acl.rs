@@ -252,10 +252,26 @@ pub fn access_control_with_peers(
             &["put"],
             &[format!("wy/{site}/sys/audit/{id}")],
         ));
+        // The broker's attributes for its nodes (ADR 0016): read, never put.
+        let overlays = vec![format!("wy/{site}/sys/overlays/{id}/~val")];
+        rules.push(rule(
+            &format!("overlays-{id}-in"),
+            &["ingress"],
+            &["query", "declare_subscriber"],
+            &overlays,
+        ));
+        rules.push(rule(
+            &format!("overlays-{id}-out"),
+            &["egress"],
+            &["reply", "put"],
+            &overlays,
+        ));
         let mut link_rules = vec![
             json!(format!("link-{id}")),
             json!(format!("hello-{id}")),
             json!(format!("audit-{id}")),
+            json!(format!("overlays-{id}-in")),
+            json!(format!("overlays-{id}-out")),
             json!("broker-watch"),
             json!("broker-token"),
             json!("pub-in"),

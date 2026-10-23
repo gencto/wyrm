@@ -309,6 +309,23 @@ String unitSuffix(NodeMeta? meta) => switch (meta?.unit) {
         },
     };
 
+/// The stores that record a point (`attr.history`, spec 02 0.2.1; laid
+/// over the link's meta by the broker, ADR 0016).
+List<String> historyStores(NodeMeta? meta) => switch (meta?.attr?['history']) {
+      VArray(:final v) => [for (final s in v) if (s case VStr(:final v)) v],
+      _ => const [],
+    };
+
+/// A point some store records: the list summary's `has_history`, or
+/// `attr.history` of a full meta.
+bool isRecorded(NodeMeta? meta) => meta?.hasHistory == true || historyStores(meta).isNotEmpty;
+
+/// The key to read a store's history at: a site's historian
+/// (`wy/<site>/sys/history/…`) answers at the point itself; any other
+/// store at its own key.
+String historyReadKey(String point, String? store) =>
+    store == null || RegExp(r'^wy/[^/]+/sys/history/').hasMatch(store) ? point : store;
+
 String formatValue(Value v, NodeMeta? meta) {
   final unit = unitSuffix(meta);
   final precision = switch (meta?.cfg?['precision']) { VInt(:final v) => v, _ => 2 };

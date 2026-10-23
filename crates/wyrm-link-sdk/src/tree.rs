@@ -51,7 +51,8 @@ impl Node {
         m
     }
 
-    /// Child summary for `view=list`: keys `{0,1,2?,4?,10,11,12?,15?}`.
+    /// Child summary for `view=list`: keys `{0,1,2?,4?,10,11,12?,15?}`
+    /// (the tree adds 13 and 16).
     pub fn summary(&self) -> NodeMeta {
         NodeMeta {
             is: self.meta.is.clone(),
@@ -77,9 +78,49 @@ pub struct Changed {
     pub parent: Option<String>,
 }
 
+/// Attributes the broker may lay over a node (ADR 0016); others in an
+/// overlay are ignored, so a forged one cannot rewrite `display` or `cfg`.
+pub const OVERLAY_NAMES: [&str; 1] = ["history"];
+
+/// Overlays by node path: attribute name → value.
+pub type Overlays = HashMap<String, BTreeMap<String, Value>>;
+
 #[derive(Debug)]
 pub struct NodeTree {
     nodes: HashMap<String, Node>,
+    /// The broker's attributes for nodes (ADR 0016): a layer of its own, so
+    /// a re-declared node keeps them; merged into answers only.
+    overlays: Overlays,
+}
+
+/// `own` with the overlay laid over it: `history` is the union of both
+/// lists (own first), any other name the overlay's.
+fn merge_attr(
+    own: Option<BTreeMap<String, Value>>,
+    over: Option<&BTreeMap<String, Value>>,
+) -> Option<BTreeMap<String, Value>> {
+    let Some(over) = over.filter(|o| !o.is_empty()) else {
+        return own;
+    };
+    let mut out = own.unwrap_or_default();
+    for (name, v) in over {
+        match (name.as_str(), out.get(name), v) {
+            ("history", Some(Value::Array(mine)), Value::Array(theirs)) => {
+                let mut all = mine.clone();
+                all.extend(theirs.iter().filter(|t| !mine.contains(t)).cloned());
+                out.insert(name.clone(), Value::Array(all));
+            }
+            _ => {
+                out.insert(name.clone(), v.clone());
+            }
+        }
+    }
+    Some(out)
+}
+
+/// `attr.history` holds at least one store key.
+fn has_history(attr: Option<&BTreeMap<String, Value>>) -> bool {
+    matches!(attr.and_then(|a| a.get("history")), Some(Value::Array(a)) if !a.is_empty())
 }
 
 /// Parent path and last segment. `None` for the root.
@@ -110,6 +151,7 @@ fn sanitize(mut m: NodeMeta) -> NodeMeta {
     m.has_override = None;
     m.children_count = None;
     m.q = None;
+    m.has_history = None;
     m
 }
 
@@ -117,7 +159,57 @@ impl NodeTree {
     pub fn new(root: NodeMeta) -> Self {
         let mut nodes = HashMap::new();
         nodes.insert(String::new(), Node::new(sanitize(root)));
-        Self { nodes }
+        Self {
+            nodes,
+            overlays: HashMap::new(),
+        }
+    }
+
+    /// Replace the broker's overlays (ADR 0016): names outside
+    /// [`OVERLAY_NAMES`] and empty entries are dropped. Every declared node
+    /// whose overlay changed gets a new `rev`, and so does its parent (its
+    /// `view=list` summary changed). Returns the paths to publish again.
+    pub fn set_overlays(&mut self, new: Overlays) -> Vec<String> {
+        let new: Overlays = new
+            .into_iter()
+            .map(|(path, attrs)| {
+                let attrs: BTreeMap<String, Value> = attrs
+                    .into_iter()
+                    .filter(|(name, _)| OVERLAY_NAMES.contains(&name.as_str()))
+                    .collect();
+                (path, attrs)
+            })
+            .filter(|(_, attrs)| !attrs.is_empty())
+            .collect();
+        let mut paths: Vec<String> = new
+            .iter()
+            .filter(|(p, a)| self.overlays.get(*p) != Some(*a))
+            .map(|(p, _)| p.clone())
+            .chain(
+                self.overlays
+                    .keys()
+                    .filter(|p| !new.contains_key(*p))
+                    .cloned(),
+            )
+            .collect();
+        self.overlays = new;
+        paths.retain(|p| self.nodes.contains_key(p));
+        let mut out = Vec::new();
+        for p in paths {
+            if let Some(n) = self.nodes.get_mut(&p) {
+                n.rev = n.rev.wrapping_add(1);
+            }
+            if let Some((parent, _)) = split_parent(&p) {
+                if let Some(pn) = self.nodes.get_mut(parent) {
+                    pn.rev = pn.rev.wrapping_add(1);
+                }
+                out.push(parent.to_owned());
+            }
+            out.push(p);
+        }
+        out.sort();
+        out.dedup();
+        out
     }
 
     pub fn get(&self, path: &str) -> Option<&Node> {
@@ -292,6 +384,7 @@ impl NodeTree {
     /// `view=full` for a caller; `children` hides restricted ones unless `authorized`.
     pub fn full(&self, path: &str, authorized: bool) -> Option<NodeMeta> {
         let mut m = self.nodes.get(path)?.full();
+        m.attr = merge_attr(m.attr.take(), self.overlays.get(path));
         if m.children.is_some() {
             let kids: Vec<String> = self.visible_children(path, authorized).cloned().collect();
             m.children_count = Some(kids.len() as u32);
@@ -326,10 +419,16 @@ impl NodeTree {
                 .skip(from)
                 .take(limit)
                 .filter_map(|c| {
-                    self.nodes.get(&join(path, c)).map(|n| {
+                    let child = join(path, c);
+                    self.nodes.get(&child).map(|n| {
                         let mut s = n.summary();
                         if overrides(&n.meta) {
                             s.has_override = Some(true);
+                        }
+                        if has_history(n.meta.attr.as_ref())
+                            || has_history(self.overlays.get(&child))
+                        {
+                            s.has_history = Some(true);
                         }
                         s
                     })

@@ -297,6 +297,9 @@ class NodeMeta {
   int? childrenCount;
   int? q;
 
+  /// `view=list`: `attr.history` is not empty (spec 02 0.2.1, key 16).
+  bool? hasHistory;
+
   NodeMeta({
     this.is_,
     this.ty,
@@ -314,6 +317,7 @@ class NodeMeta {
     this.hasOverride,
     this.childrenCount,
     this.q,
+    this.hasHistory,
   });
 
   /// Profile name (`wy:number`) or `#<code>` for codes this table lacks.
@@ -350,6 +354,7 @@ class NodeMeta {
         if (hasOverride != null) (13, (w) => w.boolean(hasOverride!)),
         if (childrenCount != null) (14, (w) => w.uint(childrenCount!)),
         if (q != null) (15, (w) => w.uint(q!)),
+        if (hasHistory != null) (16, (w) => w.boolean(hasHistory!)),
       ];
 
   void _encodeEntries(CborWriter w, List<(int, void Function(CborWriter))> fields) {
@@ -408,6 +413,8 @@ class NodeMeta {
         childrenCount = r.readUint();
       case 15:
         q = r.readUint();
+      case 16:
+        hasHistory = r.readBool();
       default:
         r.skip();
     }

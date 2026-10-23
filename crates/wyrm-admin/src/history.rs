@@ -770,6 +770,7 @@ pub(crate) async fn invoke(
                 refresh_dates(ctl, ctx, group, id, &w.key).await;
             }
             apply_groups(ctl);
+            crate::control::publish_overlays(ctx, ctl).await?;
             Ok(None)
         }
         ([group], "remove") => {
@@ -783,6 +784,7 @@ pub(crate) async fn invoke(
             ctl.apply(Op::RemoveWatchGroup((*group).to_owned()))
                 .map_err(rejected)?;
             apply_groups(ctl);
+            crate::control::publish_overlays(ctx, ctl).await?;
             let mut n = 0;
             if matches!(arg(args, "purge"), Some(Value::Bool(true))) {
                 for w in g.watches.values() {
@@ -837,6 +839,7 @@ pub(crate) async fn invoke(
             })
             .map_err(rejected)?;
             apply_groups(ctl);
+            crate::control::publish_overlays(ctx, ctl).await?;
             let n = if action == "unsubscribe_purge" {
                 purge(ctl, Some(&w.key), 0, u64::MAX).await?
             } else {

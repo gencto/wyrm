@@ -68,6 +68,9 @@ pub struct LinkConfig {
     /// Liveliness key of the broker (`wy/<site>/sys/broker`): when it comes
     /// back (router restart), re-publish all `~meta` and last values.
     pub republish_on: Option<String>,
+    /// Follow the broker's attributes for this link's nodes at
+    /// `wy/<site>/sys/overlays/<link>/~val` (ADR 0016). On by default.
+    pub overlays: bool,
     /// `set`/`invoke` per caller: `(requests per second, burst)`; `None` = off.
     pub rate_limit: Option<(f64, f64)>,
     /// Put an audit record for every `set`/`invoke` on `wy/<site>/sys/audit/<link>`.
@@ -105,6 +108,7 @@ impl LinkConfig {
             root: None,
             open_actions: Vec::new(),
             republish_on: None,
+            overlays: true,
             rate_limit: Some((50.0, 100.0)),
             audit: true,
             read_rate_limit: Some((5000.0, 10_000.0)),
@@ -263,12 +267,28 @@ pub async fn spawn<L: Link>(
     });
     let profiles = shared.profiles.clone();
     let (psession, psite) = (session.clone(), cfg.site.clone());
-    // One task: aborting it stops the queryable and the profile follower.
+    let overlays = cfg.overlays.then(|| {
+        (
+            ctx.clone(),
+            format!(
+                "{}/{}/sys/overlays/{}/~val",
+                keyspace::ROOT,
+                cfg.site,
+                cfg.link
+            ),
+        )
+    });
+    // One task: aborting it stops the queryable and the followers.
     let query_task = tokio::spawn(
         async move {
             tokio::join!(
                 serve(shared, queryable),
-                follow_profiles(psession, psite, profiles)
+                follow_profiles(psession, psite, profiles),
+                async move {
+                    if let Some((ctx, key)) = overlays {
+                        follow_overlays(ctx, key).await;
+                    }
+                }
             );
         }
         .instrument(span.clone()),
@@ -306,6 +326,77 @@ pub async fn spawn<L: Link>(
         watcher,
         token: Some(token),
     })
+}
+
+/// The broker's attributes for this link's nodes (ADR 0016): a sample of
+/// `{<path>: {<name>: value}}` on `key`, the last one first (storage), then
+/// every change. An unreadable sample is ignored.
+async fn follow_overlays(ctx: LinkCtx, key: String) {
+    let session = ctx.client().clone();
+    // subscribe first: no update is lost between the get and the subscriber
+    let sub = match session.declare_subscriber(&key).await {
+        Ok(s) => s,
+        Err(e) => {
+            debug!("cannot follow {key}: {e}");
+            return;
+        }
+    };
+    let apply = |payload: Vec<u8>| {
+        let ctx = ctx.clone();
+        async move {
+            let Some(o) = decode_overlays(&payload) else {
+                debug!("overlay sample unreadable: ignored");
+                return true;
+            };
+            ctx.apply_overlays(o).await.is_ok()
+        }
+    };
+    if let Ok(replies) = session
+        .get(&key)
+        .consolidation(zenoh::query::ConsolidationMode::Latest)
+        .timeout(Duration::from_secs(3))
+        .await
+    {
+        while let Ok(r) = replies.recv_async().await {
+            if let Ok(s) = r.result() {
+                if !apply(s.payload().to_bytes().to_vec()).await {
+                    return; // link stopped
+                }
+            }
+        }
+    }
+    while let Ok(s) = sub.recv_async().await {
+        let payload = match s.kind() {
+            zenoh::sample::SampleKind::Put => s.payload().to_bytes().to_vec(),
+            // deleted: no overlays
+            zenoh::sample::SampleKind::Delete => Vec::new(),
+        };
+        let ok = if payload.is_empty() {
+            ctx.apply_overlays(Default::default()).await.is_ok()
+        } else {
+            apply(payload).await
+        };
+        if !ok {
+            return;
+        }
+    }
+}
+
+/// A `~val` sample whose value is `{<path>: {<name>: value}}`.
+fn decode_overlays(payload: &[u8]) -> Option<crate::tree::Overlays> {
+    let sample: wyrm_core::Sample = wyrm_core::codec::from_slice(payload).ok()?;
+    let Value::Map(paths) = sample.v else {
+        return None;
+    };
+    Some(
+        paths
+            .into_iter()
+            .filter_map(|(path, attrs)| match attrs {
+                Value::Map(a) => Some((path, a)),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 /// Re-publish whenever the broker's liveliness token re-appears.

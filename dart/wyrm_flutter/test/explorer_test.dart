@@ -148,6 +148,29 @@ class SettableApi extends ActApi {
   }
 }
 
+/// A recorded point (ADR 0016): `temp` has `has_history` in the list and
+/// `attr.history` (the broker's historian, and a link's own store) in its
+/// meta.
+class RecordedApi extends SettableApi {
+  static const store = 'wy/s/sys/history/g/w1';
+  static const linkStore = 'wy/s/downstream/rec/temp';
+
+  @override
+  Future<List<Child>> children(String key) async => key == 'wy/s/downstream/c'
+      ? [
+          Child('temp', NodeMeta(ty: TypeCode.number, unit: const TText('°C'), hasChildren: false, hasHistory: true)),
+          Child('energy', SettableApi.energy),
+        ]
+      : super.children(key);
+
+  @override
+  Future<NodeMeta> meta(String key) async => key == 'wy/s/downstream/c/temp'
+      ? NodeMeta(ty: TypeCode.number, unit: const TText('°C'), attr: {
+          'history': const VArray([VStr(store), VStr(linkStore)])
+        })
+      : super.meta(key);
+}
+
 Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
   await t.pumpAndSettle();
@@ -415,5 +438,29 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('21.50 °C'), findsOneWidget);
     expect(find.text('7 kWh'), findsOneWidget);
+  });
+
+  testWidgets('a recorded point has a history mark; it opens its history from the store', (t) async {
+    t.view.physicalSize = const Size(1400, 900);
+    t.view.devicePixelRatio = 1;
+    final api = RecordedApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
+    final mark = find.byKey(const ValueKey('history-mark:wy/s/downstream/c/temp'));
+    expect(mark, findsOneWidget);
+    expect(find.byKey(const ValueKey('history-mark:wy/s/downstream/c/energy')), findsNothing);
+    await t.tap(mark);
+    await t.pumpAndSettle();
+    expect(find.text('History: wy/s/downstream/c/temp'), findsOneWidget);
+    // the broker's historian answers at the point itself (rights as the value)
+    expect(api.histories.last.$1, 'wy/s/downstream/c/temp');
+    // two stores: a choice; the link's store is read at its own key
+    await t.tap(find.text(RecordedApi.store));
+    await t.pumpAndSettle();
+    await t.tap(find.text(RecordedApi.linkStore).last);
+    await t.pumpAndSettle();
+    expect(api.histories.last.$1, RecordedApi.linkStore);
   });
 }

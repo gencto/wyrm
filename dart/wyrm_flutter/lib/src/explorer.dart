@@ -11,7 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'explorer_theme.dart';
-import 'tree.dart' show formatValue, unitSuffix;
+import 'tree.dart' show formatValue, unitSuffix, historyStores, isRecorded, historyReadKey;
 
 part 'history.dart';
 
@@ -320,10 +320,36 @@ class _WyExplorerState extends State<WyExplorer> {
             child: Text(r.name,
                 maxLines: 1, overflow: TextOverflow.clip, softWrap: false, style: WyStyle.label.copyWith(color: fg)),
           ),
+          if (isRecorded(r.meta)) _HistoryMark(api: widget.api, nodeKey: r.key, color: fg),
         ]),
       ),
     );
   }
+}
+
+/// The mark of a recorded point (`attr.history`, ADR 0016): a click opens
+/// its history.
+class _HistoryMark extends StatelessWidget {
+  final WyrmApi api;
+  final String nodeKey;
+  final Color color;
+  const _HistoryMark({required this.api, required this.nodeKey, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: 'Recorded: open its history',
+        child: GestureDetector(
+          key: ValueKey('history-mark:$nodeKey'),
+          onTap: () => WyHistory.open(context, api, nodeKey),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Icon(Icons.history, size: 14, color: color),
+            ),
+          ),
+        ),
+      );
 }
 
 /// One action in the menu: its key, meta (`null` = the `@set` pseudo-action)
@@ -582,9 +608,12 @@ class _MenuItemState extends State<_MenuItem> {
           color: on ? WyStyle.selected : null,
           padding: const EdgeInsets.only(left: 15, right: 10),
           child: Row(children: [
-            Text(widget.label, style: WyStyle.menu.copyWith(color: color)),
+            // a long label (a store key) ends in an ellipsis
+            Expanded(
+              child: Text(widget.label,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: WyStyle.menu.copyWith(color: color)),
+            ),
             const SizedBox(width: 10),
-            const Spacer(),
             if (widget.submenu)
               SizedBox(
                 width: 6,
@@ -1511,8 +1540,10 @@ class _MetricRowState extends State<_MetricRow> {
         const SizedBox(width: 5 + 8),
         GestureDetector(
           onDoubleTap: _toggle,
-          child: Text(s == null ? widget.name : '${widget.name} : '),
+          child: Text(widget.name),
         ),
+        if (isRecorded(_meta)) _HistoryMark(api: widget.api, nodeKey: widget.key2, color: WyStyle.text),
+        if (s != null) const Text(' : '),
         if (_edit != null)
           SizedBox(
             width: 110,

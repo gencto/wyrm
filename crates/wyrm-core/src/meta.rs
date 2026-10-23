@@ -117,6 +117,8 @@ pub struct NodeMeta {
     pub has_override: Option<bool>,
     pub children_count: Option<u32>,
     pub q: Option<u8>,
+    /// `view=list`: `attr.history` is not empty (spec 02 0.2.1).
+    pub has_history: Option<bool>,
 }
 
 /// `~meta` publication: full or `{rev, patch}`.
@@ -292,6 +294,7 @@ impl<C> Encode<C> for NodeMeta {
             self.has_override.is_some(),
             self.children_count.is_some(),
             self.q.is_some(),
+            self.has_history.is_some(),
         ]
         .iter()
         .filter(|b| **b)
@@ -357,6 +360,9 @@ impl<C> Encode<C> for NodeMeta {
         }
         if let Some(v) = self.q {
             e.u8(15)?.u8(v)?;
+        }
+        if let Some(v) = self.has_history {
+            e.u8(16)?.bool(v)?;
         }
         Ok(())
     }
@@ -510,6 +516,7 @@ impl<'b, C> Decode<'b, C> for NodeMeta {
                 13 => m.has_override = Some(d.bool()?),
                 14 => m.children_count = Some(d.u32()?),
                 15 => m.q = Some(d.u8()?),
+                16 => m.has_history = Some(d.bool()?),
                 _ => d.skip()?,
             }
         }

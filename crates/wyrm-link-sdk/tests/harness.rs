@@ -661,3 +661,94 @@ async fn data_dir_reaches_ctx() {
     assert_eq!(h.ctx().data_dir(), Some(dir.as_path()));
     h.stop().await;
 }
+
+/// ADR 0016: the broker's attributes arrive on `sys/overlays/<link>/~val`;
+/// `~meta` and the list summary show them, `rev` moves, a re-declared node
+/// keeps them, unknown names are ignored, an empty map clears them.
+#[tokio::test(flavor = "multi_thread")]
+async fn broker_overlays_merge_into_meta() {
+    let (h, _) = harness().await;
+    let overlay_key = format!("wy/{SITE}/sys/overlays/demo/~val");
+    let publish = |v: Value| {
+        let key = overlay_key.clone();
+        let s = h.session().clone();
+        async move {
+            let sample = Sample {
+                v,
+                q: Quality::Good,
+                t: 1,
+            };
+            s.put(key, wyrm_core::codec::to_vec(&sample).unwrap())
+                .await
+                .unwrap();
+        }
+    };
+    let store = "wy/test/sys/history/g/w1";
+    let attrs = |pairs: Vec<(&str, Value)>| {
+        Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+    };
+    let (att, _) = h.meta("ahu1/supply_temp").await;
+    let (parent_att, _) = h.meta("ahu1").await;
+    let rev = att.rev.unwrap();
+    publish(attrs(vec![(
+        "ahu1/supply_temp",
+        attrs(vec![
+            ("history", Value::Array(vec![store.into()])),
+            ("display", "forged".into()),
+        ]),
+    )]))
+    .await;
+    let mut seen = None;
+    for _ in 0..50 {
+        let (att, m) = h.meta("ahu1/supply_temp").await;
+        if att.rev != Some(rev) {
+            seen = m;
+            assert_eq!(att.rev, Some(rev + 1));
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let m = seen.expect("the overlay arrives");
+    assert_eq!(
+        m.attr_value("history"),
+        Some(&Value::Array(vec![store.into()]))
+    );
+    // own attributes stay; an unknown name is not laid over
+    assert_eq!(
+        m.attr_value("tag"),
+        Some(&Value::Array(vec!["hvac".into()]))
+    );
+    assert_eq!(m.attr_value("display"), None);
+    // a cached rev is not "unchanged" any more
+    let r = h
+        .query(
+            &format!("{}?rev={rev}", h.key("ahu1/supply_temp", "~meta")),
+            None,
+            Default::default(),
+        )
+        .await;
+    assert!(!r[0].payload.is_empty());
+    let (parent_now, _) = h.meta("ahu1").await;
+    assert_ne!(parent_now.rev, parent_att.rev, "the parent's list changed");
+    let (_, kids) = h.list("ahu1").await;
+    let flags: Vec<Option<bool>> = kids.iter().map(|k| k.has_history).collect();
+    assert_eq!(flags.iter().filter(|f| **f == Some(true)).count(), 1);
+    // the driver declares the node again: the overlay stays
+    h.ctx()
+        .declare_node("ahu1/supply_temp", NodeMeta::number().unit("K"))
+        .await
+        .unwrap();
+    let (_, m) = h.meta("ahu1/supply_temp").await;
+    assert!(m.unwrap().attr_value("history").is_some());
+    // an empty map clears it
+    publish(Value::Map(Default::default())).await;
+    for _ in 0..50 {
+        let (_, m) = h.meta("ahu1/supply_temp").await;
+        if m.unwrap().attr_value("history").is_none() {
+            h.stop().await;
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the overlay was not cleared");
+}
