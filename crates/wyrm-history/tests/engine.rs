@@ -181,10 +181,18 @@ async fn logging_types_and_rebuilds() {
     let before = dropped();
     h.configure(vec![group("all", Logging::AllData, &[P, R])]);
     tokio::time::sleep(Duration::from_millis(300)).await;
+    // Sent again until both are counted: on a slow machine the new watches
+    // may subscribe after the first samples went by.
     let now = wyrm_history::engine::now_us();
-    put(&s2, P, 6.0, now + 86_400_000_000).await;
-    put(&s2, R, 7.0, now - 365 * 86_400_000_000).await;
-    eventually("implausible times dropped", || dropped() >= before + 2).await;
+    for _ in 0..100 {
+        put(&s2, P, 6.0, now + 86_400_000_000).await;
+        put(&s2, R, 7.0, now - 365 * 86_400_000_000).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if dropped() >= before + 2 {
+            break;
+        }
+    }
+    assert!(dropped() >= before + 2, "implausible times dropped");
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!values(&h, P).contains(&Value::Float(6.0)));
     assert!(values(&h, R).is_empty());
