@@ -8,7 +8,7 @@ use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::{NodeMeta, Value};
 use wyrm_ffi::*;
 
-const ROOT: &str = "wy/test/down/mock";
+const ROOT: &str = "wy/test/downstream/mock";
 
 struct H(*mut WyrmHandle);
 

@@ -1,5 +1,5 @@
 //! `wyr` — WYRM command line. Node keys are full keys without suffix:
-//! `wyr list wy/local/down/mock/g0`.
+//! `wyr list wy/local/downstream/mock/g0`.
 //!
 //! Developer commands (wiki "AI-агент, MCP і CLI" §3): `new link|flow`
 //! (templates in `tools/wyr/templates`), `dev` (flow hot reload), `sim`
@@ -63,7 +63,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Children of a node (`wy/<site>/down` lists links).
+    /// Children of a node (`wy/<site>/downstream` lists links).
     List {
         node: String,
         /// Keep running and print changes.
@@ -82,12 +82,12 @@ enum Cmd {
     },
     /// Recursive listing (one `list` per branch), depth-limited.
     Tree {
-        #[arg(default_value = "wy/local/down")]
+        #[arg(default_value = "wy/local/downstream")]
         node: String,
         #[arg(long, default_value_t = 3)]
         depth: usize,
     },
-    /// Live values for a node pattern (`wy/local/down/mock/**`).
+    /// Live values for a node pattern (`wy/local/downstream/mock/**`).
     #[command(visible_alias = "watch")]
     Sub {
         pattern: String,
@@ -128,7 +128,7 @@ enum Cmd {
         #[command(subcommand)]
         what: bench::What,
     },
-    /// Data flows (`wy/<site>/flows`).
+    /// Data flows (`wy/<site>/dataflows`).
     Flow {
         #[command(subcommand)]
         cmd: flow::FlowCmd,
@@ -186,7 +186,7 @@ enum Cmd {
     /// Mint a human approval token for exactly one request key (base64), for
     /// `wyrm-mcp` / `links/agent` config-level operations. Needs --key.
     Token {
-        /// Full request key, e.g. `wy/local/down/plc1/sp/~set`.
+        /// Full request key, e.g. `wy/local/downstream/plc1/sp/~set`.
         key_expr: String,
         /// Your identity, e.g. `user:alice` (never `ai:`).
         #[arg(long)]
@@ -779,7 +779,7 @@ mod tests {
         assert!(ok(&["new", "flow", "peak"]).is_ok());
         assert!(ok(&["dev", "--flows", "f", "--site", "s"]).is_ok());
         assert!(ok(&["--key", "admin.key", "dev"]).is_ok());
-        assert!(ok(&["token", "wy/s/down/l/p/~set", "--subject", "user:a"]).is_ok());
+        assert!(ok(&["token", "wy/s/downstream/l/p/~set", "--subject", "user:a"]).is_ok());
         assert!(ok(&["sim", "mock", "--points", "500", "--hz", "10", "--depth", "2"]).is_ok());
         assert!(ok(&[
             "sim",
@@ -790,12 +790,20 @@ mod tests {
             "ab"
         ])
         .is_ok());
-        assert!(ok(&["record", "wy/s/down/**", "--out", "r.cbor", "--secs", "5"]).is_ok());
+        assert!(ok(&[
+            "record",
+            "wy/s/downstream/**",
+            "--out",
+            "r.cbor",
+            "--secs",
+            "5"
+        ])
+        .is_ok());
         assert!(ok(&["replay", "r.cbor", "--flow", "f.json5", "--speed", "10"]).is_ok());
         assert!(ok(&["replay", "r.cbor"]).is_err(), "--flow is required");
         assert!(matches!(ok(&["tree"]).unwrap(), Cmd::Tree { depth: 3, .. }));
         assert!(matches!(
-            ok(&["tree", "wy/s/down/m", "--depth", "1"]).unwrap(),
+            ok(&["tree", "wy/s/downstream/m", "--depth", "1"]).unwrap(),
             Cmd::Tree { depth: 1, .. }
         ));
         assert!(matches!(
@@ -814,7 +822,7 @@ mod tests {
     fn approval_tokens() {
         use base64::Engine;
         let key = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
-        let k = "wy/s/down/l/p/~set";
+        let k = "wy/s/downstream/l/p/~set";
         let t = approval_token(key.clone(), k, "user:alice", "config", 300).unwrap();
         let raw = base64::engine::general_purpose::STANDARD.decode(t).unwrap();
         let parts = wyrm_core::ptok::split(&raw).unwrap();
@@ -826,7 +834,7 @@ mod tests {
         assert!(claims.exp - claims.iat <= 300);
         assert!(approval_token(key.clone(), k, "ai:bot", "config", 300).is_err());
         assert!(approval_token(key.clone(), k, "user:a", "config", 3600).is_err());
-        assert!(approval_token(key.clone(), "wy/s/down/**", "user:a", "config", 60).is_err());
+        assert!(approval_token(key.clone(), "wy/s/downstream/**", "user:a", "config", 60).is_err());
         assert!(approval_token(key, k, "user:a", "root", 60).is_err());
     }
 }

@@ -59,7 +59,7 @@ impl ApprovalMode {
 #[derive(Debug, Clone)]
 pub struct Policy {
     pub site: String,
-    /// `wy/<site>/down/<agent link>`: never a target.
+    /// `wy/<site>/downstream/<agent link>`: never a target.
     pub own: String,
     /// Full node keys; empty = nothing is writable.
     pub allowed: Vec<String>,
@@ -276,9 +276,9 @@ pub async fn check_proposal(
 
 /// Tool definitions for the Messages API (`tools`).
 pub fn definitions() -> Json {
-    let path = json!({"type": "string", "description": "Node key, `wy/<site>/down/<link>/<path>` or relative to the site (`down/mock/p0`)."});
+    let path = json!({"type": "string", "description": "Node key, `wy/<site>/downstream/<link>/<path>` or relative to the site (`downstream/mock/p0`)."});
     json!([
-        {"name": "tree_list", "description": "(Read tools see only allowed_prefixes and pub/**.) Children of a node with their ~meta summary (type, unit, writable, display, has_children). `down` lists links. Paged with from/limit; `next` is the next `from`.",
+        {"name": "tree_list", "description": "(Read tools see only allowed_prefixes and pub/**.) Children of a node with their ~meta summary (type, unit, writable, display, has_children). `downstream` lists links. Paged with from/limit; `next` is the next `from`.",
          "input_schema": {"type": "object", "properties": {"path": path, "from": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["path"]}},
         {"name": "tree_resolve", "description": "Descendant keys of a node, optionally filtered by ~meta fields (`match`, e.g. `type:1;unit:°C`) and depth. Cheap: keys only.",
          "input_schema": {"type": "object", "properties": {"path": path, "match": {"type": "string"}, "depth": {"type": "integer"}}, "required": ["path"]}},
@@ -496,7 +496,7 @@ impl Reader<'_> {
     async fn flow_get(&self, input: &Json) -> Out {
         let id = str_field(input, "id")?;
         wyrm_core::keyspace::validate_segment(id).map_err(err)?;
-        let node = format!("wy/{}/flows/{id}", self.site);
+        let node = format!("wy/{}/dataflows/{id}", self.site);
         // Before any proof is minted or a definition is read.
         self.policy.may_read(&node)?;
         let key = format!("{node}/~def");
@@ -511,14 +511,15 @@ impl Reader<'_> {
     }
 
     async fn flow_validate(&self, input: &Json) -> Out {
-        self.policy.may_read(&format!("wy/{}/flows", self.site))?;
+        self.policy
+            .may_read(&format!("wy/{}/dataflows", self.site))?;
         let def = json_to_value(input.get("def").ok_or("`def` is required")?)?;
         let mut args = BTreeMap::new();
         args.insert("def".to_owned(), def);
         let r = self
             .client
             .invoke_one(
-                &format!("wy/{}/flows", self.site),
+                &format!("wy/{}/dataflows", self.site),
                 "validate",
                 Value::Map(args),
             )
@@ -553,8 +554,8 @@ mod tests {
     fn approval_bar_never_drops_after_planning() {
         let op = PlanOp {
             op: OpKind::Set,
-            node: "wy/s/down/m/p".into(),
-            key: "wy/s/down/m/p/~set".into(),
+            node: "wy/s/downstream/m/p".into(),
+            key: "wy/s/downstream/m/p/~set".into(),
             action: None,
             payload: Value::Float(1.0),
             level: Perm::Write,
@@ -575,7 +576,7 @@ mod tests {
     fn policy(allowed: &[&str], mode: ApprovalMode) -> Policy {
         Policy {
             site: "s".into(),
-            own: "wy/s/down/agent".into(),
+            own: "wy/s/downstream/agent".into(),
             allowed: allowed.iter().map(|s| (*s).to_owned()).collect(),
             mode,
         }
@@ -583,25 +584,31 @@ mod tests {
 
     #[test]
     fn prefixes_on_segment_boundaries() {
-        let p = policy(&["wy/s/down/mock"], ApprovalMode::Write);
-        assert!(p.may_touch("wy/s/down/mock").is_ok());
-        assert!(p.may_touch("wy/s/down/mock/p0").is_ok());
-        assert!(p.may_touch("wy/s/down/mockery/p0").is_err());
-        assert!(p.may_touch("wy/s/down/agent/tasks").is_err());
+        let p = policy(&["wy/s/downstream/mock"], ApprovalMode::Write);
+        assert!(p.may_touch("wy/s/downstream/mock").is_ok());
+        assert!(p.may_touch("wy/s/downstream/mock/p0").is_ok());
+        assert!(p.may_touch("wy/s/downstream/mockery/p0").is_err());
+        assert!(p.may_touch("wy/s/downstream/agent/tasks").is_err());
         assert!(policy(&[], ApprovalMode::Write)
-            .may_touch("wy/s/down/mock/p0")
+            .may_touch("wy/s/downstream/mock/p0")
             .is_err());
-        let own = policy(&["wy/s/down"], ApprovalMode::Write);
-        assert!(own.may_touch("wy/s/down/agent/x").is_err());
+        let own = policy(&["wy/s/downstream"], ApprovalMode::Write);
+        assert!(own.may_touch("wy/s/downstream/agent/x").is_err());
     }
 
     #[test]
     fn keys_and_modes() {
-        assert_eq!(node_key("s", "down/mock/p0").unwrap(), "wy/s/down/mock/p0");
-        assert_eq!(node_key("s", "wy/s/down/m").unwrap(), "wy/s/down/m");
-        assert!(node_key("s", "wy/t/down/m").is_err());
-        assert!(node_key("s", "down/*/p0").is_err());
-        assert!(node_key("s", "down/m/~set").is_err());
+        assert_eq!(
+            node_key("s", "downstream/mock/p0").unwrap(),
+            "wy/s/downstream/mock/p0"
+        );
+        assert_eq!(
+            node_key("s", "wy/s/downstream/m").unwrap(),
+            "wy/s/downstream/m"
+        );
+        assert!(node_key("s", "wy/t/downstream/m").is_err());
+        assert!(node_key("s", "downstream/*/p0").is_err());
+        assert!(node_key("s", "downstream/m/~set").is_err());
         assert!(ApprovalMode::Write.needs_approval(Perm::Write));
         assert!(!ApprovalMode::Config.needs_approval(Perm::Write));
         assert!(ApprovalMode::Config.needs_approval(Perm::Config));

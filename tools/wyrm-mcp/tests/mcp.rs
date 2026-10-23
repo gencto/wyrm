@@ -141,8 +141,8 @@ impl Env {
         let plant = wyrm_link_sdk::spawn::<Plant>(session.clone(), link_cfg("plant", None), ())
             .await
             .unwrap();
-        let mut ecfg = LinkConfig::new(SITE, "flows");
-        ecfg.root = Some(format!("wy/{SITE}/flows"));
+        let mut ecfg = LinkConfig::new(SITE, "dataflows");
+        ecfg.root = Some(format!("wy/{SITE}/dataflows"));
         ecfg.admin_keys = vec![key().verifying_key()];
         ecfg.answer_val = true;
         let engine = wyrm_link_sdk::spawn::<Engine>(
@@ -268,7 +268,9 @@ async fn browse_and_read() {
         assert!(names.contains(&n), "missing tool {n}: {names:?}");
     }
 
-    let links = env.ok("tree_list", json!({ "path": "wy/test/down" })).await;
+    let links = env
+        .ok("tree_list", json!({ "path": "wy/test/downstream" }))
+        .await;
     let ids: Vec<&str> = links["children"]
         .as_array()
         .unwrap()
@@ -278,16 +280,19 @@ async fn browse_and_read() {
     assert!(ids.contains(&"mock") && ids.contains(&"plant"), "{links}");
 
     let kids = env
-        .ok("tree_list", json!({ "path": "down/mock", "limit": 1 }))
+        .ok(
+            "tree_list",
+            json!({ "path": "downstream/mock", "limit": 1 }),
+        )
         .await;
     assert_eq!(kids["total"], 2);
     assert_eq!(kids["next"], 1);
     assert_eq!(kids["children"][0]["name"], "p0");
-    assert_eq!(kids["children"][0]["path"], "wy/test/down/mock/p0");
+    assert_eq!(kids["children"][0]["path"], "wy/test/downstream/mock/p0");
     assert_eq!(kids["children"][0]["type"], "number");
 
     let keys = env
-        .ok("tree_resolve", json!({ "path": "wy/test/down/mock" }))
+        .ok("tree_resolve", json!({ "path": "wy/test/downstream/mock" }))
         .await;
     let keys: Vec<&str> = keys["keys"]
         .as_array()
@@ -298,7 +303,10 @@ async fn browse_and_read() {
     assert!(keys.contains(&"p0") && keys.contains(&"p1"), "{keys:?}");
 
     let meta = env
-        .ok("node_meta", json!({ "path": "wy/test/down/plant/sp" }))
+        .ok(
+            "node_meta",
+            json!({ "path": "wy/test/downstream/plant/sp" }),
+        )
         .await;
     assert_eq!(meta["writable"], "config");
     assert_eq!(meta["unit"], "°C");
@@ -306,7 +314,7 @@ async fn browse_and_read() {
     let root = env
         .ok(
             "node_meta",
-            json!({ "path": "wy/test/down/mock", "expand": true }),
+            json!({ "path": "wy/test/downstream/mock", "expand": true }),
         )
         .await;
     assert_eq!(root["actions"]["count"]["params"]["n"]["required"], true);
@@ -315,21 +323,24 @@ async fn browse_and_read() {
     let vals = env
         .ok(
             "value_get",
-            json!({ "paths": ["wy/test/down/plant/sp", "down/plant/mode", "down/plant/nope"] }),
+            json!({ "paths": ["wy/test/downstream/plant/sp", "downstream/plant/mode", "downstream/plant/nope"] }),
         )
         .await;
-    assert_eq!(vals["wy/test/down/plant/sp"]["v"], 20.0);
-    assert_eq!(vals["wy/test/down/plant/sp"]["q"], "good");
-    assert_eq!(vals["down/plant/mode"]["v"], 0);
-    assert!(vals["down/plant/nope"]["error"].is_string(), "{vals}");
+    assert_eq!(vals["wy/test/downstream/plant/sp"]["v"], 20.0);
+    assert_eq!(vals["wy/test/downstream/plant/sp"]["q"], "good");
+    assert_eq!(vals["downstream/plant/mode"]["v"], 0);
+    assert!(vals["downstream/plant/nope"]["error"].is_string(), "{vals}");
 
     // other sites and suffixes are refused before anything is sent
     let e = env
-        .fails("node_meta", json!({ "path": "wy/other/down/x" }))
+        .fails("node_meta", json!({ "path": "wy/other/downstream/x" }))
         .await;
     assert!(e.contains("serves site"), "{e}");
     let e = env
-        .fails("node_meta", json!({ "path": "wy/test/down/mock/~meta" }))
+        .fails(
+            "node_meta",
+            json!({ "path": "wy/test/downstream/mock/~meta" }),
+        )
         .await;
     assert!(e.contains("node key"), "{e}");
 
@@ -344,7 +355,7 @@ async fn browse_and_read() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn set_and_invoke_at_write_level() {
     let env = Env::start("write").await;
-    let p0 = "wy/test/down/mock/p0";
+    let p0 = "wy/test/downstream/mock/p0";
     let before = env.value(p0).await;
 
     // dry_run defaults to true: validated, nothing sent
@@ -354,7 +365,7 @@ async fn set_and_invoke_at_write_level() {
     assert_eq!(r["dry_run"], true);
     assert_eq!(r["level"], "write");
     assert_eq!(r["requires_approval"], false);
-    assert_eq!(r["would_send"]["key"], "wy/test/down/mock/p0/~set");
+    assert_eq!(r["would_send"]["key"], "wy/test/downstream/mock/p0/~set");
     assert_eq!(r["would_send"]["payload"]["v"], 42.5);
     assert!(r["would_send"]["ptok"]
         .as_str()
@@ -382,15 +393,15 @@ async fn set_and_invoke_at_write_level() {
     let r = env
         .ok(
             "node_set",
-            json!({ "path": "down/plant/mode", "value": "manual", "dry_run": false }),
+            json!({ "path": "downstream/plant/mode", "value": "manual", "dry_run": false }),
         )
         .await;
     assert_eq!(r["value"], 1);
-    assert_eq!(env.value("down/plant/mode").await, 1);
+    assert_eq!(env.value("downstream/plant/mode").await, 1);
     let e = env
         .fails(
             "node_set",
-            json!({ "path": "down/plant/mode", "value": "off" }),
+            json!({ "path": "downstream/plant/mode", "value": "off" }),
         )
         .await;
     assert!(e.contains("manual"), "{e}");
@@ -399,21 +410,21 @@ async fn set_and_invoke_at_write_level() {
     let e = env
         .fails(
             "action_invoke",
-            json!({ "path": "down/mock", "action": "count" }),
+            json!({ "path": "downstream/mock", "action": "count" }),
         )
         .await;
     assert!(e.contains("missing n"), "{e}");
     let e = env
         .fails(
             "action_invoke",
-            json!({ "path": "down/mock", "action": "count", "args": { "n": 2, "x": 1 } }),
+            json!({ "path": "downstream/mock", "action": "count", "args": { "n": 2, "x": 1 } }),
         )
         .await;
     assert!(e.contains("unknown param x"), "{e}");
     let r = env
         .ok(
             "action_invoke",
-            json!({ "path": "down/mock", "action": "count", "args": { "n": 3 } }),
+            json!({ "path": "downstream/mock", "action": "count", "args": { "n": 3 } }),
         )
         .await;
     assert_eq!(r["dry_run"], true);
@@ -421,7 +432,7 @@ async fn set_and_invoke_at_write_level() {
     let r = env
         .ok(
             "action_invoke",
-            json!({ "path": "down/mock", "action": "count", "args": { "n": 3 }, "dry_run": false }),
+            json!({ "path": "downstream/mock", "action": "count", "args": { "n": 3 }, "dry_run": false }),
         )
         .await;
     assert_eq!(r["results"], json!([0, 1, 2]));
@@ -432,7 +443,7 @@ async fn set_and_invoke_at_write_level() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_level_needs_a_human_approval() {
     let env = Env::start("config").await;
-    let sp = "wy/test/down/plant/sp";
+    let sp = "wy/test/downstream/plant/sp";
     let set_key = format!("{sp}/~set");
 
     let r = env.ok("node_set", json!({ "path": sp, "value": 50 })).await;
@@ -482,7 +493,7 @@ async fn config_level_needs_a_human_approval() {
     assert_eq!(env.value(sp).await, 50);
 
     // an approval for another key is refused before sending
-    let other = env.approve("wy/test/down/plant/mode/~set");
+    let other = env.approve("wy/test/downstream/plant/mode/~set");
     let e = env
         .fails(
             "node_set",
@@ -533,16 +544,16 @@ async fn config_level_needs_a_human_approval() {
     assert_eq!(env.value(sp).await, 50);
 
     // config-level action: refused without approval, runs as the human with it
-    let act_key = "wy/test/down/plant/~act/reboot";
+    let act_key = "wy/test/downstream/plant/~act/reboot";
     let e = env
-        .fails("action_invoke", json!({ "path": "down/plant", "action": "reboot", "args": { "delay": 1 }, "dry_run": false }))
+        .fails("action_invoke", json!({ "path": "downstream/plant", "action": "reboot", "args": { "delay": 1 }, "dry_run": false }))
         .await;
     assert!(e.contains("config-level"), "{e}");
     let r = env
         .ok(
             "action_invoke",
             json!({
-                "path": "down/plant", "action": "reboot", "args": { "delay": 1 },
+                "path": "downstream/plant", "action": "reboot", "args": { "delay": 1 },
                 "dry_run": false, "approval": env.approve(act_key)
             }),
         )
@@ -557,9 +568,9 @@ fn flow_def() -> Json {
         "id": "shed",
         "version": 1,
         "nodes": {
-            "a": { "type": "subscribe", "key": "down/mock/p0" },
+            "a": { "type": "subscribe", "key": "downstream/mock/p0" },
             "alarm": { "type": "alarm", "high": 1000.0 },
-            "shed": { "type": "invoke", "path": "down/mock", "action": "reset", "on": "rising" }
+            "shed": { "type": "invoke", "path": "downstream/mock", "action": "reset", "on": "rising" }
         },
         "edges": [["a.out", "alarm.in"], ["alarm.out", "shed.in"]],
         "permissions": { "maxperm": "write" }
@@ -569,8 +580,8 @@ fn flow_def() -> Json {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn flow_apply_with_operator_proofs() {
     let env = Env::start("flow").await;
-    let target = "wy/test/down/mock/~act/reset";
-    let deploy = "wy/test/flows/~act/deploy";
+    let target = "wy/test/downstream/mock/~act/reset";
+    let deploy = "wy/test/dataflows/~act/deploy";
 
     let v = env.ok("flow_validate", json!({ "def": flow_def() })).await;
     assert_eq!(v["ok"], true, "{v}");
@@ -701,7 +712,7 @@ async fn read_only_without_key() {
     let r = mcp
         .call_tool(
             CallToolRequestParams::new("node_set").with_arguments(
-                json!({ "path": "down/mock/p0", "value": 1, "dry_run": false })
+                json!({ "path": "downstream/mock/p0", "value": 1, "dry_run": false })
                     .as_object()
                     .unwrap()
                     .clone(),

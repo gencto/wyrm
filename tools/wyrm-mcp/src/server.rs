@@ -44,7 +44,7 @@ const VALUE_GET_MAX: usize = 200;
 const STREAM_MAX: usize = 1000;
 
 const INSTRUCTIONS: &str = "WYRM broker (IOT-DSA semantics on Zenoh). Node keys are \
-`wy/<site>/down/<link>/<path>`; paths without `wy/` are taken relative to this server's site. \
+`wy/<site>/downstream/<link>/<path>`; paths without `wy/` are taken relative to this server's site. \
 Navigate with tree_list / tree_resolve / node_meta, read with value_get. Changes: call node_set or \
 action_invoke with dry_run=true first (the default), show the plan, then repeat with \
 dry_run=false. This server acts as an AI service account with at most `write` rights. \
@@ -59,7 +59,7 @@ fn yes() -> bool {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct TreeListParams {
-    /// Node key, e.g. `wy/plant/down/mock` (`wy/<site>/down` lists links).
+    /// Node key, e.g. `wy/plant/downstream/mock` (`wy/<site>/downstream` lists links).
     pub path: String,
     /// Index of the first child to return (default 0).
     pub from: Option<usize>,
@@ -151,7 +151,7 @@ pub struct FlowApplyParams {
     /// Only compile and list the command targets (default true).
     #[serde(default = "yes")]
     pub dry_run: bool,
-    /// Base64 ptok from a human operator for exactly `wy/<site>/flows/~act/deploy`.
+    /// Base64 ptok from a human operator for exactly `wy/<site>/dataflows/~act/deploy`.
     pub approval: Option<String>,
     /// One base64 ptok per command target, `{target_key: token}`, minted by the
     /// same operator as `approval` for exactly that key (level >= write).
@@ -161,7 +161,7 @@ pub struct FlowApplyParams {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct LinkStatusParams {
-    /// Link id (`wy/<site>/down/<link>`).
+    /// Link id (`wy/<site>/downstream/<link>`).
     pub link: String,
 }
 
@@ -623,7 +623,7 @@ impl WyrmMcp {
     }
 
     fn flows_root(&self) -> String {
-        format!("wy/{}/flows", self.site())
+        format!("wy/{}/dataflows", self.site())
     }
 
     async fn flow_state(&self, node: &str) -> Json {
@@ -769,7 +769,7 @@ impl WyrmMcp {
     async fn do_link_status(&self, p: LinkStatusParams) -> Out {
         wyrm_core::keyspace::validate_segment(&p.link).map_err(err)?;
         let site = self.site();
-        let down = format!("wy/{site}/down/{}", p.link);
+        let down = format!("wy/{site}/downstream/{}", p.link);
         let alive = self.alive(&down).await;
         let root_meta = match self.client().meta(&down).await {
             Ok(m) => meta_to_json(&m),
@@ -812,7 +812,7 @@ impl WyrmMcp {
 #[tool_router]
 impl WyrmMcp {
     #[tool(
-        description = "Children of a node with their ~meta summary (type, unit, writable, display, has_children). `wy/<site>/down` lists links. Paged with from/limit; `next` is the next `from`."
+        description = "Children of a node with their ~meta summary (type, unit, writable, display, has_children). `wy/<site>/downstream` lists links. Paged with from/limit; `next` is the next `from`."
     )]
     async fn tree_list(&self, Parameters(p): Parameters<TreeListParams>) -> CallToolResult {
         done(self.do_tree_list(p).await)
@@ -895,10 +895,10 @@ impl WyrmMcp {
 
     #[tool(
         description = concat!(
-            "Deploy a flow definition (wy/<site>/flows/~act/deploy). dry_run=true (the default) validates ",
+            "Deploy a flow definition (wy/<site>/dataflows/~act/deploy). dry_run=true (the default) validates ",
             "it and lists its command targets (the ~set/~act keys its sinks write to). A deploy is ",
             "config-level, so dry_run=false needs: `approval`, a base64 ptok a human operator minted for ",
-            "exactly wy/<site>/flows/~act/deploy (level config); and `proofs`, {target_key: base64 ptok} ",
+            "exactly wy/<site>/dataflows/~act/deploy (level config); and `proofs`, {target_key: base64 ptok} ",
             "with one token per command target, minted by the SAME operator for exactly that key (level >= ",
             "write). The flow then acts on devices only within that operator's rights (ADR 0008). ",
             "dry_run never sends or spends the tokens."
@@ -909,7 +909,7 @@ impl WyrmMcp {
     }
 
     #[tool(
-        description = "Status of a link: liveliness of wy/<site>/down/<link>, its root ~meta (driver, version) and, from the admin (wy/<site>/sys/links/<link>), driver, mode and state."
+        description = "Status of a link: liveliness of wy/<site>/downstream/<link>, its root ~meta (driver, version) and, from the admin (wy/<site>/sys/links/<link>), driver, mode and state."
     )]
     async fn link_status(&self, Parameters(p): Parameters<LinkStatusParams>) -> CallToolResult {
         done(self.do_link_status(p).await)

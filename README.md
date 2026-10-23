@@ -7,7 +7,7 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 ## Status
 - **Iteration 1 (core)** — done. `modbus` and `mockdev` run on the driver framework (ADR 0004); the bench `mock` stays on the raw layer.
 - **Iteration 2 (control plane)** — done: link registry, tokens, internal CA, generated ACL, supervisor, quarantine, audit, encrypted link secrets.
-- **Iteration 3 (flow)** — engine in `wyrmd` (`wy/<site>/flows`); deploys prove the deployer's rights on every command target.
+- **Iteration 3 (flow)** — engine in `wyrmd` (`wy/<site>/dataflows`); deploys prove the deployer's rights on every command target.
 - **Iteration 4 (two brokers)** — `peers` over QUIC + mTLS; upstream sites read only; optional `~val` downsampling.
 - **Iteration 5 (security)** — user gateway (HTTP + WebSocket, roles → per-request `ptok`), responder rate limits, audit of every `set`/`invoke`.
 
@@ -55,12 +55,12 @@ target/release/wyr keygen --out admin.key          # prints the public key
 # put that key into admin_keys in examples/wyrmd.json5, then:
 cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim &   # for plc1
 target/release/wyrmd -c examples/wyrmd.json5
-target/release/wyr list wy/local/down
-target/release/wyr list --watch wy/local/down/mock/g0
-target/release/wyr sub 'wy/local/down/mock/**'
-target/release/wyr --key admin.key set wy/local/down/mock/g0/g0/p0 42
-target/release/wyr --key admin.key invoke wy/local/down/mock count n=3
-target/release/wyr bench list wy/local/down/mock
+target/release/wyr list wy/local/downstream
+target/release/wyr list --watch wy/local/downstream/mock/g0
+target/release/wyr sub 'wy/local/downstream/mock/**'
+target/release/wyr --key admin.key set wy/local/downstream/mock/g0/g0/p0 42
+target/release/wyr --key admin.key invoke wy/local/downstream/mock count n=3
+target/release/wyr bench list wy/local/downstream/mock
 ```
 `mode: "process"` runs the driver as a child process (`wyrmd link <driver>`) that connects over loopback mTLS with its own certificate.
 
@@ -90,7 +90,7 @@ Link secrets (device passwords, keys) live in `data_dir/secrets.bin` (ChaCha20-P
 A node's `~meta.is` names a profile; absent fields come from it, through `extends` (spec 02). The admin serves `wy/<site>/pub/<profile>/~meta` (10 built-ins such as `wy:number`, `wy:folder`, `wy:link`; others stored in its WAL) and changes them with `sys/profiles/~act/put {name, profile}` and `remove {name}` (`config`). `?expand=true` returns a profile with its chain folded in; `WyrmClient::meta_expanded(node)` returns a node's `~meta` with its profile applied. Links and upstream sites may read `pub/**`; nobody but the admin writes it.
 
 ## Flows
-`wy/<site>/flows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/down/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
+`wy/<site>/dataflows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/downstream/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
 ```
 wyr --key admin.key flow validate local peak.json5     # compile only
 wyr --key admin.key flow deploy   local peak.json5     # signs one proof per invoke/set target
@@ -106,7 +106,7 @@ peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "cent
 // central
 peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.pem" }] },
 ```
-Each side trusts the other's CA only on the QUIC broker link (certificate CN `broker:<site>`). The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{down,flows,sys,up}/**` (and `~def|~state` under `down`/`flows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
+Each side trusts the other's CA only on the QUIC broker link (certificate CN `broker:<site>`). The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream}/**` (and `~def|~state` under `downstream`/`dataflows`), never `~set`/`~act`. Requesters at the central broker may read `wy/<edge>/**`.
 
 A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge, read only (ADR 0007).
 
@@ -118,7 +118,7 @@ connected to edge), each with a gateway (`:8445`, `:8444`, `:8446`, user
 before the other site trusts it. App: `cd dart/wyrm_flutter/example &&
 flutter create --platforms=macos . && flutter run -d macos` (raise
 `MACOSX_DEPLOYMENT_TARGET` to 12.0 and add the `network.client`
-entitlement); root `wy/edge/down`, the tune icon opens a node's `~meta`
+entitlement); root `wy/edge/downstream`, the tune icon opens a node's `~meta`
 and actions.
 
 ## Gateway

@@ -136,30 +136,30 @@ mod tests {
         let key = SigningKey::from_bytes(&[1; 32]);
         let src = SigningTokens::new(key, "s").grants(vec![
             Grant {
-                k: "wy/s/down/plc1/**".into(),
+                k: "wy/s/downstream/plc1/**".into(),
                 p: Perm::Write,
             },
             Grant {
-                k: "wy/s/down/**".into(),
+                k: "wy/s/downstream/**".into(),
                 p: Perm::Read,
             },
         ]);
-        let c = claims_of(&src.token("wy/s/down/plc1/fan/~set").unwrap());
+        let c = claims_of(&src.token("wy/s/downstream/plc1/fan/~set").unwrap());
         assert_eq!(
             c.grants,
             [Grant {
-                k: "wy/s/down/plc1/fan/~set".into(),
+                k: "wy/s/downstream/plc1/fan/~set".into(),
                 p: Perm::Write
             }]
         );
         // first covering grant decides the level
-        let c = claims_of(&src.token("wy/s/down/mock/p0/~set").unwrap());
+        let c = claims_of(&src.token("wy/s/downstream/mock/p0/~set").unwrap());
         assert_eq!(c.grants[0].p, Perm::Read);
         // nothing covers it: no token at all
-        assert!(src.token("wy/other/down/x/~set").is_none());
+        assert!(src.token("wy/other/downstream/x/~set").is_none());
         // fresh jti per token
-        let a = claims_of(&src.token("wy/s/down/plc1/fan/~set").unwrap());
-        let b = claims_of(&src.token("wy/s/down/plc1/fan/~set").unwrap());
+        let a = claims_of(&src.token("wy/s/downstream/plc1/fan/~set").unwrap());
+        let b = claims_of(&src.token("wy/s/downstream/plc1/fan/~set").unwrap());
         assert_ne!(a.jti, b.jti);
     }
 }

@@ -384,7 +384,7 @@ pub struct Io {
 }
 
 impl Io {
-    /// `down/x` → `wy/<site>/down/x`; absolute `wy/...` kept.
+    /// `downstream/x` → `wy/<site>/downstream/x`; absolute `wy/...` kept.
     pub fn full_key(&self, k: &str) -> String {
         if k.starts_with("wy/") {
             k.to_owned()

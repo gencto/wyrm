@@ -3,7 +3,7 @@
 //! Default deny. Directions are the router's: `ingress` = from that session
 //! into the router, `egress` = from the router to that session.
 //!
-//! * link `L` (process/external, CN `L`): everything on `wy/S/down/L/**`,
+//! * link `L` (process/external, CN `L`): everything on `wy/S/downstream/L/**`,
 //!   `query`/`reply` on its own `sys/links/L/~act/hello`, liveliness of
 //!   `sys/broker` (re-publish after a broker restart), and reading the
 //!   profiles under `pub/**` (also allowed to upstream peer sites).
@@ -99,10 +99,10 @@ fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Va
 /// that matches a link rule.
 #[derive(Debug, Clone, Default)]
 pub struct Peers {
-    /// Sites this broker connects to; they may only read our `down/**`,
-    /// `flows/**`, `sys/**` and `up/**`, and those of the sites we reach
+    /// Sites this broker connects to; they may only read our `downstream/**`,
+    /// `dataflows/**`, `sys/**` and `upstream/**`, and those of the sites we reach
     /// (subscribe, liveliness, queries on `~meta|~val`, and `~def|~state`
-    /// under `down`/`flows`; no `~set`/`~act`).
+    /// under `downstream`/`dataflows`; no `~set`/`~act`).
     pub upstream: Vec<String>,
     /// Sites that connect to this broker; they serve their own `wy/<site>/**`.
     pub downstream: Vec<String>,
@@ -131,10 +131,10 @@ impl Peers {
 
 /// Sections of a site an upstream site reads, with the suffixes it may query.
 const UP_READ: [(&str, &[&str]); 4] = [
-    ("down", &["~meta", "~val", "~def", "~state"]),
-    ("flows", &["~meta", "~val", "~def", "~state"]),
+    ("downstream", &["~meta", "~val", "~def", "~state"]),
+    ("dataflows", &["~meta", "~val", "~def", "~state"]),
     ("sys", &["~meta", "~val"]),
-    ("up", &["~meta", "~val"]),
+    ("upstream", &["~meta", "~val"]),
 ];
 
 /// The `access_control` section for the router config.
@@ -221,7 +221,7 @@ pub fn access_control_with_peers(
         );
         policies.push(json!({ "rules": requester_rules, "subjects": ["operators"] }));
     }
-    // A link id equal to a downstream site would overlap `down/<d>`, the
+    // A link id equal to a downstream site would overlap `downstream/<d>`, the
     // broker node of that site (registry and config refuse it; this is the
     // last line).
     for def in reg
@@ -234,7 +234,7 @@ pub fn access_control_with_peers(
             &format!("link-{id}"),
             &["ingress", "egress"],
             ALL,
-            &[format!("wy/{site}/down/{id}/**")],
+            &[format!("wy/{site}/downstream/{id}/**")],
         ));
         rules.push(rule(
             &format!("hello-{id}"),
@@ -281,14 +281,14 @@ pub fn access_control_with_peers(
             .iter()
             .flat_map(|s| UP_READ.iter().map(move |(t, _)| format!("wy/{s}/{t}/**")))
             .collect();
-        // Data: `down` and `flows` whole; `sys` and `up` only their values
+        // Data: `downstream` and `dataflows` whole; `sys` and `upstream` only their values
         // and metadata, so nothing else published under `sys` (the audit
         // records of `sys/audit/<link>`) leaves for the upstream.
         let data: Vec<String> = sites
             .iter()
             .flat_map(|s| {
                 UP_READ.iter().flat_map(move |(t, sfx)| {
-                    if *t == "down" || *t == "flows" {
+                    if *t == "downstream" || *t == "dataflows" {
                         vec![format!("wy/{s}/{t}/**")]
                     } else {
                         sfx.iter().map(|x| format!("wy/{s}/{t}/**/{x}")).collect()
@@ -349,7 +349,7 @@ pub fn access_control_with_peers(
         );
         policies
             .push(json!({ "rules": ["upstream-in", "upstream-sub", "upstream-query", "upstream-out", "upstream-data", "pub-in", "pub-out"], "subjects": ["upstream"] }));
-        // Presence (`up/<u>/connected` here, `down/<site>/connected` there):
+        // Presence (`upstream/<u>/connected` here, `downstream/<site>/connected` there):
         // per upstream site, so one site cannot declare another's token,
         // and a peer never declares a token on our own key.
         let own = format!("wy/{site}/sys/broker");
@@ -406,7 +406,7 @@ pub fn access_control_with_peers(
             "cert_common_names": [format!("broker:{d}")],
             "link_protocols": ["quic"],
         }));
-        // The downstream site watches our broker token (its `up/<site>`);
+        // The downstream site watches our broker token (its `upstream/<site>`);
         // it may not declare one on our key. Its own token is in `site-d`.
         let own = format!("wy/{site}/sys/broker");
         rules.push(rule(
@@ -463,9 +463,9 @@ mod tests {
         let mut reg = Registry::default();
         let mut d = def("rec", Mode::External);
         d.grants = vec![
-            ("wy/{site}/down/mock".into(), Perm::Read.code()),
-            ("wy/{site}/down/plc1".into(), Perm::Write.code()),
-            ("wy/{site}/flows".into(), Perm::List.code()),
+            ("wy/{site}/downstream/mock".into(), Perm::Read.code()),
+            ("wy/{site}/downstream/plc1".into(), Perm::Write.code()),
+            ("wy/{site}/dataflows".into(), Perm::List.code()),
         ];
         reg.links.insert("rec".into(), d);
         let acl = access_control("s", &reg, &[], false);
@@ -487,20 +487,23 @@ mod tests {
                 .collect()
         };
         let q = keys("grant-rec-query");
-        assert!(q.contains(&"wy/s/down/mock/**/~val".into()));
-        assert!(q.contains(&"wy/s/flows/**/~meta".into()));
-        assert!(q.contains(&"wy/s/down/plc1/**".into()), "write: ~set, ~act");
+        assert!(q.contains(&"wy/s/downstream/mock/**/~val".into()));
+        assert!(q.contains(&"wy/s/dataflows/**/~meta".into()));
         assert!(
-            !q.contains(&"wy/s/down/mock/**".into()),
+            q.contains(&"wy/s/downstream/plc1/**".into()),
+            "write: ~set, ~act"
+        );
+        assert!(
+            !q.contains(&"wy/s/downstream/mock/**".into()),
             "read: no ~set/~act"
         );
         assert!(
-            !q.iter().any(|k| k.starts_with("wy/s/flows/**/~val")),
+            !q.iter().any(|k| k.starts_with("wy/s/dataflows/**/~val")),
             "list: no values"
         );
         assert!(keys("grant-rec-sub")
             .iter()
-            .all(|k| !k.starts_with("wy/s/flows")));
+            .all(|k| !k.starts_with("wy/s/dataflows")));
         assert!(q
             .iter()
             .chain(&keys("grant-rec-back"))
@@ -529,7 +532,7 @@ mod tests {
         let acl = access_control_with_peers("plant-a", &Registry::default(), &[], false, &peers);
         let text = acl.to_string();
         assert!(text.contains(r#""cert_common_names":["broker:cloud"]"#));
-        assert!(text.contains("wy/plant-a/down/**"));
+        assert!(text.contains("wy/plant-a/downstream/**"));
         assert!(text.contains(r#""key_exprs":["wy/plant-b/**"]"#));
         // the upstream reads sys and up too, never ~set/~act anywhere
         let keys = |id: &str| -> Vec<String> {
@@ -550,7 +553,7 @@ mod tests {
         };
         let q = keys("upstream-query");
         assert!(q.contains(&"wy/plant-a/sys/**/~meta".to_owned()));
-        assert!(q.contains(&"wy/plant-a/up/**/~val".to_owned()));
+        assert!(q.contains(&"wy/plant-a/upstream/**/~val".to_owned()));
         assert!(
             q.contains(&"wy/plant-b/sys/**/~meta".to_owned()),
             "and below"
@@ -561,7 +564,7 @@ mod tests {
         // audit records of sys/audit/<link>); down whole
         for id in ["upstream-data", "upstream-sub"] {
             let k = keys(id);
-            assert!(k.contains(&"wy/plant-a/down/**".to_owned()), "{id}");
+            assert!(k.contains(&"wy/plant-a/downstream/**".to_owned()), "{id}");
             assert!(k.contains(&"wy/plant-a/sys/**/~val".to_owned()), "{id}");
             assert!(!k.contains(&"wy/plant-a/sys/**".to_owned()), "{id}: {k:?}");
         }
@@ -612,8 +615,8 @@ mod tests {
                 assert_eq!(keys, ["wy/cloud/sys/broker"]);
             }
         }
-        // a link with a downstream site's name gets no rule over down/<d>
-        assert!(!acl.to_string().contains("wy/plant-a/down/plant-b/**"));
+        // a link with a downstream site's name gets no rule over downstream/<d>
+        assert!(!acl.to_string().contains("wy/plant-a/downstream/plant-b/**"));
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &acl.to_string()).unwrap();
     }
@@ -625,9 +628,12 @@ mod tests {
         reg.links.insert("emb".into(), def("emb", Mode::Embedded));
         let acl = access_control("s", &reg, &["ops".into()], false);
         let text = acl.to_string();
-        assert!(text.contains("wy/s/down/plc1/**"));
+        assert!(text.contains("wy/s/downstream/plc1/**"));
         assert!(text.contains("wy/s/sys/links/plc1/~act/hello"));
-        assert!(!text.contains("down/emb"), "embedded links need no rule");
+        assert!(
+            !text.contains("downstream/emb"),
+            "embedded links need no rule"
+        );
         assert!(!text.contains("local-all"));
         assert!(text.contains(r#""cert_common_names":["ops"]"#));
         // the result is a valid zenoh config section
@@ -663,7 +669,7 @@ mod tests {
             serde_json::json!(["wy/plant-b/**", "wy/cell/**"])
         );
         let q = rule("upstream-query").to_string();
-        assert!(q.contains("wy/cell/down/**/~val") && q.contains("wy/cell/sys/**/~meta"));
+        assert!(q.contains("wy/cell/downstream/**/~val") && q.contains("wy/cell/sys/**/~meta"));
         assert!(rule("requester-in").to_string().contains("wy/cell/**"));
         let mut c = zenoh::Config::default();
         c.insert_json5("access_control", &acl.to_string()).unwrap();

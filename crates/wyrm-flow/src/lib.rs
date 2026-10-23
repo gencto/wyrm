@@ -1,5 +1,5 @@
 //! WYRM data-flow engine (wiki "04 Дата-флоу", spec 06): flows are data
-//! under `wy/<site>/flows/<id>/~def`; the engine compiles, runs and hot-swaps
+//! under `wy/<site>/dataflows/<id>/~def`; the engine compiles, runs and hot-swaps
 //! them, persists definitions and node state, and exposes every flow as a
 //! node with `start/stop/reload/remove`.
 

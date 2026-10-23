@@ -8,11 +8,11 @@ guide is [`docs/links.md`](../../docs/links.md).
 | Crate | Role | What it does | Grant it asks for |
 |---|---|---|---|
 | `responder` (`wyrm-example-link`) | responder | The `mockdev` framework driver as its own binary: connections, devices and points from its Add actions. | none |
-| `requester` (`wyrm-example-recorder`) | requester | Follows every value under `wy/<site>/down/mock` and writes `time,key,value,quality` to `values.csv` in its data directory (rotated at `max_mb`). Serves no nodes. | `wy/{site}/down/mock` read |
-| `both` (`wyrm-example-average`) | responder and requester | Follows the same values and serves `average`, `min`, `max`, `count`; its action **Write All** `{value}` sets every point it has seen, with `ptok`s signed by its requester key. | `wy/{site}/down/mock` write |
+| `requester` (`wyrm-example-recorder`) | requester | Follows every value under `wy/<site>/downstream/mock` and writes `time,key,value,quality` to `values.csv` in its data directory (rotated at `max_mb`). Serves no nodes. | `wy/{site}/downstream/mock` read |
+| `both` (`wyrm-example-average`) | responder and requester | Follows the same values and serves `average`, `min`, `max`, `count`; its action **Write All** `{value}` sets every point it has seen, with `ptok`s signed by its requester key. | `wy/{site}/downstream/mock` write |
 
 Params of the requester and both (set with `sys/links/<id>` ▸ Update Params):
-`source` (default `wy/<site>/down/mock`), `max_mb` (requester only).
+`source` (default `wy/<site>/downstream/mock`), `max_mb` (requester only).
 
 ## Install them, each by another path
 
@@ -29,11 +29,11 @@ Run `examples/packages/build.sh`, then `examples/demo/run.sh` (it serves
 | built-in driver | from Driver, or `links` in `wyrmd.json5` | as `mock`, `lab` and `plc1` in `examples/demo/edge.json5` |
 
 The install result lists the grants a package got
-(`…; grant wy/{site}/down/mock read`). Then:
+(`…; grant wy/{site}/downstream/mock read`). Then:
 
 - requester: `examples/demo/data/edge/links/rec/data/values.csv` grows;
   `sys/links/rec` ▸ Get Log shows `recording` and `recorded`.
-- both: `wy/edge/down/avg` shows the statistics; ▸ Write All `{value: 42}`
+- both: `wy/edge/downstream/avg` shows the statistics; ▸ Write All `{value: 42}`
   answers `{written: 16, failed: []}` and the mock points show 42.
 - Grants: `sys/links/<id>` ▸ Grant Access `{path, level}` changes them
   (`none` removes); `sys` ▸ Get Permissions lists them.

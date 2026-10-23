@@ -53,52 +53,52 @@ Child point(String n) => Child(n, NodeMeta(is_: const TCode(2), ty: TypeCode.num
 void main() {
   testWidgets('lazy children, live values, cancel on collapse', (tester) async {
     final api = FakeApi();
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: WyrmTree(api: api, rootKey: 'wy/s/down/mock'))));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: WyrmTree(api: api, rootKey: 'wy/s/downstream/mock'))));
 
     // One list on the root, nothing else yet.
-    expect(api.lists.keys, ['wy/s/down/mock']);
+    expect(api.lists.keys, ['wy/s/downstream/mock']);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-    api.lists['wy/s/down/mock']!.add(ListRefreshed([folder('g0'), folder('g1')]));
+    api.lists['wy/s/downstream/mock']!.add(ListRefreshed([folder('g0'), folder('g1')]));
     await tester.pump();
     expect(find.text('g0'), findsOneWidget);
     expect(find.text('g1'), findsOneWidget);
-    expect(api.lists.keys, ['wy/s/down/mock']); // collapsed: no list below
+    expect(api.lists.keys, ['wy/s/downstream/mock']); // collapsed: no list below
 
     // Expand g0: its own list.
     await tester.tap(find.text('g0'));
     await tester.pump();
-    expect(api.lists.keys, contains('wy/s/down/mock/g0'));
-    api.lists['wy/s/down/mock/g0']!.add(ListRefreshed([point('p0')]));
+    expect(api.lists.keys, contains('wy/s/downstream/mock/g0'));
+    api.lists['wy/s/downstream/mock/g0']!.add(ListRefreshed([point('p0')]));
     await tester.pump();
     expect(find.text('p0'), findsOneWidget);
 
     // The visible leaf subscribes its exact key.
-    expect(api.subs.keys, ['wy/s/down/mock/g0/p0']);
+    expect(api.subs.keys, ['wy/s/downstream/mock/g0/p0']);
     expect(find.text('—'), findsOneWidget);
-    api.subs['wy/s/down/mock/g0/p0']!
-        .add(const ValSample('wy/s/down/mock/g0/p0', Sample(VFloat(21.456), t: 1)));
+    api.subs['wy/s/downstream/mock/g0/p0']!
+        .add(const ValSample('wy/s/downstream/mock/g0/p0', Sample(VFloat(21.456), t: 1)));
     await tester.pump();
     expect(find.text('21.46 °C'), findsOneWidget);
 
-    api.subs['wy/s/down/mock/g0/p0']!.add(
-        const ValSample('wy/s/down/mock/g0/p0', Sample(VFloat(3), q: Quality.bad, t: 2), qual: 'bad/comm_fail'));
+    api.subs['wy/s/downstream/mock/g0/p0']!.add(
+        const ValSample('wy/s/downstream/mock/g0/p0', Sample(VFloat(3), q: Quality.bad, t: 2), qual: 'bad/comm_fail'));
     await tester.pump();
     expect(find.text('3.00 °C (bad/comm_fail)'), findsOneWidget);
 
     // Added / removed children.
-    api.lists['wy/s/down/mock']!.add(ChildAdded(folder('g2')));
+    api.lists['wy/s/downstream/mock']!.add(ChildAdded(folder('g2')));
     await tester.pump();
     expect(find.text('g2'), findsOneWidget);
-    api.lists['wy/s/down/mock']!.add(const ChildRemoved('g1'));
+    api.lists['wy/s/downstream/mock']!.add(const ChildRemoved('g1'));
     await tester.pump();
     expect(find.text('g1'), findsNothing);
 
     // Collapse g0: its list and the leaf subscription end.
     await tester.tap(find.text('g0'));
     await tester.pump();
-    expect(api.listCancels, ['wy/s/down/mock/g0']);
-    expect(api.subCancels, ['wy/s/down/mock/g0/p0']);
+    expect(api.listCancels, ['wy/s/downstream/mock/g0']);
+    expect(api.subCancels, ['wy/s/downstream/mock/g0/p0']);
     expect(find.text('p0'), findsNothing);
 
     // Removing the tree cancels the rest.
@@ -109,8 +109,8 @@ void main() {
 
   testWidgets('list error is shown', (tester) async {
     final api = FakeApi();
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: WyrmTree(api: api, rootKey: 'wy/s/down'))));
-    api.lists['wy/s/down']!.addError(WyrmException.of(Status.permissionDenied, 'permission denied'));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: WyrmTree(api: api, rootKey: 'wy/s/downstream'))));
+    api.lists['wy/s/downstream']!.addError(WyrmException.of(Status.permissionDenied, 'permission denied'));
     await tester.pump();
     expect(find.textContaining('permission denied'), findsOneWidget);
   });

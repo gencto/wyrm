@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_flutter/wyrm_flutter.dart';
 
-/// A [WyrmApi] with one node `wy/s/down/m` that has actions.
+/// A [WyrmApi] with one node `wy/s/downstream/m` that has actions.
 class ActApi implements WyrmApi {
   final invoked = <(String, String, Value?)>[];
   final lists = <String, StreamController<ListUpdate>>{};
@@ -47,7 +47,7 @@ class ActApi implements WyrmApi {
   Stream<ListUpdate> list(String key) {
     final c = StreamController<ListUpdate>();
     lists[key] = c;
-    if (key == 'wy/s/down') c.add(ListRefreshed([Child('m', metaM), Child('c', metaC)]));
+    if (key == 'wy/s/downstream') c.add(ListRefreshed([Child('m', metaM), Child('c', metaC)]));
     return c.stream;
   }
 
@@ -73,17 +73,17 @@ class ActApi implements WyrmApi {
   @override
   Future<NodeMeta> meta(String key) async => switch (key) {
         // as a broker: the links root has no responder
-        'wy/s/down' => throw WyrmException.of(Status.disconnected, 'wy/s/down/~meta is not connected'),
-        'wy/s/down/m' => metaM,
-        'wy/s/down/c' => metaC,
-        'wy/s/down/c/temp' => metaT,
+        'wy/s/downstream' => throw WyrmException.of(Status.disconnected, 'wy/s/downstream/~meta is not connected'),
+        'wy/s/downstream/m' => metaM,
+        'wy/s/downstream/c' => metaC,
+        'wy/s/downstream/c/temp' => metaT,
         _ => NodeMeta(),
       };
   /// `m` holds only a point (no tree children); `c` holds a device too.
   @override
   Future<List<Child>> children(String key) async => switch (key) {
-        'wy/s/down/m' => [Child('temp', metaT)],
-        'wy/s/down/c' => [Child('dev', NodeMeta(hasChildren: true)), Child('temp', metaT)],
+        'wy/s/downstream/m' => [Child('temp', metaT)],
+        'wy/s/downstream/c' => [Child('dev', NodeMeta(hasChildren: true)), Child('temp', metaT)],
         _ => [],
       };
   final histories = <(String, String, String?, String?)>[];
@@ -93,7 +93,7 @@ class ActApi implements WyrmApi {
   Future<List<HistRow>> history(String key,
       {required String from, String to = '', String? agg, String? window, int? limit}) async {
     histories.add((key, from, agg, window));
-    if (key != 'wy/s/down/c/temp') return [];
+    if (key != 'wy/s/downstream/c/temp') return [];
     if (agg != null) return [const HistRow(1760000000000000, VFloat(21.5))];
     return const [
       HistRow(1760000000000000, VFloat(21.0), Quality.good),
@@ -119,23 +119,23 @@ class SettableApi extends ActApi {
   static final energy = NodeMeta(ty: TypeCode.number, attr: {'unit': const VStr('kWh')}, hasChildren: false);
 
   @override
-  Future<List<Child>> children(String key) async => key == 'wy/s/down/c'
+  Future<List<Child>> children(String key) async => key == 'wy/s/downstream/c'
       ? [Child('opt', opt), Child('lvl', lvl), Child('temp', temp), Child('energy', energy)]
       : super.children(key);
 
   @override
   Future<NodeMeta> meta(String key) async => switch (key) {
-        'wy/s/down/c/opt' => opt,
-        'wy/s/down/c/lvl' => lvl,
+        'wy/s/downstream/c/opt' => opt,
+        'wy/s/downstream/c/lvl' => lvl,
         _ => super.meta(key),
       };
 
   @override
   Stream<ValEvent> subscribe(String pattern) => switch (pattern) {
-        'wy/s/down/c/opt' => Stream.value(ValSample(pattern, const Sample(VBool(false), t: 1))),
-        'wy/s/down/c/lvl' => Stream.value(ValSample(pattern, const Sample(VInt(1), t: 1))),
-        'wy/s/down/c/temp' => Stream.value(ValSample(pattern, const Sample(VFloat(21.5), t: 1))),
-        'wy/s/down/c/energy' => Stream.value(ValSample(pattern, const Sample(VInt(7), t: 1))),
+        'wy/s/downstream/c/opt' => Stream.value(ValSample(pattern, const Sample(VBool(false), t: 1))),
+        'wy/s/downstream/c/lvl' => Stream.value(ValSample(pattern, const Sample(VInt(1), t: 1))),
+        'wy/s/downstream/c/temp' => Stream.value(ValSample(pattern, const Sample(VFloat(21.5), t: 1))),
+        'wy/s/downstream/c/energy' => Stream.value(ValSample(pattern, const Sample(VInt(7), t: 1))),
         _ => const Stream.empty(),
       };
 
@@ -158,7 +158,7 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     expect(find.text('m'), findsOneWidget);
 
@@ -206,7 +206,7 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     await rightClick(t, find.text('m'));
     await t.tap(find.text('reset'));
@@ -222,19 +222,19 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     // m holds only a point: not expandable; c holds a device: expandable
     await t.tap(find.text('m'));
     await t.pump(const Duration(milliseconds: 50));
     await t.tap(find.text('m'));
     await t.pumpAndSettle();
-    expect(api.lists.keys, isNot(contains('wy/s/down/m')));
+    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')));
     await t.tap(find.text('c'));
     await t.pump(const Duration(milliseconds: 50));
     await t.tap(find.text('c'));
     await t.pumpAndSettle();
-    expect(api.lists.keys, contains('wy/s/down/c'));
+    expect(api.lists.keys, contains('wy/s/downstream/c'));
     // select c (one click): Metrics shows its point; a right click opens its menu
     await t.tap(find.text('c'));
     await t.pumpAndSettle(const Duration(milliseconds: 400));
@@ -248,7 +248,7 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     final mouse = await t.createGesture(kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
     await mouse.addPointer(location: Offset.zero);
@@ -297,7 +297,7 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     await rightClick(t, find.text('m'));
     await t.tap(find.text('History'));
@@ -321,7 +321,7 @@ void main() {
     t.view.physicalSize = const Size(1400, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     // a folder has no "View History"
     await rightClick(t, find.text('c'));
@@ -334,7 +334,7 @@ void main() {
     await rightClick(t, find.text('temp').last);
     await t.tap(find.text('View History'));
     await t.pumpAndSettle();
-    expect(api.histories.last.$1, 'wy/s/down/c/temp');
+    expect(api.histories.last.$1, 'wy/s/downstream/c/temp');
     expect(find.text('3 rows'), findsOneWidget);
     expect(find.text('2025-10-09T08:53:20.000Z'), findsWidgets, reason: 'UTC time of the first row');
     expect(find.text('bad'), findsOneWidget);
@@ -368,20 +368,20 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = SettableApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     await t.tap(find.text('c'));
     await t.pumpAndSettle();
     // bool: a switch
     await t.tap(find.byType(Switch));
     await t.pumpAndSettle();
-    expect(api.sets, [('wy/s/down/c/opt', const VBool(true))]);
+    expect(api.sets, [('wy/s/downstream/c/opt', const VBool(true))]);
     // enum: the label, then the list; a refused choice shows its message
     await t.tap(find.text('info'));
     await t.pumpAndSettle();
     await t.tap(find.text('warn').last);
     await t.pumpAndSettle();
-    expect(api.sets.last, ('wy/s/down/c/lvl', const VInt(2)));
+    expect(api.sets.last, ('wy/s/downstream/c/lvl', const VInt(2)));
     expect(find.text('not allowed'), findsOneWidget);
     expect(find.textContaining('WyrmException'), findsNothing);
   });
@@ -390,7 +390,7 @@ void main() {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     await rightClick(t, find.text('m'));
     await t.tap(find.text('Deauthorize'));
@@ -409,7 +409,7 @@ void main() {
   testWidgets('Metrics write the unit after numbers: own unit and @unit', (t) async {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: SettableApi(), rootKey: 'wy/s/down'))));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: SettableApi(), rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     await t.tap(find.text('c'));
     await t.pumpAndSettle();

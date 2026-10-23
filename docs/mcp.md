@@ -7,7 +7,7 @@
 
 - `node_set`, `action_invoke` and `flow_apply` default to `dry_run: true`: they validate against `~meta` (type, enum, bounds, action schema, level) and return what would be sent.
 - Config-level operations (`writable = config`, action level `config`, anything under `sys/**`, flow deploys) need `approval`: a base64 `ptok` minted by a human for exactly that key (≤ 15 min, subject not `ai:`). It is sent instead of the service token, so the link checks the human's rights. `flow_apply` also needs one proof per command target from the same human (ADR 0008).
-- Mint an approval as the operator: `wyr --key admin.key token wy/<site>/down/<link>/<node>/~set --subject user:<you> [--ttl-s 300]` prints the base64 token to pass as `approval`.
+- Mint an approval as the operator: `wyr --key admin.key token wy/<site>/downstream/<link>/<node>/~set --subject user:<you> [--ttl-s 300]` prints the base64 token to pass as `approval`.
 
 ## Claude Code
 WARNING: the key file is an admin signing key. Keep it at mode 0600.

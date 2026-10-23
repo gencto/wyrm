@@ -4,7 +4,7 @@
 //!
 //! Two modes:
 //! * against a broker (default): a client session to `--connect`, serving
-//!   `wy/<site>/down/<link>/**` like an external link. The broker's ACL
+//!   `wy/<site>/downstream/<link>/**` like an external link. The broker's ACL
 //!   must let this session declare that queryable (a `dev` profile broker
 //!   on loopback does; `prod` does not).
 //! * standalone (`--listen <endpoint>`): a peer session listening on the

@@ -1,9 +1,9 @@
-//! The engine: flows as nodes under `wy/<site>/flows` (an SDK link rooted
+//! The engine: flows as nodes under `wy/<site>/dataflows` (an SDK link rooted
 //! there). Root actions `deploy {def}` / `validate {def}`; per flow
-//! `start | stop | reload | remove`. `flows/<id>/~def` is read-only: a bare
+//! `start | stop | reload | remove`. `dataflows/<id>/~def` is read-only: a bare
 //! `put` carries no verified caller, so deploying goes through the `deploy`
 //! action only (ptok, `maxperm` cap, audit). A failed compile leaves the previous version
-//! running and shows the error in `flows/<id>/~val` (spec 06).
+//! running and shows the error in `dataflows/<id>/~val` (spec 06).
 //!
 //! Hot swap: the old run stops (drains ≤ 1 s) and the new one starts with
 //! the state of every node whose id and config hash did not change.
@@ -12,7 +12,7 @@
 //! prove its own rights on every command target: `deploy {def, proofs}`
 //! carries one token per target key, signed by a key the engine trusts
 //! (admin or gateway), with the deployer's subject and at least
-//! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/down/`
+//! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/downstream/`
 //! (ADR 0008).
 //!
 //! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
@@ -628,7 +628,7 @@ fn deployer(who: &Caller) -> Option<String> {
 }
 
 /// The deployer proves rights on every command target: the flow key is
-/// trusted by links, so without this a `config` right on `flows/**` would
+/// trusted by links, so without this a `config` right on `dataflows/**` would
 /// become a `write` right on every device.
 fn proves_targets(
     raw: &Value,
@@ -648,7 +648,7 @@ fn proves_targets(
         },
         _ => None,
     };
-    let down = format!("wy/{site}/down/");
+    let down = format!("wy/{site}/downstream/");
     for t in targets(&def, site) {
         if !t.starts_with(&down) || t.contains(['*', '$']) {
             return Err(LinkError::invalid_parameter(format!(
@@ -682,7 +682,7 @@ pub struct EngineStart {
     pub admin_keys: Vec<VerifyingKey>,
 }
 
-/// The `wy/<site>/flows/**` responder.
+/// The `wy/<site>/dataflows/**` responder.
 pub struct Engine {
     shared: Shared,
     verifier: Verifier,

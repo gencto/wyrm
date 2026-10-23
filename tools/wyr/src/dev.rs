@@ -200,7 +200,7 @@ mod tests {
             r#"{{
                 id: "f1", version: {version},
                 nodes: {{
-                    a: {{ type: "subscribe", key: "down/mock/p0" }},
+                    a: {{ type: "subscribe", key: "downstream/mock/p0" }},
                     x: {{ type: "expression", inputs: ["a"], expr: "{expr}" }},
                     o: {{ type: "publish", node: "o" }},
                 }},
@@ -217,8 +217,8 @@ mod tests {
         let session = zenoh::open(isolated_config()).await.unwrap();
         let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
         let host = FlowHost::open(&dir, b"wyr-dev-test-hmac", SITE).unwrap();
-        let mut lcfg = LinkConfig::new(SITE, "flows");
-        lcfg.root = Some(format!("wy/{SITE}/flows"));
+        let mut lcfg = LinkConfig::new(SITE, "dataflows");
+        lcfg.root = Some(format!("wy/{SITE}/dataflows"));
         lcfg.admin_keys = vec![key.verifying_key()];
         let engine = wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
@@ -239,7 +239,9 @@ mod tests {
         // same version saved again: deployed as current + 1
         let r = apply(&c, SITE, &def(1, "a.v * 3.0")).await.unwrap();
         assert!(r.starts_with("f1 v2 deployed"), "{r}");
-        let d = get_def(&c, &format!("wy/{SITE}/flows/f1")).await.unwrap();
+        let d = get_def(&c, &format!("wy/{SITE}/dataflows/f1"))
+            .await
+            .unwrap();
         assert_eq!(version_of(&d), 2);
         // a newer file version is kept
         let r = apply(&c, SITE, &def(7, "a.v")).await.unwrap();
@@ -247,7 +249,9 @@ mod tests {
         // compile errors come from the engine; nothing is deployed
         let e = apply(&c, SITE, &def(8, "b.v")).await.unwrap_err();
         assert!(e.to_string().contains("nodes.x.expr"), "{e}");
-        let d = get_def(&c, &format!("wy/{SITE}/flows/f1")).await.unwrap();
+        let d = get_def(&c, &format!("wy/{SITE}/dataflows/f1"))
+            .await
+            .unwrap();
         assert_eq!(version_of(&d), 7);
         assert!(apply(&c, SITE, "{ broken").await.is_err());
 

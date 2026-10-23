@@ -18,19 +18,22 @@ impl Default for RoleTable {
     /// The example roles from the wiki, scoped to the gateway's own site.
     fn default() -> Self {
         let mut t = Self::empty();
-        t.insert("viewer", vec![("wy/{site}/down/**".into(), Perm::Read)]);
+        t.insert(
+            "viewer",
+            vec![("wy/{site}/downstream/**".into(), Perm::Read)],
+        );
         t.insert(
             "operator",
             vec![
-                ("wy/{site}/down/**".into(), Perm::Write),
-                ("wy/{site}/flows/**".into(), Perm::Read),
+                ("wy/{site}/downstream/**".into(), Perm::Write),
+                ("wy/{site}/dataflows/**".into(), Perm::Read),
             ],
         );
         t.insert(
             "engineer",
             vec![
-                ("wy/{site}/down/**".into(), Perm::Config),
-                ("wy/{site}/flows/**".into(), Perm::Config),
+                ("wy/{site}/downstream/**".into(), Perm::Config),
+                ("wy/{site}/dataflows/**".into(), Perm::Config),
             ],
         );
         t.insert("admin", vec![("wy/**".into(), Perm::Config)]);
@@ -202,10 +205,10 @@ mod tests {
         t.validate("s").unwrap();
         let v = t.grants("s", &roles(&["viewer"]));
         assert_eq!(v.max, Perm::Read);
-        assert_eq!(v.perm("wy/s/down/mock/p0/~val"), Perm::Read);
-        assert_eq!(v.perm("wy/s/down/mock/p0/~set"), Perm::Read);
-        assert_eq!(v.perm("wy/other/down/mock/p0/~val"), Perm::None);
-        assert_eq!(v.perm("wy/s/flows/f/~val"), Perm::None);
+        assert_eq!(v.perm("wy/s/downstream/mock/p0/~val"), Perm::Read);
+        assert_eq!(v.perm("wy/s/downstream/mock/p0/~set"), Perm::Read);
+        assert_eq!(v.perm("wy/other/downstream/mock/p0/~val"), Perm::None);
+        assert_eq!(v.perm("wy/s/dataflows/f/~val"), Perm::None);
         let e = t.grants("s", &roles(&["engineer"]));
         // the admin does not trust the gateway key (ADR 0009): no sys rights
         assert!(!e.covers("wy/s/sys/links/**", Perm::Write));
@@ -216,20 +219,27 @@ mod tests {
     #[test]
     fn grant_edits_keep_narrow_grants_first() {
         let op = RoleTable::default().get("operator").unwrap().to_vec();
-        let narrow = with_grant(&op, "wy/{site}/down/plc1/**", Perm::Read).unwrap();
-        assert_eq!(narrow[0], ("wy/{site}/down/plc1/**".into(), Perm::Read));
+        let narrow = with_grant(&op, "wy/{site}/downstream/plc1/**", Perm::Read).unwrap();
+        assert_eq!(
+            narrow[0],
+            ("wy/{site}/downstream/plc1/**".into(), Perm::Read)
+        );
         let mut t = RoleTable::empty();
         t.insert("operator", narrow.clone());
         let g = t.grants("s", &roles(&["operator"]));
-        assert_eq!(g.perm("wy/s/down/plc1/p/~set"), Perm::Read, "not shadowed");
-        assert_eq!(g.perm("wy/s/down/plc2/p/~set"), Perm::Write);
+        assert_eq!(
+            g.perm("wy/s/downstream/plc1/p/~set"),
+            Perm::Read,
+            "not shadowed"
+        );
+        assert_eq!(g.perm("wy/s/downstream/plc2/p/~set"), Perm::Write);
         // broader than all: last
         let wide = with_grant(&op, "wy/**", Perm::List).unwrap();
         assert_eq!(wide.last().unwrap(), &("wy/**".to_string(), Perm::List));
         // change in place, then remove
-        let changed = with_grant(&narrow, "wy/{site}/down/plc1/**", Perm::Write).unwrap();
+        let changed = with_grant(&narrow, "wy/{site}/downstream/plc1/**", Perm::Write).unwrap();
         assert_eq!(changed[0].1, Perm::Write);
-        let removed = with_grant(&changed, "wy/{site}/down/plc1/**", Perm::None).unwrap();
+        let removed = with_grant(&changed, "wy/{site}/downstream/plc1/**", Perm::None).unwrap();
         assert_eq!(removed, op);
         assert!(with_grant(&op, "wy/{site}/nothing/**", Perm::None).is_err());
         assert!(with_grant(&op, "wy//bad", Perm::Read).is_err());
@@ -239,29 +249,32 @@ mod tests {
     fn first_match_wins_and_max_caps() {
         let g = Grants::new(vec![
             Grant {
-                k: "wy/s/down/mock/g1/**".into(),
+                k: "wy/s/downstream/mock/g1/**".into(),
                 p: Perm::None,
             },
             Grant {
-                k: "wy/s/down/**".into(),
+                k: "wy/s/downstream/**".into(),
                 p: Perm::Write,
             },
         ]);
-        assert_eq!(g.perm("wy/s/down/mock/g1/p1/~val"), Perm::None);
-        assert_eq!(g.perm("wy/s/down/mock/g0/p0/~val"), Perm::Write);
-        assert!(g.any("wy/s/down/mock/**/~val", Perm::Read));
-        assert!(!g.any("wy/s/down/mock/g1/**/~val", Perm::Read), "shadowed");
+        assert_eq!(g.perm("wy/s/downstream/mock/g1/p1/~val"), Perm::None);
+        assert_eq!(g.perm("wy/s/downstream/mock/g0/p0/~val"), Perm::Write);
+        assert!(g.any("wy/s/downstream/mock/**/~val", Perm::Read));
+        assert!(
+            !g.any("wy/s/downstream/mock/g1/**/~val", Perm::Read),
+            "shadowed"
+        );
         let capped = Grants {
             max: Perm::Read,
             ..g
         };
-        assert_eq!(capped.perm("wy/s/down/mock/g0/p0/~set"), Perm::Read);
+        assert_eq!(capped.perm("wy/s/downstream/mock/g0/p0/~set"), Perm::Read);
         // roles concatenate in order
         let mut t = RoleTable::empty();
-        t.insert("a", vec![("wy/{site}/down/**".into(), Perm::List)]);
-        t.insert("b", vec![("wy/{site}/down/**".into(), Perm::Config)]);
+        t.insert("a", vec![("wy/{site}/downstream/**".into(), Perm::List)]);
+        t.insert("b", vec![("wy/{site}/downstream/**".into(), Perm::Config)]);
         let ab = t.grants("s", &roles(&["a", "b"]));
-        assert_eq!(ab.perm("wy/s/down/x/~meta"), Perm::List);
+        assert_eq!(ab.perm("wy/s/downstream/x/~meta"), Perm::List);
         assert_eq!(ab.max, Perm::Config);
     }
 }

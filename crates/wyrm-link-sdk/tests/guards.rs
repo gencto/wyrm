@@ -322,8 +322,8 @@ async fn limited_keys_are_capped() {
             key: vk,
             cap: Perm::Write,
             scopes: vec![
-                format!("wy/{SITE}/down/cfg/w"),
-                format!("wy/{SITE}/down/cfg/c"),
+                format!("wy/{SITE}/downstream/cfg/w"),
+                format!("wy/{SITE}/downstream/cfg/c"),
             ],
             subject: None,
         }];
@@ -362,7 +362,7 @@ async fn bound_keys_sign_only_their_subject() {
         c.limited_keys = vec![wyrm_link_sdk::LimitedKey {
             key: vk,
             cap: Perm::Write,
-            scopes: vec![format!("wy/{SITE}/down/cfg")],
+            scopes: vec![format!("wy/{SITE}/downstream/cfg")],
             subject: Some("link:rec".into()),
         }];
     })
@@ -430,7 +430,7 @@ async fn limited_keys_are_scoped() {
         c.limited_keys = vec![wyrm_link_sdk::LimitedKey {
             key: vk,
             cap: Perm::Write,
-            scopes: vec![format!("wy/{SITE}/down/cfg/w")],
+            scopes: vec![format!("wy/{SITE}/downstream/cfg/w")],
             subject: None,
         }];
     })

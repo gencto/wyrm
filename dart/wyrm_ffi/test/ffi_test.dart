@@ -11,7 +11,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:wyrm_ffi/wyrm_ffi.dart';
 
-const root = 'wy/test/down/mock';
+const root = 'wy/test/downstream/mock';
 final repo = Directory.current.parent.parent.path;
 
 Future<String> _library() async {

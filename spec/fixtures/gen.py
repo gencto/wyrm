@@ -83,7 +83,7 @@ def fixtures():
     # ptok claims (unsigned body)
     add("ptok_claims_v1", "ptok v1 claims (перед підписом): 0x01 || cbor(claims) || ed25519 sig(64)",
         {"sub": "user:olena", "roles": ["operator"],
-         "grants": [{"k": "wy/plant-a/down/**", "p": 2}, {"k": "wy/plant-a/down/bacnet/**", "p": 3},
+         "grants": [{"k": "wy/plant-a/downstream/**", "p": 2}, {"k": "wy/plant-a/downstream/bacnet/**", "p": 3},
                     {"k": "wy/plant-a/sys/**", "p": 0}],
          "max": 3, "iat": 1760000000, "exp": 1760000300, "jti": b"\x11" * 16, "site": "plant-a"})
     return fx

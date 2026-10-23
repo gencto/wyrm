@@ -66,11 +66,11 @@ def process(name, binary, description, requester=()):
 proc_zip = process("example-link", "wyrm-example-link",
                    "Responder: the mockdev driver as its own binary")
 rec_zip = process("recorder", "wyrm-example-recorder",
-                  "Requester: records the values of wy/{site}/down/mock to CSV",
-                  [("wy/{site}/down/mock", "read")])
+                  "Requester: records the values of wy/{site}/downstream/mock to CSV",
+                  [("wy/{site}/downstream/mock", "read")])
 avg_zip = process("average", "wyrm-example-average",
-                  "Responder and requester: statistics of wy/{site}/down/mock, Write All",
-                  [("wy/{site}/down/mock", "write")])
+                  "Responder and requester: statistics of wy/{site}/downstream/mock, Write All",
+                  [("wy/{site}/downstream/mock", "write")])
 
 wasm_zip = package(out / "register-wasm.zip", {
     "name": "register",
@@ -92,8 +92,8 @@ def item(name, version, description, path):
 
 index = [
     item("example-link", "1.0.0", "Responder: the mockdev driver as its own binary", proc_zip),
-    item("recorder", "1.0.0", "Requester: records wy/{site}/down/mock to CSV", rec_zip),
-    item("average", "1.0.0", "Both: statistics of wy/{site}/down/mock, Write All", avg_zip),
+    item("recorder", "1.0.0", "Requester: records wy/{site}/downstream/mock to CSV", rec_zip),
+    item("average", "1.0.0", "Both: statistics of wy/{site}/downstream/mock, Write All", avg_zip),
     item("register", "1.0.0", "WASM link: one writable register per point", wasm_zip),
 ]
 (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")

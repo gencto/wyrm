@@ -1,7 +1,7 @@
 # Links: install, run and package them
 
 A **link** connects devices or services to the WYRM tree. It serves the
-subtree `wy/<site>/down/<link>/**`: nodes, values, `set` and actions. This
+subtree `wy/<site>/downstream/<link>/**`: nodes, values, `set` and actions. This
 page tells you how to install a link while the broker runs, what the broker
 does with it, what goes in a package, and what the limits are.
 
@@ -54,7 +54,7 @@ and **message** (what happened, or why it failed).
 | from Repository | Name, Package | Takes a package from the index in `packages.repository`, checks its SHA-256, then as *from Zip*. |
 | from WASM | Name, Component (a `.wasm` file) | Wraps one component as a WASM package named *Name* and runs it. |
 
-*Name* is the new link's id: `wy/<site>/down/<Name>`. It is a key segment
+*Name* is the new link's id: `wy/<site>/downstream/<Name>`. It is a key segment
 (letters, digits, `.`, `_`, `-`; not starting with `.`), and must not be the
 name of an existing link, a removed remote link, a downstream site or an
 operator certificate.
@@ -145,7 +145,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `kind` | yes | `process` or `wasm`. |
 | `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`. One zip can carry several hosts. |
 | `args` | no | Arguments for the executable. |
-| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/down/mock", "level": "read"}]` (section 9). Name a link or flow: a whole `wy/{site}/down` or `wy/{site}/flows` is refused. |
+| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 9). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
 | `entry` | `wasm` | The component file. |
 
 Unknown fields are refused, so a typo does not pass silently.
@@ -267,13 +267,13 @@ do both. Give it **grants**, as a role has them:
 | `read` | also read and subscribe to their values (`~val`) |
 | `write` | also `set` them and invoke their actions |
 
-- **Path:** `wy/{site}/down` (every link), `wy/{site}/down/<link>[/…]` (one
-  link or a part of it), or `wy/{site}/flows[/…]` (at most `read`). Plain
+- **Path:** `wy/{site}/downstream` (every link), `wy/{site}/downstream/<link>[/…]` (one
+  link or a part of it), or `wy/{site}/dataflows[/…]` (at most `read`). Plain
   segments only: no wildcards, no `~` suffixes, never `sys`. A grant covers
   the path and everything under it. `config` is for people only.
 - **Who grants:** a package asks in `wyrm-link.json` (`requester`, section
   6); every link installed from it gets these grants, and the install
-  message lists them (`…; grant wy/{site}/down/mock read`). Change them with
+  message lists them (`…; grant wy/{site}/downstream/mock read`). Change them with
   `sys/links/<id>` ▸ **Grant Access** `{path, level}` (`none` removes).
   `sys` ▸ Get Permissions lists them (source `link`). Each change is in the
   audit journal (`link_grant`) and rebuilds the router.
@@ -388,9 +388,9 @@ network starts as usual: the field then says why the list is empty. Without
 3. Log in to the edge gateway (`http://127.0.0.1:8444`, user `admin`).
 4. Open `wy/edge/sys/links` ▸ Install Link ▸ from Zip, choose
    `example-link-<os>-<arch>.zip`, Name `example`, Invoke. Then open
-   `wy/edge/down/example` ▸ Add Connection, Add Device, Add Point.
+   `wy/edge/downstream/example` ▸ Add Connection, Add Device, Add Point.
 5. Install Link ▸ from WASM, choose `register.wasm`, Name `reg`. Open
-   `wy/edge/down/reg/main` ▸ Add Device, then Add Point with Writable on.
+   `wy/edge/downstream/reg/main` ▸ Add Device, then Add Point with Writable on.
    The point reads 7; write a number below 24 and read it back.
 6. Install Link ▸ from Repository, Package `register`, Name `reg2`.
 7. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a

@@ -267,7 +267,7 @@ unsafe fn open_handle(
 }
 
 /// Test only (feature `test-harness`): an isolated in-process Zenoh peer
-/// with the mock link on `wy/test/down/mock` (`points` points at `rate_hz`,
+/// with the mock link on `wy/test/downstream/mock` (`points` points at `rate_hz`,
 /// depth 1, fanout 2, writable) that trusts the harness test key, and a
 /// client that signs with that key.
 ///

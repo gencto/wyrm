@@ -11,7 +11,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 class WyrmTree extends StatelessWidget {
   final WyrmApi api;
 
-  /// Full node key, for example `wy/plant-a/down`.
+  /// Full node key, for example `wy/plant-a/downstream`.
   final String rootKey;
 
   /// Called on a tap on a leaf (for example to open a `set` dialog).

@@ -1,4 +1,4 @@
-//! `flows/<id>/~def` (spec 06): parsing and the compiler checks, in the
+//! `dataflows/<id>/~def` (spec 06): parsing and the compiler checks, in the
 //! spec order — schema, node ids, node types and configs, edges and port
 //! types, acyclic except through `delay`, rhai, `maxperm`, memory limits.
 //! The first error stops; its text starts with the path (`nodes.sum.expr: …`).

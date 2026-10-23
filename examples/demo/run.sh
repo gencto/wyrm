@@ -49,8 +49,8 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   edge:    zenoh tcp/127.0.0.1:7457, gateway http://127.0.0.1:8444
   plant:   zenoh tcp/127.0.0.1:7467, gateway http://127.0.0.1:8446
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
-  chain:   plant → edge → central; from central: wy/central/down/edge ▸ down ▸
-           plant (read only, sys too), from edge: wy/edge/down/plant
+  chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸
+           plant (read only, sys too), from edge: wy/edge/downstream/plant
   install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
 MSG
 wait

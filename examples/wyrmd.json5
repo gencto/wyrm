@@ -24,7 +24,7 @@
   // always off). memory_mb is applied on Linux only.
   // link_limits: { memory_mb: 1024, open_files: 4096 },
   links: {
-    // Embedded mock connector: wy/local/down/mock/**
+    // Embedded mock connector: wy/local/downstream/mock/**
     mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
     // Modbus TCP as a supervised process (`wyrmd link modbus`), mTLS CN = plc1.
     // Simulator: cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim

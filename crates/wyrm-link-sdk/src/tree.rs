@@ -1,6 +1,6 @@
 //! In-memory node tree of one link. The SDK answers `~meta` from here.
 //!
-//! Paths are relative to `wy/<site>/down/<link>`; the root is `""`.
+//! Paths are relative to `wy/<site>/downstream/<link>`; the root is `""`.
 //! `children`, `rev`, `children_count` and the `view=list` summary fields are
 //! owned by the tree — whatever the driver puts there is replaced.
 

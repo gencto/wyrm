@@ -1,4 +1,4 @@
-//! Responder: one queryable on `wy/<site>/down/<link>/**`, routed by suffix.
+//! Responder: one queryable on `wy/<site>/downstream/<link>/**`, routed by suffix.
 //!
 //! * `~meta` is answered from the shared tree on the query task — it never
 //!   waits for the driver.
@@ -59,7 +59,7 @@ pub struct LinkConfig {
     pub answer_val: bool,
     pub secrets: SecretStore,
     /// Key prefix override (`wy/<site>/sys` for the admin). Default:
-    /// `wy/<site>/down/<link>`.
+    /// `wy/<site>/downstream/<link>`.
     pub root: Option<String>,
     /// Actions that skip the `ptok` check because the driver authenticates
     /// the caller itself (the admin's `hello` checks a link token). Host
@@ -194,7 +194,7 @@ impl<L: Link> Drop for LinkHandle<L> {
 }
 
 /// Start a link on `session`: tree + queryable, then `L::start`, then the
-/// driver task and the liveliness token `wy/<site>/down/<link>`.
+/// driver task and the liveliness token `wy/<site>/downstream/<link>`.
 pub async fn spawn<L: Link>(
     session: Session,
     cfg: LinkConfig,
@@ -215,7 +215,7 @@ pub async fn spawn<L: Link>(
     .attr("version", L::VERSION);
     let prefix = match &cfg.root {
         Some(r) => r.clone(),
-        None => format!("{}/{}/down/{}", keyspace::ROOT, cfg.site, cfg.link),
+        None => format!("{}/{}/downstream/{}", keyspace::ROOT, cfg.site, cfg.link),
     };
     let ctx = LinkCtx::new(
         session.clone(),

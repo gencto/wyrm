@@ -1,4 +1,4 @@
-# 06 — `flows/<id>/~def`
+# 06 — `dataflows/<id>/~def`
 
 CBOR map (на дроті) / JSON (у конфігах і UI) — одна схема. Рядкові ключі (користувацький вміст).
 
@@ -19,7 +19,7 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 ## Валідація (порядок, перша помилка зупиняє)
 1. схема; 2. унікальність `node_id`, `[A-Za-z0-9_]+`; 3. тип ноди є в реєстрі, конфіг за схемою типу; 4. ребра → існуючі порти, сумісні типи; 5. ациклічність (цикл дозволений лише через `delay`); 6. rhai компілюється; 7. `permissions.maxperm` ≥ мін. рівня всіх `invoke/set`-нод і ≤ `write` (флоу не робить config-операцій); 8. ліміти пам'яті (`window.max_samples` сума).
 
-Помилка → `flows/<id>/~val = {state: 2 (error), error: "<path>: <msg>"}`; стара версія працює.
+Помилка → `dataflows/<id>/~val = {state: 2 (error), error: "<path>: <msg>"}`; стара версія працює.
 
 ## `~val` флоу
 `{0: {"state": 0 running | 1 stopped | 2 error, "error": tstr?, "version": uint, "since": uint, "deployed_by": tstr?}, 1: q, 2: t}`

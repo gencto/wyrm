@@ -1,4 +1,4 @@
-# WYRM spec v0.1 — ітерація 0
+# WYRM spec v0.2
 
 Нормативна частина. Усе, що тут, має тестуватись у кожному SDK (Rust, Dart, C) проти одних і тих самих байтів із `fixtures/`. Вікі пояснює «чому», spec — «що саме».
 
@@ -9,7 +9,7 @@
 | [03-val](03-val.md) | `~val`: `{v,q,t}`, quality, timestamps |
 | [04-attachment](04-attachment.md) | attachment: ключі, статуси, `ptok v1` |
 | [05-methods](05-methods.md) | `list`, `resolve`, `subscribe`, `set`, `invoke`, стріми, таймаути |
-| [06-flow-def](06-flow-def.md) | схема `flows/<id>/~def` |
+| [06-flow-def](06-flow-def.md) | схема `dataflows/<id>/~def` |
 | `tables.json` | машинно-читані таблиці кодів (джерело істини для кодогенерації) |
 | `fixtures/fixtures.json` + `*.cbor.hex` | 22 фікстури: канонічний CBOR, hex, JSON-еквівалент |
 

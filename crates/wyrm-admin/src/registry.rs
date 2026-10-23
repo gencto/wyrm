@@ -3,7 +3,7 @@
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use wyrm_core::keyspace::validate_segment;
+use wyrm_core::keyspace::{self, validate_segment};
 use wyrm_core::profile::{self, ProfileDef};
 
 /// A link id is a key segment, a certificate CN and a directory name under
@@ -13,7 +13,7 @@ pub fn validate_link_id(id: &str) -> Result<(), String> {
     if id.starts_with('.') {
         return Err(format!("link id {id:?} may not start with '.'"));
     }
-    if matches!(id, "admin" | "broker" | "flows") {
+    if matches!(id, "admin" | "broker" | "dataflows") {
         return Err(format!("link id {id:?} is reserved"));
     }
     Ok(())
@@ -117,17 +117,17 @@ pub struct LinkDef {
 /// Highest level a link grant gives: `config` stays with people.
 pub const MAX_LINK_GRANT: wyrm_core::Perm = wyrm_core::Perm::Write;
 
-/// A link grant path: `wy/{site}/down[/…]` or `wy/{site}/flows[/…]`, plain
-/// segments (no wildcards, no suffixes). `flows` grants stop at `read`.
+/// A link grant path: `wy/{site}/downstream[/…]` or `wy/{site}/dataflows[/…]`, plain
+/// segments (no wildcards, no suffixes). `dataflows` grants stop at `read`.
 pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), String> {
     use wyrm_core::Perm;
-    let rest = path
-        .strip_prefix("wy/{site}/")
-        .ok_or_else(|| format!("{path}: starts with wy/{{site}}/down or wy/{{site}}/flows"))?;
+    let rest = path.strip_prefix("wy/{site}/").ok_or_else(|| {
+        format!("{path}: starts with wy/{{site}}/downstream or wy/{{site}}/dataflows")
+    })?;
     let mut segs = rest.split('/');
     let root = segs.next().unwrap_or_default();
-    if !matches!(root, "down" | "flows") {
-        return Err(format!("{path}: only down or flows (never sys)"));
+    if !matches!(root, "downstream" | "dataflows") {
+        return Err(format!("{path}: only downstream or dataflows (never sys)"));
     }
     for seg in segs {
         validate_segment(seg).map_err(|e| format!("{path}: {e}"))?;
@@ -138,7 +138,7 @@ pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), String> {
     if level > MAX_LINK_GRANT {
         return Err(format!("level {}: at most write", level.name()));
     }
-    if root == "flows" && level > Perm::Read {
+    if root == "dataflows" && level > Perm::Read {
         return Err("flows: at most read (flows are commanded by people)".into());
     }
     Ok(())
@@ -395,7 +395,7 @@ pub struct WatchGroupDef {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchDef {
-    /// Point key `wy/<site>/down/…` or `wy/<site>/flows/…`.
+    /// Point key `wy/<site>/downstream/…` or `wy/<site>/dataflows/…`.
     pub key: String,
     pub enabled: bool,
 }
@@ -407,14 +407,14 @@ pub const MAX_WATCHES: usize = 10_000;
 pub const INTERVAL_MS: std::ops::RangeInclusive<u64> = 100..=86_400_000;
 pub const FLUSH_MS: std::ops::RangeInclusive<u64> = 100..=600_000;
 
-/// A watch key: `wy/<site>/down/<link>[/…]` or `wy/<site>/flows/<flow>[/…]`,
+/// A watch key: `wy/<site>/downstream/<link>[/…]` or `wy/<site>/dataflows/<flow>[/…]`,
 /// plain segments (no wildcards, no `~` suffixes). Which sites are allowed
 /// is the caller's check.
 pub fn check_watch_key(key: &str) -> Result<(), String> {
     let segs: Vec<&str> = key.split('/').collect();
-    if segs.len() < 4 || segs[0] != "wy" || !matches!(segs[2], "down" | "flows") {
+    if segs.len() < 4 || segs[0] != "wy" || !matches!(segs[2], "downstream" | "dataflows") {
         return Err(format!(
-            "{key}: a point under wy/<site>/down/<link> or wy/<site>/flows/<flow>"
+            "{key}: a point under wy/<site>/downstream/<link> or wy/<site>/dataflows/<flow>"
         ));
     }
     for s in &segs[1..] {
@@ -430,7 +430,7 @@ pub fn check_watch_key(key: &str) -> Result<(), String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 #[cbor(index_only)]
 pub enum PeerDir {
-    /// We connect to it and it reads our `down/**`, `flows/**`.
+    /// We connect to it and it reads our `downstream/**`, `dataflows/**`.
     #[n(0)]
     Upstream,
     /// It connects to us and serves its own `wy/<site>/**`.
@@ -575,12 +575,42 @@ impl Registry {
     }
 }
 
+/// An op with keys stored before spec 0.2.0 (`down`, `up`, `flows`) under
+/// their new names, so old WAL records replay as current ones; `None` when
+/// the op carries no key.
+fn renamed_keys(op: &Op) -> Option<Op> {
+    let rn = |p: &str| keyspace::renamed(p).into_owned();
+    let grants = |g: &[(String, u8)]| g.iter().map(|(p, l)| (rn(p), *l)).collect();
+    match op {
+        Op::Install(def) if !def.grants.is_empty() => Some(Op::Install(LinkDef {
+            grants: grants(&def.grants),
+            ..def.clone()
+        })),
+        Op::PutPackage(def) if !def.requester.is_empty() => Some(Op::PutPackage(PackageDef {
+            requester: grants(&def.requester),
+            ..def.clone()
+        })),
+        Op::SetLinkGrant { id, path, level } => Some(Op::SetLinkGrant {
+            id: id.clone(),
+            path: rn(path),
+            level: *level,
+        }),
+        Op::AddWatch { group, key } => Some(Op::AddWatch {
+            group: group.clone(),
+            key: rn(key),
+        }),
+        _ => None,
+    }
+}
+
 impl wyrm_state::State for Registry {
-    const SCHEMA: u32 = 13;
+    // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`)
+    const SCHEMA: u32 = 14;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
-        match op {
+        let renamed = renamed_keys(op);
+        match renamed.as_ref().unwrap_or(op) {
             Op::Install(def) => {
                 validate_link_id(&def.id)?;
                 if self
@@ -866,7 +896,7 @@ impl wyrm_state::State for Registry {
                 }
                 if def.dir == PeerDir::Downstream && self.links.contains_key(&def.site) {
                     return Err(format!(
-                        "{} is a link id (down/{} would be both)",
+                        "{} is a link id (downstream/{} would be both)",
                         def.site, def.site
                     ));
                 }
@@ -1079,31 +1109,78 @@ mod tests {
             path: path.into(),
             level: level.code(),
         };
-        r.apply(&grant("wy/{site}/down/mock", Perm::Read)).unwrap();
-        r.apply(&grant("wy/{site}/down/plc1/c1", Perm::Write))
+        r.apply(&grant("wy/{site}/downstream/mock", Perm::Read))
             .unwrap();
-        r.apply(&grant("wy/{site}/flows", Perm::List)).unwrap();
+        r.apply(&grant("wy/{site}/downstream/plc1/c1", Perm::Write))
+            .unwrap();
+        r.apply(&grant("wy/{site}/dataflows", Perm::List)).unwrap();
         assert_eq!(r.links["rec"].grants.len(), 3);
         // a new level replaces, none removes
-        r.apply(&grant("wy/{site}/down/mock", Perm::Write)).unwrap();
-        r.apply(&grant("wy/{site}/flows", Perm::None)).unwrap();
+        r.apply(&grant("wy/{site}/downstream/mock", Perm::Write))
+            .unwrap();
+        r.apply(&grant("wy/{site}/dataflows", Perm::None)).unwrap();
         assert_eq!(
             r.links["rec"].grants,
             [
-                ("wy/{site}/down/mock".to_string(), Perm::Write.code()),
-                ("wy/{site}/down/plc1/c1".to_string(), Perm::Write.code())
+                ("wy/{site}/downstream/mock".to_string(), Perm::Write.code()),
+                (
+                    "wy/{site}/downstream/plc1/c1".to_string(),
+                    Perm::Write.code()
+                )
             ]
         );
         for (path, level) in [
             ("wy/{site}/sys/links", Perm::Read),
-            ("wy/other/down/x", Perm::Read),
-            ("wy/{site}/down/**", Perm::Read),
-            ("wy/{site}/down/x/~set", Perm::Read),
-            ("wy/{site}/down/x", Perm::Config),
-            ("wy/{site}/flows/f1", Perm::Write),
+            ("wy/other/downstream/x", Perm::Read),
+            ("wy/{site}/downstream/**", Perm::Read),
+            ("wy/{site}/downstream/x/~set", Perm::Read),
+            ("wy/{site}/downstream/x", Perm::Config),
+            ("wy/{site}/dataflows/f1", Perm::Write),
         ] {
             assert!(r.apply(&grant(path, level)).is_err(), "{path} {level:?}");
         }
+    }
+
+    /// WAL records written before spec 0.2.0 replay under the new section
+    /// names: grants, package requests and watches.
+    #[test]
+    fn keys_before_spec_0_2_replay_renamed() {
+        use wyrm_core::Perm;
+        let mut r = Registry::default();
+        let mut d = def("rec", Mode::External);
+        d.grants = vec![("wy/{site}/flows/f1".into(), Perm::Read.code())];
+        r.apply(&Op::Install(d)).unwrap();
+        r.apply(&Op::SetLinkGrant {
+            id: "rec".into(),
+            path: "wy/{site}/down/plc1".into(),
+            level: Perm::Write.code(),
+        })
+        .unwrap();
+        assert_eq!(
+            r.links["rec"].grants,
+            [
+                ("wy/{site}/dataflows/f1".to_string(), Perm::Read.code()),
+                ("wy/{site}/downstream/plc1".to_string(), Perm::Write.code())
+            ]
+        );
+        r.apply(&Op::PutWatchGroup {
+            name: "g".into(),
+            logging: 2,
+            interval_ms: 1000,
+            flush_ms: 1000,
+        })
+        .unwrap();
+        r.apply(&Op::AddWatch {
+            group: "g".into(),
+            key: "wy/s/down/mock/p0".into(),
+        })
+        .unwrap();
+        let w: Vec<&str> = r.historian.groups["g"]
+            .watches
+            .values()
+            .map(|w| w.key.as_str())
+            .collect();
+        assert_eq!(w, ["wy/s/downstream/mock/p0"]);
     }
 
     #[test]
@@ -1120,15 +1197,18 @@ mod tests {
             key: key.into(),
         };
         r.apply(&group("g", 2, 60_000)).unwrap();
-        r.apply(&watch("wy/s/down/mock/g0/p0")).unwrap();
-        r.apply(&watch("wy/s/flows/f1/out")).unwrap();
-        assert!(r.apply(&watch("wy/s/down/mock/g0/p0")).is_err(), "twice");
+        r.apply(&watch("wy/s/downstream/mock/g0/p0")).unwrap();
+        r.apply(&watch("wy/s/dataflows/f1/out")).unwrap();
+        assert!(
+            r.apply(&watch("wy/s/downstream/mock/g0/p0")).is_err(),
+            "twice"
+        );
         for bad in [
             "wy/s/sys/links",
-            "wy/s/down",
-            "wy/s/down/mock/**",
-            "wy/s/down/mock/p/~val",
-            "down/mock/p",
+            "wy/s/downstream",
+            "wy/s/downstream/mock/**",
+            "wy/s/downstream/mock/p/~val",
+            "downstream/mock/p",
         ] {
             assert!(r.apply(&watch(bad)).is_err(), "{bad}");
         }
@@ -1140,7 +1220,7 @@ mod tests {
             id: "w1".into(),
         })
         .unwrap();
-        r.apply(&watch("wy/s/down/mock/g0/p1")).unwrap();
+        r.apply(&watch("wy/s/downstream/mock/g0/p1")).unwrap();
         assert!(r.historian.groups["g"].watches.contains_key("w3"));
         r.apply(&Op::SetWatchEnabled {
             group: "g".into(),

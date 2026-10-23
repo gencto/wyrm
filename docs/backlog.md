@@ -17,6 +17,8 @@ Order: stage 1 — items 7, 8, 6, 9; stage 2 — items 2, 3, 4; stage 3 — item
 | 2 | Nodes and site sections lowercase; actions keep readable display names (`Add Device`). |
 | 3 | Superseded 2026-10-23 (owner): `sys/upstream` stays (Add Upstream Connection → `sys/upstream/<name>` with its parameters); `sys/downstream` goes; the root sections `upstream` (where this broker connects) and `downstream` (everything that connects to it: links and downstream brokers) show the live connections, under their full names. Downstream brokers come in through link install and quarantine only; no actions on `downstream`. |
 | 4 | Rename the key: `flows` → `dataflows` (spec change, before 1.0). |
+| 3, 4 (2026-10-23) | Keys `down` → `downstream`, `up` → `upstream` and `flows` → `dataflows` in one spec 0.2.0 with one migration of stored paths; done before the item 3 admission work. |
+| 3 (2026-10-23) | A downstream broker connects with a `broker:<d>` certificate issued by the upstream's CA, as an external link does: an unknown one goes to quarantine (Authorize), or Install issues it in advance; the upstream trusts no other CA (ends ADR 0007's accepted peer-CA risk). On the downstream, Add Upstream Connection takes that certificate and its key (a sealed secret). `via` becomes a parameter of Install/Authorize. |
 | 5 | The section is `storage`. |
 | 8 | Deauthorize lists links only. How a downstream broker is removed follows item 3 (link install and quarantine). |
 | 9 | Spec 02: `unit` (key 2) joins the `view=list` summary. |
@@ -117,6 +119,19 @@ pass over docs and skills. A label-only change in the explorer is the cheap
 alternative.
 
 **Decide:** the key (spec) or only the label.
+
+**Done (2026-10-23), with the key part of item 3:** spec 0.2.0 names the
+site sections in full: `wy/<site>/downstream`, `upstream`, `dataflows`
+(before: `down`, `up`, `flows`). Fixture `ptok_claims_v1`; both SDKs, the
+ACL, the gateway roles, the flow engine (link id `dataflows`), the
+historian, `wyr`, MCP, the agent, the skills and the explorer (sections
+shown by their keys). Stored keys move by themselves: the registry (link
+grants, package requests, history watches; SCHEMA 14) and the gateway's
+users (role grants; SCHEMA 4) replay old WAL records under the new names
+(`keyspace::renamed`). Not moved: deployed flows (their proofs are signed
+for the old keys: deploy them again) and the agent's stored tasks. The
+flow store keeps `data_dir/flows`, and `wyr dev` keeps its `flows/` folder
+of definition files (directories, not keys).
 
 ## 5. A broker storage node
 

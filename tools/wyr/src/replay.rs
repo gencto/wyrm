@@ -3,7 +3,7 @@
 //!
 //! Recording format (`.cbor`): one CBOR array (definite or indefinite
 //! length) of maps `{"key": tstr, "sample": Sample}`, where `key` is the
-//! full node key without `/~val` (`wy/local/down/mock/g0/p0`) and `Sample`
+//! full node key without `/~val` (`wy/local/downstream/mock/g0/p0`) and `Sample`
 //! is the spec 03 `~val` payload `{0: v, 1: q, 2: t}` (t in µs since the
 //! Unix epoch). Unknown map keys are skipped.
 //!
@@ -14,7 +14,7 @@
 //! `--speed`, pauses capped at `--max-gap-s`. Timestamps are moved to the replay clock, so time-based
 //! nodes (`window`, `alarm` delays, `delay`, `timer`, `age_ms`) see the
 //! replay time: at `--speed` ≠ 1 they see compressed or stretched time.
-//! It prints every `~val` the flow publishes (`flows/<id>/nodes/**`) and
+//! It prints every `~val` the flow publishes (`dataflows/<id>/nodes/**`) and
 //! every command of `set`/`invoke` sinks; commands are acknowledged with
 //! `ok` and never reach a device.
 
@@ -249,7 +249,7 @@ async fn run_replay(
     getrandom::fill(&mut seed).map_err(|e| format!("no randomness: {e}"))?;
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let host = FlowHost::open(dir, &seed, site)?;
-    let mut lcfg = LinkConfig::new(site, "flows");
+    let mut lcfg = LinkConfig::new(site, "dataflows");
     lcfg.root = Some(root(site));
     lcfg.admin_keys = vec![key.verifying_key()];
     let engine = wyrm_link_sdk::spawn::<Engine>(
@@ -403,10 +403,10 @@ async fn sinks(
     lines: Lines,
 ) -> Result<tokio::task::JoinHandle<()>, Error> {
     let set = session
-        .declare_queryable(format!("wy/{site}/down/**/~set"))
+        .declare_queryable(format!("wy/{site}/downstream/**/~set"))
         .await?;
     let act = session
-        .declare_queryable(format!("wy/{site}/down/**/~act/*"))
+        .declare_queryable(format!("wy/{site}/downstream/**/~act/*"))
         .await?;
     let ok = wyrm_core::codec::to_vec(&Attachment::with_status(Status::Ok))?;
     Ok(tokio::spawn(async move {
@@ -465,10 +465,10 @@ mod tests {
     #[test]
     fn recording_round_trip() {
         let rs = vec![
-            rec("wy/s/down/m/p0", Value::Float(21.5), 1_000_000),
-            rec("wy/s/down/m/p1", Value::from("x"), 1_000_100),
+            rec("wy/s/downstream/m/p0", Value::Float(21.5), 1_000_000),
+            rec("wy/s/downstream/m/p1", Value::from("x"), 1_000_100),
             Record {
-                key: "wy/s/down/m/p0".into(),
+                key: "wy/s/downstream/m/p0".into(),
                 sample: Sample {
                     v: Value::Null,
                     q: Quality::Bad,
@@ -484,7 +484,7 @@ mod tests {
         e.begin_array().unwrap();
         e.map(3).unwrap();
         e.str("note").unwrap().u8(1).unwrap();
-        e.str("key").unwrap().str("wy/s/down/m/p0").unwrap();
+        e.str("key").unwrap().str("wy/s/downstream/m/p0").unwrap();
         e.str("sample").unwrap().encode(&rs[0].sample).unwrap();
         e.end().unwrap();
         assert_eq!(decode(&e.into_writer()).unwrap(), vec![rs[0].clone()]);
@@ -498,11 +498,11 @@ mod tests {
 
     #[test]
     fn keys_and_sites() {
-        assert_eq!(site_of("wy/plant/down/m/p0"), Some("plant"));
+        assert_eq!(site_of("wy/plant/downstream/m/p0"), Some("plant"));
         assert_eq!(site_of("x/y"), None);
-        assert_eq!(full_key("s", "down/m/p0"), "wy/s/down/m/p0");
-        assert_eq!(full_key("s", "/down/m/p0"), "wy/s/down/m/p0");
-        assert_eq!(full_key("s", "wy/t/down/x"), "wy/t/down/x");
+        assert_eq!(full_key("s", "downstream/m/p0"), "wy/s/downstream/m/p0");
+        assert_eq!(full_key("s", "/downstream/m/p0"), "wy/s/downstream/m/p0");
+        assert_eq!(full_key("s", "wy/t/downstream/x"), "wy/t/downstream/x");
         assert_eq!(offset(3_500_000, 1_000_000, 2.0), "+5.000s");
     }
 
@@ -532,7 +532,7 @@ mod tests {
         let rs: Vec<Record> = (0..10)
             .map(|i| {
                 rec(
-                    "wy/s/down/m/p0",
+                    "wy/s/downstream/m/p0",
                     Value::Float(f64::from(i) * 5.0),
                     t0 + i as u64 * 20_000,
                 )
@@ -546,11 +546,11 @@ mod tests {
             r#"{
                 id: "f", version: 1,
                 nodes: {
-                    a: { type: "subscribe", key: "down/m/p0" },
+                    a: { type: "subscribe", key: "downstream/m/p0" },
                     x: { type: "expression", inputs: ["a"], expr: "a.v * 2.0" },
                     al: { type: "alarm", high: 60 },
                     o: { type: "publish", node: "o" },
-                    cmd: { type: "set", path: "down/m/sp" },
+                    cmd: { type: "set", path: "downstream/m/sp" },
                 },
                 edges: [["a.out", "x.in.a"], ["x.out", "o.in"], ["x.out", "al.in"], ["al.out", "cmd.in"]],
                 permissions: { maxperm: "write" },
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(
             s.commands
                 .iter()
-                .filter(|l| l.contains("set wy/s/down/m/sp = true"))
+                .filter(|l| l.contains("set wy/s/downstream/m/sp = true"))
                 .count(),
             1,
             "{s:?}"

@@ -16,7 +16,7 @@ use wyrm_link_sdk::{LinkConfig, LinkHandle, Secret, SecretStore};
 
 const SITE: &str = "test";
 const AGENT_SEED: [u8; 32] = [9; 32];
-const P0: &str = "wy/test/down/mock/p0";
+const P0: &str = "wy/test/downstream/mock/p0";
 
 /// Scripted Messages API: answers in order, records every request.
 #[derive(Default)]
@@ -76,11 +76,11 @@ fn end(text: &str) -> Json {
 fn set_p0_script(value: f64) -> Vec<Json> {
     vec![
         tool_use(&[
-            ("t1", "node_meta", json!({"path": "down/mock/p0"})),
+            ("t1", "node_meta", json!({"path": "downstream/mock/p0"})),
             (
                 "t2",
                 "propose",
-                json!({"op": "set", "path": "down/mock/p0", "value": value, "reason": "operator asked"}),
+                json!({"op": "set", "path": "downstream/mock/p0", "value": value, "reason": "operator asked"}),
             ),
         ]),
         end("Plan: set p0."),
@@ -220,7 +220,9 @@ impl Env {
         text: &str,
     ) -> Result<(String, Vec<Value>), wyrm_client::ClientError> {
         let args = Value::Map(BTreeMap::from([("task".to_owned(), Value::from(text))]));
-        let mut s = client.invoke("wy/test/down/agent", "ask", args).await?;
+        let mut s = client
+            .invoke("wy/test/downstream/agent", "ask", args)
+            .await?;
         let mut items = Vec::new();
         while let Some(i) = s.next().await {
             if let Some(v) = i? {
@@ -244,7 +246,7 @@ impl Env {
     /// Raw `get` of the task's `~state` document with an optional ptok:
     /// `Ok(record)` or `Err(status name)`.
     async fn doc_with(&self, id: &str, ptok: Option<Vec<u8>>) -> Result<Value, String> {
-        let key = format!("wy/test/down/agent/tasks/{id}/~state");
+        let key = format!("wy/test/downstream/agent/tasks/{id}/~state");
         let att = wyrm_core::Attachment {
             ptok,
             ..Default::default()
@@ -270,7 +272,7 @@ impl Env {
 
     /// The full task record, read as a human with `list` rights.
     async fn doc(&self, id: &str) -> Value {
-        let key = format!("wy/test/down/agent/tasks/{id}/~state");
+        let key = format!("wy/test/downstream/agent/tasks/{id}/~state");
         self.doc_with(id, Some(human_token("user:op", &key)))
             .await
             .expect("task ~state")
@@ -308,7 +310,11 @@ impl Env {
         args: Value,
     ) -> Result<Option<Value>, wyrm_client::ClientError> {
         client
-            .invoke_one(&format!("wy/test/down/agent/tasks/{id}"), action, args)
+            .invoke_one(
+                &format!("wy/test/downstream/agent/tasks/{id}"),
+                action,
+                args,
+            )
             .await
     }
 
@@ -369,7 +375,7 @@ fn human_token(sub: &str, key: &str) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ask_plan_approve_done() {
-    let env = Env::start(params(&["down/mock"]), set_p0_script(42.0)).await;
+    let env = Env::start(params(&["downstream/mock"]), set_p0_script(42.0)).await;
     let before = env.p0();
     let (id, items) = env.ask("set p0 to 42").await.unwrap();
     assert!(items.len() >= 3, "progress was streamed: {items:?}");
@@ -407,7 +413,7 @@ async fn ask_plan_approve_done() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn proposal_outside_allowed_prefixes_is_refused() {
-    let env = Env::start(params(&["down/mocky"]), set_p0_script(42.0)).await;
+    let env = Env::start(params(&["downstream/mocky"]), set_p0_script(42.0)).await;
     let before = env.p0();
     let (id, _) = env.ask("set p0 to 42").await.unwrap();
     let v = env.wait_state(&id, "done").await;
@@ -430,7 +436,7 @@ async fn proposal_outside_allowed_prefixes_is_refused() {
 async fn reject_and_cancel() {
     let mut script = set_p0_script(42.0);
     script.extend(set_p0_script(43.0));
-    let env = Env::start(params(&["down/mock"]), script).await;
+    let env = Env::start(params(&["downstream/mock"]), script).await;
     let before = env.p0();
     let op = env.human(Perm::Config);
 
@@ -472,7 +478,7 @@ async fn reject_and_cancel() {
 async fn budget_exhausted() {
     let p = AgentParams {
         budget_tokens_day: 10_000,
-        ..params(&["down/mock"])
+        ..params(&["downstream/mock"])
     };
     // 5010 + 6020 tokens: the first task spends the whole budget.
     let env = Env::start(p, set_p0_script(42.0)).await;
@@ -487,7 +493,7 @@ async fn budget_exhausted() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn approve_needs_config_and_the_same_human() {
-    let env = Env::start(params(&["down/mock"]), set_p0_script(42.0)).await;
+    let env = Env::start(params(&["downstream/mock"]), set_p0_script(42.0)).await;
     let before = env.p0();
     let (id, _) = env.ask("set p0 to 42").await.unwrap();
     env.wait_state(&id, "awaiting_approval").await;
@@ -554,7 +560,7 @@ async fn approve_needs_config_and_the_same_human() {
 async fn write_ops_run_with_the_service_token_when_allowed() {
     let p = AgentParams {
         require_approval: wyrm_link_agent::tools::ApprovalMode::Config,
-        ..params(&["down/mock"])
+        ..params(&["downstream/mock"])
     };
     let env = Env::start(p, set_p0_script(7.0)).await;
     let (id, items) = env.ask("set p0 to 7").await.unwrap();
@@ -590,18 +596,18 @@ async fn read_tools_stay_inside_the_prefixes_and_tasks_are_restricted() {
     let script = vec![
         tool_use(&[
             ("t1", "node_meta", json!({"path": "sys/links"})),
-            ("t2", "tree_list", json!({"path": "down"})),
+            ("t2", "tree_list", json!({"path": "downstream"})),
             (
                 "t3",
                 "value_get",
-                json!({"paths": ["down/mock/p0", "down/agent/tasks"]}),
+                json!({"paths": ["downstream/mock/p0", "downstream/agent/tasks"]}),
             ),
             ("t4", "flow_get", json!({"id": "f1"})),
-            ("t5", "tree_list", json!({"path": "down/mock"})),
+            ("t5", "tree_list", json!({"path": "downstream/mock"})),
         ]),
         end("done"),
     ];
-    let env = Env::start(params(&["down/mock"]), script).await;
+    let env = Env::start(params(&["downstream/mock"]), script).await;
     let (id, _) = env.ask("look around").await.unwrap();
     env.wait_state(&id, "done").await;
     let seen = env.llm.seen();
@@ -611,8 +617,8 @@ async fn read_tools_stay_inside_the_prefixes_and_tasks_are_restricted() {
         assert!(r[i]["content"].as_str().unwrap().contains("may not read"));
     }
     let vals: Json = serde_json::from_str(r[2]["content"].as_str().unwrap()).unwrap();
-    assert!(vals["down/mock/p0"]["v"].is_number());
-    assert!(vals["down/agent/tasks"]["error"].is_string());
+    assert!(vals["downstream/mock/p0"]["v"].is_number());
+    assert!(vals["downstream/agent/tasks"]["error"].is_string());
     assert_eq!(r[4]["is_error"], false);
 
     // The public ~val carries the state only; the record needs `list`.
@@ -623,7 +629,7 @@ async fn read_tools_stay_inside_the_prefixes_and_tasks_are_restricted() {
     let rec = env.doc(&id).await;
     assert_eq!(field(&rec, "owner").as_deref(), Some("user:op"));
     let (att, _) = {
-        let key = "wy/test/down/agent/tasks/~meta";
+        let key = "wy/test/downstream/agent/tasks/~meta";
         let rx = env.session.get(key).await.unwrap();
         let s = rx.recv_async().await.unwrap();
         let s = s.result().unwrap();
@@ -642,7 +648,7 @@ async fn read_tools_stay_inside_the_prefixes_and_tasks_are_restricted() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn service_token_is_scoped() {
-    let env = Env::start(params(&["down/mock"]), set_p0_script(1.0)).await;
+    let env = Env::start(params(&["downstream/mock"]), set_p0_script(1.0)).await;
     // A second link the agent is not allowed to touch; it trusts the agent key.
     let agent_key = ed25519_dalek::SigningKey::from_bytes(&AGENT_SEED);
     let mut cfg = LinkConfig::new(SITE, "other");
@@ -664,11 +670,11 @@ async fn service_token_is_scoped() {
         agent_key,
         SITE,
         "agent",
-        &["wy/test/down/mock".to_owned()],
+        &["wy/test/downstream/mock".to_owned()],
     );
     // No token at all outside the grants; `none` on its own subtree and sys.
-    assert!(toks.token("wy/test/down/other/p0/~set").is_none());
-    assert!(toks.token("wy/test/flows/~act/deploy").is_none());
+    assert!(toks.token("wy/test/downstream/other/p0/~set").is_none());
+    assert!(toks.token("wy/test/dataflows/~act/deploy").is_none());
     let claims = |t: Vec<u8>| -> wyrm_core::ptok::PtokClaims {
         wyrm_core::codec::from_slice(wyrm_core::ptok::split(&t).unwrap().claims).unwrap()
     };
@@ -683,11 +689,14 @@ async fn service_token_is_scoped() {
         .with_timeout(Duration::from_secs(5))
         .with_tokens(Arc::new(toks));
     // The links refuse it outside the grants...
-    let e = svc.set("wy/test/down/other/p0", 5.0).await.unwrap_err();
+    let e = svc
+        .set("wy/test/downstream/other/p0", 5.0)
+        .await
+        .unwrap_err();
     assert!(e.is(Status::PermissionDenied), "{e}");
     let (id, _) = env.ask("set p0 to 1").await.unwrap();
     env.wait_state(&id, "awaiting_approval").await;
-    let key = format!("wy/test/down/agent/tasks/{id}/~state");
+    let key = format!("wy/test/downstream/agent/tasks/{id}/~state");
     let e = env.doc_with(&id, svc.proof(&key)).await.unwrap_err();
     assert!(e.contains("PermissionDenied"), "{e}");
     let e = env
@@ -704,7 +713,7 @@ async fn service_token_is_scoped() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn slow_model_keeps_the_ask_stream_alive() {
-    let env = Env::start(params(&["down/mock"]), set_p0_script(42.0)).await;
+    let env = Env::start(params(&["downstream/mock"]), set_p0_script(42.0)).await;
     *env.llm.delay.lock().unwrap() = Duration::from_millis(2500);
     let client = env.human_with(Perm::Config, Duration::from_secs(2));
     let (id, items) = env.ask_with(&client, "set p0 to 42").await.unwrap();
@@ -726,17 +735,17 @@ async fn one_step_per_key_and_only_the_asker_may_cancel() {
             (
                 "t1",
                 "propose",
-                json!({"op": "set", "path": "down/mock/p0", "value": 1}),
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 1}),
             ),
             (
                 "t2",
                 "propose",
-                json!({"op": "set", "path": "down/mock/p0", "value": 2}),
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 2}),
             ),
         ]),
         end("Plan: set p0."),
     ];
-    let env = Env::start(params(&["down/mock"]), script).await;
+    let env = Env::start(params(&["downstream/mock"]), script).await;
     let (id, _) = env.ask("set p0").await.unwrap();
     let rec = env.wait_state(&id, "awaiting_approval").await;
     assert_eq!(plan_len(&rec), 1);
@@ -769,7 +778,7 @@ async fn restart_keeps_tasks_and_budget() {
     let dir = temp_dir("restart");
     let p = AgentParams {
         budget_tokens_day: 10_000,
-        ..params(&["down/mock"])
+        ..params(&["downstream/mock"])
     };
     let mut env = Env::start_in(p, set_p0_script(42.0), Some(dir.clone())).await;
     let (id, _) = env.ask("set p0 to 42").await.unwrap();
@@ -815,7 +824,7 @@ async fn restart_keeps_tasks_and_budget() {
 async fn planning_task_fails_on_restart() {
     let dir = temp_dir("interrupt");
     let mut env = Env::start_in(
-        params(&["down/mock"]),
+        params(&["downstream/mock"]),
         set_p0_script(42.0),
         Some(dir.clone()),
     )
@@ -824,7 +833,7 @@ async fn planning_task_fails_on_restart() {
     let args = Value::Map(BTreeMap::from([("task".to_owned(), Value::from("slow"))]));
     let mut s = env
         .human(Perm::Config)
-        .invoke("wy/test/down/agent", "ask", args)
+        .invoke("wy/test/downstream/agent", "ask", args)
         .await
         .unwrap();
     let first = s.next().await.unwrap().unwrap().unwrap();
@@ -851,7 +860,7 @@ async fn planning_task_fails_on_restart() {
 async fn concurrent_asks_cannot_both_spend_the_last_budget() {
     let p = AgentParams {
         budget_tokens_day: 10_000,
-        ..params(&["down/mock"])
+        ..params(&["downstream/mock"])
     };
     let env = Env::start(p, set_p0_script(42.0)).await;
     *env.llm.delay.lock().unwrap() = Duration::from_millis(300);

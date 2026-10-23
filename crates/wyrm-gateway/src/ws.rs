@@ -411,7 +411,7 @@ impl Conn {
                     Some(t) => c.with_timeout(t),
                     None => c,
                 };
-                if action == "deploy" && req.key == format!("wy/{}/flows", self.gw.site()) {
+                if action == "deploy" && req.key == format!("wy/{}/dataflows", self.gw.site()) {
                     self.add_flow_proofs(&c, &mut args);
                 }
                 match c.invoke(&req.key, &action, args).await {
@@ -665,14 +665,14 @@ mod tests {
 
     #[test]
     fn keys() {
-        assert!(check_key("s", "wy/s/down/mock/p0", false).is_ok());
+        assert!(check_key("s", "wy/s/downstream/mock/p0", false).is_ok());
         assert!(check_key("s", "wy/s", false).is_ok());
-        assert!(check_key("s", "wy/other/down", false).is_err());
-        assert!(check_key("s", "wy/sx/down", false).is_err());
-        assert!(check_key("s", "wy/s/down/mock/p0/~set", false).is_err());
-        assert!(check_key("s", "wy/s/down/**", false).is_err());
-        assert!(check_key("s", "wy/s/down/**", true).is_ok());
-        assert!(check_key("s", "wy/s/down//x", false).is_err());
+        assert!(check_key("s", "wy/other/downstream", false).is_err());
+        assert!(check_key("s", "wy/sx/downstream", false).is_err());
+        assert!(check_key("s", "wy/s/downstream/mock/p0/~set", false).is_err());
+        assert!(check_key("s", "wy/s/downstream/**", false).is_err());
+        assert!(check_key("s", "wy/s/downstream/**", true).is_ok());
+        assert!(check_key("s", "wy/s/downstream//x", false).is_err());
     }
 
     #[test]
@@ -680,7 +680,7 @@ mod tests {
         let f = to_vec(&map([
             ("id", Value::UInt(7)),
             ("op", Value::from("set")),
-            ("key", Value::from("wy/s/down/m/p0")),
+            ("key", Value::from("wy/s/downstream/m/p0")),
             ("value", Value::Float(1.5)),
         ]))
         .unwrap();

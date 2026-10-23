@@ -418,7 +418,7 @@ mod tests {
             let mut e = vec![
                 key.clone(),
                 Value::UInt(wyrm_core::Perm::Write.code().into()),
-                Value::Array(vec![Value::from("wy/s/down/mock")]),
+                Value::Array(vec![Value::from("wy/s/downstream/mock")]),
             ];
             e.extend(subject.map(Value::from));
             Value::Array(e)

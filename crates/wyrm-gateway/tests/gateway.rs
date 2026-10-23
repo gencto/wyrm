@@ -18,7 +18,7 @@ use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_sdk::harness::{isolated_config, SITE};
 use wyrm_link_sdk::{LinkConfig, LinkHandle};
 
-const ROOT: &str = "wy/test/down/mock";
+const ROOT: &str = "wy/test/downstream/mock";
 const ADMIN_PW: &str = "admin password";
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -42,14 +42,14 @@ impl Env {
         roles.insert(
             "limited",
             vec![
-                ("wy/{site}/down/mock/g1/**".into(), Perm::None),
-                ("wy/{site}/down/**".into(), Perm::Read),
+                ("wy/{site}/downstream/mock/g1/**".into(), Perm::None),
+                ("wy/{site}/downstream/**".into(), Perm::Read),
             ],
         );
         // config on flows, no rights on devices
         roles.insert(
             "flows_only",
-            vec![("wy/{site}/flows/**".into(), Perm::Config)],
+            vec![("wy/{site}/dataflows/**".into(), Perm::Config)],
         );
         let mut cfg = GatewayConfig::new(SITE, temp_dir(name), "127.0.0.1:0".parse().unwrap());
         cfg.session_ttl = ttl;
@@ -411,7 +411,7 @@ async fn viewer_lists_and_subscribes_but_cannot_set() {
         .await;
     assert!(is_ok(&r));
     // Other sites and suffixed keys never reach Zenoh.
-    let r = ws.call("meta", "wy/other/down/mock", vec![]).await;
+    let r = ws.call("meta", "wy/other/downstream/mock", vec![]).await;
     assert_eq!(err_status(&r), Some(Status::InvalidParameter));
     let r = ws.call("meta", &format!("{ROOT}/~set"), vec![]).await;
     assert_eq!(err_status(&r), Some(Status::InvalidParameter));
@@ -647,16 +647,16 @@ fn role_grants_change_persist_and_keep_an_admin() {
     gw.ensure_admin("root", ADMIN_PW).unwrap();
     gw.add_user("op", "operator pw", vec!["operator".into()])
         .unwrap();
-    let key = format!("wy/{SITE}/down/plc1/p/~set");
+    let key = format!("wy/{SITE}/downstream/plc1/p/~set");
     let op = || gw.grants_of(&gw.user("op").unwrap().roles);
     assert_eq!(op().perm(&key), Perm::Write);
 
-    // narrower grant goes first, so it is not shadowed by down/**
-    gw.set_grant("operator", "wy/{site}/down/plc1/**", Perm::Read)
+    // narrower grant goes first, so it is not shadowed by downstream/**
+    gw.set_grant("operator", "wy/{site}/downstream/plc1/**", Perm::Read)
         .unwrap();
     assert_eq!(op().perm(&key), Perm::Read);
     assert_eq!(
-        op().perm(&format!("wy/{SITE}/down/plc2/p/~set")),
+        op().perm(&format!("wy/{SITE}/downstream/plc2/p/~set")),
         Perm::Write
     );
 
@@ -678,11 +678,11 @@ fn role_grants_change_persist_and_keep_an_admin() {
     let t = gw.role_table();
     assert_eq!(
         t.get("operator").unwrap()[0],
-        ("wy/{site}/down/plc1/**".to_string(), Perm::Read)
+        ("wy/{site}/downstream/plc1/**".to_string(), Perm::Read)
     );
     assert!(t.contains("auditor"));
     // removing it brings the default back
-    gw.set_grant("operator", "wy/{site}/down/plc1/**", Perm::None)
+    gw.set_grant("operator", "wy/{site}/downstream/plc1/**", Perm::None)
         .unwrap();
     assert_eq!(
         gw.role_table().get("operator"),
@@ -767,7 +767,7 @@ async fn http_invoke_takes_large_arguments() {
         .add_user("viewer1", "viewer pw 1", vec!["viewer".into()])
         .unwrap();
     let viewer = env.session("viewer1", "viewer pw 1").await;
-    let put = format!("/api/invoke?key=wy/{SITE}/down/upload&action=put");
+    let put = format!("/api/invoke?key=wy/{SITE}/downstream/upload&action=put");
     let data = |n: usize| map([("data", Value::Bytes(vec![7u8; n]))]);
 
     let (st, v) = env
@@ -805,7 +805,7 @@ async fn http_invoke_takes_large_arguments() {
     let id = ws
         .send(
             "invoke",
-            &format!("wy/{SITE}/down/upload"),
+            &format!("wy/{SITE}/downstream/upload"),
             vec![("action", Value::from("slow"))],
         )
         .await;
@@ -835,14 +835,14 @@ fn revoke_widening_keeps_restrictive_grants() {
     let cfg = GatewayConfig::new(SITE, temp_dir("revoke"), "127.0.0.1:0".parse().unwrap());
     let gw = Gateway::open(cfg, b"k").unwrap();
     gw.ensure_admin("root", ADMIN_PW).unwrap();
-    let key = "wy/{site}/down/d1/**".to_string();
+    let key = "wy/{site}/downstream/d1/**".to_string();
     gw.set_grant("viewer", &key, Perm::Write).unwrap(); // widens read
     gw.set_grant("operator", &key, Perm::List).unwrap(); // restricts write
     gw.set_grant("engineer", &key, Perm::Config).unwrap(); // neutral
     let gone = gw
         .revoke_widening(
-            &[key.clone(), format!("wy/{SITE}/down/d1/**")],
-            &format!("wy/{SITE}/down/d1/~val"),
+            &[key.clone(), format!("wy/{SITE}/downstream/d1/**")],
+            &format!("wy/{SITE}/downstream/d1/~val"),
         )
         .unwrap();
     assert_eq!(gone, vec![("viewer".to_string(), key.clone(), Perm::Write)]);
@@ -906,11 +906,11 @@ async fn tickets_are_capped_per_user() {
 /// no rights on the target device is refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn flow_deploy_proofs_come_from_the_user() {
-    let env = Env::start("flows", wyrm_gateway::SESSION_TTL).await;
+    let env = Env::start("dataflows", wyrm_gateway::SESSION_TTL).await;
     let dir = temp_dir("flows-engine");
     let host = wyrm_flow::FlowHost::open(&dir, b"flow-test-hmac-key", SITE).unwrap();
-    let mut lc = LinkConfig::new(SITE, "flows");
-    lc.root = Some(format!("wy/{SITE}/flows"));
+    let mut lc = LinkConfig::new(SITE, "dataflows");
+    lc.root = Some(format!("wy/{SITE}/dataflows"));
     lc.admin_keys = vec![env.gw.verifying_key()];
     let engine = wyrm_link_sdk::spawn::<wyrm_flow::Engine>(
         env.session.clone(),
@@ -931,14 +931,14 @@ async fn flow_deploy_proofs_come_from_the_user() {
                     "a",
                     map([
                         ("type", Value::from("subscribe")),
-                        ("key", Value::from("down/mock/g0/p0")),
+                        ("key", Value::from("downstream/mock/g0/p0")),
                     ]),
                 ),
                 (
                     "cmd",
                     map([
                         ("type", Value::from("invoke")),
-                        ("path", Value::from("down/mock")),
+                        ("path", Value::from("downstream/mock")),
                         ("action", Value::from("reset")),
                     ]),
                 ),
@@ -953,7 +953,7 @@ async fn flow_deploy_proofs_come_from_the_user() {
         ),
         ("permissions", map([("maxperm", Value::from("write"))])),
     ]);
-    let flows = format!("wy/{SITE}/flows");
+    let flows = format!("wy/{SITE}/dataflows");
     let admin = env.session("root", ADMIN_PW).await;
 
     let eng = env.add_user(&admin, "eng", &["engineer"]).await;
@@ -1003,12 +1003,18 @@ fn read_sites_map_to_own_roles_without_a_token() {
     let mut cfg = GatewayConfig::new(SITE, temp_dir("readsites"), "127.0.0.1:0".parse().unwrap());
     cfg.read_sites = vec!["edge".into()];
     let gw = Gateway::open(cfg, b"k").unwrap();
-    assert_eq!(gw.read_site_of("wy/edge/down/m/p").as_deref(), Some("edge"));
-    assert_eq!(gw.read_site_of("wy/edgex/down"), None);
-    assert_eq!(gw.read_site_of("wy/other/down"), None);
-    assert_eq!(gw.as_own("wy/edge/down/m/p"), format!("wy/{SITE}/down/m/p"));
+    assert_eq!(
+        gw.read_site_of("wy/edge/downstream/m/p").as_deref(),
+        Some("edge")
+    );
+    assert_eq!(gw.read_site_of("wy/edgex/downstream"), None);
+    assert_eq!(gw.read_site_of("wy/other/downstream"), None);
+    assert_eq!(
+        gw.as_own("wy/edge/downstream/m/p"),
+        format!("wy/{SITE}/downstream/m/p")
+    );
     assert_eq!(gw.as_own("wy/edge"), format!("wy/{SITE}"));
-    assert_eq!(gw.as_own("wy/other/down"), "wy/other/down");
+    assert_eq!(gw.as_own("wy/other/downstream"), "wy/other/downstream");
     let p = wyrm_gateway::Principal {
         name: "op".into(),
         roles: vec!["admin".into()],
@@ -1023,13 +1029,16 @@ fn read_sites_map_to_own_roles_without_a_token() {
         },
     };
     let t = gw.tokens_for(&p);
-    assert!(t.token(&format!("wy/{SITE}/down/m/p/~set")).is_some());
-    assert!(t.token("wy/edge/down/m/p/~meta").is_none());
-    assert!(t.token(&format!("wy/{SITE}x/down/~meta")).is_none());
+    assert!(t.token(&format!("wy/{SITE}/downstream/m/p/~set")).is_some());
+    assert!(t.token("wy/edge/downstream/m/p/~meta").is_none());
+    assert!(t.token(&format!("wy/{SITE}x/downstream/~meta")).is_none());
     // peers added or removed at runtime (sys/downstream) change the list
     gw.set_read_sites(vec!["plant".into()]);
-    assert_eq!(gw.read_site_of("wy/plant/down").as_deref(), Some("plant"));
-    assert_eq!(gw.read_site_of("wy/edge/down/m/p"), None);
+    assert_eq!(
+        gw.read_site_of("wy/plant/downstream").as_deref(),
+        Some("plant")
+    );
+    assert_eq!(gw.read_site_of("wy/edge/downstream/m/p"), None);
 }
 
 /// `history` (spec 01 `~val?history=`) needs read on the point itself:

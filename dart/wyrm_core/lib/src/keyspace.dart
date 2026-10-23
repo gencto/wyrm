@@ -5,9 +5,9 @@ const String suffixVal = '~val';
 const String suffixSet = '~set';
 const String suffixAct = '~act';
 
-/// `wy/<site>/down/<link>/<path>/<suffix>`.
+/// `wy/<site>/downstream/<link>/<path>/<suffix>`.
 String downKey(String site, String link, String path, String suffix) {
-  final parts = ['wy', site, 'down', link, if (path.isNotEmpty) path, if (suffix.isNotEmpty) suffix];
+  final parts = ['wy', site, 'downstream', link, if (path.isNotEmpty) path, if (suffix.isNotEmpty) suffix];
   return parts.join('/');
 }
 

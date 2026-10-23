@@ -1,7 +1,7 @@
 //! Peer brokers in the tree (ADR 0007): a downstream site (one that
-//! connects to this broker) is the node `wy/<site>/down/<d>`, beside the
+//! connects to this broker) is the node `wy/<site>/downstream/<d>`, beside the
 //! links, which connect to it too; an upstream site (one this broker
-//! connects to) is `wy/<site>/up/<u>`. Each is a reference, not a copy:
+//! connects to) is `wy/<site>/upstream/<u>`. Each is a reference, not a copy:
 //! profile `wy:broker`, `@site`, `@root = wy/<peer>` (the peer's own keys,
 //! under their one name, spec 01) and a bool point `connected` from the
 //! peer's liveliness token `wy/<peer>/sys/broker`.
@@ -17,7 +17,7 @@ use wyrm_link_sdk::{now_us, Link, LinkCtx};
 const BROKER: u32 = 9;
 
 /// One link serving reference nodes: `(path, peer site)`; path `""` is the
-/// link root itself (a downstream site at `down/<d>`).
+/// link root itself (a downstream site at `downstream/<d>`).
 pub struct PeerRefs {
     tasks: Vec<JoinHandle<()>>,
 }

@@ -19,9 +19,9 @@ its link publishes one. History is recorded only for points in a watch group.
 Open `wy/<site>/sys/history`.
 
 1. ▸ **Add Watch Group**: Name, Logging Type, Interval, Buffer Flush Time.
-2. Open the group ▸ **Add Watch Path**: Path. Write `down/<link>/<point>`
-   (this site), or the full key `wy/<site>/down/…` (this site or a
-   downstream site). Flow outputs (`flows/<flow>/…`) work too.
+2. Open the group ▸ **Add Watch Path**: Path. Write `downstream/<link>/<point>`
+   (this site), or the full key `wy/<site>/downstream/…` (this site or a
+   downstream site). Flow outputs (`dataflows/<flow>/…`) work too.
 3. The watch appears as `w1`, `w2`, … with the point key as its name.
 
 | Logging Type | Records |
@@ -69,10 +69,10 @@ are needed (spec 05 0.1.10):
 | Where | How |
 |---|---|
 | Explorer | right-click a point (in Data or Metrics) ▸ **View History**: presets 1 h, 24 h, 7 d, 30 d, or From/To, Interval, Rollup ▸ Load; a chart of the numeric values (bad samples as red dots) and the rows |
-| Zenoh | `get wy/<site>/down/<link>/<point>/~val?history=2026-10-22T08:00:00Z..&agg=avg&window=5m` (spec 01/03): one or more replies, each a CBOR array of `[t, v, q]` (or `[t_start, v]`) |
+| Zenoh | `get wy/<site>/downstream/<link>/<point>/~val?history=2026-10-22T08:00:00Z..&agg=avg&window=5m` (spec 01/03): one or more replies, each a CBOR array of `[t, v, q]` (or `[t_start, v]`) |
 | Rust | `WyrmClient::history(node, &HistoryQuery { from, to, agg, window, limit })` |
 | Dart | `api.history(key, from: …, to: …, agg: …, window: …)` (gateway and FFI) |
-| CLI | `wyr values wy/<site>/down/mock/g0/p0 --from 2026-10-22 --agg avg --window 1h` |
+| CLI | `wyr values wy/<site>/downstream/mock/g0/p0 --from 2026-10-22 --agg avg --window 1h` |
 | Gateway WS | op `history`, `args {from, to, agg, window, limit}`; needs `read` on the point |
 
 - Parameters: `history=<from>..<to>` (an empty end is now) or `since=<from>`;
@@ -122,10 +122,10 @@ and `buffer_flush_time`.
 A link can record history itself (another database, a cloud service): give
 it a `read` grant on the points (`requester` in its package, or `sys/links/<id>`
 ▸ Grant Access, ADR 0013). `examples/links/requester` records
-`wy/<site>/down/mock` to a CSV file this way.
+`wy/<site>/downstream/mock` to a CSV file this way.
 
 ## 7. Not yet
 
-- A watch for a whole subtree (`down/<link>/**`): today one watch is one
+- A watch for a whole subtree (`downstream/<link>/**`): today one watch is one
   point.
 - MCP tool `history` (`tools/wyrm-mcp`).

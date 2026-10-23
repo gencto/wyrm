@@ -299,8 +299,8 @@ mod tests {
             ask: "x".into(),
             plan: encode_plan(&[PlanOp {
                 op: OpKind::Invoke,
-                node: "wy/s/down/m/p".into(),
-                key: "wy/s/down/m/p/~act/go".into(),
+                node: "wy/s/downstream/m/p".into(),
+                key: "wy/s/downstream/m/p/~act/go".into(),
                 action: Some("go".into()),
                 payload: Value::Map(BTreeMap::from([("a".to_owned(), Value::UInt(1))])),
                 level: Perm::Config,

@@ -292,7 +292,7 @@ async fn set_denied_never_reaches_driver() {
         h.set(
             p,
             1.0,
-            Some(h.mint_ptok(&[(&format!("wy/{SITE}/down/other/**"), Perm::Config)])),
+            Some(h.mint_ptok(&[(&format!("wy/{SITE}/downstream/other/**"), Perm::Config)])),
         )
         .await,
     );
@@ -480,14 +480,14 @@ async fn liveliness_token() {
     let r = h
         .session()
         .liveliness()
-        .get(format!("wy/{SITE}/down/*"))
+        .get(format!("wy/{SITE}/downstream/*"))
         .await
         .unwrap();
     let mut keys = Vec::new();
     while let Ok(rep) = r.recv_async().await {
         keys.push(rep.result().unwrap().key_expr().to_string());
     }
-    assert_eq!(keys, [format!("wy/{SITE}/down/demo")]);
+    assert_eq!(keys, [format!("wy/{SITE}/downstream/demo")]);
 
     h.ctx().set_dynamic("ahu1", true).await.unwrap();
     let r = h.session().liveliness().get(h.key("*", "")).await.unwrap();
@@ -627,7 +627,7 @@ async fn stop_drops_liveliness_and_closes_ctx() {
     let alive = |s: zenoh::Session| async move {
         let r = s
             .liveliness()
-            .get(format!("wy/{SITE}/down/**"))
+            .get(format!("wy/{SITE}/downstream/**"))
             .await
             .unwrap();
         let mut n = 0;

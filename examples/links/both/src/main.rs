@@ -1,14 +1,14 @@
 //! A link that is **both a responder and a requester**.
 //!
 //! - Requester (read): it follows every numeric value under `source`
-//!   (default `wy/<site>/down/mock`).
+//!   (default `wy/<site>/downstream/mock`).
 //! - Responder: it serves `average`, `min`, `max` and `count` of the last
 //!   value of each point, and the action `write_all {value}`.
 //! - Requester (write): `write_all` sets every point it has seen to
 //!   `value`, with `ptok`s signed by its requester key (the broker trusts
 //!   that key only up to the grant's level, under the grant's path).
 //!
-//! Its package asks for `requester: [{path: wy/{site}/down/mock, level:
+//! Its package asks for `requester: [{path: wy/{site}/downstream/mock, level:
 //! write}]`.
 
 use std::collections::BTreeMap;
@@ -144,7 +144,7 @@ impl Link for Average {
         .await?;
         let source = cfg
             .source
-            .unwrap_or_else(|| format!("wy/{}/down/mock", ctx.site()));
+            .unwrap_or_else(|| format!("wy/{}/downstream/mock", ctx.site()));
         let reader = WyrmClient::new(ctx.client().clone());
         // `ptok`s for other links: signed with this link's requester key.
         let writer = ctx.requester_key().map(|key| {

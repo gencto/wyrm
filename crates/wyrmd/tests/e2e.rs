@@ -218,9 +218,9 @@ const MOCK: &str = r#"links: { mock: { driver: "mock", params: { points: 8, rate
 async fn list_resolve_set_invoke_over_router() {
     let env = Env::start("basic", MOCK).await;
     let c = env.client().await;
-    let root = format!("wy/{SITE}/down/mock");
+    let root = format!("wy/{SITE}/downstream/mock");
 
-    let mut links = c.list(&format!("wy/{SITE}/down")).await.unwrap();
+    let mut links = c.list(&format!("wy/{SITE}/downstream")).await.unwrap();
     let Some(ListEvent::Refreshed(snap)) = links.next().await else {
         panic!()
     };
@@ -254,7 +254,7 @@ async fn subscribe_reads_storage_first() {
     let c = env.client().await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let mut vals = c
-        .subscribe(&format!("wy/{SITE}/down/mock/**"))
+        .subscribe(&format!("wy/{SITE}/downstream/mock/**"))
         .await
         .unwrap();
     let mut keys = std::collections::BTreeSet::new();
@@ -276,7 +276,7 @@ async fn subscribe_reads_storage_first() {
 async fn loopback_cannot_publish_into_down() {
     let env = Env::start("loopback", MOCK).await;
     let s = env.session().await;
-    let key = format!("wy/{SITE}/down/fake/x/~val");
+    let key = format!("wy/{SITE}/downstream/fake/x/~val");
     s.put(&key, sample(1.0)).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     let r = s.get(&key).await.unwrap();
@@ -305,7 +305,7 @@ async fn embedded_modbus_from_json5() {
     )
     .await;
     let c = env.client().await;
-    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
+    let node = format!("wy/{SITE}/downstream/plc1/c1/ahu1/supply_temp");
     let v = eventually("modbus value", 5, || async { last_val(&c, &node).await }).await;
     assert_eq!(v, Value::Float(21.5));
     env.stop().await;
@@ -336,14 +336,14 @@ async fn modbus_as_process() {
         (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
     })
     .await;
-    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
+    let node = format!("wy/{SITE}/downstream/plc1/c1/ahu1/supply_temp");
     let v = eventually("value from the process", 15, || async {
         last_val(&c, &node).await
     })
     .await;
     assert_eq!(v, Value::Float(21.5));
     // a write goes through the router into the process and the device
-    c.set(&format!("wy/{SITE}/down/plc1/c1/ahu1/fan"), true)
+    c.set(&format!("wy/{SITE}/downstream/plc1/c1/ahu1/fan"), true)
         .await
         .unwrap();
     assert!(dev.lock().unwrap().coils[3]);
@@ -363,8 +363,8 @@ async fn unknown_cert_quarantine_and_acl_denied() {
     })
     .await;
 
-    // the unknown session cannot publish into down/**
-    let key = format!("wy/{SITE}/down/mcu-7/t/~val");
+    // the unknown session cannot publish into downstream/**
+    let key = format!("wy/{SITE}/downstream/mcu-7/t/~val");
     mcu.put(&key, sample(1.0)).await.unwrap();
     let total = format!("wy/{SITE}/sys/acl_denied");
     eventually("acl_denied_total > 0", 5, || async {
@@ -374,7 +374,7 @@ async fn unknown_cert_quarantine_and_acl_denied() {
         }
     })
     .await;
-    assert!(last_val(&c, &format!("wy/{SITE}/down/mcu-7/t"))
+    assert!(last_val(&c, &format!("wy/{SITE}/downstream/mcu-7/t"))
         .await
         .is_none());
 
@@ -388,7 +388,7 @@ async fn unknown_cert_quarantine_and_acl_denied() {
         let c2 = WyrmClient::new(env.try_session().await?);
         mcu.put(&key, sample(2.0)).await.ok()?;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        (last_val(&c2, &format!("wy/{SITE}/down/mcu-7/t")).await == Some(Value::Float(2.0)))
+        (last_val(&c2, &format!("wy/{SITE}/downstream/mcu-7/t")).await == Some(Value::Float(2.0)))
             .then_some(())
     })
     .await;
@@ -500,12 +500,12 @@ async fn sys_values_and_admission_options() {
     assert_eq!(last_val(&c, &allow).await, Some(Value::Bool(false)));
     c.set(&allow, true).await.unwrap();
     let dev = env.tls_session("dev-1").await;
-    let key = format!("wy/{SITE}/down/dev-1/t/~val");
+    let key = format!("wy/{SITE}/downstream/dev-1/t/~val");
     eventually("auto-installed link may publish", 15, || async {
         let c2 = WyrmClient::new(env.try_session().await?);
         dev.put(&key, sample(3.0)).await.ok()?;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        (last_val(&c2, &format!("wy/{SITE}/down/dev-1/t")).await == Some(Value::Float(3.0)))
+        (last_val(&c2, &format!("wy/{SITE}/downstream/dev-1/t")).await == Some(Value::Float(3.0)))
             .then_some(())
     })
     .await;
@@ -599,13 +599,17 @@ async fn authorize_and_deauthorize() {
     let def = env.ctl.registry().links["dev-7"].clone();
     assert_eq!(def.display.as_deref(), Some("Pump 7"));
     assert!(gw.role_table().get("viewer").unwrap().contains(&(
-        "wy/{site}/down/dev-7/**".to_string(),
+        "wy/{site}/downstream/dev-7/**".to_string(),
         wyrm_core::Perm::Write
     )));
 
     // a restrictive grant made by hand (operator: list only on this link)
-    gw.set_grant("operator", "wy/{site}/down/dev-7/**", wyrm_core::Perm::List)
-        .unwrap();
+    gw.set_grant(
+        "operator",
+        "wy/{site}/downstream/dev-7/**",
+        wyrm_core::Perm::List,
+    )
+    .unwrap();
 
     // Deauthorize (after the ACL rebuild): back to quarantine, not retired
     eventually("deauthorize", 15, || async {
@@ -626,10 +630,10 @@ async fn authorize_and_deauthorize() {
         "the widening group grant goes with the link"
     );
     assert!(
-        gw.role_table()
-            .get("operator")
-            .unwrap()
-            .contains(&("wy/{site}/down/dev-7/**".to_string(), wyrm_core::Perm::List)),
+        gw.role_table().get("operator").unwrap().contains(&(
+            "wy/{site}/downstream/dev-7/**".to_string(),
+            wyrm_core::Perm::List
+        )),
         "a restrictive grant made by hand stays"
     );
     assert!(reg.quarantine.contains_key("dev-7") && reg.held.contains("dev-7"));
@@ -739,7 +743,10 @@ async fn install_link_from_zip() {
     assert_eq!(env.ctl.registry().links["pk1"].driver, "pkg:mockpkg");
     eventually("pk1 runs as a process", 20, || async {
         let c = WyrmClient::new(env.try_session().await?);
-        let ch = c.children(&format!("wy/{SITE}/down/pk1")).await.ok()?;
+        let ch = c
+            .children(&format!("wy/{SITE}/downstream/pk1"))
+            .await
+            .ok()?;
         (!ch.is_empty()).then_some(())
     })
     .await;
@@ -1066,7 +1073,7 @@ async fn wasm_link_reads_a_device_over_tcp() {
     assert_eq!(reg.links["w1"].mode, wyrm_admin::Mode::Embedded);
     assert!(env.ctl.component_store().join("w1.wasm").is_file());
 
-    let main = format!("wy/{SITE}/down/w1/main");
+    let main = format!("wy/{SITE}/downstream/w1/main");
     eventually("main declared", 10, || async { c.meta(&main).await.ok() }).await;
     c.invoke_one(
         &main,
@@ -1215,7 +1222,7 @@ async fn logs_and_log_levels() {
         )))
         .with_timeout(Duration::from_secs(3));
     let _ = stranger
-        .set(&format!("wy/{SITE}/down/mock/g0/p0"), 1.0)
+        .set(&format!("wy/{SITE}/downstream/mock/g0/p0"), 1.0)
         .await;
     let mine = eventually("the link's debug line", 5, || async {
         let r = rows(
@@ -1291,11 +1298,11 @@ async fn link_grants_make_a_requester() {
     )
     .await;
     let token = std::fs::read_to_string(env.ctl.config().data_dir.join("links/rec/token")).unwrap();
-    let mock = format!("wy/{SITE}/down/mock");
+    let mock = format!("wy/{SITE}/downstream/mock");
     let sys = format!("wy/{SITE}/sys/links/rec");
     let grant = |level: &str| {
         Value::Map(BTreeMap::from([
-            ("path".to_owned(), Value::from("wy/{site}/down/mock")),
+            ("path".to_owned(), Value::from("wy/{site}/downstream/mock")),
             ("level".to_owned(), Value::from(level)),
         ]))
     };
@@ -1377,7 +1384,7 @@ async fn link_grants_make_a_requester() {
         )
         .await
         .unwrap();
-    assert!(format!("{rows:?}").contains("wy/{site}/down/mock"));
+    assert!(format!("{rows:?}").contains("wy/{site}/downstream/mock"));
     assert!(env.ctl.audit_tail(50).iter().any(|r| r.op == "link_grant"));
     env.stop().await;
 }
@@ -1437,7 +1444,13 @@ fn upstream_downsampling_has_one_rule_per_link() {
         .map(|r| r["key_expr"].as_str().unwrap())
         .collect();
     // No overlap: `a` does not cover `ab`.
-    assert_eq!(keys, ["wy/edge/down/a/**/~val", "wy/edge/down/ab/**/~val"]);
+    assert_eq!(
+        keys,
+        [
+            "wy/edge/downstream/a/**/~val",
+            "wy/edge/downstream/ab/**/~val"
+        ]
+    );
     assert_eq!(d[0]["link_protocols"], serde_json::json!(["quic"]));
 }
 
@@ -1502,7 +1515,10 @@ async fn flow_commands_a_link_through_wyrmd() {
             m(&[
                 (
                     "a",
-                    m(&[("type", s("subscribe")), ("key", s("down/mock/g0/p0"))]),
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
                 ),
                 (
                     "al",
@@ -1512,7 +1528,7 @@ async fn flow_commands_a_link_through_wyrmd() {
                     "cmd",
                     m(&[
                         ("type", s("invoke")),
-                        ("path", s("down/mock")),
+                        ("path", s("downstream/mock")),
                         ("action", s("reset")),
                         ("on", s("rising")),
                     ]),
@@ -1530,7 +1546,7 @@ async fn flow_commands_a_link_through_wyrmd() {
         ),
         ("permissions", m(&[("maxperm", s("write"))])),
     ]);
-    let flows = format!("wy/{SITE}/flows");
+    let flows = format!("wy/{SITE}/dataflows");
     let proofs = wyrm_flow::command_targets(&def, SITE)
         .unwrap()
         .into_iter()
@@ -1658,7 +1674,7 @@ async fn two_brokers_over_quic() {
     let names = eventually("edge links seen from central", 15, || {
         let c = &c;
         async move {
-            let ch = c.children("wy/edge/down").await.ok()?;
+            let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
             (names.len() == 2).then_some(names)
@@ -1667,11 +1683,11 @@ async fn two_brokers_over_quic() {
     .await;
     assert_eq!(names, ["mock", "slow"]);
     // Each broker shows its peer: the downstream edge beside central's
-    // links (`down/edge`), the upstream central at `up/central`, both
+    // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
-    let down = "wy/central/down/edge";
-    let kids: Vec<String> = eventually("down/edge beside central's links", 10, || async {
-        let ch = c.children("wy/central/down").await.ok()?;
+    let down = "wy/central/downstream/edge";
+    let kids: Vec<String> = eventually("downstream/edge beside central's links", 10, || async {
+        let ch = c.children("wy/central/downstream").await.ok()?;
         let names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
         names.contains(&"edge".to_owned()).then_some(names)
     })
@@ -1697,12 +1713,12 @@ async fn two_brokers_over_quic() {
         .unwrap();
     let ec = WyrmClient::new(zenoh::open(ez).await.unwrap()).with_timeout(Duration::from_secs(3));
     eventually("edge sees central connected", 10, || async {
-        (last_val(&ec, "wy/edge/up/central/connected").await == Some(Value::Bool(true)))
+        (last_val(&ec, "wy/edge/upstream/central/connected").await == Some(Value::Bool(true)))
             .then_some(())
     })
     .await;
     let _ = ec.session().close().await;
-    let mut vals = c.subscribe("wy/edge/down/mock/g0/p0").await.unwrap();
+    let mut vals = c.subscribe("wy/edge/downstream/mock/g0/p0").await.unwrap();
     let got = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(ev) = vals.next().await {
             if let ValEvent::Sample { .. } = ev {
@@ -1715,9 +1731,9 @@ async fn two_brokers_over_quic() {
     assert_eq!(got, Ok(true), "edge samples reach the central client");
     // One downsampling budget per link: the busy `mock` link (160 samples/s)
     // does not starve `slow` (2 samples/s) under upstream_val_hz: 5.
-    let mut busy = c.subscribe("wy/edge/down/mock/**").await.unwrap();
+    let mut busy = c.subscribe("wy/edge/downstream/mock/**").await.unwrap();
     let drain = tokio::spawn(async move { while busy.next().await.is_some() {} });
-    let mut slow = c.subscribe("wy/edge/down/slow/**").await.unwrap();
+    let mut slow = c.subscribe("wy/edge/downstream/slow/**").await.unwrap();
     let mut n = 0;
     let _ = tokio::time::timeout(Duration::from_secs(4), async {
         while let Some(ev) = slow.next().await {
@@ -1729,7 +1745,7 @@ async fn two_brokers_over_quic() {
     .await;
     assert!(n >= 5, "slow link starved: {n} samples in 4 s");
     // The upstream site is read-only: the edge ACL drops its commands.
-    assert!(c.set("wy/edge/down/mock/g0/p0", 1.0).await.is_err());
+    assert!(c.set("wy/edge/downstream/mock/g0/p0", 1.0).await.is_err());
 
     // Quiet first: a live 160 samples/s stream slows the broker's close.
     drain.abort();
@@ -1743,7 +1759,7 @@ async fn two_brokers_over_quic() {
 
 /// A chain `plant → edge → central` (owner decision 2026-10-22): central
 /// lists `via: ["plant"]` for edge, so it reads plant through edge; every
-/// upstream reads `sys` and `up` of the sites below it, never commands them.
+/// upstream reads `sys` and `upstream` of the sites below it, never commands them.
 #[tokio::test(flavor = "multi_thread")]
 async fn chain_of_three_brokers() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -1835,7 +1851,7 @@ async fn chain_of_three_brokers() {
     };
     // two hops down: plant's links, through edge
     let pm = eventually("plant's links seen from central", 20, || async {
-        names("wy/plant/down")
+        names("wy/plant/downstream")
             .await
             .filter(|n| n.contains(&"pm".to_owned()))
     })
@@ -1843,10 +1859,10 @@ async fn chain_of_three_brokers() {
     assert_eq!(pm, ["pm"]);
     // edge shows plant beside its links, connected
     eventually(
-        "edge's down/plant connected, seen from central",
+        "edge's downstream/plant connected, seen from central",
         10,
         || async {
-            (last_val(&c, "wy/edge/down/plant/connected").await == Some(Value::Bool(true)))
+            (last_val(&c, "wy/edge/downstream/plant/connected").await == Some(Value::Bool(true)))
                 .then_some(())
         },
     )
@@ -1859,14 +1875,14 @@ async fn chain_of_three_brokers() {
     }
     assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock"]);
     assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["pm"]);
-    assert_eq!(names("wy/plant/up").await.unwrap(), ["edge"]);
+    assert_eq!(names("wy/plant/upstream").await.unwrap(), ["edge"]);
     assert_eq!(
-        names("wy/central/up").await.unwrap(),
+        names("wy/central/upstream").await.unwrap(),
         Vec::<String>::new(),
         "up always there"
     );
     // samples come up two hops
-    let mut vals = c.subscribe("wy/plant/down/pm/g0/p0").await.unwrap();
+    let mut vals = c.subscribe("wy/plant/downstream/pm/g0/p0").await.unwrap();
     let got = tokio::time::timeout(Duration::from_secs(8), async {
         while let Some(ev) = vals.next().await {
             if let ValEvent::Sample { .. } = ev {
@@ -1878,7 +1894,7 @@ async fn chain_of_three_brokers() {
     .await;
     assert_eq!(got, Ok(true), "plant samples reach central");
     // never commands: no set below, no sys action below
-    assert!(c.set("wy/plant/down/pm/g0/p0", 1.0).await.is_err());
+    assert!(c.set("wy/plant/downstream/pm/g0/p0", 1.0).await.is_err());
     assert!(c
         .invoke_one(
             "wy/edge/sys/links/mock",
@@ -1935,7 +1951,7 @@ async fn first_queries_across_peers_answer() {
     }));
     let c = WyrmClient::new(loopback_session(c_tcp).await).with_timeout(Duration::from_secs(5));
     eventually("edge connected at central", 15, || async {
-        (last_val(&c, "wy/central/down/edge/connected").await == Some(Value::Bool(true)))
+        (last_val(&c, "wy/central/downstream/edge/connected").await == Some(Value::Bool(true)))
             .then_some(())
     })
     .await;
@@ -1949,9 +1965,9 @@ async fn first_queries_across_peers_answer() {
         "wy/edge/sys/history",
         "wy/edge/sys/packages",
         "wy/edge/sys/quarantine",
-        "wy/edge/up",
-        "wy/edge/up/central",
-        "wy/edge/down/mock",
+        "wy/edge/upstream",
+        "wy/edge/upstream/central",
+        "wy/edge/downstream/mock",
     ];
     let mut failed = Vec::new();
     for k in keys {
@@ -2030,7 +2046,7 @@ async fn gateway_in_wyrmd() {
     let c = WyrmClient::new(env.session().await)
         .with_tokens(Arc::new(gw.tokens_for(&p)))
         .with_timeout(Duration::from_secs(3));
-    c.set(&format!("wy/{SITE}/down/mock/g0/p0"), 5.0)
+    c.set(&format!("wy/{SITE}/downstream/mock/g0/p0"), 5.0)
         .await
         .expect("a gateway token is accepted by the link");
     // The control plane trusts the gateway too; the user's grants decide:
@@ -2320,7 +2336,7 @@ async fn agent_key_is_trusted_capped_at_write() {
     let env = Env::start(
         "agentkey",
         r#"links: {
-            ai: { driver: "agent", params: { allowed_prefixes: ["wy/e2e/down/mock"] } },
+            ai: { driver: "agent", params: { allowed_prefixes: ["wy/e2e/downstream/mock"] } },
             ext: { driver: "x", mode: "external" },
         },"#,
     )
@@ -2355,7 +2371,7 @@ async fn agent_key_is_trusted_capped_at_write() {
     };
     // capped at write and scoped to the agent's allowed_prefixes
     let write = Value::UInt(wyrm_core::Perm::Write.code().into());
-    let scopes = Value::Array(vec![Value::from("wy/e2e/down/mock")]);
+    let scopes = Value::Array(vec![Value::from("wy/e2e/downstream/mock")]);
     assert!(
         limited.contains(&Value::Array(vec![agent, write, scopes])),
         "{limited:?}"
@@ -2502,7 +2518,7 @@ async fn link_params_update_history_rollback() {
         let c = &c;
         async move {
             eventually("children", 10, || async {
-                let ch = c.children(&format!("wy/{SITE}/down/m2")).await.ok()?;
+                let ch = c.children(&format!("wy/{SITE}/downstream/m2")).await.ok()?;
                 (ch.len() == n).then_some(())
             })
             .await
@@ -2575,9 +2591,9 @@ fn verify_state_finds_a_tampered_wal() {
 }
 
 /// The subscriber gate of a process link: the `~val` storage subscribes to
-/// `wy/**/~val`, which the link ACL (`wy/S/down/L/**`) does not pass on, so
+/// `wy/**/~val`, which the link ACL (`wy/S/downstream/L/**`) does not pass on, so
 /// with `poll_unsubscribed: false` the link polls only while a real
-/// subscriber (one point or a pattern under `down/**`) exists. Embedded
+/// subscriber (one point or a pattern under `downstream/**`) exists. Embedded
 /// links share the router with the storage, so for them the gate is
 /// always open (the default is to poll all the time anyway).
 #[tokio::test(flavor = "multi_thread")]
@@ -2607,13 +2623,13 @@ async fn process_link_polls_only_while_subscribed() {
     let r0 = reqs();
     tokio::time::sleep(Duration::from_secs(1)).await;
     let idle = reqs() - r0;
-    let node = format!("wy/{SITE}/down/plc1/c1/ahu1/supply_temp");
+    let node = format!("wy/{SITE}/downstream/plc1/c1/ahu1/supply_temp");
     let _s = c.subscribe(&node).await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
     let r1 = reqs();
     tokio::time::sleep(Duration::from_secs(1)).await;
     let exact = reqs() - r1;
-    let pat = format!("wy/{SITE}/down/**");
+    let pat = format!("wy/{SITE}/downstream/**");
     drop(_s);
     let _p = c.subscribe(&pat).await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -2622,7 +2638,10 @@ async fn process_link_polls_only_while_subscribed() {
     let pattern = reqs() - r2;
     assert_eq!(idle, 0, "no subscriber, no polling");
     assert!(exact >= 5, "one point subscribed: {exact} requests/s");
-    assert!(pattern >= 5, "down/** subscribed: {pattern} requests/s");
+    assert!(
+        pattern >= 5,
+        "downstream/** subscribed: {pattern} requests/s"
+    );
     env.stop().await;
 }
 
@@ -2636,7 +2655,7 @@ async fn process_link_keeps_runtime_edits() {
         r#"links: { dev1: { driver: "mockdev", mode: "process", params: { connections: {} } } },"#;
     let env = Env::start_in(&dir, links).await;
     let c = env.client().await;
-    let root = format!("wy/{SITE}/down/dev1");
+    let root = format!("wy/{SITE}/downstream/dev1");
     eventually("dev1 up", 15, || async { c.meta(&root).await.ok() }).await;
     let args = Value::Map(BTreeMap::from([
         ("name".to_owned(), Value::from("c2")),
@@ -2759,13 +2778,13 @@ async fn runtime_peers_over_quic() {
     // tokens for the site being read (the edge checks them)
     eventually("edge links seen from central", 20, || async {
         let c = client(c_tcp, "edge").await;
-        let ch = c.children("wy/edge/down").await.ok()?;
+        let ch = c.children("wy/edge/downstream").await.ok()?;
         ch.iter().any(|c| c.name == "mock").then_some(())
     })
     .await;
     eventually("edge sees central connected", 10, || async {
         let e = client(e_tcp, "edge").await;
-        (last_val(&e, "wy/edge/up/central/connected").await == Some(Value::Bool(true)))
+        (last_val(&e, "wy/edge/upstream/central/connected").await == Some(Value::Bool(true)))
             .then_some(())
     })
     .await;
@@ -2779,7 +2798,7 @@ async fn runtime_peers_over_quic() {
         .unwrap();
     eventually("edge gone from central", 20, || async {
         let c = client(c_tcp, "edge").await;
-        match c.children("wy/edge/down").await {
+        match c.children("wy/edge/downstream").await {
             Ok(ch) if !ch.is_empty() => None,
             _ => Some(()),
         }
@@ -2822,7 +2841,7 @@ async fn runtime_peers_over_quic() {
     }));
     eventually("central up with edge from json5", 10, || async {
         let c = client(c_tcp, "central").await;
-        c.meta("wy/central/down/edge").await.ok()
+        c.meta("wy/central/downstream/edge").await.ok()
     })
     .await;
     let _ = c_stop.send(());
@@ -2890,7 +2909,7 @@ async fn samples(s: &zenoh::Session, key: &str, secs: u64) -> Vec<String> {
 }
 
 /// ADR 0007 boundaries between real brokers (T12):
-/// 1. the upstream reads `down/**` and `sys/**` (`~meta`, `~val`) of the
+/// 1. the upstream reads `downstream/**` and `sys/**` (`~meta`, `~val`) of the
 ///    downstream site, never a `sys` action (owner decision 2026-10-22);
 /// 2. the upstream cannot `invoke`, even with a token the edge trusts;
 /// 3. the downstream cannot write or query outside its own `wy/<edge>/**`;
@@ -2961,15 +2980,17 @@ async fn two_brokers_isolation() {
         .with_timeout(Duration::from_secs(3));
     eventually("edge links seen from central", 15, || {
         let c = &c;
-        async move { (!c.children("wy/edge/down").await.ok()?.is_empty()).then_some(()) }
+        async move { (!c.children("wy/edge/downstream").await.ok()?.is_empty()).then_some(()) }
     })
     .await;
 
-    // 1. down/** and sys/** are readable from central (~meta, ~val), sys
+    // 1. downstream/** and sys/** are readable from central (~meta, ~val), sys
     //    actions and any other suffix are not.
     assert!(
-        !replies(&cs, "wy/edge/down/mock/**/~meta").await.is_empty(),
-        "control: central reads the edge's down/**"
+        !replies(&cs, "wy/edge/downstream/mock/**/~meta")
+            .await
+            .is_empty(),
+        "control: central reads the edge's downstream/**"
     );
     assert!(
         !replies(&cs, "wy/edge/sys/**/~meta").await.is_empty(),
@@ -2989,7 +3010,7 @@ async fn two_brokers_isolation() {
     // all of sys/** gets nothing else, so no other key under sys (audit
     // records, checked in 3.) goes up.
     let (down, sys, raw) = tokio::join!(
-        samples(&cs, "wy/edge/down/**", 2),
+        samples(&cs, "wy/edge/downstream/**", 2),
         samples(&cs, "wy/edge/sys/**/~val", 2),
         samples(&cs, "wy/edge/sys/**", 2)
     );
@@ -3005,12 +3026,12 @@ async fn two_brokers_isolation() {
     // 2. No commands across sites, even with a token the edge trusts.
     let args = Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(1))]));
     assert!(c
-        .invoke_one("wy/edge/down/mock", "count", args)
+        .invoke_one("wy/edge/downstream/mock", "count", args)
         .await
         .is_err());
     let args = Value::Map(BTreeMap::new());
     assert!(c
-        .invoke_one("wy/edge/down/mock", "reset", args)
+        .invoke_one("wy/edge/downstream/mock", "reset", args)
         .await
         .is_err());
 
@@ -3029,8 +3050,12 @@ async fn two_brokers_isolation() {
     let forge = async {
         tokio::time::sleep(Duration::from_millis(500)).await;
         for _ in 0..10 {
-            es.put("wy/central/down/x/~val", sample(1.0)).await.unwrap();
-            es.put("wy/other/down/x/~val", sample(1.0)).await.unwrap();
+            es.put("wy/central/downstream/x/~val", sample(1.0))
+                .await
+                .unwrap();
+            es.put("wy/other/downstream/x/~val", sample(1.0))
+                .await
+                .unwrap();
             es.put("wy/edge/sys/audit/mock", sample(1.0)).await.unwrap();
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -3048,7 +3073,7 @@ async fn two_brokers_isolation() {
         "edge wrote into wy/central"
     );
     assert_eq!(other_seen, Vec::<String>::new(), "edge wrote into wy/other");
-    for k in ["wy/central/sys/**", "wy/central/down/**"] {
+    for k in ["wy/central/sys/**", "wy/central/downstream/**"] {
         assert_eq!(
             replies(&es, k).await,
             Vec::<String>::new(),
@@ -3061,8 +3086,8 @@ async fn two_brokers_isolation() {
     let (r_stop, r_task) = spawn_daemon(edge_cfg(&r_dir, r_tcp, "evil"));
     let rs = loopback_session(r_tcp).await;
     let (evil, own) = tokio::join!(
-        samples(&cs, "wy/edge/down/evil/**", 4),
-        samples(&rs, "wy/edge/down/evil/**", 4)
+        samples(&cs, "wy/edge/downstream/evil/**", 4),
+        samples(&rs, "wy/edge/downstream/evil/**", 4)
     );
     assert!(
         !own.is_empty(),
@@ -3070,7 +3095,7 @@ async fn two_brokers_isolation() {
     );
     assert_eq!(evil, Vec::<String>::new(), "rogue samples reached central");
     let names: Vec<String> = c
-        .children("wy/edge/down")
+        .children("wy/edge/downstream")
         .await
         .unwrap()
         .into_iter()
@@ -3118,13 +3143,13 @@ async fn history_records_and_answers() {
     .unwrap();
     let group = format!("{hist}/g");
     let watch = |path: &str| m(&[("path", Value::from(path))]);
-    c.invoke_one(&group, "add_watch_path", watch("down/mock/g0/p0"))
+    c.invoke_one(&group, "add_watch_path", watch("downstream/mock/g0/p0"))
         .await
         .unwrap();
     for bad in [
-        "wy/other/down/mock/p",
+        "wy/other/downstream/mock/p",
         "wy/e2e/sys/links/mock",
-        "down/mock/**",
+        "downstream/mock/**",
     ] {
         assert!(
             c.invoke_one(&group, "add_watch_path", watch(bad))
@@ -3176,7 +3201,7 @@ async fn history_records_and_answers() {
     })
     .await;
     // spec 03 through the router: `get <point>/~val?history=`
-    let point = format!("wy/{SITE}/down/mock/g0/p0");
+    let point = format!("wy/{SITE}/downstream/mock/g0/p0");
     let since = wyrm_client::HistoryQuery::since("2020-01-01");
     let h = c.history(&point, &since).await.unwrap();
     assert!(h.len() >= 5 && h.iter().all(|r| r.q.is_some()), "{h:?}");
@@ -3196,7 +3221,7 @@ async fn history_records_and_answers() {
         "{counted:?}"
     );
     assert!(
-        c.history(&format!("wy/{SITE}/down/mock/g0/p2"), &since)
+        c.history(&format!("wy/{SITE}/downstream/mock/g0/p2"), &since)
             .await
             .unwrap()
             .is_empty(),

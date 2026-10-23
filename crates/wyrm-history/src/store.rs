@@ -424,11 +424,20 @@ mod tests {
     fn rows_by_series_and_day() {
         let dir = temp("rows");
         let st = Store::open(&dir).unwrap();
-        let a = st.series_id("wy/s/down/mock/a", true).unwrap().unwrap();
-        let b = st.series_id("wy/s/down/mock/b", true).unwrap().unwrap();
+        let a = st
+            .series_id("wy/s/downstream/mock/a", true)
+            .unwrap()
+            .unwrap();
+        let b = st
+            .series_id("wy/s/downstream/mock/b", true)
+            .unwrap()
+            .unwrap();
         assert_ne!(a, b);
-        assert_eq!(st.series_id("wy/s/down/mock/a", false).unwrap(), Some(a));
-        assert_eq!(st.series_id("wy/s/down/mock/c", false).unwrap(), None);
+        assert_eq!(
+            st.series_id("wy/s/downstream/mock/a", false).unwrap(),
+            Some(a)
+        );
+        assert_eq!(st.series_id("wy/s/downstream/mock/c", false).unwrap(), None);
         let d1 = parse_iso("2026-10-21T23:59:59Z").unwrap();
         let d2 = parse_iso("2026-10-22T00:00:01Z").unwrap();
         st.write(&[row(a, d1, 1.0), row(a, d2, 2.0), row(b, d2, 9.0)])
@@ -450,7 +459,10 @@ mod tests {
         // reopen: series and rows stay
         drop(st);
         let st = Store::open(&dir).unwrap();
-        assert_eq!(st.series_id("wy/s/down/mock/b", false).unwrap(), Some(b));
+        assert_eq!(
+            st.series_id("wy/s/downstream/mock/b", false).unwrap(),
+            Some(b)
+        );
         assert_eq!(st.read(b, 0, u64::MAX, 10).unwrap().len(), 1);
         assert!(st.size_bytes() > 0);
         let _ = std::fs::remove_dir_all(dir);

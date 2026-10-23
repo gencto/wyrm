@@ -288,9 +288,9 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
                 str_param()
                     .required(true)
                     .display("Path")
-                    .placeholder("down/<link>/<point>")
+                    .placeholder("downstream/<link>/<point>")
                     .description(
-                        "A point of this site (down/… or flows/…, or the full wy/<site>/… key) \
+                        "A point of this site (downstream/… or dataflows/…, or the full wy/<site>/… key) \
                          or of a downstream site (wy/<site>/…).",
                     ),
             )
@@ -505,12 +505,12 @@ fn apply_groups(ctl: &Control) {
     ctl.history.configure(groups(&ctl.registry()));
 }
 
-/// A watch path as typed (`down/…`, `/down/…`, `wy/<site>/…`) → its full
+/// A watch path as typed (`downstream/…`, `/downstream/…`, `wy/<site>/…`) → its full
 /// key; only this site and downstream sites.
 fn watch_key(ctl: &Control, path: &str) -> Result<String> {
     let path = path.trim().trim_matches('/');
     let site = &ctl.config().site;
-    let key = if path.starts_with("down/") || path.starts_with("flows/") {
+    let key = if path.starts_with("downstream/") || path.starts_with("dataflows/") {
         format!("wy/{site}/{path}")
     } else {
         path.to_owned()

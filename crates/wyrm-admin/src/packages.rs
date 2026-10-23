@@ -275,7 +275,10 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
         // A package names the branches it needs; a whole root (every link,
         // every flow) only an operator grants, with Grant Access.
-        if matches!(g.path.as_str(), "wy/{site}/down" | "wy/{site}/flows") {
+        if matches!(
+            g.path.as_str(),
+            "wy/{site}/downstream" | "wy/{site}/dataflows"
+        ) {
             return Err(format!(
                 "requester {}: name a link or flow under it (a whole root needs Grant Access)",
                 g.path
@@ -414,15 +417,18 @@ pub(crate) mod tests {
         };
         let cases = cases.into_iter().chain([
             (
-                grant("wy/{site}/down", "read"),
+                grant("wy/{site}/downstream", "read"),
                 "a whole root needs Grant Access",
             ),
             (
-                grant("wy/{site}/flows", "list"),
+                grant("wy/{site}/dataflows", "list"),
                 "a whole root needs Grant Access",
             ),
             (grant("wy/{site}/sys", "read"), "never sys"),
-            (grant("wy/{site}/down/mock", "config"), "at most write"),
+            (
+                grant("wy/{site}/downstream/mock", "config"),
+                "at most write",
+            ),
         ]);
         for (z, why) in cases {
             let err = unpack(&z, &root, "zip", 0).err().unwrap_or_default();

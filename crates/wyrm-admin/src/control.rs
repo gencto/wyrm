@@ -125,8 +125,8 @@ pub trait RoleGrants: Send + Sync {
 /// secret and every other link trusts it, capped at `write`.
 pub const AGENT_DRIVER: &str = "agent";
 
-/// Link id of the flow engine (rooted at `wy/<site>/flows`); reserved.
-pub const FLOWS_LINK: &str = "flows";
+/// Link id of the flow engine (rooted at `wy/<site>/dataflows`); reserved.
+pub const FLOWS_LINK: &str = "dataflows";
 
 /// A link declared in `wyrmd.json5`.
 #[derive(Debug, Clone)]
@@ -1097,8 +1097,8 @@ impl Control {
         self.supervisor.stop_all().await;
     }
 
-    /// Reference nodes of the peer brokers: one link `down/<d>` per
-    /// downstream site, one link `up` with a node per upstream site.
+    /// Reference nodes of the peer brokers: one link `downstream/<d>` per
+    /// downstream site, one link `upstream` with a node per upstream site.
     async fn start_peers(&self, session: &Session) -> Vec<LinkHandle<crate::peers::PeerRefs>> {
         use crate::peers::{PeerRefs, PeerRefsConfig};
         let peers = self.peers();
@@ -1110,19 +1110,19 @@ impl Control {
             .map(|d| {
                 (
                     d.clone(),
-                    format!("wy/{site}/down/{d}"),
+                    format!("wy/{site}/downstream/{d}"),
                     vec![(String::new(), d.clone())],
                 )
             })
             .collect();
-        // `up` always, empty without upstream sites: a client opening a
+        // `upstream` always, empty without upstream sites: a client opening a
         // site finds its four sections (down, flows, sys, up).
         let nodes = peers
             .upstream
             .iter()
             .map(|u| (u.clone(), u.clone()))
             .collect();
-        plan.push(("up".into(), format!("wy/{site}/up"), nodes));
+        plan.push(("upstream".into(), format!("wy/{site}/upstream"), nodes));
         let mut out = Vec::new();
         for (id, root, nodes) in plan {
             let mut lcfg = LinkConfig::new(site.clone(), id.clone());
@@ -1209,8 +1209,8 @@ impl Control {
             session.clone(),
             crate::history::groups(&self.registry()),
             vec![
-                format!("wy/{site}/down/**/~val"),
-                format!("wy/{site}/flows/**/~val"),
+                format!("wy/{site}/downstream/**/~val"),
+                format!("wy/{site}/dataflows/**/~val"),
             ],
         );
         let tasks = vec![
@@ -1239,7 +1239,7 @@ type Running = Arc<AsyncMutex<HashMap<String, Box<dyn RunningLink>>>>;
 /// Admin state bound to one broker instance.
 pub struct Attached {
     admin: Option<LinkHandle<Admin>>,
-    /// `down/<d>` and `up` reference nodes of peer brokers.
+    /// `downstream/<d>` and `upstream` reference nodes of peer brokers.
     peers: Vec<LinkHandle<crate::peers::PeerRefs>>,
     embedded: Running,
     tasks: Vec<JoinHandle<()>>,
@@ -1468,8 +1468,8 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
                 str_param()
                     .required(true)
                     .display("Path")
-                    .placeholder("wy/{site}/down/<link>")
-                    .description("A node of another link (its subtree), or wy/{site}/flows"),
+                    .placeholder("wy/{site}/downstream/<link>")
+                    .description("A node of another link (its subtree), or wy/{site}/dataflows"),
             )
             .param(
                 "level",
@@ -1814,7 +1814,7 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
                     str_param()
                         .required(true)
                         .display("Path")
-                        .placeholder("wy/{site}/down/**"),
+                        .placeholder("wy/{site}/downstream/**"),
                 )
                 .param(
                     "level",
@@ -2728,7 +2728,7 @@ impl Admin {
         crate::registry::validate_link_id(&id).map_err(LinkError::invalid_parameter)?;
         if ctl.peers().downstream.contains(&id) {
             return Err(LinkError::invalid_parameter(format!(
-                "link id {id:?} is a downstream site (down/{id} is its broker node)"
+                "link id {id:?} is a downstream site (downstream/{id} is its broker node)"
             )));
         }
         // Before any side effect (token, secret purge) on an existing id.
@@ -3272,7 +3272,7 @@ impl Admin {
     /// link (ADR 0006): a device needs a new id to come back. Replies the
     /// removed ids, nothing when there were none.
     async fn clear_conns(&self, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
-        let key = format!("wy/{}/down/*", self.ctl.cfg.site);
+        let key = format!("wy/{}/downstream/*", self.ctl.cfg.site);
         let replies = self
             .ctx
             .client()
@@ -3400,7 +3400,7 @@ impl Admin {
             reply.insert("token".into(), Value::Str(t));
         }
         if let Some((roles, role)) = grant {
-            let key = format!("wy/{{site}}/down/{cn}/**");
+            let key = format!("wy/{{site}}/downstream/{cn}/**");
             match roles.set_grant(&role, &key, Perm::Write) {
                 Ok(()) => self.ctl.record(
                     sub,
@@ -3454,10 +3454,10 @@ impl Admin {
         };
         let site = &self.ctl.cfg.site;
         let keys = [
-            format!("wy/{{site}}/down/{id}/**"),
-            format!("wy/{site}/down/{id}/**"),
+            format!("wy/{{site}}/downstream/{id}/**"),
+            format!("wy/{site}/downstream/{id}/**"),
         ];
-        match roles.revoke_widening(&keys, &format!("wy/{site}/down/{id}/~val")) {
+        match roles.revoke_widening(&keys, &format!("wy/{site}/downstream/{id}/~val")) {
             Ok(gone) => {
                 for (role, key, p) in gone {
                     self.ctl.record(
@@ -3746,7 +3746,7 @@ async fn admit(
     }
     if ctl.peers().downstream.iter().any(|d| d == cn) {
         return Err(LinkError::invalid_parameter(format!(
-            "{cn:?} is a downstream site (down/{cn} is its broker node)"
+            "{cn:?} is a downstream site (downstream/{cn} is its broker node)"
         )));
     }
     crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
@@ -3782,10 +3782,10 @@ async fn admit(
     Ok(token)
 }
 
-/// `links/<id>/state` from liveliness (`down/<id>`), the supervisor and the
+/// `links/<id>/state` from liveliness (`downstream/<id>`), the supervisor and the
 /// embedded table.
 async fn watch_states(ctl: Arc<Control>, ctx: LinkCtx, embedded: Running) {
-    let down = format!("wy/{}/down/*", ctl.cfg.site);
+    let down = format!("wy/{}/downstream/*", ctl.cfg.site);
     let live = match ctx
         .client()
         .liveliness()
@@ -3861,7 +3861,7 @@ fn admissible(reg: &Registry, operators: &[String], peers: &acl::Peers, cn: &str
         || reg.blocklist.contains(cn)
         || reg.retired.contains(cn)
         || operators.iter().any(|o| o == cn)
-        // `down/<d>` is a downstream site's node; never a link.
+        // `downstream/<d>` is a downstream site's node; never a link.
         || peers.downstream.iter().any(|d| d == cn)
         || cn == "broker";
     !known && crate::registry::validate_link_id(cn).is_ok()
@@ -3976,9 +3976,9 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         // record time, and a key outside the link's subtree is flagged.
         let key = text("key");
         let root = if link == FLOWS_LINK {
-            format!("wy/{}/flows", ctl.cfg.site)
+            format!("wy/{}/dataflows", ctl.cfg.site)
         } else {
-            format!("wy/{}/down/{link}", ctl.cfg.site)
+            format!("wy/{}/downstream/{link}", ctl.cfg.site)
         };
         let in_subtree = key == root || key.starts_with(&format!("{root}/"));
         let link_t = match m.get("t") {
@@ -4217,7 +4217,7 @@ fn dir_bytes(dir: &std::path::Path) -> u64 {
 }
 
 /// Sites whose broker liveliness token (`wy/<site>/sys/broker`) is present,
-/// and the link ids whose token (`wy/<site>/down/<id>`) is present.
+/// and the link ids whose token (`wy/<site>/downstream/<id>`) is present.
 async fn live_tokens(session: &Session, site: &str) -> (HashSet<String>, HashSet<String>) {
     let get = |key: String| async move {
         let mut out = Vec::new();
@@ -4240,7 +4240,7 @@ async fn live_tokens(session: &Session, site: &str) -> (HashSet<String>, HashSet
         .into_iter()
         .filter_map(|k| k.split('/').nth(1).map(str::to_owned))
         .collect();
-    let links = get(format!("wy/{site}/down/*"))
+    let links = get(format!("wy/{site}/downstream/*"))
         .await
         .into_iter()
         .filter_map(|k| k.rsplit('/').next().map(str::to_owned))

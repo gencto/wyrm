@@ -7,5 +7,5 @@ Eclipse Zenoh 1.x is the transport and data fabric (routing, pub/sub, query/repl
 
 ## Consequences
 - Dynamic Zenoh plugins (`.so`) are not used (ABI lock-step with the router).
-- Extension happens through data (`flows/**`) and processes (connectors), not plugins.
+- Extension happens through data (`dataflows/**`) and processes (connectors), not plugins.
 - Per-message authorization is done in the responder SDK and gateway, not in the router (no public interceptor hook).

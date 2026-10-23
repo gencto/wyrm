@@ -40,12 +40,36 @@ pub fn validate_path(path: &str) -> Result<(), KeyError> {
     path.split('/').try_for_each(validate_segment)
 }
 
-/// Build `wy/<site>/down/<link>/<path>/<suffix>`.
+/// Build `wy/<site>/downstream/<link>/<path>/<suffix>`.
 pub fn down_key(site: &str, link: &str, path: &str, suffix: &str) -> String {
     if path.is_empty() {
-        format!("{ROOT}/{site}/down/{link}/{suffix}")
+        format!("{ROOT}/{site}/downstream/{link}/{suffix}")
     } else {
-        format!("{ROOT}/{site}/down/{link}/{path}/{suffix}")
+        format!("{ROOT}/{site}/downstream/{link}/{path}/{suffix}")
+    }
+}
+
+/// Site sections before spec 0.2.0 and their names since.
+const RENAMED: [(&str, &str); 3] = [
+    ("down", "downstream"),
+    ("up", "upstream"),
+    ("flows", "dataflows"),
+];
+
+/// A key or grant pattern stored before spec 0.2.0 (`wy/<site>/down/…`,
+/// `…/up/…`, `…/flows/…`) under its section's new name; other keys as they
+/// are. `<site>` may be `{site}` or a wildcard.
+pub fn renamed(key: &str) -> std::borrow::Cow<'_, str> {
+    let mut segs = key.splitn(4, '/');
+    let (Some(ROOT), Some(site), Some(section)) = (segs.next(), segs.next(), segs.next()) else {
+        return key.into();
+    };
+    match RENAMED.iter().find(|(old, _)| *old == section) {
+        Some((_, new)) => match segs.next() {
+            Some(rest) => format!("{ROOT}/{site}/{new}/{rest}").into(),
+            None => format!("{ROOT}/{site}/{new}").into(),
+        },
+        None => key.into(),
     }
 }
 
@@ -111,6 +135,22 @@ pub fn expand_keys<I: IntoIterator<Item = S>, S: AsRef<str>>(items: I) -> Vec<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sections_renamed_by_spec_0_2() {
+        for (old, new) in [
+            ("wy/s/down/mock/p0", "wy/s/downstream/mock/p0"),
+            ("wy/{site}/down", "wy/{site}/downstream"),
+            ("wy/*/up/central", "wy/*/upstream/central"),
+            ("wy/s/flows/f1/~def", "wy/s/dataflows/f1/~def"),
+            ("wy/s/downstream/mock", "wy/s/downstream/mock"),
+            ("wy/s/sys/links/down", "wy/s/sys/links/down"),
+            ("wy/**", "wy/**"),
+            ("down/mock", "down/mock"),
+        ] {
+            assert_eq!(renamed(old), new, "{old}");
+        }
+    }
 
     #[test]
     fn segments() {

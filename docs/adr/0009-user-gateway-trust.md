@@ -23,7 +23,7 @@ People use WYRM through a browser or app, not with an Ed25519 key or a client ce
 - A stolen gateway key gives `write`/`config` on devices, flows and (since the 2026-10-22 amendment) the control plane of this site, not on other sites (their links do not trust it). The gateway runs inside `wyrmd` with the same `data_dir`, so its key is as exposed as the broker itself.
 - Role changes take effect on the next request without a new login; sessions can only be ended by password change, disable or removal (no logout list).
 - The default roles grant nothing on `sys/**` except the `admin` role's `config`, which governs gateway user management and the control plane.
-- Flow deploys through the WebSocket get their proofs from the gateway (ADR 0008): for `invoke wy/<site>/flows deploy`, the gateway replaces any client `proofs` with one token per command target, signed with that user's grants. A user without rights on a target gets no proof, and the engine refuses the deploy.
+- Flow deploys through the WebSocket get their proofs from the gateway (ADR 0008): for `invoke wy/<site>/dataflows deploy`, the gateway replaces any client `proofs` with one token per command target, signed with that user's grants. A user without rights on a target gets no proof, and the engine refuses the deploy.
 - Spraying from many addresses is bounded only by the argon2 cost (4 concurrent hashes).
 - A broker rebuild (ADR 0006) closes all WebSockets; sessions and tickets stay valid.
 

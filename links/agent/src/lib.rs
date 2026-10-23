@@ -1,6 +1,6 @@
 //! AI agent connector (ADR 0005, wiki "AI-агент, MCP і CLI" §2).
 //!
-//! Tree under `wy/<site>/down/<link>`:
+//! Tree under `wy/<site>/downstream/<link>`:
 //!
 //! | key | what |
 //! |---|---|
@@ -71,8 +71,8 @@ const ASK_TIMEOUT_MS: u32 = 300_000;
 const KEEPALIVE: Duration = Duration::from_secs(1);
 
 const SYSTEM: &str = "You are the WYRM agent: an operator assistant for an IoT broker with \
-IOT-DSA semantics. Node keys are `wy/<site>/down/<link>/<path>`; paths may be given relative \
-to the site (`down/<link>/<path>`). Explore with tree_list, tree_resolve, node_meta and \
+IOT-DSA semantics. Node keys are `wy/<site>/downstream/<link>/<path>`; paths may be given relative \
+to the site (`downstream/<link>/<path>`). Explore with tree_list, tree_resolve, node_meta and \
 value_get; device models are profiles named `<vendor>:<model>` (profiles tool) whose attr holds \
 the model data. You cannot change anything yourself: call `propose` once per change (op=set or \
 op=invoke). Every proposal is checked and then shown to a human, who approves or rejects the \
@@ -825,7 +825,7 @@ pub fn service_tokens(
 ) -> SigningTokens {
     let g = |k: String, p: Perm| Grant { k, p };
     let mut grants = vec![
-        g(format!("wy/{site}/down/{link}/**"), Perm::None),
+        g(format!("wy/{site}/downstream/{link}/**"), Perm::None),
         g(format!("wy/{site}/sys/**"), Perm::None),
     ];
     grants.extend(allowed.iter().map(|a| g(format!("{a}/**"), Perm::Write)));

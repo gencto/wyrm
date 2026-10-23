@@ -104,7 +104,7 @@ async fn list_links_root_and_owner_disconnect() {
     .await
     .unwrap();
 
-    let links_root = format!("wy/{SITE}/down");
+    let links_root = format!("wy/{SITE}/downstream");
     let mut links = c.list(&links_root).await.unwrap();
     let ListEvent::Refreshed(snap) = next(&mut links).await else {
         panic!()
@@ -179,7 +179,7 @@ async fn reply_without_readable_status_is_an_error() {
         .await
         .unwrap();
     let q = session
-        .declare_queryable("wy/t/down/fake/**")
+        .declare_queryable("wy/t/downstream/fake/**")
         .await
         .unwrap();
     tokio::spawn(async move {
@@ -197,12 +197,19 @@ async fn reply_without_readable_status_is_an_error() {
         }
     });
     let c = WyrmClient::new(session).with_timeout(Duration::from_secs(2));
-    let e = c.set("wy/t/down/fake/x", 1.0).await.unwrap_err();
-    assert!(e.is(Status::InvalidMessage), "{e}");
-    let e = c.set("wy/t/down/fake/garbage", 1.0).await.unwrap_err();
+    let e = c.set("wy/t/downstream/fake/x", 1.0).await.unwrap_err();
     assert!(e.is(Status::InvalidMessage), "{e}");
     let e = c
-        .invoke_one("wy/t/down/fake/x", "a", Value::Map(Default::default()))
+        .set("wy/t/downstream/fake/garbage", 1.0)
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidMessage), "{e}");
+    let e = c
+        .invoke_one(
+            "wy/t/downstream/fake/x",
+            "a",
+            Value::Map(Default::default()),
+        )
         .await
         .unwrap_err();
     assert!(e.is(Status::InvalidMessage), "{e}");

@@ -4,10 +4,10 @@
 ```
 key        = "wy/" site "/" branch
 site       = seg
-branch     = "down/" link ("/" path)? ("/" suffix)?
-           | "down/" site ("/connected")? ("/" suffix)?        ; downstream broker node
-           | "up/" site ("/connected")? ("/" suffix)?          ; upstream broker node
-           | "flows/" flowid ("/" ("~def" | "~meta" | "~val" | "~act/" name | "nodes/" seg "/" suffix))?
+branch     = "downstream/" link ("/" path)? ("/" suffix)?
+           | "downstream/" site ("/connected")? ("/" suffix)?  ; downstream broker node
+           | "upstream/" site ("/connected")? ("/" suffix)?    ; upstream broker node
+           | "dataflows/" flowid ("/" ("~def" | "~meta" | "~val" | "~act/" name | "nodes/" seg "/" suffix))?
            | "pub/" profile "/~meta"
            | "sys/" syspath
 path       = seg ("/" seg)*
@@ -26,8 +26,10 @@ profile    = "wy:" seg ; або "<vendor>:" seg
 ## Повні імена
 Віртуальних префіксів (`remote/`) немає: ключ має одне ім'я на всіх брокерах mesh і в UI.
 
+Розділи сайту мають повні імена, без скорочень: `downstream`, `upstream`, `dataflows`, `sys`, `pub` (0.2.0; до неї — `down`, `up`, `flows`). Брокер переносить збережені ключі зі старими іменами (гранти, спостереження історії) під нові; збережені потоки треба розгорнути знову, бо їхні proofs підписані для старих ключів.
+
 ## Брокери-сусіди
-Downstream — те, що підключається до брокера: лінки і брокери нижчих сайтів; їх вузли поруч у `down/`. Брокер сайту `d`, що підключається до нас, — вузол `wy/<site>/down/<d>`. Upstream — брокери, до яких підключається наш: `wy/<site>/up/<u>`. Ці вузли — посилання, а не копії: `is = wy:broker`, `attr.site`, `attr.root = "wy/<peer>"` і bool-точка `connected` (liveliness `wy/<peer>/sys/broker`). Ключі сусіда лишаються під його власним ім'ям (`wy/<peer>/…`); клієнт іде за `attr.root`. Id лінка не може збігатися з іменем downstream-сайту.
+Downstream — те, що підключається до брокера: лінки і брокери нижчих сайтів; їх вузли поруч у `downstream/`. Брокер сайту `d`, що підключається до нас, — вузол `wy/<site>/downstream/<d>`. Upstream — брокери, до яких підключається наш: `wy/<site>/upstream/<u>`. Ці вузли — посилання, а не копії: `is = wy:broker`, `attr.site`, `attr.root = "wy/<peer>"` і bool-точка `connected` (liveliness `wy/<peer>/sys/broker`). Ключі сусіда лишаються під його власним ім'ям (`wy/<peer>/…`); клієнт іде за `attr.root`. Id лінка не може збігатися з іменем downstream-сайту.
 
 ## Селектори
 `key?param=value&...` — параметри **не** впливають на маршрутизацію. Визначені:

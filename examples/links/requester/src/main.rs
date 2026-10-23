@@ -1,7 +1,7 @@
 //! A **requester** link (as DSA `isRequester`): it serves no nodes of its
 //! own, it reads another link's values and records them.
 //!
-//! Every sample under `source` (default `wy/<site>/down/mock`) becomes a
+//! Every sample under `source` (default `wy/<site>/downstream/mock`) becomes a
 //! line `time,key,value,quality` in `values.csv` in the link's data
 //! directory, rotated to `values.1.csv` at `max_mb`. Its package asks for
 //! the grant it needs (`wyrm-link.json`: `requester: [{path, level: read}]`);
@@ -121,7 +121,7 @@ impl Link for Recorder {
             .to_owned();
         let source = cfg
             .source
-            .unwrap_or_else(|| format!("wy/{}/down/mock", ctx.site()));
+            .unwrap_or_else(|| format!("wy/{}/downstream/mock", ctx.site()));
         // Reads need no token: the read grant opens the ACL.
         let c = WyrmClient::new(ctx.client().clone());
         let task = tokio::spawn(record(c, source, dir, cfg.max_mb));

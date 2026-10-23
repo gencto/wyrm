@@ -95,7 +95,7 @@ pub struct GroupCfg {
 pub struct WatchCfg {
     /// Node id under the group (`w1`, `w2`, …).
     pub id: String,
-    /// Point key, `wy/<site>/down/…`.
+    /// Point key, `wy/<site>/downstream/…`.
     pub key: String,
     pub enabled: bool,
 }
@@ -212,7 +212,7 @@ impl Historian {
 
     /// Bind to `session` (a new router runtime), run `groups`, and answer
     /// `get <point>/~val?history=…` on `serve` (key expressions such as
-    /// `wy/<site>/down/**/~val`).
+    /// `wy/<site>/downstream/**/~val`).
     pub fn attach(self: &Arc<Self>, session: Session, groups: Vec<GroupCfg>, serve: Vec<String>) {
         {
             let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());

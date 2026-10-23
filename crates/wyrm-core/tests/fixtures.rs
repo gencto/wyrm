@@ -122,7 +122,7 @@ fn ptok_claims_structure_matches_json() {
     let c: PtokClaims = from_slice(&hex::decode(&f.hex).unwrap()).unwrap();
     assert_eq!(c.site, "plant-a");
     assert_eq!(c.grants.len(), 3);
-    assert_eq!(c.grants[1].k, "wy/plant-a/down/bacnet/**");
+    assert_eq!(c.grants[1].k, "wy/plant-a/downstream/bacnet/**");
     assert_eq!(c.grants[1].p, wyrm_core::Perm::Write);
     assert_eq!(c.jti, [0x11; 16]);
 }

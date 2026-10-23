@@ -1,5 +1,5 @@
 //! Flow engine end to end on an in-memory session: a mock link as the
-//! data source and command target, the engine on `wy/test/flows`.
+//! data source and command target, the engine on `wy/test/dataflows`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,11 +52,11 @@ fn peak(version: u64, expr: &str) -> Value {
             map(&[
                 (
                     "a",
-                    map(&[("type", s("subscribe")), ("key", s("down/mock/p0"))]),
+                    map(&[("type", s("subscribe")), ("key", s("downstream/mock/p0"))]),
                 ),
                 (
                     "b",
-                    map(&[("type", s("subscribe")), ("key", s("down/mock/p1"))]),
+                    map(&[("type", s("subscribe")), ("key", s("downstream/mock/p1"))]),
                 ),
                 (
                     "sum",
@@ -91,7 +91,7 @@ fn peak(version: u64, expr: &str) -> Value {
                     "shed",
                     map(&[
                         ("type", s("invoke")),
-                        ("path", s("down/mock")),
+                        ("path", s("downstream/mock")),
                         ("action", s("reset")),
                         ("on", s("rising")),
                     ]),
@@ -133,8 +133,8 @@ struct Env {
 async fn engine_on(session: &zenoh::Session, dir: &std::path::Path) -> LinkHandle<Engine> {
     let host = FlowHost::open(dir, b"flow-test-hmac-key", SITE).unwrap();
     let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
-    let mut lcfg = LinkConfig::new(SITE, "flows");
-    lcfg.root = Some(format!("wy/{SITE}/flows"));
+    let mut lcfg = LinkConfig::new(SITE, "dataflows");
+    lcfg.root = Some(format!("wy/{SITE}/dataflows"));
     lcfg.admin_keys = vec![key.verifying_key()];
     wyrm_link_sdk::spawn::<Engine>(
         session.clone(),
@@ -188,7 +188,7 @@ impl Env {
     async fn deploy(&self, def: Value) -> Result<(), wyrm_client::ClientError> {
         self.client
             .invoke_one(
-                &format!("wy/{SITE}/flows"),
+                &format!("wy/{SITE}/dataflows"),
                 "deploy",
                 deploy_args(&self.client, def),
             )
@@ -306,11 +306,11 @@ async fn peak_shaving_hot_swap_and_restart() {
     let mut env = Env::start("peak").await;
     // fixed meter values (the mock holds written values): sum 35 > alarm 30
     env.client
-        .set(&format!("wy/{SITE}/down/mock/p0"), 20.0)
+        .set(&format!("wy/{SITE}/downstream/mock/p0"), 20.0)
         .await
         .unwrap();
     env.client
-        .set(&format!("wy/{SITE}/down/mock/p1"), 15.0)
+        .set(&format!("wy/{SITE}/downstream/mock/p1"), 15.0)
         .await
         .unwrap();
     env.deploy(peak(1, "a.v + b.v")).await.unwrap();
@@ -321,7 +321,7 @@ async fn peak_shaving_hot_swap_and_restart() {
     // alarm (high 30) fires on the rising edge → `reset` on the mock → result published
     let mut vals = env
         .client
-        .subscribe(&format!("wy/{SITE}/flows/peak/nodes/shed"))
+        .subscribe(&format!("wy/{SITE}/dataflows/peak/nodes/shed"))
         .await
         .unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), async {
@@ -374,7 +374,7 @@ async fn peak_shaving_hot_swap_and_restart() {
     );
 
     // stop / start / remove
-    let flow = format!("wy/{SITE}/flows/peak");
+    let flow = format!("wy/{SITE}/dataflows/peak");
     env.client
         .invoke_one(&flow, "stop", Value::Map(Default::default()))
         .await
@@ -414,7 +414,7 @@ async fn deploy_needs_config() {
         .with_timeout(Duration::from_secs(3));
     let e = c
         .invoke_one(
-            &format!("wy/{SITE}/flows"),
+            &format!("wy/{SITE}/dataflows"),
             "deploy",
             deploy_args(&c, peak(1, "a.v + b.v")),
         )
@@ -424,12 +424,12 @@ async fn deploy_needs_config() {
     env.stop().await;
 }
 
-/// `config` on `flows/**` alone does not let a flow command devices: the
+/// `config` on `dataflows/**` alone does not let a flow command devices: the
 /// deployer proves its own rights on every target.
 #[tokio::test(flavor = "multi_thread")]
 async fn deploy_needs_proofs_for_targets() {
     let env = Env::start("proofs").await;
-    let flows = format!("wy/{SITE}/flows");
+    let flows = format!("wy/{SITE}/dataflows");
     // no proofs
     let e = env
         .client
@@ -437,7 +437,7 @@ async fn deploy_needs_proofs_for_targets() {
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
-    // a deployer whose grants cover only flows/** cannot mint proofs
+    // a deployer whose grants cover only dataflows/** cannot mint proofs
     let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
     let flows_only = SigningTokens::new(key, SITE).grants(vec![wyrm_core::ptok::Grant {
         k: format!("{flows}/**"),
@@ -451,8 +451,8 @@ async fn deploy_needs_proofs_for_targets() {
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
-    // targets outside wy/<site>/down/ or with wildcards are refused
-    for path in ["sys/links/mock", "down/*"] {
+    // targets outside wy/<site>/downstream/ or with wildcards are refused
+    for path in ["sys/links/mock", "downstream/*"] {
         let mut d = peak(1, "a.v + b.v");
         if let Value::Map(m) = &mut d {
             if let Some(Value::Map(nodes)) = m.get_mut("nodes") {
@@ -506,7 +506,7 @@ async fn put_artifact(env: &Env, bytes: Vec<u8>) -> Result<String, wyrm_client::
     let r = env
         .client
         .invoke_one(
-            &format!("wy/{SITE}/flows"),
+            &format!("wy/{SITE}/dataflows"),
             "put_artifact",
             map(&[("bytes", Value::Bytes(bytes))]),
         )
@@ -532,7 +532,7 @@ async fn wasm_node_hot_load() {
     let states = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut sub = env
         .client
-        .subscribe(&format!("wy/{SITE}/flows/wf"))
+        .subscribe(&format!("wy/{SITE}/dataflows/wf"))
         .await
         .unwrap();
     let st2 = states.clone();
@@ -610,7 +610,7 @@ async fn history_and_rollback() {
     let by = Arc::new(std::sync::Mutex::new(None));
     let mut sub = env
         .client
-        .subscribe(&format!("wy/{SITE}/flows/peak"))
+        .subscribe(&format!("wy/{SITE}/dataflows/peak"))
         .await
         .unwrap();
     let by2 = by.clone();
@@ -625,7 +625,7 @@ async fn history_and_rollback() {
     });
     env.deploy(peak(1, "a.v + b.v")).await.unwrap();
     env.deploy(peak(2, "a.v - b.v")).await.unwrap();
-    let flow = format!("wy/{SITE}/flows/peak");
+    let flow = format!("wy/{SITE}/dataflows/peak");
     let h = env
         .client
         .invoke_one(&flow, "history", map(&[]))

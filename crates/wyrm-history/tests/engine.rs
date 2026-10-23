@@ -5,9 +5,9 @@ use std::time::Duration;
 use wyrm_core::{codec, HistRow, Quality, Sample, Value};
 use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
 
-const P: &str = "wy/s/down/mock/p";
-const Q: &str = "wy/s/down/mock/q";
-const R: &str = "wy/s/down/mock/r";
+const P: &str = "wy/s/downstream/mock/p";
+const Q: &str = "wy/s/downstream/mock/q";
+const R: &str = "wy/s/downstream/mock/r";
 
 fn temp(name: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("wyrm-hist-e-{name}-{}", std::process::id()));
@@ -101,7 +101,7 @@ async fn logging_types_and_rebuilds() {
             group("all", Logging::AllData, &[P]),
             group("change", Logging::PointChange, &[Q]),
         ],
-        vec!["wy/s/down/**/~val".into()],
+        vec!["wy/s/downstream/**/~val".into()],
     );
     tokio::time::sleep(Duration::from_millis(300)).await; // subscribers up
     let t0 = wyrm_history::engine::now_us();
@@ -127,7 +127,7 @@ async fn logging_types_and_rebuilds() {
             group("all", Logging::AllData, &[P]),
             group("change", Logging::PointChange, &[Q]),
         ],
-        vec!["wy/s/down/**/~val".into()],
+        vec!["wy/s/downstream/**/~val".into()],
     );
     tokio::time::sleep(Duration::from_millis(300)).await;
     put(&s2, P, 3.0, t0 + 4).await;
@@ -154,7 +154,7 @@ async fn logging_types_and_rebuilds() {
         }]
     );
     assert!(
-        history(&s2, "wy/s/down/mock/none/~val?history=2020-01-01..")
+        history(&s2, "wy/s/downstream/mock/none/~val?history=2020-01-01..")
             .await
             .is_empty()
     );

@@ -1,7 +1,7 @@
 //! WYRM connector SDK.
 //!
 //! A driver implements [`Link`]; the SDK owns everything else for its subtree
-//! `wy/<site>/down/<link>/**`: the [`NodeTree`](tree::NodeTree), one queryable
+//! `wy/<site>/downstream/<link>/**`: the [`NodeTree`](tree::NodeTree), one queryable
 //! routed by suffix (`~meta` / `~set` / `~act/<a>`), `ptok` checks before any
 //! driver call, value validation, liveliness, and `~meta`/`~val` publication
 //! with the QoS from spec 05.

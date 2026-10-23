@@ -1,6 +1,6 @@
 //! WYRM requester SDK. Spec: 05-methods.
 //!
-//! Node keys are full keys without suffix, e.g. `wy/plant-a/down/mock/g0/p0`.
+//! Node keys are full keys without suffix, e.g. `wy/plant-a/downstream/mock/g0/p0`.
 //!
 //! * [`WyrmClient::list`] — subscribes to `node/*/~meta` and liveliness
 //!   *before* the snapshot `get`, so no change between the two is lost.
@@ -123,16 +123,17 @@ pub struct WyrmClient {
     origin: Option<String>,
 }
 
-/// `wy/<site>/down/<link>` that owns `key`, if any.
+/// `wy/<site>/downstream/<link>` that owns `key`, if any.
 pub fn owner_key(key: &str) -> Option<String> {
     let segs: Vec<&str> = key.splitn(5, '/').collect();
-    (segs.len() >= 4 && segs[0] == keyspace::ROOT && segs[2] == "down").then(|| segs[..4].join("/"))
+    (segs.len() >= 4 && segs[0] == keyspace::ROOT && segs[2] == "downstream")
+        .then(|| segs[..4].join("/"))
 }
 
-/// `wy/<site>/down` — its children are links, known from liveliness.
+/// `wy/<site>/downstream` — its children are links, known from liveliness.
 pub(crate) fn is_links_root(key: &str) -> bool {
     let segs: Vec<&str> = key.split('/').collect();
-    segs.len() == 3 && segs[0] == keyspace::ROOT && segs[2] == "down"
+    segs.len() == 3 && segs[0] == keyspace::ROOT && segs[2] == "downstream"
 }
 
 fn suffixed(node: &str, suffix: &str) -> String {
@@ -248,7 +249,7 @@ impl WyrmClient {
     }
 
     /// A token for `key` from the configured source, e.g. a proof of rights
-    /// on a flow's command target (`flows/~act/deploy {proofs}`).
+    /// on a flow's command target (`dataflows/~act/deploy {proofs}`).
     pub fn proof(&self, key: &str) -> Option<Vec<u8>> {
         self.tokens.as_ref().and_then(|t| t.token(key))
     }
@@ -504,7 +505,7 @@ impl WyrmClient {
         Err(ClientError::new(Status::Busy, "children kept changing"))
     }
 
-    /// Links under `wy/<site>/down`: liveliness tokens, then each root `~meta`.
+    /// Links under `wy/<site>/downstream`: liveliness tokens, then each root `~meta`.
     async fn links(&self, root: &str) -> Result<Vec<Child>> {
         let rx = self
             .session

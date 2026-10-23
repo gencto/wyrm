@@ -94,7 +94,8 @@ impl UserDb {
 }
 
 impl wyrm_state::State for UserDb {
-    const SCHEMA: u32 = 3;
+    // 4: grant keys renamed by spec 0.2.0 (`SetRole` replays them renamed)
+    const SCHEMA: u32 = 4;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -147,7 +148,12 @@ impl wyrm_state::State for UserDb {
                 {
                     return Err(format!("bad level code {c}"));
                 }
-                self.roles.insert(role.clone(), grants.clone());
+                // keys stored before spec 0.2.0 under their new names
+                let grants = grants
+                    .iter()
+                    .map(|(k, c)| (wyrm_core::keyspace::renamed(k).into_owned(), *c))
+                    .collect();
+                self.roles.insert(role.clone(), grants);
             }
         }
         Ok(())
@@ -202,6 +208,23 @@ pub fn verify_password(pw: &str, hash: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use wyrm_state::State;
+
+    #[test]
+    fn grant_keys_before_spec_0_2_replay_renamed() {
+        let mut db = UserDb::default();
+        db.apply(&Op::SetRole {
+            role: "ops".into(),
+            grants: vec![("wy/{site}/down/**".into(), 3), ("wy/**".into(), 1)],
+        })
+        .unwrap();
+        assert_eq!(
+            db.roles["ops"],
+            [
+                ("wy/{site}/downstream/**".to_string(), 3),
+                ("wy/**".to_string(), 1)
+            ]
+        );
+    }
 
     #[test]
     fn ops_and_generations() {

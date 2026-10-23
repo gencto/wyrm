@@ -14,7 +14,7 @@ import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-const root = 'wy/test/down/mock';
+const root = 'wy/test/downstream/mock';
 final repo = Directory.current.parent.parent.path;
 
 Future<String?> _binary() async {
@@ -145,7 +145,7 @@ void main() {
 
   test('a key outside the site is refused', () async {
     await expectLater(
-      c.meta('wy/other/down'),
+      c.meta('wy/other/downstream'),
       throwsA(isA<WyrmException>().having((e) => e.status.known, 'status', Status.invalidParameter)),
     );
   });

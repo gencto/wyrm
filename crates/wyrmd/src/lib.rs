@@ -125,7 +125,7 @@ pub const GATEWAY_ADMIN_PASSWORD_ENV: &str = "WYRM_GATEWAY_ADMIN_PASSWORD";
 
 /// Brokers of other sites. Each side trusts the other's CA only on the QUIC
 /// broker link; the generated ACL lets an upstream site read our
-/// `down/**` and `flows/**` (no `~set`/`~act` queries: the ACL drops them)
+/// `downstream/**` and `dataflows/**` (no `~set`/`~act` queries: the ACL drops them)
 /// and lets a downstream site serve its own `wy/<site>/**` (ADR 0007).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -341,7 +341,7 @@ pub use wyrm_client::endpoint::plaintext_off_loopback;
 pub fn upstream_downsampling(site: &str, links: &[String], hz: f64) -> Option<serde_json::Value> {
     let rules: Vec<serde_json::Value> = links
         .iter()
-        .map(|l| serde_json::json!({ "key_expr": format!("wy/{site}/down/{l}/**/~val"), "freq": hz }))
+        .map(|l| serde_json::json!({ "key_expr": format!("wy/{site}/downstream/{l}/**/~val"), "freq": hz }))
         .collect();
     (!rules.is_empty()).then(|| {
         serde_json::json!([{
@@ -386,7 +386,7 @@ impl Config {
     pub fn from_json5(text: &str) -> Result<Self, Error> {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
-        // `down/<d>` is the broker node of downstream site d (ADR 0007).
+        // `downstream/<d>` is the broker node of downstream site d (ADR 0007).
         for d in &cfg.peers.downstream {
             if cfg.links.contains_key(&d.site) {
                 return Err(format!("links.{}: the name of a downstream site", d.site).into());
@@ -394,7 +394,7 @@ impl Config {
         }
         if let Some(addr) = cfg.rest {
             // The REST plugin runs inside the router: the ACL never sees its
-            // requests, so it could put into `down/**` and `sys/**`.
+            // requests, so it could put into `downstream/**` and `sys/**`.
             if cfg.profile != Profile::Dev {
                 return Err(format!(
                     "rest {addr}: the REST plugin bypasses the ACL; only in profile dev"
@@ -538,7 +538,7 @@ impl Config {
             "timestamping/enabled",
             r#"{ router: true, peer: true, client: true }"#,
         )?;
-        // TODO(owner decision): `{flows,pub}/**` persistence — rocksdb
+        // TODO(owner decision): `{dataflows,pub}/**` persistence — rocksdb
         // volume (dynamic `.so` only) or wyrm-state WAL (ADR 0003).
         c.insert_json5(
             "plugins/storage_manager",
@@ -679,7 +679,7 @@ impl Broker {
         let mut engine_keys = ctl.config().admin_keys.clone();
         engine_keys.extend(gateway.map(|g| g.verifying_key()));
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
-        lcfg.root = Some(format!("wy/{}/flows", cfg.site));
+        lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
         lcfg.admin_keys = engine_keys.clone();
         let flows = match wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
@@ -1028,7 +1028,7 @@ impl Daemon {
         // grants decide (only the admin role reaches `sys/**`).
         // Caps: flows never get config (spec 06); gateway tokens carry the
         // user's grants, up to config on devices.
-        let devices = vec![format!("wy/{}/down", cfg.site)];
+        let devices = vec![format!("wy/{}/downstream", cfg.site)];
         let mut link_keys = vec![wyrm_link_sdk::LimitedKey {
             key: flows.verifying_key(),
             cap: wyrm_core::Perm::Write,
@@ -1073,7 +1073,7 @@ impl Daemon {
         // a site now in wyrmd.json5 and still in the registry: json5 wins
         ctl.drop_shadowed_peers();
         // A link installed at runtime before its name became a downstream
-        // site would overlap `down/<d>` (ADR 0007): refuse to start.
+        // site would overlap `downstream/<d>` (ADR 0007): refuse to start.
         if let Some(d) = cfg
             .peers
             .downstream

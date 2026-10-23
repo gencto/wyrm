@@ -94,9 +94,9 @@ class _Row {
 }
 
 /// Data panel over Metrics panel. [rootKey] is a node key
-/// (`wy/edge/down`) or a site (`wy/central`), which shows `down`, `up`,
-/// `flows` and `sys` (spec 01; a site root has no `~meta` to list). A node
-/// with `@root` (a peer broker: `down/<site>`, `up/<site>`) also opens
+/// (`wy/edge/downstream`) or a site (`wy/central`), which shows `downstream`, `upstream`,
+/// `dataflows` and `sys` (spec 01; a site root has no `~meta` to list). A node
+/// with `@root` (a peer broker: `downstream/<site>`, `upstream/<site>`) also opens
 /// that site's sections, so peer sites appear inside the tree
 /// of the connected broker. A site already on the path is not opened
 /// again, so the tree has no loop.
@@ -112,8 +112,8 @@ class WyExplorer extends StatefulWidget {
 /// `wy/<site>`: a site root.
 bool _isSiteKey(String k) => RegExp(r'^wy/[^/]+$').hasMatch(k);
 
-/// `wy/<site>/down`: the links of a site, listed by liveliness.
-bool _isLinksRoot(String k) => RegExp(r'^wy/[^/]+/down$').hasMatch(k);
+/// `wy/<site>/downstream`: the links of a site, listed by liveliness.
+bool _isLinksRoot(String k) => RegExp(r'^wy/[^/]+/downstream$').hasMatch(k);
 
 /// The site key a peer-broker node refers to (`@root`).
 String? _refRoot(NodeMeta m) => switch (m.attr?['root']) {
@@ -128,8 +128,8 @@ class _WyExplorerState extends State<WyExplorer> {
   String? _selected;
   String? _error;
 
-  /// Site sections (spec 01 keys) with the names DSA brokers show.
-  static const _sections = {'down': 'downstream', 'flows': 'flows', 'sys': 'sys', 'up': 'upstream'};
+  /// Site sections (spec 01 keys, also their names).
+  static const _sections = ['downstream', 'dataflows', 'sys', 'upstream'];
 
   /// Site roots: built here, not listed.
   final _sites = <String>{};
@@ -147,7 +147,7 @@ class _WyExplorerState extends State<WyExplorer> {
   void _site(String key) {
     if (_sites.add(key)) {
       _kids[key] = [
-        for (final e in _sections.entries) Child(e.key, NodeMeta(hasChildren: true, display: e.value)),
+        for (final s in _sections) Child(s, NodeMeta(hasChildren: true)),
       ];
     }
   }
@@ -1250,7 +1250,7 @@ class _WyMetricsState extends State<WyMetrics> {
   Future<void> _load() async {
     final k = widget.nodeKey;
     if (k == null) return;
-    // A site root and its `down` are built by the client (sections; links
+    // A site root and its `downstream` are built by the client (sections; links
     // by liveliness): no `~meta`, no values of their own.
     if (_isSiteKey(k) || _isLinksRoot(k)) {
       setState(() => _meta = NodeMeta(hasChildren: true));

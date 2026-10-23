@@ -29,7 +29,7 @@ pub(crate) struct Inner {
     pub session: Session,
     pub site: String,
     pub link: String,
-    /// `wy/<site>/down/<link>`
+    /// `wy/<site>/downstream/<link>`
     pub prefix: String,
     pub tree: RwLock<NodeTree>,
     tokens: Mutex<HashMap<String, LivelinessToken>>,
@@ -288,7 +288,7 @@ impl LinkCtx {
         self.publish_meta(&parent).await
     }
 
-    /// Per-node liveliness at `down/<link>/<path>` for nodes that come and go
+    /// Per-node liveliness at `downstream/<link>/<path>` for nodes that come and go
     /// (devices on a bus). `alive = false` drops the token.
     pub async fn set_dynamic(&self, path: &str, alive: bool) -> Result<()> {
         if self.tree().get(path).is_none() {

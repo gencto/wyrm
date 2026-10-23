@@ -174,7 +174,7 @@ void main() {
     final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
     expect(c.site, 'plant-a');
     expect(c.grants, hasLength(3));
-    expect(c.grants[1].k, 'wy/plant-a/down/bacnet/**');
+    expect(c.grants[1].k, 'wy/plant-a/downstream/bacnet/**');
     expect(c.grants[1].p, Perm.write);
     expect(c.jti, List.filled(16, 0x11));
   });

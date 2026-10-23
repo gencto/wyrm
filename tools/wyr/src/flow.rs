@@ -1,4 +1,4 @@
-//! `wyr flow …`: the data-flow engine under `wy/<site>/flows` (spec 06).
+//! `wyr flow …`: the data-flow engine under `wy/<site>/dataflows` (spec 06).
 
 use crate::{admin::last_value, fmt_value, Error};
 use clap::Subcommand;
@@ -44,7 +44,7 @@ impl FlowCmd {
 }
 
 pub fn root(site: &str) -> String {
-    format!("wy/{site}/flows")
+    format!("wy/{site}/dataflows")
 }
 
 /// JSON value → wire value (same mapping as `wyrmd`).
@@ -255,10 +255,10 @@ mod tests {
         id: "peak",
         version: 2,
         nodes: {
-            a: { type: "subscribe", key: "down/mock/p0" },
+            a: { type: "subscribe", key: "downstream/mock/p0" },
             alarm: { type: "alarm", high: 30.5, low: -1 },
-            shed: { type: "invoke", path: "down/mock", action: "reset" },
-            out: { type: "set", path: "wy/s/down/mock/sp" },
+            shed: { type: "invoke", path: "downstream/mock", action: "reset" },
+            out: { type: "set", path: "wy/s/downstream/mock/sp" },
         },
         edges: [],
     }"#;
@@ -305,11 +305,14 @@ mod tests {
         let keys: Vec<&str> = p.keys().map(String::as_str).collect();
         assert_eq!(
             keys,
-            ["wy/s/down/mock/sp/~set", "wy/s/down/mock/~act/reset"]
+            [
+                "wy/s/downstream/mock/sp/~set",
+                "wy/s/downstream/mock/~act/reset"
+            ]
         );
         assert_eq!(
-            p["wy/s/down/mock/~act/reset"],
-            Value::Bytes(b"wy/s/down/mock/~act/reset".to_vec())
+            p["wy/s/downstream/mock/~act/reset"],
+            Value::Bytes(b"wy/s/downstream/mock/~act/reset".to_vec())
         );
     }
 
@@ -318,7 +321,10 @@ mod tests {
         let def = parse_def(DEF).unwrap();
         let only_set = |k: &str| k.ends_with("~set").then(|| vec![1]);
         let e = deploy_args(def.clone(), "s", &only_set).unwrap_err();
-        assert!(e.to_string().contains("wy/s/down/mock/~act/reset"), "{e}");
+        assert!(
+            e.to_string().contains("wy/s/downstream/mock/~act/reset"),
+            "{e}"
+        );
         // no command targets → no proofs needed
         let plain = parse_def(r#"{id: "x", nodes: {a: {type: "subscribe", key: "k"}}}"#).unwrap();
         let Value::Map(m) = deploy_args(plain, "s", &|_| None).unwrap() else {
