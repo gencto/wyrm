@@ -464,6 +464,22 @@ pub fn access_control_with_peers(
                 rules.push(rule(&ids[6], &["ingress"], &["query"], &sys));
                 ids.push(format!("upstream-{u}-config-out"));
                 rules.push(rule(&ids[7], &["egress"], &["reply"], &sys));
+                // `hello` skips the ptok check (it checks a link token and
+                // answers with the link's secrets): only the link's own
+                // session asks it, never from above. Deny wins in a policy,
+                // and no other policy of a peer session allows it.
+                let hello: Vec<String> = sites
+                    .iter()
+                    .map(|s| format!("wy/{s}/sys/links/*/~act/hello"))
+                    .collect();
+                ids.push(format!("upstream-{u}-hello-out"));
+                rules.push(json!({
+                    "id": ids[8],
+                    "permission": "deny",
+                    "flows": ["ingress"],
+                    "messages": ["query"],
+                    "key_exprs": hello,
+                }));
             }
             subjects.push(json!({
                 "id": format!("upstream-{u}"),
@@ -676,6 +692,24 @@ mod tests {
         let (_, _, sys) = rule("upstream-hq-config-in").unwrap();
         assert!(sys.contains(&"wy/plant/sys/**/~act/*".to_owned()));
         assert!(sys.contains(&"wy/far/sys/**/~set".to_owned()));
+        let hello = acl["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == "upstream-hq-hello-out")
+            .unwrap();
+        assert_eq!(hello["permission"], "deny");
+        assert_eq!(hello["key_exprs"][0], "wy/plant/sys/links/*/~act/hello");
+        let policy = acl["policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["subjects"][0] == "upstream-hq")
+            .unwrap();
+        assert!(policy["rules"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("upstream-hq-hello-out")));
         let (_, msgs, keys) = rule("signers-cloud-in").unwrap();
         assert_eq!(msgs, ["declare_queryable", "reply"]);
         assert_eq!(keys, ["wy/cloud/sys/signing_keys/~val"]);

@@ -448,6 +448,82 @@ async fn operator_sets() {
     env.stop().await;
 }
 
+/// ADR 0018: writes reach a downstream site through the WebSocket and
+/// `POST /api/invoke`, checked under the own site's roles and signed for
+/// that site; the site's links trust the gateway key only at `write` under
+/// its `downstream` (as from `sys/signing_keys`).
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_reach_a_downstream_site() {
+    let env = Env::start("downwrite", Duration::from_secs(600)).await;
+    let trust = || {
+        vec![wyrm_link_sdk::LimitedKey {
+            key: env.gw.verifying_key(),
+            cap: Perm::Write,
+            scopes: vec!["wy/edge/downstream".into()],
+            subject: None,
+        }]
+    };
+    let mut lc = LinkConfig::new("edge", "mock");
+    lc.limited_keys = trust();
+    let mock = MockConfig {
+        points: 2,
+        rate_hz: 5.0,
+        depth: 1,
+        fanout: 1,
+        writable: true,
+    };
+    let m = wyrm_link_sdk::spawn::<Mock>(env.session.clone(), lc, mock)
+        .await
+        .unwrap();
+    let mut lc = LinkConfig::new("edge", "upload");
+    lc.limited_keys = trust();
+    let up = wyrm_link_sdk::spawn::<Upload>(env.session.clone(), lc, ())
+        .await
+        .unwrap();
+    env.gw.set_downstream_sites(vec!["edge".into()]);
+    let admin = env.session("root", ADMIN_PW).await;
+    let op = env.add_user(&admin, "olha", &["operator"]).await;
+    let viewer = env.add_user(&admin, "petro", &["viewer"]).await;
+
+    let point = "wy/edge/downstream/mock/g0/p0";
+    let mut ws = env.ws(&op).await;
+    let r = ws
+        .call("set", point, vec![("value", Value::Float(7.0))])
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    let r = ws
+        .call(
+            "invoke",
+            "wy/edge/downstream/mock",
+            vec![("action", Value::from("reset"))],
+        )
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    let mut ws = env.ws(&viewer).await;
+    let r = ws
+        .call("set", point, vec![("value", Value::Float(8.0))])
+        .await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+
+    let put = "/api/invoke?key=wy/edge/downstream/upload&action=put";
+    let data = map([("data", Value::Bytes(vec![1; 70 * 1024]))]);
+    let (st, v) = env.http("POST", put, Some(&op), Some(data)).await;
+    assert_eq!(st, 200, "{v:?}");
+    assert_eq!(get(&v, "result"), &Value::UInt(70 * 1024));
+    let (st, _) = env
+        .http(
+            "POST",
+            put,
+            Some(&viewer),
+            Some(map([("data", Value::Bytes(vec![1]))])),
+        )
+        .await;
+    assert_eq!(st, 403);
+    up.stop().await;
+    m.stop().await;
+    env.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn samples_and_children_are_filtered_per_point() {
     let env = Env::start("filter", wyrm_gateway::SESSION_TTL).await;

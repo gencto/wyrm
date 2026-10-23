@@ -1678,6 +1678,17 @@ async fn flow_commands_a_link_through_wyrmd() {
 /// Iteration 4: an edge broker connects to a central broker over QUIC with
 /// mTLS, each side trusting the other's CA only on that link. A client of
 /// the central broker lists and reads the edge's links; it cannot write.
+/// Sites in `level` (`write` or `config`) of `wy/<site>/sys/signing_keys`.
+async fn signer_sites(c: &WyrmClient, site: &str, level: &str) -> Vec<String> {
+    match last_val(c, &format!("wy/{site}/sys/signing_keys")).await {
+        Some(Value::Map(m)) => match m.get(level) {
+            Some(Value::Map(sites)) => sites.keys().cloned().collect(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
 /// A `peers.upstream` entry: the upstream's CA and the certificate it
 /// issued for `me` (ADR 0015), from its data_dir.
 fn upstream_entry(site: &str, quic: u16, dir: &std::path::Path, me: &str) -> String {
@@ -1700,7 +1711,13 @@ async fn two_brokers_over_quic() {
             .to_bytes(),
     );
     let (c_dir, e_dir) = (temp_dir("central"), temp_dir("edge"));
-    let (c_tcp, c_quic, e_tcp, c_gw) = (free_port(), free_port(), free_port(), free_port());
+    let (c_tcp, c_quic, e_tcp, c_gw, e_tls) = (
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+    );
     let central = Config::from_json5(&format!(
         r#"{{
             site: "central",
@@ -1721,7 +1738,7 @@ async fn two_brokers_over_quic() {
         r#"{{
             site: "edge",
             data_dir: "{}",
-            listen: ["tcp/127.0.0.1:{e_tcp}"],
+            listen: ["tcp/127.0.0.1:{e_tcp}", "tls/127.0.0.1:{e_tls}"],
             admin_keys: ["{edge_admin}"],
             peers: {{
                 upstream: [{up}],
@@ -1730,6 +1747,7 @@ async fn two_brokers_over_quic() {
             links: {{
                 mock: {{ driver: "mock", params: {{ points: 8, rate_hz: 20, depth: 1, fanout: 2 }} }},
                 slow: {{ driver: "mock", params: {{ points: 1, rate_hz: 2, depth: 1, fanout: 1 }} }},
+                pm: {{ driver: "mock", mode: "process", params: {{ points: 1, rate_hz: 1, depth: 1, fanout: 1 }} }},
             }},
         }}"#,
         e_dir.display(),
@@ -1770,12 +1788,15 @@ async fn two_brokers_over_quic() {
     // Edge follows central's signing keys (ADR 0018); learning them rebuilds
     // edge once, so wait for that before timing anything.
     eventually("edge trusts central's keys", 30, || async {
-        match last_val(&c, "wy/edge/sys/signing_keys").await {
-            Some(Value::Map(m)) => m.contains_key("central").then_some(()),
-            _ => None,
-        }
+        signer_sites(&c, "edge", "write")
+            .await
+            .contains(&"central".to_owned())
+            .then_some(())
     })
     .await;
+    // edge does not allow central `config`: it passes central's keys on
+    // for `write` only (ADR 0018)
+    assert_eq!(signer_sites(&c, "edge", "config").await, ["edge"]);
 
     let names = eventually("edge links seen from central", 15, || {
         let c = &c;
@@ -1783,11 +1804,11 @@ async fn two_brokers_over_quic() {
             let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
-            (names.len() == 2).then_some(names)
+            (names.len() == 3).then_some(names)
         }
     })
     .await;
-    assert_eq!(names, ["mock", "slow"]);
+    assert_eq!(names, ["mock", "pm", "slow"]);
     // Each broker shows its peer: the downstream edge beside central's
     // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
@@ -1856,6 +1877,13 @@ async fn two_brokers_over_quic() {
     eventually("central sets an edge point", 20, || async {
         c.set("wy/edge/downstream/mock/g0/p0", 1.0).await.ok()
     })
+    .await;
+    // a process link takes the keys from its hello after the rebuild
+    eventually(
+        "central sets a point of an edge process link",
+        30,
+        || async { c.set("wy/edge/downstream/pm/g0/p0", 1.0).await.ok() },
+    )
     .await;
     assert!(c
         .invoke_one(
@@ -2018,14 +2046,15 @@ async fn chain_of_three_brokers() {
     // plant learns central's keys through edge (two rebuilds: edge, then
     // plant); wait before timing anything
     eventually("plant trusts central's keys", 40, || async {
-        match last_val(&c, "wy/plant/sys/signing_keys").await {
-            Some(Value::Map(m)) => {
-                (m.contains_key("central") && m.contains_key("edge")).then_some(())
-            }
-            _ => None,
-        }
+        (signer_sites(&c, "plant", "write").await == ["central", "edge", "plant"]).then_some(())
     })
     .await;
+    // edge allows central `config`, so it passes central's keys on for
+    // `config` too; plant does not allow edge, which it decides itself
+    assert_eq!(
+        signer_sites(&c, "edge", "config").await,
+        ["central", "edge"]
+    );
     let names = |key: &'static str| {
         let c = &c;
         async move {
@@ -2102,6 +2131,17 @@ async fn chain_of_three_brokers() {
             .ok()
     })
     .await;
+    // hello checks a link token, not a ptok: never from above, even with
+    // allow_config (edge's ACL drops it, so no answer comes)
+    let hello = Value::Map(BTreeMap::from([(
+        "token".to_owned(),
+        Value::Bytes(b"guess".to_vec()),
+    )]));
+    let e = ce
+        .invoke_one("wy/edge/sys/links/mock", "hello", hello)
+        .await
+        .expect_err("hello from above");
+    assert!(e.is(wyrm_core::Status::Timeout), "{e}");
     assert!(c
         .invoke_one("wy/plant/sys", "get_permissions", none())
         .await

@@ -1,6 +1,11 @@
 //! Requests from upstream sites (ADR 0018): the keys this broker signs
 //! requests with, published for the sites below it, and the keys of each
 //! upstream site, followed and trusted at the levels this broker allows.
+//!
+//! Keys travel in two sets, `{write: {<site>: [hex…]}, config: {…}}`: a
+//! broker passes on to `config` only its own keys and those of upstream
+//! sites it allows `config`, so a site below never trusts at `config` a key
+//! that some hop on the way does not.
 
 use super::*;
 use crate::registry::{check_signers, MAX_SIGNER_KEYS, MAX_SIGNER_SITES};
@@ -8,16 +13,26 @@ use crate::registry::{check_signers, MAX_SIGNER_KEYS, MAX_SIGNER_SITES};
 /// How often each upstream site is asked for its keys.
 const FOLLOW_EVERY: Duration = Duration::from_secs(10);
 
+/// Signing site → keys (hex).
+type KeySet = BTreeMap<String, Vec<String>>;
+
+/// What one upstream site publishes.
+#[derive(Debug, Default, PartialEq)]
+struct Signers {
+    write: KeySet,
+    config: KeySet,
+}
+
 fn parse_key(h: &str) -> Option<VerifyingKey> {
     let raw: [u8; 32] = hex::decode(h).ok()?.try_into().ok()?;
     VerifyingKey::from_bytes(&raw).ok()
 }
 
 impl Control {
-    /// The keys requests to sites below this broker may be signed with, by
-    /// site: our admin keys and gateway key, and those our upstream sites
-    /// publish (the sites above). Cut to what a downstream accepts.
-    pub(crate) fn signing_keys(&self) -> BTreeMap<String, Vec<String>> {
+    /// Our admin keys and gateway key, and those `learned` from our
+    /// upstream sites (never under our own site's name). Cut to what a
+    /// downstream accepts.
+    fn key_set<'a>(&self, learned: impl Iterator<Item = &'a KeySet>) -> KeySet {
         let mut all: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         all.entry(self.cfg.site.clone()).or_default().extend(
             self.cfg
@@ -26,14 +41,11 @@ impl Control {
                 .chain(&self.cfg.control_keys)
                 .map(|k| hex::encode(k.to_bytes())),
         );
-        let reg = self.registry();
-        for u in self.peers().upstream {
-            for (site, keys) in reg.signers.get(&u).into_iter().flatten() {
-                if *site != self.cfg.site {
-                    all.entry(site.clone())
-                        .or_default()
-                        .extend(keys.iter().cloned());
-                }
+        for (site, keys) in learned.flatten() {
+            if *site != self.cfg.site {
+                all.entry(site.clone())
+                    .or_default()
+                    .extend(keys.iter().cloned());
             }
         }
         all.into_iter()
@@ -43,21 +55,46 @@ impl Control {
             .collect()
     }
 
+    /// The keys requests to sites below this broker may be signed with:
+    /// for `write`, ours and all our upstream sites publish; for `config`,
+    /// ours and the `config` keys of upstream sites we allow `config`.
+    fn signing_keys(&self) -> Signers {
+        let peers = self.peers();
+        let reg = self.registry();
+        let up = |map: &BTreeMap<String, KeySet>, config_only: bool| -> Vec<KeySet> {
+            peers
+                .upstream
+                .iter()
+                .filter(|u| !config_only || peers.config_from.contains(u))
+                .filter_map(|u| map.get(u).cloned())
+                .collect()
+        };
+        Signers {
+            write: self.key_set(up(&reg.signers, false).iter()),
+            config: self.key_set(up(&reg.config_signers, true).iter()),
+        }
+    }
+
     /// Upstream keys trusted on our `section`: `downstream`, `dataflows` and
-    /// `storage` at `write`; `sys` at `config`, from upstream sites with
-    /// `allow_config` only. Never admin keys: each is capped and scoped to
-    /// `wy/<site>/<section>`.
+    /// `storage` at `write`; `sys` at `config`, only the `config` keys of
+    /// upstream sites with `allow_config`. Never admin keys: each is capped
+    /// and scoped to `wy/<site>/<section>`.
     pub fn upstream_trust(&self, section: &str) -> Vec<wyrm_link_sdk::LimitedKey> {
         let peers = self.peers();
         let sys = section == "sys";
         let cap = if sys { Perm::Config } else { Perm::Write };
         let scope = format!("wy/{}/{section}", self.cfg.site);
         let reg = self.registry();
+        let map = if sys {
+            &reg.config_signers
+        } else {
+            &reg.signers
+        };
         let keys: BTreeSet<String> = peers
             .upstream
             .iter()
             .filter(|u| !sys || peers.config_from.contains(u))
-            .filter_map(|u| reg.signers.get(u))
+            .filter_map(|u| map.get(u))
             .flat_map(|m| m.values().flatten().cloned())
             .collect();
         keys.iter()
@@ -70,6 +107,22 @@ impl Control {
             })
             .collect()
     }
+}
+
+fn set_value(set: KeySet) -> Value {
+    Value::Map(
+        set.into_iter()
+            .map(|(s, ks)| (s, Value::Array(ks.into_iter().map(Value::Str).collect())))
+            .collect(),
+    )
+}
+
+fn keys_value(ctl: &Control) -> Value {
+    let s = ctl.signing_keys();
+    Value::Map(BTreeMap::from([
+        ("write".to_owned(), set_value(s.write)),
+        ("config".to_owned(), set_value(s.config)),
+    ]))
 }
 
 /// Answer `wy/<site>/sys/signing_keys/~val` for the sites below: a
@@ -101,15 +154,6 @@ pub(super) async fn serve_signing_keys(ctl: Arc<Control>, session: Session) {
     }
 }
 
-fn keys_value(ctl: &Control) -> Value {
-    Value::Map(
-        ctl.signing_keys()
-            .into_iter()
-            .map(|(s, ks)| (s, Value::Array(ks.into_iter().map(Value::Str).collect())))
-            .collect(),
-    )
-}
-
 /// `sys/signing_keys`, at each admin start (a key change rebuilds).
 pub(super) async fn publish_signing_keys(
     ctx: &LinkCtx,
@@ -119,7 +163,7 @@ pub(super) async fn publish_signing_keys(
         "signing_keys",
         NodeMeta::leaf(TypeCode::Map).attr(
             "description",
-            "Keys that sign requests to the sites below this broker, by site (ADR 0018).",
+            "Keys that sign requests to the sites below this broker, by level and site (ADR 0018).",
         ),
     )
     .await?;
@@ -134,23 +178,28 @@ pub(super) async fn follow_signers(ctl: Arc<Control>, ctx: LinkCtx) {
     let mut refused: HashMap<String, String> = HashMap::new();
     loop {
         for u in ctl.peers().upstream {
-            let Some(keys) = ask(&ctx, &u).await else {
+            let Some(got) = ask(&ctx, &u).await else {
                 continue;
             };
-            if let Err(e) = check_signers(&keys) {
+            if let Err(e) = check_signers(&got.write).and_then(|_| check_signers(&got.config)) {
                 if refused.insert(u.clone(), e.clone()).as_ref() != Some(&e) {
                     warn!(site = %u, "upstream signing keys refused: {e}");
                 }
                 continue;
             }
             refused.remove(&u);
-            let stored = ctl.registry().signers.get(&u).cloned().unwrap_or_default();
-            if stored == keys {
+            let reg = ctl.registry();
+            let stored = Signers {
+                write: reg.signers.get(&u).cloned().unwrap_or_default(),
+                config: reg.config_signers.get(&u).cloned().unwrap_or_default(),
+            };
+            if stored == got {
                 continue;
             }
             match ctl.apply(Op::SetSigners {
                 upstream: u.clone(),
-                keys,
+                keys: got.write,
+                config: got.config,
             }) {
                 Ok(()) => {
                     ctl.record("system", "signers", &u, Status::Ok, "");
@@ -164,18 +213,8 @@ pub(super) async fn follow_signers(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
-/// The value `wy/<u>/sys/signing_keys` holds; `None` without an answer.
-async fn ask(ctx: &LinkCtx, u: &str) -> Option<BTreeMap<String, Vec<String>>> {
-    let replies = ctx
-        .client()
-        .get(acl::signing_keys_key(u))
-        .timeout(Duration::from_secs(3))
-        .await
-        .ok()?;
-    let reply = replies.recv_async().await.ok()?;
-    let s = reply.result().ok()?;
-    let sample: wyrm_core::Sample = wyrm_core::codec::from_slice(&s.payload().to_bytes()).ok()?;
-    let Value::Map(m) = sample.v else {
+fn parse_set(v: Option<Value>) -> Option<KeySet> {
+    let Some(Value::Map(m)) = v else {
         return None;
     };
     m.into_iter()
@@ -191,4 +230,24 @@ async fn ask(ctx: &LinkCtx, u: &str) -> Option<BTreeMap<String, Vec<String>>> {
             _ => None,
         })
         .collect()
+}
+
+/// The value `wy/<u>/sys/signing_keys` holds; `None` without an answer.
+async fn ask(ctx: &LinkCtx, u: &str) -> Option<Signers> {
+    let replies = ctx
+        .client()
+        .get(acl::signing_keys_key(u))
+        .timeout(Duration::from_secs(3))
+        .await
+        .ok()?;
+    let reply = replies.recv_async().await.ok()?;
+    let s = reply.result().ok()?;
+    let sample: wyrm_core::Sample = wyrm_core::codec::from_slice(&s.payload().to_bytes()).ok()?;
+    let Value::Map(mut m) = sample.v else {
+        return None;
+    };
+    Some(Signers {
+        write: parse_set(m.remove("write"))?,
+        config: parse_set(m.remove("config"))?,
+    })
 }

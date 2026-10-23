@@ -414,9 +414,14 @@ pub enum Op {
     SetSigners {
         #[n(0)]
         upstream: String,
-        /// Signing site → Ed25519 public keys (hex).
+        /// Signing site → Ed25519 public keys (hex), for `write`.
         #[n(1)]
         keys: BTreeMap<String, Vec<String>>,
+        /// The keys it lets reach `config`: its own, and those of upstream
+        /// sites it allows `config` (so no hop is skipped).
+        #[n(2)]
+        #[cbor(default)]
+        config: BTreeMap<String, Vec<String>>,
     },
 }
 
@@ -754,6 +759,9 @@ pub struct Registry {
     /// (hex), as last published there (ADR 0018).
     #[serde(default)]
     pub signers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// Upstream site → those of its keys it lets reach `config`.
+    #[serde(default)]
+    pub config_signers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 /// Replaced params kept per link.
@@ -827,8 +835,8 @@ fn renamed_keys(op: &Op) -> Option<Op> {
 impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
     // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015);
-    // 17: `PeerDef::allow_config`, `signers` (ADR 0018)
-    const SCHEMA: u32 = 17;
+    // 17: `PeerDef::allow_config`, `signers`; 18: `config_signers` (ADR 0018)
+    const SCHEMA: u32 = 18;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -1165,6 +1173,7 @@ impl wyrm_state::State for Registry {
                     .remove(site)
                     .ok_or_else(|| format!("no peer {site}"))?;
                 self.signers.remove(site);
+                self.config_signers.remove(site);
             }
             Op::IssueBroker(site) => {
                 validate_segment(site).map_err(|e| format!("site: {e}"))?;
@@ -1345,13 +1354,23 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("no upstream peer {site}"))?;
                 p.allow_config = *on;
             }
-            Op::SetSigners { upstream, keys } => {
+            Op::SetSigners {
+                upstream,
+                keys,
+                config,
+            } => {
                 validate_segment(upstream).map_err(|e| format!("upstream: {e}"))?;
                 check_signers(keys)?;
-                if keys.is_empty() {
-                    self.signers.remove(upstream);
-                } else {
-                    self.signers.insert(upstream.clone(), keys.clone());
+                check_signers(config)?;
+                for (map, v) in [
+                    (&mut self.signers, keys),
+                    (&mut self.config_signers, config),
+                ] {
+                    if v.is_empty() {
+                        map.remove(upstream);
+                    } else {
+                        map.insert(upstream.clone(), v.clone());
+                    }
                 }
             }
             Op::SetOption { name, on } => match name.as_str() {
@@ -1397,10 +1416,11 @@ mod tests {
         );
         let one = |site: &str, keys: Vec<String>| BTreeMap::from([(site.to_owned(), keys)]);
         let mut r = Registry::default();
-        let set = |r: &mut Registry, keys| {
+        let set = |r: &mut Registry, keys: BTreeMap<String, Vec<String>>| {
             r.apply(&Op::SetSigners {
                 upstream: "hq".into(),
-                keys,
+                keys: keys.clone(),
+                config: keys,
             })
         };
         assert!(
@@ -1415,8 +1435,9 @@ mod tests {
         assert!(set(&mut r, many).is_err(), "too many sites");
         set(&mut r, one("hq", vec![key.clone()])).unwrap();
         assert_eq!(r.signers["hq"]["hq"], std::slice::from_ref(&key));
+        assert_eq!(r.config_signers["hq"]["hq"], std::slice::from_ref(&key));
         set(&mut r, BTreeMap::new()).unwrap();
-        assert!(r.signers.is_empty());
+        assert!(r.signers.is_empty() && r.config_signers.is_empty());
         r.apply(&Op::AddPeer(PeerDef {
             site: "hq".into(),
             dir: PeerDir::Upstream,
@@ -1440,6 +1461,7 @@ mod tests {
         assert!(r.peers["hq"].allow_config);
         r.apply(&Op::RemovePeer("hq".into())).unwrap();
         assert!(r.signers.is_empty(), "gone with the peer");
+        assert!(r.config_signers.is_empty());
     }
 
     #[test]
