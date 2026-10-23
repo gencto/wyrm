@@ -51,7 +51,9 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   plant:   zenoh tcp/127.0.0.1:7467, gateway http://127.0.0.1:8446
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
   chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸
-           plant (read only, sys too), from edge: wy/edge/downstream/plant
+           plant, from edge: wy/edge/downstream/plant
+  above:   central's users set and invoke on edge's and plant's devices, flows and storage;
+           edge's sys too (edge.json5 allow_config), plant's sys not (ADR 0018)
   install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
   peers:   another broker adds central in its sys/upstream (Url quic/127.0.0.1:7450,
            CA data/central/pki/ca.pem); central ▸ sys/quarantine ▸ Authorize

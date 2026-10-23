@@ -234,9 +234,12 @@ fn parse_set(v: Option<Value>) -> Option<KeySet> {
 
 /// The value `wy/<u>/sys/signing_keys` holds; `None` without an answer.
 async fn ask(ctx: &LinkCtx, u: &str) -> Option<Signers> {
+    // Only the upstream's queryable for that one key is complete: the local
+    // `~val` storage, which never holds it, is not asked.
     let replies = ctx
         .client()
         .get(acl::signing_keys_key(u))
+        .target(zenoh::query::QueryTarget::AllComplete)
         .timeout(Duration::from_secs(3))
         .await
         .ok()?;
