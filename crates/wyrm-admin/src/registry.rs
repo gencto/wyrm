@@ -382,6 +382,10 @@ pub enum Op {
     UseToken(#[n(0)] String),
     #[n(31)]
     RemoveToken(#[n(0)] String),
+    /// A request nobody asked again for a while: it leaves quarantine (not
+    /// a held broker's).
+    #[n(32)]
+    DropEnrollment(#[n(0)] String),
 }
 
 /// How a package's links run (ADR 0011).
@@ -1235,6 +1239,16 @@ impl wyrm_state::State for Registry {
                     }
                     _ => t.uses -= 1,
                 }
+            }
+            Op::DropEnrollment(site) => {
+                let cn = broker_cn(site);
+                if self.held.contains(&cn) {
+                    return Err(format!("{site} is held"));
+                }
+                self.enrollments
+                    .remove(site)
+                    .ok_or_else(|| format!("{site} does not wait"))?;
+                self.quarantine.remove(&cn);
             }
             Op::RemoveToken(id) => {
                 self.tokens

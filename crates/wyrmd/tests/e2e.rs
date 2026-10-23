@@ -2768,10 +2768,16 @@ async fn runtime_peers_over_quic() {
     let enroll_url = format!("quic/127.0.0.1:{c_enroll}");
     // A broker without a session of its own: one request on the enrollment
     // endpoint, as a downstream broker sends it.
-    let ask = |site: &'static str, token: Option<String>, via: &'static [&'static str]| {
+    let ask_with = |site: &'static str,
+                    key: Option<String>,
+                    token: Option<String>,
+                    via: &'static [&'static str]| {
         let (ca_file, url) = (c_dir.join("pki/ca.pem"), enroll_url.clone());
         async move {
-            let (key, _) = wyrm_admin::secret::new_broker_key().unwrap();
+            let key = match key {
+                Some(k) => k,
+                None => wyrm_admin::secret::new_broker_key().unwrap().0.to_string(),
+            };
             let csr = wyrm_admin::secret::broker_csr(site, &key).unwrap();
             let mut zc = zenoh::Config::default();
             zc.insert_json5("mode", r#""client""#).unwrap();
@@ -2808,6 +2814,9 @@ async fn runtime_peers_over_quic() {
             let _ = s.close().await;
             r
         }
+    };
+    let ask = |site: &'static str, token: Option<String>, via: &'static [&'static str]| {
+        ask_with(site, None, token, via)
     };
     let status = |r: &Result<Option<Value>, wyrm_client::ClientError>| match r {
         Ok(Some(Value::Map(m))) => match m.get("status") {
@@ -2869,15 +2878,25 @@ async fn runtime_peers_over_quic() {
         s.starts_with("pending").then_some(())
     })
     .await;
-    // another key for a waiting name: refused, counted, never swapped in
-    let r = ask("edge", None, &[]).await;
-    assert_eq!(status(&r), "refused");
-    assert!(format!("{r:?}").contains("another key"), "{r:?}");
+    // another key for a waiting name: refused, counted (in memory: shown,
+    // not written), never swapped in
+    for _ in 0..2 {
+        assert_eq!(status(&ask("edge", None, &[]).await), "refused");
+    }
     let waiting = c_ctl.registry().enrollments["edge"].clone();
     assert_eq!(
         (waiting.key_sha256.as_str(), waiting.conflicts),
-        (edge_key.as_str(), 1)
+        (edge_key.as_str(), 0)
     );
+    let q = c.meta("wy/central/sys/quarantine/edge").await.unwrap();
+    assert_eq!(q.attr_value("conflicts"), Some(&Value::UInt(2)));
+    // polls of a waiting request write nothing after the first
+    let (cell_key, _) = wyrm_admin::secret::new_broker_key().unwrap();
+    for _ in 0..3 {
+        let r = ask_with("cell5", Some(cell_key.to_string()), None, &[]).await;
+        assert_eq!(status(&r), "pending");
+    }
+    assert_eq!(c_ctl.registry().quarantine["broker:cell5"].attempts, 1);
 
     // 3. Authorize: the edge gets its certificate and connects.
     c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))

@@ -27,7 +27,7 @@ WYRM brokers talk over QUIC with mTLS, so a downstream broker needs a certificat
   4. `allow_all_links` signs at once (owner decision: as DSA's `allowAllLinks`) when every `via` site is free; otherwise the request goes to quarantine;
   5. with `enable_quarantine` the request waits in `sys/quarantine/<site>` (`kind: broker`, `key`, `via`); Authorize `{via}` signs it, Reject blocks the name;
   6. otherwise it is refused.
-  A second request for a waiting name with another key is refused and counted (`conflicts`), never swapped in: the administrator compares the key on both sides before Authorize.
+  A second request for a waiting name with another key is refused and counted (`conflicts`), never swapped in: the administrator compares the key on both sides before Authorize. A waiting request is written once (and again only when its key or `via` changes); the polls every 10 s are counted in memory and shown in the quarantine node. A request nobody asked again for 10 minutes leaves quarantine (as a DSA link that disconnects); a held broker stays. Every name-related refusal gives the same reason, so the open endpoint does not tell peers, links or relayed sites apart.
 - **Where it shows.** Only `wy/<site>/downstream/<d>` (live, `connected`) beside the links, and `sys/quarantine/<d>` while it waits. Deauthorize lists the runtime external links and the runtime downstream brokers; a Deauthorized broker is held in quarantine (its certificate stays valid; its sessions are recorded there; only Authorize admits it again, also with another `via`).
 - **`wyrmd.json5`** keeps an offline path: `peers.downstream: [{ site, via }]` on the upstream and `wyrmd ca` issue `data_dir/peers/<d>/broker.{pem,key}`; the downstream's `peers.upstream` entry names `ca`, `cert`, `key`. A name in `peers.downstream` is not enrolled at runtime.
 - **Invariants** (each with a test):
@@ -39,7 +39,7 @@ WYRM brokers talk over QUIC with mTLS, so a downstream broker needs a certificat
 
 ## Consequences
 - ADR 0007's accepted risk is gone: only this broker's CA signs `broker:*` identities on its listener, and it signs one per admitted site.
-- The enrollment listener is a new unauthenticated endpoint. It is bounded by the ACL (one key), the rate limit, the request size, and the number of waiting requests (64).
+- The enrollment listener is a new unauthenticated endpoint. It is bounded by the ACL (one key), the rate limit, the request size, the number of waiting requests (64, each gone after 10 minutes without a request) and writes only on change.
 - With `allow_all_links` on, anyone who reaches the enrollment port gets a broker certificate for a free name and may serve `wy/<name>/**` on this broker (read-only for our upstream, never our own keys). This is the DSA behaviour the owner chose; keep `allow_all_links` off on exposed brokers.
 - A certificate cannot be revoked (Zenoh 1.10 has no CRL); invariants 1 and 2 keep a removed broker from gaining rights. Certificates live one year; renewal (a request with the same key before expiry) is future work.
 - `via` is fixed at admission; to change it, Deauthorize and Authorize again with the new list.

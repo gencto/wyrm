@@ -276,6 +276,8 @@ pub struct Control {
     pub(crate) history: Arc<wyrm_history::Historian>,
     /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
     enroll_wake: tokio::sync::Notify,
+    /// Polls of waiting enrollment requests, by site (not persisted).
+    enroll_seen: Mutex<HashMap<String, EnrollSeen>>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -350,6 +352,43 @@ const ENROLL_RETRY: Duration = Duration::from_secs(10);
 /// After a refusal, this often; an unreachable endpoint doubles from 2 s
 /// up to this.
 const ENROLL_BACKOFF: Duration = Duration::from_secs(60);
+
+/// A waiting request leaves quarantine when its broker has not asked again
+/// for this long (it asks every 10 s): junk names cannot fill the 64 places.
+const ENROLL_STALE_S: u64 = 600;
+
+/// What polls of a waiting enrollment request look like, kept in memory so
+/// that a broker asking every 10 s writes nothing: `(last seen, attempts,
+/// requests with another key)`.
+#[derive(Debug, Clone, Copy, Default)]
+struct EnrollSeen {
+    last: u64,
+    attempts: u64,
+    conflicts: u64,
+}
+
+/// Sites whose request waits (not held) and was not asked again for `ttl`
+/// seconds; a site without a record since this broker started counts from
+/// `now` (it gets the whole time).
+fn stale_enrollments(
+    reg: &Registry,
+    seen: &mut HashMap<String, EnrollSeen>,
+    now: u64,
+    ttl: u64,
+) -> Vec<String> {
+    reg.enrollments
+        .keys()
+        .filter(|site| !reg.held.contains(&crate::registry::broker_cn(site)))
+        .filter(|site| {
+            let s = seen.entry((*site).clone()).or_insert(EnrollSeen {
+                last: now,
+                ..Default::default()
+            });
+            now.saturating_sub(s.last) > ttl
+        })
+        .cloned()
+        .collect()
+}
 
 /// What an upstream site answered an enrollment request.
 enum Answer {
@@ -535,9 +574,30 @@ impl Control {
                 closing: Default::default(),
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
+                enroll_seen: Mutex::default(),
             }),
             rx,
         ))
+    }
+
+    /// One more poll of the waiting request of `site` (in memory).
+    fn enroll_touch(&self, site: &str, conflict: bool) -> EnrollSeen {
+        let mut seen = self.enroll_seen.lock().unwrap_or_else(|p| p.into_inner());
+        let s = seen.entry(site.to_owned()).or_default();
+        s.last = now_s();
+        s.attempts += 1;
+        if conflict {
+            s.conflicts += 1;
+        }
+        *s
+    }
+
+    fn enroll_seen_of(&self, site: &str) -> Option<EnrollSeen> {
+        self.enroll_seen
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(site)
+            .copied()
     }
 
     /// The id of a valid admission token (known, not used up, not expired):
@@ -1378,6 +1438,7 @@ impl Control {
             tokio::spawn(serve_profiles(self.clone(), session.clone())),
             tokio::spawn(load_repository(self.clone(), ctx.clone())),
             tokio::spawn(enroll_upstreams(self.clone(), ctx.clone())),
+            tokio::spawn(expire_enrollments(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -1836,8 +1897,19 @@ async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkErro
     )
     .await?;
     for (cn, e) in &reg.quarantine {
-        let asked = crate::registry::broker_site(cn).and_then(|s| reg.enrollments.get(s));
-        declare_quarantined(ctx, cn, e, asked, &roles).await?;
+        let site = crate::registry::broker_site(cn);
+        let asked = site.and_then(|s| reg.enrollments.get(s));
+        // polls since this broker started (kept in memory, not written)
+        let mut e = e.clone();
+        let mut asked = asked.cloned();
+        if let Some(seen) = site.and_then(|s| ctl.enroll_seen_of(s)) {
+            e.last_seen = e.last_seen.max(seen.last);
+            e.attempts = e.attempts.max(seen.attempts);
+            if let Some(a) = asked.as_mut() {
+                a.conflicts = a.conflicts.max(seen.conflicts);
+            }
+        }
+        declare_quarantined(ctx, cn, &e, asked.as_ref(), &roles).await?;
     }
     Ok(())
 }
@@ -2333,6 +2405,34 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
             _ = ctl.enroll_wake.notified() => next.clear(),
             _ = tokio::time::sleep(Duration::from_secs(1)) => {}
         }
+    }
+}
+
+/// Requests whose broker stopped asking leave quarantine after 10 minutes
+/// (as a DSA link that disconnects); held brokers stay.
+async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let reg = ctl.registry();
+        if reg.enrollments.is_empty() {
+            continue;
+        }
+        let stale = {
+            let mut seen = ctl.enroll_seen.lock().unwrap_or_else(|p| p.into_inner());
+            stale_enrollments(&reg, &mut seen, now_s(), ENROLL_STALE_S)
+        };
+        for site in stale {
+            if ctl.apply(Op::DropEnrollment(site.clone())).is_ok() {
+                ctl.enroll_seen
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&site);
+                debug!(site = %site, "enrollment request expired");
+                let _ = ctx.remove_node(&format!("quarantine/{site}")).await;
+            }
+        }
+        // also shows the polls counted in memory since the last change
+        let _ = refresh_quarantine(&ctx, &ctl).await;
     }
 }
 
@@ -4206,21 +4306,22 @@ impl Admin {
         };
         let reg = self.ctl.registry();
         let cn = crate::registry::broker_cn(&site);
+        // one reason for every name it cannot have: the endpoint is open,
+        // so it does not tell peers, links or relayed sites apart
+        const NOT_HERE: &str = "this name cannot be admitted here";
         if let Some(p) = reg.peers.get(&site) {
             // asked again (it lost the answer): the same key, the same answer
             if p.dir == PeerDir::Downstream && p.key_sha256 == key && !p.cert_pem.is_empty() {
                 return issued(p.cert_pem.clone());
             }
-            return refused("admitted with another key");
+            return refused(NOT_HERE);
         }
-        if cfg.peers.downstream.contains(&site) {
-            return refused("configured in wyrmd.json5: it uses the files of `wyrmd ca`");
-        }
-        if self.check_new_site(&site).is_err() {
-            return refused("this name is the broker's own, a peer's or a relayed site's");
-        }
-        if reg.links.contains_key(&site) || reg.blocklist.contains(&cn) {
-            return refused("this name is refused here");
+        if cfg.peers.downstream.contains(&site)
+            || self.check_new_site(&site).is_err()
+            || reg.links.contains_key(&site)
+            || reg.blocklist.contains(&cn)
+        {
+            return refused(NOT_HERE);
         }
         let pending = || {
             Ok(Some(Value::Map(BTreeMap::from([(
@@ -4243,17 +4344,19 @@ impl Admin {
             .get(&site)
             .is_some_and(|e| !e.key_sha256.is_empty() && e.key_sha256 != key)
         {
-            // counted as a conflict; the waiting request stays
-            wait(&self.ctl)?;
-            self.ctl.record(
-                &format!("broker:{site}"),
-                "enroll",
-                &cn,
-                Status::PermissionDenied,
-                "another key waits for this name",
-            );
+            // counted (in memory), shown; the waiting request stays
+            let seen = self.ctl.enroll_touch(&site, true);
+            if seen.conflicts == 1 {
+                self.ctl.record(
+                    &format!("broker:{site}"),
+                    "enroll",
+                    &cn,
+                    Status::PermissionDenied,
+                    "another key waits for this name",
+                );
+            }
             refresh_quarantine(&self.ctx, &self.ctl).await?;
-            return refused("another key waits for this name");
+            return refused(NOT_HERE);
         }
         let opts = self.ctl.options();
         if !reg.held.contains(&cn) && self.via_free(&site, &via).is_ok() {
@@ -4288,16 +4391,25 @@ impl Admin {
         if !opts.enable_quarantine && !reg.held.contains(&cn) {
             return refused("not admitted (quarantine is off)");
         }
-        wait(&self.ctl)?;
-        self.ctl.record(
-            &format!("broker:{site}"),
-            "quarantine",
-            &cn,
-            Status::PermissionDenied,
-            "enrollment",
-        );
-        info!(site = %site, "downstream broker waits in quarantine");
-        refresh_quarantine(&self.ctx, &self.ctl).await?;
+        // Written only when it changes (a new name, key or via, or the
+        // first request of a held broker); a poll every 10 s writes nothing.
+        let changed = reg
+            .enrollments
+            .get(&site)
+            .is_none_or(|e| e.key_sha256 != key || e.via != via || e.csr_pem.is_empty());
+        self.ctl.enroll_touch(&site, false);
+        if changed {
+            wait(&self.ctl)?;
+            self.ctl.record(
+                &format!("broker:{site}"),
+                "quarantine",
+                &cn,
+                Status::PermissionDenied,
+                "enrollment",
+            );
+            info!(site = %site, "downstream broker waits in quarantine");
+            refresh_quarantine(&self.ctx, &self.ctl).await?;
+        }
         pending()
     }
 
@@ -5182,6 +5294,44 @@ zenoh_rx_bytes_total_extra 7
         assert_eq!(super::rate(100.0, 150.0, 10.0), Some(5.0));
         assert_eq!(super::rate(100.0, 101.0, 3.0), Some(0.3));
         assert_eq!(super::rate(150.0, 20.0, 10.0), None, "reset");
+    }
+
+    /// Junk requests cannot hold the 64 places: a request not asked again
+    /// for 10 minutes goes, a held broker stays, a fresh one stays.
+    #[test]
+    fn stale_enrollment_requests() {
+        use crate::registry::{Op, Registry};
+        use wyrm_state::State;
+        let mut reg = Registry::default();
+        for site in ["old", "fresh", "unseen"] {
+            reg.apply(&Op::EnrollRequest {
+                site: site.into(),
+                csr_pem: "csr".into(),
+                key_sha256: "k".into(),
+                via: Vec::new(),
+                seen: 0,
+            })
+            .unwrap();
+        }
+        reg.held.insert("broker:old-held".into());
+        reg.enrollments
+            .insert("old-held".into(), Default::default());
+        let seen_at = |last| super::EnrollSeen {
+            last,
+            ..Default::default()
+        };
+        let mut seen = std::collections::HashMap::from([
+            ("old".to_owned(), seen_at(100)),
+            ("fresh".to_owned(), seen_at(1000)),
+            ("old-held".to_owned(), seen_at(0)),
+        ]);
+        let stale = super::stale_enrollments(&reg, &mut seen, 1000, 600);
+        assert_eq!(stale, ["old"]);
+        // an unseen one counts from now
+        assert_eq!(seen["unseen"].last, 1000);
+        reg.apply(&Op::DropEnrollment("old".into())).unwrap();
+        assert!(!reg.quarantine.contains_key("broker:old"));
+        assert!(reg.apply(&Op::DropEnrollment("old-held".into())).is_err());
     }
 
     #[test]
