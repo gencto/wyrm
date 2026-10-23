@@ -1,6 +1,7 @@
 // Demo: the upstream site `central` (see run.sh). It reads the downstream
 // site `edge` over QUIC + mTLS, and through edge the site `plant` (a chain
-// plant → edge → central); the CAs are exchanged by run.sh.
+// plant → edge → central). Central's CA issues edge's certificate
+// (`wyrmd ca` in run.sh: data/central/peers/edge/), as ADR 0015 says.
 {
   site: "central",
   profile: "prod",
@@ -10,7 +11,7 @@
   peers: {
     listen: "quic/127.0.0.1:7449",
     // edge relays plant: central reads wy/plant/** through edge.
-    downstream: [{ site: "edge", ca: "./data/edge/pki/ca.pem", via: ["plant"] }],
+    downstream: [{ site: "edge", via: ["plant"] }],
   },
   // App login: user admin, password from WYRM_GATEWAY_ADMIN_PASSWORD.
   gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },

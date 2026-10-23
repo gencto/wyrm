@@ -45,7 +45,7 @@ class _ConnectPageState extends State<ConnectPage> {
     try {
       final WyrmApi api;
       // Root: the field, else the connected site (its peer sites are in
-      // its sys/upstream and sys/downstream).
+      // its upstream and downstream sections).
       var root = _root.text.trim();
       if (_direct) {
         final seed = _seed.text.trim();

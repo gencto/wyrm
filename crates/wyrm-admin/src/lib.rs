@@ -18,5 +18,6 @@ pub mod supervisor;
 
 pub use control::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, PeerConfig, RunningLink,
+    UpstreamConf,
 };
 pub use registry::Mode;

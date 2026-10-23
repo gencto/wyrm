@@ -1032,7 +1032,7 @@ fn read_sites_map_to_own_roles_without_a_token() {
     assert!(t.token(&format!("wy/{SITE}/downstream/m/p/~set")).is_some());
     assert!(t.token("wy/edge/downstream/m/p/~meta").is_none());
     assert!(t.token(&format!("wy/{SITE}x/downstream/~meta")).is_none());
-    // peers added or removed at runtime (sys/downstream) change the list
+    // downstream brokers installed or removed at runtime change the list
     gw.set_read_sites(vec!["plant".into()]);
     assert_eq!(
         gw.read_site_of("wy/plant/downstream").as_deref(),

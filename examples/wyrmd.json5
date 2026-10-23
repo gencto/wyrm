@@ -15,9 +15,12 @@
   admin_keys: [],
   // Certificate CNs of engineering tools with requester rights over TLS.
   operators: [],
-  // Other sites (QUIC + mTLS, CN broker:<site>). Uncomment one side:
-  // peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "central-ca.pem" }], upstream_val_hz: 1 },
-  // peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge", ca: "edge-ca.pem" }] },
+  // Other sites (QUIC + mTLS, CN broker:<site>, ADR 0015). Uncomment one side.
+  // Below: central's CA and the certificate central issued for this site
+  // (`wyrmd ca` on central: data_dir/peers/<this site>/broker.{pem,key}).
+  // peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "central-ca.pem", cert: "broker.pem", key: "broker.key" }], upstream_val_hz: 1 },
+  // Above: sites that connect here, with certificates this site's CA issues.
+  // peers: { listen: "quic/0.0.0.0:7449", downstream: [{ site: "edge" }] },
   // User gateway; first admin password from WYRM_GATEWAY_ADMIN_PASSWORD.
   // gateway: { listen: "127.0.0.1:8080", admin_user: "admin" },
   // Hard rlimits each process link sets on itself (0 = none; core dumps are

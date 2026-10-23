@@ -7,7 +7,13 @@
   listen: ["tcp/127.0.0.1:7467", "tls/127.0.0.1:7468"],
   admin_keys: [],
   peers: {
-    upstream: [{ site: "edge", endpoint: "quic/127.0.0.1:7459", ca: "./data/edge/pki/ca.pem" }],
+    upstream: [{
+      site: "edge",
+      endpoint: "quic/127.0.0.1:7459",
+      ca: "./data/edge/pki/ca.pem",
+      cert: "./data/edge/peers/plant/broker.pem",
+      key: "./data/edge/peers/plant/broker.key",
+    }],
   },
   gateway: { listen: "127.0.0.1:8446", admin_user: "admin" },
   links: {

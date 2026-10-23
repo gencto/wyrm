@@ -104,6 +104,20 @@ it is (as DSA's `/sys/upstream`); `sys/downstream` goes. The site root has
 connections. A downstream broker is not added by an action: it comes in as
 links do, through install and quarantine.
 
+**Done (2026-10-23, ADR 0015):** `sys/downstream` is gone; `sys/upstream`
+stays and shows `url`, `enabled`, `ca` and `certificate` (subject, valid
+until), never the key. The root sections `downstream`/`upstream` show the
+live connections (keys renamed in spec 0.2.0). A downstream broker holds a
+certificate from the upstream's CA: `wyrmd ca` and Install Link ▸
+Downstream Broker issue it into `data_dir/peers/<d>/`; a `broker:<x>`
+session over QUIC goes to quarantine (`kind: broker`), Authorize `{via}`
+admits it; it is listed in `sys/links/<d>` (driver `broker`), whose Remove
+holds it in quarantine. The QUIC listener trusts the site's own CA alone,
+which closes ADR 0007's accepted peer-CA risk. Found on the way: after a
+router rebuild the QUIC listener could not bind (the old runtime drains its
+UDP socket), so downstream brokers never came back; a broker start now
+waits for the port.
+
 ## 4. Rename `flows` to `dataflows`
 
 **Asked:** the section `flows` becomes `dataflows`.

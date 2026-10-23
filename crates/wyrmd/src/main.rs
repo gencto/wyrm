@@ -15,8 +15,10 @@ struct Args {
 enum Cmd {
     /// Validate the config and exit.
     Check,
-    /// Create the site CA if it does not exist and print the path of its
-    /// certificate: the file to give to peer sites (`peers.*.ca`).
+    /// Create the site CA if it does not exist, issue the certificates of
+    /// the sites in `peers.downstream` (`data_dir/peers/<site>/broker.{pem,key}`,
+    /// ADR 0015) and print the path of the CA certificate: the files to
+    /// give to those sites (`peers.upstream` `ca`, `cert`, `key`).
     Ca,
     /// Write the WAL head anchors (state_anchor_dir) from the current
     /// stores, after moving or creating that directory. Run with wyrmd
@@ -148,6 +150,10 @@ async fn run(args: Args) -> Result<(), Error> {
         }
         Some(Cmd::Ca) => {
             let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
+            for d in &cfg.peers.downstream {
+                let f = wyrm_admin::control::broker_cert_in(&pki, &cfg.data_dir, &d.site)?;
+                eprintln!("{}: {} {}", d.site, f.cert.display(), f.key.display());
+            }
             println!("{}", pki.ca_path().display());
             return Ok(());
         }

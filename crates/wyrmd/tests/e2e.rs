@@ -1603,6 +1603,17 @@ async fn flow_commands_a_link_through_wyrmd() {
 /// Iteration 4: an edge broker connects to a central broker over QUIC with
 /// mTLS, each side trusting the other's CA only on that link. A client of
 /// the central broker lists and reads the edge's links; it cannot write.
+/// A `peers.upstream` entry: the upstream's CA and the certificate it
+/// issued for `me` (ADR 0015), from its data_dir.
+fn upstream_entry(site: &str, quic: u16, dir: &std::path::Path, me: &str) -> String {
+    format!(
+        r#"{{ site: "{site}", endpoint: "quic/127.0.0.1:{quic}", ca: "{ca}", cert: "{cert}", key: "{key}" }}"#,
+        ca = dir.join("pki/ca.pem").display(),
+        cert = dir.join(format!("peers/{me}/broker.pem")).display(),
+        key = dir.join(format!("peers/{me}/broker.key")).display(),
+    )
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn two_brokers_over_quic() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -1617,13 +1628,13 @@ async fn two_brokers_over_quic() {
             admin_keys: ["{admin}"],
             peers: {{
                 listen: "quic/127.0.0.1:{c_quic}",
-                downstream: [{{ site: "edge", ca: "{}" }}],
+                downstream: [{{ site: "edge" }}],
             }},
         }}"#,
         c_dir.display(),
-        e_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
     let edge = Config::from_json5(&format!(
         r#"{{
             site: "edge",
@@ -1631,7 +1642,7 @@ async fn two_brokers_over_quic() {
             listen: ["tcp/127.0.0.1:{e_tcp}"],
             admin_keys: ["{admin}"],
             peers: {{
-                upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
+                upstream: [{up}],
                 upstream_val_hz: 5,
             }},
             links: {{
@@ -1640,10 +1651,9 @@ async fn two_brokers_over_quic() {
             }},
         }}"#,
         e_dir.display(),
-        c_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
-    // Both CAs exist once both daemons are open; brokers read them at start.
+    // Central first: opening it issues the edge's certificate.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let central = open_daemon(central, exe.clone()).unwrap();
     let edge = open_daemon(edge, exe).unwrap();
@@ -1776,36 +1786,33 @@ async fn chain_of_three_brokers() {
         free_port(),
         free_port(),
     );
-    let ca = |d: &PathBuf| d.join("pki/ca.pem").display().to_string();
     let cfg = |text: String| Config::from_json5(&text).unwrap();
     let central = cfg(format!(
         r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
               admin_keys: ["{admin}"],
               peers: {{ listen: "quic/127.0.0.1:{c_quic}",
-                        downstream: [{{ site: "edge", ca: "{}", via: ["plant"] }}] }} }}"#,
+                        downstream: [{{ site: "edge", via: ["plant"] }}] }} }}"#,
         c_dir.display(),
-        ca(&e_dir)
     ));
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
     let edge = cfg(format!(
         r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
               admin_keys: ["{admin}"],
               peers: {{ listen: "quic/127.0.0.1:{e_quic}",
-                        upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
-                        downstream: [{{ site: "plant", ca: "{}" }}] }},
+                        upstream: [{up}],
+                        downstream: [{{ site: "plant" }}] }},
               links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
         e_dir.display(),
-        ca(&c_dir),
-        ca(&p_dir)
     ));
+    let up = upstream_entry("edge", e_quic, &e_dir, "plant");
     let plant = cfg(format!(
         r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
               admin_keys: ["{admin}"],
-              peers: {{ upstream: [{{ site: "edge", endpoint: "quic/127.0.0.1:{e_quic}", ca: "{}" }}] }},
+              peers: {{ upstream: [{up}] }},
               links: {{ pm: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
         p_dir.display(),
-        ca(&e_dir)
     ));
-    // Every CA exists once all daemons are open; brokers read them at start.
+    // Upstream sites first: opening one issues its downstream's certificate.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let mut stops = Vec::new();
     let mut tasks = Vec::new();
@@ -1873,7 +1880,13 @@ async fn chain_of_three_brokers() {
     for n in ["links", "packages", "packages_total"] {
         assert!(sys.contains(&n.to_owned()), "{n}: {sys:?}");
     }
-    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock"]);
+    // a downstream broker is listed with the links (ADR 0015)
+    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock", "plant"]);
+    let plant = c.meta("wy/edge/sys/links/plant").await.unwrap();
+    assert_eq!(
+        plant.attr_value("driver"),
+        Some(&Value::Str("broker".into()))
+    );
     assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["pm"]);
     assert_eq!(names("wy/plant/upstream").await.unwrap(), ["edge"]);
     assert_eq!(
@@ -1924,18 +1937,17 @@ async fn first_queries_across_peers_answer() {
     let central = Config::from_json5(&format!(
         r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
               admin_keys: ["{admin}"],
-              peers: {{ listen: "quic/127.0.0.1:{c_quic}", downstream: [{{ site: "edge", ca: "{}" }}] }} }}"#,
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}", downstream: [{{ site: "edge" }}] }} }}"#,
         c_dir.display(),
-        e_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
     let edge = Config::from_json5(&format!(
         r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
               admin_keys: ["{admin}"],
-              peers: {{ upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}] }},
+              peers: {{ upstream: [{up}] }},
               links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
         e_dir.display(),
-        c_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
@@ -2681,10 +2693,13 @@ async fn process_link_keeps_runtime_edits() {
     env.stop().await;
 }
 
-/// Peer brokers added at runtime (DSA `/sys/upstream`): no peers in either
-/// `wyrmd.json5` (central only has `peers.listen`); central trusts the edge
-/// with `sys/downstream add`, the edge connects with `sys/upstream add`;
-/// disabling the upstream ends the link.
+/// Peer brokers added at runtime (ADR 0015): no peers in either
+/// `wyrmd.json5` (central only has `peers.listen`). Central installs the
+/// edge as a downstream broker (Install Link ▸ Downstream Broker), the edge
+/// connects with the certificate central issued (Add Upstream Connection);
+/// disabling the upstream ends the link; Remove holds the edge in
+/// quarantine (its certificate stays valid) until Authorize; the key is
+/// never shown or stored in the registry.
 #[tokio::test(flavor = "multi_thread")]
 async fn runtime_peers_over_quic() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -2706,7 +2721,7 @@ async fn runtime_peers_over_quic() {
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let central = open_daemon(central, exe.clone()).unwrap();
     let edge = open_daemon(edge, exe).unwrap();
-    let e_ctl = edge.control();
+    let (c_ctl, e_ctl) = (central.control(), edge.control());
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
@@ -2732,67 +2747,144 @@ async fn runtime_peers_over_quic() {
                 .collect(),
         )
     };
-    let pem = |dir: &PathBuf| std::fs::read_to_string(dir.join("pki/ca.pem")).unwrap();
-    let up_add = |ca: String, url: String| {
-        args(&[
-            ("name", Value::from("central")),
-            ("url", Value::from(url.as_str())),
-            ("ca", Value::from(ca.as_str())),
-        ])
+    let success = |r: Option<Value>| match r {
+        Some(Value::Map(m)) => (
+            m.get("success") == Some(&Value::Bool(true)),
+            match m.get("message") {
+                Some(Value::Str(s)) => s.clone(),
+                _ => String::new(),
+            },
+        ),
+        other => panic!("install result {other:?}"),
+    };
+    let edge_seen = |what: &'static str| {
+        eventually(what, 20, move || async move {
+            let c = client(c_tcp, "edge").await;
+            let ch = c.children("wy/edge/downstream").await.ok()?;
+            ch.iter().any(|c| c.name == "mock").then_some(())
+        })
     };
 
+    // Central installs the edge: its certificate, named in the message.
     let c = client(c_tcp, "central").await;
-    c.invoke_one(
-        "wy/central/sys/downstream",
-        "add",
-        args(&[
-            ("name", Value::from("edge")),
-            ("ca", Value::from(pem(&e_dir).as_str())),
-        ]),
-    )
-    .await
-    .expect("trust the edge");
+    let r = c
+        .invoke_one(
+            "wy/central/sys/links",
+            "install_broker",
+            args(&[("name", Value::from("edge"))]),
+        )
+        .await
+        .unwrap();
+    let (ok, message) = success(r);
+    assert!(ok, "{message}");
+    assert!(message.contains("broker.key") && !message.contains("PRIVATE KEY"));
+    for bad in ["central", "edge", "no/site"] {
+        let r = c
+            .invoke_one(
+                "wy/central/sys/links",
+                "install_broker",
+                args(&[("name", Value::from(bad))]),
+            )
+            .await
+            .unwrap();
+        assert!(!success(r).0, "{bad}");
+    }
+    let issued = c_dir.join("peers/edge");
+    let cert = std::fs::read_to_string(issued.join("broker.pem")).unwrap();
+    let key_file = std::fs::read(issued.join("broker.key")).unwrap();
+    let ca = std::fs::read_to_string(c_dir.join("pki/ca.pem")).unwrap();
+    // central's own client certificate: another CN, another key
+    let other_cert = std::fs::read_to_string(c_dir.join("pki/broker-client.pem")).unwrap();
+    let other_key = std::fs::read(c_dir.join("pki/broker-client.key")).unwrap();
+    assert!(c
+        .meta("wy/central/sys/links/edge")
+        .await
+        .unwrap()
+        .attr_value("driver")
+        .is_some_and(|d| *d == Value::Str("broker".into())));
+
     let e = client(e_tcp, "edge").await;
-    for (ca, url, why) in [
+    let up_add = |name: &str, ca: &str, cert: &str, key: &[u8], url: String| {
+        args(&[
+            ("name", Value::from(name)),
+            ("url", Value::from(url.as_str())),
+            ("ca", Value::from(ca)),
+            ("certificate", Value::from(cert)),
+            ("private_key", Value::Bytes(key.to_vec())),
+        ])
+    };
+    let url = format!("quic/127.0.0.1:{c_quic}");
+    for (ca, cert, key, url, why) in [
+        ("not a pem", &cert, &key_file, url.clone(), "CA"),
         (
-            "not a pem".to_string(),
-            format!("quic/127.0.0.1:{c_quic}"),
-            "CA",
+            &ca,
+            &cert,
+            &key_file,
+            format!("tcp/127.0.0.1:{c_quic}"),
+            "url",
         ),
-        (pem(&c_dir), format!("tcp/127.0.0.1:{c_quic}"), "url"),
+        (&ca, &other_cert, &other_key, url.clone(), "CN"),
+        (
+            &ca,
+            &cert,
+            &other_key,
+            url.clone(),
+            "key of another certificate",
+        ),
     ] {
         let err = e
-            .invoke_one("wy/edge/sys/upstream", "add", up_add(ca, url))
+            .invoke_one(
+                "wy/edge/sys/upstream",
+                "add",
+                up_add("central", ca, cert, key, url),
+            )
             .await
             .expect_err(why);
         assert!(err.is(wyrm_core::Status::InvalidParameter), "{why}: {err}");
+        assert!(!err.to_string().contains("PRIVATE"), "{why}: {err}");
     }
     e.invoke_one(
         "wy/edge/sys/upstream",
         "add",
-        up_add(pem(&c_dir), format!("quic/127.0.0.1:{c_quic}")),
+        up_add("central", &ca, &cert, &key_file, url.clone()),
     )
     .await
     .expect("connect upstream");
 
     // tokens for the site being read (the edge checks them)
-    eventually("edge links seen from central", 20, || async {
-        let c = client(c_tcp, "edge").await;
-        let ch = c.children("wy/edge/downstream").await.ok()?;
-        ch.iter().any(|c| c.name == "mock").then_some(())
-    })
-    .await;
+    edge_seen("edge links seen from central").await;
     eventually("edge sees central connected", 10, || async {
         let e = client(e_tcp, "edge").await;
         (last_val(&e, "wy/edge/upstream/central/connected").await == Some(Value::Bool(true)))
             .then_some(())
     })
     .await;
+    // sys/upstream/central shows what it was added with, never the key
+    let e = client(e_tcp, "edge").await;
+    let mut shown: Vec<String> = e
+        .children("wy/edge/sys/upstream/central")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    shown.sort();
+    assert_eq!(shown, ["ca", "certificate", "enabled", "url"]);
+    let text = |v: Option<Value>| match v {
+        Some(Value::Str(s)) => s,
+        other => panic!("{other:?}"),
+    };
+    let summary = text(last_val(&e, "wy/edge/sys/upstream/central/certificate").await);
+    assert!(
+        summary.starts_with("broker:edge, valid until "),
+        "{summary}"
+    );
     let peer = e_ctl.registry().peers["central"].clone();
     assert!(peer.enabled && peer.endpoint.ends_with(&c_quic.to_string()));
+    assert!(peer.cert_pem.contains("BEGIN CERTIFICATE"));
+    assert!(!format!("{:?}", e_ctl.registry()).contains("PRIVATE KEY"));
 
     // disabled: the edge drops the connection, central loses the edge tree
-    let e = client(e_tcp, "edge").await;
     e.set("wy/edge/sys/upstream/central/enabled", false)
         .await
         .unwrap();
@@ -2805,20 +2897,72 @@ async fn runtime_peers_over_quic() {
     })
     .await;
     assert!(!e_ctl.peers().upstream.contains(&"central".to_string()));
-    let audit = e_ctl.audit_tail(50);
+    let e = client(e_tcp, "edge").await;
+    e.set("wy/edge/sys/upstream/central/enabled", true)
+        .await
+        .unwrap();
+    edge_seen("edge back after enable").await;
+
+    // Central removes the edge: held in quarantine; its certificate still
+    // connects but gets nothing, and its name never becomes an upstream.
+    let c = client(c_tcp, "central").await;
+    c.invoke_one("wy/central/sys/links/edge", "remove", args(&[]))
+        .await
+        .expect("remove the downstream broker");
+    assert!(c_ctl.registry().held.contains("broker:edge"));
+    eventually("removed edge gone from central", 20, || async {
+        let c = client(c_tcp, "edge").await;
+        match c.children("wy/edge/downstream").await {
+            Ok(ch) if !ch.is_empty() => None,
+            _ => Some(()),
+        }
+    })
+    .await;
+    eventually("the edge's sessions land in quarantine", 20, || async {
+        let q = c_ctl.registry().quarantine.get("broker:edge").cloned()?;
+        (q.attempts > 0).then_some(())
+    })
+    .await;
+    assert!(!c_ctl.peers().downstream.contains(&"edge".to_string()));
+    let c = client(c_tcp, "central").await;
+    let q = c.meta("wy/central/sys/quarantine/edge").await.unwrap();
+    assert_eq!(q.attr_value("kind"), Some(&Value::Str("broker".into())));
+    let err = c
+        .invoke_one(
+            "wy/central/sys/upstream",
+            "add",
+            up_add("edge", &ca, &cert, &key_file, url.clone()),
+        )
+        .await
+        .expect_err("an issued name is never an upstream");
+    assert!(err.to_string().contains("downstream broker"), "{err}");
+    // Authorize admits it again
+    c.invoke_one("wy/central/sys/quarantine/edge", "approve", args(&[]))
+        .await
+        .expect("authorize");
+    edge_seen("edge back after Authorize").await;
+    assert!(!c_ctl.registry().held.contains("broker:edge"));
+
+    let e_audit = e_ctl.audit_tail(50);
     for op in ["peer_add", "peer_enable"] {
-        assert!(audit.iter().any(|r| r.op == op), "audit has {op}");
+        assert!(e_audit.iter().any(|r| r.op == op), "edge audit has {op}");
+    }
+    let c_audit = c_ctl.audit_tail(50);
+    for op in ["install_broker", "broker_remove", "approve"] {
+        assert!(c_audit.iter().any(|r| r.op == op), "central audit has {op}");
     }
     let e = client(e_tcp, "edge").await;
     e.invoke_one("wy/edge/sys/upstream/central", "remove", args(&[]))
         .await
         .expect("remove");
     assert!(e_ctl.registry().peers.is_empty());
+    assert!(!e_dir.join("pki/peers/central.key").exists());
 
     let _ = c_stop.send(());
     let _ = e_stop.send(());
     c_task.await.unwrap().unwrap();
     e_task.await.unwrap().unwrap();
+    drop((c_ctl, e_ctl));
 
     // The operator moves the runtime downstream into wyrmd.json5: the config
     // wins, the registry entry goes, and the router (no repeated ACL ids)
@@ -2826,9 +2970,8 @@ async fn runtime_peers_over_quic() {
     let central = Config::from_json5(&format!(
         r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
               admin_keys: ["{admin}"], peers: {{ listen: "quic/127.0.0.1:{c_quic}",
-              downstream: [{{ site: "edge", ca: "{}" }}] }} }}"#,
+              downstream: [{{ site: "edge" }}] }} }}"#,
         c_dir.display(),
-        e_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
     let central = open_daemon(central, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
@@ -2914,7 +3057,9 @@ async fn samples(s: &zenoh::Session, key: &str, secs: u64) -> Vec<String> {
 /// 2. the upstream cannot `invoke`, even with a token the edge trusts;
 /// 3. the downstream cannot write or query outside its own `wy/<edge>/**`;
 /// 4. a broker with a certificate from an untrusted CA cannot join, even
-///    with a configured site name (`broker:edge`).
+///    with a configured site name (`broker:edge`);
+/// 5. a certificate of central's own CA for a link name (not `broker:*`)
+///    over QUIC gets nothing and is not quarantined (ADR 0015).
 #[tokio::test(flavor = "multi_thread")]
 async fn two_brokers_isolation() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -2933,16 +3078,16 @@ async fn two_brokers_isolation() {
             admin_keys: ["{admin}"],
             peers: {{
                 listen: "quic/127.0.0.1:{c_quic}",
-                downstream: [{{ site: "edge", ca: "{}" }}],
+                downstream: [{{ site: "edge" }}],
             }},
         }}"#,
         c_dir.display(),
-        e_dir.join("pki/ca.pem").display()
     ))
     .unwrap();
     // The edge runs `dev` so a loopback client there may publish and query
     // anything: the only thing that stops it is the central broker's ACL.
-    let edge_cfg = |dir: &std::path::Path, port: u16, link: &str| {
+    // `id`: the certificate it connects with, `<dir>/<id>.{pem,key}`.
+    let edge_cfg = |dir: &std::path::Path, port: u16, link: &str, id: &std::path::Path| {
         Config::from_json5(&format!(
             r#"{{
                 site: "edge",
@@ -2952,19 +3097,24 @@ async fn two_brokers_isolation() {
                 admin_keys: ["{admin}"],
                 metrics_interval_ms: 200,
                 peers: {{
-                    upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}" }}],
+                    upstream: [{{ site: "central", endpoint: "quic/127.0.0.1:{c_quic}", ca: "{}",
+                                  cert: "{}.pem", key: "{}.key" }}],
                 }},
                 links: {{ {link}: {{ driver: "mock", params: {{ points: 2, rate_hz: 20, depth: 1, fanout: 2 }} }} }},
             }}"#,
             dir.display(),
-            c_dir.join("pki/ca.pem").display()
+            c_dir.join("pki/ca.pem").display(),
+            id.display(),
+            id.display(),
         ))
         .unwrap()
     };
-    // Both CAs exist once both daemons are open; brokers read them at start.
+    // Central first: opening it issues the edge's certificate.
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let central = open_daemon(central, exe.clone()).unwrap();
-    let edge = open_daemon(edge_cfg(&e_dir, e_tcp, "mock"), exe).unwrap();
+    let c_ctl = central.control();
+    let issued = c_dir.join("peers/edge/broker");
+    let edge = open_daemon(edge_cfg(&e_dir, e_tcp, "mock", &issued), exe).unwrap();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
@@ -3083,7 +3233,8 @@ async fn two_brokers_isolation() {
 
     // 4. A rogue broker that calls itself `edge` (CN `broker:edge`), with a
     //    certificate from its own CA, does not get in.
-    let (r_stop, r_task) = spawn_daemon(edge_cfg(&r_dir, r_tcp, "evil"));
+    let own_ca = r_dir.join("pki/broker-client");
+    let (r_stop, r_task) = spawn_daemon(edge_cfg(&r_dir, r_tcp, "evil", &own_ca));
     let rs = loopback_session(r_tcp).await;
     let (evil, own) = tokio::join!(
         samples(&cs, "wy/edge/downstream/evil/**", 4),
@@ -3102,6 +3253,27 @@ async fn two_brokers_isolation() {
         .map(|c| c.name)
         .collect();
     assert_eq!(names, ["mock"], "rogue link listed at central");
+    let _ = rs.close().await;
+    let _ = r_stop.send(());
+    r_task.await.unwrap().unwrap();
+
+    // 5. The same rogue with a certificate of central's CA for a link name:
+    //    TLS passes, but no QUIC subject matches it and it is no broker.
+    let link = c_ctl.link_cert("plc9").unwrap();
+    let id = link.cert.with_extension("");
+    let (r_stop, r_task) = spawn_daemon(edge_cfg(&r_dir, r_tcp, "evil", &id));
+    let rs = loopback_session(r_tcp).await;
+    let (evil, own) = tokio::join!(
+        samples(&cs, "wy/edge/downstream/evil/**", 4),
+        samples(&rs, "wy/edge/downstream/evil/**", 4)
+    );
+    assert!(!own.is_empty(), "control: the second rogue runs");
+    assert_eq!(evil, Vec::<String>::new(), "link certificate over QUIC");
+    assert!(
+        c_ctl.registry().quarantine.is_empty(),
+        "nothing quarantined: {:?}",
+        c_ctl.registry().quarantine
+    );
 
     let _ = rs.close().await;
     let _ = es.close().await;

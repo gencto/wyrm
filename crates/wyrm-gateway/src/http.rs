@@ -528,8 +528,8 @@ async fn me(State(st): State<AppState>, Auth(p): Auth) -> ApiResult {
             ("grants", Value::Array(grants)),
             ("max", Value::from(p.grants.max.name())),
             ("exp", Value::UInt(p.claims.exp)),
-            // The site the gateway serves (peer sites: its `sys/upstream`
-            // and `sys/downstream` nodes).
+            // The site the gateway serves (peer sites: its `upstream` and
+            // `downstream` sections).
             ("site", Value::Str(st.gw.site().to_owned())),
         ]),
     ))

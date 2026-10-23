@@ -19,6 +19,17 @@ pub fn validate_link_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Certificate CN of a downstream broker (ADR 0015): `broker:<site>`.
+pub fn broker_cn(site: &str) -> String {
+    format!("broker:{site}")
+}
+
+/// The site of a `broker:<site>` CN.
+pub fn broker_site(cn: &str) -> Option<&str> {
+    cn.strip_prefix("broker:")
+        .filter(|s| validate_segment(s).is_ok())
+}
+
 /// How a link runs (wiki "Режими розгортання").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 #[cbor(index_only)]
@@ -208,7 +219,8 @@ pub enum Op {
         #[n(1)]
         on: bool,
     },
-    /// Add a peer broker (`sys/upstream`, `sys/downstream`).
+    /// Add a peer broker: an upstream site (`sys/upstream`), or a downstream
+    /// broker installed or authorized (`sys/links`, quarantine; ADR 0015).
     #[n(10)]
     AddPeer(#[n(0)] PeerDef),
     #[n(11)]
@@ -302,6 +314,20 @@ pub enum Op {
         keep_free_mib: u64,
         #[n(2)]
         retention_days: u32,
+    },
+    /// Our CA issued `broker:<site>` (ADR 0015); the name never becomes an
+    /// upstream site.
+    #[n(24)]
+    IssueBroker(#[n(0)] String),
+    /// Remove a runtime downstream broker: its CN goes to quarantine and is
+    /// admitted again only by a manual Authorize (its certificate stays
+    /// valid).
+    #[n(25)]
+    HoldBroker {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        seen: u64,
     },
 }
 
@@ -449,7 +475,9 @@ pub struct PeerDef {
     /// `quic/<host>:<port>` of an upstream site; empty for downstream.
     #[n(2)]
     pub endpoint: String,
-    /// That site's CA certificate (PEM): trusted only on the QUIC broker link.
+    /// Upstream: that site's CA certificate (PEM), trusted only on its
+    /// connect endpoint. Downstream entries before ADR 0015 carry their CA;
+    /// it is no longer trusted.
     #[n(3)]
     pub ca_pem: String,
     /// Upstream only: connect to it.
@@ -463,6 +491,12 @@ pub struct PeerDef {
     #[cbor(default)]
     #[serde(default)]
     pub via: Vec<String>,
+    /// Upstream only: the certificate that site issued for this broker
+    /// (`broker:<site>`, ADR 0015); its key is in the secret store.
+    #[n(7)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub cert_pem: String,
 }
 
 /// Broker options changed at runtime, as DSA's `allowAllLinks` and
@@ -533,6 +567,9 @@ pub struct Registry {
     /// Watch groups and purge settings of the embedded historian.
     #[serde(default)]
     pub historian: HistorianDef,
+    /// Sites our CA issued a `broker:<site>` certificate for (ADR 0015).
+    #[serde(default)]
+    pub issued_brokers: BTreeSet<String>,
 }
 
 /// Replaced params kept per link.
@@ -604,8 +641,9 @@ fn renamed_keys(op: &Op) -> Option<Op> {
 }
 
 impl wyrm_state::State for Registry {
-    // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`)
-    const SCHEMA: u32 = 14;
+    // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
+    // 15: `PeerDef::cert_pem` (ADR 0015)
+    const SCHEMA: u32 = 15;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -677,7 +715,13 @@ impl wyrm_state::State for Registry {
                     .token_hash = hash.clone();
             }
             Op::Quarantine { cn, seen } => {
-                validate_link_id(cn)?;
+                match broker_site(cn) {
+                    Some(site) if self.peers.contains_key(site) => {
+                        return Err(format!("{site} is a peer"));
+                    }
+                    Some(_) => {}
+                    None => validate_link_id(cn)?,
+                }
                 if self.links.contains_key(cn)
                     || self.blocklist.contains(cn)
                     || self.retired.contains(cn)
@@ -906,6 +950,13 @@ impl wyrm_state::State for Registry {
                 if def.dir == PeerDir::Upstream && !def.via.is_empty() {
                     return Err("only a downstream peer relays sites".into());
                 }
+                // its certificate would match this upstream's ACL subject
+                if def.dir == PeerDir::Upstream && self.issued_brokers.contains(&def.site) {
+                    return Err(format!(
+                        "{} was a downstream broker of ours (its certificate stays valid)",
+                        def.site
+                    ));
+                }
                 for v in &def.via {
                     validate_segment(v).map_err(|e| format!("via: {e}"))?;
                     let taken = *v == def.site
@@ -924,6 +975,37 @@ impl wyrm_state::State for Registry {
                 self.peers
                     .remove(site)
                     .ok_or_else(|| format!("no peer {site}"))?;
+            }
+            Op::IssueBroker(site) => {
+                validate_segment(site).map_err(|e| format!("site: {e}"))?;
+                if self
+                    .peers
+                    .get(site)
+                    .is_some_and(|p| p.dir == PeerDir::Upstream)
+                {
+                    return Err(format!("{site} is an upstream site"));
+                }
+                self.issued_brokers.insert(site.clone());
+            }
+            Op::HoldBroker { site, seen } => {
+                if !self
+                    .peers
+                    .get(site)
+                    .is_some_and(|p| p.dir == PeerDir::Downstream)
+                {
+                    return Err(format!("{site} is not a runtime downstream broker"));
+                }
+                self.peers.remove(site);
+                let cn = broker_cn(site);
+                self.quarantine.insert(
+                    cn.clone(),
+                    QuarantineEntry {
+                        first_seen: *seen,
+                        last_seen: *seen,
+                        attempts: 0,
+                    },
+                );
+                self.held.insert(cn);
             }
             Op::SetPeerEnabled { site, on } => {
                 self.peers
@@ -982,6 +1064,7 @@ mod tests {
             enabled: true,
             created: 0,
             via: Vec::new(),
+            cert_pem: String::new(),
         };
         r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
             .unwrap();
@@ -1139,6 +1222,71 @@ mod tests {
         ] {
             assert!(r.apply(&grant(path, level)).is_err(), "{path} {level:?}");
         }
+    }
+
+    /// ADR 0015: a name our CA issued `broker:<site>` for never becomes an
+    /// upstream site; a removed downstream broker waits in quarantine, held.
+    #[test]
+    fn downstream_brokers_issued_and_held() {
+        let mut r = Registry::default();
+        let peer = |site: &str, dir, endpoint: &str| PeerDef {
+            site: site.into(),
+            dir,
+            endpoint: endpoint.into(),
+            ca_pem: String::new(),
+            enabled: true,
+            created: 0,
+            via: Vec::new(),
+            cert_pem: String::new(),
+        };
+        r.apply(&Op::IssueBroker("edge".into())).unwrap();
+        r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
+            .unwrap();
+        // its certificate would match an upstream subject `broker:edge`
+        r.apply(&Op::RemovePeer("edge".into())).unwrap();
+        assert!(r
+            .apply(&Op::AddPeer(peer("edge", PeerDir::Upstream, "quic/e:1")))
+            .is_err());
+        r.apply(&Op::AddPeer(peer("cloud", PeerDir::Upstream, "quic/c:1")))
+            .unwrap();
+        assert!(
+            r.apply(&Op::IssueBroker("cloud".into())).is_err(),
+            "upstream"
+        );
+
+        r.apply(&Op::AddPeer(peer("edge", PeerDir::Downstream, "")))
+            .unwrap();
+        assert!(
+            r.apply(&Op::Quarantine {
+                cn: "broker:edge".into(),
+                seen: 1
+            })
+            .is_err(),
+            "a peer is not quarantined"
+        );
+        r.apply(&Op::HoldBroker {
+            site: "edge".into(),
+            seen: 2,
+        })
+        .unwrap();
+        assert!(!r.peers.contains_key("edge"));
+        assert!(r.quarantine.contains_key("broker:edge") && r.held.contains("broker:edge"));
+        assert!(
+            r.apply(&Op::HoldBroker {
+                site: "cloud".into(),
+                seen: 3
+            })
+            .is_err(),
+            "upstream sites are not held"
+        );
+        r.apply(&Op::Approve("broker:edge".into())).unwrap();
+        assert!(!r.held.contains("broker:edge"));
+        assert!(r
+            .apply(&Op::Quarantine {
+                cn: "broker:no/site".into(),
+                seen: 4
+            })
+            .is_err());
     }
 
     /// WAL records written before spec 0.2.0 replay under the new section

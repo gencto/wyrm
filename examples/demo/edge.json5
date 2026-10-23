@@ -6,11 +6,18 @@
   listen: ["tcp/127.0.0.1:7457", "tls/127.0.0.1:7458"],
   admin_keys: [],
   peers: {
-    upstream: [{ site: "central", endpoint: "quic/127.0.0.1:7449", ca: "./data/central/pki/ca.pem" }],
+    // central's CA and the certificate central issued for edge
+    upstream: [{
+      site: "central",
+      endpoint: "quic/127.0.0.1:7449",
+      ca: "./data/central/pki/ca.pem",
+      cert: "./data/central/peers/edge/broker.pem",
+      key: "./data/central/peers/edge/broker.key",
+    }],
     upstream_val_hz: 5,
     // The middle of the chain: plant connects here.
     listen: "quic/127.0.0.1:7459",
-    downstream: [{ site: "plant", ca: "./data/plant/pki/ca.pem" }],
+    downstream: [{ site: "plant" }],
   },
   gateway: { listen: "127.0.0.1:8444", admin_user: "admin" },
   // "Install Link ▸ from Repository": the index of examples/packages/out,

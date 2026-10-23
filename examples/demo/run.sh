@@ -21,7 +21,8 @@ mkdir -p data
 (cd $ROOT && cargo build --release -p wyrmd \
   && cargo build --release -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim)
 
-# Each site's CA must exist before the other site trusts it.
+# Each upstream site's CA, and the certificate it issues for the site below
+# it (ADR 0015), must exist before that site starts.
 $BIN/wyrmd -c central.json5 ca >/dev/null
 $BIN/wyrmd -c edge.json5 ca >/dev/null
 $BIN/wyrmd -c plant.json5 ca >/dev/null

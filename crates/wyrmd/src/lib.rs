@@ -16,6 +16,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
+    UpstreamConf,
 };
 use wyrm_core::Value;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
@@ -130,9 +131,8 @@ pub const GATEWAY_ADMIN_PASSWORD_ENV: &str = "WYRM_GATEWAY_ADMIN_PASSWORD";
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeersSection {
-    /// QUIC listener for downstream brokers (`quic/0.0.0.0:7448`). It opens
-    /// once a downstream site is configured here or added at runtime
-    /// (`sys/downstream`).
+    /// QUIC listener for downstream brokers (`quic/0.0.0.0:7448`); it
+    /// trusts this broker's CA alone (ADR 0015).
     #[serde(default)]
     pub listen: Option<String>,
     /// Sites this broker connects to.
@@ -166,14 +166,18 @@ pub struct UpstreamPeer {
     pub endpoint: String,
     /// CA certificate (PEM) of that site.
     pub ca: PathBuf,
+    /// The certificate that site issued for this broker (its
+    /// `data_dir/peers/<this site>/broker.pem`) and its key (`broker.key`).
+    pub cert: PathBuf,
+    pub key: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DownstreamPeer {
+    /// Its certificate (`broker:<site>`) is issued into
+    /// `data_dir/peers/<site>/` at start (ADR 0015).
     pub site: String,
-    /// CA certificate (PEM) of that site.
-    pub ca: PathBuf,
     /// Sites that broker relays from further down (a chain `plant → edge →
     /// here`: edge has `via: ["plant"]`). It may serve their keys, and this
     /// broker's upstream may read them.
@@ -218,9 +222,10 @@ impl PeersSection {
         for u in &self.upstream {
             quic("peers.upstream endpoint", &u.endpoint)?;
             path("peers.upstream ca", &u.ca)?;
+            path("peers.upstream cert", &u.cert)?;
+            path("peers.upstream key", &u.key)?;
         }
         for d in &self.downstream {
-            path("peers.downstream ca", &d.ca)?;
             for v in &d.via {
                 wyrm_core::keyspace::validate_segment(v)
                     .map_err(|e| format!("peers.downstream {} via: {e}", d.site))?;
@@ -258,11 +263,16 @@ impl PeersSection {
                     .map(|d| (d.site.clone(), d.via.clone()))
                     .collect(),
             },
-            trusted_cas: self.downstream.iter().map(|d| d.ca.clone()).collect(),
             upstream: self
                 .upstream
                 .iter()
-                .map(|u| (u.site.clone(), u.endpoint.clone(), u.ca.clone()))
+                .map(|u| UpstreamConf {
+                    site: u.site.clone(),
+                    endpoint: u.endpoint.clone(),
+                    ca: u.ca.clone(),
+                    cert: u.cert.clone(),
+                    key: u.key.clone(),
+                })
                 .collect(),
             listen: self.listen.is_some(),
         }
@@ -506,20 +516,23 @@ impl Config {
     fn zenoh_config(&self, ctl: &Control) -> Result<zenoh::Config, Error> {
         let mut c = zenoh::Config::default();
         c.insert_json5("mode", r#""router""#)?;
-        // Peer CAs only on the broker links: per-endpoint trust overrides
-        // the global root (our own CA) for these endpoints alone.
-        // Peers come from `wyrmd.json5` and from the registry (`sys/upstream`,
-        // `sys/downstream`); the listener opens only with a downstream site.
+        // The QUIC broker listener trusts our own CA, as the others do
+        // (ADR 0015): downstream brokers hold certificates from it. It opens
+        // whenever it is configured, so an unknown broker reaches quarantine.
         let mut listen = self.listen.clone();
-        if let (Some(ep), false) = (&self.peers.listen, ctl.peers().downstream.is_empty()) {
-            listen.push(format!(
-                "{ep}#root_ca_certificate_file={}",
-                ctl.peer_trust_path().display()
-            ));
-        }
+        listen.extend(self.peers.listen.clone());
+        // An upstream site's CA and the certificate it issued for us, on
+        // its endpoint alone; certificate and key always together, as files
+        // (Zenoh logs endpoint strings).
         let mut connect = self.connect.clone();
-        for (ep, ca) in ctl.upstream_endpoints() {
-            connect.push(format!("{ep}#root_ca_certificate_file={}", ca.display()));
+        for u in ctl.upstream_endpoints() {
+            connect.push(format!(
+                "{}#root_ca_certificate_file={};connect_certificate_file={};connect_private_key_file={}",
+                u.endpoint,
+                u.ca.display(),
+                u.cert.display(),
+                u.key.display()
+            ));
         }
         c.insert_json5("listen/endpoints", &json(&listen))?;
         c.insert_json5("connect/endpoints", &json(&connect))?;
@@ -671,7 +684,7 @@ impl Broker {
         let session = zenoh::session::init(runtime.clone().into()).await?;
         let admin = ctl.attach(session.clone()).await?;
         if let Some(g) = gateway {
-            // downstream sites may have changed at runtime (sys/downstream)
+            // downstream sites may have changed at runtime (install, quarantine)
             g.set_read_sites(ctl.peers().reachable());
         }
         // The engine trusts admin keys and the gateway's (user requests),
@@ -1086,15 +1099,21 @@ impl Daemon {
             )
             .into());
         }
-        let p = &cfg.peers;
-        if p.downstream.len() > 1 || (!p.downstream.is_empty() && !p.upstream.is_empty()) {
-            // ADR 0007: the ACL matches certificate CNs only, so every CA in
-            // peer-trust.pem can issue `broker:<any site>` certificates.
-            tracing::warn!(
-                "peers: the QUIC listener trusts several CAs; each of them can impersonate \
-                 the other peer sites (ADR 0007). Trust only CAs you control."
-            );
+        // A name our CA issued `broker:<site>` for keeps a valid certificate:
+        // as an upstream site it would match that site's ACL subject.
+        if let Some(u) = cfg
+            .peers
+            .upstream
+            .iter()
+            .find(|u| ctl.registry().issued_brokers.contains(&u.site))
+        {
+            return Err(format!(
+                "peers.upstream {:?}: was a downstream broker of this site (ADR 0015)",
+                u.site
+            )
+            .into());
         }
+        ctl.issue_broker_certs()?;
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
             gw.set_audit(move |e| gateway_audit(&audit, e));
@@ -1132,6 +1151,14 @@ impl Daemon {
         mut shutdown: std::pin::Pin<&mut impl Future<Output = ()>>,
     ) -> Result<(), Error> {
         loop {
+            if let Some(ep) = &self.cfg.peers.listen {
+                if !wait_udp_free(ep, QUIC_PORT_WAIT).await {
+                    tracing::warn!(
+                        endpoint = %ep,
+                        "QUIC peer port in use: downstream brokers cannot connect until a restart"
+                    );
+                }
+            }
             let broker =
                 Broker::start(&self.cfg, &self.ctl, &self.flows, self.gateway.as_ref()).await?;
             self.ctl.reopen();
@@ -1161,5 +1188,29 @@ impl Daemon {
             tracing::info!("ACL changed: rebuilding the router runtime");
         }
         Ok(())
+    }
+}
+
+/// How long a broker start waits for an old runtime (a rebuild, or a
+/// restart in the same process) to let the QUIC peer port go.
+const QUIC_PORT_WAIT: Duration = Duration::from_secs(30);
+
+/// Wait until the UDP port of `quic/<host>:<port>` is free. The old
+/// runtime's QUIC endpoint keeps it while its connections drain; Zenoh
+/// 1.10.1 tries a listener once (`listen/timeout_ms` 0), so a busy port
+/// would leave downstream brokers out until the next restart.
+async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
+    let Some(addr) = endpoint.strip_prefix("quic/") else {
+        return true;
+    };
+    let deadline = std::time::Instant::now() + max;
+    loop {
+        if std::net::UdpSocket::bind(addr).is_ok() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
