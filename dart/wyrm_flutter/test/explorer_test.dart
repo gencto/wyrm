@@ -171,6 +171,17 @@ class RecordedApi extends SettableApi {
       : super.meta(key);
 }
 
+/// `m` holds only a point until an action adds a folder under it (as
+/// `sys/history` ▸ Add Watch Group); the broker then publishes `m`'s meta.
+class GrowingApi extends ActApi {
+  var grown = false;
+
+  @override
+  Future<List<Child>> children(String key) async => key == 'wy/s/downstream/m' && grown
+      ? [Child('temp', ActApi.metaT), Child('g', NodeMeta(hasChildren: true))]
+      : super.children(key);
+}
+
 Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
   await t.pumpAndSettle();
@@ -265,6 +276,29 @@ void main() {
     await rightClick(t, find.text('temp'));
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Copy Path'), findsOneWidget);
+  });
+
+  testWidgets('a folder added under a node of values makes it expandable', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = GrowingApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    Future<void> doubleTap(String name) async {
+      await t.tap(find.text(name));
+      await t.pump(const Duration(milliseconds: 50));
+      await t.tap(find.text(name));
+      await t.pumpAndSettle();
+    }
+
+    await doubleTap('m');
+    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')), reason: 'only a point yet');
+    // an action adds g under m: the broker publishes m's new meta
+    api.grown = true;
+    api.lists['wy/s/downstream']!.add(ChildChanged(Child('m', ActApi.metaM)));
+    await t.pumpAndSettle();
+    await doubleTap('m');
+    expect(api.lists.keys, contains('wy/s/downstream/m'));
   });
 
   testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {

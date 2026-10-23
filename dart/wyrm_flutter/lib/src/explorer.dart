@@ -203,6 +203,9 @@ class _WyExplorerState extends State<WyExplorer> {
           case ListRefreshed(:final children):
             _kids[key] = [...children];
           case ChildAdded(:final child) || ChildChanged(:final child):
+            // Its children may have changed (a folder added under a node
+            // that had only values): ask again whether it expands.
+            _treeKids.remove('$key/${child.name}');
             final i = list.indexWhere((c) => c.name == child.name);
             if (i < 0) {
               list.add(child);
