@@ -114,9 +114,14 @@ class SettableApi extends ActApi {
   static final lvl = NodeMeta(
       ty: TypeCode.enum_, writable: Writable.config, enumValues: ['debug', 'info', 'warn'], hasChildren: false);
 
+  /// Units: the node's own, and the DSA `@unit` attribute.
+  static final temp = NodeMeta(ty: TypeCode.number, unit: const TText('°C'), hasChildren: false);
+  static final energy = NodeMeta(ty: TypeCode.number, attr: {'unit': const VStr('kWh')}, hasChildren: false);
+
   @override
-  Future<List<Child>> children(String key) async =>
-      key == 'wy/s/down/c' ? [Child('opt', opt), Child('lvl', lvl)] : super.children(key);
+  Future<List<Child>> children(String key) async => key == 'wy/s/down/c'
+      ? [Child('opt', opt), Child('lvl', lvl), Child('temp', temp), Child('energy', energy)]
+      : super.children(key);
 
   @override
   Future<NodeMeta> meta(String key) async => switch (key) {
@@ -129,6 +134,8 @@ class SettableApi extends ActApi {
   Stream<ValEvent> subscribe(String pattern) => switch (pattern) {
         'wy/s/down/c/opt' => Stream.value(ValSample(pattern, const Sample(VBool(false), t: 1))),
         'wy/s/down/c/lvl' => Stream.value(ValSample(pattern, const Sample(VInt(1), t: 1))),
+        'wy/s/down/c/temp' => Stream.value(ValSample(pattern, const Sample(VFloat(21.5), t: 1))),
+        'wy/s/down/c/energy' => Stream.value(ValSample(pattern, const Sample(VInt(7), t: 1))),
         _ => const Stream.empty(),
       };
 
@@ -397,5 +404,16 @@ void main() {
     final (_, action, args) = api.invoked.last;
     expect(action, 'deauthorize');
     expect((args as VMap).v.containsKey('link'), isFalse);
+  });
+
+  testWidgets('Metrics write the unit after numbers: own unit and @unit', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: SettableApi(), rootKey: 'wy/s/down'))));
+    await t.pumpAndSettle();
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
+    expect(find.text('21.50 °C'), findsOneWidget);
+    expect(find.text('7 kWh'), findsOneWidget);
   });
 }

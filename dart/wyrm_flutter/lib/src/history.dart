@@ -54,10 +54,16 @@ class _HistoryWindowState extends State<_HistoryWindow> {
   String? _error;
   bool _loading = false;
 
+  /// The point's own meta: its unit for the rows and the chart.
+  NodeMeta? _meta;
+
   @override
   void initState() {
     super.initState();
     _from.text = _iso(DateTime.now().subtract(const Duration(hours: 1)));
+    widget.api.meta(widget.nodeKey).then((m) {
+      if (mounted) setState(() => _meta = m);
+    }, onError: (Object _) {});
     _load();
   }
 
@@ -194,7 +200,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
               height: 220,
               margin: const EdgeInsets.fromLTRB(14, 8, 14, 8),
               decoration: BoxDecoration(color: WyStyle.panel, border: Border.all(color: WyStyle.line)),
-              child: CustomPaint(painter: _ChartPainter(rows), size: Size.infinite),
+              child: CustomPaint(painter: _ChartPainter(rows, unitSuffix(_meta)), size: Size.infinite),
             ),
             Expanded(
               child: ListView.builder(
@@ -223,7 +229,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
                   final r = rows[i - 1];
                   return Row(children: [
                     cell(_timeOf(r.t), 260),
-                    cell(formatValue(r.v, null), 220),
+                    cell(formatValue(r.v, _meta), 220),
                     cell(r.q?.wireName ?? '', 120, color: r.q == Quality.bad ? WyStyle.error : null),
                   ]);
                 },
@@ -240,7 +246,10 @@ class _HistoryWindowState extends State<_HistoryWindow> {
 /// the left, the first and last time below; `bad` samples as red dots.
 class _ChartPainter extends CustomPainter {
   final List<HistRow> rows;
-  _ChartPainter(this.rows);
+
+  /// Written after the min and max labels (`' °C'`), or empty.
+  final String unit;
+  _ChartPainter(this.rows, this.unit);
 
   static double? _num(Value v) => switch (v) {
         VInt(:final v) => v.toDouble(),
@@ -296,8 +305,8 @@ class _ChartPainter extends CustomPainter {
       canvas.drawCircle(Offset(x(p.$1), y(p.$2)), 3, bad);
     }
     String n(double v) => v.abs() >= 1000 || v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsPrecision(4);
-    text(n(hi), const Offset(6, top));
-    text(n(lo), Offset(6, plot.bottom - 12));
+    text('${n(hi)}$unit', const Offset(6, top));
+    text('${n(lo)}$unit', Offset(6, plot.bottom - 12));
     text(_timeOf(t0), Offset(left, plot.bottom + 4));
     final end = _timeOf(t1);
     label.text = TextSpan(text: end, style: WyStyle.label);
@@ -306,5 +315,5 @@ class _ChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ChartPainter old) => old.rows != rows;
+  bool shouldRepaint(_ChartPainter old) => old.rows != rows || old.unit != unit;
 }

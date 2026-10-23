@@ -299,8 +299,18 @@ class _WyrmValueState extends State<WyrmValue> {
 }
 
 /// A value as text: enum labels, `cfg.precision`, the unit.
+/// The unit written after a number: the node's `unit`, else `attr.unit`
+/// (the DSA `@unit`), with a space before it; empty when there is none.
+String unitSuffix(NodeMeta? meta) => switch (meta?.unit) {
+      TText(:final text) when text.isNotEmpty => ' $text',
+      _ => switch (meta?.attr?['unit']) {
+          VStr(:final v) when v.isNotEmpty => ' $v',
+          _ => '',
+        },
+    };
+
 String formatValue(Value v, NodeMeta? meta) {
-  final unit = switch (meta?.unit) { TText(:final text) => ' $text', _ => '' };
+  final unit = unitSuffix(meta);
   final precision = switch (meta?.cfg?['precision']) { VInt(:final v) => v, _ => 2 };
   final labels = meta?.enumValues;
   return switch (v) {

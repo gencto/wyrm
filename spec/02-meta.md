@@ -5,7 +5,7 @@
 |---|---|---|---|---|
 | 0 | `is` | uint (is_code) або tstr | так | профіль; uint — код з `sys/codes`, tstr — повне ім'я (для невідомих клієнту кодів) |
 | 1 | `type` | uint (type_code) | листовий | 0 null, 1 number, 2 string, 3 bool, 4 enum, 5 map, 6 array, 7 binary, 8 dynamic |
-| 2 | `unit` | tstr або uint (unit_code) | ні | одиниця |
+| 2 | `unit` | tstr або uint (unit_code) | ні; також у `view=list` | одиниця; UI пише її після числового значення (`21.5 °C`), не після enum, bool чи тексту |
 | 3 | `enum` | array of tstr | type=4 | значення enum; `~val.v` = індекс |
 | 4 | `writable` | uint | ні, default 0 | 0 never, 1 config, 2 write |
 | 5 | `invokable` | uint | ні, default 0 | мін. рівень для дій: 0 never, 2 read, 3 write, 4 config |
@@ -38,7 +38,7 @@ param-meta = { 1: type_code, 3: [enum...], 2: unit, "default": any, "required": 
 Відсутнє поле береться з профілю `is` (рекурсивно через `extends` у профілі). Профіль (`pub/<profile>/~meta`) — та сама map, що `~meta`, плюс текстовий ключ `"extends": tstr` (ім'я батьківського профілю); ланцюг ≤ 8, без циклів. `cfg`, `attr`, `actions` зливаються по ключах (власні виграють); `is`, `rev`, `children` і поля `view=list` не успадковуються. `pub/**` пише лише `wyrm-admin`; `?expand=true` — профіль з уже злитим ланцюгом. SDK responder'а відповідає **розгорнутим** `~meta` у `view=full` лише на `?expand=true`; за замовчуванням — тільки власні поля (економія).
 
 ## `view=list`
-Відповідь — **CBOR array** map'ів дітей з ключами `{0,1,10,11,12?,13?,15?}`; порядок = `children`. Пагінація `from/limit`.
+Відповідь — **CBOR array** map'ів дітей з ключами `{0,1,2?,4?,10,11,12?,13?,15?}` (власні поля дитини, без профілю); порядок = `children`. Пагінація `from/limit`.
 
 ## `view=keys`
 Відповідь — CBOR array of tstr з префіксною компресією: елемент із суфіксом `/` = push префікса, порожній `""` = pop, інший = повний ключ під поточним префіксом. Фільтр `match` застосовується responder'ом.

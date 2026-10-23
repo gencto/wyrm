@@ -202,6 +202,13 @@ profile (`is`), and some drivers may put it in `attr.unit`.
 **Decide:** spec change (unit in `view=list`) or the explorer loads the
 full `~meta` of the rows it shows.
 
+**Done (2026-10-23):** spec 02 0.1.11 — `view=list` summaries carry `unit`
+(and `writable`, which the SDK already sent); fixture `meta_view_list`; the
+SDK summary adds it. The explorer writes the node's unit, else `attr.unit`,
+after numbers in Metrics, the tree and the history window (rows and chart
+labels). Units come as text: spec 01 names no unit code table yet, and a
+profile's unit is not in the list (own fields only).
+
 ## 10. `@history`: where a point's history lives, and an icon for it
 
 **Asked:** history can be kept by the broker's historian or by a link

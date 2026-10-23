@@ -11,7 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'explorer_theme.dart';
-import 'tree.dart' show formatValue;
+import 'tree.dart' show formatValue, unitSuffix;
 
 part 'history.dart';
 

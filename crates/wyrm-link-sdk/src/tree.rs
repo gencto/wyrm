@@ -51,11 +51,12 @@ impl Node {
         m
     }
 
-    /// Child summary for `view=list`: keys `{0,1,4,10,11,12?,15?}`.
+    /// Child summary for `view=list`: keys `{0,1,2?,4?,10,11,12?,15?}`.
     pub fn summary(&self) -> NodeMeta {
         NodeMeta {
             is: self.meta.is.clone(),
             ty: self.meta.ty,
+            unit: self.meta.unit.clone(),
             writable: self.meta.writable,
             rev: Some(self.rev),
             has_children: Some(!self.children.is_empty()),

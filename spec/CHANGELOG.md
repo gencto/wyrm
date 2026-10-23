@@ -10,3 +10,4 @@
 - 0.1.9 (2026-10-22): README rule 4 — the protocol version is `attr.proto` of `wy/<site>/sys/~meta`; `wy/<site>/sys/broker` stays the broker's liveliness token, without a node. No fixture change.
 - 0.1.8 (2026-10-22): README rule 6 — nesting of arrays, maps and tags in one value is at most 32; deeper input is `invalid_message`. No fixture change (every fixture is shallower).
 - 0.1.10 (2026-10-22): 01, 03, 05 — history: `since=`, `agg` `and|or`, any `<n>s|m|h|d|w` window, `limit` ≤ 100 000; the answer is one or more arrays from the broker's historian (ADR 0014), errors as a status attachment; rights as `subscribe` (session ACL on `~val`), no `history:read` token (owner decision). Fixtures `hist_raw`, `hist_agg` (`HistRow` in both SDKs).
+- 0.1.11 (2026-10-23): 02 — `view=list` summaries carry `unit` (key 2) and `writable` (key 4, already sent by the SDK); the UI writes the unit after numeric values. Fixture `meta_view_list` (first child has `2: "°C"`).

@@ -45,6 +45,10 @@ async fn meta_children_resolve() {
     assert!(kids
         .iter()
         .all(|k| k.meta.ty == Some(wyrm_core::TypeCode::Number)));
+    // spec 02 0.1.11: the list carries each child's unit
+    assert!(kids
+        .iter()
+        .all(|k| k.meta.unit == Some(wyrm_core::meta::TextOrCode::Text("°C".into()))));
     let keys = c.resolve(&root, Some("type:1"), None).await.unwrap();
     assert_eq!(keys.len(), 6);
     h.stop().await;
