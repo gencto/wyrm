@@ -118,9 +118,13 @@ impl Env {
             req.push_str(&format!("Authorization: Bearer {t}\r\n"));
         }
         req.push_str("\r\n");
+        // One write: a request the server refuses before reading its body
+        // (401) would otherwise leave the body unread in the socket, and
+        // closing it then resets the connection before we read the answer.
+        let mut msg = req.into_bytes();
+        msg.extend_from_slice(&body);
         let mut s = TcpStream::connect(self.addr).await.unwrap();
-        s.write_all(req.as_bytes()).await.unwrap();
-        s.write_all(&body).await.unwrap();
+        s.write_all(&msg).await.unwrap();
         let mut resp = Vec::new();
         tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp))
             .await
