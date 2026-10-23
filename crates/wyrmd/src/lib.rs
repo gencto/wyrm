@@ -275,6 +275,11 @@ impl PeersSection {
                 })
                 .collect(),
             listen: self.listen.is_some(),
+            listen_port: self
+                .listen
+                .as_deref()
+                .and_then(|ep| ep.rsplit_once(':'))
+                .and_then(|(_, p)| p.parse().ok()),
         }
     }
 }

@@ -999,10 +999,7 @@ async fn auto_purge(ctl: &Control) -> bool {
     let (auto, retention) = (h.auto_purge, i64::from(h.retention_days));
     let dropped = tokio::task::spawn_blocking(move || {
         let mut dropped = Vec::new();
-        loop {
-            let Some(oldest) = st.days().first().copied() else {
-                break;
-            };
+        while let Some(oldest) = st.days().first().copied() {
             if oldest >= today {
                 break;
             }

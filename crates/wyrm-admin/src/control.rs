@@ -299,6 +299,8 @@ pub struct PeerConfig {
     pub upstream: Vec<UpstreamConf>,
     /// `peers.listen` is set: downstream sites can connect.
     pub listen: bool,
+    /// Its port: a link whose local end has it came in on that listener.
+    pub listen_port: Option<u16>,
 }
 
 /// How to reach one upstream site: its QUIC endpoint, its CA, and the
@@ -1030,6 +1032,17 @@ impl Control {
         let mut out = self.config_peers().upstream;
         for d in &self.runtime_peers() {
             if d.dir == PeerDir::Upstream && d.enabled {
+                // added before ADR 0015: no certificate from that site
+                if d.cert_pem.is_empty()
+                    || !self
+                        .secrets
+                        .names(&peer_secret(&d.site))
+                        .iter()
+                        .any(|n| n == PEER_KEY)
+                {
+                    warn!(site = %d.site, "upstream without our certificate from it: not connected; add it again");
+                    continue;
+                }
                 out.push(UpstreamConf {
                     site: d.site.clone(),
                     endpoint: d.endpoint.clone(),
@@ -1806,8 +1819,16 @@ async fn declare_quarantined(
             .attr("attempts", e.attempts),
     )
     .await?;
-    ctx.declare_action(&p, "approve", authorize_meta(None, roles))
-        .await?;
+    // a downstream broker needs only the sites it relays
+    let approve = if kind == "broker" {
+        ActionMeta::new()
+            .display("Authorize")
+            .param("via", via_param())
+            .level(Perm::Config)
+    } else {
+        authorize_meta(None, roles)
+    };
+    ctx.declare_action(&p, "approve", approve).await?;
     ctx.declare_action(
         &p,
         "reject",
@@ -3801,6 +3822,8 @@ impl Admin {
     /// certificate issued (kept if it exists), shown in `sys/links`.
     async fn admit_broker(&self, site: &str, via: Vec<String>) -> Result<CertFiles, String> {
         let ctl = &self.ctl;
+        // also on Authorize: peers may have changed since it was quarantined
+        self.check_new_site(site).map_err(|e| e.to_string())?;
         if !ctl.config_peers().listen {
             return Err("no peers.listen in wyrmd.json5: downstream brokers cannot connect".into());
         }
@@ -4170,6 +4193,11 @@ fn admissible(reg: &Registry, operators: &[String], peers: &acl::Peers, cn: &str
     !known && crate::registry::validate_link_id(cn).is_ok()
 }
 
+/// The port of `<host>:<port>` (`[v6]:<port>` too).
+fn port_of(address: &str) -> Option<u16> {
+    address.rsplit_once(':')?.1.parse().ok()
+}
+
 /// May a `broker:<site>` session over QUIC go to quarantine (ADR 0015)?
 /// Never this broker, a peer site (an upstream's own certificate on our
 /// outbound link included), a site a peer relays, a rejected broker or a
@@ -4215,8 +4243,11 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
         let proto = ev.link().src().protocol().as_str().to_owned();
         let broker = crate::registry::broker_site(&cn).is_some();
         let ok = match crate::registry::broker_site(&cn) {
+            // only sessions that came in on our QUIC peer listener: on our own
+            // link to an upstream site the CN is that site's server's
             Some(site) => {
                 proto == "quic"
+                    && port_of(ev.link().src().address().as_ref()) == ctl.config_peers().listen_port
                     && broker_admissible(&ctl.registry(), &ctl.peers(), &ctl.cfg.site, site)
             }
             None => {
@@ -4710,6 +4741,13 @@ zenoh_rx_bytes_total_extra 7
         assert_eq!(super::rate(100.0, 150.0, 10.0), Some(5.0));
         assert_eq!(super::rate(100.0, 101.0, 3.0), Some(0.3));
         assert_eq!(super::rate(150.0, 20.0, 10.0), None, "reset");
+    }
+
+    #[test]
+    fn ports_of_link_addresses() {
+        assert_eq!(super::port_of("127.0.0.1:7449"), Some(7449));
+        assert_eq!(super::port_of("[::1]:7449"), Some(7449));
+        assert_eq!(super::port_of("host"), None);
     }
 
     #[test]
