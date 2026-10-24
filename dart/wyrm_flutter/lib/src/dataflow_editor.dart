@@ -785,19 +785,12 @@ class _DataflowWindowState extends State<_DataflowWindow> {
       ),
       _propRow(
         'Enabled',
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Transform.scale(
-            scale: 0.7,
-            child: Switch(
-              value: _rest['enabled'] != const VBool(false),
-              activeThumbColor: WyStyle.accent,
-              onChanged: (on) {
-                _rest['enabled'] = VBool(on);
-                _changed();
-              },
-            ),
-          ),
+        _BoolField(
+          value: _rest['enabled'] != const VBool(false),
+          onChanged: (on) {
+            _rest['enabled'] = VBool(on);
+            _changed();
+          },
         ),
       ),
       const SizedBox(height: 12),
@@ -888,17 +881,7 @@ class _DataflowWindowState extends State<_DataflowWindow> {
       );
     }
     if (p.type == 'bool') {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Transform.scale(
-          scale: 0.7,
-          child: Switch(
-            value: cur == const VBool(true),
-            activeThumbColor: WyStyle.accent,
-            onChanged: (on) => _setCfg(n, p.name, VBool(on)),
-          ),
-        ),
-      );
+      return _BoolField(value: cur is VBool ? cur.v : null, onChanged: (on) => _setCfg(n, p.name, VBool(on)));
     }
     final text = switch (p.type) {
       'array' => _texts(cur).join(', '),

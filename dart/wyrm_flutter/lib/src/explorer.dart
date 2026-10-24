@@ -585,6 +585,21 @@ abstract final class WyContextMenu {
   }
 }
 
+/// A bool as a DSA client shows it: `true` or `false` as text, chosen from
+/// a list of the two.
+class _BoolField extends StatelessWidget {
+  final bool? value;
+  final ValueChanged<bool> onChanged;
+  const _BoolField({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => _EnumField(
+        value: value?.toString(),
+        options: const ['true', 'false'],
+        onChanged: (v) => onChanged(v == 'true'),
+      );
+}
+
 /// Border plus padding of a menu panel, above its first row.
 const double _menuInset = 3;
 
@@ -975,17 +990,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       );
     }
     if (_bool.containsKey(name)) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Transform.scale(
-          scale: 0.7,
-          child: Switch(
-            value: _bool[name]!,
-            activeThumbColor: WyStyle.accent,
-            onChanged: (v) => setState(() => _bool[name] = v),
-          ),
-        ),
-      );
+      // as a DSA client: the value as text, chosen from true and false
+      return _BoolField(value: _bool[name], onChanged: (v) => setState(() => _bool[name] = v));
     }
     if (_enum.containsKey(name)) {
       // Not DropdownButton: its list is a route under the menu overlay.
@@ -1566,16 +1572,9 @@ class _MetricRowState extends State<_MetricRow> {
     final v = s?.sample.v;
     if (_meta.ty == TypeCode.bool_) {
       return SizedBox(
-        height: WyStyle.rowHeight,
-        child: Transform.scale(
-          scale: 0.6,
-          alignment: Alignment.centerLeft,
-          child: Switch(
-            value: v is VBool && v.v,
-            activeThumbColor: WyStyle.accent,
-            onChanged: (on) => _set(VBool(on)),
-          ),
-        ),
+        // a menu panel is at least 160 wide: the list fits under the field
+        width: 160,
+        child: _BoolField(value: v is VBool ? v.v : null, onChanged: (on) => _set(VBool(on))),
       );
     }
     // a storage value with `editor: date` (ADR 0017): picked, not typed

@@ -658,7 +658,7 @@ void main() {
     expect(find.textContaining('WyrmException'), findsNothing);
   });
 
-  testWidgets('Metrics: config values are set with a switch and a list; a refusal shows', (t) async {
+  testWidgets('Metrics: config values are set from lists (a bool too, as text); a refusal shows', (t) async {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = SettableApi();
@@ -666,8 +666,11 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.text('c'));
     await t.pumpAndSettle();
-    // bool: a switch
-    await t.tap(find.byType(Switch));
+    // bool: its value as text, then the list true / false
+    expect(find.byType(Switch), findsNothing);
+    await t.tap(find.text('false'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('true').last);
     await t.pumpAndSettle();
     expect(api.sets, [('wy/s/downstream/c/opt', const VBool(true))]);
     // enum: the label, then the list; a refused choice shows its message
