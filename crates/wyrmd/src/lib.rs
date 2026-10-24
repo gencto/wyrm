@@ -1166,6 +1166,8 @@ impl Daemon {
         ctl.set_peers(cfg.peers.peer_config());
         // a site now in wyrmd.json5 and still in the registry: json5 wins
         ctl.drop_shadowed_peers();
+        // watches stored with a tree route before routes resolved
+        ctl.resolve_watch_routes();
         // A link installed at runtime before its name became a downstream
         // site would overlap `downstream/<d>` (ADR 0007): refuse to start.
         if let Some(d) = cfg

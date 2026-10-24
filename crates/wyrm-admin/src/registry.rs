@@ -423,6 +423,17 @@ pub enum Op {
         #[cbor(default)]
         config: BTreeMap<String, Vec<String>>,
     },
+    /// A watch's key, as a route copied from an explorer's tree (stored
+    /// before routes resolved) becomes the key of its site.
+    #[n(35)]
+    SetWatchKey {
+        #[n(0)]
+        group: String,
+        #[n(1)]
+        id: String,
+        #[n(2)]
+        key: String,
+    },
 }
 
 /// At most this many signing sites per upstream site, and keys per site.
@@ -999,6 +1010,21 @@ impl wyrm_state::State for Registry {
                     .remove(name)
                     .ok_or_else(|| format!("no watch group {name}"))?;
             }
+            Op::SetWatchKey { group, id, key } => {
+                check_watch_key(key)?;
+                let g = self
+                    .historian
+                    .groups
+                    .get_mut(group)
+                    .ok_or_else(|| format!("no watch group {group}"))?;
+                if g.watches.iter().any(|(i, w)| i != id && w.key == *key) {
+                    return Err(format!("{key} is watched in {group}"));
+                }
+                g.watches
+                    .get_mut(id)
+                    .ok_or_else(|| format!("no watch {group}/{id}"))?
+                    .key = key.clone();
+            }
             Op::AddWatch { group, key } => {
                 check_watch_key(key)?;
                 let total: usize = self
@@ -1462,6 +1488,47 @@ mod tests {
         r.apply(&Op::RemovePeer("hq".into())).unwrap();
         assert!(r.signers.is_empty(), "gone with the peer");
         assert!(r.config_signers.is_empty());
+    }
+
+    /// A watch stored with a route gets its key; a key already watched in
+    /// the group is refused.
+    #[test]
+    fn watch_keys_change_in_place() {
+        let mut r = Registry::default();
+        r.apply(&Op::PutWatchGroup {
+            name: "g".into(),
+            logging: 2,
+            interval_ms: 1000,
+            flush_ms: 1000,
+        })
+        .unwrap();
+        for key in [
+            "wy/c/downstream/edge/downstream/lab/x",
+            "wy/edge/downstream/lab/y",
+        ] {
+            r.apply(&Op::AddWatch {
+                group: "g".into(),
+                key: key.into(),
+            })
+            .unwrap();
+        }
+        r.apply(&Op::SetWatchKey {
+            group: "g".into(),
+            id: "w1".into(),
+            key: "wy/edge/downstream/lab/x".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            r.historian.groups["g"].watches["w1"].key,
+            "wy/edge/downstream/lab/x"
+        );
+        assert!(r
+            .apply(&Op::SetWatchKey {
+                group: "g".into(),
+                id: "w1".into(),
+                key: "wy/edge/downstream/lab/y".into(),
+            })
+            .is_err());
     }
 
     #[test]

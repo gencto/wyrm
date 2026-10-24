@@ -1052,6 +1052,43 @@ impl Control {
         )
     }
 
+    /// History watches stored with a tree route (`wy/central/downstream/edge/
+    /// downstream/…`, pasted before routes resolved) get the key of the site
+    /// the route ends in. At start, after the peers are known. Returns how
+    /// many changed.
+    pub fn resolve_watch_routes(&self) -> usize {
+        let below = self.peers().reachable();
+        let reg = self.registry();
+        let mut n = 0;
+        for (group, g) in &reg.historian.groups {
+            for (id, w) in &g.watches {
+                let key = wyrm_core::keyspace::route_key(&w.key, |s| below.iter().any(|d| d == s));
+                if key == w.key {
+                    continue;
+                }
+                match self.apply(Op::SetWatchKey {
+                    group: group.clone(),
+                    id: id.clone(),
+                    key: key.clone(),
+                }) {
+                    Ok(()) => {
+                        self.record(
+                            "system",
+                            "watch_key",
+                            &format!("{group}/{id}"),
+                            Status::Ok,
+                            &key,
+                        );
+                        info!(watch = %format!("{group}/{id}"), %key, "a watched route is now its key");
+                        n += 1;
+                    }
+                    Err(e) => warn!(watch = %format!("{group}/{id}"), "route {}: {e}", w.key),
+                }
+            }
+        }
+        n
+    }
+
     /// Remove runtime peers that `wyrmd.json5` now defines (at start, after
     /// [`Control::set_peers`]). Returns their sites.
     pub fn drop_shadowed_peers(&self) -> Vec<String> {
