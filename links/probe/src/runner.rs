@@ -101,8 +101,27 @@ impl Report {
     }
 }
 
+/// `v` with the values of secret-looking fields (`token`, `password`,
+/// `secret`, `key`) hidden: a report is shown to whoever runs the probe.
+fn redact(v: &Value) -> Value {
+    match v {
+        Value::Map(m) => Value::Map(
+            m.iter()
+                .map(|(k, x)| {
+                    let hide = ["token", "password", "secret", "key"]
+                        .iter()
+                        .any(|s| k.to_ascii_lowercase().contains(s));
+                    (k.clone(), if hide { Value::from("***") } else { redact(x) })
+                })
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(redact).collect()),
+        other => other.clone(),
+    }
+}
+
 fn short(v: &Value) -> String {
-    let s = format!("{v:?}");
+    let s = format!("{:?}", redact(v));
     if s.chars().count() > 120 {
         format!("{}…", s.chars().take(120).collect::<String>())
     } else {

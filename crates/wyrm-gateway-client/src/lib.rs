@@ -24,6 +24,27 @@ use wyrm_core::{NodeMeta, Status, Value};
 /// How long a one-shot request waits for its reply.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn loopback_gateways_only() {
+        assert_eq!(
+            super::host_port("http://127.0.0.1:8445").unwrap(),
+            "127.0.0.1:8445"
+        );
+        assert!(super::host_port("localhost:8445").is_ok());
+        assert!(super::host_port("http://[::1]:8445/").is_ok());
+        for bad in [
+            "http://10.0.0.5:8445",
+            "https://127.0.0.1:8445",
+            "http://evil.example:80",
+            "http://127.0.0.1:1/x",
+        ] {
+            assert!(super::host_port(bad).is_err(), "{bad}");
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -56,6 +77,14 @@ fn host_port(url: &str) -> Result<String> {
     if hp.is_empty() || hp.contains('/') {
         return Err(Error::Transport(format!(
             "gateway url {url}: http://host:port"
+        )));
+    }
+    // A password goes there in clear: loopback only, never a name that
+    // could resolve elsewhere.
+    let host = hp.rsplit_once(':').map(|(h, _)| h).unwrap_or(hp);
+    if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
+        return Err(Error::Transport(format!(
+            "gateway url {url}: plain HTTP only on loopback (127.0.0.1, localhost, [::1])"
         )));
     }
     Ok(hp.to_owned())

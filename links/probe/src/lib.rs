@@ -3,9 +3,10 @@
 //! actions and their answers, the `list` callbacks they cause (`added`,
 //! `changed`, `removed`) with their delays, and values on subscriptions.
 //!
-//! It logs in as a gateway user (params `gateway`, `user`; the link secret
-//! `password`), so its rights are that user's: `run` and `run_builtin`
-//! need `config`. [`scenario`] describes the steps; [`runner`] runs them.
+//! It logs in as a gateway user (params `gateway`, a loopback URL; `user`;
+//! the link secret `password`), so its rights are that user's: only that
+//! very user may run it (`run` and `run_builtin` need `config` too), and
+//! secret-looking fields of results are hidden in its reports. [`scenario`] describes the steps; [`runner`] runs them.
 //! `wyr probe` runs the same scenarios from a terminal.
 
 #![forbid(unsafe_code)]
@@ -178,9 +179,18 @@ impl Link for Probe {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Caller,
+        who: &Caller,
         out: ReplySink,
     ) -> Result<()> {
+        // The probe acts as its gateway user: only that user may make it act
+        // (no one else borrows that user's rights through it).
+        let me = format!("user:{}", self.cfg.user);
+        if who.claims.as_ref().map(|c| c.sub.as_str()) != Some(me.as_str()) {
+            return Err(LinkError::new(
+                wyrm_core::Status::PermissionDenied,
+                format!("only {me} runs this probe (it acts as that gateway user)"),
+            ));
+        }
         let arg = |k: &str| match &args {
             Value::Map(m) => match m.get(k) {
                 Some(Value::Str(s)) if !s.is_empty() => Some(s.clone()),
