@@ -1,12 +1,14 @@
 {
   "name": "dataflows",
-  "description": "A flow deployed through the gateway appears, publishes values, and is removed.",
+  "description": "The editor's path: the node-type catalog, a flow with a layout deployed through the gateway appears, publishes values, and is removed.",
   "steps": [
     { "watch": "wy/{site}/dataflows" },
+    { "invoke": "wy/{site}/dataflows", "action": "node_types" },
     { "invoke": "wy/{site}/dataflows", "action": "deploy", "args": { "def": {
       "id": "p{run}", "version": 1,
       "nodes": { "t": { "type": "timer", "period_ms": 300 }, "out": { "type": "publish", "node": "ticks" } },
-      "edges": [["t.out", "out.in"]] } } },
+      "edges": [["t.out", "out.in"]],
+      "layout": { "t": [20, 20], "out": [300, 20] } } } },
     { "added": "wy/{site}/dataflows", "name": "p{run}" },
     { "sub": "wy/{site}/dataflows/p{run}/nodes/**" },
     { "value": "wy/{site}/dataflows/p{run}/nodes/ticks" },

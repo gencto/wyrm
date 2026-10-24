@@ -237,6 +237,66 @@ class TimeApi extends ActApi {
   Future<NodeMeta> meta(String key) async => key == 'wy/s/downstream/m' ? metaTime : super.meta(key);
 }
 
+/// A flow `f` (timer t → publish out) under `wy/s/dataflows`, with a small
+/// node-type catalog; `validate` answers ok, `deploy` is recorded.
+class FlowApi extends ActApi {
+  static VMap param(String name, String type, {bool required = false}) =>
+      VMap({'name': VStr(name), 'type': VStr(type), 'required': VBool(required), 'description': const VStr('')});
+  static VMap type(String ty, List<String> ins, List<String> outs, List<VMap> params) => VMap({
+        'type': VStr(ty),
+        'category': const VStr('Test'),
+        'description': VStr('$ty block'),
+        'inputs': VArray([for (final i in ins) VStr(i)]),
+        'outputs': VArray([for (final o in outs) VStr(o)]),
+        'params': VArray(params),
+      });
+
+  static final catalog = VArray([
+    type('timer', [], ['out'], [param('period_ms', 'number', required: true)]),
+    type('scale', ['in'], ['out'], [param('k', 'number')]),
+    type('publish', ['in'], [], [param('node', 'string', required: true)]),
+  ]);
+
+  static final def = VMap({
+    'id': const VStr('f'),
+    'version': const VInt(3),
+    'nodes': VMap({
+      't': VMap({'type': const VStr('timer'), 'period_ms': const VInt(500)}),
+      'out': VMap({'type': const VStr('publish'), 'node': const VStr('ticks')}),
+    }),
+    'edges': VArray([
+      VArray([const VStr('t.out'), const VStr('out.in')])
+    ]),
+    'layout': VMap({
+      't': VArray([const VInt(20), const VInt(20)]),
+      'out': VArray([const VInt(400), const VInt(20)]),
+    }),
+    'policy': VMap({'queue': const VInt(64)}),
+  });
+
+  @override
+  Stream<ListUpdate> list(String key) {
+    final c = StreamController<ListUpdate>();
+    lists[key] = c;
+    if (key == 'wy/s/dataflows') c.add(ListRefreshed([Child('f', NodeMeta(hasChildren: true))]));
+    return c.stream;
+  }
+
+  @override
+  Future<NodeMeta> meta(String key) async => NodeMeta(hasChildren: true);
+
+  @override
+  Stream<Value> invoke(String key, String action, [Value? args]) {
+    invoked.add((key, action, args));
+    return switch (action) {
+      'node_types' => Stream.value(catalog),
+      'history' => Stream.value(VArray([def])),
+      'validate' => Stream.value(VMap({'ok': const VBool(true)})),
+      _ => const Stream.empty(),
+    };
+  }
+}
+
 Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
   await t.pumpAndSettle();
@@ -430,6 +490,52 @@ void main() {
     expect(range[0], endsWith('Z'));
     expect(args.v['flush'], const VInt(300));
     expect(args.v['interval'], const VStr('none'));
+  });
+
+  testWidgets('dataflow editor: load, add from the palette, link, edit, deploy', (t) async {
+    t.view.physicalSize = const Size(1600, 1000);
+    t.view.devicePixelRatio = 1;
+    final api = FlowApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/dataflows'))));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('f'));
+    await t.tap(find.text('Edit Dataflow'));
+    await t.pumpAndSettle(const Duration(milliseconds: 500));
+    // the blocks of the flow, its wire, and the check
+    expect(find.text('t  ·  timer'), findsOneWidget);
+    expect(find.text('out  ·  publish'), findsOneWidget);
+    expect(find.text('✓ checks'), findsOneWidget);
+    // a scale from the palette, then a wire t.out → scale1.in
+    await t.tap(find.text('scale'));
+    await t.pumpAndSettle(const Duration(milliseconds: 500));
+    expect(find.text('scale1  ·  scale'), findsOneWidget);
+    final from = t.getCenter(find.byKey(const ValueKey('out:t.out')));
+    final to = t.getCenter(find.byKey(const ValueKey('in:scale1.in')));
+    await t.dragFrom(from, to - from);
+    await t.pumpAndSettle(const Duration(milliseconds: 500));
+    // edit t's period in its properties
+    await t.tap(find.text('t  ·  timer'));
+    await t.pumpAndSettle();
+    final period = find.ancestor(of: find.text('500'), matching: find.byType(TextField));
+    await t.enterText(period, '250');
+    await t.pumpAndSettle(const Duration(milliseconds: 500));
+    await t.tap(find.text('Deploy *'));
+    await t.pumpAndSettle();
+    final deploy = api.invoked.lastWhere((c) => c.$2 == 'deploy');
+    expect(deploy.$1, 'wy/s/dataflows');
+    final d = ((deploy.$3! as VMap).v['def']! as VMap).v;
+    expect(d['version'], const VInt(4));
+    final nodes = (d['nodes']! as VMap).v;
+    expect((nodes['t']! as VMap).v['period_ms'], const VInt(250));
+    expect((nodes['scale1']! as VMap).v['type'], const VStr('scale'));
+    final edges = [
+      for (final e in (d['edges']! as VArray).v) [for (final x in (e as VArray).v) (x as VStr).v].join('→')
+    ];
+    // the timer now feeds the scale; out keeps its link (an output may feed many)
+    expect(edges, containsAll(['t.out→out.in', 't.out→scale1.in']));
+    expect((d['layout']! as VMap).v.keys, containsAll(['t', 'out', 'scale1']));
+    expect(d['policy'], isNotNull, reason: 'fields the editor does not know are kept');
+    expect(find.text('deployed version 4'), findsOneWidget);
   });
 
   testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {

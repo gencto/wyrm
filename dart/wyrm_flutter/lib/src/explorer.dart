@@ -4,8 +4,11 @@
 // and attributes. Colours and measures: explorer_theme.dart.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -15,6 +18,7 @@ import 'tree.dart' show formatValue, unitSuffix, historyStores, isRecorded, hist
 
 part 'history.dart';
 part 'time_fields.dart';
+part 'dataflow_editor.dart';
 
 /// Tab bar: 40px, `#1d1c1c`, active tab `#2ebed7` with a 2px
 /// underline, 12px text with 10px side margins, 10px bar padding.
@@ -550,6 +554,16 @@ abstract final class WyContextMenu {
                     onTap: (_) {
                       close();
                       WyHistory.open(context, api, key);
+                    },
+                  ),
+                // a flow opens in the dataflow editor (ADR 0019)
+                if (_isFlowKey(key) || _isFlowsRoot(key))
+                  _MenuItem(
+                    label: _isFlowKey(key) ? 'Edit Dataflow' : 'New Dataflow',
+                    onHover: (_) => closeFrom(1),
+                    onTap: (_) {
+                      close();
+                      WyDataflowEditor.open(context, api, key);
                     },
                   ),
                 _MenuItem(

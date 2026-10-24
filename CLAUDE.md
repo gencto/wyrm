@@ -37,6 +37,7 @@ crates/wyrm-wasm-host   ✅ wasmtime component host: WIT wyrm:flow/node + wyrm:l
 crates/wyrmd            ✅ binary (router, storage + rest plugins, admin, flow engine, gateway, peers over QUIC, links; rebuild on ACL change)
 links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin"); modbus and mockdev on the driver framework, bench mock on the raw layer
 tools/wyr               ✅ CLI ops part (dev commands: iteration 9); `wyr probe` runs links/probe scenarios through a gateway
+dart/wyrm_flutter dataflow editor ✅ ADR 0019: Edit/New Dataflow window (palette from `dataflows/~act/node_types`, blocks with port rows, S-curve wires, drag out→in links, double-click unlinks, properties, validate as you edit, Deploy = version+1 with `layout`)
 links/probe             ✅ test link + runner: scenarios of actions, list callbacks (added/changed/removed + delay) and values through the user gateway (`wyrm-gateway-client`); built-ins history/storage/tokens/dataflows; run on the demo after changes that touch the tree
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
