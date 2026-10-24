@@ -8,6 +8,8 @@
 #   average-<host>.zip       both: serves statistics of another link and
 #                            writes its points (examples/links/both; asks for
 #                            a write grant)
+#   probe-<host>.zip         test tool: runs scenarios through the site's
+#                            gateway as one of its users (links/probe)
 #   register-wasm.zip        WASM package: the register component
 #   register.wasm, tcp-ping.wasm  components for "Install Link ▸ from WASM"
 #   index.json               repository index for "from Repository", URLs on
@@ -22,6 +24,7 @@ PORT=${REPO_PORT:-8090}
 mkdir -p "$OUT"
 
 (cd $ROOT && cargo build --release -p wyrm-example-link -p wyrm-example-recorder -p wyrm-example-average)
+(cd $ROOT && cargo build --release -p wyrm-link-probe --features bin)
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 
 PROTO=$(sed -n 's/^pub const LINK_PROTOCOL: u32 = \([0-9]*\);/\1/p' $ROOT/crates/wyrm-link-sdk/src/lib.rs)
@@ -71,6 +74,8 @@ rec_zip = process("recorder", "wyrm-example-recorder",
 avg_zip = process("average", "wyrm-example-average",
                   "Responder and requester: statistics of wy/{site}/downstream/mock, Write All",
                   [("wy/{site}/downstream/mock", "write")])
+probe_zip = process("probe", "wyrm-link-probe",
+                    "Test tool: runs scenarios through the gateway (params gateway, user; secret password)")
 
 wasm_zip = package(out / "register-wasm.zip", {
     "name": "register",
@@ -95,6 +100,7 @@ index = [
     item("recorder", "1.0.0", "Requester: records wy/{site}/downstream/mock to CSV", rec_zip),
     item("average", "1.0.0", "Both: statistics of wy/{site}/downstream/mock, Write All", avg_zip),
     item("register", "1.0.0", "WASM link: one writable register per point", wasm_zip),
+    item("probe", "1.0.0", "Test tool: actions, node callbacks and values through the gateway", probe_zip),
 ]
 (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")
 for p in sorted(out.iterdir()):

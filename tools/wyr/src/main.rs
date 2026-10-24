@@ -202,6 +202,24 @@ enum Cmd {
         #[arg(long, default_value = "admin.key")]
         out: PathBuf,
     },
+    /// Run probe scenarios through a gateway as one of its users: actions,
+    /// the node callbacks they cause and values (links/probe). The
+    /// password comes from WYR_GATEWAY_PASSWORD or stdin.
+    Probe {
+        /// Built-in scenarios (history, storage, tokens, dataflows); none:
+        /// all of them.
+        names: Vec<String>,
+        /// A scenario file (JSON) instead of built-ins.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long, default_value = "http://127.0.0.1:8445")]
+        gateway: String,
+        #[arg(long, default_value = "admin")]
+        user: String,
+        /// `{site}` in the scenarios.
+        #[arg(long)]
+        site: String,
+    },
 }
 
 #[tokio::main]
@@ -217,6 +235,13 @@ async fn run(cli: Cli) -> Result<(), Error> {
     // Commands that need no broker connection.
     match cli.cmd {
         Cmd::Keygen { out } => return keygen(&out),
+        Cmd::Probe {
+            names,
+            file,
+            gateway,
+            user,
+            site,
+        } => return probe(names, file, &gateway, &user, &site).await,
         Cmd::Token {
             key_expr,
             subject,
@@ -348,6 +373,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
             admin::run(&c, cmd).await
         }
         Cmd::Keygen { .. }
+        | Cmd::Probe { .. }
         | Cmd::Token { .. }
         | Cmd::New { .. }
         | Cmd::Replay { .. }
@@ -355,6 +381,54 @@ async fn run(cli: Cli) -> Result<(), Error> {
             unreachable!("handled above")
         }
     }
+}
+
+/// `wyr probe`: each scenario on its own gateway connection; fails when a
+/// step failed.
+async fn probe(
+    names: Vec<String>,
+    file: Option<PathBuf>,
+    gateway: &str,
+    user: &str,
+    site: &str,
+) -> Result<(), Error> {
+    use wyrm_link_probe::{builtin, Scenario, BUILTIN};
+    let password = match std::env::var("WYR_GATEWAY_PASSWORD") {
+        Ok(p) => zeroize::Zeroizing::new(p),
+        Err(_) => {
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line)?;
+            zeroize::Zeroizing::new(line.trim_end_matches(['\r', '\n']).to_owned())
+        }
+    };
+    let texts: Vec<String> = match file {
+        Some(f) => vec![std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?],
+        None if names.is_empty() => BUILTIN.iter().map(|(_, t)| (*t).to_owned()).collect(),
+        None => names
+            .iter()
+            .map(|n| {
+                builtin(n)
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("no scenario {n:?}"))
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    let gw = wyrm_gateway_client::Gateway::login(gateway, user, &password).await?;
+    let mut failed = 0;
+    for text in texts {
+        let sc = Scenario::parse(&text)?;
+        let conn = gw.connect().await?;
+        let vars = std::collections::BTreeMap::from([("site".to_owned(), site.to_owned())]);
+        let report = wyrm_link_probe::run(&conn, &sc, vars).await;
+        print!("{}", report.text());
+        if !report.passed() {
+            failed += 1;
+        }
+    }
+    if failed > 0 {
+        return Err(format!("{failed} scenario(s) failed").into());
+    }
+    Ok(())
 }
 
 /// Client plus what is needed to add tokens once the target site is known.

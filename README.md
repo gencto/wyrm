@@ -24,6 +24,8 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `crates/wyrm-gateway` | user gateway: logins (argon2id), sessions, roles → grants, WebSocket CBOR proxy with per-point filtering |
 | `crates/wyrmd` | broker: Zenoh router + static plugins (storage manager, REST) + admin + flow engine + gateway + links from `wyrmd.json5` |
 | `links/mock` | N points × F Hz on a configurable tree (tests, benchmarks) |
+| `links/probe` | test tool: runs scenarios through a broker's gateway as one of its users — actions, the `list` callbacks they cause (`added`/`changed`/`removed`, with delays) and values; built-ins `history`, `storage`, `tokens`, `dataflows`; as a link package (`Run Scenario`, secret `password`) or `wyr probe [names] --gateway http://127.0.0.1:8445 --site <site>` (password from `WYR_GATEWAY_PASSWORD`) |
+| `crates/wyrm-gateway-client` | client of the user gateway (login, WebSocket CBOR requests and streams), plain HTTP on loopback |
 | `links/modbus` | Modbus TCP on the driver framework (`connection → device → point`, DSA data types, batched FC1–4 reads, FC5/6/15/16/22 writes with read-back), with a simulator (`wyrm-modbus-sim`) |
 | `links/mqtt` | MQTT on the driver framework: plain topics (raw or JSON pointer) and Sparkplug B (BIRTH/DATA/DEATH, NCMD/DCMD, rebirth); TLS (ring); password from the link secrets (`auth_ref`) |
 | `crates/wyrm-wasm-host` | WebAssembly component host (no imports; fuel, memory and time limits) for the flow node `wasm` (ADR 0010) |

@@ -1,0 +1,17 @@
+[package]
+name = "wyrm-gateway-client"
+description = "Client of the WYRM user gateway: login, then the WebSocket CBOR protocol (requests and list/subscribe streams)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net", "io-util"] }
+tokio-tungstenite.workspace = true
+futures-util = { workspace = true, features = ["sink", "std"] }
+thiserror.workspace = true
+tracing.workspace = true

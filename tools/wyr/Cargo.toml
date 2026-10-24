@@ -26,6 +26,8 @@ json5.workspace = true
 wyrm-link-sdk.workspace = true
 wyrm-link-mock.workspace = true
 minicbor.workspace = true
+wyrm-link-probe.workspace = true
+wyrm-gateway-client.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

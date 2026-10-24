@@ -2315,6 +2315,22 @@ async fn gateway_in_wyrmd() {
     };
 
     let p = gw.authenticate(session).expect("session verifies");
+    // The probe's scenarios through this gateway, as the explorer works:
+    // actions, the list callbacks they cause and values (links/probe).
+    let probe_gw = wyrm_gateway_client::Gateway::login(
+        &format!("http://{addr}"),
+        "root",
+        "correct-horse-battery-staple",
+    )
+    .await
+    .expect("probe login");
+    for (name, text) in wyrm_link_probe::BUILTIN {
+        let sc = wyrm_link_probe::Scenario::parse(text).unwrap();
+        let conn = probe_gw.connect().await.unwrap();
+        let vars = BTreeMap::from([("site".to_owned(), SITE.to_owned())]);
+        let report = wyrm_link_probe::run(&conn, &sc, vars).await;
+        assert!(report.passed(), "probe {name}:\n{}", report.text());
+    }
     let c = WyrmClient::new(env.session().await)
         .with_tokens(Arc::new(gw.tokens_for(&p)))
         .with_timeout(Duration::from_secs(3));

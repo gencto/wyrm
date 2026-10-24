@@ -5742,8 +5742,10 @@ dependencies = [
  "wyrm-client",
  "wyrm-core",
  "wyrm-flow",
+ "wyrm-gateway-client",
  "wyrm-history",
  "wyrm-link-mock",
+ "wyrm-link-probe",
  "wyrm-link-sdk",
  "zenoh",
  "zeroize",
@@ -5925,6 +5927,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-gateway-client"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "wyrm-core",
+]
+
+[[package]]
 name = "wyrm-history"
 version = "0.1.0"
 dependencies = [
@@ -6016,6 +6030,19 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "wyrm-core",
+ "wyrm-link-sdk",
+]
+
+[[package]]
+name = "wyrm-link-probe"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wyrm-core",
+ "wyrm-gateway-client",
  "wyrm-link-sdk",
 ]
 
@@ -6146,10 +6173,12 @@ dependencies = [
  "wyrm-core",
  "wyrm-flow",
  "wyrm-gateway",
+ "wyrm-gateway-client",
  "wyrm-link-agent",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",
+ "wyrm-link-probe",
  "wyrm-link-sdk",
  "wyrm-link-wasm",
  "wyrm-state",

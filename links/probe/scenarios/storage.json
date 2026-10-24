@@ -1,0 +1,32 @@
+{
+  "name": "storage",
+  "description": "Broker storage: folders and values appear with their callbacks; set, publish, duplicate, rename, export and import, delete.",
+  "steps": [
+    { "watch": "wy/{site}/storage" },
+    { "invoke": "wy/{site}/storage", "action": "add_node", "args": { "name": "p{run}" } },
+    { "added": "wy/{site}/storage", "name": "p{run}" },
+    { "watch": "wy/{site}/storage/p{run}" },
+    { "sub": "wy/{site}/storage/p{run}/**" },
+    { "invoke": "wy/{site}/storage/p{run}", "action": "add_value", "args": { "name": "temp", "type": "number" } },
+    { "added": "wy/{site}/storage/p{run}", "name": "temp" },
+    { "meta": "wy/{site}/storage/p{run}/temp", "type": "number", "has_action": ["delete", "rename", "duplicate"] },
+    { "set": "wy/{site}/storage/p{run}/temp", "value": 21.5 },
+    { "value": "wy/{site}/storage/p{run}/temp", "equals": 21.5 },
+    { "set": "wy/{site}/storage/p{run}/temp", "value": "warm", "expect": "error" },
+    { "invoke": "wy/{site}/storage", "action": "publish", "args": { "path": "p{run}/line/count", "value": 3 } },
+    { "added": "wy/{site}/storage/p{run}", "name": "line" },
+    { "value": "wy/{site}/storage/p{run}/line/count", "equals": 3 },
+    { "invoke": "wy/{site}/storage/p{run}", "action": "duplicate", "args": { "name": "q{run}" } },
+    { "added": "wy/{site}/storage", "name": "q{run}" },
+    { "invoke": "wy/{site}/storage/q{run}", "action": "rename", "args": { "name": "r{run}" } },
+    { "added": "wy/{site}/storage", "name": "r{run}" },
+    { "removed": "wy/{site}/storage", "name": "q{run}" },
+    { "invoke": "wy/{site}/storage/p{run}", "action": "export", "save_as": "json" },
+    { "invoke": "wy/{site}/storage/r{run}", "action": "import", "args": { "data": "{json}" } },
+    { "children": "wy/{site}/storage/r{run}", "contains": ["temp", "line"] },
+    { "invoke": "wy/{site}/storage/p{run}", "action": "delete", "expect": "error", "error": "recursive" },
+    { "invoke": "wy/{site}/storage/r{run}", "action": "delete", "args": { "recursive": true }, "cleanup": true },
+    { "invoke": "wy/{site}/storage/p{run}", "action": "delete", "args": { "recursive": true }, "cleanup": true },
+    { "removed": "wy/{site}/storage", "name": "p{run}", "cleanup": true }
+  ]
+}

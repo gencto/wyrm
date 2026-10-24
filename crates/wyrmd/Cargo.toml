@@ -39,6 +39,8 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 wyrm-link-modbus = { workspace = true, features = ["sim"] }
+wyrm-link-probe.workspace = true
+wyrm-gateway-client.workspace = true
 wyrm-client.workspace = true
 ed25519-dalek.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }

@@ -1,0 +1,16 @@
+{
+  "name": "dataflows",
+  "description": "A flow deployed through the gateway appears, publishes values, and is removed.",
+  "steps": [
+    { "watch": "wy/{site}/dataflows" },
+    { "invoke": "wy/{site}/dataflows", "action": "deploy", "args": { "def": {
+      "id": "p{run}", "version": 1,
+      "nodes": { "t": { "type": "timer", "period_ms": 300 }, "out": { "type": "publish", "node": "ticks" } },
+      "edges": [["t.out", "out.in"]] } } },
+    { "added": "wy/{site}/dataflows", "name": "p{run}" },
+    { "sub": "wy/{site}/dataflows/p{run}/nodes/**" },
+    { "value": "wy/{site}/dataflows/p{run}/nodes/ticks" },
+    { "invoke": "wy/{site}/dataflows/p{run}", "action": "remove", "cleanup": true },
+    { "removed": "wy/{site}/dataflows", "name": "p{run}", "cleanup": true }
+  ]
+}

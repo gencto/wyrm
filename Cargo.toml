@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "links/mqtt", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both"]
 
 [workspace.package]
 version = "0.1.0"
@@ -48,6 +48,8 @@ ring = "0.17"
 wyrm-state = { path = "crates/wyrm-state" }
 wyrm-history = { path = "crates/wyrm-history" }
 wyrm-storage = { path = "crates/wyrm-storage" }
+wyrm-gateway-client = { path = "crates/wyrm-gateway-client" }
+wyrm-link-probe = { path = "links/probe" }
 # Embedded historian store (ADR 0014): pure Rust, one file per day.
 redb = "~4.1"
 wyrm-flow = { path = "crates/wyrm-flow" }
