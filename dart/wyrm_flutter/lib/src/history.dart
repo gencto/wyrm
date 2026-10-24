@@ -120,7 +120,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
     _load();
   }
 
-  Widget _field(String label, TextEditingController c, double width, {String? hint}) => SizedBox(
+  Widget _field(String label, TextEditingController c, double width, {String? hint, bool date = false}) => SizedBox(
         width: width,
         child: Row(children: [
           Text(label, style: WyStyle.formLabel),
@@ -141,6 +141,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
               ),
             ),
           ),
+          if (date) _TimeButton(range: false, controller: c),
         ]),
       );
 
@@ -198,9 +199,23 @@ class _HistoryWindowState extends State<_HistoryWindow> {
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
             child: Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
               for (final (label, d) in _presets) SizedBox(width: 56, child: _Button(label: label, onTap: () => _preset(d))),
-              _field('From', _from, 280),
-              _field('To', _to, 280, hint: 'now'),
-              _field('Interval', _interval, 150),
+              _field('From', _from, 300, date: true),
+              _field('To', _to, 300, hint: 'now', date: true),
+              // wide enough for its list (a menu panel is at least 160)
+              SizedBox(
+                width: 230,
+                child: Row(children: [
+                  Text('Interval', style: WyStyle.formLabel),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _EnumField(
+                      value: _interval.text,
+                      options: _historyIntervals,
+                      onChanged: (v) => setState(() => _interval.text = v),
+                    ),
+                  ),
+                ]),
+              ),
               // wide enough for its list (a menu panel is at least 160)
               SizedBox(
                 width: 230,

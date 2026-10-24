@@ -178,12 +178,19 @@ fn logging_param(current: Option<Logging>) -> ParamMeta {
 fn seconds_param(display: &str, about: &str, current: Option<u64>) -> ParamMeta {
     let mut p = ParamMeta::of(TypeCode::Number)
         .display(display)
-        .description(about);
+        .description(about)
+        .editor(wyrm_core::meta::EDITOR_DURATION);
     if let Some(ms) = current {
         p = p.placeholder(format!("{}", ms as f64 / 1000.0));
     }
     p
 }
+
+/// Choices of Get History's interval (any `<n>s|m|h|d|w` is accepted).
+const GET_HISTORY_INTERVALS: [&str; 19] = [
+    "none", "1s", "5s", "10s", "15s", "30s", "1m", "5m", "10m", "15m", "30m", "1h", "2h", "3h",
+    "4h", "6h", "12h", "1d", "1w",
+];
 
 const INTERVAL_ABOUT: &str = "Seconds between two rows of Interval logging (0.1 s to 1 day).";
 const FLUSH_ABOUT: &str = "Seconds between writes to disk (0 = 0.1 s, at most 10 min); \
@@ -194,6 +201,7 @@ fn timerange_param() -> ParamMeta {
         .required(true)
         .display("Timerange")
         .placeholder("2026-10-22T00:00:00Z/2026-10-23T00:00:00Z")
+        .editor(wyrm_core::meta::EDITOR_DATERANGE)
         .description("From/to in RFC 3339 (a date is its midnight UTC); an empty end is now.")
 }
 
@@ -399,12 +407,11 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
             .param("timerange", timerange_param())
             .param(
                 "interval",
+                // the intervals a DSA client offers, in this API's units
                 str_param()
+                    .enum_values(GET_HISTORY_INTERVALS)
                     .display("Interval")
-                    .placeholder("none")
-                    .description(
-                        "none, or a number and s, m, h, d or w (5m): one row per interval.",
-                    ),
+                    .description("none: every row; else one row per interval."),
             )
             .param(
                 "rollup",

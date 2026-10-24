@@ -214,6 +214,29 @@ class ChainApi extends ActApi {
       key.endsWith('/p0') ? point : NodeMeta(hasChildren: true);
 }
 
+/// `m` has an action with time params (spec 02 0.2.4): a range, an
+/// interval to choose, a duration in seconds.
+class TimeApi extends ActApi {
+  static final metaTime = NodeMeta(hasChildren: true, actions: {
+    'get_history': ActionMeta(params: {
+      'timerange': ParamMeta(ty: TypeCode.string, required: true, editor: 'daterange'),
+      'interval': ParamMeta(ty: TypeCode.string, enumValues: ['none', '1m', '1h']),
+      'flush': ParamMeta(ty: TypeCode.number, editor: 'duration'),
+    }),
+  });
+
+  @override
+  Stream<ListUpdate> list(String key) {
+    final c = StreamController<ListUpdate>();
+    lists[key] = c;
+    if (key == 'wy/s/downstream') c.add(ListRefreshed([Child('m', metaTime)]));
+    return c.stream;
+  }
+
+  @override
+  Future<NodeMeta> meta(String key) async => key == 'wy/s/downstream/m' ? metaTime : super.meta(key);
+}
+
 Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.tap(f, buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
   await t.pumpAndSettle();
@@ -369,6 +392,44 @@ void main() {
     await t.tap(find.text('Copy Path'));
     await t.pumpAndSettle();
     expect(copied, route);
+  });
+
+  testWidgets('time params: a range from the list, a duration in a unit, an interval to choose', (t) async {
+    t.view.physicalSize = const Size(1400, 1000);
+    t.view.devicePixelRatio = 1;
+    final api = TimeApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    final mouse = await t.createGesture(kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.down(t.getCenter(find.text('m')));
+    await mouse.up();
+    await t.pumpAndSettle();
+    await mouse.moveTo(t.getCenter(find.text('get_history')));
+    await t.pumpAndSettle();
+    // the range: the calendar button opens the list; Last 24 Hours fills it
+    await t.tap(find.byIcon(Icons.calendar_month));
+    await t.pumpAndSettle();
+    expect(find.text('Today'), findsOneWidget);
+    await t.tap(find.text('Last 24 Hours'));
+    await t.pumpAndSettle();
+    // the duration: 5 in minutes
+    final fields = find.byType(TextField);
+    await t.enterText(fields.last, '5');
+    await t.tap(find.text('s'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('min'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    final args = api.invoked.single.$3! as VMap;
+    final range = (args.v['timerange']! as VStr).v.split('/');
+    final from = DateTime.parse(range[0]), to = DateTime.parse(range[1]);
+    expect(to.difference(from), const Duration(hours: 24));
+    expect(range[0], endsWith('Z'));
+    expect(args.v['flush'], const VInt(300));
+    expect(args.v['interval'], const VStr('none'));
   });
 
   testWidgets('groups: New and Edit submenus, names for people, password field', (t) async {

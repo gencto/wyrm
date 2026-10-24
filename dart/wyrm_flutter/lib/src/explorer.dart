@@ -14,6 +14,7 @@ import 'explorer_theme.dart';
 import 'tree.dart' show formatValue, unitSuffix, historyStores, isRecorded, historyReadKey;
 
 part 'history.dart';
+part 'time_fields.dart';
 
 /// Tab bar: 40px, `#1d1c1c`, active tab `#2ebed7` with a 2px
 /// underline, 12px text with 10px side margins, 10px bar padding.
@@ -692,11 +693,21 @@ class _ActionFlyout extends StatefulWidget {
 enum _Status { idle, running, ok, error }
 
 class _ActionFlyoutState extends State<_ActionFlyout> {
-  late final Map<String, ParamMeta> _params =
-      widget.meta?.params ?? {'value': ParamMeta(ty: widget.node.ty, enumValues: widget.node.enumValues)};
+  late final Map<String, ParamMeta> _params = widget.meta?.params ??
+      {
+        'value': ParamMeta(
+          ty: widget.node.ty,
+          enumValues: widget.node.enumValues,
+          // a storage value's editor (ADR 0017): `date`, `textarea`
+          editor: switch (widget.node.attr?['editor']) { VStr(:final v) => v, _ => null },
+        )
+      };
   final _text = <String, TextEditingController>{};
   final _bool = <String, bool>{};
   final _enum = <String, String?>{};
+
+  /// `editor: duration` params: the chosen unit (seconds per unit).
+  final _units = <String, int>{};
 
   /// `editor: file` params (spec 02 0.1.7): the chosen file, if any.
   final _files = <String, ({String name, Uint8List bytes})?>{};
@@ -719,6 +730,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         _enum[e.key] = d is VStr ? d.v : p.enumValues!.firstOrNull;
       } else {
         _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : formatValue(d, null));
+        if (p.editor == _editorDuration) _units[e.key] = 1;
       }
     }
   }
@@ -733,6 +745,11 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       return i >= 0 ? VInt(i) : VStr(s);
     }
     final t = _text[k]!.text.trim();
+    if (_units.containsKey(k)) {
+      // typed in the chosen unit, sent in seconds
+      final n = (double.tryParse(t) ?? 0) * _units[k]!;
+      return n == n.roundToDouble() ? VInt(n.round()) : VFloat(n);
+    }
     if (p.ty == TypeCode.number) {
       return int.tryParse(t) != null ? VInt(int.parse(t)) : VFloat(double.tryParse(t) ?? 0);
     }
@@ -966,7 +983,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       );
     }
     final area = p.editor == 'textarea';
-    return _FieldBox(
+    final time = p.editor == _editorDateRange || p.editor == _editorDate;
+    final field = _FieldBox(
       height: area ? 62 : 26,
       child: TextField(
         controller: _text[name],
@@ -984,6 +1002,28 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         onSubmitted: area ? null : (_) => _invoke(),
       ),
     );
+    if (time) {
+      return Row(children: [
+        Expanded(child: field),
+        _TimeButton(range: p.editor == _editorDateRange, controller: _text[name]!),
+      ]);
+    }
+    if (_units.containsKey(name)) {
+      final unit = _durationUnits.firstWhere((u) => u.$2 == _units[name], orElse: () => _durationUnits.first);
+      return Row(children: [
+        Expanded(child: field),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 56,
+          child: _EnumField(
+            value: unit.$1,
+            options: [for (final u in _durationUnits) u.$1],
+            onChanged: (v) => setState(() => _units[name] = _durationUnits.firstWhere((u) => u.$1 == v).$2),
+          ),
+        ),
+      ]);
+    }
+    return field;
   }
 }
 
@@ -1522,6 +1562,20 @@ class _MetricRowState extends State<_MetricRow> {
             onChanged: (on) => _set(VBool(on)),
           ),
         ),
+      );
+    }
+    // a storage value with `editor: date` (ADR 0017): picked, not typed
+    if (_meta.attr?['editor'] case VStr(v: _editorDate)) {
+      return InkWell(
+        onTap: () async {
+          final t = await pickTime(context, v is VStr ? v.v : '');
+          if (t != null) await _set(VStr(t));
+        },
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(text.isEmpty ? '—' : text, style: WyStyle.label.copyWith(color: color)),
+          const SizedBox(width: 4),
+          const Icon(Icons.calendar_month, size: 14, color: WyStyle.accent),
+        ]),
       );
     }
     final labels = _meta.enumValues;

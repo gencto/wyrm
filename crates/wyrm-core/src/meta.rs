@@ -708,6 +708,14 @@ pub const EDITOR_PASSWORD: &str = "password";
 pub const EDITOR_TEXTAREA: &str = "textarea";
 /// `editor` of a binary parameter read from a local file (spec 02 0.1.7).
 pub const EDITOR_FILE: &str = "file";
+/// `editor` of a text range `<from>/<to>` in RFC 3339 (spec 02 0.2.4): UIs
+/// offer ranges (Today, Last 7 Days, …) and date-time pickers.
+pub const EDITOR_DATERANGE: &str = "daterange";
+/// `editor` of one RFC 3339 instant (spec 02 0.2.4): a date-time picker.
+pub const EDITOR_DATE: &str = "date";
+/// `editor` of a number of seconds (spec 02 0.2.4): typed in a unit (s,
+/// min, h, d) chosen beside it, sent in seconds.
+pub const EDITOR_DURATION: &str = "duration";
 
 impl ParamMeta {
     pub fn of(ty: TypeCode) -> Self {
