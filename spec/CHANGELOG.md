@@ -16,3 +16,4 @@
 - 0.2.2 (2026-10-24): 01 — site section `storage` (`wy/<site>/storage/**`): broker storage of folders and values people create, as a DSA broker's `/data` (ADR 0017); link id `storage` is reserved. No fixture change.
 - 0.2.3 (2026-10-24): 01 — commands from upstream sites: `~set`/`~act` on `downstream`, `dataflows`, `storage` of a site below always, on `sys` only with that site's `allow_config`; tokens carry the target site; `wy/<site>/sys/signing_keys` lists the keys that sign them (ADR 0018). No fixture change.
 - 0.2.4 (2026-10-24): 02 — param-meta `editor` values `daterange` (`<from>/<to>` in RFC 3339, with preset ranges), `date` (one instant) and `duration` (seconds, typed in a chosen unit) for UIs. No fixture change.
+- 0.2.5 (2026-10-24): 06 — `~def.layout` `{<node_id>: [x, y]}` (editor positions, ignored by the compiler and outside a node's config) and `dataflows/~act/node_types` (the node-type catalog for editors). No fixture change.

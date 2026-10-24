@@ -731,6 +731,16 @@ impl Link for Engine {
                 .level(Perm::Read),
         )
         .await?;
+        // the palette of an editor: types, ports, params (crate::catalog)
+        ctx.declare_action(
+            "",
+            "node_types",
+            ActionMeta::new()
+                .display("Node Types")
+                .result(ActionResult::Type(TypeCode::Array))
+                .level(Perm::Read),
+        )
+        .await?;
         let shared: Shared = Arc::new(AsyncMutex::new(State {
             ctx: ctx.clone(),
             host: cfg.host.clone(),
@@ -800,6 +810,10 @@ impl Link for Engine {
                 let mut r = BTreeMap::new();
                 r.insert("artifact".into(), Value::Str(sha));
                 return out.reply(Value::Map(r)).await;
+            }
+            ("", "node_types") => {
+                drop(st);
+                return out.reply(crate::catalog::value()).await;
             }
             ("", "validate") => {
                 let mut m = BTreeMap::new();

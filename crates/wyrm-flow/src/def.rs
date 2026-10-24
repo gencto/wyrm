@@ -137,6 +137,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         "edges",
         "policy",
         "permissions",
+        "layout",
     ];
     if let Some(k) = m.keys().find(|k| !KNOWN.contains(&k.as_str())) {
         return err(format!("{k}: unknown field"));
@@ -157,6 +158,18 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         Some(Value::Str(s)) => Some(s.clone()),
         Some(_) => return err("description: expected a string"),
     };
+    // Where an editor draws each node (spec 06 0.2.5): `{<node>: [x, y]}`.
+    // Not part of a node, so moving one keeps its state on a hot swap.
+    if let Some(l) = m.get("layout") {
+        for (n, xy) in as_map(l, "layout")? {
+            match xy {
+                Value::Array(a)
+                    if a.len() == 2 && a.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)) => {
+                }
+                _ => return err(format!("layout.{n}: expected [x, y]")),
+            }
+        }
+    }
     let mut nodes = BTreeMap::new();
     for (nid, nv) in as_map(m.get("nodes").unwrap_or(&Value::Map(Map::new())), "nodes")? {
         let path = format!("nodes.{nid}");

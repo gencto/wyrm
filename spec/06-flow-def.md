@@ -11,10 +11,15 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
   "nodes": { <node_id>: { "type": tstr, ...config, "placement": "local"|"process"|"wasm"? } },
   "edges": [ [ "<node>.<port>", "<node>.<port>" ] ],
   "policy": { "overflow": "drop_oldest"|"drop_newest"|"block", "queue": uint, "state_flush_s": uint, "restart": {"backoff_max_s": uint} },
-  "permissions": { "token": tstr, "maxperm": uint }
+  "permissions": { "token": tstr, "maxperm": uint },
+  "layout": { <node_id>: [ x, y ] }   // 0.2.5: де редактор малює ноду; компілятор не зважає
 }
 ```
 Порти: `<node>.out`, `<node>.in`, іменовані `<node>.in.<name>` / `<node>.out.<name>` (у `expression` — `in.<input>`; у `alarm` — `out`, `event`).
+
+`layout` належить редактору (ADR 0019): ключ — `node_id`, значення — два скінченні числа. Він не входить до конфігу ноди, тож переміщення ноди не скидає її стан при гарячій заміні.
+
+Каталог типів нод для редактора: `dataflows/~act/node_types` (рівень `read`) повертає масив `{type, category, description, inputs, outputs, dyn_inputs?, dyn_outputs?, params: [{name, type, required, description, choices?, default?, editor?}]}`; `dyn_inputs`/`dyn_outputs` = `{param, prefix, default}` — порти, які дає параметр (`expression`: `in.<name>` з `inputs`; `wasm`: `inputs`/`outputs`).
 
 ## Валідація (порядок, перша помилка зупиняє)
 1. схема; 2. унікальність `node_id`, `[A-Za-z0-9_]+`; 3. тип ноди є в реєстрі, конфіг за схемою типу; 4. ребра → існуючі порти, сумісні типи; 5. ациклічність (цикл дозволений лише через `delay`); 6. rhai компілюється; 7. `permissions.maxperm` ≥ мін. рівня всіх `invoke/set`-нод і ≤ `write` (флоу не робить config-операцій); 8. ліміти пам'яті (`window.max_samples` сума).

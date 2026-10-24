@@ -299,6 +299,22 @@ fn compiler_checks() {
         .unwrap_err()
         .0
         .contains("unknown node type"));
+    // an editor's layout (spec 06 0.2.5): checked, and not part of a node
+    let with = |xy: Value| {
+        let mut d = peak(1, "a.v + b.v");
+        if let Value::Map(m) = &mut d {
+            m.insert("layout".into(), map(&[("sum", xy)]));
+        }
+        d
+    };
+    let a = def::compile(&with(arr(&[Value::UInt(10), Value::Float(20.5)]))).unwrap();
+    let b = def::compile(&with(arr(&[Value::UInt(300), Value::UInt(40)]))).unwrap();
+    assert_eq!(
+        a.0.nodes["sum"].hash, b.0.nodes["sum"].hash,
+        "moving keeps the state"
+    );
+    let e = def::compile(&with(s("left"))).unwrap_err();
+    assert!(e.0.starts_with("layout.sum"), "{e}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
