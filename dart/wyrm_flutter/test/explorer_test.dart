@@ -302,6 +302,64 @@ Future<void> rightClick(WidgetTester t, Finder f) async {
   await t.pumpAndSettle();
 }
 
+/// One gateway connection of [GatewayFake]: answers `list` with the fake's
+/// children; the test drops it, as a broker rebuild closes the socket.
+class FakeSocket implements FrameTransport {
+  final GatewayFake gw;
+  final _in = StreamController<Value>();
+  FakeSocket(this.gw);
+
+  @override
+  Stream<Value> get incoming => _in.stream;
+
+  void _reply(int id, Map<String, Value> f) => scheduleMicrotask(() {
+        if (!_in.isClosed) _in.add(VMap({'id': VInt(id), ...f}));
+      });
+
+  @override
+  void send(Map<String, Value> frame) {
+    final id = (frame['id'] as VInt).v;
+    switch ((frame['op'] as VStr).v) {
+      case 'list':
+        _reply(id, {'ok': const VBool(true)});
+        _reply(id, {
+          'event': VMap({
+            'type': const VStr('refreshed'),
+            'children': VArray([
+              for (final n in gw.children)
+                VMap({'name': VStr(n), 'meta': VBytes(NodeMeta(hasChildren: true).toCbor())}),
+            ]),
+          }),
+        });
+      case 'children':
+        _reply(id, {'ok': const VBool(true), 'result': const VArray([])});
+      default:
+        _reply(id, {'ok': const VBool(true)});
+    }
+  }
+
+  void drop() => _in.close();
+
+  @override
+  Future<void> close() async {
+    if (!_in.isClosed) await _in.close();
+  }
+}
+
+class GatewayFake {
+  var children = ['m1'];
+  var refuse = 0;
+  FakeSocket? socket;
+
+  Future<FrameClient> connect() async {
+    if (refuse > 0) {
+      refuse--;
+      throw StateError('connection refused');
+    }
+    return FrameClient(socket = FakeSocket(this));
+  }
+}
+
 void main() {
   testWidgets('menu: hover shows params, Invoke runs the action', (t) async {
     t.view.physicalSize = const Size(1200, 900);
@@ -644,6 +702,31 @@ void main() {
     await t.tap(find.byTooltip('Close'));
     await t.pumpAndSettle();
     expect(find.textContaining('History: '), findsNothing);
+  });
+
+  testWidgets('a lost gateway connection: Reconnecting…, then the tree again', (t) async {
+    final gw = GatewayFake();
+    final api = await ReconnectingClient.open(gw.connect, maxDelay: const Duration(milliseconds: 10));
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pump();
+    expect(find.text('m1'), findsOneWidget);
+
+    // the broker rebuilds (an Authorize in sys/quarantine): the socket
+    // closes, the first connect is refused, the second one is up
+    gw
+      ..children = ['m1', 'm2']
+      ..refuse = 1;
+    gw.socket!.drop();
+    await t.pump();
+    expect(find.text('Reconnecting…'), findsOneWidget);
+    await t.pump(const Duration(milliseconds: 20));
+    await t.pump();
+    expect(find.text('Reconnecting…'), findsNothing);
+    expect(find.text('m2'), findsOneWidget);
+    expect(find.textContaining('closed'), findsNothing);
+    // not awaited: an awaited stream close in a widget test hangs its end
+    unawaited(api.close());
+    await t.pump();
   });
 
   testWidgets('Metrics of a links root: no ~meta call, no error', (t) async {

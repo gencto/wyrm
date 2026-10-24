@@ -8,3 +8,4 @@ export 'package:wyrm_core/wyrm_core.dart';
 export 'src/api.dart';
 export 'src/frames.dart';
 export 'src/gateway.dart';
+export 'src/reconnect.dart';

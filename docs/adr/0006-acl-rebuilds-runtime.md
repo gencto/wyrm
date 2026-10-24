@@ -27,7 +27,7 @@
 
 ## Consequences
 - A rebuild drops all Zenoh sessions for about 1 s. The memory `~val` storage starts empty and the owners refill it.
-- A rebuild also closes every user WebSocket. Gateway sessions and unspent tickets survive (they live in `Gateway`), so clients reconnect without a new login.
+- A rebuild also closes every user WebSocket. Gateway sessions and unspent tickets survive (they live in `Gateway`), so clients reconnect without a new login. The Dart client does it itself (2026-10-24): `WyrmGateway.client()` gives a `ReconnectingClient`, which opens a new socket with a fresh ticket, opens its `list` and `subscribe` streams again (a `list` starts over with `refreshed`), lets reads wait and go again, and fails a `set` or `invoke` cut by the close (it may have run); the explorer shows "Reconnecting…" meanwhile.
 - ACL changes are rare (lifecycle operations), so the cost is acceptable for one site.
 - On a clean shutdown `Control::shutdown` stops the supervised children; they are not adopted by PID on the next start. The wiki wants process links to survive a broker restart (systemd `KillMode=process`); that needs PID adoption and is not done yet.
 - Revisit when Zenoh exposes a public live ACL reload.

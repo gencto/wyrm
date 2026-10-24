@@ -48,6 +48,10 @@ class FrameClient implements WyrmApi {
 
   bool get isClosed => _closed;
 
+  /// Completes when the connection is gone (closed here or by the server).
+  Future<void> get done => _done.future;
+  final _done = Completer<void>();
+
   int _id() => _nextId++;
 
   void _send(int id, String op, String key, {Value? value, String? action, Value? args, int? sub}) {
@@ -96,6 +100,7 @@ class FrameClient implements WyrmApi {
 
   void _onGone() {
     _closed = true;
+    if (!_done.isCompleted) _done.complete();
     final all = _pending.values.toList();
     _pending.clear();
     for (final p in all) {

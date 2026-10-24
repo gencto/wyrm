@@ -58,7 +58,7 @@ class _ConnectPageState extends State<ConnectPage> {
         if (me case VMap(:final v)) {
           if (v['site'] case VStr(v: final site) when root.isEmpty) root = 'wy/$site';
         }
-        api = await gw.connect();
+        api = await gw.client();
       }
       if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute<void>(

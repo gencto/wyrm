@@ -149,4 +149,32 @@ void main() {
       throwsA(isA<WyrmException>().having((e) => e.status.known, 'status', Status.invalidParameter)),
     );
   });
+
+  // Last: the restart closes `c` too.
+  test('a gateway restart: a new socket, the streams open again', () async {
+    final rc = await gw.client();
+    final states = <bool>[];
+    rc.connection.listen(states.add);
+    var refreshes = 0;
+    final errors = <Object>[];
+    final sub = rc.list(root).listen((u) {
+      if (u is ListRefreshed) refreshes++;
+    }, onError: errors.add);
+    Future<void> until(bool Function() ok) async {
+      for (var i = 0; i < 200 && !ok(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(ok(), isTrue);
+    }
+
+    await until(() => refreshes == 1);
+    server.stdin.writeln('restart');
+    await until(() => refreshes == 2);
+    expect(states, [false, true]);
+    expect(errors, isEmpty);
+    expect((await rc.meta('$root/g0/p0')).isWritable, isTrue);
+    expect(c.isClosed, isTrue, reason: 'a plain FrameClient stays closed');
+    await sub.cancel();
+    await rc.close();
+  });
 }

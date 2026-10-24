@@ -151,9 +151,19 @@ class _WyExplorerState extends State<WyExplorer> {
   /// Site roots: built here, not listed.
   final _sites = <String>{};
 
+  /// `false` while a [ReconnectingClient] waits for a new connection.
+  bool _connected = true;
+  StreamSubscription<bool>? _connection;
+
   @override
   void initState() {
     super.initState();
+    if (widget.api case final ReconnectingClient r) {
+      _connected = r.isConnected;
+      _connection = r.connection.listen((up) {
+        if (mounted) setState(() => _connected = up);
+      });
+    }
     if (_isSiteKey(widget.rootKey)) {
       _site(widget.rootKey);
     } else {
@@ -199,6 +209,7 @@ class _WyExplorerState extends State<WyExplorer> {
 
   @override
   void dispose() {
+    _connection?.cancel();
     for (final s in _subs.values) {
       s.cancel();
     }
@@ -285,6 +296,10 @@ class _WyExplorerState extends State<WyExplorer> {
             flex: 3,
             child: Column(children: [
               WyTabBar(tabs: const ['Data'], trailing: _menuIcon()),
+              if (!_connected)
+                const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: Text('Reconnecting…', style: WyStyle.label)),
               if (_error != null)
                 Padding(
                     padding: const EdgeInsets.all(10),

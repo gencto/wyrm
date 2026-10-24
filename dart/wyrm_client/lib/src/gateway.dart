@@ -16,6 +16,7 @@ import 'package:wyrm_core/wyrm_core.dart';
 
 import 'api.dart';
 import 'frames.dart';
+import 'reconnect.dart';
 
 /// A logged-in gateway session. [connect] opens a WebSocket with a fresh
 /// ticket each time (also for a reconnect).
@@ -57,6 +58,11 @@ class WyrmGateway {
     final sock = await WebSocket.connect(ws.toString(), customClient: _http);
     return FrameClient(WebSocketTransport(sock), bulk: invoke);
   }
+
+  /// A client that opens a new WebSocket (with a fresh ticket) whenever
+  /// its socket closes: the broker closes them all when it rebuilds its
+  /// router on an ACL change (ADR 0006). Ends when the login session does.
+  Future<ReconnectingClient> client() => ReconnectingClient.open(connect);
 
   /// `POST /api/invoke`: one invoke of an action with a file parameter
   /// whose arguments are too large for a WebSocket frame; returns its last

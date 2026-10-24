@@ -6,7 +6,9 @@
 //! cargo run -p wyrm-gateway --example gateway_dev [-- --port 0]
 //! ```
 //! Prints `PORT=<n>` on stdout when it serves. Exits when stdin closes
-//! (so a crashed test leaves no process behind) or on a line `quit`.
+//! (so a crashed test leaves no process behind) or on a line `quit`. A line
+//! `restart` closes every socket and serves again on the same port, as
+//! `wyrmd` does when it rebuilds its router.
 //!
 //! Site `test`, link `mock` (6 writable points at 20 Hz on `g0`, `g1`;
 //! root actions `reset`, `count {n}`), admin user `admin` / `admin password`.
@@ -32,6 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             other => return Err(format!("unknown argument {other}").into()),
         }
     }
+    if port == 0 {
+        // the same port after a restart
+        port = std::net::TcpListener::bind(("127.0.0.1", 0))?
+            .local_addr()?
+            .port();
+    }
     let dir = std::env::temp_dir().join(format!("wyrm-gateway-dev-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
@@ -52,29 +60,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     let link = wyrm_link_sdk::spawn::<Mock>(session.clone(), lc, mock).await?;
 
-    // stdin EOF or `quit` → stop.
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    // stdin: `restart` → true; EOF or `quit` → false.
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<bool>();
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines() {
-            match line {
-                Ok(l) if l.trim() == "quit" => break,
+            match line.as_deref().map(str::trim) {
+                Ok("quit") | Err(_) => break,
+                Ok("restart") => {
+                    let _ = cmd_tx.send(true);
+                }
                 Ok(_) => {}
-                Err(_) => break,
             }
         }
-        let _ = stop_tx.send(());
+        let _ = cmd_tx.send(false);
     });
 
-    let server = tokio::spawn(gw.clone().serve(session.clone(), async {
-        let _ = stop_rx.await;
-    }));
-    let addr = tokio::time::timeout(Duration::from_secs(10), gw.local_addr()).await?;
-    {
-        let mut out = std::io::stdout().lock();
-        writeln!(out, "PORT={}", addr.port())?;
-        out.flush()?;
+    let mut first = true;
+    loop {
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(gw.clone().serve(session.clone(), async {
+            let _ = stop_rx.await;
+        }));
+        if first {
+            first = false;
+            let addr = tokio::time::timeout(Duration::from_secs(10), gw.local_addr()).await?;
+            let mut out = std::io::stdout().lock();
+            writeln!(out, "PORT={}", addr.port())?;
+            out.flush()?;
+        }
+        let restart = cmd_rx.recv().await.unwrap_or(false);
+        let _ = stop_tx.send(());
+        server.await??;
+        if !restart {
+            break;
+        }
     }
-    server.await??;
     link.stop().await;
     let _ = session.close().await;
     let _ = std::fs::remove_dir_all(&dir);
