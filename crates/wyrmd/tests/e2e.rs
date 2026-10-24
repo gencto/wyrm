@@ -1322,8 +1322,13 @@ async fn logs_and_log_levels() {
     env.stop().await;
 }
 
-/// The `secrets` map of a `hello` reply.
-async fn hello_secrets(s: &zenoh::Session, id: &str, token: &str) -> BTreeMap<String, Value> {
+/// The `secrets` map of a `hello` reply; `None` when no reply came (the
+/// session met a router that a rebuild was closing).
+async fn hello_secrets(
+    s: &zenoh::Session,
+    id: &str,
+    token: &str,
+) -> Option<BTreeMap<String, Value>> {
     let mut args = BTreeMap::new();
     args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
     let r = s
@@ -1332,12 +1337,12 @@ async fn hello_secrets(s: &zenoh::Session, id: &str, token: &str) -> BTreeMap<St
         .timeout(Duration::from_secs(5))
         .await
         .unwrap();
-    let reply = r.recv_async().await.unwrap();
+    let reply = r.recv_async().await.ok()?;
     let v: Value =
         wyrm_core::codec::from_slice(&reply.result().unwrap().payload().to_bytes()).unwrap();
     match v {
         Value::Map(mut m) => match m.remove("secrets") {
-            Some(Value::Map(s)) => s,
+            Some(Value::Map(s)) => Some(s),
             other => panic!("secrets: {other:?}"),
         },
         other => panic!("hello: {other:?}"),
@@ -1389,7 +1394,7 @@ async fn link_grants_make_a_requester() {
     assert_eq!(env.ctl.registry().links["rec"].grants.len(), 1);
     let key = eventually("read after the rebuild", 15, || async {
         let s = env.tls_session("rec").await;
-        let secrets = hello_secrets(&s, "rec", &token).await;
+        let secrets = hello_secrets(&s, "rec", &token).await?;
         let Some(Value::Bytes(seed)) = secrets.get(wyrm_link_sdk::REQUESTER_KEY) else {
             return None;
         };
