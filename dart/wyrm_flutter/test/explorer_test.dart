@@ -16,7 +16,8 @@ class ActApi implements WyrmApi {
     'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'scale': ParamMeta(ty: TypeCode.number)}),
   });
 
-  static final metaM = NodeMeta(hasChildren: true, actions: {
+  /// Holds only a point: no nodes for the tree.
+  static final metaM = NodeMeta(hasChildren: true, hasNodes: false, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
     'history': ActionMeta(display: 'History', result: const ResultType(TypeCode.array)),
@@ -27,7 +28,7 @@ class ActApi implements WyrmApi {
   });
 
   /// A driver connection: groups `new` and `edit` (spec 02 0.1.6).
-  static final metaC = NodeMeta(hasChildren: true, actions: {
+  static final metaC = NodeMeta(hasChildren: true, hasNodes: true, actions: {
     'add_device': ActionMeta(display: 'Add Device', group: 'new', params: {
       'name': ParamMeta(ty: TypeCode.string, required: true, display: 'Name'),
       'unit': ParamMeta(ty: TypeCode.number, display: 'Slave ID', description: '1..247'),
@@ -44,11 +45,16 @@ class ActApi implements WyrmApi {
     'hello': ActionMeta(level: Perm.none, params: {'token': ParamMeta(ty: TypeCode.binary)}),
   });
 
+  /// The snapshot of [children] (`m` and `c` under the links root).
   @override
   Stream<ListUpdate> list(String key) {
     final c = StreamController<ListUpdate>();
     lists[key] = c;
-    if (key == 'wy/s/downstream') c.add(ListRefreshed([Child('m', metaM), Child('c', metaC)]));
+    if (key == 'wy/s/downstream') {
+      c.add(ListRefreshed([Child('m', metaM), Child('c', metaC)]));
+    } else {
+      children(key).then((kids) => c.add(ListRefreshed(kids)));
+    }
     return c.stream;
   }
 
@@ -173,8 +179,11 @@ class RecordedApi extends SettableApi {
 }
 
 /// `m` holds only a point until an action adds a folder under it (as
-/// `sys/history` ▸ Add Watch Group); the broker then publishes `m`'s meta.
+/// `sys/history` ▸ Add Watch Group); the broker then publishes `m`'s meta
+/// with `has_nodes`.
 class GrowingApi extends ActApi {
+  static final grownM = NodeMeta(hasChildren: true, hasNodes: true, actions: ActApi.metaM.actions);
+
   var grown = false;
 
   @override
@@ -295,6 +304,25 @@ class FlowApi extends ActApi {
       _ => const Stream.empty(),
     };
   }
+}
+
+/// A site whose `storage` is empty at first.
+class StorageApi extends ActApi {
+  /// As a `view=list` summary sends them: empty, then holding a folder.
+  static final emptyFolder = NodeMeta(is_: const TCode(1), hasChildren: false, hasNodes: false);
+  static final fullFolder = NodeMeta(is_: const TCode(1), hasChildren: true, hasNodes: true);
+}
+
+/// Select a row that expands: one tap counts after the double-tap timeout.
+Future<void> select(WidgetTester t, String name) async {
+  await t.tap(find.text(name));
+  await t.pumpAndSettle(const Duration(milliseconds: 400));
+}
+
+/// Open or close a row by its triangle (the row waits out a double tap).
+Future<void> expand(WidgetTester t, String key) async {
+  await t.tap(find.byKey(ValueKey('expand:$key')));
+  await t.pumpAndSettle(const Duration(milliseconds: 400));
 }
 
 Future<void> rightClick(WidgetTester t, Finder f) async {
@@ -431,17 +459,10 @@ void main() {
     final api = ActApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    // m holds only a point: not expandable; c holds a device: expandable
-    await t.tap(find.text('m'));
-    await t.pump(const Duration(milliseconds: 50));
-    await t.tap(find.text('m'));
-    await t.pumpAndSettle();
-    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')));
-    await t.tap(find.text('c'));
-    await t.pump(const Duration(milliseconds: 50));
-    await t.tap(find.text('c'));
-    await t.pumpAndSettle();
-    expect(api.lists.keys, contains('wy/s/downstream/c'));
+    // m holds only a point: no triangle; c holds a device: it opens
+    expect(find.byKey(const ValueKey('expand:wy/s/downstream/m')), findsNothing);
+    await expand(t, 'wy/s/downstream/c');
+    expect(find.text('dev'), findsOneWidget);
     // select c (one click): Metrics shows its point; a right click opens its menu
     await t.tap(find.text('c'));
     await t.pumpAndSettle(const Duration(milliseconds: 400));
@@ -464,14 +485,54 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    await doubleTap('m');
-    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')), reason: 'only a point yet');
+    const m = ValueKey('expand:wy/s/downstream/m');
+    expect(find.byKey(m), findsNothing, reason: 'only a point yet');
     // an action adds g under m: the broker publishes m's new meta
     api.grown = true;
-    api.lists['wy/s/downstream']!.add(ChildChanged(Child('m', ActApi.metaM)));
+    api.lists['wy/s/downstream']!.add(ChildChanged(Child('m', GrowingApi.grownM)));
     await t.pumpAndSettle();
     await doubleTap('m');
-    expect(api.lists.keys, contains('wy/s/downstream/m'));
+    expect(find.text('g'), findsOneWidget);
+  });
+
+  testWidgets('a site section gets its triangle when a node is added to it, open or not', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = StorageApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s'))));
+    await t.pumpAndSettle();
+    const storage = ValueKey('expand:wy/s/storage');
+    const test = ValueKey('expand:wy/s/storage/test');
+    // every section is listed while the site shows; storage is empty
+    expect(api.lists.keys, containsAll(['wy/s/storage', 'wy/s/sys', 'wy/s/downstream']));
+    expect(find.byKey(storage), findsNothing);
+    // Add Node: an empty folder under storage
+    api.lists['wy/s/storage']!.add(ChildAdded(Child('test', StorageApi.emptyFolder)));
+    await t.pumpAndSettle();
+    await expand(t, 'wy/s/storage');
+    expect(find.text('test'), findsOneWidget);
+    expect(find.byKey(test), findsNothing, reason: 'an empty folder has nothing to open');
+    // a folder added under test: storage publishes test's meta again
+    api.lists['wy/s/storage']!.add(ChildChanged(Child('test', StorageApi.fullFolder)));
+    await t.pumpAndSettle();
+    expect(find.byKey(test), findsOneWidget);
+  });
+
+  testWidgets('Metrics: a value added to the selected node shows at once', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await select(t, 'c');
+    expect(find.text('temp'), findsOneWidget);
+    expect(find.text('fresh'), findsNothing);
+    api.lists['wy/s/downstream/c']!.add(ChildAdded(Child('fresh', ActApi.metaT)));
+    await t.pumpAndSettle();
+    expect(find.text('fresh'), findsOneWidget);
+    api.lists['wy/s/downstream/c']!.add(const ChildRemoved('fresh'));
+    await t.pumpAndSettle();
+    expect(find.text('fresh'), findsNothing);
   });
 
   testWidgets('Copy Path copies the tree route of a point two brokers down (as DSA)', (t) async {
@@ -681,8 +742,7 @@ void main() {
     await t.tapAt(const Offset(5, 5));
     await t.pumpAndSettle();
     // select c: its point temp is in Metrics with a menu
-    await t.tap(find.text('c'));
-    await t.pumpAndSettle();
+    await select(t, 'c');
     await rightClick(t, find.text('temp').last);
     await t.tap(find.text('View History'));
     await t.pumpAndSettle();
@@ -717,6 +777,8 @@ void main() {
       ..children = ['m1', 'm2']
       ..refuse = 1;
     gw.socket!.drop();
+    // the close reaches the client after this frame; the next one shows it
+    await t.pump();
     await t.pump();
     expect(find.text('Reconnecting…'), findsOneWidget);
     await t.pump(const Duration(milliseconds: 20));
@@ -747,8 +809,7 @@ void main() {
     final api = SettableApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await t.tap(find.text('c'));
-    await t.pumpAndSettle();
+    await select(t, 'c');
     // bool: its value as text, then the list true / false
     expect(find.byType(Switch), findsNothing);
     await t.tap(find.text('false'));
@@ -791,8 +852,7 @@ void main() {
     t.view.devicePixelRatio = 1;
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: SettableApi(), rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await t.tap(find.text('c'));
-    await t.pumpAndSettle();
+    await select(t, 'c');
     expect(find.text('21.50 °C'), findsOneWidget);
     expect(find.text('7 kWh'), findsOneWidget);
   });
@@ -803,8 +863,7 @@ void main() {
     final api = RecordedApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await t.tap(find.text('c'));
-    await t.pumpAndSettle();
+    await select(t, 'c');
     final mark = find.byKey(const ValueKey('history-mark:wy/s/downstream/c/temp'));
     expect(mark, findsOneWidget);
     expect(find.byKey(const ValueKey('history-mark:wy/s/downstream/c/energy')), findsNothing);
@@ -820,4 +879,5 @@ void main() {
     await t.pumpAndSettle();
     expect(api.histories.last.$1, RecordedApi.linkStore);
   });
+
 }

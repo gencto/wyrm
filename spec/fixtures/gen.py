@@ -61,6 +61,7 @@ def fixtures():
         {0: 2, 1: 1, 2: "°C", 11: False, 10: 17, 12: "Supply air temp"},
         {0: 2, 1: 1, 11: False, 10: 9, 16: True},
         {0: 4, 1: 3, 11: False, 10: 2, 4: 2, 13: True},
+        {0: 1, 11: True, 10: 5, 17: True},
     ])
     add("meta_view_keys", "~meta?view=keys: префіксно стиснуті ключі ('/'-суфікс = push, '' = pop)",
         ["ahu1/", "supply_temp", "return_temp", "fan", "", "ahu2/", "supply_temp", ""])

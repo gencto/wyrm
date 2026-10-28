@@ -171,40 +171,40 @@ class _WyExplorerState extends State<WyExplorer> {
     }
   }
 
+  /// A site's sections are built here (the site root has no `list`); each
+  /// is listed while the site shows, so its triangle follows what is
+  /// added under it, open or not. A section a user may not read stays
+  /// without one.
   void _site(String key) {
     if (_sites.add(key)) {
       _kids[key] = [
         for (final s in _sections) Child(s, NodeMeta(hasChildren: true)),
       ];
+      for (final s in _sections) {
+        _watch('$key/$s', quiet: true);
+      }
     }
   }
 
   bool _synthetic(String key) => _sites.contains(key);
 
-  /// Whether a node has children for the tree (not only value points, which
-  /// go to Metrics): known after one `children` call per container row.
-  final _treeKids = <String, bool>{};
-  final _probing = <String>{};
+  bool _isSection(String key) {
+    final i = key.lastIndexOf('/');
+    return _sites.contains(key.substring(0, i)) && _sections.contains(key.substring(i + 1));
+  }
 
   static bool _treeChild(Child c) => !_isPoint(c.meta) || _refRoot(c.meta) != null;
 
-  /// `null` while not known yet (no triangle until then).
-  bool? _expandable(_Row r) {
+  /// A triangle only where the tree has something to show below: from the
+  /// node's own `list` while it runs (open rows, sections), else from
+  /// `has_nodes` in its meta, which its parent's `list` keeps current.
+  bool _expandable(_Row r) {
     if (_synthetic(r.key) || _refRoot(r.meta) != null) return true;
-    if (!r.meta.isContainer) return false;
     final listed = _kids[r.key];
     if (listed != null) return listed.any(_treeChild);
-    final known = _treeKids[r.key];
-    if (known == null && _probing.add(r.key)) {
-      widget.api.children(r.key).then(
-            (kids) => _treeKids[r.key] = kids.any(_treeChild),
-            onError: (Object _) => _treeKids[r.key] = false,
-          ).whenComplete(() {
-        _probing.remove(r.key);
-        if (mounted) setState(() {});
-      });
-    }
-    return known;
+    if (_isSection(r.key)) return false;
+    // a responder older than spec 02 0.2.6 sends no has_nodes
+    return r.meta.hasNodes ?? r.meta.isContainer;
   }
 
   @override
@@ -216,7 +216,9 @@ class _WyExplorerState extends State<WyExplorer> {
     super.dispose();
   }
 
-  void _watch(String key) {
+  /// `quiet`: a failed list leaves the tree as it is (a section this user
+  /// may not read), with no error shown.
+  void _watch(String key, {bool quiet = false}) {
     if (_subs.containsKey(key)) return;
     _subs[key] = widget.api.list(key).listen((u) {
       setState(() {
@@ -225,9 +227,6 @@ class _WyExplorerState extends State<WyExplorer> {
           case ListRefreshed(:final children):
             _kids[key] = [...children];
           case ChildAdded(:final child) || ChildChanged(:final child):
-            // Its children may have changed (a folder added under a node
-            // that had only values): ask again whether it expands.
-            _treeKids.remove('$key/${child.name}');
             final i = list.indexWhere((c) => c.name == child.name);
             if (i < 0) {
               list.add(child);
@@ -241,14 +240,16 @@ class _WyExplorerState extends State<WyExplorer> {
             break;
         }
       });
-    }, onError: (Object e) => setState(() => _error = '$e'));
+    }, onError: (Object e) {
+      if (!quiet) setState(() => _error = '$e');
+    });
   }
 
   void _toggle(String key) => setState(() {
         if (!_expanded.remove(key)) {
           _expanded.add(key);
           if (!_synthetic(key)) _watch(key);
-        } else if (!_synthetic(key)) {
+        } else if (!_synthetic(key) && !_isSection(key)) {
           _subs.remove(key)?.cancel();
           _kids.remove(key);
         }
@@ -336,8 +337,7 @@ class _WyExplorerState extends State<WyExplorer> {
   Widget _rowWidget(_Row r) {
     final selected = r.key == _selected;
     final fg = selected ? Colors.white : WyStyle.text;
-    // A triangle only where the tree has something to show below.
-    final isContainer = _expandable(r) ?? false;
+    final isContainer = _expandable(r);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _selected = r.key),
@@ -352,6 +352,7 @@ class _WyExplorerState extends State<WyExplorer> {
         padding: EdgeInsets.only(left: WyStyle.treePaddingLeft + WyStyle.treeIndent * r.depth),
         child: Row(children: [
           GestureDetector(
+            key: isContainer ? ValueKey('expand:${r.key}') : null,
             onTap: isContainer ? () => _toggle(r.key) : null,
             child: SizedBox.square(
               dimension: 16,
@@ -1371,11 +1372,21 @@ class _WyMetricsState extends State<WyMetrics> {
   List<Child> _children = const [];
   String? _error;
 
+  /// The node's children as they change: a value added by an action shows
+  /// at once.
+  StreamSubscription<ListUpdate>? _sub;
+
   @override
   void initState() {
     super.initState();
     _search.addListener(() => setState(() {}));
     _load();
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1389,12 +1400,29 @@ class _WyMetricsState extends State<WyMetrics> {
     }
     try {
       final m = await widget.api.meta(k);
-      final kids = m.isContainer ? await widget.api.children(k) : const <Child>[];
-      if (mounted) {
-        setState(() {
-          _meta = m;
-          _children = kids;
-        });
+      if (!mounted) return;
+      setState(() => _meta = m);
+      if (m.isContainer) {
+        _sub = widget.api.list(k).listen((u) {
+          setState(() {
+            switch (u) {
+              case ListRefreshed(:final children):
+                _children = children;
+              case ChildAdded(:final child) || ChildChanged(:final child):
+                final i = _children.indexWhere((c) => c.name == child.name);
+                _children = [..._children];
+                if (i < 0) {
+                  _children.add(child);
+                } else {
+                  _children[i] = child;
+                }
+              case ChildRemoved(:final name):
+                _children = [for (final c in _children) if (c.name != name) c];
+              case ChildConnected() || ChildDisconnected():
+                break;
+            }
+          });
+        }, onError: (Object e) => setState(() => _error = e is WyrmException ? e.message : '$e'));
       }
     } catch (e) {
       if (mounted) setState(() => _error = e is WyrmException ? e.message : '$e');

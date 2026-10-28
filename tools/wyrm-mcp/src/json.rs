@@ -212,6 +212,9 @@ pub fn meta_to_json(m: &NodeMeta) -> Json {
     if let Some(q) = m.q {
         o.insert("qos".into(), q.into());
     }
+    if let Some(h) = m.has_nodes {
+        o.insert("has_nodes".into(), h.into());
+    }
     Json::Object(o)
 }
 

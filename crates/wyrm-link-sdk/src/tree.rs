@@ -52,7 +52,7 @@ impl Node {
     }
 
     /// Child summary for `view=list`: keys `{0,1,2?,4?,10,11,12?,15?}`
-    /// (the tree adds 13 and 16).
+    /// (the tree adds 13, 16 and 17).
     pub fn summary(&self) -> NodeMeta {
         NodeMeta {
             is: self.meta.is.clone(),
@@ -152,6 +152,7 @@ fn sanitize(mut m: NodeMeta) -> NodeMeta {
     m.children_count = None;
     m.q = None;
     m.has_history = None;
+    m.has_nodes = None;
     m
 }
 
@@ -240,12 +241,21 @@ impl NodeTree {
             if node.meta == meta {
                 return Ok(Changed::default());
             }
+            // A value that becomes a node (or back) changes the parent's
+            // `has_nodes`.
+            let flipped = node.meta.ty.is_some() != meta.ty.is_some();
             node.meta = meta;
             node.rev = node.rev.wrapping_add(1);
-            return Ok(Changed {
-                node: true,
-                parent: None,
-            });
+            let parent = match split_parent(path) {
+                Some((parent, _)) if flipped => {
+                    if let Some(p) = self.nodes.get_mut(parent) {
+                        p.rev = p.rev.wrapping_add(1);
+                    }
+                    Some(parent.to_owned())
+                }
+                _ => None,
+            };
+            return Ok(Changed { node: true, parent });
         }
         let (parent, name) = split_parent(path).expect("root always exists");
         let p = self
@@ -381,6 +391,13 @@ impl NodeTree {
             })
     }
 
+    /// A child of `path` the caller may see has no `type`: a node, not a
+    /// value (spec 02 `has_nodes`).
+    fn has_nodes(&self, path: &str, authorized: bool) -> bool {
+        self.visible_children(path, authorized)
+            .any(|c| self.nodes.get(&join(path, c)).is_some_and(|n| !n.is_leaf()))
+    }
+
     /// `view=full` for a caller; `children` hides restricted ones unless `authorized`.
     pub fn full(&self, path: &str, authorized: bool) -> Option<NodeMeta> {
         let mut m = self.nodes.get(path)?.full();
@@ -389,6 +406,7 @@ impl NodeTree {
             let kids: Vec<String> = self.visible_children(path, authorized).cloned().collect();
             m.children_count = Some(kids.len() as u32);
             m.children = Some(kids);
+            m.has_nodes = Some(self.has_nodes(path, authorized));
         }
         Some(m)
     }
@@ -422,6 +440,9 @@ impl NodeTree {
                     let child = join(path, c);
                     self.nodes.get(&child).map(|n| {
                         let mut s = n.summary();
+                        if !n.is_leaf() {
+                            s.has_nodes = Some(self.has_nodes(&child, authorized));
+                        }
                         if overrides(&n.meta) {
                             s.has_override = Some(true);
                         }
@@ -685,5 +706,31 @@ mod tests {
         assert_eq!(l[0].ty, Some(wyrm_core::TypeCode::Number));
         assert_eq!(l[0].has_children, Some(false));
         assert_eq!(t.list("ahu1", 1, 1, false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn has_nodes_follows_node_children() {
+        let mut t = tree();
+        // ahu1 holds only values: a node, without nodes under it
+        let top = t.list("", 0, 100, false).unwrap();
+        assert_eq!(top[0].has_nodes, Some(false));
+        assert_eq!(t.full("ahu1", false).unwrap().has_nodes, Some(false));
+        assert_eq!(t.full("", false).unwrap().has_nodes, Some(true));
+        // a folder added under ahu1: its parent is published again
+        let c = t.declare("ahu1/zone", NodeMeta::folder()).unwrap();
+        assert_eq!(c.parent.as_deref(), Some("ahu1"));
+        assert_eq!(t.list("", 0, 100, false).unwrap()[0].has_nodes, Some(true));
+        assert_eq!(t.full("ahu1", false).unwrap().has_nodes, Some(true));
+        // values carry no has_nodes
+        assert_eq!(t.list("ahu1", 0, 100, false).unwrap()[0].has_nodes, None);
+        // the folder becomes a value: ahu1 has no nodes again, published too
+        let c = t.declare("ahu1/zone", NodeMeta::number()).unwrap();
+        assert_eq!(c.parent.as_deref(), Some("ahu1"));
+        assert_eq!(t.full("ahu1", false).unwrap().has_nodes, Some(false));
+        // a restricted node counts only for callers who may see it
+        t.declare("ahu2/vault", NodeMeta::folder().cfg("restricted", true))
+            .unwrap();
+        assert_eq!(t.full("ahu2", false).unwrap().has_nodes, Some(false));
+        assert_eq!(t.full("ahu2", true).unwrap().has_nodes, Some(true));
     }
 }

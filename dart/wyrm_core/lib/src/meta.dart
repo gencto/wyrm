@@ -300,6 +300,10 @@ class NodeMeta {
   /// `view=list`: `attr.history` is not empty (spec 02 0.2.1, key 16).
   bool? hasHistory;
 
+  /// A child without a type (a node, not a value) exists now: the tree draws
+  /// a triangle (spec 02 0.2.6, key 17).
+  bool? hasNodes;
+
   NodeMeta({
     this.is_,
     this.ty,
@@ -318,6 +322,7 @@ class NodeMeta {
     this.childrenCount,
     this.q,
     this.hasHistory,
+    this.hasNodes,
   });
 
   /// Profile name (`wy:number`) or `#<code>` for codes this table lacks.
@@ -355,6 +360,7 @@ class NodeMeta {
         if (childrenCount != null) (14, (w) => w.uint(childrenCount!)),
         if (q != null) (15, (w) => w.uint(q!)),
         if (hasHistory != null) (16, (w) => w.boolean(hasHistory!)),
+        if (hasNodes != null) (17, (w) => w.boolean(hasNodes!)),
       ];
 
   void _encodeEntries(CborWriter w, List<(int, void Function(CborWriter))> fields) {
@@ -415,6 +421,8 @@ class NodeMeta {
         q = r.readUint();
       case 16:
         hasHistory = r.readBool();
+      case 17:
+        hasNodes = r.readBool();
       default:
         r.skip();
     }
