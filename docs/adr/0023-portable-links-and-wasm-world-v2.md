@@ -135,7 +135,7 @@ The guarantees below hold for WASM in full. A process link gets them from the OS
 - A trap, out-of-memory, fuel exhaustion or a call over time: the host drops the instance, marks the link `restarting` (status node, as ADR 0004's state machine) with the error, waits (1 s, ×2, cap 60 s, jitter), instantiates again and calls `start`. Timers and subscriptions of the dead instance are dropped; the store is kept.
 - The tree: before calling `start` again the host keeps the old tree but marks its values `bad/comm_fail`; nodes the new `start` does not declare again within 10 s are removed (re-declare, principle 3; no half tree left behind). The link root node (`""`) belongs to the host: it carries the link status as attributes `status` (`running | restarting | stuck`) and `error`; the app declares nodes under it but never the root itself, so the sweep never touches it; the app's paths may not start with `.`.
 - **Config:** `start` gets the link's params (a CBOR map; the app validates it and fails `start` with `invalid_parameter` naming the field). A change of params is a stop and a start (no `reconfigure`).
-- Hot start: a new component (package upgrade, "Install ▸ from WASM" again) goes through `stop` on the old instance (bounded 2 s), then the new one starts; the store carries over; requests in flight get `unavailable`.
+- Hot start: a new component (package upgrade, "Install ▸ from WASM" again) goes through `stop` on the old instance (bounded 2 s), then the new one starts; the store carries over; requests in flight get `busy`.
 - Bounds: at most 10 000 nodes, 1 000 timers, 1 000 subscriptions, 100 requests in flight, 1 000 commands per event; going over one fails that call with `resource_exhausted` (not a trap).
 
 ### Building: one crate, three outputs
