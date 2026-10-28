@@ -43,7 +43,7 @@
   - `pub struct TimerId(pub u64); pub struct SubId(pub u64); pub struct ReqId(pub u64); pub struct ConnId(pub u32);` (Copy, Eq, Hash, Debug)
   - `pub struct AppError { pub status: wyrm_core::Status, pub msg: String }` with `AppError::new(Status, impl Into<String>)`, `to_cbor(&self) -> Vec<u8>`, `from_cbor(&[u8]) -> AppError` (unreadable → `internal_error`)
   - `pub struct Who { pub subject: Option<String>, pub grants: Vec<(String, wyrm_core::Perm)> }` with `to_cbor`/`from_cbor`, `Who::may(&self, key_suffix: &str, Perm) -> bool` (longest-prefix grant, as `Grants::perm`)
-  - `pub enum Level { Error, Warn, Info, Debug }` (wire codes 0–3 via `wire_enum!` if it is a table enum, else a local `TryFrom<u8>` is not allowed — use `wire_enum!`)
+  - `pub enum Level { Error, Warn, Info, Debug }` with `code(self) -> u8` (0–3) and `from_code(u8) -> Level` (unknown → `Info`); it is not a `tables.json` code table, so `wire_enum!` does not apply
   - `pub trait App` and `pub trait Host` exactly as in ADR 0023 (`Host` includes the four `tcp_*` methods and `set_timer -> Result<TimerId, AppError>`)
   - `pub mod net { pub struct NetPolicy; impl NetPolicy { pub fn parse(&str) -> Result<Self, String>; pub fn allows(&self, IpAddr, u16) -> bool; pub fn is_empty(&self) -> bool } }` (moved verbatim from `wyrm-wasm-host`, `core::net` only)
 
@@ -66,12 +66,12 @@
   - `pub trait Services { fn now_us(&self) -> u64; fn store_get(&self, key: &str) -> Option<Vec<u8>>; fn store_used(&self) -> u64; fn may(&self, key: &str, perm: Perm) -> bool; fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError>; fn tcp_send(&mut self, c: ConnId, d: &[u8]) -> Result<(), AppError>; fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>; fn tcp_close(&mut self, c: ConnId); }`
   - `pub struct Limits { pub max_nodes: usize, pub max_timers: usize, pub max_subs: usize, pub max_inflight: usize, pub max_commands: usize, pub store_bytes: u64 }` with `Default` = Global Constraints values
   - `pub struct Counts { pub nodes: usize, pub timers: usize, pub subs: usize, pub inflight: usize }` (owned by the runtime, passed in)
-  - `pub struct BufferHost<'a> { … }` with `BufferHost::new(services: &'a mut dyn Services, limits: &'a Limits, counts: Counts, next_id: &'a mut u64, site_prefix: &'a str) -> Self`, `impl Host for BufferHost<'_>`, `fn finish(self) -> Vec<Command>`
+  - `pub struct BufferHost<'a> { … }` with `BufferHost::new(services: &'a mut dyn Services, limits: &'a Limits, counts: Counts, next_id: &'a mut u64, site_prefix: &'a str) -> Self`, `impl Host for BufferHost<'_>`, `fn finish(self) -> Result<Vec<Command>, AppError>`
   - Rules: `store_get` reads the event's own pending puts/deletes first; `set_timer`/`subscribe`/`set`/`invoke`/`store_put` check bounds and return `resource_exhausted`; `subscribe`/`set`/`invoke` check `services.may(key, Read|Write|Read)` and that `key` starts with `site_prefix` (`wy/<site>/`) else `permission_denied`; the 1 001st command of an event is refused with `resource_exhausted` (void commands are dropped and a flag makes `finish` return `Err(AppError)`); ids come from `next_id` (monotonic across events and restarts of the same runtime).
 
 - [ ] **Step 1: Write the failing tests** `store_reads_its_own_writes` (put `"a"=[1]`, get `"a"`→`[1]`, delete, get→`None` within one buffer), `store_put_over_quota_is_refused` (`store_bytes=10`, `store_used()=8`, put 3 bytes → `resource_exhausted`, no `StorePut` in `finish()`), `bounds_on_timers_and_commands` (`max_timers=1`: second `set_timer` → `resource_exhausted`; 1 001 `update`s → `finish()` is `Err` with `resource_exhausted`), `requests_check_grants_and_site` (`may` false → `set` gives `permission_denied`; key `wy/other/…` → `permission_denied`; allowed → `Ok(ReqId)` and a `Set` command).
 - [ ] **Step 2: Run** `cargo test -p wyrm-link-api buffer` — FAIL (module missing).
-- [ ] **Step 3: Implement `buffer.rs`** (`finish(self) -> Result<Vec<Command>, AppError>`).
+- [ ] **Step 3: Implement `buffer.rs`.**
 - [ ] **Step 4: Run** `cargo test -p wyrm-link-api` — PASS; wasm32 build still passes.
 - [ ] **Step 5: Commit** `wyrm-link-api: BufferHost, one command buffer for every host`
 
