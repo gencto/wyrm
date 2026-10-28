@@ -183,6 +183,17 @@ class RecordedApi extends SettableApi {
       : super.meta(key);
 }
 
+/// `temp` of site `s` recorded by the historian of the site above it
+/// (`wy/up`, ADR 0020): read at that watch's key.
+class UpstreamRecordedApi extends RecordedApi {
+  static const store = 'wy/up/sys/history/g/w3';
+
+  @override
+  Future<NodeMeta> meta(String key) async => key == 'wy/s/downstream/c/temp'
+      ? NodeMeta(ty: TypeCode.number, attr: {'history': const VArray([VStr(store)])})
+      : super.meta(key);
+}
+
 /// `m` holds only a point until an action adds a folder under it (as
 /// `sys/history` ▸ Add Watch Group); the broker then publishes `m`'s meta
 /// with `has_nodes`.
@@ -883,6 +894,18 @@ void main() {
     await t.tap(find.text(RecordedApi.linkStore).last);
     await t.pumpAndSettle();
     expect(api.histories.last.$1, RecordedApi.linkStore);
+  });
+
+  testWidgets('a store of the site above is read at its watch key', (t) async {
+    t.view.physicalSize = const Size(1400, 900);
+    t.view.devicePixelRatio = 1;
+    final api = UpstreamRecordedApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await select(t, 'c');
+    await t.tap(find.byKey(const ValueKey('history-mark:wy/s/downstream/c/temp')));
+    await t.pumpAndSettle();
+    expect(api.histories.last.$1, UpstreamRecordedApi.store);
   });
 
   testWidgets('View History only on a recorded point, as DSA with @@getHistory', (t) async {

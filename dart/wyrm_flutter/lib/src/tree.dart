@@ -320,11 +320,15 @@ List<String> historyStores(NodeMeta? meta) => switch (meta?.attr?['history']) {
 /// `attr.history` of a full meta.
 bool isRecorded(NodeMeta? meta) => meta?.hasHistory == true || historyStores(meta).isNotEmpty;
 
-/// The key to read a store's history at: a site's historian
-/// (`wy/<site>/sys/history/…`) answers at the point itself; any other
-/// store at its own key.
-String historyReadKey(String point, String? store) =>
-    store == null || RegExp(r'^wy/[^/]+/sys/history/').hasMatch(store) ? point : store;
+/// The key to read a store's history at: the historian of the point's own
+/// site (`wy/<site>/sys/history/…`) answers at the point itself; any other
+/// store, a historian of another site among them (ADR 0020), at its own
+/// key.
+String historyReadKey(String point, String? store) {
+  if (store == null) return point;
+  final own = RegExp(r'^(wy/[^/]+)/').firstMatch(point)?.group(1);
+  return own != null && store.startsWith('$own/sys/history/') ? point : store;
+}
 
 String formatValue(Value v, NodeMeta? meta) {
   final unit = unitSuffix(meta);

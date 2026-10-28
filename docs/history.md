@@ -25,9 +25,10 @@ Open `wy/<site>/sys/history`.
 3. The watch appears as `w1`, `w2`, … with the point key as its name.
 4. The point itself shows that it is recorded: its `~meta` gets
    `attr.history` (the watch keys), its row in the tree and in Metrics a
-   history mark; a click on the mark opens its history (ADR 0016). Only
-   points of this site's links get the mark (a downstream site's point
-   belongs to another broker).
+   history mark; a click on the mark opens its history (ADR 0016). A
+   downstream site's point recorded here gets the mark as seen through
+   this site's gateway (`sys/overlays/.sites`, ADR 0020), not on the
+   downstream site itself.
 
 | Logging Type | Records |
 |---|---|
@@ -85,6 +86,10 @@ are needed (spec 05 0.1.10):
   default, at most 100 000).
 - This site's broker answers for its points; a downstream site's broker
   answers for the points it records.
+- Every watch also answers at its own key
+  (`wy/<site>/sys/history/<group>/<watch>/~val?history=`): that is where a
+  downstream site's point recorded here is read (ADR 0020). Through the
+  gateway it needs read on the point itself.
 - A point nobody records has no history: the answer is empty. A wrong
   parameter or a wildcard in the key is an error.
 
