@@ -40,6 +40,11 @@ pub trait Services {
     fn store_get(&self, key: &str) -> Option<Vec<u8>>;
     /// Bytes in the link's store now, without this event's pending writes.
     fn store_used(&self) -> u64;
+    /// `Err` when this host gives the link no store (no data directory or no store key):
+    /// `store_put` then fails with this error at once.
+    fn store_ready(&self) -> Result<(), AppError> {
+        Ok(())
+    }
     /// The link holds at least `perm` on `key`.
     fn may(&self, key: &str, perm: Perm) -> bool;
     fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError>;
@@ -282,6 +287,7 @@ impl Host for BufferHost {
     }
 
     fn store_put(&mut self, key: &str, value: &[u8]) -> Result<(), AppError> {
+        self.services.store_ready()?;
         let others = self.pending_bytes()
             - self
                 .pending
@@ -444,6 +450,53 @@ mod tests {
         let mut h = host(8, true, limits);
         let e = h.store_put("a", &[1, 2, 3]).unwrap_err();
         assert!(exhausted(&e));
+        assert!(h.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn store_put_without_a_store_is_refused() {
+        struct NoStore(FakeServices);
+        impl Services for NoStore {
+            fn now_us(&self) -> u64 {
+                self.0.now_us()
+            }
+            fn store_get(&self, k: &str) -> Option<Vec<u8>> {
+                self.0.store_get(k)
+            }
+            fn store_used(&self) -> u64 {
+                0
+            }
+            fn store_ready(&self) -> Result<(), AppError> {
+                Err(AppError::new(Status::NotSupported, "no store"))
+            }
+            fn may(&self, k: &str, p: Perm) -> bool {
+                self.0.may(k, p)
+            }
+            fn tcp_connect(&mut self, a: &str, p: u16, t: u32) -> Result<ConnId, AppError> {
+                self.0.tcp_connect(a, p, t)
+            }
+            fn tcp_send(&mut self, c: ConnId, d: &[u8]) -> Result<(), AppError> {
+                self.0.tcp_send(c, d)
+            }
+            fn tcp_recv(&mut self, c: ConnId, m: u32, t: u32) -> Result<Vec<u8>, AppError> {
+                self.0.tcp_recv(c, m, t)
+            }
+            fn tcp_close(&mut self, c: ConnId) {
+                self.0.tcp_close(c)
+            }
+        }
+        let mut h = BufferHost::new(
+            Box::new(NoStore(FakeServices {
+                used: 0,
+                allow: true,
+            })),
+            Limits::default(),
+            Counts::default(),
+            1,
+            "wy/s".into(),
+        );
+        let e = h.store_put("a", &[1]).unwrap_err();
+        assert_eq!(e.status, Status::NotSupported);
         assert!(h.finish().unwrap().is_empty());
     }
 

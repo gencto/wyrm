@@ -1,0 +1,458 @@
+//! The native engine on the portable runtime (ADR 0023): tree, `set`, `invoke`, timers, the store,
+//! faults with restarts and the re-declare sweep, and requests within grants.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use ed25519_dalek::SigningKey;
+use wyrm_core::meta::ParamMeta;
+use wyrm_core::status::StatusCode;
+use wyrm_core::{ActionMeta, Attachment, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
+use wyrm_link_api::{App, AppError, Host, ReqId, TimerId, Who};
+use wyrm_link_portable::{Portable, PortableConfig};
+use wyrm_link_sdk::harness::{TestHarness, SITE, TEST_KEY_SEED};
+use wyrm_link_sdk::params::FromParams;
+use wyrm_link_sdk::runtime::{self, LinkConfig};
+use wyrm_link_sdk::{Caller, Link, LinkCtx, Secret};
+
+const STORE_KEY: [u8; 32] = [9; 32];
+
+fn sample(v: Value) -> Sample {
+    Sample {
+        v,
+        q: Quality::Good,
+        t: 1,
+    }
+}
+
+/// The test app: `n` (writable, kept in the store), `ticks` (timer count), `reply` (last reply),
+/// actions `ping` (a 50 ms timer, answers `"pong"`) and `call` (a request to another point).
+/// A value of -1 makes it panic. With `extra: true` it declares `extra` on its first start only.
+struct Echo {
+    ticks: u64,
+}
+
+impl App for Echo {
+    const NAME: &'static str = "echo";
+    const VERSION: &'static str = "0.1.0";
+
+    fn start(host: &mut dyn Host, config: Value) -> Result<Self, AppError> {
+        host.declare_node(
+            "n",
+            NodeMeta::number().writable(wyrm_core::meta::Writable::Write),
+        );
+        host.declare_node("ticks", NodeMeta::number());
+        host.declare_node("reply", NodeMeta::leaf(TypeCode::String));
+        host.declare_action("", "ping", ActionMeta::new().level(Perm::Write));
+        host.declare_action(
+            "",
+            "call",
+            ActionMeta::new()
+                .level(Perm::Write)
+                .param("op", ParamMeta::of(TypeCode::String))
+                .param("key", ParamMeta::of(TypeCode::String))
+                .param("value", ParamMeta::of(TypeCode::Number)),
+        );
+        let extra = matches!(&config, Value::Map(m) if m.get("extra") == Some(&Value::Bool(true)));
+        if extra && host.store_get("started").is_none() {
+            host.declare_node("extra", NodeMeta::number());
+            host.store_put("started", &[1])?;
+        }
+        if let Some(b) = host.store_get("n") {
+            let v: Value = wyrm_core::codec::from_slice(&b)
+                .map_err(|e| AppError::new(Status::InternalError, e.to_string()))?;
+            host.update("n", sample(v));
+        }
+        Ok(Echo { ticks: 0 })
+    }
+
+    fn on_set(
+        &mut self,
+        host: &mut dyn Host,
+        path: &str,
+        value: Value,
+        _who: &Who,
+    ) -> Result<(), AppError> {
+        if value.as_f64() == Some(-1.0) {
+            panic!("asked to fail");
+        }
+        if path != "n" {
+            return Err(AppError::new(Status::NotFound, path));
+        }
+        let b = wyrm_core::codec::to_vec(&value)
+            .map_err(|e| AppError::new(Status::InternalError, e.to_string()))?;
+        host.store_put("n", &b)?;
+        host.update("n", sample(value));
+        Ok(())
+    }
+
+    fn on_invoke(
+        &mut self,
+        host: &mut dyn Host,
+        _path: &str,
+        action: &str,
+        args: Value,
+        _who: &Who,
+    ) -> Result<Value, AppError> {
+        match action {
+            "ping" => {
+                host.set_timer(50)?;
+                Ok(Value::Str("pong".into()))
+            }
+            "call" => {
+                let m = match &args {
+                    Value::Map(m) => m,
+                    _ => return Err(AppError::new(Status::InvalidParameter, "args")),
+                };
+                let key = match m.get("key") {
+                    Some(Value::Str(k)) => k.clone(),
+                    _ => return Err(AppError::new(Status::InvalidParameter, "key")),
+                };
+                match m.get("op") {
+                    Some(Value::Str(op)) if op == "set" => {
+                        let v = m.get("value").cloned().unwrap_or(Value::Null);
+                        host.set(&key, v)?;
+                    }
+                    Some(Value::Str(op)) if op == "subscribe" => {
+                        host.subscribe(&key)?;
+                    }
+                    _ => return Err(AppError::new(Status::InvalidParameter, "op")),
+                }
+                Ok(Value::Null)
+            }
+            _ => Err(AppError::new(Status::NotSupported, action)),
+        }
+    }
+
+    fn on_timer(&mut self, host: &mut dyn Host, _timer: TimerId) {
+        self.ticks += 1;
+        host.update("ticks", sample(Value::UInt(self.ticks)));
+    }
+
+    fn on_reply(&mut self, host: &mut dyn Host, _req: ReqId, result: Result<Value, AppError>) {
+        let text = match result {
+            Ok(_) => "ok".to_owned(),
+            Err(e) => e.status.name().to_owned(),
+        };
+        host.update("reply", sample(Value::Str(text)));
+    }
+}
+
+static DOOMED_STARTS: AtomicU32 = AtomicU32::new(0);
+
+/// An app that panics in every `start`.
+struct Doomed;
+
+impl App for Doomed {
+    const NAME: &'static str = "doomed";
+    const VERSION: &'static str = "0.1.0";
+
+    fn start(_host: &mut dyn Host, _config: Value) -> Result<Self, AppError> {
+        DOOMED_STARTS.fetch_add(1, Ordering::SeqCst);
+        panic!("never starts");
+    }
+
+    fn on_set(&mut self, _: &mut dyn Host, _: &str, _: Value, _: &Who) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    fn on_invoke(
+        &mut self,
+        _: &mut dyn Host,
+        _: &str,
+        _: &str,
+        _: Value,
+        _: &Who,
+    ) -> Result<Value, AppError> {
+        Ok(Value::Null)
+    }
+}
+
+fn data_dir(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!(
+        "wyrm-portable-{name}-{}-{}",
+        std::process::id(),
+        wyrm_link_sdk::now_us()
+    ));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn config(params: &[(&str, Value)]) -> PortableConfig {
+    let m: BTreeMap<String, Value> = params
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), v.clone()))
+        .collect();
+    PortableConfig::from_params(&Value::Map(m)).expect("config")
+}
+
+async fn start<A: App + Send + 'static>(
+    cfg: PortableConfig,
+    dir: &std::path::Path,
+    grants: Vec<(String, Perm)>,
+) -> TestHarness<Portable<A>> {
+    let dir = dir.to_path_buf();
+    TestHarness::<Portable<A>>::start_with(cfg, move |c| {
+        c.data_dir = Some(dir);
+        c.secrets
+            .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
+        c.secrets
+            .insert(".requester_key", Secret::new(TEST_KEY_SEED.to_vec()));
+        c.grants = grants;
+    })
+    .await
+}
+
+fn status(a: &Attachment) -> Status {
+    match a.status.expect("status present") {
+        StatusCode::Known(s) => s,
+        other => panic!("unexpected status {other:?}"),
+    }
+}
+
+fn root_attr<A: App + Send + 'static>(h: &TestHarness<Portable<A>>, name: &str) -> Option<Value> {
+    h.ctx().meta("").and_then(|m| m.attr_value(name).cloned())
+}
+
+fn last<A: App + Send + 'static>(h: &TestHarness<Portable<A>>, path: &str) -> Option<Value> {
+    h.ctx().last(path).map(|s| s.v)
+}
+
+/// Polls `f` every 20 ms until it holds or `within` passes.
+async fn eventually(within: Duration, mut f: impl FnMut() -> bool) -> bool {
+    let end = Instant::now() + within;
+    while Instant::now() < end {
+        if f() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    f()
+}
+
+fn str_v(s: &str) -> Value {
+    Value::Str(s.into())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tree_set_invoke_timer() {
+    let dir = data_dir("tree");
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+
+    let (_, root) = h.meta("").await;
+    let root = root.expect("root meta");
+    let children = root.children.clone().unwrap_or_default();
+    assert!(children.contains(&"n".to_owned()), "{children:?}");
+    assert!(children.contains(&"ticks".to_owned()), "{children:?}");
+    assert!(root
+        .actions
+        .as_ref()
+        .is_some_and(|a| a.contains_key("ping")));
+    assert_eq!(root_attr(&h, "status"), Some(str_v("running")));
+
+    let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
+    assert_eq!(last(&h, "n").and_then(|v| v.as_f64()), Some(5.0));
+
+    let r = h
+        .invoke(
+            "",
+            "ping",
+            Value::Map(BTreeMap::new()),
+            Some(h.ptok(Perm::Write)),
+        )
+        .await;
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].value(), Some(str_v("pong")), "{:?}", r[0].att);
+    assert!(
+        eventually(Duration::from_millis(500), || last(&h, "ticks")
+            .and_then(|v| v.as_f64())
+            == Some(1.0))
+        .await,
+        "ticks: {:?}",
+        last(&h, "ticks")
+    );
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn store_survives_restart_and_quota_holds() {
+    let dir = data_dir("store");
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+    let att = h.set("n", 7i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
+    h.stop().await;
+
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+    assert_eq!(last(&h, "n").and_then(|v| v.as_f64()), Some(7.0));
+    h.stop().await;
+
+    let full = data_dir("store-full");
+    let h = start::<Echo>(config(&[("store_mb", Value::UInt(0))]), &full, Vec::new()).await;
+    let att = h.set("n", 7i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::ResourceExhausted, "{:?}", att.err);
+    // a refused `store_put` is an app error, not a fault: the link keeps running
+    assert_eq!(root_attr(&h, "status"), Some(str_v("running")));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&full);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn panic_restarts_with_backoff_and_sweeps() {
+    let dir = data_dir("panic");
+    let h = start::<Echo>(config(&[("extra", Value::Bool(true))]), &dir, Vec::new()).await;
+    assert!(h.ctx().has_node("extra"));
+    let att = h.set("n", 7i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
+
+    let att = h.set("n", -1i64, Some(h.ptok(Perm::Write))).await;
+    assert!(status(&att).is_error(), "{att:?}");
+    assert!(
+        eventually(Duration::from_millis(500), || root_attr(&h, "status")
+            == Some(str_v("restarting")))
+        .await
+    );
+    assert!(matches!(root_attr(&h, "error"), Some(Value::Str(e)) if e.contains("asked to fail")));
+    // the old values stay, marked bad, until the new instance publishes again
+    assert!(
+        eventually(Duration::from_secs(3), || root_attr(&h, "status")
+            == Some(str_v("running")))
+        .await,
+        "status: {:?}",
+        root_attr(&h, "status")
+    );
+    let n = h.ctx().last("n").expect("n");
+    assert_eq!(n.v.as_f64(), Some(7.0));
+    assert_eq!(n.q, Quality::Good);
+    // `extra` was not declared again: it goes after the 10 s window
+    assert!(h.ctx().has_node("extra"));
+    assert!(
+        eventually(Duration::from_secs(12), || !h.ctx().has_node("extra")).await,
+        "extra was not swept"
+    );
+    assert!(h.ctx().has_node("n"));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn panic_in_start_backs_off() {
+    let dir = data_dir("doomed");
+    let h = start::<Doomed>(config(&[]), &dir, Vec::new()).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let n = DOOMED_STARTS.load(Ordering::SeqCst);
+    assert!((2..=3).contains(&n), "{n} starts in 4 s");
+    assert_eq!(root_attr(&h, "status"), Some(str_v("restarting")));
+    // the broker side answers
+    let (att, meta) = h.meta("").await;
+    assert_eq!(status(&att), Status::Ok);
+    assert!(meta.is_some());
+    assert!(matches!(root_attr(&h, "error"), Some(Value::Str(e)) if e.contains("never starts")));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A link that records what is written to its point `p`.
+struct Sink {
+    got: Arc<Mutex<Vec<Value>>>,
+}
+
+static SINK_GOT: Mutex<Option<Arc<Mutex<Vec<Value>>>>> = Mutex::new(None);
+
+impl Link for Sink {
+    const NAME: &'static str = "sink";
+    const VERSION: &'static str = "0.1.0";
+    type Config = ();
+
+    async fn start(_cfg: (), ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        ctx.declare_node(
+            "p",
+            NodeMeta::number().writable(wyrm_core::meta::Writable::Write),
+        )
+        .await?;
+        let got = SINK_GOT.lock().unwrap().clone().expect("sink recorder set");
+        Ok(Sink { got })
+    }
+
+    async fn on_set(
+        &mut self,
+        _path: &str,
+        value: Value,
+        _who: &Caller,
+    ) -> wyrm_link_sdk::Result<()> {
+        self.got.lock().unwrap().push(value);
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn requests_outside_grants_are_refused() {
+    let dir = data_dir("grants");
+    let mock = format!("wy/{SITE}/downstream/mock");
+    let h = start::<Echo>(config(&[]), &dir, vec![(format!("{mock}/**"), Perm::Write)]).await;
+
+    let got = Arc::new(Mutex::new(Vec::new()));
+    *SINK_GOT.lock().unwrap() = Some(got.clone());
+    let mut lcfg = LinkConfig::new(SITE, "mock");
+    lcfg.admin_keys = vec![SigningKey::from_bytes(&TEST_KEY_SEED).verifying_key()];
+    let sink = runtime::spawn::<Sink>(h.session().clone(), lcfg, ())
+        .await
+        .expect("sink");
+
+    let call = |op: &str, key: &str| {
+        let mut m = BTreeMap::new();
+        m.insert("op".to_owned(), str_v(op));
+        m.insert("key".to_owned(), str_v(key));
+        m.insert("value".to_owned(), Value::UInt(1));
+        Value::Map(m)
+    };
+
+    let r = h
+        .invoke(
+            "",
+            "call",
+            call("set", &format!("{mock}/p")),
+            Some(h.ptok(Perm::Write)),
+        )
+        .await;
+    assert_eq!(r.len(), 1);
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    assert!(
+        eventually(Duration::from_secs(3), || got
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_f64() == Some(1.0)))
+        .await,
+        "the set did not reach the mock link"
+    );
+    assert!(
+        eventually(Duration::from_secs(3), || last(&h, "reply")
+            == Some(str_v("ok")))
+        .await,
+        "reply: {:?}",
+        last(&h, "reply")
+    );
+
+    for (op, key) in [
+        ("set", format!("wy/{SITE}/downstream/other/p")),
+        ("subscribe", "wy/x/downstream/mock/p".to_owned()),
+    ] {
+        let r = h
+            .invoke("", "call", call(op, &key), Some(h.ptok(Perm::Write)))
+            .await;
+        assert_eq!(r.len(), 1);
+        assert_eq!(status(&r[0].att), Status::PermissionDenied, "{op} {key}");
+    }
+    assert_eq!(got.lock().unwrap().len(), 1);
+
+    sink.stop().await;
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

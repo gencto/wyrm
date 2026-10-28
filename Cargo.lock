@@ -6040,6 +6040,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-portable"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "sha2",
+ "tokio",
+ "tracing",
+ "wyrm-client",
+ "wyrm-core",
+ "wyrm-link-api",
+ "wyrm-link-sdk",
+ "zeroize",
+]
+
+[[package]]
 name = "wyrm-link-probe"
 version = "0.1.0"
 dependencies = [

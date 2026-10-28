@@ -1,0 +1,25 @@
+[package]
+name = "wyrm-link-portable"
+description = "WYRM portable link runtime: runs an App (wyrm-link-api) as a link with a command buffer, a sealed store, timers, subscriptions and restarts (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-client.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tracing.workspace = true
+sha2.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+ed25519-dalek.workspace = true
