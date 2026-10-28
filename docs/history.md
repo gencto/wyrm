@@ -73,7 +73,7 @@ are needed (spec 05 0.1.10):
 
 | Where | How |
 |---|---|
-| Explorer | the history mark after a recorded point's name, or right-click a point (in Data or Metrics) ▸ **View History**: presets 1 h, 24 h, 7 d, 30 d, or From/To, Interval, Rollup ▸ Load; a chart of the numeric values (bad samples as red dots) and the rows; the store that records it at the top (a choice when there are several) |
+| Explorer | the history mark after a recorded point's name, or right-click a recorded point (in Data or Metrics; `attr.history`, as DSA's `@@getHistory`) ▸ **View History**: presets 1 h, 24 h, 7 d, 30 d, or From/To, Interval, Rollup ▸ Load; a chart of the numeric values (bad samples as red dots) and the rows; the store that records it at the top (a choice when there are several) |
 | Zenoh | `get wy/<site>/downstream/<link>/<point>/~val?history=2026-10-22T08:00:00Z..&agg=avg&window=5m` (spec 01/03): one or more replies, each a CBOR array of `[t, v, q]` (or `[t_start, v]`) |
 | Rust | `WyrmClient::history(node, &HistoryQuery { from, to, agg, window, limit })` |
 | Dart | `api.history(key, from: …, to: …, agg: …, window: …)` (gateway and FFI) |

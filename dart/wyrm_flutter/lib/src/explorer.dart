@@ -464,7 +464,7 @@ List<_Entry> _menuEntries(NodeMeta m) {
 
 /// The node's context menu: its actions by group (`New ▸`, the top level,
 /// `Edit ▸`), `@set` for a writable node, a separator, "View History" for
-/// a point and "Copy Path" (its [route] in the tree, as DSA; the key
+/// a recorded point and "Copy Path" (its [route] in the tree, as DSA; the key
 /// without one).
 /// Every action opens its form to the right of its row: its params (if
 /// any), Invoke, the status and the result.
@@ -562,8 +562,9 @@ abstract final class WyContextMenu {
               return panel(0, entries, m, tail: [
                 if (entries.isEmpty) const _MenuItem(label: 'No actions', disabled: true),
                 Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 2), color: WyStyle.line),
-                // A point (no children): its recorded values (sys/history).
-                if (!m.isContainer)
+                // A recorded point (`attr.history`, ADR 0016), as DSA shows
+                // it only with `@@getHistory`.
+                if (!m.isContainer && isRecorded(m))
                   _MenuItem(
                     label: 'View History',
                     onHover: (_) => closeFrom(1),

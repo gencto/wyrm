@@ -16,6 +16,11 @@ class ActApi implements WyrmApi {
     'edit': ActionMeta(display: 'Edit', group: 'edit', params: {'scale': ParamMeta(ty: TypeCode.number)}),
   });
 
+  /// `temp`'s full meta: recorded by the site's historian.
+  static final metaTRecorded = NodeMeta(ty: TypeCode.number, hasChildren: false, actions: metaT.actions, attr: {
+    'history': const VArray([VStr('wy/s/sys/history/g/w1')]),
+  });
+
   /// Holds only a point: no nodes for the tree.
   static final metaM = NodeMeta(hasChildren: true, hasNodes: false, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
@@ -83,7 +88,7 @@ class ActApi implements WyrmApi {
         'wy/s/downstream' => throw WyrmException.of(Status.disconnected, 'wy/s/downstream/~meta is not connected'),
         'wy/s/downstream/m' => metaM,
         'wy/s/downstream/c' => metaC,
-        'wy/s/downstream/c/temp' => metaT,
+        'wy/s/downstream/c/temp' => metaTRecorded,
         _ => NodeMeta(),
       };
   /// `m` holds only a point (no tree children); `c` holds a device too.
@@ -880,4 +885,20 @@ void main() {
     expect(api.histories.last.$1, RecordedApi.linkStore);
   });
 
+  testWidgets('View History only on a recorded point, as DSA with @@getHistory', (t) async {
+    t.view.physicalSize = const Size(1400, 900);
+    t.view.devicePixelRatio = 1;
+    final api = RecordedApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await select(t, 'c');
+    // energy is not recorded: nothing to view
+    await rightClick(t, find.text('energy').last);
+    expect(find.text('Copy Path'), findsOneWidget);
+    expect(find.text('View History'), findsNothing);
+    await t.tapAt(const Offset(5, 5));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('temp').last);
+    expect(find.text('View History'), findsOneWidget);
+  });
 }
