@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod buffer;
 pub mod net;
 
 use minicbor::{Decoder, Encoder};
