@@ -914,7 +914,11 @@ async fn install_link_from_url_repository_git() {
     let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
     // ADR 0021: a file per host in `assets`, relative to the index
     let host = wyrm_admin::packages::platform();
-    let other = if host == "linux-x86_64" { "macos-aarch64" } else { "linux-x86_64" };
+    let other = if host == "linux-x86_64" {
+        "macos-aarch64"
+    } else {
+        "linux-x86_64"
+    };
     let index = serde_json::json!([
         { "name": "mockpkg", "version": "2.0.0", "url": url("/v2.zip"), "sha256": sha(&v2) },
         { "name": "tampered", "version": "1.0.0", "url": url("/v1.zip"), "sha256": sha(&v2) },

@@ -35,8 +35,8 @@ down. In the broker's own process it runs only as WASM.
 - **Example links** (`examples/links`): a responder (the `mockdev` driver
   as its own binary), a requester (records another link's values to CSV)
   and a link that is both (serves statistics of another link and writes its
-  points). `examples/packages/build.sh` packages them with a WASM package,
-  two components and a repository index.
+  points). `examples/packages/build.sh` packages them with `wyr link pack`
+  and makes a repository with `wyr repo add` (ADR 0021).
 
 ## 3. The Install Link menu
 
@@ -185,9 +185,35 @@ The broker starts it with a cleared environment (only `RUST_LOG`,
 trusted keys), then serves the tree. The supervisor restarts a crashed link
 with backoff, at most `max_restarts` times (10 by default).
 
-Build for each target host, put each binary under its `entries` path, and
-zip it with `wyrm-link.json`. `examples/packages/build.sh` does this for the
-host it runs on. Process mode needs a `tls/` listener in `wyrmd.json5`.
+Process mode needs a `tls/` listener in `wyrmd.json5`.
+
+### Pack it with `wyr link pack` (ADR 0021)
+
+Describe the package in the crate's `Cargo.toml`; `wyrm-link.json` is
+generated from it and from the crate's version and description:
+
+```toml
+[package.metadata.wyrm-link]
+name = "recorder"                 # default: the crate name
+description = "Records …"         # default: the crate's description
+features = ["bin"]                # Cargo features to build with
+bin = "wyrm-example-recorder"     # default: the crate's only binary
+args = []
+requester = [{ path = "wy/{site}/downstream/mock", level = "read" }]
+```
+
+```sh
+wyr link pack --manifest-path links/acme/Cargo.toml                  # this host
+wyr link pack --manifest-path links/acme/Cargo.toml \
+  --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
+wyr link pack --component register.wasm --name register --version 1.0.0
+```
+
+Each build is one zip, `<name>-<version>-<host>.zip`, in
+`<target dir>/wyrm-link` (or `--out`); the same input gives the same bytes.
+Unknown fields in the section are refused. `--no-build` packs the binaries
+built before. The format lives in `wyrm-link-sdk` (feature `package`): the
+broker checks a package with the same code that `wyr` writes it with.
 
 ## 8. WASM links
 
@@ -323,11 +349,31 @@ install them.
 ## 11. Repository
 
 Set `packages: { repository: "https://…/index.json" }` in `wyrmd.json5` (as
-DSA's `linkRepositoryUrl`). The index is a JSON array:
+DSA's `linkRepositoryUrl`). The index is a JSON array, one entry per
+package (ADR 0021):
 
 ```json
 [{ "name": "example-link", "version": "1.0.0", "description": "…",
-   "url": "https://…/example-link-linux-x86_64.zip", "sha256": "<64 hex>" }]
+   "assets": {
+     "linux-aarch64": { "url": "example-link/1.0.0/example-link-1.0.0-linux-aarch64.zip", "sha256": "<64 hex>" },
+     "macos-aarch64": { "url": "example-link/1.0.0/example-link-1.0.0-macos-aarch64.zip", "sha256": "<64 hex>" } } },
+ { "name": "register", "version": "1.0.0",
+   "url": "register/1.0.0/register-1.0.0.zip", "sha256": "<64 hex>" }]
+```
+
+A process package has a file per host in `assets`; the broker installs the
+file of its own host and lists only packages built for it. A package that
+runs on any host (WASM) has `url` and `sha256`. A `url` without a scheme is
+relative to the index, so the repository directory can be copied or
+mirrored as it is.
+
+Make a repository with `wyr repo add`: it puts each zip in
+`<repo>/<name>/<version>/` and updates `<repo>/index.json` (a new version
+replaces the entry, the same version adds the zip's host). Serve the
+directory over HTTPS.
+
+```sh
+wyr repo add target/wyrm-link/*.zip --repo /srv/wyrm-repo
 ```
 
 The broker fetches the index in the background on every start and rebuild;
@@ -395,11 +441,13 @@ network starts as usual: the field then says why the list is empty. Without
    `wy/edge/downstream/example` ▸ Add Connection, Add Device, Add Point.
 5. Install Link ▸ from WASM, choose `register.wasm`, Name `reg`. Open
    `wy/edge/downstream/reg/main` ▸ Add Device, then Add Point with Writable on.
-   The point reads 7; write a number below 24 and read it back.
+   The point reads 7; write a number below 24 and read it back. The zips are
+   under `out/<name>/<version>/`.
 6. Install Link ▸ from Repository, Package `register`, Name `reg2`.
 7. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a
    requester), and ▸ from Url
-   `http://127.0.0.1:8090/average-<os>-<arch>.zip`, Name `avg` (both). See
+   `http://127.0.0.1:8090/average/1.0.0/average-1.0.0-<os>-<arch>.zip`,
+   Name `avg` (both). See
    `examples/links/README.md` for what they do.
 
 The macOS example app needs the entitlement

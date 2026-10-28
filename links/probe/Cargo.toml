@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[package.metadata.wyrm-link]
+name = "probe"
+description = "Test tool: runs scenarios through the gateway (params gateway, user; secret password)"
+features = ["bin"]
+
 [features]
 bin = ["wyrm-link-sdk/process", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
 

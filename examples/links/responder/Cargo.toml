@@ -9,6 +9,11 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+# The package (ADR 0021): `wyr link pack` builds it.
+[package.metadata.wyrm-link]
+name = "example-link"
+description = "Responder: the mockdev driver as its own binary"
+
 [[bin]]
 name = "wyrm-example-link"
 path = "src/main.rs"

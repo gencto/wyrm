@@ -5737,6 +5737,7 @@ dependencies = [
  "hex",
  "json5",
  "minicbor",
+ "serde",
  "serde_json",
  "tokio",
  "wyrm-client",

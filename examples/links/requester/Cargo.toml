@@ -9,6 +9,11 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[package.metadata.wyrm-link]
+name = "recorder"
+description = "Requester: records the values of wy/{site}/downstream/mock to CSV"
+requester = [{ path = "wy/{site}/downstream/mock", level = "read" }]
+
 [[bin]]
 name = "wyrm-example-recorder"
 path = "src/main.rs"

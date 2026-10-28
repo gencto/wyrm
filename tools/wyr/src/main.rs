@@ -20,6 +20,7 @@ mod admin;
 mod bench;
 mod dev;
 mod flow;
+mod pack;
 mod replay;
 mod scaffold;
 mod sim;
@@ -140,6 +141,16 @@ enum Cmd {
         #[command(subcommand)]
         what: scaffold::NewCmd,
     },
+    /// Link packages (ADR 0021): `wyr link pack`.
+    Link {
+        #[command(subcommand)]
+        cmd: pack::LinkCmd,
+    },
+    /// Package repositories (ADR 0021): `wyr repo add`.
+    Repo {
+        #[command(subcommand)]
+        cmd: pack::RepoCmd,
+    },
     /// Hot reload: watch `<flows>/*.json5`, validate and deploy on change.
     Dev {
         #[arg(long, default_value = "flows")]
@@ -256,6 +267,8 @@ async fn run(cli: Cli) -> Result<(), Error> {
             return Ok(());
         }
         Cmd::New { what } => return scaffold::run(what),
+        Cmd::Link { cmd } => return pack::run_link(cmd),
+        Cmd::Repo { cmd } => return pack::run_repo(cmd),
         Cmd::Replay {
             file,
             flow,
@@ -376,6 +389,8 @@ async fn run(cli: Cli) -> Result<(), Error> {
         | Cmd::Probe { .. }
         | Cmd::Token { .. }
         | Cmd::New { .. }
+        | Cmd::Link { .. }
+        | Cmd::Repo { .. }
         | Cmd::Replay { .. }
         | Cmd::Sim { .. } => {
             unreachable!("handled above")

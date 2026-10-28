@@ -9,6 +9,11 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[package.metadata.wyrm-link]
+name = "average"
+description = "Responder and requester: statistics of wy/{site}/downstream/mock, Write All"
+requester = [{ path = "wy/{site}/downstream/mock", level = "write" }]
+
 [[bin]]
 name = "wyrm-example-average"
 path = "src/main.rs"
