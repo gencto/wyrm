@@ -319,6 +319,8 @@ async fn panic_restarts_with_backoff_and_sweeps() {
         .await
     );
     assert!(matches!(root_attr(&h, "error"), Some(Value::Str(e)) if e.contains("asked to fail")));
+    // marked before the status changed
+    assert_eq!(h.ctx().last("n").expect("n").q, Quality::Bad);
     // the old values stay, marked bad, until the new instance publishes again
     assert!(
         eventually(Duration::from_secs(3), || root_attr(&h, "status")

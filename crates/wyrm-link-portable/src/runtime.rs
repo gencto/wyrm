@@ -421,7 +421,9 @@ impl Actor {
 
     fn begin_start(&mut self) {
         self.state = State::Starting;
-        let job = Job::Start(self.params.clone(), self.counts());
+        // Nothing of the new instance exists yet: the old nodes it declares again must not count
+        // twice (the buffer counts every declare as added), and the rest are swept.
+        let job = Job::Start(self.params.clone(), Counts::default());
         if self.jobs.try_send(job).is_err() {
             error!("the engine thread is gone");
             return;
