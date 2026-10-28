@@ -1196,7 +1196,7 @@ async fn history_follows_point_grants() {
             ],
         }],
         vec![format!("{ROOT}/**/~val")],
-        None,
+        Some(format!("wy/{SITE}/sys/history")),
     );
     let admin = env.session("root", ADMIN_PW).await;
     let tok = env.add_user(&admin, "guest", &["limited"]).await;
@@ -1249,6 +1249,88 @@ async fn history_follows_point_grants() {
         )
         .await;
     assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+
+    // ADR 0020: the site lays its stores on points it records for others
+    // (`sys/overlays/.sites`); here the mock stands for such points.
+    let w1 = format!("wy/{SITE}/sys/history/g/w1");
+    let w2 = format!("wy/{SITE}/sys/history/g/w2");
+    let hist = |w: &str| map([("history", Value::Array(vec![Value::from(w)]))]);
+    let put_sites = |v: Value| {
+        let session = env.session.clone();
+        async move {
+            let payload = to_vec(&wyrm_core::Sample {
+                v,
+                q: wyrm_core::Quality::Good,
+                t: wyrm_history::engine::now_us(),
+            })
+            .unwrap();
+            session
+                .put(format!("wy/{SITE}/sys/overlays/.sites/~val"), payload)
+                .await
+                .unwrap();
+        }
+    };
+    let id = ws.send("list", &format!("{ROOT}/g0"), vec![]).await;
+    assert!(is_ok(&ws.reply(id).await));
+    assert_eq!(get(&ws.event(id).await, "type"), &Value::from("refreshed"));
+    let sites = Value::Map(
+        [
+            (format!("{ROOT}/g0/p0"), hist(&w1)),
+            (format!("{ROOT}/g1/p1"), hist(&w2)),
+        ]
+        .into(),
+    );
+    put_sites(sites).await;
+    // the open list gets p0 again, marked, without asking
+    let ev = ws.event(id).await;
+    assert_eq!(get(&ev, "type"), &Value::from("changed"), "{ev:?}");
+    assert_eq!(get(&ev, "name"), &Value::from("p0"));
+    let Value::Bytes(b) = get(&ev, "meta") else {
+        panic!("{ev:?}")
+    };
+    let m: wyrm_core::NodeMeta = from_slice(b).unwrap();
+    assert_eq!(m.has_history, Some(true));
+    assert_eq!(
+        m.attr.unwrap()["history"],
+        Value::Array(vec![Value::from(w1.as_str())])
+    );
+    // meta too
+    let r = ws.call("meta", &format!("{ROOT}/g0/p0"), vec![]).await;
+    let Value::Bytes(b) = get(&r, "result") else {
+        panic!("{r:?}")
+    };
+    let m: wyrm_core::NodeMeta = from_slice(b).unwrap();
+    assert_eq!(m.has_history, Some(true));
+    // the store at the watch key: rights of the point it records
+    let r = ws.call("history", &w1, args()).await;
+    assert!(
+        matches!(get(&r, "result"), Value::Array(a) if a.len() >= rows.len()),
+        "{r:?}"
+    );
+    let r = ws.call("history", &w2, args()).await;
+    assert_eq!(
+        err_status(&r),
+        Some(Status::PermissionDenied),
+        "no read on g1"
+    );
+    let r = ws
+        .call("history", &format!("wy/{SITE}/sys/history/g/w9"), args())
+        .await;
+    assert_eq!(
+        err_status(&r),
+        Some(Status::PermissionDenied),
+        "a watch not laid on anything: as its Get History (config)"
+    );
+    // the overlay goes: p0 again, without the mark
+    put_sites(Value::Map(BTreeMap::new())).await;
+    let ev = ws.event(id).await;
+    assert_eq!(get(&ev, "name"), &Value::from("p0"));
+    let Value::Bytes(b) = get(&ev, "meta") else {
+        panic!("{ev:?}")
+    };
+    let m: wyrm_core::NodeMeta = from_slice(b).unwrap();
+    assert_eq!(m.has_history, None);
+
     h.detach().await;
     env.stop().await;
     let _ = std::fs::remove_dir_all(dir);

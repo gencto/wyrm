@@ -22,6 +22,7 @@
 
 mod http;
 mod limit;
+mod overlay;
 pub mod roles;
 pub mod session;
 pub mod users;
@@ -215,6 +216,9 @@ pub struct Gateway {
     /// Downstream sites reached through this gateway (starts as
     /// `cfg.downstream_sites`; peers added at runtime change it).
     downstream_sites: RwLock<Vec<String>>,
+    /// Other sites' points this site records (ADR 0020), followed while
+    /// the gateway serves.
+    sites: Arc<watch::Sender<Arc<overlay::Sites>>>,
 }
 
 pub(crate) struct UploadSlot<'a> {
@@ -277,6 +281,7 @@ impl Gateway {
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),
             downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
+            sites: Arc::new(watch::channel(Arc::default()).0),
             cfg,
         }))
     }

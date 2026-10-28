@@ -286,7 +286,22 @@ impl Conn {
         let allowed = match req.op.as_str() {
             "meta" | "children" | "list" => p.grants.perm(&format!("{own}/~meta")) >= Perm::List,
             "subscribe" => p.grants.any(&format!("{own}/~val"), Perm::Read),
-            // as reading the point's value (spec 05 0.1.10)
+            // as reading the point's value (spec 05 0.1.10); at a watch
+            // key, as reading the point it records (ADR 0020, the DSA
+            // double check), else as its Get History
+            "history"
+                if req
+                    .key
+                    .starts_with(&format!("wy/{}/sys/history/", self.gw.site())) =>
+            {
+                let sites = self.gw.sites.borrow().clone();
+                match crate::overlay::point_of(&sites, &req.key) {
+                    Some(point) => {
+                        p.grants.perm(&format!("{}/~val", self.gw.as_own(point))) >= Perm::Read
+                    }
+                    None => p.grants.perm(&format!("{own}/~act/get_history")) >= Perm::Config,
+                }
+            }
             "history" => p.grants.perm(&format!("{own}/~val")) >= Perm::Read,
             "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
             "invoke" => match req.action.as_deref() {
@@ -360,7 +375,10 @@ impl Conn {
         let id = req.id;
         let frame = match req.op.as_str() {
             "meta" => match c.meta(&req.key).await {
-                Ok(m) => ok_frame(id, Some(meta_bytes(&m))),
+                Ok(mut m) => {
+                    crate::overlay::lay(&self.gw.sites.borrow(), &req.key, &mut m);
+                    ok_frame(id, Some(meta_bytes(&m)))
+                }
                 Err(e) => client_err(id, &e),
             },
             "history" => {
@@ -373,10 +391,11 @@ impl Conn {
             "children" => match c.children(&req.key).await {
                 Ok(kids) => {
                     let g = self.grants.borrow().clone();
+                    let sites = self.gw.sites.borrow().clone();
                     let kids = kids
-                        .iter()
+                        .into_iter()
                         .filter(|k| visible_child(&g, &self.gw.as_own(&req.key), &k.name))
-                        .map(child_value)
+                        .map(|k| child_value(&laid(&sites, &req.key, k)))
                         .collect();
                     ok_frame(id, Some(Value::Array(kids)))
                 }
@@ -440,22 +459,64 @@ impl Conn {
         };
         self.send(ok_frame(id, None)).await;
         let grants = self.grants.subscribe();
-        while let Some(ev) = s.next().await {
+        // this site's overlays (ADR 0020): laid on each child as sent, and a
+        // change sends the children it touches again
+        let mut sites_rx = self.gw.sites.subscribe();
+        let mut sites = sites_rx.borrow_and_update().clone();
+        let mut kids: BTreeMap<String, Child> = BTreeMap::new();
+        loop {
+            let ev = tokio::select! {
+                ev = s.next() => match ev {
+                    Some(ev) => ev,
+                    None => break,
+                },
+                Ok(()) = sites_rx.changed() => {
+                    let new = sites_rx.borrow_and_update().clone();
+                    let g = grants.borrow().clone();
+                    let parent = self.gw.as_own(&req.key);
+                    for c in kids.values() {
+                        let k = format!("{}/{}", req.key, c.name);
+                        if sites.get(&k) != new.get(&k) && visible_child(&g, &parent, &c.name) {
+                            let ev = event_frame(id, "changed", child_fields(&laid(&new, &req.key, c.clone())));
+                            if self.out.send(Out::Frame(ev)).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    sites = new;
+                    continue;
+                }
+            };
+            match &ev {
+                ListEvent::Refreshed(all) => {
+                    kids = all.iter().map(|c| (c.name.clone(), c.clone())).collect();
+                }
+                ListEvent::Added(c) | ListEvent::Changed(c) => {
+                    kids.insert(c.name.clone(), c.clone());
+                }
+                ListEvent::Removed(n) => {
+                    kids.remove(n);
+                }
+                _ => {}
+            }
             let g = grants.borrow().clone();
             let parent = self.gw.as_own(&req.key);
             let see = |name: &str| visible_child(&g, &parent, name);
+            let lay = |c: Child| laid(&sites, &req.key, c);
             let ev = match ev {
                 ListEvent::Refreshed(kids) => {
                     let kids = kids
-                        .iter()
+                        .into_iter()
                         .filter(|k| see(&k.name))
-                        .map(child_value)
+                        .map(|k| child_value(&lay(k)))
                         .collect();
                     event_frame(id, "refreshed", [("children", Value::Array(kids))])
                 }
-                ListEvent::Added(c) if see(&c.name) => event_frame(id, "added", child_fields(&c)),
+                ListEvent::Added(c) if see(&c.name) => {
+                    event_frame(id, "added", child_fields(&lay(c)))
+                }
                 ListEvent::Changed(c) if see(&c.name) => {
-                    event_frame(id, "changed", child_fields(&c))
+                    event_frame(id, "changed", child_fields(&lay(c)))
                 }
                 ListEvent::Removed(n) if see(&n) => {
                     event_frame(id, "removed", [("name", Value::Str(n))])
@@ -644,6 +705,12 @@ fn child_fields(c: &Child) -> [(&'static str, Value); 2] {
 
 fn child_value(c: &Child) -> Value {
     map(child_fields(c))
+}
+
+/// `c`, a child of `parent`, with this site's overlays laid on (ADR 0020).
+fn laid(sites: &crate::overlay::Sites, parent: &str, mut c: Child) -> Child {
+    crate::overlay::lay(sites, &format!("{parent}/{}", c.name), &mut c.meta);
+    c
 }
 
 #[cfg(test)]

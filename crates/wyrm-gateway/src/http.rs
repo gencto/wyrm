@@ -52,6 +52,12 @@ pub(crate) async fn serve(
     listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
     let (stop_tx, stop) = watch::channel(false);
+    // this session's view of the overlays; a rebuild serves again
+    let _follow = AbortOnDrop(tokio::spawn(crate::overlay::follow(
+        session.clone(),
+        gw.cfg.site.clone(),
+        gw.sites.clone(),
+    )));
     let app = router(AppState {
         gw: gw.clone(),
         session,
@@ -89,6 +95,14 @@ pub(crate) async fn serve(
     let _ = stop_tx.send(true);
     handle.graceful_shutdown(Some(Duration::from_secs(5)));
     server.await.map_err(Into::into)
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 fn tls_config(

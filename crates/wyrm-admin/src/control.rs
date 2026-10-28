@@ -131,6 +131,10 @@ pub const AGENT_DRIVER: &str = "agent";
 pub const FLOWS_LINK: &str = "dataflows";
 /// Link id of the broker storage (rooted at `wy/<site>/storage`, ADR 0017).
 pub const STORAGE_LINK: &str = "storage";
+/// `sys/overlays/.sites`: overlays of downstream sites' points this site
+/// records, by full key, laid on by the gateway (ADR 0020). Never a link
+/// id: those may not start with `.`.
+pub const SITES_OVERLAY: &str = ".sites";
 
 /// A link declared in `wyrmd.json5`.
 #[derive(Debug, Clone)]
@@ -2393,6 +2397,7 @@ pub(crate) fn overlay_maps(
     let down = format!("wy/{site}/downstream/");
     let flows = format!("wy/{site}/dataflows/");
     let storage = format!("wy/{site}/storage/");
+    let own = format!("wy/{site}/");
     let mut by_link: BTreeMap<String, BTreeMap<String, Vec<Value>>> = BTreeMap::new();
     for (group, g) in &reg.historian.groups {
         for (id, w) in &g.watches {
@@ -2405,8 +2410,11 @@ pub(crate) fn overlay_maps(
                 (FLOWS_LINK.to_owned(), rest.to_owned())
             } else if let Some(rest) = w.key.strip_prefix(&storage) {
                 (STORAGE_LINK.to_owned(), rest.to_owned())
+            } else if !w.key.starts_with(&own) {
+                // a downstream site's point: its link is another broker's,
+                // so the overlay is ours, by full key (ADR 0020)
+                (SITES_OVERLAY.to_owned(), w.key.clone())
             } else {
-                // a downstream site's point: its link is another broker's
                 continue;
             };
             by_link
@@ -2442,6 +2450,7 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     let mut links: BTreeSet<String> = reg.links.keys().cloned().collect();
     links.insert(FLOWS_LINK.to_owned());
     links.insert(STORAGE_LINK.to_owned());
+    links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
     ctx.declare_node(
         "overlays",
@@ -5539,6 +5548,49 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+
+    #[test]
+    fn overlays_of_other_sites_go_to_sites() {
+        use crate::registry::{Registry, WatchDef, WatchGroupDef};
+        use wyrm_core::Value;
+        let mut reg = Registry::default();
+        let watch = |key: &str| WatchDef {
+            key: key.into(),
+            enabled: true,
+        };
+        reg.historian.groups.insert(
+            "g".into(),
+            WatchGroupDef {
+                logging: 1,
+                interval_ms: 1000,
+                flush_ms: 1000,
+                watches: [
+                    ("w1".into(), watch("wy/c/downstream/hq/p0")),
+                    ("w2".into(), watch("wy/edge/downstream/lab/wave")),
+                    ("w3".into(), watch("wy/c/sys/cpu")),
+                ]
+                .into(),
+            },
+        );
+        let maps = super::overlay_maps(&reg, "c");
+        let hist = |k: &str| {
+            Value::Map(
+                [(
+                    "history".to_owned(),
+                    Value::Array(vec![Value::from(format!("wy/c/sys/history/g/{k}"))]),
+                )]
+                .into(),
+            )
+        };
+        assert_eq!(maps["hq"]["p0"], hist("w1"));
+        // a downstream site's point: under its full key, in `.sites`
+        assert_eq!(
+            maps[super::SITES_OVERLAY]["wy/edge/downstream/lab/wave"],
+            hist("w2")
+        );
+        // the own sys has no link to lay it on
+        assert_eq!(maps.len(), 2, "{maps:?}");
+    }
 
     #[test]
     fn acl_metric_sum() {
