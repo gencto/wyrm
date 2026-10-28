@@ -84,6 +84,8 @@ enum Job {
 
 enum Failure {
     Fault(String),
+    /// The engine's code was replaced: start the new code at once.
+    Replaced,
     /// A bound the app could not see, or a store write that failed.
     Apply(AppError),
 }
@@ -96,6 +98,8 @@ struct Outcome {
 fn busy(msg: &str) -> AppError {
     AppError::new(Status::Busy, msg)
 }
+
+const REPLACED: &str = "the link's code was replaced";
 
 fn from_link(e: LinkError) -> AppError {
     AppError::new(e.status, e.message)
@@ -178,6 +182,7 @@ fn conclude(
     };
     let r = match r {
         Err(Fault::Crash(m)) => return fail(Failure::Fault(m)),
+        Err(Fault::Replaced) => return fail(Failure::Replaced),
         Ok(Err(e)) if start => {
             return Outcome {
                 result: Ok(Err(e)),
@@ -229,6 +234,7 @@ fn result_of(o: Outcome) -> Result<Option<Value>, AppError> {
             Status::InternalError,
             format!("the link crashed: {m}"),
         )),
+        Err(Failure::Replaced) => Err(busy(REPLACED)),
         Err(Failure::Apply(e)) => Err(e),
     }
 }
@@ -556,6 +562,10 @@ impl Actor {
                 );
                 self.fault(msg).await;
             }
+            Err(Failure::Replaced) => {
+                answer(f.answer, Err(busy(REPLACED)));
+                self.replaced().await;
+            }
             Err(Failure::Apply(e)) => {
                 let msg = e.to_string();
                 answer(f.answer, Err(e));
@@ -624,6 +634,21 @@ impl Actor {
         self.backoff = (self.backoff * 2).min(BACKOFF_CAP);
         self.state = State::Backoff(Instant::now() + wait);
         self.set_status(RESTARTING, Some(msg)).await;
+    }
+
+    /// A hot swap: the old instance's timers, subscriptions, requests and queued events go (their
+    /// ids are its own), queued callers get `busy`, and the new code starts at once on the same
+    /// store. Its nodes wait for the sweep as after a fault; values are not marked, the new
+    /// `start` publishes its own.
+    async fn replaced(&mut self) {
+        info!("{REPLACED}; starting the new code");
+        self.drop_tasks();
+        for p in self.queue.drain(..) {
+            answer(p.answer, Err(busy(REPLACED)));
+        }
+        self.paths.fault();
+        let _ = self.jobs.try_send(Job::Reset);
+        self.begin_start().await;
     }
 
     async fn sweep_now(&mut self) {

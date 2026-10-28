@@ -5189,6 +5189,18 @@ dependencies = [
 
 [[package]]
 name = "wasm-metadata"
+version = "0.243.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eae05bf9579f45a62e8d0a4e3f52eaa8da518883ac5afa482ec8256c329ecd56"
+dependencies = [
+ "anyhow",
+ "indexmap 2.14.2",
+ "wasm-encoder 0.243.0",
+ "wasmparser 0.243.0",
+]
+
+[[package]]
+name = "wasm-metadata"
 version = "0.247.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "665fe59e56cc9b419ca6fcca56673e3421d1a5011e3b65caf6b726fd9e041d10"
@@ -5774,9 +5786,9 @@ dependencies = [
  "indexmap 2.14.2",
  "prettyplease",
  "syn 2.0.119",
- "wasm-metadata",
+ "wasm-metadata 0.247.0",
  "wit-bindgen-core",
- "wit-component",
+ "wit-component 0.247.0",
 ]
 
 [[package]]
@@ -5796,6 +5808,25 @@ dependencies = [
 
 [[package]]
 name = "wit-component"
+version = "0.243.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36f9fc53513e461ce51dcf17a3e331752cb829f1d187069e54af5608fc998fe4"
+dependencies = [
+ "anyhow",
+ "bitflags 2.13.2",
+ "indexmap 2.14.2",
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "wasm-encoder 0.243.0",
+ "wasm-metadata 0.243.0",
+ "wasmparser 0.243.0",
+ "wit-parser 0.243.0",
+]
+
+[[package]]
+name = "wit-component"
 version = "0.247.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d567162a6b9843080e5e0053f696623ff694bae8ae017c9ec536d1873bbe3d8"
@@ -5808,7 +5839,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "wasm-encoder 0.247.0",
- "wasm-metadata",
+ "wasm-metadata 0.247.0",
  "wasmparser 0.247.0",
  "wit-parser 0.247.0",
 ]
@@ -6247,11 +6278,16 @@ dependencies = [
 name = "wyrm-link-wasm"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
+ "minicbor",
  "serde_json",
  "tokio",
  "tracing",
  "wat",
+ "wit-component 0.243.0",
  "wyrm-core",
+ "wyrm-link-api",
+ "wyrm-link-portable",
  "wyrm-link-sdk",
  "wyrm-wasm-host",
 ]
@@ -6313,11 +6349,14 @@ dependencies = [
 name = "wyrm-wasm-host"
 version = "0.1.0"
 dependencies = [
+ "minicbor",
  "sha2",
  "thiserror 2.0.21",
  "tracing",
+ "wasmparser 0.243.0",
  "wasmtime",
  "wat",
+ "wyrm-core",
  "wyrm-link-api",
 ]
 

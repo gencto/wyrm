@@ -4,8 +4,8 @@ mod guests;
 
 use std::time::{Duration, Instant};
 use wyrm_wasm_host::{
-    sha256_hex, DriverWorld, Error, FlowNode, Host, Limits, LinkDriver, NetPolicy, NodeWorld,
-    PointDriver, PointWorld, Slot,
+    component_world, sha256_hex, ComponentWorld, DriverWorld, Error, FlowNode, Host, Limits,
+    LinkDriver, NetPolicy, NodeWorld, PointDriver, PointWorld, Slot,
 };
 
 /// `~val` payload `{0: v, 1: good, 2: 1}` with a one-byte uint `v`.
@@ -288,4 +288,25 @@ fn driver_world_takes_point_components_and_refuses_other_imports() {
         host.load::<PointWorld>(&guests::tcp_ping()),
         Err(Error::Denied(_))
     ));
+}
+
+#[test]
+fn component_world_is_told_by_exports_and_imports() {
+    assert_eq!(
+        component_world(&guests::register()).unwrap(),
+        ComponentWorld::Point
+    );
+    assert_eq!(
+        component_world(&guests::tcp_ping()).unwrap(),
+        ComponentWorld::Driver
+    );
+    // a flow node is none of the link worlds
+    assert!(matches!(
+        component_world(&guests::add(1)),
+        Err(Error::Invalid(_))
+    ));
+    // a core module is not a component
+    let core = wat::parse_str("(module)").unwrap();
+    assert!(matches!(component_world(&core), Err(Error::Invalid(_))));
+    assert!(matches!(component_world(b"junk"), Err(Error::Invalid(_))));
 }

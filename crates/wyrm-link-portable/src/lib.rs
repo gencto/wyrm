@@ -43,9 +43,14 @@ pub const MAX_STORE_MB: u32 = 64;
 pub const DEFAULT_CALL_MS: u32 = 2000;
 /// Largest `call_ms`.
 pub const MAX_CALL_MS: u32 = 10_000;
+/// Memory of a WASM instance when `memory_mb` is not given (MiB).
+pub const DEFAULT_MEMORY_MB: u32 = 64;
+/// Largest `memory_mb`.
+pub const MAX_MEMORY_MB: u32 = 512;
 
-/// The settings of a portable link, from its params. The keys `net`, `store_mb` and `call_ms`
-/// belong to the host; everything else goes to the app's `start` as `params`.
+/// The settings of a portable link, from its params. The keys `net`, `store_mb`, `call_ms`,
+/// `memory_mb` and `component` belong to the host; everything else goes to the app's `start` as
+/// `params`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortableConfig {
     /// The app's params: a map.
@@ -56,6 +61,11 @@ pub struct PortableConfig {
     pub store_mb: u32,
     /// Time of one call in milliseconds (TCP waits; WASM epoch limit).
     pub call_ms: u32,
+    /// Linear memory of a WASM instance in MiB (the native engine has no such bound).
+    pub memory_mb: u32,
+    /// The `wasm` package whose component runs the app (driver `app`); unused by the native
+    /// engine.
+    pub component: Option<String>,
 }
 
 impl Default for PortableConfig {
@@ -65,6 +75,8 @@ impl Default for PortableConfig {
             net: NetPolicy::default(),
             store_mb: DEFAULT_STORE_MB,
             call_ms: DEFAULT_CALL_MS,
+            memory_mb: DEFAULT_MEMORY_MB,
+            component: None,
         }
     }
 }
@@ -107,11 +119,23 @@ impl FromParams for PortableConfig {
         };
         let store_mb = bounded(&mut m, "store_mb", DEFAULT_STORE_MB, MAX_STORE_MB, 0)?;
         let call_ms = bounded(&mut m, "call_ms", DEFAULT_CALL_MS, MAX_CALL_MS, 1)?;
+        let memory_mb = bounded(&mut m, "memory_mb", DEFAULT_MEMORY_MB, MAX_MEMORY_MB, 1)?;
+        let component = match m.remove("component") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(s)) if !s.is_empty() => Some(s),
+            Some(_) => {
+                return Err(LinkError::invalid_parameter(
+                    "params.component: a package name",
+                ))
+            }
+        };
         Ok(Self {
             params: Value::Map(m),
             net,
             store_mb,
             call_ms,
+            memory_mb,
+            component,
         })
     }
 }
@@ -127,10 +151,14 @@ mod tests {
         m.insert("net".to_owned(), Value::Str("10.0.0.0/8:502".into()));
         m.insert("store_mb".to_owned(), Value::UInt(0));
         m.insert("call_ms".to_owned(), Value::UInt(500));
+        m.insert("memory_mb".to_owned(), Value::UInt(128));
+        m.insert("component".to_owned(), Value::Str("echo".into()));
         m.insert("rate".to_owned(), Value::UInt(5));
         let c = PortableConfig::from_params(&Value::Map(m)).unwrap();
         assert_eq!(c.store_mb, 0);
         assert_eq!(c.call_ms, 500);
+        assert_eq!(c.memory_mb, 128);
+        assert_eq!(c.component.as_deref(), Some("echo"));
         assert!(!c.net.is_empty());
         let Value::Map(p) = &c.params else { panic!() };
         assert_eq!(p.keys().collect::<Vec<_>>(), ["rate"]);
@@ -141,6 +169,10 @@ mod tests {
             ("store_mb", Value::UInt(65)),
             ("call_ms", Value::UInt(0)),
             ("call_ms", Value::UInt(10_001)),
+            ("memory_mb", Value::UInt(0)),
+            ("memory_mb", Value::UInt(513)),
+            ("component", Value::Str(String::new())),
+            ("component", Value::UInt(1)),
             ("net", Value::Str("example.com:80".into())),
             ("net", Value::UInt(1)),
         ] {

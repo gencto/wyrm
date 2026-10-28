@@ -12,6 +12,9 @@ authors.workspace = true
 wasmtime.workspace = true
 sha2.workspace = true
 wyrm-link-api.workspace = true
+wyrm-core.workspace = true
+minicbor.workspace = true
+wasmparser = { workspace = true, features = ["component-model"] }
 thiserror.workspace = true
 tracing.workspace = true
 

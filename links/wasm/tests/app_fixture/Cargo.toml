@@ -1,0 +1,21 @@
+# The test app of `tests/app.rs` built for wasm32-unknown-unknown. Not a workspace member.
+[package]
+name = "wyrm-link-wasm-app-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wyrm-core = { path = "../../../../crates/wyrm-core" }
+wyrm-link-api = { path = "../../../../crates/wyrm-link-api" }
+wyrm-link-guest = { path = "../../../../crates/wyrm-link-guest" }
+
+[profile.release]
+# the component-type custom section must stay
+strip = false
+panic = "abort"

@@ -28,6 +28,7 @@ use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
+use wyrm_link_wasm::ComponentWorld;
 use wyrm_link_wasm::Wasm;
 use wyrm_storage::{Storage, StorageStart};
 use zenoh::internal::plugins::PluginsManager;
@@ -636,6 +637,7 @@ impl EmbeddedHost for Drivers {
             Mqtt::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
+            wyrm_link_wasm::App::NAME,
         ]
     }
 
@@ -646,6 +648,7 @@ impl EmbeddedHost for Drivers {
             // tree shape is checked up front.
             "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
+            "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
         }
     }
@@ -664,7 +667,18 @@ impl EmbeddedHost for Drivers {
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
                 "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
-                // a `wasm` package link runs in the broker (ADR 0011, 0012)
+                // a portable link on a WASM component (ADR 0023)
+                "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
+                // a `wasm` package link runs in the broker (ADR 0011, 0012); its component's
+                // exports tell an app from a point driver
+                d if d
+                    .strip_prefix("pkg:")
+                    .and_then(wyrm_link_wasm::package_world)
+                    == Some(ComponentWorld::App) =>
+                {
+                    let params = app_component(&d["pkg:".len()..], params)?;
+                    start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await
+                }
                 d if d == "wasm" || d.starts_with("pkg:") => {
                     start_boxed::<Framework<Wasm>>(session, cfg, params).await
                 }
@@ -672,6 +686,28 @@ impl EmbeddedHost for Drivers {
             }
         })
     }
+}
+
+/// The params of a `pkg:<name>` app link: its component is the package's own (the world was
+/// told from `<name>.wasm`); another `component` is refused.
+fn app_component(name: &str, params: Value) -> Result<Value, LinkError> {
+    let mut m = match params {
+        Value::Map(m) => m,
+        Value::Null => Default::default(),
+        _ => return Err(LinkError::invalid_parameter("params: expected a map")),
+    };
+    match m.get("component") {
+        None | Some(Value::Null) => {
+            m.insert("component".into(), Value::Str(name.into()));
+        }
+        Some(Value::Str(c)) if c == name => {}
+        Some(other) => {
+            return Err(LinkError::invalid_parameter(format!(
+                "params.component: {other:?} is not this link's package {name}"
+            )))
+        }
+    }
+    Ok(Value::Map(m))
 }
 
 /// `wyrmd link <driver>`: host one driver as a supervised process.
@@ -1315,5 +1351,26 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pkg_app_runs_its_own_package() {
+        let comp = |v: &Value| match v {
+            Value::Map(m) => m.get("component").cloned(),
+            _ => None,
+        };
+        let p = app_component("echo", Value::Null).unwrap();
+        assert_eq!(comp(&p), Some(Value::Str("echo".into())));
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("component".to_owned(), Value::Str("echo".into()));
+        m.insert("rate".to_owned(), Value::UInt(1));
+        assert!(app_component("echo", Value::Map(m.clone())).is_ok());
+        m.insert("component".to_owned(), Value::Str("other".into()));
+        assert!(app_component("echo", Value::Map(m)).is_err());
     }
 }

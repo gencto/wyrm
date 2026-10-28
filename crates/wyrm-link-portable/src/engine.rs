@@ -28,17 +28,23 @@ pub enum Event {
     Stop,
 }
 
-/// The instance is gone: a panic, a trap, fuel, memory or time ran out. The runtime drops the
-/// instance, keeps the store and starts again after a backoff.
+/// The call did not complete as the app's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fault {
+    /// The instance is gone: a panic, a trap, fuel, memory or time ran out. The runtime drops the
+    /// instance, keeps the store and starts again after a backoff.
     Crash(String),
+    /// The engine's code was replaced (a hot swap) before or during the call. The runtime drops
+    /// the call's effects, answers its caller `busy` and starts the new code at once, with the
+    /// same store and no backoff.
+    Replaced,
 }
 
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Fault::Crash(m) => f.write_str(m),
+            Fault::Replaced => f.write_str("the link's code was replaced"),
         }
     }
 }

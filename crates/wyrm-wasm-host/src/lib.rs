@@ -13,9 +13,15 @@
 //! - `wyrm:link/driver` (same file, ADR 0012): `point` plus the one import
 //!   the host defines, `wyrm:link/tcp`, limited by the instance's
 //!   [`NetPolicy`].
+//! - `wyrm:app/app` (`wit/app/app.wit`, ADR 0023): a portable link. Its one
+//!   import, `wyrm:app/host`, records the app's effects in a
+//!   [`BufferHost`] that the caller lends the instance for each call
+//!   ([`AppRunner`]). [`component_world`] tells the worlds apart by their
+//!   exports.
 //!
 //! # Sandbox
-//! - **No imports** but `wyrm:link/tcp` for the `driver` world. The linker
+//! - **No imports** but `wyrm:link/tcp` for the `driver` world and
+//!   `wyrm:app/host` for the `app` world. The linker
 //!   defines nothing else: no WASI, no files, no clocks, no random. A
 //!   component that imports anything else is rejected at load with
 //!   [`Error::Denied`] naming the import.
@@ -39,13 +45,15 @@
 #![forbid(unsafe_code)]
 
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
+use wyrm_link_api::buffer::{BufferHost, Counts, Services};
+use wyrm_link_api::{AppError, ConnId};
 
 mod flow_world {
     wasmtime::component::bindgen!({ path: "wit/flow", world: "node" });
@@ -57,6 +65,15 @@ mod link_world {
 
 mod driver_world {
     wasmtime::component::bindgen!({ path: "wit/link", world: "driver" });
+}
+
+mod app_world {
+    // A malformed CBOR argument traps the call: the import functions return `wasmtime::Result`.
+    wasmtime::component::bindgen!({
+        path: "wit/app",
+        world: "app",
+        imports: { default: trappable },
+    });
 }
 
 /// Epoch tick of the time limit.
@@ -108,13 +125,48 @@ impl Limits {
         memory_bytes: 64 << 20,
         time: Duration::from_secs(10),
     };
+
+    /// Default of an `app` call (ADR 0023): 64 MiB, 2 s, host calls included.
+    pub const APP: Limits = Limits::app(64, 2000);
+
+    /// Upper bounds of an `app` call: 512 MiB, 10 s.
+    pub const APP_MAX: Limits = Limits::app(512, 10_000);
+
+    /// Fuel of an `app` call per millisecond of its time. Time is the bound an app is given;
+    /// fuel only stops a guest that the epoch would stop too, so it is set well above what a
+    /// call can burn in its time.
+    pub const APP_FUEL_PER_MS: u64 = 1_000_000;
+
+    /// The limits of an `app` call from the link's `memory_mb` and `call_ms` (clamped to
+    /// 1..=512 MiB and 1..=10 000 ms).
+    pub const fn app(memory_mb: u32, call_ms: u32) -> Limits {
+        let mb = if memory_mb == 0 {
+            1
+        } else if memory_mb > 512 {
+            512
+        } else {
+            memory_mb
+        };
+        let ms = if call_ms == 0 {
+            1
+        } else if call_ms > 10_000 {
+            10_000
+        } else {
+            call_ms
+        };
+        Limits {
+            fuel: Self::APP_FUEL_PER_MS * ms as u64,
+            memory_bytes: (mb as usize) << 20,
+            time: Duration::from_millis(ms as u64),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("invalid component: {0}")]
     Invalid(String),
-    #[error("import {0} denied: only wyrm:link/tcp, for link drivers")]
+    #[error("import {0} denied: only wyrm:link/tcp for link drivers, wyrm:app/host for apps")]
     Denied(String),
     #[error("fuel limit of {0} exhausted")]
     Fuel(u64),
@@ -149,6 +201,8 @@ pub struct Ctx {
     memory_bytes: usize,
     memory_hit: bool,
     net: Net,
+    /// `app` world: the caller's buffer during a call, a placeholder between calls.
+    app: Option<BufferHost>,
 }
 
 // ---------- network (ADR 0012) ----------
@@ -311,8 +365,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// A WIT world the host can run. Implemented for [`NodeWorld`] and
-/// [`PointWorld`] only.
+/// A WIT world the host can run: [`NodeWorld`], [`PointWorld`],
+/// [`DriverWorld`] and [`AppWorld`].
 pub trait World: sealed::Sealed + Sized + 'static {
     #[doc(hidden)]
     type Pre: Clone + Send + Sync;
@@ -344,6 +398,7 @@ pub struct DriverWorld(driver_world::Driver);
 impl sealed::Sealed for NodeWorld {}
 impl sealed::Sealed for PointWorld {}
 impl sealed::Sealed for DriverWorld {}
+impl sealed::Sealed for AppWorld {}
 
 impl World for DriverWorld {
     type Pre = driver_world::DriverPre<Ctx>;
@@ -502,6 +557,7 @@ impl<W: World> Artifact<W> {
 pub type NodeArtifact = Artifact<NodeWorld>;
 pub type PointArtifact = Artifact<PointWorld>;
 pub type DriverArtifact = Artifact<DriverWorld>;
+pub type AppArtifact = Artifact<AppWorld>;
 
 /// The artifact runners use; [`Slot::swap`] is the hot reload.
 pub struct Slot<W: World>(Arc<RwLock<(u64, Artifact<W>)>>);
@@ -529,6 +585,11 @@ impl<W: World> Slot<W> {
         self.current().1.sha
     }
 
+    /// Grows by one with every [`Slot::swap`].
+    pub fn generation(&self) -> u64 {
+        self.0.read().unwrap_or_else(|p| p.into_inner()).0
+    }
+
     fn current(&self) -> (u64, Artifact<W>) {
         let g = self.0.read().unwrap_or_else(|p| p.into_inner());
         (g.0, g.1.clone())
@@ -536,6 +597,30 @@ impl<W: World> Slot<W> {
 }
 
 // ---------- runner ----------
+
+/// A fresh budget before a call: fuel, epoch deadline, the end of host I/O.
+fn arm(store: &mut Store<Ctx>, limits: &Limits) -> Result<(), Error> {
+    store.data_mut().memory_hit = false;
+    // Host I/O timeouts end with the call (ADR 0012).
+    store.data_mut().net.deadline = Some(Instant::now() + limits.time);
+    store
+        .set_fuel(limits.fuel)
+        .map_err(|e| Error::Trap(format!("fuel: {e:#}")))?;
+    store.set_epoch_deadline(limits.time.as_millis().div_ceil(TICK.as_millis()) as u64 + 1);
+    Ok(())
+}
+
+/// Which limit a failed call ran into.
+fn classify(limits: &Limits, e: wasmtime::Error, ctx: &Ctx) -> Error {
+    if ctx.memory_hit {
+        return Error::Memory(limits.memory_bytes);
+    }
+    match e.downcast_ref::<Trap>() {
+        Some(Trap::OutOfFuel) => Error::Fuel(limits.fuel),
+        Some(Trap::Interrupt) => Error::Time(limits.time),
+        _ => Error::Trap(format!("{e:#}")),
+    }
+}
 
 struct Live<W> {
     store: Store<Ctx>,
@@ -567,25 +652,11 @@ impl<W: World> Runner<W> {
     }
 
     fn arm(store: &mut Store<Ctx>, limits: &Limits) -> Result<(), Error> {
-        store.data_mut().memory_hit = false;
-        // Host I/O timeouts end with the call (ADR 0012).
-        store.data_mut().net.deadline = Some(Instant::now() + limits.time);
-        store
-            .set_fuel(limits.fuel)
-            .map_err(|e| Error::Trap(format!("fuel: {e:#}")))?;
-        store.set_epoch_deadline(limits.time.as_millis().div_ceil(TICK.as_millis()) as u64 + 1);
-        Ok(())
+        arm(store, limits)
     }
 
     fn classify(&self, e: wasmtime::Error, ctx: &Ctx) -> Error {
-        if ctx.memory_hit {
-            return Error::Memory(self.limits.memory_bytes);
-        }
-        match e.downcast_ref::<Trap>() {
-            Some(Trap::OutOfFuel) => Error::Fuel(self.limits.fuel),
-            Some(Trap::Interrupt) => Error::Time(self.limits.time),
-            _ => Error::Trap(format!("{e:#}")),
-        }
+        classify(&self.limits, e, ctx)
     }
 
     /// Instantiate (with `init`) if there is no live instance or the slot
@@ -609,6 +680,7 @@ impl<W: World> Runner<W> {
                     policy: self.net.clone(),
                     ..Net::default()
                 },
+                app: None,
             },
         );
         store.limiter(|c| c);
@@ -747,5 +819,480 @@ impl LinkDriver {
 
     pub fn fuel_used(&self) -> u64 {
         self.0.fuel_used
+    }
+}
+
+// ---------- world `wyrm:app/app` (ADR 0023) ----------
+
+/// `wyrm:app/app`: a portable link. Its import `wyrm:app/host` delegates to the
+/// [`BufferHost`] the caller lends the instance for a call.
+pub struct AppWorld(app_world::App);
+
+impl World for AppWorld {
+    type Pre = app_world::AppPre<Ctx>;
+    const IMPORT: Option<&'static str> = Some("wyrm:app/host@0.1.0");
+    fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
+        let mut l = Linker::new(engine);
+        app_world::wyrm::app::host::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
+            &mut l,
+            |c| c,
+        )?;
+        Ok(l)
+    }
+    fn pre(linker: &Linker<Ctx>, c: &Component) -> wasmtime::Result<Self::Pre> {
+        app_world::AppPre::new(linker.instantiate_pre(c)?)
+    }
+    fn instantiate(pre: &Self::Pre, store: &mut Store<Ctx>) -> wasmtime::Result<Self> {
+        pre.instantiate(store).map(AppWorld)
+    }
+    /// Apps start through [`AppRunner::start`], with a buffer for their effects.
+    fn init(
+        &self,
+        _store: &mut Store<Ctx>,
+        _config: &[u8],
+    ) -> wasmtime::Result<Result<(), String>> {
+        Ok(Err("an app starts through AppRunner".into()))
+    }
+}
+
+/// A malformed CBOR argument from the guest: the call traps.
+fn decode<T>(what: &str, b: &[u8]) -> wasmtime::Result<T>
+where
+    T: for<'b> minicbor::Decode<'b, ()>,
+{
+    wyrm_core::codec::from_slice(b)
+        .map_err(|e| wasmtime::Error::msg(format!("{what}: not the CBOR expected: {e}")))
+}
+
+impl Ctx {
+    fn app(&mut self) -> wasmtime::Result<&mut BufferHost> {
+        self.app
+            .as_mut()
+            .ok_or_else(|| wasmtime::Error::msg("wyrm:app/host outside an app call"))
+    }
+}
+
+impl app_world::wyrm::app::host::Host for Ctx {
+    fn declare_node(&mut self, path: String, meta: Vec<u8>) -> wasmtime::Result<()> {
+        let meta = decode("declare-node meta", &meta)?;
+        wyrm_link_api::Host::declare_node(self.app()?, &path, meta);
+        Ok(())
+    }
+
+    fn declare_action(
+        &mut self,
+        path: String,
+        name: String,
+        action: Vec<u8>,
+    ) -> wasmtime::Result<()> {
+        let action = decode("declare-action meta", &action)?;
+        wyrm_link_api::Host::declare_action(self.app()?, &path, &name, action);
+        Ok(())
+    }
+
+    fn remove_node(&mut self, path: String) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::remove_node(self.app()?, &path);
+        Ok(())
+    }
+
+    fn update(&mut self, path: String, sample: Vec<u8>) -> wasmtime::Result<()> {
+        let sample = decode("update sample", &sample)?;
+        wyrm_link_api::Host::update(self.app()?, &path, sample);
+        Ok(())
+    }
+
+    fn now_us(&mut self) -> wasmtime::Result<u64> {
+        Ok(wyrm_link_api::Host::now_us(self.app()?))
+    }
+
+    fn cancel_timer(&mut self, id: u64) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::cancel_timer(self.app()?, wyrm_link_api::TimerId(id));
+        Ok(())
+    }
+
+    fn store_get(&mut self, key: String) -> wasmtime::Result<Option<Vec<u8>>> {
+        Ok(wyrm_link_api::Host::store_get(self.app()?, &key))
+    }
+
+    fn set_timer(&mut self, after_ms: u64) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::set_timer(self.app()?, after_ms)
+            .map(|t| t.0)
+            .map_err(|e| e.to_cbor()))
+    }
+
+    fn store_put(&mut self, key: String, value: Vec<u8>) -> wasmtime::Result<Result<(), Vec<u8>>> {
+        Ok(wyrm_link_api::Host::store_put(self.app()?, &key, &value).map_err(|e| e.to_cbor()))
+    }
+
+    fn store_delete(&mut self, key: String) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::store_delete(self.app()?, &key);
+        Ok(())
+    }
+
+    fn subscribe(&mut self, key: String) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::subscribe(self.app()?, &key)
+            .map(|s| s.0)
+            .map_err(|e| e.to_cbor()))
+    }
+
+    fn unsubscribe(&mut self, id: u64) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::unsubscribe(self.app()?, wyrm_link_api::SubId(id));
+        Ok(())
+    }
+
+    fn set(&mut self, key: String, value: Vec<u8>) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        let value = decode("set value", &value)?;
+        Ok(wyrm_link_api::Host::set(self.app()?, &key, value)
+            .map(|r| r.0)
+            .map_err(|e| e.to_cbor()))
+    }
+
+    fn invoke(
+        &mut self,
+        key: String,
+        action: String,
+        args: Vec<u8>,
+    ) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        let args = decode("invoke args", &args)?;
+        Ok(
+            wyrm_link_api::Host::invoke(self.app()?, &key, &action, args)
+                .map(|r| r.0)
+                .map_err(|e| e.to_cbor()),
+        )
+    }
+
+    fn tcp_connect(
+        &mut self,
+        addr: String,
+        port: u16,
+        timeout_ms: u32,
+    ) -> wasmtime::Result<Result<u32, Vec<u8>>> {
+        Ok(
+            wyrm_link_api::Host::tcp_connect(self.app()?, &addr, port, timeout_ms)
+                .map(|c| c.0)
+                .map_err(|e| e.to_cbor()),
+        )
+    }
+
+    fn tcp_send(&mut self, conn: u32, data: Vec<u8>) -> wasmtime::Result<Result<(), Vec<u8>>> {
+        Ok(
+            wyrm_link_api::Host::tcp_send(self.app()?, ConnId(conn), &data)
+                .map_err(|e| e.to_cbor()),
+        )
+    }
+
+    fn tcp_recv(
+        &mut self,
+        conn: u32,
+        max: u32,
+        timeout_ms: u32,
+    ) -> wasmtime::Result<Result<Vec<u8>, Vec<u8>>> {
+        Ok(
+            wyrm_link_api::Host::tcp_recv(self.app()?, ConnId(conn), max, timeout_ms)
+                .map_err(|e| e.to_cbor()),
+        )
+    }
+
+    fn tcp_close(&mut self, conn: u32) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::tcp_close(self.app()?, ConnId(conn));
+        Ok(())
+    }
+
+    fn log(&mut self, level: u8, msg: String) -> wasmtime::Result<()> {
+        wyrm_link_api::Host::log(self.app()?, wyrm_link_api::Level::from_code(level), &msg);
+        Ok(())
+    }
+}
+
+/// What a placeholder buffer serves: nothing. It only holds the place of the caller's buffer
+/// in a store between calls.
+struct NoServices;
+
+impl Services for NoServices {
+    fn now_us(&self) -> u64 {
+        0
+    }
+    fn store_get(&self, _key: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn store_used(&self) -> u64 {
+        0
+    }
+    fn store_ready(&self) -> Result<(), AppError> {
+        Err(no_call())
+    }
+    fn may(&self, _key: &str, _perm: wyrm_core::Perm) -> bool {
+        false
+    }
+    fn tcp_connect(&mut self, _a: &str, _p: u16, _t: u32) -> Result<ConnId, AppError> {
+        Err(no_call())
+    }
+    fn tcp_send(&mut self, _c: ConnId, _d: &[u8]) -> Result<(), AppError> {
+        Err(no_call())
+    }
+    fn tcp_recv(&mut self, _c: ConnId, _m: u32, _t: u32) -> Result<Vec<u8>, AppError> {
+        Err(no_call())
+    }
+    fn tcp_close(&mut self, _c: ConnId) {}
+}
+
+fn no_call() -> AppError {
+    AppError::new(wyrm_core::Status::InternalError, "no app call")
+}
+
+fn placeholder() -> BufferHost {
+    BufferHost::new(
+        Box::new(NoServices),
+        wyrm_link_api::buffer::Limits::default(),
+        Counts::default(),
+        0,
+        String::new(),
+    )
+}
+
+/// One instance of an `app` component (ADR 0023). Each call takes the caller's
+/// [`BufferHost`]: it lives in the store for the call (the imports record into it) and goes
+/// back to the caller afterwards, on every path, a trap included. Host I/O blocks, so run it on
+/// a thread of its own.
+///
+/// A call that returns an `Err` (trap, fuel, memory, time) drops the instance: a trapped
+/// instance cannot be entered again. An app's own error is the inner `Err` and keeps it.
+/// [`AppRunner::start`] makes a new instance from the slot's current artifact, which is how a
+/// [`Slot::swap`] takes effect; [`AppRunner::replaced`] tells the caller that the slot moved on.
+pub struct AppRunner {
+    slot: Slot<AppWorld>,
+    limits: Limits,
+    live: Option<Live<AppWorld>>,
+    fuel_used: u64,
+}
+
+/// A call's result as the guest gives it: an app error is CBOR `{status, msg}`.
+pub type AppResult<T> = Result<T, AppError>;
+
+impl AppRunner {
+    pub fn new(slot: Slot<AppWorld>, limits: Limits) -> Self {
+        Self {
+            slot,
+            limits,
+            live: None,
+            fuel_used: 0,
+        }
+    }
+
+    pub fn slot(&self) -> &Slot<AppWorld> {
+        &self.slot
+    }
+
+    /// An instance is alive.
+    pub fn is_live(&self) -> bool {
+        self.live.is_some()
+    }
+
+    /// The live instance runs another artifact than the slot holds now.
+    pub fn replaced(&self) -> bool {
+        self.live
+            .as_ref()
+            .is_some_and(|l| l.generation != self.slot.generation())
+    }
+
+    /// Drop the instance.
+    pub fn reset(&mut self) {
+        self.live = None;
+    }
+
+    /// Fuel the last call consumed.
+    pub fn fuel_used(&self) -> u64 {
+        self.fuel_used
+    }
+
+    /// A new instance of the slot's current artifact, then its `start(config)`.
+    pub fn start(&mut self, host: &mut BufferHost, config: &[u8]) -> Result<AppResult<()>, Error> {
+        self.live = None;
+        let (generation, art) = self.slot.current();
+        let mut store = Store::new(
+            &art.engine,
+            Ctx {
+                memory_bytes: self.limits.memory_bytes,
+                memory_hit: false,
+                net: Net::default(),
+                app: Some(placeholder()),
+            },
+        );
+        store.limiter(|c| c);
+        arm(&mut store, &self.limits)?;
+        let world = match AppWorld::instantiate(&art.pre, &mut store) {
+            Ok(w) => w,
+            Err(e) => return Err(classify(&self.limits, e, store.data())),
+        };
+        self.live = Some(Live {
+            store,
+            world,
+            generation,
+        });
+        let r = self.call(host, |w, s| w.0.call_start(s, config))?;
+        Ok(r.map_err(|e| AppError::from_cbor(&e)))
+    }
+
+    pub fn on_set(
+        &mut self,
+        host: &mut BufferHost,
+        path: &str,
+        value: &[u8],
+        who: &[u8],
+    ) -> Result<AppResult<()>, Error> {
+        let r = self.call(host, |w, s| w.0.call_on_set(s, path, value, who))?;
+        Ok(r.map_err(|e| AppError::from_cbor(&e)))
+    }
+
+    /// The answer is the CBOR of a `Value`.
+    pub fn on_invoke(
+        &mut self,
+        host: &mut BufferHost,
+        path: &str,
+        action: &str,
+        args: &[u8],
+        who: &[u8],
+    ) -> Result<AppResult<Vec<u8>>, Error> {
+        let r = self.call(host, |w, s| w.0.call_on_invoke(s, path, action, args, who))?;
+        Ok(r.map_err(|e| AppError::from_cbor(&e)))
+    }
+
+    pub fn on_timer(&mut self, host: &mut BufferHost, id: u64) -> Result<(), Error> {
+        self.call(host, |w, s| w.0.call_on_timer(s, id))
+    }
+
+    pub fn on_value(
+        &mut self,
+        host: &mut BufferHost,
+        sub: u64,
+        key: &str,
+        sample: &[u8],
+    ) -> Result<(), Error> {
+        self.call(host, |w, s| w.0.call_on_value(s, sub, key, sample))
+    }
+
+    /// `result`: the CBOR of the `Value` answered, or of the `AppError`.
+    pub fn on_reply(
+        &mut self,
+        host: &mut BufferHost,
+        req: u64,
+        result: Result<&[u8], &[u8]>,
+    ) -> Result<(), Error> {
+        self.call(host, |w, s| w.0.call_on_reply(s, req, result))
+    }
+
+    pub fn stop(&mut self, host: &mut BufferHost) -> Result<(), Error> {
+        self.call(host, |w, s| w.0.call_stop(s))
+    }
+
+    /// One call with the caller's buffer in the store. A failed call drops the instance.
+    fn call<R>(
+        &mut self,
+        host: &mut BufferHost,
+        f: impl FnOnce(&AppWorld, &mut Store<Ctx>) -> wasmtime::Result<R>,
+    ) -> Result<R, Error> {
+        let Some(live) = self.live.as_mut() else {
+            return Err(Error::Trap("no instance".into()));
+        };
+        arm(&mut live.store, &self.limits)?;
+        let Some(slot) = live.store.data_mut().app.as_mut() else {
+            return Err(Error::Trap("no buffer in the store".into()));
+        };
+        std::mem::swap(host, slot);
+        let r = f(&live.world, &mut live.store);
+        // the caller's buffer comes back first, whatever happened
+        if let Some(slot) = live.store.data_mut().app.as_mut() {
+            std::mem::swap(host, slot);
+        }
+        self.fuel_used = self
+            .limits
+            .fuel
+            .saturating_sub(live.store.get_fuel().unwrap_or(0));
+        match r {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                let live = self.live.take().expect("live");
+                Err(classify(&self.limits, e, live.store.data()))
+            }
+        }
+    }
+}
+
+// ---------- telling worlds apart ----------
+
+/// The world a component was built for, told by its exports and imports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComponentWorld {
+    /// `wyrm:app/app` (ADR 0023).
+    App,
+    /// `wyrm:link/driver` (ADR 0012): `point` plus `wyrm:link/tcp`.
+    Driver,
+    /// `wyrm:link/point`.
+    Point,
+}
+
+const APP_EXPORTS: [&str; 7] = [
+    "start",
+    "on-set",
+    "on-invoke",
+    "on-timer",
+    "on-value",
+    "on-reply",
+    "stop",
+];
+const POINT_EXPORTS: [&str; 3] = ["init", "read", "write"];
+
+/// Reads the component's top-level exports and imports (no compilation): an `app` exports
+/// `start`, `on-set`, `on-invoke`, `on-timer`, `on-value`, `on-reply` and `stop`; a `point`
+/// `init`, `read` and `write`; a `driver` is a `point` that imports `wyrm:link/tcp@0.1.0`.
+/// Anything else is [`Error::Invalid`].
+pub fn component_world(bytes: &[u8]) -> Result<ComponentWorld, Error> {
+    use wasmparser::{Encoding, Parser, Payload};
+    if bytes.len() > MAX_ARTIFACT_BYTES {
+        return Err(Error::Invalid(format!(
+            "{} bytes, at most {MAX_ARTIFACT_BYTES}",
+            bytes.len()
+        )));
+    }
+    let bad = |e: wasmparser::BinaryReaderError| Error::Invalid(e.to_string());
+    let (mut exports, mut imports) = (HashSet::new(), HashSet::new());
+    // nested modules and components come in the same stream, each between its own
+    // `Version` and `End`
+    let mut depth = 0usize;
+    for payload in Parser::new(0).parse_all(bytes) {
+        match payload.map_err(bad)? {
+            Payload::Version { encoding, .. } => {
+                if depth == 0 && encoding != Encoding::Component {
+                    return Err(Error::Invalid("a core module, not a component".into()));
+                }
+                depth += 1;
+            }
+            Payload::End(_) => depth = depth.saturating_sub(1),
+            Payload::ComponentExportSection(r) if depth == 1 => {
+                for e in r {
+                    exports.insert(e.map_err(bad)?.name.0.to_owned());
+                }
+            }
+            Payload::ComponentImportSection(r) if depth == 1 => {
+                for i in r {
+                    imports.insert(i.map_err(bad)?.name.0.to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    let has = |names: &[&str]| names.iter().all(|n| exports.contains(*n));
+    if has(&APP_EXPORTS) {
+        Ok(ComponentWorld::App)
+    } else if has(&POINT_EXPORTS) {
+        Ok(if imports.contains("wyrm:link/tcp@0.1.0") {
+            ComponentWorld::Driver
+        } else {
+            ComponentWorld::Point
+        })
+    } else {
+        Err(Error::Invalid(
+            "neither an app (wyrm:app/app) nor a point driver (wyrm:link/point, driver)".into(),
+        ))
     }
 }

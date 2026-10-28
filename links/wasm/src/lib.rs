@@ -12,6 +12,15 @@
 //! The component's host calls block, so each connection runs its instance on
 //! an OS thread of its own; the framework's owner task sends it the reads and
 //! writes of a poll over a small channel.
+//!
+//! `app` ([`app`]): a portable link (ADR 0023) whose component has world
+//! `wyrm:app/app`, from the same store. [`package_world`] tells which driver a
+//! package's component needs.
+
+pub mod app;
+
+pub use app::{App, WasmEngine};
+pub use wyrm_wasm_host::ComponentWorld;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
@@ -167,6 +176,13 @@ fn component_path(name: &str) -> Result<PathBuf, DriverError> {
         .map(|r| r.join(format!("{name}.wasm")))
         .find(|p| p.is_file())
         .ok_or_else(|| DriverError::Transport(format!("no component for package {name}")))
+}
+
+/// The world of package `name`'s component: `App` runs as driver `app`, `Driver` and `Point` as
+/// driver `wasm`. `None` when there is no such component or it is none of these.
+pub fn package_world(name: &str) -> Option<ComponentWorld> {
+    let bytes = std::fs::read(component_path(name).ok()?).ok()?;
+    wyrm_wasm_host::component_world(&bytes).ok()
 }
 
 /// Run the instance: init, then reads and writes until the transport drops.

@@ -12,6 +12,9 @@ authors.workspace = true
 wyrm-core.workspace = true
 wyrm-link-sdk.workspace = true
 wyrm-wasm-host.workspace = true
+wyrm-link-api.workspace = true
+wyrm-link-portable.workspace = true
+minicbor.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
 serde_json.workspace = true
 tracing.workspace = true
@@ -20,3 +23,5 @@ tracing.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 wat.workspace = true
+ed25519-dalek.workspace = true
+wit-component.workspace = true
