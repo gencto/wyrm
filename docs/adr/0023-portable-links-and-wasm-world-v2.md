@@ -113,7 +113,7 @@ world app {
   export on-invoke: func(path: string, action: string, args: list<u8>, who: list<u8>) -> result<list<u8>, list<u8>>;
   export on-timer: func(id: u64);
   export on-value: func(sub: u64, key: string, sample: list<u8>);
-  export on-reply: func(req: u64, result: result<list<u8>, list<u8>>);
+  export on-reply: func(req: u64, %result: result<list<u8>, list<u8>>);
   export stop: func();
 }
 ```

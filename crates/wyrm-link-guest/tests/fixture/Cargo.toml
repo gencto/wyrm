@@ -1,0 +1,19 @@
+# A minimal app built by `tests/build.rs` for wasm32-unknown-unknown. Not a workspace member.
+[package]
+name = "wyrm-link-guest-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wyrm-core = { path = "../../../wyrm-core" }
+wyrm-link-api = { path = "../../../wyrm-link-api" }
+wyrm-link-guest = { path = "../.." }
+
+[profile.release]
+strip = false

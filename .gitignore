@@ -11,3 +11,4 @@ examples/packages/out/
 dart/wyrm_flutter/example/macos/
 dart/wyrm_flutter/example/.metadata
 dart/wyrm_flutter/example/.gitignore
+crates/wyrm-link-guest/tests/fixture/Cargo.lock

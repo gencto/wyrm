@@ -1,0 +1,18 @@
+[package]
+name = "wyrm-link-guest"
+description = "WYRM portable link guest: runs an App inside a wasm32 component of world wyrm:app/app (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wit-bindgen.workspace = true
+minicbor.workspace = true
+
+[dev-dependencies]
+wasmparser.workspace = true

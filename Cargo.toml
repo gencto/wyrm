@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "crates/wyrm-link-api", "crates/wyrm-link-portable"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest"]
+exclude = ["crates/wyrm-link-guest/tests/fixture"]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,6 +24,9 @@ wyrm-core = { path = "crates/wyrm-core" }
 wyrm-link-sdk = { path = "crates/wyrm-link-sdk" }
 wyrm-link-api = { path = "crates/wyrm-link-api" }
 wyrm-link-portable = { path = "crates/wyrm-link-portable" }
+wyrm-link-guest = { path = "crates/wyrm-link-guest" }
+# Guest bindings of `wyrm:app/app` (ADR 0023): sync exports only, no async runtime.
+wit-bindgen = { version = "=0.57.1", default-features = false, features = ["macros", "realloc"] }
 # Pinned exactly; upgrade quarterly together with the fixture suite.
 zenoh = { version = "=1.10.1", default-features = false }
 tokio = { version = "1", default-features = false }
@@ -83,6 +87,7 @@ wyrm-link-agent = { path = "links/agent" }
 # WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
 wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
 wat = "1"
+wasmparser = { version = "0.243", default-features = false, features = ["std"] }
 wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 wyrm-link-wasm = { path = "links/wasm" }
 # MCP (ADR 0005): server side only; no reqwest/auth features (no aws-lc).
