@@ -1,0 +1,13 @@
+[package]
+name = "wyrm-link-api"
+description = "WYRM portable link API: the App and Host traits one link source runs on in the broker, as a process and as WASM (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+minicbor.workspace = true

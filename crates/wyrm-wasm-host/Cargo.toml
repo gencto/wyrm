@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 wasmtime.workspace = true
 sha2.workspace = true
+wyrm-link-api.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

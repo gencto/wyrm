@@ -5984,6 +5984,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-api"
+version = "0.1.0"
+dependencies = [
+ "minicbor",
+ "wyrm-core",
+]
+
+[[package]]
 name = "wyrm-link-mock"
 version = "0.1.0"
 dependencies = [
@@ -6153,6 +6161,7 @@ dependencies = [
  "tracing",
  "wasmtime",
  "wat",
+ "wyrm-link-api",
 ]
 
 [[package]]
