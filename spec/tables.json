@@ -83,7 +83,8 @@
   "0x27": "not_found",
   "0x28": "timeout",
   "0x29": "out_of_range",
-  "0x2a": "rate_limited"
+  "0x2a": "rate_limited",
+  "0x2b": "resource_exhausted"
  },
  "is_codes": {
   "0": "wy:node",

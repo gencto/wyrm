@@ -6,16 +6,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use wyrm_core::keyspace;
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Sample, Status, Value};
 
 use crate::{AppError, ConnId, Host, Level, ReqId, SubId, TimerId};
 
-/// The status of a bound reached. The wire table has no `resource_exhausted` code yet, so the
-/// closest one, `rate_limited`, carries it; the message starts with `resource_exhausted`.
-pub(crate) const EXHAUSTED: Status = Status::RateLimited;
-
 fn exhausted(what: &str) -> AppError {
-    AppError::new(EXHAUSTED, format!("resource_exhausted: {what}"))
+    AppError::new(Status::ResourceExhausted, what)
 }
 
 /// One effect of an event, applied by the runtime after the event returns.
@@ -110,6 +107,8 @@ impl BufferHost {
         next_id: u64,
         site_prefix: String,
     ) -> Self {
+        // One trailing `/`, so a match is on a segment boundary: `wy/site/p` is not in `wy/s`.
+        let site_prefix = format!("{}/", site_prefix.trim_end_matches('/'));
         Self {
             services,
             limits,
@@ -183,11 +182,21 @@ impl BufferHost {
         }
     }
 
+    /// A key a request may name: inside the site, a plain node path (no wildcards, no `.`/`..`),
+    /// and within the link's grants. Shape is checked first, so a malformed key never reaches `may`.
     fn check_key(&self, key: &str, perm: Perm) -> Result<(), AppError> {
-        if !key.starts_with(&self.site_prefix) {
+        let Some(rest) = key.strip_prefix(&self.site_prefix) else {
             return Err(AppError::new(
                 Status::PermissionDenied,
                 format!("{key} is outside {}", self.site_prefix),
+            ));
+        };
+        let plain = |seg: &str| !matches!(seg, "." | "..") && !seg.contains(['*', '$']);
+        if rest.is_empty() || keyspace::validate_path(rest).is_err() || !rest.split('/').all(plain)
+        {
+            return Err(AppError::new(
+                Status::InvalidParameter,
+                format!("{key} is not a node key"),
             ));
         }
         if !self.services.may(key, perm) {
@@ -410,7 +419,7 @@ mod tests {
     }
 
     fn exhausted(e: &AppError) -> bool {
-        e.status == EXHAUSTED && e.msg.starts_with("resource_exhausted")
+        e.status == Status::ResourceExhausted
     }
 
     #[test]
@@ -537,5 +546,48 @@ mod tests {
         assert!(matches!(&cmds[3], Command::Log(Level::Info, _)));
         assert!(r.0 < s.0 && s.0 < i.0);
         assert_eq!(h.next_id(), 4);
+    }
+
+    #[test]
+    fn request_keys_are_validated() {
+        for prefix in ["wy/s", "wy/s/"] {
+            let mut h = BufferHost::new(
+                Box::new(FakeServices {
+                    used: 0,
+                    allow: true,
+                }),
+                Limits::default(),
+                Counts::default(),
+                1,
+                prefix.into(),
+            );
+            for bad in [
+                "wy/s/../other/p",
+                "wy/s//p",
+                "wy/s/a/*/p",
+                "wy/s/a/**",
+                "wy/s/a/~set",
+                "wy/s/a/$x",
+                "wy/s/",
+            ] {
+                let e = h.set(bad, Value::Int(1)).unwrap_err();
+                assert_eq!(e.status, Status::InvalidParameter, "{bad}");
+                assert_eq!(
+                    h.subscribe(bad).unwrap_err().status,
+                    Status::InvalidParameter
+                );
+                assert_eq!(
+                    h.invoke(bad, "a", Value::Null).unwrap_err().status,
+                    Status::InvalidParameter
+                );
+            }
+            for outside in ["wy/site/p", "wy/s", "wy/other/p"] {
+                let e = h.set(outside, Value::Int(1)).unwrap_err();
+                assert_eq!(e.status, Status::PermissionDenied, "{outside}");
+            }
+            assert!(h.finish().unwrap().is_empty());
+            assert!(h.set("wy/s/downstream/plc/p1", Value::Int(1)).is_ok());
+            assert_eq!(h.finish().unwrap().len(), 1);
+        }
     }
 }

@@ -31,7 +31,9 @@ CBOR map з цілими ключами. Відсутній attachment = `{}`.
 | 0x20 | disconnected | 0x29 | out_of_range |
 | 0x21 | permission_denied | 0x2A | rate_limited |
 | 0x22 | invalid_message | 0x40–0x4F | user-defined |
-| 0x23 | invalid_parameter | | |
+| 0x23 | invalid_parameter | 0x2B | resource_exhausted |
+`resource_exhausted` — досягнуто межу виконавця (вузли, таймери, підписки, запити в роботі, команди за подію, квота сховища; ADR 0023); повтор не допоможе, поки щось не звільнено. `rate_limited` — повтор пізніше допоможе.
+
 Група: `< 0x10` — успіх/прогрес; `0x10–0x1F` — закриття; `≥ 0x20` — помилка.
 
 ## `ptok v1`

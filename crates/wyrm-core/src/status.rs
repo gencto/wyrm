@@ -18,6 +18,7 @@ crate::wire_enum! {
         Timeout = 0x28 => "timeout",
         OutOfRange = 0x29 => "out_of_range",
         RateLimited = 0x2A => "rate_limited",
+        ResourceExhausted = 0x2B => "resource_exhausted",
     }
 }
 

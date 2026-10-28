@@ -80,7 +80,8 @@ enum Status {
   notFound(0x27, 'not_found'),
   timeout(0x28, 'timeout'),
   outOfRange(0x29, 'out_of_range'),
-  rateLimited(0x2A, 'rate_limited');
+  rateLimited(0x2A, 'rate_limited'),
+  resourceExhausted(0x2B, 'resource_exhausted');
 
   final int code;
   final String wireName;
