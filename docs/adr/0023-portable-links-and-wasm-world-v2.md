@@ -48,7 +48,7 @@ pub trait Host {
     fn update(&mut self, path: &str, sample: Sample);
     // time
     fn now_us(&self) -> u64;                       // wall clock, UTC µs
-    fn set_timer(&mut self, after_ms: u64) -> TimerId;  // one-shot
+    fn set_timer(&mut self, after_ms: u64) -> Result<TimerId, AppError>;  // one-shot, monotonic
     fn cancel_timer(&mut self, t: TimerId);
     // storage (the link's own, survives restarts and upgrades)
     fn store_get(&self, key: &str) -> Option<Vec<u8>>;
