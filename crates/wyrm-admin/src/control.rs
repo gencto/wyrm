@@ -1508,6 +1508,8 @@ impl Control {
                 format!("wy/{site}/dataflows/**/~val"),
                 format!("wy/{site}/storage/**/~val"),
             ],
+            // a downstream site's point is read at its watch (ADR 0020)
+            Some(format!("wy/{site}/sys/history")),
         );
         let tasks = vec![
             tokio::spawn(crate::history::watch(self.clone(), ctx.clone())),

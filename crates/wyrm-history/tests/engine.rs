@@ -102,6 +102,7 @@ async fn logging_types_and_rebuilds() {
             group("change", Logging::PointChange, &[Q]),
         ],
         vec!["wy/s/downstream/**/~val".into()],
+        Some("wy/s/sys/history".into()),
     );
     tokio::time::sleep(Duration::from_millis(300)).await; // subscribers up
     let t0 = wyrm_history::engine::now_us();
@@ -128,6 +129,7 @@ async fn logging_types_and_rebuilds() {
             group("change", Logging::PointChange, &[Q]),
         ],
         vec!["wy/s/downstream/**/~val".into()],
+        Some("wy/s/sys/history".into()),
     );
     tokio::time::sleep(Duration::from_millis(300)).await;
     put(&s2, P, 3.0, t0 + 4).await;
@@ -159,6 +161,15 @@ async fn logging_types_and_rebuilds() {
             .is_empty()
     );
     assert!(history(&s2, &format!("{P}/~val")).await.is_empty());
+    // At the watch key too (ADR 0020): a downstream site's point is read
+    // there; an unknown watch gets no answer.
+    let at_watch = history(&s2, "wy/s/sys/history/all/w1/~val?history=2020-01-01..").await;
+    assert_eq!(at_watch, rows);
+    assert!(
+        history(&s2, "wy/s/sys/history/all/w9/~val?history=2020-01-01..")
+            .await
+            .is_empty()
+    );
 
     // Reconfigure: interval logging samples the last value.
     h.configure(vec![group("all", Logging::Interval, &[P])]);

@@ -150,8 +150,19 @@ fn status_att(status: Status, err: Option<String>) -> Vec<u8> {
 /// Answer `get <point>/~val?history=…` on `key_exprs` until the session
 /// closes. Only points the historian records get an answer: one or more
 /// replies, each an array of rows in time order (spec 03); a selector
-/// without `history`/`since` is left to the storage.
-pub(crate) async fn serve(h: Arc<Historian>, session: Session, key_exprs: Vec<String>) {
+/// without `history`/`since` is left to the storage. With `watches` (the
+/// `sys/history` node) each watch answers for its point at
+/// `<watches>/<group>/<watch>/~val` (ADR 0020).
+pub(crate) async fn serve(
+    h: Arc<Historian>,
+    session: Session,
+    mut key_exprs: Vec<String>,
+    watches: Option<String>,
+) {
+    let watches = watches.map(|w| {
+        key_exprs.push(format!("{w}/*/*/~val"));
+        format!("{w}/")
+    });
     let mut set = tokio::task::JoinSet::new();
     for ke in key_exprs {
         let qa = match session.declare_queryable(&ke).await {
@@ -162,16 +173,17 @@ pub(crate) async fn serve(h: Arc<Historian>, session: Session, key_exprs: Vec<St
             }
         };
         let h = h.clone();
+        let watches = watches.clone();
         set.spawn(async move {
             while let Ok(q) = qa.recv_async().await {
-                tokio::spawn(answer(h.clone(), q));
+                tokio::spawn(answer(h.clone(), q, watches.clone()));
             }
         });
     }
     while set.join_next().await.is_some() {}
 }
 
-async fn answer(h: Arc<Historian>, q: Query) {
+async fn answer(h: Arc<Historian>, q: Query, watches: Option<String>) {
     let parsed = parse_selector(q.parameters().as_str(), now_us());
     if matches!(parsed, Ok(None)) {
         return; // a plain `~val` read: the storage answers it
@@ -188,12 +200,23 @@ async fn answer(h: Arc<Historian>, q: Query) {
         let _ = q.reply(&ke, Vec::<u8>::new()).attachment(err).await;
         return;
     }
+    // A watch key reads its point's rows.
+    let point = match watches.as_deref().and_then(|w| key.strip_prefix(w)) {
+        Some(rest) => match rest
+            .split_once('/')
+            .and_then(|(g, id)| h.watch_point(g, id))
+        {
+            Some(p) => p,
+            None => return,
+        },
+        None => key.to_owned(),
+    };
     // Points it does not record get no answer from the historian.
-    if !matches!(h.store().series_id(key, false), Ok(Some(_))) {
+    if !matches!(h.store().series_id(&point, false), Ok(Some(_))) {
         return;
     }
     let rows = match parsed {
-        Ok(Some(hq)) => h.query(key, &hq).await.map(|r| (r, hq.raw())),
+        Ok(Some(hq)) => h.query(&point, &hq).await.map(|r| (r, hq.raw())),
         Ok(None) => return,
         Err(msg) => {
             let err = status_att(Status::InvalidParameter, Some(msg));

@@ -1196,6 +1196,7 @@ async fn history_follows_point_grants() {
             ],
         }],
         vec![format!("{ROOT}/**/~val")],
+        None,
     );
     let admin = env.session("root", ADMIN_PW).await;
     let tok = env.add_user(&admin, "guest", &["limited"]).await;

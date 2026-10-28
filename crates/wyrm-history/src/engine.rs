@@ -212,19 +212,27 @@ impl Historian {
 
     /// Bind to `session` (a new router runtime), run `groups`, and answer
     /// `get <point>/~val?history=…` on `serve` (key expressions such as
-    /// `wy/<site>/downstream/**/~val`).
-    pub fn attach(self: &Arc<Self>, session: Session, groups: Vec<GroupCfg>, serve: Vec<String>) {
+    /// `wy/<site>/downstream/**/~val`) and, with `watches` (the
+    /// `wy/<site>/sys/history` node), at each watch's key (ADR 0020).
+    pub fn attach(
+        self: &Arc<Self>,
+        session: Session,
+        groups: Vec<GroupCfg>,
+        serve: Vec<String>,
+        watches: Option<String>,
+    ) {
         {
             let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());
             run.session = Some(session.clone());
             if let Some(old) = run.serve.take() {
                 old.abort();
             }
-            if !serve.is_empty() {
+            if !serve.is_empty() || watches.is_some() {
                 run.serve = Some(tokio::spawn(crate::query::serve(
                     self.clone(),
                     session,
                     serve,
+                    watches,
                 )));
             }
         }
@@ -248,6 +256,17 @@ impl Historian {
 
     /// Run `groups` now: a group whose settings changed restarts, a group
     /// gone stops (both after a flush).
+    /// The point a watch records: `group`/`id` as under `sys/history`.
+    pub(crate) fn watch_point(&self, group: &str, id: &str) -> Option<String> {
+        let run = self.run.lock().unwrap_or_else(|p| p.into_inner());
+        let g = run.groups.get(group)?;
+        g.cfg
+            .watches
+            .iter()
+            .find(|w| w.id == id)
+            .map(|w| w.key.clone())
+    }
+
     pub fn configure(&self, groups: Vec<GroupCfg>) {
         let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());
         let Some(session) = run.session.clone() else {

@@ -3930,6 +3930,11 @@ async fn history_records_and_answers() {
     let h = c.history(&point, &since).await.unwrap();
     assert!(h.len() >= 5 && h.iter().all(|r| r.q.is_some()), "{h:?}");
     assert!(h.windows(2).all(|w| w[0].t <= w[1].t), "time order");
+    // the same rows at the watch key (ADR 0020), where a downstream site's
+    // point is read
+    let at_watch = c.history(&w1, &since).await.unwrap();
+    assert!(at_watch.len() >= h.len(), "{at_watch:?}");
+    assert_eq!(at_watch[..h.len()], h[..]);
     let counted = c
         .history(
             &point,
