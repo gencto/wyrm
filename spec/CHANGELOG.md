@@ -17,4 +17,3 @@
 - 0.2.3 (2026-10-24): 01 — commands from upstream sites: `~set`/`~act` on `downstream`, `dataflows`, `storage` of a site below always, on `sys` only with that site's `allow_config`; tokens carry the target site; `wy/<site>/sys/signing_keys` lists the keys that sign them (ADR 0018). No fixture change.
 - 0.2.4 (2026-10-24): 02 — param-meta `editor` values `daterange` (`<from>/<to>` in RFC 3339, with preset ranges), `date` (one instant) and `duration` (seconds, typed in a chosen unit) for UIs. No fixture change.
 - 0.2.5 (2026-10-24): 06 — `~def.layout` `{<node_id>: [x, y]}` (editor positions, ignored by the compiler and outside a node's config) and `dataflows/~act/node_types` (the node-type catalog for editors). No fixture change.
-- 0.2.6 (2026-10-28): 02 — key 11 `has_children` means "has children now", not "may have children": a node without `type` (a folder, a node of actions) may gain children and a UI expands it while empty. Wording only; no fixture change.

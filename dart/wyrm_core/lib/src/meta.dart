@@ -326,11 +326,9 @@ class NodeMeta {
   /// Display name: key 12, else `attr.display`.
   String? get displayName => display ?? switch (attr?['display']) { VStr(:final v) => v, _ => null };
 
-  /// A container: it has or may have children. A node without a value type
-  /// (a folder, a node of actions) may gain children at any time, so it is
-  /// one even while empty; `has_children` (key 11) tells only whether it has
-  /// children now.
-  bool get isContainer => hasChildren == true || children != null || childrenCount != null || ty == null;
+  /// A container: it has (or may have) children.
+  bool get isContainer =>
+      hasChildren ?? (children != null || childrenCount != null || (ty == null && is_ == const TCode(1)));
 
   bool get isWritable => writable == Writable.write;
 

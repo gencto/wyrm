@@ -172,19 +172,15 @@ class RecordedApi extends SettableApi {
       : super.meta(key);
 }
 
-/// A site whose `storage` is empty at first, then holds an empty folder
-/// `test` (as `view=list` sends it: `wy:folder`, `has_children` false).
-class StorageApi extends ActApi {
-  static final emptyFolder = NodeMeta(is_: const TCode(1), hasChildren: false);
+/// `m` holds only a point until an action adds a folder under it (as
+/// `sys/history` ▸ Add Watch Group); the broker then publishes `m`'s meta.
+class GrowingApi extends ActApi {
+  var grown = false;
 
   @override
-  Stream<ListUpdate> list(String key) {
-    if (key != 'wy/s/storage') return super.list(key);
-    final c = StreamController<ListUpdate>();
-    lists[key] = c;
-    c.add(ListRefreshed([]));
-    return c.stream;
-  }
+  Future<List<Child>> children(String key) async => key == 'wy/s/downstream/m' && grown
+      ? [Child('temp', ActApi.metaT), Child('g', NodeMeta(hasChildren: true))]
+      : super.children(key);
 }
 
 /// A chain as in the demo: central lists edge (`@root wy/edge`), edge lists
@@ -299,12 +295,6 @@ class FlowApi extends ActApi {
       _ => const Stream.empty(),
     };
   }
-}
-
-/// Select a row that expands: one tap counts after the double-tap timeout.
-Future<void> select(WidgetTester t, String name) async {
-  await t.tap(find.text(name));
-  await t.pumpAndSettle(const Duration(milliseconds: 400));
 }
 
 Future<void> rightClick(WidgetTester t, Finder f) async {
@@ -435,22 +425,22 @@ void main() {
     expect(api.invoked.single.$2, 'reset');
   });
 
-  testWidgets('a triangle where the node may hold children; points in Metrics have a menu', (t) async {
+  testWidgets('a triangle only where the tree has children; points in Metrics have a menu', (t) async {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
     final api = ActApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    // m holds only a point, c a device too: both may hold children, both
-    // expand; the point stays out of the tree
+    // m holds only a point: not expandable; c holds a device: expandable
     await t.tap(find.text('m'));
     await t.pump(const Duration(milliseconds: 50));
     await t.tap(find.text('m'));
     await t.pumpAndSettle();
-    expect(api.lists.keys, contains('wy/s/downstream/m'));
+    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')));
     await t.tap(find.text('c'));
     await t.pump(const Duration(milliseconds: 50));
-    await select(t, 'c');
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
     expect(api.lists.keys, contains('wy/s/downstream/c'));
     // select c (one click): Metrics shows its point; a right click opens its menu
     await t.tap(find.text('c'));
@@ -461,11 +451,11 @@ void main() {
     expect(find.text('Copy Path'), findsOneWidget);
   });
 
-  testWidgets('an empty site section expands; a folder added to it shows and expands, empty too', (t) async {
+  testWidgets('a folder added under a node of values makes it expandable', (t) async {
     t.view.physicalSize = const Size(1200, 900);
     t.view.devicePixelRatio = 1;
-    final api = StorageApi();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s'))));
+    final api = GrowingApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
     Future<void> doubleTap(String name) async {
       await t.tap(find.text(name));
@@ -474,16 +464,14 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    // storage holds nothing yet: it opens all the same (its own meta says
-    // it holds children), so a node added later shows
-    await doubleTap('storage');
-    expect(api.lists.keys, contains('wy/s/storage'));
-    api.lists['wy/s/storage']!.add(ChildAdded(Child('test', StorageApi.emptyFolder)));
+    await doubleTap('m');
+    expect(api.lists.keys, isNot(contains('wy/s/downstream/m')), reason: 'only a point yet');
+    // an action adds g under m: the broker publishes m's new meta
+    api.grown = true;
+    api.lists['wy/s/downstream']!.add(ChildChanged(Child('m', ActApi.metaM)));
     await t.pumpAndSettle();
-    expect(find.text('test'), findsOneWidget);
-    // an empty folder is a folder, not a leaf
-    await doubleTap('test');
-    expect(api.lists.keys, contains('wy/s/storage/test'));
+    await doubleTap('m');
+    expect(api.lists.keys, contains('wy/s/downstream/m'));
   });
 
   testWidgets('Copy Path copies the tree route of a point two brokers down (as DSA)', (t) async {
@@ -693,7 +681,8 @@ void main() {
     await t.tapAt(const Offset(5, 5));
     await t.pumpAndSettle();
     // select c: its point temp is in Metrics with a menu
-    await select(t, 'c');
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
     await rightClick(t, find.text('temp').last);
     await t.tap(find.text('View History'));
     await t.pumpAndSettle();
@@ -728,8 +717,6 @@ void main() {
       ..children = ['m1', 'm2']
       ..refuse = 1;
     gw.socket!.drop();
-    // the close reaches the client after this frame; the next one shows it
-    await t.pump();
     await t.pump();
     expect(find.text('Reconnecting…'), findsOneWidget);
     await t.pump(const Duration(milliseconds: 20));
@@ -760,7 +747,8 @@ void main() {
     final api = SettableApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await select(t, 'c');
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
     // bool: its value as text, then the list true / false
     expect(find.byType(Switch), findsNothing);
     await t.tap(find.text('false'));
@@ -803,7 +791,8 @@ void main() {
     t.view.devicePixelRatio = 1;
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: SettableApi(), rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await select(t, 'c');
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
     expect(find.text('21.50 °C'), findsOneWidget);
     expect(find.text('7 kWh'), findsOneWidget);
   });
@@ -814,7 +803,8 @@ void main() {
     final api = RecordedApi();
     await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
     await t.pumpAndSettle();
-    await select(t, 'c');
+    await t.tap(find.text('c'));
+    await t.pumpAndSettle();
     final mark = find.byKey(const ValueKey('history-mark:wy/s/downstream/c/temp'));
     expect(mark, findsOneWidget);
     expect(find.byKey(const ValueKey('history-mark:wy/s/downstream/c/energy')), findsNothing);
