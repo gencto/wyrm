@@ -116,6 +116,9 @@ pub struct Hello {
     /// permission, only under their scopes, a bound one only for its subject.
     pub limited_keys: Vec<crate::auth::LimitedKey>,
     pub secrets: crate::SecretStore,
+    /// `grants` `[[path, perm code], ...]`: the paths the link may reach as
+    /// a requester, the site already expanded.
+    pub grants: Vec<(String, wyrm_core::Perm)>,
 }
 
 /// One trusted limited key from `hello`: `[key, cap, scopes]`, plus the
@@ -198,11 +201,33 @@ fn parse_hello(v: Value) -> Result<Hello> {
             .collect(),
         _ => crate::SecretStore::default(),
     };
+    let bad = |what: &str| LinkError::new(Status::InvalidMessage, format!("bad grant {what}"));
+    let grants = match m.remove("grants") {
+        Some(Value::Array(entries)) => entries
+            .iter()
+            .map(|e| match e {
+                Value::Array(g) if g.len() == 2 => {
+                    let Value::Str(path) = &g[0] else {
+                        return Err(bad("path"));
+                    };
+                    let perm = g[1]
+                        .as_f64()
+                        .and_then(|c| u8::try_from(c as u64).ok())
+                        .and_then(|c| wyrm_core::Perm::try_from(c).ok())
+                        .ok_or_else(|| bad("permission"))?;
+                    Ok((path.clone(), perm))
+                }
+                _ => Err(bad("entry")),
+            })
+            .collect::<Result<_>>()?,
+        _ => Vec::new(),
+    };
     Ok(Hello {
         params,
         admin_keys,
         limited_keys,
         secrets,
+        grants,
     })
 }
 
@@ -386,6 +411,7 @@ where
     let mut lcfg = LinkConfig::new(env.site.clone(), env.link.clone());
     lcfg.admin_keys = hello.admin_keys;
     lcfg.limited_keys = hello.limited_keys;
+    lcfg.grants = hello.grants;
     lcfg.secrets = hello.secrets;
     lcfg.data_dir = env.data_dir.clone();
     let broker = format!("wy/{}/sys/broker", env.site);
@@ -480,5 +506,24 @@ mod tests {
         assert_eq!(subjects, [None, Some("link:rec".to_owned())]);
         assert!(parse_hello(reply(entry(None), entry(None))).is_err());
         assert!(parse_hello(reply(entry(Some("link:rec")), entry(Some("link:rec")))).is_err());
+    }
+
+    /// `grants` `[[path, code], ...]` reach the link as typed grants; a bad
+    /// code or shape is refused, a missing field means no grants.
+    #[test]
+    fn hello_carries_grants() {
+        let grant = |p: &str, c: u64| Value::Array(vec![Value::from(p), Value::UInt(c)]);
+        let reply = |g: Value| Value::Map([("grants".to_owned(), g)].into());
+        let h = parse_hello(reply(Value::Array(vec![grant("wy/s/downstream/mock", 3)]))).unwrap();
+        assert_eq!(
+            h.grants,
+            [("wy/s/downstream/mock".to_owned(), wyrm_core::Perm::Write)]
+        );
+        assert!(parse_hello(Value::Map(Default::default()))
+            .unwrap()
+            .grants
+            .is_empty());
+        assert!(parse_hello(reply(Value::Array(vec![grant("p", 200)]))).is_err());
+        assert!(parse_hello(reply(Value::Array(vec![Value::from("p")]))).is_err());
     }
 }

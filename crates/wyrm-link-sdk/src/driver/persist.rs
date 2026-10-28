@@ -14,8 +14,7 @@
 //!   bootstrap wins and the stored tree is replaced on the next edit.
 //! * Without a `data_dir` or a store key, the tree lives in memory only.
 
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305, NONCE_LEN};
-use ring::rand::{SecureRandom, SystemRandom};
+use crate::seal::{open_aad, seal_aad};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::PathBuf;
@@ -30,7 +29,7 @@ const FILE: &str = "framework.tree";
 
 pub(crate) struct Persist {
     path: PathBuf,
-    key: LessSafeKey,
+    key: zeroize::Zeroizing<[u8; 32]>,
     aad: String,
     boot: [u8; 32],
 }
@@ -46,9 +45,9 @@ impl Persist {
             );
             return None;
         };
-        let Some(key) = UnboundKey::new(&CHACHA20_POLY1305, secret.expose())
+        let Some(key) = <[u8; 32]>::try_from(secret.expose())
             .ok()
-            .map(LessSafeKey::new)
+            .map(zeroize::Zeroizing::new)
         else {
             warn!(
                 link = ctx.link(),
@@ -67,7 +66,7 @@ impl Persist {
 
     /// The stored tree, if it was saved for the same bootstrap params.
     pub(crate) fn load(&self) -> Option<Value> {
-        let mut buf = match std::fs::read(&self.path) {
+        let buf = match std::fs::read(&self.path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
             Err(e) => {
@@ -76,24 +75,16 @@ impl Persist {
             }
         };
         let opened = (|| {
-            if buf.len() < 4 + NONCE_LEN || &buf[..4] != MAGIC {
-                return None;
-            }
-            let nonce = Nonce::try_assume_unique_for_key(&buf[4..4 + NONCE_LEN]).ok()?;
-            let plain = self
-                .key
-                .open_in_place(
-                    nonce,
-                    Aad::from(self.aad.as_bytes()),
-                    &mut buf[4 + NONCE_LEN..],
-                )
-                .ok()?;
-            let Value::Map(mut m) = wyrm_core::codec::from_slice::<Value>(plain).ok()? else {
+            let plain = zeroize::Zeroizing::new(open_aad(
+                &self.key,
+                self.aad.as_bytes(),
+                buf.strip_prefix(MAGIC.as_slice())?,
+            )?);
+            let Value::Map(mut m) = wyrm_core::codec::from_slice::<Value>(&plain).ok()? else {
                 return None;
             };
             Some((m.remove("boot")?, m.remove("tree")?))
         })();
-        zeroize::Zeroize::zeroize(&mut buf);
         match opened {
             None => {
                 warn!(file = %self.path.display(), "stored tree does not open (other key or tampered): bootstrap params used");
@@ -112,20 +103,10 @@ impl Persist {
         let mut m = std::collections::BTreeMap::new();
         m.insert("boot".to_owned(), Value::Bytes(self.boot.to_vec()));
         m.insert("tree".to_owned(), tree.clone());
-        let mut buf = zeroize::Zeroizing::new(
+        let plain = zeroize::Zeroizing::new(
             wyrm_core::codec::to_vec(&Value::Map(m)).map_err(|e| e.to_string())?,
         );
-        let mut nonce = [0u8; NONCE_LEN];
-        SystemRandom::new()
-            .fill(&mut nonce)
-            .map_err(|_| "no randomness")?;
-        self.key
-            .seal_in_place_append_tag(
-                Nonce::assume_unique_for_key(nonce),
-                Aad::from(self.aad.as_bytes()),
-                &mut *buf,
-            )
-            .map_err(|_| "seal failed")?;
+        let sealed = seal_aad(&self.key, self.aad.as_bytes(), &plain);
         let tmp = self.path.with_extension("tmp");
         {
             let mut o = std::fs::OpenOptions::new();
@@ -134,8 +115,7 @@ impl Persist {
             std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
             let mut f = o.open(&tmp).map_err(|e| e.to_string())?;
             f.write_all(MAGIC).map_err(|e| e.to_string())?;
-            f.write_all(&nonce).map_err(|e| e.to_string())?;
-            f.write_all(&buf).map_err(|e| e.to_string())?;
+            f.write_all(&sealed).map_err(|e| e.to_string())?;
             f.sync_all().map_err(|e| e.to_string())?;
         }
         std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())?;

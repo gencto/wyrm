@@ -26,6 +26,7 @@ pub mod params;
 #[cfg(feature = "process")]
 pub mod process;
 pub mod runtime;
+pub mod seal;
 pub mod support;
 pub mod tree;
 

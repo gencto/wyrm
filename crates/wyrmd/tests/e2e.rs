@@ -1374,6 +1374,34 @@ async fn hello_secrets(
     }
 }
 
+/// The `grants` of a `hello` reply as `(path, perm code)`.
+async fn hello_grants(s: &zenoh::Session, id: &str, token: &str) -> Option<Vec<(String, u64)>> {
+    let mut args = BTreeMap::new();
+    args.insert("token".to_owned(), Value::Bytes(token.as_bytes().to_vec()));
+    let r = s
+        .get(format!("wy/{SITE}/sys/links/{id}/~act/hello"))
+        .payload(wyrm_core::codec::to_vec(&Value::Map(args)).unwrap())
+        .timeout(Duration::from_secs(5))
+        .await
+        .unwrap();
+    let reply = r.recv_async().await.ok()?;
+    let v: Value =
+        wyrm_core::codec::from_slice(&reply.result().unwrap().payload().to_bytes()).unwrap();
+    let Value::Map(mut m) = v else { return None };
+    let Some(Value::Array(rows)) = m.remove("grants") else {
+        return None;
+    };
+    rows.into_iter()
+        .map(|r| match r {
+            Value::Array(g) => match (&g[0], g[1].as_f64()) {
+                (Value::Str(p), Some(c)) => Some((p.clone(), c as u64)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 /// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):
 /// grants open the ACL to other branches and make every link trust its
 /// requester key up to the grant's level and under the grant's path.
@@ -1433,6 +1461,16 @@ async fn link_grants_make_a_requester() {
     assert!(
         rec.set(&format!("{mock}/g0/p0"), 5.0).await.is_err(),
         "read: no set"
+    );
+    // the link itself learns its grants with `{site}` expanded (ADR 0023)
+    let s = env.tls_session("rec").await;
+    assert_eq!(
+        hello_grants(&s, "rec", &token).await,
+        Some(vec![(
+            mock.clone(),
+            u64::from(wyrm_core::Perm::Read.code())
+        )]),
+        "hello carries the grants"
     );
 
     env.client()

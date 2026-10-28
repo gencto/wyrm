@@ -764,6 +764,21 @@ impl Control {
         out
     }
 
+    /// The grants of a link for the link itself: `(path, permission)`, the
+    /// `{site}` placeholder expanded. Grants with an unknown code are left
+    /// out, as in the router ACL.
+    pub fn link_grants(&self, def: &LinkDef) -> Vec<(String, Perm)> {
+        def.grants
+            .iter()
+            .filter_map(|(path, code)| {
+                Some((
+                    path.replace("{site}", &self.cfg.site),
+                    Perm::try_from(*code).ok()?,
+                ))
+            })
+            .collect()
+    }
+
     fn requester_key_of(&self, id: &str) -> Option<VerifyingKey> {
         let secrets = self.secrets.for_link(id);
         let raw = secrets.get(wyrm_link_sdk::REQUESTER_KEY)?;
@@ -1592,6 +1607,7 @@ async fn start_embedded(
     lcfg.limited_keys = limited_keys;
     lcfg.secrets = ctl.link_secrets(&def.id);
     lcfg.data_dir = Some(ctl.link_data_dir(&def.id)?);
+    lcfg.grants = ctl.link_grants(def);
     let link = ctl
         .host
         .start(
@@ -3860,6 +3876,18 @@ impl Admin {
         reply.insert(
             "bound_keys".into(),
             Value::Array(bound.into_iter().map(entry).collect()),
+        );
+        reply.insert(
+            "grants".into(),
+            Value::Array(
+                self.ctl
+                    .link_grants(&def)
+                    .into_iter()
+                    .map(|(path, perm)| {
+                        Value::Array(vec![Value::Str(path), Value::UInt(perm.code().into())])
+                    })
+                    .collect(),
+            ),
         );
         Ok(Some(Value::Map(reply)))
     }

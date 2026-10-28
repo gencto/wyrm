@@ -83,6 +83,9 @@ pub struct LinkConfig {
     /// see [`LinkCtx::data_dir`](crate::LinkCtx::data_dir). `None` = no
     /// persistent state.
     pub data_dir: Option<std::path::PathBuf>,
+    /// What the broker granted this link as a requester (ADR 0013, 0023):
+    /// `(path with the site expanded, permission)`. Empty = none.
+    pub grants: Vec<(String, wyrm_core::Perm)>,
 }
 
 /// Most replies to one wildcard `get` or `view=keys`.
@@ -113,6 +116,7 @@ impl LinkConfig {
             audit: true,
             read_rate_limit: Some((5000.0, 10_000.0)),
             data_dir: None,
+            grants: Vec::new(),
         }
     }
 }
@@ -227,8 +231,11 @@ pub async fn spawn<L: Link>(
         &cfg.link,
         prefix,
         root,
-        cfg.secrets,
-        cfg.data_dir,
+        crate::ctx::HostState {
+            secrets: cfg.secrets,
+            data_dir: cfg.data_dir,
+            grants: cfg.grants,
+        },
     );
     let queryable = session
         .declare_queryable(format!("{}/**", ctx.0.prefix))

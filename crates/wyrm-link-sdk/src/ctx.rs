@@ -40,6 +40,14 @@ pub(crate) struct Inner {
     pub secrets: SecretStore,
     pub metrics: Metrics,
     pub data_dir: Option<PathBuf>,
+    pub grants: Vec<(String, wyrm_core::Perm)>,
+}
+
+/// What the host hands to a new [`LinkCtx`] besides its address.
+pub(crate) struct HostState {
+    pub secrets: SecretStore,
+    pub data_dir: Option<PathBuf>,
+    pub grants: Vec<(String, wyrm_core::Perm)>,
 }
 
 /// Cheap to clone; all clones share one tree.
@@ -65,8 +73,7 @@ impl LinkCtx {
         link: &str,
         prefix: String,
         root: NodeMeta,
-        secrets: SecretStore,
-        data_dir: Option<PathBuf>,
+        host: HostState,
     ) -> Self {
         Self(Arc::new(Inner {
             session,
@@ -78,9 +85,10 @@ impl LinkCtx {
             #[cfg(feature = "advanced")]
             reliable: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
-            secrets,
+            secrets: host.secrets,
             metrics: Metrics::default(),
-            data_dir,
+            data_dir: host.data_dir,
+            grants: host.grants,
         }))
     }
 
@@ -473,6 +481,13 @@ impl LinkCtx {
     /// links): the driver then keeps its state in memory.
     pub fn data_dir(&self) -> Option<&Path> {
         self.0.data_dir.as_deref()
+    }
+
+    /// What the broker granted this link as a requester: `(path, permission)`
+    /// with the site already in the path. A request outside these cannot
+    /// pass the router ACL, so a runtime may refuse it before it leaves.
+    pub fn grants(&self) -> &[(String, wyrm_core::Perm)] {
+        &self.0.grants
     }
 
     /// Lay the broker's overlays over the tree (ADR 0016) and publish the
