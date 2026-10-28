@@ -6052,9 +6052,12 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "futures-util",
+ "hex",
  "minicbor",
  "nix 0.29.0",
  "ring",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.21",
  "tokio",
@@ -6065,6 +6068,7 @@ dependencies = [
  "zenoh",
  "zenoh-ext",
  "zeroize",
+ "zip",
 ]
 
 [[package]]

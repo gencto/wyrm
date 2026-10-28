@@ -2826,10 +2826,25 @@ async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
             .required(true)
             .display("Package")
             .placeholder("set packages.repository in wyrmd.json5"),
+        // only what this host can install (a build for it, ADR 0021)
+        Some(Ok(list))
+            if list
+                .iter()
+                .any(|e| e.asset(&packages::platform()).is_some()) =>
+        {
+            str_param().required(true).display("Package").enum_values(
+                list.iter()
+                    .filter(|e| e.asset(&packages::platform()).is_some())
+                    .map(|e| e.name.clone()),
+            )
+        }
         Some(Ok(list)) if !list.is_empty() => str_param()
             .required(true)
             .display("Package")
-            .enum_values(list.iter().map(|e| e.name.clone())),
+            .placeholder(format!(
+                "no package built for this host ({})",
+                packages::platform()
+            )),
         Some(Ok(_)) => str_param()
             .required(true)
             .display("Package")
@@ -3744,9 +3759,15 @@ impl Admin {
             .into_iter()
             .find(|e| e.name == package)
             .ok_or_else(|| format!("no package {package} in the repository"))?;
-        let zip = crate::fetch::get(&e.url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
+        // this host's file (ADR 0021); a relative url is in the repository
+        let host = packages::platform();
+        let a = e
+            .asset(&host)
+            .ok_or_else(|| format!("{package}: no build for this host ({host})"))?;
+        let url = wyrm_link_sdk::package::resolve(&index, &a.url)?;
+        let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
         let got = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&zip));
-        if !got.eq_ignore_ascii_case(&e.sha256) {
+        if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }
         self.install_package(link, zip, format!("repository {index}"), sub)

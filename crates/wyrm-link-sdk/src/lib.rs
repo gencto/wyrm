@@ -20,6 +20,8 @@ pub mod guard;
 pub mod harness;
 pub mod limits;
 pub mod link;
+#[cfg(feature = "package")]
+pub mod package;
 pub mod params;
 #[cfg(feature = "process")]
 pub mod process;

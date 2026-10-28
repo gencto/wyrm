@@ -6,79 +6,24 @@
 //! leaves nothing behind.
 
 use crate::registry::{PackageDef, PackageKind};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use wyrm_link_sdk::package::Manifest;
 
-pub const MANIFEST: &str = "wyrm-link.json";
-/// Largest accepted zip.
-pub const MAX_ZIP: usize = 64 << 20;
+// The format is the SDK's (ADR 0021): `wyr` builds what this checks.
+pub use wyrm_link_sdk::package::{platform, RepoEntry, MANIFEST, MAX_INDEX, MAX_ZIP};
 const MAX_UNPACKED: u64 = 256 << 20;
 const MAX_FILES: usize = 1000;
 /// Driver name of a link that runs a package: `pkg:<package>`.
 pub const DRIVER_PREFIX: &str = "pkg:";
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
-    name: String,
-    version: String,
-    #[serde(default)]
-    description: String,
-    wyrm_link: u32,
-    kind: String,
-    #[serde(default)]
-    entries: BTreeMap<String, String>,
-    #[serde(default)]
-    args: Vec<String>,
-    #[serde(default)]
-    entry: Option<String>,
-    /// Grants the link needs as a requester: `[{path, level}]`.
-    #[serde(default)]
-    requester: Vec<RequestedGrant>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RequestedGrant {
-    path: String,
-    level: String,
-}
-
-/// One package of a repository index (`packages.repository`, as DSA's
-/// `linkRepositoryUrl`): `[{name, version, description, url, sha256}]`.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RepoEntry {
-    pub name: String,
-    pub version: String,
-    #[serde(default)]
-    pub description: String,
-    pub url: String,
-    pub sha256: String,
-}
-
-/// Largest repository index.
-pub const MAX_INDEX: usize = 4 << 20;
-
-/// Parse and check a repository index: at most 1000 entries, unique valid
-/// names, a 64-hex SHA-256 each.
+/// Parse and check a repository index (the SDK's rules), with names a
+/// link may take here.
 pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
-    let list: Vec<RepoEntry> = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
-    if list.len() > MAX_FILES {
-        return Err(format!("index: more than {MAX_FILES} packages"));
-    }
-    let mut seen = std::collections::HashSet::new();
+    let list = wyrm_link_sdk::package::parse_index(bytes)?;
     for e in &list {
         crate::registry::validate_link_id(&e.name).map_err(|x| format!("index: {x}"))?;
-        if !seen.insert(e.name.as_str()) {
-            return Err(format!("index: {} twice", e.name));
-        }
-        if e.sha256.len() != 64 || !e.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(format!("index: {}: sha256 must be 64 hex digits", e.name));
-        }
     }
     Ok(list)
 }
@@ -86,34 +31,29 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
 /// "Install Link ▸ from WASM": one component as a `wasm` package named
 /// `name` (version `0+<sha256 prefix>`), so it takes the same path as a zip.
 pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
-    use std::io::Write;
-    use zip::write::SimpleFileOptions;
     if wasm.len() > MAX_ZIP {
         return Err(format!("component larger than {} MiB", MAX_ZIP >> 20));
     }
-    let sha = hex::encode(Sha256::digest(wasm));
-    let manifest = serde_json::json!({
-        "name": name,
-        "version": format!("0+{}", &sha[..12]),
-        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
-        "kind": "wasm",
-        "entry": "component.wasm",
-    });
-    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let opt = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    let mut put = |path: &str, data: &[u8]| -> Result<(), String> {
-        w.start_file(path, opt).map_err(|e| e.to_string())?;
-        w.write_all(data).map_err(|e| e.to_string())
+    let sha = wyrm_link_sdk::package::sha256_hex(wasm);
+    let manifest = Manifest {
+        name: name.to_owned(),
+        version: format!("0+{}", &sha[..12]),
+        description: String::new(),
+        wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+        kind: "wasm".into(),
+        entries: Default::default(),
+        args: Vec::new(),
+        entry: Some("component.wasm".into()),
+        requester: Vec::new(),
     };
-    put(MANIFEST, manifest.to_string().as_bytes())?;
-    put("component.wasm", wasm)?;
-    Ok(w.finish().map_err(|e| e.to_string())?.into_inner())
-}
-
-/// Key of this host in a manifest's `entries`: `<os>-<arch>`
-/// (`linux-aarch64`, `macos-aarch64`, `linux-x86_64`).
-pub fn platform() -> String {
-    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+    wyrm_link_sdk::package::pack(
+        &manifest,
+        &[wyrm_link_sdk::package::PackFile {
+            path: "component.wasm".into(),
+            data: wasm.to_vec(),
+            mode: 0o644,
+        }],
+    )
 }
 
 /// Directory of an installed package.
@@ -148,14 +88,6 @@ impl Drop for Unpacked {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.tmp);
     }
-}
-
-fn valid_version(v: &str) -> bool {
-    !v.is_empty()
-        && v.len() <= 32
-        && !v.starts_with('.')
-        && v.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
 }
 
 /// Unpack `zip` into a new temp directory under `root` and check it: size
@@ -227,16 +159,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         .map_err(|_| format!("no {MANIFEST} at the zip root"))?;
     let m: Manifest = serde_json::from_str(&text).map_err(|e| format!("{MANIFEST}: {e}"))?;
     crate::registry::validate_link_id(&m.name).map_err(|e| format!("name: {e}"))?;
-    if !valid_version(&m.version) {
-        return Err(format!("version {:?}: 1-32 of [A-Za-z0-9._+-]", m.version));
-    }
-    if m.wyrm_link != wyrm_link_sdk::LINK_PROTOCOL {
-        return Err(format!(
-            "built for link protocol {}, this broker speaks {}",
-            m.wyrm_link,
-            wyrm_link_sdk::LINK_PROTOCOL
-        ));
-    }
+    m.check()?;
     let (kind, entry) = match m.kind.as_str() {
         "process" => {
             let p = platform();

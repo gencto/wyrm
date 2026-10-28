@@ -912,9 +912,16 @@ async fn install_link_from_url_repository_git() {
     );
     let port = serve_files(files.clone()).await;
     let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
+    // ADR 0021: a file per host in `assets`, relative to the index
+    let host = wyrm_admin::packages::platform();
+    let other = if host == "linux-x86_64" { "macos-aarch64" } else { "linux-x86_64" };
     let index = serde_json::json!([
         { "name": "mockpkg", "version": "2.0.0", "url": url("/v2.zip"), "sha256": sha(&v2) },
         { "name": "tampered", "version": "1.0.0", "url": url("/v1.zip"), "sha256": sha(&v2) },
+        { "name": "hosted", "version": "1.0.0",
+          "assets": { host.clone(): { "url": "v1.zip", "sha256": sha(&v1) } } },
+        { "name": "elsewhere", "version": "1.0.0",
+          "assets": { other: { "url": "v1.zip", "sha256": sha(&v1) } } },
     ]);
     files.insert(
         "/index.json".to_owned(),
@@ -999,6 +1006,20 @@ async fn install_link_from_url_repository_git() {
     )
     .await;
     assert!(!ok && msg.contains("does not match"), "{msg}");
+    // this host's asset at a url relative to the index: mockpkg 1.0.0
+    // inside, so it takes the place of the 2.0.0 installed above
+    let (ok, msg) = call(
+        "install_repo",
+        args(&[("name", "r3"), ("package", "hosted")]),
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let (ok, msg) = call(
+        "install_repo",
+        args(&[("name", "r4"), ("package", "elsewhere")]),
+    )
+    .await;
+    assert!(!ok && msg.contains("no build for this host"), "{msg}");
 
     // from Git (file:// in dev): a checkout of a built package
     let repo = temp_dir("pkg-git");

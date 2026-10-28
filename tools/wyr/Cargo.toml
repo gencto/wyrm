@@ -23,7 +23,7 @@ base64.workspace = true
 getrandom.workspace = true
 serde_json.workspace = true
 json5.workspace = true
-wyrm-link-sdk.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["package"] }
 wyrm-link-mock.workspace = true
 minicbor.workspace = true
 wyrm-link-probe.workspace = true
