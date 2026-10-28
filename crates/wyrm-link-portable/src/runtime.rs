@@ -73,9 +73,11 @@ enum Internal {
     Reply(u64, Result<Value, AppError>),
 }
 
+/// `Start` and `Event` carry a sequence number: the store remembers the last one whose writes it
+/// applied (see [`Actor::stop`]).
 enum Job {
-    Start(Value, Counts),
-    Event(Event, Counts),
+    Start(u64, Value, Counts),
+    Event(u64, Event, Counts),
     Reset,
     Exit,
 }
@@ -129,36 +131,42 @@ fn engine_thread<E: Engine>(
             host.set_counts(counts);
             lock(&call).deadline = Some(std::time::Instant::now() + call_time);
         };
-        let (start, r) = match job {
+        let (start, seq, r) = match job {
             Job::Exit => return,
             Job::Reset => {
                 engine.reset();
                 lock(&call).reset = true;
                 continue;
             }
-            Job::Start(config, counts) => {
+            Job::Start(seq, config, counts) => {
                 begin(counts, &mut host);
                 (
                     true,
+                    seq,
                     engine.start(&mut host, &config).map(|r| r.map(|()| None)),
                 )
             }
-            Job::Event(ev, counts) => {
+            Job::Event(seq, ev, counts) => {
                 begin(counts, &mut host);
-                (false, engine.event(&mut host, ev))
+                (false, seq, engine.event(&mut host, ev))
             }
         };
         lock(&call).deadline = None;
-        if out.send(conclude(start, r, &mut host, &store)).is_err() {
+        if out
+            .send(conclude(start, seq, r, &mut host, &store))
+            .is_err()
+        {
             return;
         }
     }
 }
 
-/// The event's commands, with the store writes applied; nothing when the call faulted or the
-/// app's `start` failed.
+/// The event's commands, with the store writes applied; nothing when the call faulted, the app's
+/// `start` failed, a path belongs to the host or the runtime gave the event up (stop): the store
+/// changes only for an event whose other commands are going to be applied.
 fn conclude(
     start: bool,
+    seq: u64,
     r: Result<Result<Option<Value>, AppError>, Fault>,
     host: &mut BufferHost,
     store: &SharedStore,
@@ -182,8 +190,14 @@ fn conclude(
         Ok(c) => c,
         Err(e) => return fail(Failure::Apply(e)),
     };
+    if let Err(e) = check_paths(&cmds) {
+        return fail(Failure::Apply(e));
+    }
     let mut rest = Vec::with_capacity(cmds.len());
     let mut st = lock(store);
+    if st.is_abandoned() {
+        return fail(Failure::Apply(busy("the link stopped")));
+    }
     for c in cmds {
         let w = match c {
             Command::StorePut(k, v) => st.put(&k, &v),
@@ -200,9 +214,22 @@ fn conclude(
             )));
         }
     }
+    st.commit(seq);
     Outcome {
         result: Ok(r),
         cmds: rest,
+    }
+}
+
+/// What a stopped link answers for an outcome it did not apply.
+fn result_of(o: Outcome) -> Result<Option<Value>, AppError> {
+    match o.result {
+        Ok(r) => r,
+        Err(Failure::Fault(m)) => Err(AppError::new(
+            Status::InternalError,
+            format!("the link crashed: {m}"),
+        )),
+        Err(Failure::Apply(e)) => Err(e),
     }
 }
 
@@ -217,6 +244,7 @@ enum State {
 }
 
 struct InFlight {
+    seq: u64,
     since: Instant,
     answer: Option<Answer>,
     start: bool,
@@ -239,11 +267,12 @@ struct Actor {
     timers: HashMap<u64, AbortHandle>,
     subs: HashMap<u64, AbortHandle>,
     reqs: HashMap<u64, AbortHandle>,
-    /// Paths the current instance declared.
-    declared: BTreeSet<String>,
-    /// Paths of dead instances, removed at `sweep_at` unless declared again.
-    sweep: BTreeSet<String>,
+    paths: Paths,
+    max_nodes: usize,
+    /// When the nodes of dead instances that were not declared again go.
     sweep_at: Option<Instant>,
+    store: SharedStore,
+    seq: u64,
     backoff: Duration,
     started_at: Option<Instant>,
     stuck: bool,
@@ -257,6 +286,72 @@ fn jitter(d: Duration) -> Duration {
     h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |t| t.as_nanos()));
     let frac = (h.finish() % 10_001) as f64 / 10_000.0;
     d.mul_f64(0.8 + 0.4 * frac)
+}
+
+/// The app's nodes in the tree: those the current instance declared and those of dead instances
+/// that wait for the sweep. The two sets never share a path, so the tree holds `len()` app nodes.
+#[derive(Debug, Default)]
+struct Paths {
+    declared: BTreeSet<String>,
+    sweep: BTreeSet<String>,
+}
+
+impl Paths {
+    fn len(&self) -> usize {
+        self.declared.len() + self.sweep.len()
+    }
+
+    /// Room for `declare_node(p)`: a path already in the tree adds nothing; a new one needs room
+    /// under `max`.
+    fn admit(&self, p: &str, max: usize) -> Result<(), AppError> {
+        if self.declared.contains(p) || self.sweep.contains(p) || self.len() < max {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                Status::ResourceExhausted,
+                format!("too many nodes (at most {max})"),
+            ))
+        }
+    }
+
+    fn declared(&mut self, p: String) {
+        self.sweep.remove(&p);
+        self.declared.insert(p);
+    }
+
+    fn removed(&mut self, p: &str) {
+        self.declared.retain(|d| d != p && !under(p, d));
+        self.sweep.retain(|d| d != p && !under(p, d));
+    }
+
+    /// The instance is gone: what it declared waits for the sweep.
+    fn fault(&mut self) {
+        self.sweep.append(&mut self.declared);
+    }
+
+    /// The paths to remove now, parents first; a path with a declared node below it stays.
+    fn take_sweep(&mut self) -> Vec<String> {
+        let mut gone: Vec<String> = std::mem::take(&mut self.sweep)
+            .into_iter()
+            .filter(|p| !self.declared.iter().any(|d| under(p, d)))
+            .collect();
+        gone.sort_by_key(|p| p.len());
+        gone
+    }
+}
+
+/// Checks done before anything of an event is applied, the store included.
+fn check_paths(cmds: &[Command]) -> Result<(), AppError> {
+    for c in cmds {
+        match c {
+            Command::DeclareNode(p, _) | Command::RemoveNode(p) | Command::Update(p, _) => {
+                check_path(p, false)?
+            }
+            Command::DeclareAction(p, ..) => check_path(p, true)?,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// App paths are under the root and never hidden: `""` and any segment starting with `.`
@@ -278,12 +373,6 @@ fn under(p: &str, d: &str) -> bool {
 impl Actor {
     fn counts(&self) -> Counts {
         Counts {
-            nodes: self.declared.len()
-                + self
-                    .sweep
-                    .iter()
-                    .filter(|p| !self.declared.contains(*p))
-                    .count(),
             timers: self.timers.len(),
             subs: self.subs.len(),
             inflight: self.reqs.len(),
@@ -298,7 +387,7 @@ impl Actor {
         first: oneshot::Sender<()>,
     ) {
         let mut first = Some(first);
-        self.begin_start();
+        self.begin_start().await;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let far = || Instant::now() + Duration::from_secs(86_400);
         loop {
@@ -334,7 +423,7 @@ impl Actor {
                     }
                 }
                 _ = tokio::time::sleep_until(backoff_at.unwrap_or_else(far)), if backoff_at.is_some() => {
-                    self.begin_start();
+                    self.begin_start().await;
                 }
                 _ = tokio::time::sleep_until(sweep_at.unwrap_or_else(far)), if sweep_at.is_some() => {
                     self.sweep_now().await;
@@ -401,7 +490,12 @@ impl Actor {
         let Some(p) = self.queue.pop_front() else {
             return;
         };
-        if self.jobs.try_send(Job::Event(p.ev, self.counts())).is_err() {
+        self.seq += 1;
+        if self
+            .jobs
+            .try_send(Job::Event(self.seq, p.ev, self.counts()))
+            .is_err()
+        {
             error!("the engine thread is gone");
             answer(
                 p.answer,
@@ -413,22 +507,32 @@ impl Actor {
             return;
         }
         self.inflight = Some(InFlight {
+            seq: self.seq,
             since: Instant::now(),
             answer: p.answer,
             start: false,
         });
     }
 
-    fn begin_start(&mut self) {
+    async fn begin_start(&mut self) {
+        // A crash loop keeps the first deadline: nodes of dead instances go at the latest 10 s
+        // after the first restart began, however often it fails since.
+        match self.sweep_at {
+            Some(at) if at <= Instant::now() => self.sweep_now().await,
+            None if !self.paths.sweep.is_empty() => {
+                self.sweep_at = Some(Instant::now() + SWEEP_AFTER);
+            }
+            _ => {}
+        }
         self.state = State::Starting;
-        // Nothing of the new instance exists yet: the old nodes it declares again must not count
-        // twice (the buffer counts every declare as added), and the rest are swept.
-        let job = Job::Start(self.params.clone(), Counts::default());
+        self.seq += 1;
+        let job = Job::Start(self.seq, self.params.clone(), self.counts());
         if self.jobs.try_send(job).is_err() {
             error!("the engine thread is gone");
             return;
         }
         self.inflight = Some(InFlight {
+            seq: self.seq,
             since: Instant::now(),
             answer: None,
             start: true,
@@ -481,9 +585,6 @@ impl Actor {
         self.state = State::Running;
         self.started_at = Some(Instant::now());
         self.backoff = self.backoff.max(BACKOFF_FIRST);
-        if !self.sweep.is_empty() {
-            self.sweep_at = Some(Instant::now() + SWEEP_AFTER);
-        }
         self.set_status(RUNNING, None).await;
         info!("app running");
     }
@@ -506,8 +607,8 @@ impl Actor {
         for p in self.queue.drain(..) {
             answer(p.answer, Err(busy("the link is restarting")));
         }
-        self.sweep.append(&mut self.declared);
-        self.sweep_at = None;
+        // `sweep_at` stays: see `begin_start`.
+        self.paths.fault();
         if let Err(e) = self.ctx.mark_all(Quality::Bad, Some("bad/comm_fail")).await {
             debug!("mark values bad: {e}");
         }
@@ -527,12 +628,7 @@ impl Actor {
 
     async fn sweep_now(&mut self) {
         self.sweep_at = None;
-        let mut gone: Vec<String> = std::mem::take(&mut self.sweep)
-            .into_iter()
-            .filter(|p| !self.declared.contains(p) && !self.declared.iter().any(|d| under(p, d)))
-            .collect();
-        gone.sort_by_key(|p| p.len());
-        for p in gone {
+        for p in self.paths.take_sweep() {
             if self.ctx.has_node(&p) {
                 if let Err(e) = self.ctx.remove_node(&p).await {
                     debug!(path = %p, "sweep: {e}");
@@ -576,22 +672,15 @@ impl Actor {
         self.status = Some(want);
     }
 
-    /// Apply one event's commands in order. Paths are checked first, so a bad path applies none.
+    /// Apply one event's commands in order (paths were checked by `conclude`). A new node over
+    /// `max_nodes` fails the event.
     async fn apply(&mut self, cmds: Vec<Command>) -> Result<(), AppError> {
-        for c in &cmds {
-            match c {
-                Command::DeclareNode(p, _) | Command::RemoveNode(p) | Command::Update(p, _) => {
-                    check_path(p, false)?
-                }
-                Command::DeclareAction(p, ..) => check_path(p, true)?,
-                _ => {}
-            }
-        }
         for c in cmds {
             match c {
                 Command::DeclareNode(p, m) => {
+                    self.paths.admit(&p, self.max_nodes)?;
                     self.ctx.declare_node(&p, m).await.map_err(from_link)?;
-                    self.declared.insert(p);
+                    self.paths.declared(p);
                 }
                 Command::DeclareAction(p, name, a) => {
                     self.ctx
@@ -601,8 +690,7 @@ impl Actor {
                 }
                 Command::RemoveNode(p) => {
                     self.ctx.remove_node(&p).await.map_err(from_link)?;
-                    self.declared.retain(|d| *d != p && !under(&p, d));
-                    self.sweep.retain(|d| *d != p && !under(&p, d));
+                    self.paths.removed(&p);
                 }
                 Command::Update(p, s) => {
                     self.ctx
@@ -622,6 +710,9 @@ impl Actor {
                     if let Some(h) = self.timers.remove(&id) {
                         h.abort();
                     }
+                    // fired while this event ran: not delivered any more
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::Timer(TimerId(t)) if t == id));
                 }
                 // applied by the engine thread
                 Command::StorePut(..) | Command::StoreDelete(_) => {}
@@ -649,6 +740,8 @@ impl Actor {
                     if let Some(h) = self.subs.remove(&id) {
                         h.abort();
                     }
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::Value(SubId(s), ..) if s == id));
                 }
                 Command::Set(ReqId(id), key, v) => {
                     let (client, tx) = (self.client.clone(), self.internal.clone());
@@ -686,7 +779,9 @@ impl Actor {
     }
 
     /// Answer what waits, let the call in flight end, run the app's `stop` (each bounded), and
-    /// end the engine thread. An engine that does not return is left behind (native: `stuck`).
+    /// end the engine thread. An engine that does not return is left behind (native: `stuck`),
+    /// and the store refuses its late writes: a new instance on the same data directory may have
+    /// read the store already.
     async fn stop(&mut self, outcomes: &mut mpsc::UnboundedReceiver<Outcome>) {
         for p in self.queue.drain(..) {
             answer(p.answer, Err(busy("the link is stopping")));
@@ -694,25 +789,70 @@ impl Actor {
         self.drop_tasks();
         let end = Instant::now() + STOP_WAIT;
         if let Some(f) = self.inflight.take() {
-            let done = tokio::time::timeout_at(end, outcomes.recv()).await;
-            answer(f.answer, Err(busy("the link is stopping")));
-            if !matches!(done, Ok(Some(_))) {
-                let _ = self.jobs.try_send(Job::Exit);
-                return;
+            match tokio::time::timeout_at(end, outcomes.recv()).await {
+                // done: its store writes (if any) are in, its tree commands no longer apply
+                Ok(Some(o)) => answer(f.answer, result_of(o)),
+                _ => {
+                    self.give_up(f, outcomes).await;
+                    return;
+                }
             }
             if f.start {
                 self.state = State::Running;
             }
         }
-        if matches!(self.state, State::Running)
-            && self
-                .jobs
-                .try_send(Job::Event(Event::Stop, self.counts()))
-                .is_ok()
-        {
-            let _ = tokio::time::timeout_at(end, outcomes.recv()).await;
+        if matches!(self.state, State::Running) {
+            self.seq += 1;
+            let job = Job::Event(self.seq, Event::Stop, self.counts());
+            if self.jobs.try_send(job).is_ok() {
+                let seq = self.seq;
+                if !matches!(
+                    tokio::time::timeout_at(end, outcomes.recv()).await,
+                    Ok(Some(_))
+                ) {
+                    let f = InFlight {
+                        seq,
+                        since: Instant::now(),
+                        answer: None,
+                        start: false,
+                    };
+                    self.give_up(f, outcomes).await;
+                    return;
+                }
+            }
         }
         let _ = self.jobs.try_send(Job::Exit);
+    }
+
+    /// The call in flight did not end in time: the store refuses its writes from now on. When
+    /// they were applied just before, its outcome is on the way and answers the caller;
+    /// otherwise the caller gets `busy`.
+    async fn give_up(&mut self, f: InFlight, outcomes: &mut mpsc::UnboundedReceiver<Outcome>) {
+        let committed = lock(&self.store).abandon();
+        if committed >= f.seq {
+            match tokio::time::timeout(Duration::from_millis(500), outcomes.recv()).await {
+                Ok(Some(o)) => answer(f.answer, result_of(o)),
+                _ => answer(
+                    f.answer,
+                    Err(AppError::new(
+                        Status::InternalError,
+                        "the link stopped after the call's store writes",
+                    )),
+                ),
+            }
+        } else {
+            warn!("the call in flight did not end in time; its store writes are refused");
+            answer(f.answer, Err(busy("the link is stopping")));
+        }
+        let _ = self.jobs.try_send(Job::Exit);
+    }
+}
+
+impl Drop for Actor {
+    /// A runtime dropped without `stop` (its task aborted): nothing the engine thread finishes
+    /// later reaches the store.
+    fn drop(&mut self) {
+        lock(&self.store).abandon();
     }
 }
 
@@ -814,11 +954,12 @@ where
         };
         let host = BufferHost::new(
             Box::new(services),
-            limits,
+            limits.clone(),
             Counts::default(),
             1,
             format!("{}/{}", keyspace::ROOT, ctx.site()),
         );
+        let actor_store = store.clone();
         let (jobs_tx, jobs_rx) = std::sync::mpsc::sync_channel(4);
         let (out_tx, out_rx) = mpsc::unbounded_channel();
         let call_time = Duration::from_millis(cfg.call_ms.into());
@@ -840,9 +981,11 @@ where
             timers: HashMap::new(),
             subs: HashMap::new(),
             reqs: HashMap::new(),
-            declared: BTreeSet::new(),
-            sweep: BTreeSet::new(),
+            paths: Paths::default(),
+            max_nodes: limits.max_nodes,
             sweep_at: None,
+            store: actor_store,
+            seq: 0,
             backoff: BACKOFF_FIRST,
             started_at: None,
             stuck: false,
@@ -918,6 +1061,112 @@ mod tests {
                 "{d:?}"
             );
         }
+    }
+
+    #[test]
+    fn node_cap_counts_new_paths_only_and_holds_across_a_restart() {
+        let mut p = Paths::default();
+        for n in ["a", "b"] {
+            p.admit(n, 3).unwrap();
+            p.declared(n.into());
+        }
+        // re-declares add nothing
+        p.admit("a", 2).unwrap();
+        p.declared("a".into());
+        assert_eq!(p.len(), 2);
+        assert_eq!(
+            p.admit("c", 2).unwrap_err().status,
+            Status::ResourceExhausted
+        );
+        // the instance dies: its nodes stay in the tree until the sweep
+        p.fault();
+        assert_eq!(p.len(), 2);
+        // the new instance declares `a` again (no room needed) but no new path fits
+        p.admit("a", 2).unwrap();
+        p.declared("a".into());
+        assert_eq!(p.len(), 2);
+        assert!(p.admit("c", 2).is_err());
+        // a second fault before the sweep: still two nodes, still no room
+        p.fault();
+        assert!(p.admit("c", 2).is_err());
+        // the sweep frees what was not declared again
+        p.declared("a".into());
+        assert_eq!(p.take_sweep(), ["b"]);
+        assert_eq!(p.len(), 1);
+        p.admit("c", 2).unwrap();
+    }
+
+    #[test]
+    fn sweep_keeps_parents_of_declared_nodes() {
+        let mut p = Paths::default();
+        for n in ["d", "d/x", "e"] {
+            p.declared(n.into());
+        }
+        p.fault();
+        p.declared("d/x".into());
+        assert_eq!(p.take_sweep(), ["e"]);
+        p.removed("d");
+        assert_eq!(p.len(), 0);
+    }
+
+    fn buffer(dir: &std::path::Path) -> (BufferHost, SharedStore) {
+        let store: SharedStore = Arc::new(Mutex::new(Store::open(Some(dir), Some(&[5; 32]))));
+        let services = RuntimeServices::new(
+            store.clone(),
+            Vec::new(),
+            Default::default(),
+            Arc::new(Mutex::new(CallState::default())),
+        );
+        let host = BufferHost::new(
+            Box::new(services),
+            Limits::default(),
+            Counts::default(),
+            1,
+            "wy/s".into(),
+        );
+        (host, store)
+    }
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("wyrm-portable-rt-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn a_host_path_fails_the_event_before_the_store_changes() {
+        use wyrm_link_api::Host;
+        let d = tmp("paths");
+        let (mut host, store) = buffer(&d);
+        host.store_put("n", &[7]).unwrap();
+        host.declare_node(".x", Default::default());
+        let o = conclude(false, 1, Ok(Ok(None)), &mut host, &store);
+        assert!(
+            matches!(&o.result, Err(Failure::Apply(e)) if e.status == Status::InvalidParameter)
+        );
+        assert_eq!(lock(&store).get("n"), None);
+        assert_eq!(Store::open(Some(&d), Some(&[5; 32])).get("n"), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_abandoned_event_does_not_write_the_store() {
+        use wyrm_link_api::Host;
+        let d = tmp("abandoned");
+        let (mut host, store) = buffer(&d);
+        host.store_put("n", &[1]).unwrap();
+        let o = conclude(false, 1, Ok(Ok(None)), &mut host, &store);
+        assert!(o.result.is_ok());
+        assert_eq!(lock(&store).abandon(), 1);
+        host.store_put("n", &[2]).unwrap();
+        let o = conclude(false, 2, Ok(Ok(None)), &mut host, &store);
+        assert!(matches!(&o.result, Err(Failure::Apply(e)) if e.status == Status::Busy));
+        assert_eq!(
+            Store::open(Some(&d), Some(&[5; 32])).get("n").as_deref(),
+            Some(&[1u8][..])
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

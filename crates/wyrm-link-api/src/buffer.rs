@@ -56,6 +56,8 @@ pub trait Services {
 /// Bounds of one link (ADR 0023).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Limits {
+    /// Nodes in the link's tree. The buffer cannot know which paths exist (a re-declare adds
+    /// nothing), so the runtime enforces this one when it applies `DeclareNode`.
     pub max_nodes: usize,
     pub max_timers: usize,
     pub max_subs: usize,
@@ -80,7 +82,6 @@ impl Default for Limits {
 /// What the link holds now. The runtime owns these numbers and updates them between events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Counts {
-    pub nodes: usize,
     pub timers: usize,
     pub subs: usize,
     pub inflight: usize,
@@ -96,7 +97,6 @@ pub struct BufferHost {
     // per-event state
     cmds: Vec<Command>,
     failed: Option<AppError>,
-    added_nodes: usize,
     added_timers: HashSet<u64>,
     added_subs: HashSet<u64>,
     added_inflight: usize,
@@ -122,7 +122,6 @@ impl BufferHost {
             site_prefix,
             cmds: Vec::new(),
             failed: None,
-            added_nodes: 0,
             added_timers: HashSet::new(),
             added_subs: HashSet::new(),
             added_inflight: 0,
@@ -135,7 +134,6 @@ impl BufferHost {
     pub fn finish(&mut self) -> Result<Vec<Command>, AppError> {
         let cmds = std::mem::take(&mut self.cmds);
         let failed = self.failed.take();
-        self.added_nodes = 0;
         self.added_timers.clear();
         self.added_subs.clear();
         self.added_inflight = 0;
@@ -233,14 +231,8 @@ impl BufferHost {
 
 impl Host for BufferHost {
     fn declare_node(&mut self, path: &str, meta: NodeMeta) {
-        if self.counts.nodes + self.added_nodes >= self.limits.max_nodes {
-            self.fail(exhausted("too many nodes"));
-            return;
-        }
-        if self.room().is_ok() {
-            self.added_nodes += 1;
-            self.cmds.push(Command::DeclareNode(path.to_owned(), meta));
-        }
+        // `max_nodes` is the runtime's: only it knows whether `path` is new.
+        self.push(Command::DeclareNode(path.to_owned(), meta));
     }
 
     fn declare_action(&mut self, path: &str, name: &str, action: ActionMeta) {
@@ -565,15 +557,17 @@ mod tests {
     }
 
     #[test]
-    fn nodes_over_the_bound_fail_the_event() {
+    fn re_declares_are_not_counted_by_the_buffer() {
+        // The node bound belongs to the runtime: re-declaring existing nodes never fails here.
         let limits = Limits {
             max_nodes: 1,
             ..Limits::default()
         };
         let mut h = host(0, true, limits);
-        h.declare_node("a", Default::default());
-        h.declare_node("b", Default::default());
-        assert!(exhausted(&h.finish().unwrap_err()));
+        for _ in 0..3 {
+            h.declare_node("a", Default::default());
+        }
+        assert_eq!(h.finish().unwrap().len(), 3);
     }
 
     #[test]

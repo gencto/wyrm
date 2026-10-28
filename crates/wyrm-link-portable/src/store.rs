@@ -29,6 +29,10 @@ pub struct Store {
     at: Option<(PathBuf, Zeroizing<[u8; 32]>)>,
     map: HashMap<String, Vec<u8>>,
     used: u64,
+    /// Set by the runtime when it gives the engine up (stop): later writes are refused.
+    abandoned: bool,
+    /// Sequence number of the last job whose writes were applied (set by the runtime).
+    committed: u64,
 }
 
 fn size(k: &str, v: &[u8]) -> u64 {
@@ -46,6 +50,8 @@ impl Store {
             at: None,
             map: HashMap::new(),
             used: 0,
+            abandoned: false,
+            committed: 0,
         }
     }
 
@@ -66,8 +72,7 @@ impl Store {
         }
         let mut s = Self {
             at: Some((dir.clone(), key)),
-            map: HashMap::new(),
-            used: 0,
+            ..Self::none()
         };
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
@@ -111,6 +116,21 @@ impl Store {
         self.at.is_some()
     }
 
+    /// Refuse every later write; returns the last committed job (see [`commit`](Self::commit)).
+    pub fn abandon(&mut self) -> u64 {
+        self.abandoned = true;
+        self.committed
+    }
+
+    pub fn is_abandoned(&self) -> bool {
+        self.abandoned
+    }
+
+    /// The writes of job `seq` are applied.
+    pub fn commit(&mut self, seq: u64) {
+        self.committed = seq;
+    }
+
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         self.map.get(key).cloned()
     }
@@ -121,6 +141,9 @@ impl Store {
     }
 
     pub fn put(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
+        if self.abandoned {
+            return Err("the link stopped".into());
+        }
         let (dir, k) = self.at.as_ref().ok_or("the link has no store")?;
         let mut m = BTreeMap::new();
         m.insert("k".to_owned(), Value::Str(key.to_owned()));
@@ -149,6 +172,9 @@ impl Store {
     }
 
     pub fn delete(&mut self, key: &str) -> Result<(), String> {
+        if self.abandoned {
+            return Err("the link stopped".into());
+        }
         let (dir, _) = self.at.as_ref().ok_or("the link has no store")?;
         match std::fs::remove_file(dir.join(file_name(key))) {
             Ok(()) => sync_dir(dir)?,

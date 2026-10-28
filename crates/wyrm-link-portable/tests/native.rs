@@ -11,7 +11,7 @@ use ed25519_dalek::SigningKey;
 use wyrm_core::meta::ParamMeta;
 use wyrm_core::status::StatusCode;
 use wyrm_core::{ActionMeta, Attachment, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
-use wyrm_link_api::{App, AppError, Host, ReqId, TimerId, Who};
+use wyrm_link_api::{App, AppError, Host, ReqId, SubId, TimerId, Who};
 use wyrm_link_portable::{Portable, PortableConfig};
 use wyrm_link_sdk::harness::{TestHarness, SITE, TEST_KEY_SEED};
 use wyrm_link_sdk::params::FromParams;
@@ -31,8 +31,12 @@ fn sample(v: Value) -> Sample {
 /// The test app: `n` (writable, kept in the store), `ticks` (timer count), `reply` (last reply),
 /// actions `ping` (a 50 ms timer, answers `"pong"`) and `call` (a request to another point).
 /// A value of -1 makes it panic. With `extra: true` it declares `extra` on its first start only.
+/// `seen` shows the last subscribed value. `arm` sets a 100 ms timer that `slow_cancel` cancels
+/// after 400 ms; `late` sets a timer whose `on_timer` takes 3 s and then writes `late` to the store.
 struct Echo {
     ticks: u64,
+    armed: Option<TimerId>,
+    late: bool,
 }
 
 impl App for Echo {
@@ -46,7 +50,10 @@ impl App for Echo {
         );
         host.declare_node("ticks", NodeMeta::number());
         host.declare_node("reply", NodeMeta::leaf(TypeCode::String));
-        host.declare_action("", "ping", ActionMeta::new().level(Perm::Write));
+        host.declare_node("seen", NodeMeta::number());
+        for a in ["ping", "arm", "slow_cancel", "late"] {
+            host.declare_action("", a, ActionMeta::new().level(Perm::Write));
+        }
         host.declare_action(
             "",
             "call",
@@ -66,7 +73,11 @@ impl App for Echo {
                 .map_err(|e| AppError::new(Status::InternalError, e.to_string()))?;
             host.update("n", sample(v));
         }
-        Ok(Echo { ticks: 0 })
+        Ok(Echo {
+            ticks: 0,
+            armed: None,
+            late: false,
+        })
     }
 
     fn on_set(
@@ -102,6 +113,22 @@ impl App for Echo {
                 host.set_timer(50)?;
                 Ok(Value::Str("pong".into()))
             }
+            "arm" => {
+                self.armed = Some(host.set_timer(100)?);
+                Ok(Value::Null)
+            }
+            "slow_cancel" => {
+                std::thread::sleep(Duration::from_millis(400));
+                if let Some(t) = self.armed.take() {
+                    host.cancel_timer(t);
+                }
+                Ok(Value::Null)
+            }
+            "late" => {
+                self.late = true;
+                host.set_timer(0)?;
+                Ok(Value::Null)
+            }
             "call" => {
                 let m = match &args {
                     Value::Map(m) => m,
@@ -128,8 +155,17 @@ impl App for Echo {
     }
 
     fn on_timer(&mut self, host: &mut dyn Host, _timer: TimerId) {
+        if std::mem::take(&mut self.late) {
+            std::thread::sleep(Duration::from_secs(3));
+            let _ = host.store_put("late", &[1]);
+            return;
+        }
         self.ticks += 1;
         host.update("ticks", sample(Value::UInt(self.ticks)));
+    }
+
+    fn on_value(&mut self, host: &mut dyn Host, _sub: SubId, _key: &str, s: Sample) {
+        host.update("seen", sample(s.v));
     }
 
     fn on_reply(&mut self, host: &mut dyn Host, _req: ReqId, result: Result<Value, AppError>) {
@@ -378,6 +414,8 @@ impl Link for Sink {
             NodeMeta::number().writable(wyrm_core::meta::Writable::Write),
         )
         .await?;
+        ctx.update("p", 42u64, Quality::Good, wyrm_link_sdk::now_us())
+            .await?;
         let got = SINK_GOT.lock().unwrap().clone().expect("sink recorder set");
         Ok(Sink { got })
     }
@@ -403,6 +441,8 @@ async fn requests_outside_grants_are_refused() {
     *SINK_GOT.lock().unwrap() = Some(got.clone());
     let mut lcfg = LinkConfig::new(SITE, "mock");
     lcfg.admin_keys = vec![SigningKey::from_bytes(&TEST_KEY_SEED).verifying_key()];
+    // `get ~val` answers the current value (no storage in the harness)
+    lcfg.answer_val = true;
     let sink = runtime::spawn::<Sink>(h.session().clone(), lcfg, ())
         .await
         .expect("sink");
@@ -442,8 +482,29 @@ async fn requests_outside_grants_are_refused() {
         last(&h, "reply")
     );
 
+    // inside the grant: the first value is the point's current one
+    let r = h
+        .invoke(
+            "",
+            "call",
+            call("subscribe", &format!("{mock}/p")),
+            Some(h.ptok(Perm::Write)),
+        )
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    assert!(
+        eventually(Duration::from_secs(3), || last(&h, "seen")
+            .and_then(|v| v.as_f64())
+            == Some(42.0))
+        .await,
+        "seen: {:?}",
+        last(&h, "seen")
+    );
+
+    // outside the grant (same site), and in another site
     for (op, key) in [
         ("set", format!("wy/{SITE}/downstream/other/p")),
+        ("subscribe", format!("wy/{SITE}/downstream/other/p")),
         ("subscribe", "wy/x/downstream/mock/p".to_owned()),
     ] {
         let r = h
@@ -456,5 +517,51 @@ async fn requests_outside_grants_are_refused() {
 
     sink.stop().await;
     h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn empty() -> Value {
+    Value::Map(BTreeMap::new())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_timer_is_not_delivered() {
+    let dir = data_dir("cancel");
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+    let r = h
+        .invoke("", "arm", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    // the timer fires (and is queued) while this event runs; the event then cancels it
+    let r = h
+        .invoke("", "slow_cancel", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(last(&h, "ticks"), None);
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_store_write_after_stop_gave_up_is_refused() {
+    let dir = data_dir("late");
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+    let r = h
+        .invoke("", "late", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    // `on_timer` now runs for 3 s; stop waits 2 s for it, then gives the call up
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let t = Instant::now();
+    h.stop().await;
+    assert!(
+        t.elapsed() < Duration::from_millis(2900),
+        "{:?}",
+        t.elapsed()
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
+    assert_eq!(store.get("late"), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
