@@ -7,7 +7,7 @@
 
 use crate::control::{disk_free_mib, rejected, Control};
 use crate::registry::{check_watch_key, Op, Registry, WatchDef, WatchGroupDef, FLUSH_MS};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -467,7 +467,8 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
 }
 
 /// Start and end date of a watch from the store (first and last row).
-async fn refresh_dates(ctl: &Control, ctx: &LinkCtx, group: &str, id: &str, key: &str) {
+/// `true` when the store holds a first row (`start_date` is known).
+async fn refresh_dates(ctl: &Control, ctx: &LinkCtx, group: &str, id: &str, key: &str) -> bool {
     let st = ctl.history.store().clone();
     let k = key.to_owned();
     let edges = tokio::task::spawn_blocking(move || {
@@ -481,9 +482,9 @@ async fn refresh_dates(ctl: &Control, ctx: &LinkCtx, group: &str, id: &str, key:
         Ok(Ok(e)) => e,
         Ok(Err(e)) => {
             warn!(%key, "history dates: {e}");
-            return;
+            return false;
         }
-        Err(_) => return,
+        Err(_) => return false,
     };
     let p = format!("{ROOT}/{group}/{id}");
     let t = now_us();
@@ -497,6 +498,7 @@ async fn refresh_dates(ctl: &Control, ctx: &LinkCtx, group: &str, id: &str, key:
     let _ = ctx
         .update(&format!("{p}/end_date"), date(&last), Quality::Good, t)
         .await;
+    first.is_some()
 }
 
 async fn refresh_all(ctl: &Control, ctx: &LinkCtx) {
@@ -926,6 +928,9 @@ pub(crate) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
     let mut prev = (Instant::now(), c(&ctl.history.counters().rows_written));
     let mut last_purge = Instant::now();
     let mut shown: HashMap<String, u64> = HashMap::new();
+    // watches whose first row is shown; a new one has none until the store
+    // gets its first flush
+    let mut dated: HashSet<String> = HashSet::new();
     loop {
         tick.tick().await;
         let counters = ctl.history.counters();
@@ -985,6 +990,9 @@ pub(crate) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
                     continue;
                 }
                 shown.insert(w.key.clone(), r.t);
+                if !dated.contains(&w.key) && refresh_dates(&ctl, &ctx, &g, &id, &w.key).await {
+                    dated.insert(w.key.clone());
+                }
                 let p = format!("{ROOT}/{g}/{id}");
                 let _ = ctx
                     .update(

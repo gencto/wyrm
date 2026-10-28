@@ -3956,12 +3956,12 @@ async fn history_records_and_answers() {
         .await
         .expect_err("bad range");
     assert!(bad.is(wyrm_core::Status::InvalidParameter), "{bad}");
+    // a watch made with no rows gets both dates once it records, not only
+    // after a restart
     eventually("watch dates", 10, || async {
-        matches!(
-            last_val(&c, &format!("{w1}/end_date")).await,
-            Some(Value::Str(_))
-        )
-        .then_some(())
+        let start = last_val(&c, &format!("{w1}/start_date")).await;
+        let end = last_val(&c, &format!("{w1}/end_date")).await;
+        matches!((start, end), (Some(Value::Str(_)), Some(Value::Str(_)))).then_some(())
     })
     .await;
 
