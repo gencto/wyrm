@@ -8,12 +8,15 @@
 //! natively. A trap, fuel, memory or time is a crash: the runtime restarts the instance after a
 //! backoff, and the next `start` instantiates the slot's current artifact.
 //!
-//! [`reload_component`] swaps the component of every running link of a package (hot start):
-//! the call in flight, if any, is cut off with `busy` and the new code starts at once with the
-//! same store.
+//! [`reload_component`] swaps the component of every running link of a package and tells each
+//! link's runtime (hot start, ADR 0023): a call in flight is cut off with `busy` (its effects
+//! dropped), the old instance runs its `stop` (at most 2 s; its store writes are kept), and the
+//! new code starts right away on the same store, idle link or not.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+
+use tokio::sync::watch;
 
 use wyrm_core::{Status, Value};
 use wyrm_link_api::buffer::BufferHost;
@@ -27,25 +30,33 @@ use crate::{component_path, host};
 /// A portable link on a WASM component: driver `app`.
 pub type App = Runtime<WasmEngine>;
 
-/// The slots of the running `app` links in this process, by engine, with their package.
-static SLOTS: Mutex<Vec<(u64, String, Slot<AppWorld>)>> = Mutex::new(Vec::new());
+/// A running `app` link: its package, its slot and how its runtime hears of a swap.
+struct Running {
+    id: u64,
+    package: String,
+    slot: Slot<AppWorld>,
+    code: watch::Sender<u64>,
+}
+
+/// The running `app` links in this process.
+static SLOTS: Mutex<Vec<Running>> = Mutex::new(Vec::new());
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
-fn slots() -> std::sync::MutexGuard<'static, Vec<(u64, String, Slot<AppWorld>)>> {
+fn slots() -> std::sync::MutexGuard<'static, Vec<Running>> {
     SLOTS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// Reads `<root>/<package>.wasm` again and swaps it into every running `app` link of the
-/// package; returns how many. Each link cuts off its call in flight (`busy`) and starts the new
-/// code with its store. Compiles the component: call it off the async workers.
+/// package; returns how many. Each link's runtime then cuts off its call in flight (`busy`),
+/// runs the old instance's `stop` and starts the new code with its store, without waiting for
+/// an event. Compiles the component: call it off the async workers.
 pub fn reload_component(package: &str) -> Result<usize, LinkError> {
     let art = load(package)?;
     let mut n = 0;
-    for (_, p, slot) in slots().iter() {
-        if p == package {
-            slot.swap(art.clone());
-            n += 1;
-        }
+    for r in slots().iter().filter(|r| r.package == package) {
+        r.slot.swap(art.clone());
+        r.code.send_replace(r.slot.generation());
+        n += 1;
     }
     Ok(n)
 }
@@ -65,11 +76,12 @@ pub struct WasmEngine {
     id: u64,
     package: String,
     runner: AppRunner,
+    code: watch::Receiver<u64>,
 }
 
 impl Drop for WasmEngine {
     fn drop(&mut self) {
-        slots().retain(|(id, ..)| *id != self.id);
+        slots().retain(|r| r.id != self.id);
     }
 }
 
@@ -86,8 +98,11 @@ impl Engine for WasmEngine {
         self.package.clone()
     }
 
+    /// The SHA-256 of the component the live instance runs (the slot's before the first start).
     fn version(&self) -> String {
-        self.runner.slot().sha256()
+        self.runner
+            .live_sha256()
+            .map_or_else(|| self.runner.slot().sha256(), str::to_owned)
     }
 
     fn start(
@@ -111,7 +126,8 @@ impl Engine for WasmEngine {
             return Ok(Err(AppError::new(Status::Busy, "the link is not running")));
         }
         let stop = matches!(ev, Event::Stop);
-        // a swapped slot: the old code takes no new event (but its `stop`)
+        // a swapped slot: the old code takes no new event (but its `stop`); the runtime has
+        // usually started the hot start before an event gets here
         if !stop && self.runner.replaced() {
             return Err(Fault::Replaced);
         }
@@ -125,6 +141,10 @@ impl Engine for WasmEngine {
 
     fn reset(&mut self) {
         self.runner.reset();
+    }
+
+    fn code_changes(&self) -> Option<watch::Receiver<u64>> {
+        Some(self.code.clone())
     }
 }
 
@@ -206,11 +226,18 @@ impl MakeEngine for WasmEngine {
             .ok_or_else(|| LinkError::invalid_parameter("params.component: the app's package"))?;
         let slot = Slot::new(load(&package)?);
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
-        slots().push((id, package.clone(), slot.clone()));
+        let (tx, code) = watch::channel(slot.generation());
+        slots().push(Running {
+            id,
+            package: package.clone(),
+            slot: slot.clone(),
+            code: tx,
+        });
         Ok(Self {
             id,
             package,
             runner: AppRunner::new(slot, Limits::app(cfg.memory_mb, cfg.call_ms)),
+            code,
         })
     }
 }

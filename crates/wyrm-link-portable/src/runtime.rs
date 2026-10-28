@@ -22,7 +22,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn, Instrument};
@@ -131,19 +131,21 @@ fn engine_thread<E: Engine>(
     out: mpsc::UnboundedSender<Outcome>,
 ) {
     while let Ok(job) = jobs.recv() {
-        let begin = |counts: Counts, host: &mut BufferHost| {
+        let begin = |counts: Counts, host: &mut BufferHost, time: Duration| {
             host.set_counts(counts);
-            lock(&call).deadline = Some(std::time::Instant::now() + call_time);
+            lock(&call).deadline = Some(std::time::Instant::now() + time);
         };
         let (start, seq, r) = match job {
             Job::Exit => return,
             Job::Reset => {
                 engine.reset();
+                // the dead instance's connections close now, not at the next one's first use
+                host.services_mut().close_all();
                 lock(&call).reset = true;
                 continue;
             }
             Job::Start(seq, config, counts) => {
-                begin(counts, &mut host);
+                begin(counts, &mut host, call_time);
                 (
                     true,
                     seq,
@@ -151,7 +153,13 @@ fn engine_thread<E: Engine>(
                 )
             }
             Job::Event(seq, ev, counts) => {
-                begin(counts, &mut host);
+                // the app's `stop` is bounded by STOP_WAIT, its host I/O included
+                let time = if matches!(ev, Event::Stop) {
+                    call_time.min(STOP_WAIT)
+                } else {
+                    call_time
+                };
+                begin(counts, &mut host, time);
                 (false, seq, engine.event(&mut host, ev))
             }
         };
@@ -254,6 +262,8 @@ struct InFlight {
     since: Instant,
     answer: Option<Answer>,
     start: bool,
+    /// The old instance's `stop` before a hot start.
+    swap: bool,
 }
 
 struct Pending {
@@ -284,6 +294,21 @@ struct Actor {
     stuck: bool,
     /// What the root shows now.
     status: Option<(&'static str, Option<String>)>,
+    /// The engine's code generation: the newest announced, and the one the last `start` ran.
+    code_gen: u64,
+    started_gen: u64,
+}
+
+/// The next code generation an engine announces; never resolves without one.
+async fn next_code(code: &mut Option<watch::Receiver<u64>>) -> u64 {
+    if let Some(rx) = code {
+        if rx.changed().await.is_ok() {
+            return *rx.borrow_and_update();
+        }
+        // the engine is gone: nothing more to hear
+        *code = None;
+    }
+    std::future::pending().await
 }
 
 /// ±20 % around `d`.
@@ -391,6 +416,7 @@ impl Actor {
         mut internal: mpsc::UnboundedReceiver<Internal>,
         mut outcomes: mpsc::UnboundedReceiver<Outcome>,
         first: oneshot::Sender<()>,
+        mut code: Option<watch::Receiver<u64>>,
     ) {
         let mut first = Some(first);
         self.begin_start().await;
@@ -417,6 +443,7 @@ impl Actor {
                     }
                 },
                 Some(i) = internal.recv() => self.on_internal(i),
+                g = next_code(&mut code) => self.code_gen = self.code_gen.max(g),
                 o = outcomes.recv() => {
                     let Some(o) = o else {
                         error!("the engine thread is gone");
@@ -493,6 +520,10 @@ impl Actor {
         if self.inflight.is_some() || !matches!(self.state, State::Running) {
             return;
         }
+        if self.code_gen > self.started_gen {
+            self.begin_swap();
+            return;
+        }
         let Some(p) = self.queue.pop_front() else {
             return;
         };
@@ -517,6 +548,7 @@ impl Actor {
             since: Instant::now(),
             answer: p.answer,
             start: false,
+            swap: false,
         });
     }
 
@@ -531,6 +563,8 @@ impl Actor {
             _ => {}
         }
         self.state = State::Starting;
+        // the engine instantiates its current code: at least the one announced so far
+        self.started_gen = self.code_gen;
         self.seq += 1;
         let job = Job::Start(self.seq, self.params.clone(), self.counts());
         if self.jobs.try_send(job).is_err() {
@@ -542,6 +576,7 @@ impl Actor {
             since: Instant::now(),
             answer: None,
             start: true,
+            swap: false,
         });
     }
 
@@ -551,6 +586,16 @@ impl Actor {
             return false;
         };
         let was_stuck = std::mem::take(&mut self.stuck);
+        if f.swap {
+            // as on a link stop: its store writes are in, its tree commands no longer apply
+            if let Err(Failure::Fault(m) | Failure::Apply(AppError { msg: m, .. })) = &o.result {
+                debug!("the old instance's stop: {m}");
+            }
+            self.paths.fault();
+            let _ = self.jobs.try_send(Job::Reset);
+            self.begin_start().await;
+            return false;
+        }
         match o.result {
             Err(Failure::Fault(msg)) => {
                 answer(
@@ -564,7 +609,8 @@ impl Actor {
             }
             Err(Failure::Replaced) => {
                 answer(f.answer, Err(busy(REPLACED)));
-                self.replaced().await;
+                // the engine saw the new code before the runtime heard of it
+                self.code_gen = self.code_gen.max(self.started_gen + 1);
             }
             Err(Failure::Apply(e)) => {
                 let msg = e.to_string();
@@ -636,19 +682,34 @@ impl Actor {
         self.set_status(RESTARTING, Some(msg)).await;
     }
 
-    /// A hot swap: the old instance's timers, subscriptions, requests and queued events go (their
-    /// ids are its own), queued callers get `busy`, and the new code starts at once on the same
-    /// store. Its nodes wait for the sweep as after a fault; values are not marked, the new
-    /// `start` publishes its own.
-    async fn replaced(&mut self) {
-        info!("{REPLACED}; starting the new code");
+    /// A hot start (ADR 0023): the old instance's timers, subscriptions, requests and queued
+    /// events go (their ids are its own) and queued callers get `busy`; the old instance runs its
+    /// `stop` (bounded by [`STOP_WAIT`], its store writes kept as on a link stop); then the new
+    /// code starts at once on the same store, without a backoff. The old nodes wait for the sweep
+    /// as after a fault; values are not marked, the new `start` publishes its own.
+    fn begin_swap(&mut self) {
+        info!("{REPLACED}; stopping the old instance");
         self.drop_tasks();
         for p in self.queue.drain(..) {
             answer(p.answer, Err(busy(REPLACED)));
         }
-        self.paths.fault();
-        let _ = self.jobs.try_send(Job::Reset);
-        self.begin_start().await;
+        self.state = State::Starting;
+        self.seq += 1;
+        if self
+            .jobs
+            .try_send(Job::Event(self.seq, Event::Stop, self.counts()))
+            .is_err()
+        {
+            error!("the engine thread is gone");
+            return;
+        }
+        self.inflight = Some(InFlight {
+            seq: self.seq,
+            since: Instant::now(),
+            answer: None,
+            start: false,
+            swap: true,
+        });
     }
 
     async fn sweep_now(&mut self) {
@@ -840,6 +901,7 @@ impl Actor {
                         since: Instant::now(),
                         answer: None,
                         start: false,
+                        swap: false,
                     };
                     self.give_up(f, outcomes).await;
                     return;
@@ -962,6 +1024,8 @@ where
 
     async fn start(cfg: PortableConfig, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
         let engine = E::make(&cfg, &ctx)?;
+        let code = engine.code_changes();
+        let code_gen = code.as_ref().map_or(0, |rx| *rx.borrow());
         let store: SharedStore = Arc::new(Mutex::new(Store::open(
             ctx.data_dir(),
             ctx.secrets().get(STORE_KEY).map(|s| s.expose()),
@@ -1015,12 +1079,14 @@ where
             started_at: None,
             stuck: false,
             status: None,
+            code_gen,
+            started_gen: code_gen,
         };
         let (tx, inputs) = mpsc::channel(INPUTS);
         let (first_tx, first_rx) = oneshot::channel();
         let actor = tokio::spawn(
             actor
-                .run(inputs, internal_rx, out_rx, first_tx)
+                .run(inputs, internal_rx, out_rx, first_tx, code)
                 .instrument(tracing::Span::current()),
         );
         // The first `start` declares the tree before the link goes live. A failed one is not an

@@ -1063,6 +1063,7 @@ pub struct AppRunner {
     slot: Slot<AppWorld>,
     limits: Limits,
     live: Option<Live<AppWorld>>,
+    live_sha: Option<String>,
     fuel_used: u64,
 }
 
@@ -1075,6 +1076,7 @@ impl AppRunner {
             slot,
             limits,
             live: None,
+            live_sha: None,
             fuel_used: 0,
         }
     }
@@ -1129,6 +1131,7 @@ impl AppRunner {
             world,
             generation,
         });
+        self.live_sha = Some(art.sha.clone());
         let r = self.call(host, |w, s| w.0.call_start(s, config))?;
         Ok(r.map_err(|e| AppError::from_cbor(&e)))
     }
@@ -1181,8 +1184,21 @@ impl AppRunner {
         self.call(host, |w, s| w.0.call_on_reply(s, req, result))
     }
 
+    /// `stop` runs at most [`AppRunner::STOP_TIME`] (or the call time, if shorter).
     pub fn stop(&mut self, host: &mut BufferHost) -> Result<(), Error> {
-        self.call(host, |w, s| w.0.call_stop(s))
+        let limits = self.limits;
+        self.limits.time = limits.time.min(Self::STOP_TIME);
+        let r = self.call(host, |w, s| w.0.call_stop(s));
+        self.limits = limits;
+        r
+    }
+
+    /// The bound of `stop` (ADR 0023: the old instance's `stop` before a hot start, 2 s).
+    pub const STOP_TIME: Duration = Duration::from_secs(2);
+
+    /// Hex SHA-256 of the artifact the live instance runs.
+    pub fn live_sha256(&self) -> Option<&str> {
+        self.live_sha.as_deref()
     }
 
     /// One call with the caller's buffer in the store. A failed call drops the instance.

@@ -45,11 +45,8 @@ fn wasm32_installed() -> bool {
         .is_some_and(|dir| dir.exists())
 }
 
-/// Builds the fixture app and makes it a component: `None` without the wasm32 target.
-fn build_component() -> Option<Vec<u8>> {
-    if !wasm32_installed() {
-        return None;
-    }
+/// Builds the fixture app (with `features`) and makes it a component.
+fn build_component(features: &str) -> Vec<u8> {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixture = crate_dir.join("tests/app_fixture");
     // its own workspace: seed the lock file from the main one (same versions)
@@ -58,7 +55,7 @@ fn build_component() -> Option<Vec<u8>> {
         fixture.join("Cargo.lock"),
     )
     .expect("copy Cargo.lock");
-    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("app-fixture");
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("app-fixture{features}"));
     let out = Command::new(env!("CARGO"))
         .args([
             "build",
@@ -70,6 +67,7 @@ fn build_component() -> Option<Vec<u8>> {
         .arg(fixture.join("Cargo.toml"))
         .arg("--target-dir")
         .arg(&target)
+        .args(["--features", features])
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .output()
@@ -83,28 +81,37 @@ fn build_component() -> Option<Vec<u8>> {
         target.join("wasm32-unknown-unknown/release/wyrm_link_wasm_app_fixture.wasm"),
     )
     .expect("fixture wasm");
-    let component = wit_component::ComponentEncoder::default()
+    wit_component::ComponentEncoder::default()
         .module(&core)
         .expect("component type")
         .validate(true)
         .encode()
-        .expect("componentize");
-    Some(component)
+        .expect("componentize")
 }
 
-/// The component store of this process with the app as packages `echo` and `swap` (the hot swap
-/// test replaces `swap` only). `None` (and a SKIP line) without the wasm32 target.
-fn component(test: &str) -> Option<&'static [u8]> {
-    static BUILT: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+/// The app as a component, and its "new code" (feature `v2`, which also declares `v2`).
+struct Built {
+    v1: Vec<u8>,
+    v2: Vec<u8>,
+    root: PathBuf,
+}
+
+/// The component store of this process with the app (v1) as packages `echo`, `swap` and `idle`
+/// (each hot start test replaces its own). `None` (and a SKIP line) without the wasm32 target.
+fn built(test: &str) -> Option<&'static Built> {
+    static BUILT: OnceLock<Option<Built>> = OnceLock::new();
     let built = BUILT.get_or_init(|| {
-        let c = build_component()?;
+        if !wasm32_installed() {
+            return None;
+        }
+        let (v1, v2) = (build_component(""), build_component("v2"));
         let root = std::env::temp_dir().join(format!("wyrm-wasm-app-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        for p in ["echo", "swap"] {
-            std::fs::write(root.join(format!("{p}.wasm")), &c).unwrap();
+        for p in ["echo", "swap", "idle"] {
+            std::fs::write(root.join(format!("{p}.wasm")), &v1).unwrap();
         }
-        wyrm_link_wasm::set_component_root(root);
-        Some(c)
+        wyrm_link_wasm::set_component_root(root.clone());
+        Some(Built { v1, v2, root })
     });
     if built.is_none() {
         eprintln!(
@@ -112,7 +119,11 @@ fn component(test: &str) -> Option<&'static [u8]> {
              (rustup target add wasm32-unknown-unknown)"
         );
     }
-    built.as_deref()
+    built.as_ref()
+}
+
+fn component(test: &str) -> Option<&'static [u8]> {
+    built(test).map(|b| b.v1.as_slice())
 }
 
 // ---------- harness helpers ----------
@@ -248,6 +259,7 @@ async fn store_survives_restart_and_quota_holds<L: Link<Config = PortableConfig>
     let h = start::<L>(config("echo", &[]), &dir, Vec::new()).await;
     t.push(format!("n after restart {:?}", num(&h, "n")));
     t.push(format!("starts {:?}", num(&h, "starts")));
+    t.push(format!("stopped {:?}", num(&h, "stopped")));
     h.stop().await;
 
     let full = data_dir("store-full");
@@ -419,7 +431,7 @@ async fn same_scenario_as_native() {
     // the native run is the reference: it must pass the Task 4 checks itself
     let expect: &[&[&str]] = &[
         &[
-            r#"children ["n", "reply", "seen", "starts", "ticks"]"#,
+            r#"children ["n", "reply", "seen", "starts", "stopped", "ticks"]"#,
             r#"actions ["call", "grow", "ping", "slow", "spin", "trap"]"#,
             r#"status Some(Str("running"))"#,
             "set n=5 Ok",
@@ -431,6 +443,7 @@ async fn same_scenario_as_native() {
             "set n=7 Ok",
             "n after restart Some(7.0)",
             "starts Some(2.0)",
+            "stopped Some(1.0)",
             "set n=7 without room ResourceExhausted",
             r#"status Some(Str("running"))"#,
         ],
@@ -571,6 +584,8 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
     );
     // the new `start` read `n` from the store: 9 would be the cut-off write
     assert_eq!(num(&h, "n"), Some(7.0));
+    // the old instance ran its `stop` (it counts in the store) before the new one started
+    assert_eq!(num(&h, "stopped"), Some(1.0));
 
     // an `invoke` cut off the same way
     let slow = {
@@ -594,6 +609,7 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
     );
     assert_eq!(root_attr(&h, "status"), Some(str_v("running")));
     assert_eq!(num(&h, "n"), Some(7.0));
+    assert_eq!(num(&h, "stopped"), Some(2.0));
     let att = h.set("n", 8i64, Some(h.ptok(Perm::Write))).await;
     assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
     assert_eq!(num(&h, "n"), Some(8.0));
@@ -603,6 +619,40 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
     let Ok(h) = Arc::try_unwrap(h) else {
         panic!("harness still shared")
     };
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_link_starts_the_new_code_after_stop() {
+    let Some(b) = built("an_idle_link_starts_the_new_code_after_stop") else {
+        return;
+    };
+    let dir = data_dir("idle");
+    let h = start::<Wasm>(config("idle", &[]), &dir, Vec::new()).await;
+    assert_eq!(num(&h, "starts"), Some(1.0));
+    assert_eq!(num(&h, "stopped"), Some(0.0));
+    assert!(!h.ctx().has_node("v2"));
+
+    // the new build, and no event at all after the swap
+    std::fs::write(b.root.join("idle.wasm"), &b.v2).unwrap();
+    let swapped = tokio::task::spawn_blocking(|| wyrm_link_wasm::app::reload_component("idle"))
+        .await
+        .unwrap()
+        .expect("reload");
+    assert_eq!(swapped, 1);
+    let t = Instant::now();
+    assert!(
+        eventually(Duration::from_secs(1), || h.ctx().has_node("v2")).await,
+        "the new code did not start within 1 s"
+    );
+    eprintln!("new code running after {:?}", t.elapsed());
+    // the old `stop` wrote `stopped` to the store, the new `start` read it
+    assert_eq!(num(&h, "stopped"), Some(1.0));
+    assert_eq!(num(&h, "starts"), Some(2.0));
+    assert_eq!(root_attr(&h, "status"), Some(str_v("running")));
+    let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
     h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

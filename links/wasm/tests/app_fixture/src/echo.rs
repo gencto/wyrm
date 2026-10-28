@@ -4,7 +4,8 @@
 //! (no threads, no sleep, no clock but the host's).
 //!
 //! Nodes: `n` (writable, kept in the store), `ticks` (timer count), `reply` (last reply),
-//! `seen` (last subscribed value), `starts` (how many times `start` ran, kept in the store).
+//! `seen` (last subscribed value), `starts` (how many times `start` ran, kept in the store),
+//! `stopped` (how many times `stop` ran: `stop` counts in the store, `start` shows it).
 //! Actions on the root: `ping` (a 50 ms timer, answers `"pong"`), `call` (a request to another
 //! point), `slow` (runs 300 ms), and the faults `trap`, `spin` (never ends) and `grow` (asks for
 //! 100 MiB). A `set` of -1 panics; a `set` of -2 stores 9 and then runs 300 ms. With
@@ -26,6 +27,14 @@ fn internal(e: impl ToString) -> AppError {
     AppError::new(Status::InternalError, e.to_string())
 }
 
+/// A counter kept in the store (0 when absent).
+fn count(host: &dyn Host, key: &str) -> f64 {
+    host.store_get(key)
+        .and_then(|b| wyrm_core::codec::from_slice::<Value>(&b).ok())
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
 pub struct Echo {
     ticks: u64,
 }
@@ -40,6 +49,7 @@ impl App for Echo {
         host.declare_node("reply", NodeMeta::leaf(TypeCode::String));
         host.declare_node("seen", NodeMeta::number());
         host.declare_node("starts", NodeMeta::number());
+        host.declare_node("stopped", NodeMeta::number());
         for a in ["ping", "slow", "trap", "spin", "grow"] {
             host.declare_action("", a, ActionMeta::new().level(Perm::Write));
         }
@@ -61,17 +71,13 @@ impl App for Echo {
             let v: Value = wyrm_core::codec::from_slice(&b).map_err(internal)?;
             host.update("n", sample(v));
         }
-        let starts = host
-            .store_get("starts")
-            .and_then(|b| wyrm_core::codec::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-            + 1.0;
+        let starts = count(host, "starts") + 1.0;
         // a store without room (store_mb = 0) still starts
         if let Ok(b) = wyrm_core::codec::to_vec(&Value::Float(starts)) {
             let _ = host.store_put("starts", &b);
         }
         host.update("starts", sample(Value::Float(starts)));
+        host.update("stopped", sample(Value::Float(count(host, "stopped"))));
         Ok(Echo { ticks: 0 })
     }
 
@@ -158,6 +164,13 @@ impl App for Echo {
                 Ok(Value::Null)
             }
             _ => Err(AppError::new(Status::NotSupported, action)),
+        }
+    }
+
+    fn stop(&mut self, host: &mut dyn Host) {
+        let stopped = count(host, "stopped") + 1.0;
+        if let Ok(b) = wyrm_core::codec::to_vec(&Value::Float(stopped)) {
+            let _ = host.store_put("stopped", &b);
         }
     }
 

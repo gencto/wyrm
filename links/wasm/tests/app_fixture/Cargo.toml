@@ -10,6 +10,10 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# the "new code" of the hot start tests: also declares `v2`
+v2 = []
+
 [dependencies]
 wyrm-core = { path = "../../../../crates/wyrm-core" }
 wyrm-link-api = { path = "../../../../crates/wyrm-link-api" }

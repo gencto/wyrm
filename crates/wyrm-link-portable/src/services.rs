@@ -224,6 +224,10 @@ impl Services for RuntimeServices {
         self.sweep();
         self.conns.remove(&c.0);
     }
+
+    fn close_all(&mut self) {
+        self.conns.clear();
+    }
 }
 
 #[cfg(test)]
@@ -260,5 +264,37 @@ mod tests {
         let e = s.tcp_connect("localhost", 502, 100).unwrap_err();
         assert_eq!(e.status, Status::InvalidParameter);
         assert_eq!(s.store_ready().unwrap_err().status, Status::NotSupported);
+    }
+
+    #[test]
+    fn waits_end_with_the_call_and_close_all_closes() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let call = Arc::new(Mutex::new(CallState {
+            deadline: Some(Instant::now() + Duration::from_millis(300)),
+            reset: false,
+        }));
+        let mut s = RuntimeServices::new(
+            Arc::new(Mutex::new(Store::none())),
+            Vec::new(),
+            NetPolicy::parse(&format!("127.0.0.1:{port}")).unwrap(),
+            call.clone(),
+        );
+        let c = s.tcp_connect("127.0.0.1", port, 1000).unwrap();
+        let (mut peer, _) = l.accept().unwrap();
+        // the peer sends nothing: a 5 s wait ends with the call
+        let t = Instant::now();
+        let e = s.tcp_recv(c, 16, 5000).unwrap_err();
+        assert_eq!(e.status, Status::Timeout, "{e}");
+        assert!(
+            t.elapsed() < Duration::from_millis(800),
+            "{:?}",
+            t.elapsed()
+        );
+        // the instance is gone: the peer sees the connection end
+        s.close_all();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut b = [0u8; 4];
+        assert_eq!(peer.read(&mut b).unwrap(), 0);
     }
 }

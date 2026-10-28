@@ -51,6 +51,8 @@ pub trait Services {
     fn tcp_send(&mut self, c: ConnId, d: &[u8]) -> Result<(), AppError>;
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>;
     fn tcp_close(&mut self, c: ConnId);
+    /// The instance is gone: close every connection it opened.
+    fn close_all(&mut self) {}
 }
 
 /// Bounds of one link (ADR 0023).

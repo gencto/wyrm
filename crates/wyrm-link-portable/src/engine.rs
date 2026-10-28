@@ -35,8 +35,8 @@ pub enum Fault {
     /// instance, keeps the store and starts again after a backoff.
     Crash(String),
     /// The engine's code was replaced (a hot swap) before or during the call. The runtime drops
-    /// the call's effects, answers its caller `busy` and starts the new code at once, with the
-    /// same store and no backoff.
+    /// the call's effects and answers its caller `busy`; the hot start follows (see
+    /// [`Engine::code_changes`]).
     Replaced,
 }
 
@@ -68,6 +68,12 @@ pub trait Engine: Send + 'static {
     ) -> Result<Result<Option<Value>, AppError>, Fault>;
     /// Drop the instance (before a restart).
     fn reset(&mut self);
+    /// Announces a new generation of the engine's code (a hot swap). The runtime then runs the
+    /// old instance's `stop`, starts the new code at once on the same store, and answers calls
+    /// cut off by the swap with `busy`. `None`: the code never changes (native).
+    fn code_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        None
+    }
 }
 
 /// Makes the engine of a link. The runtime is generic over the engine type, and a `trait Link`
