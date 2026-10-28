@@ -1,6 +1,6 @@
 # ADR 0023 — Portable links: one link API for embedded, process and WASM (WASM world v2)
 
-**Status:** proposed · 2026-10-28 (owner decisions in this conversation: WASM is for fault isolation and hot start of links an engineer or integrator installs, not a sandbox for hostile code; a WASM link gets the full link API with capabilities granted at install; one source for all three run modes; this comes before the scheduler, ADR 0022).
+**Status:** accepted · 2026-10-28 (owner approved the document with the builder-check resolutions; owner decisions in this conversation: WASM is for fault isolation and hot start of links an engineer or integrator installs, not a sandbox for hostile code; a WASM link gets the full link API with capabilities granted at install; one source for all three run modes; this comes before the scheduler, ADR 0022).
 
 ## Context
 A WASM link today (ADR 0010, 0012) is a polled point driver: `init`, `read`, `write`, plus outbound TCP to an allowlist. It has no node tree of its own, no actions, no clock, no timers, no storage and cannot write other points. That fits a third-party protocol driver in a sandbox, not the owner's goal: install a link (a scheduler, a calculation, a gateway to some protocol) so that whatever happens to it, the broker keeps running, and replace it without restarting the broker.

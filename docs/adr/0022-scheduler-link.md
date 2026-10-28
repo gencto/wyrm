@@ -1,6 +1,6 @@
 # ADR 0022 — Scheduler link: broker-side schedules that drive equipment
 
-**Status:** proposed · 2026-10-28 (owner decisions in this conversation: the link writes to equipment itself, retries until confirmed, respects a manual change until the next transition; confirmation may come from another data path).
+**Status:** proposed · 2026-10-28; built as a portable `App` (ADR 0023) after it (owner decisions in this conversation: the link writes to equipment itself, retries until confirmed, respects a manual change until the next transition; confirmation may come from another data path).
 
 ## Context
 The owner needs a scheduler that controls equipment from the broker when the site has no connection upstream: people (explorer) and AI (the `agent` link, through actions) create schedules; the broker turns devices on and off by them, offline, for months. Dataflows may edit schedules later; that needs other changes and is not part of this work.
@@ -48,12 +48,12 @@ The reference is DSA `dslink-dart-localschedule` (2.0.4, analysed 2026-10-28). K
   - `occurrences(def, from, to, limit) -> Vec<Occurrence>` for the timeline.
   - Bounded work: scanning stops at the horizon of `next_transition` (one year ahead, then "none").
 
-### The link (`links/scheduler`, raw `Link` layer, not the driver framework: it does not poll)
-- **One timer** for all schedules: a min-heap of each schedule's next transition; sleep until the earliest; on wake, compute `state_at(now)` for due schedules, write their targets, push their next transition.
-- **Wall-clock steps:** besides the heap timer, a 30 s check compares the wall clock with the monotonic clock; a step of more than 2 s (either way) re-evaluates every schedule at "now" and rebuilds the heap. This also covers a host resumed from sleep.
+### The link (`links/scheduler`: an `App` on the portable API, ADR 0023)
+- **One timer** for all schedules: a min-heap of each schedule's next transition; one `Host::set_timer` for the earliest; on `on_timer`, compute `state_at(now)` for due schedules, write their targets, arm the next.
+- **Wall-clock steps:** a 30 s timer compares `now_us` (wall clock) with the elapsed monotonic time (`set_timer` is monotonic, ADR 0023); a step of more than 2 s (either way) re-evaluates every schedule at "now" and rebuilds the heap. This also covers a host resumed from sleep.
 - **What a transition is:** a change of `state_at` (value or source occurrence), an edit or import that changes the current state, `enabled` turned on, or a change of a target. A re-evaluation after a clock step that finds the same state is not a transition.
 - **Restart:** load, evaluate every schedule at "now". A target whose stored record says it was confirmed or overridden for this same state (value and source occurrence) is left alone; the others are written (a target already showing the value confirms without a write in `read_back`/`feedback` mode). So a manual change survives a restart inside the same window.
-- **Persistence:** `wyrm-state` (WAL + snapshot, as the agent link) in the link's `data_dir`; every accepted edit is in the WAL before the action replies. Per target the WAL also keeps the last outcome `(state it was for, confirmed | override)`, written when it changes. No `data_dir` → the link refuses edits (a scheduler that forgets is worse than none).
+- **Persistence:** the host store (ADR 0023): one key per schedule (its definition) and one per target (its last outcome `(state it was for, confirmed | override)`), written by `store_put` in the event that accepts the edit, so it is durable before the action replies. A store that refuses a write fails the action (and the host restarts the app, ADR 0023).
 
 ### Targets: writes, confirmation, override
 - A target is `{ point: <key under wy/<site>/downstream/>, confirm: read_back | feedback <key> | ack, map?: {<schedule value>: <value to write>}, tolerance? }`. Several targets per schedule.
@@ -91,9 +91,10 @@ The reference is DSA `dslink-dart-localschedule` (2.0.4, analysed 2026-10-28). K
 - `get_events` uses `editor: daterange` (spec 02 0.2.4).
 
 ### Run modes (one core, three hosts)
-- **Embedded in `wyrmd`** — the default: one fixed instance at `wy/<site>/downstream/scheduler`, started by `Daemon::open` like the storage link (id `scheduler` reserved for new links, `validate_new_link_id`), its key created by the admin; not an operator-created driver instance.
-- **Process package** — the same crate with `process::main` and `[package.metadata.wyrm-link]` (ADR 0021); writes need Grant Access.
-- **WASM** — a component on a new world `wyrm:link/scheduler` = `point` exports plus one new import `clock { now-us: func() -> u64 }` (no WASI). Each point is one schedule (its definition in the point's cfg); `read` returns `state_at(now)`; the transition latency is the point's poll period. The component cannot write other points (no requester path for WASM links), so in this mode targets are a dataflow's job. The `wyrm-schedule` crate must build for `wasm32-wasip2` (no std time, tz data compiled in).
+One source, three hosts (ADR 0023):
+- **Embedded in `wyrmd`** — the default: one fixed instance at `wy/<site>/downstream/scheduler`, started by `Daemon::open` like the storage link (id `scheduler` reserved for new links, `validate_new_link_id`), grants and key from `wyrmd` (ADR 0023, embedded built-in apps); not an operator-created driver instance.
+- **Process package** — `process::main::<Portable<Scheduler>>()` and `[package.metadata.wyrm-link]` (ADR 0021); its requester grants come with the package and an operator's approval.
+- **WASM** — the same `App` built with `--features wasm` on world `wyrm:app/app`; targets work as in the other modes (requests within its grants). The `wyrm-schedule` crate builds for `wasm32-unknown-unknown` (no std time; tz data compiled in).
 
 ### Benchmarks and tests (in the crate and on the demo)
 - Correctness fixtures: windows across midnight, the hour, the week wrap; day 31 and Feb 29; `BYDAY` ordinals; three or more overlaps; special days; DST spring-forward and fall-back in `Europe/Kyiv` and `America/New_York` (window boundaries, the missing and the repeated hour); clock step forward and backward.
@@ -101,12 +102,10 @@ The reference is DSA `dslink-dart-localschedule` (2.0.4, analysed 2026-10-28). K
 - On the demo: idle messages per second with 1000 schedules (target 0 between transitions); transition latency p50/p99 (target < 50 ms embedded); restart time to all targets written; a target on the Modbus simulator with `feedback` on another register; override by a manual write.
 
 ## Left to the builder
-- Crate layout inside `links/scheduler` and `crates/wyrm-schedule`; the tz library (`chrono-tz` or `jiff`), provided it builds for `wasm32-wasip2`.
+- Crate layout inside `links/scheduler` and `crates/wyrm-schedule`; the tz library (`chrono-tz` or `jiff`), provided it builds for `wasm32-unknown-unknown`.
 - The exact JSON of the own export format (it must round-trip and carry the format version).
 - Node `$is` names and display names.
-- Whether the WASM world is built in this change or as a follow-up step after the embedded and process modes (the core must already build for WASM).
 
 ## Consequences
 - The link id `scheduler` is reserved like `storage`.
-- The WIT gains a `clock` interface in a new world; existing components are unchanged.
 - Spec 02 does not change (only existing editors and value types are used).
