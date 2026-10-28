@@ -14,7 +14,7 @@
 | 8 | `actions` | map name → action | ні | див. нижче |
 | 9 | `children` | array of tstr | контейнер | упорядкований список дітей (тільки `view=full`) |
 | 10 | `rev` | uint | так | версія meta, монотонна |
-| 11 | `has_children` | bool | `view=list` | |
+| 11 | `has_children` | bool | `view=list` | діти є **зараз**; не те саме, що «може мати дітей»: вузол без `type` (тека, вузол дій) може отримати дітей будь-коли, тож UI розгортає його і порожнім |
 | 12 | `display` | tstr | ні | = `attr.display`, дубль для `view=list` |
 | 13 | `has_override` | bool | `view=list/keys` | є відхилення від профілю → варто тягнути `full` |
 | 14 | `children_count` | uint | контейнер | |

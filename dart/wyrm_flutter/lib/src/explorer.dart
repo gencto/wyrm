@@ -181,31 +181,11 @@ class _WyExplorerState extends State<WyExplorer> {
 
   bool _synthetic(String key) => _sites.contains(key);
 
-  /// Whether a node has children for the tree (not only value points, which
-  /// go to Metrics): known after one `children` call per container row.
-  final _treeKids = <String, bool>{};
-  final _probing = <String>{};
-
-  static bool _treeChild(Child c) => !_isPoint(c.meta) || _refRoot(c.meta) != null;
-
-  /// `null` while not known yet (no triangle until then).
-  bool? _expandable(_Row r) {
-    if (_synthetic(r.key) || _refRoot(r.meta) != null) return true;
-    if (!r.meta.isContainer) return false;
-    final listed = _kids[r.key];
-    if (listed != null) return listed.any(_treeChild);
-    final known = _treeKids[r.key];
-    if (known == null && _probing.add(r.key)) {
-      widget.api.children(r.key).then(
-            (kids) => _treeKids[r.key] = kids.any(_treeChild),
-            onError: (Object _) => _treeKids[r.key] = false,
-          ).whenComplete(() {
-        _probing.remove(r.key);
-        if (mounted) setState(() {});
-      });
-    }
-    return known;
-  }
+  /// From the node's own meta: a node that may hold children has a
+  /// triangle even while it holds none (or only points, which go to
+  /// Metrics). Whether it holds tree children now is known only to its own
+  /// `list`, which runs while it is open.
+  bool _expandable(_Row r) => _synthetic(r.key) || _refRoot(r.meta) != null || r.meta.isContainer;
 
   @override
   void dispose() {
@@ -225,9 +205,6 @@ class _WyExplorerState extends State<WyExplorer> {
           case ListRefreshed(:final children):
             _kids[key] = [...children];
           case ChildAdded(:final child) || ChildChanged(:final child):
-            // Its children may have changed (a folder added under a node
-            // that had only values): ask again whether it expands.
-            _treeKids.remove('$key/${child.name}');
             final i = list.indexWhere((c) => c.name == child.name);
             if (i < 0) {
               list.add(child);
@@ -336,8 +313,8 @@ class _WyExplorerState extends State<WyExplorer> {
   Widget _rowWidget(_Row r) {
     final selected = r.key == _selected;
     final fg = selected ? Colors.white : WyStyle.text;
-    // A triangle only where the tree has something to show below.
-    final isContainer = _expandable(r) ?? false;
+    // A triangle where the node may hold children.
+    final isContainer = _expandable(r);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _selected = r.key),
