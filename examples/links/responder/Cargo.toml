@@ -22,4 +22,3 @@ path = "src/main.rs"
 wyrm-link-sdk = { workspace = true, features = ["process"] }
 wyrm-link-mock.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tracing-subscriber.workspace = true

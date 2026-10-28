@@ -156,17 +156,19 @@ Unknown fields are refused, so a typo does not pass silently.
 
 ## 7. Build a process package
 
-A process package is a binary built on `wyrm-link-sdk` with
-`process::run`. See `examples/links/responder`:
+A process package is a binary built on `wyrm-link-sdk` (feature
+`process`). Its whole `main` is one call: `process::main` sets up the logs
+(`RUST_LOG`), applies the supervisor's limits before the runtime, and runs
+`process::run`. See `examples/links/responder` or `links/modbus`:
 
 ```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    wyrm_link_sdk::limits::apply_from_env()?; // before the runtime
-    tokio::runtime::Builder::new_multi_thread().enable_all().build()?
-        .block_on(wyrm_link_sdk::process::run::<Framework<MyDriver>>())?;
-    Ok(())
+fn main() -> std::process::ExitCode {
+    wyrm_link_sdk::process::main::<Framework<MyDriver>>()
 }
 ```
+
+The links in `links/` ship this way too: `modbus`, `mqtt` and `mockdev`
+(`links/mock`) build their package binaries with the feature `process`.
 
 The broker starts it with a cleared environment (only `RUST_LOG`,
 `RUST_BACKTRACE`, `TZ`, `LANG`, `LC_ALL`, `PATH` are kept) plus:

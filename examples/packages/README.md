@@ -16,6 +16,7 @@ repository in `out/` with `wyr repo add` (ADR 0021; not in git):
 | `out/recorder/1.0.0/recorder-1.0.0-<os>-<arch>.zip` | Requester: records `wy/{site}/downstream/mock` to CSV (`examples/links/requester`); asks for a `read` grant. | from Repository, Package `recorder` |
 | `out/average/1.0.0/average-1.0.0-<os>-<arch>.zip` | Responder and requester: statistics of `wy/{site}/downstream/mock` and Write All (`examples/links/both`); asks for a `write` grant. | from Url `http://127.0.0.1:8090/average/1.0.0/average-1.0.0-<os>-<arch>.zip` |
 | `out/probe/<version>/probe-<version>-<os>-<arch>.zip` | Test tool (`links/probe`). | from Repository, Package `probe` |
+| `out/modbus/<version>/…`, `out/mqtt/<version>/…`, `out/mockdev/<version>/…` | The protocol links of `links/` as process packages (`links/modbus`, `links/mqtt`, `links/mock`). | from Repository |
 | `out/register/1.0.0/register-1.0.0.zip` | A WASM package (no network; one writable register per point, initially 7). | from Zip, or from Repository, Package `register` |
 | `out/register.wasm` | The same component alone. | from WASM |
 | `out/tcp-ping.wasm` | `init` takes a port (Config `5020`); `read` sends `ping` to `127.0.0.1:<port>` and returns the reply (needs `127.0.0.1:<port>` in Network). | from WASM |

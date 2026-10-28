@@ -12,6 +12,8 @@ authors.workspace = true
 # In-process Modbus TCP simulator for tests and demos (`diagslave` stand-in).
 sim = ["tokio-modbus/tcp-server", "tokio-modbus/rtu-over-tcp-server"]
 bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
 
 [[bin]]
 name = "wyrm-modbus-sim"
@@ -32,3 +34,14 @@ clap = { workspace = true, optional = true }
 wyrm-link-modbus = { path = ".", features = ["sim"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[[bin]]
+name = "wyrm-link-modbus"
+required-features = ["process"]
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "modbus"
+description = "Modbus TCP and RTU (over TCP or serial) devices: FC1-4 batched reads, FC5/6/15/16/22 writes"
+bin = "wyrm-link-modbus"
+features = ["process"]

@@ -10,6 +10,8 @@ authors.workspace = true
 
 [features]
 bin = ["dep:clap", "dep:hex", "dep:tracing-subscriber", "zenoh/transport_tcp", "zenoh/transport_unixsock-stream", "tokio/rt-multi-thread", "tokio/signal"]
+# The framework mock (mockdev) as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
 
 [[bin]]
 name = "wyrm-link-mock"
@@ -28,3 +30,15 @@ hex = { workspace = true, optional = true }
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[[bin]]
+name = "wyrm-link-mockdev"
+required-features = ["process"]
+
+# The package (ADR 0021): `wyr link pack`; the framework mock, not the
+# bench connector `wyrm-link-mock`.
+[package.metadata.wyrm-link]
+name = "mockdev"
+description = "Simulated devices on the driver framework: connections, devices and points from its own Add actions"
+bin = "wyrm-link-mockdev"
+features = ["process"]

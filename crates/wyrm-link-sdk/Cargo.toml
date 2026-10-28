@@ -15,7 +15,7 @@ harness = []
 # AdvancedPublisher (cache + miss detection) for late/recovering subscribers.
 advanced = ["dep:zenoh-ext"]
 # Process mode host: `process::run::<L>()` (mTLS client, hello, signals).
-process = ["tokio/signal", "zenoh/transport_tls", "zenoh/transport_tcp"]
+process = ["tokio/signal", "tokio/rt-multi-thread", "zenoh/transport_tls", "zenoh/transport_tcp", "dep:tracing-subscriber"]
 # Link packages (ADR 0021): manifest, repository index, zip writer; for the
 # broker and `wyr`, not for links.
 package = ["dep:serde", "dep:serde_json", "dep:zip", "dep:hex"]
@@ -33,6 +33,7 @@ zeroize.workspace = true
 sha2.workspace = true
 ring.workspace = true
 zenoh-ext = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }

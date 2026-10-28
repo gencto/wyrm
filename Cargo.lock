@@ -5827,7 +5827,6 @@ version = "1.0.0"
 dependencies = [
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wyrm-client",
  "wyrm-core",
  "wyrm-link-sdk",
@@ -5838,7 +5837,6 @@ name = "wyrm-example-link"
 version = "1.0.0"
 dependencies = [
  "tokio",
- "tracing-subscriber",
  "wyrm-link-mock",
  "wyrm-link-sdk",
 ]
@@ -5849,7 +5847,6 @@ version = "1.0.0"
 dependencies = [
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wyrm-client",
  "wyrm-core",
  "wyrm-link-sdk",
@@ -6041,7 +6038,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wyrm-core",
  "wyrm-gateway-client",
  "wyrm-link-sdk",
@@ -6063,6 +6059,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "wyrm-core",
  "wyrm-link-sdk",
  "wyrm-link-sdk-derive",

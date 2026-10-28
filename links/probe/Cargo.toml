@@ -14,7 +14,7 @@ description = "Test tool: runs scenarios through the gateway (params gateway, us
 features = ["bin"]
 
 [features]
-bin = ["wyrm-link-sdk/process", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+bin = ["wyrm-link-sdk/process"]
 
 [[bin]]
 name = "wyrm-link-probe"
@@ -28,4 +28,3 @@ wyrm-gateway-client.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
 tracing.workspace = true
-tracing-subscriber = { workspace = true, optional = true }

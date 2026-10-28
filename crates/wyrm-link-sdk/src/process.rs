@@ -292,6 +292,49 @@ async fn signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
+/// The whole `main` of a link package binary: logs (`RUST_LOG`, default
+/// `info,zenoh=warn`), the supervisor's limits before the runtime (some
+/// reach only threads created later), then [`run`] on a multi-thread
+/// runtime. Every package's `main.rs` is the same three lines:
+///
+/// ```ignore
+/// fn main() -> std::process::ExitCode {
+///     wyrm_link_sdk::process::main::<wyrm_link_modbus::Modbus>()
+/// }
+/// ```
+pub fn main<L: Link>() -> std::process::ExitCode
+where
+    L::Config: FromParams,
+{
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,zenoh=warn".into()),
+        )
+        .init();
+    if let Err(e) = crate::limits::apply_from_env() {
+        tracing::error!("link: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::error!("link: runtime: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    match rt.block_on(run::<L>()) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            tracing::error!("link: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
 /// Run `L` as a supervised process until SIGTERM/SIGINT.
 pub async fn run<L: Link>() -> Result<()>
 where

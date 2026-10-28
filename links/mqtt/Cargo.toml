@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
 [dependencies]
 wyrm-core.workspace = true
 wyrm-link-sdk.workspace = true
@@ -26,3 +30,14 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "ne
 rumqttd.workspace = true
 rcgen.workspace = true
 tokio-rustls = { workspace = true, features = ["ring"] }
+
+[[bin]]
+name = "wyrm-link-mqtt"
+required-features = ["process"]
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "mqtt"
+description = "MQTT client: topics as points (JSON, raw, Sparkplug B)"
+bin = "wyrm-link-mqtt"
+features = ["process"]

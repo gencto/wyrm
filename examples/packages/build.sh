@@ -12,6 +12,8 @@
 #                    points (examples/links/both; asks for a write grant)
 #     probe          test tool: runs scenarios through the site's gateway as
 #                    one of its users (links/probe)
+#     modbus, mqtt   the protocol links (links/modbus, links/mqtt)
+#     mockdev        simulated devices on the driver framework (links/mock)
 #     register       WASM package: the register component
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
@@ -28,7 +30,8 @@ mkdir -p "$ZIPS"
 (cd $ROOT && cargo build -q --release -p wyr)
 WYR=$ROOT/target/release/wyr
 
-for crate in examples/links/responder examples/links/requester examples/links/both links/probe; do
+for crate in examples/links/responder examples/links/requester examples/links/both \
+             links/probe links/modbus links/mqtt links/mock; do
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
 
