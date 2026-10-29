@@ -378,18 +378,28 @@ pub fn defs_from_value(v: &Value, created_by: Option<&str>) -> Result<Vec<Target
     Ok(out)
 }
 
-/// The next target number of a definition: as saved, and past every `t<n>` id.
-pub fn next_target(saved: Option<&Value>, defs: &[TargetDef]) -> u32 {
+/// The next target number of a definition: as saved, and past every `t<n>` id. A number that
+/// does not fit, or an id `t<n>` with no number after it, is refused: ids are never reused.
+pub fn next_target(saved: Option<&Value>, defs: &[TargetDef]) -> Result<u32, AppError> {
     let saved = match saved {
-        Some(Value::UInt(n)) => u32::try_from(*n).unwrap_or(u32::MAX),
-        _ => 1,
+        None | Some(Value::Null) => 1,
+        Some(Value::UInt(n)) => u32::try_from(*n)
+            .map_err(|_| invalid("next_target", format!("at most {}", u32::MAX)))?,
+        Some(_) => return Err(invalid("next_target", "a whole number")),
     };
-    let past = defs
-        .iter()
-        .filter_map(|d| d.id.strip_prefix('t').and_then(|n| n.parse::<u32>().ok()))
-        .max()
-        .map_or(1, |n| n.saturating_add(1));
-    saved.max(past)
+    let mut past = 1;
+    for (i, d) in defs.iter().enumerate() {
+        let Some(n) = d.id.strip_prefix('t').and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        past = past.max(n.checked_add(1).ok_or_else(|| {
+            invalid(
+                &format!("targets[{i}].id"),
+                format!("{} leaves no id after it", d.id),
+            )
+        })?);
+    }
+    Ok(saved.max(past))
 }
 
 /// What a target's wake is for.
@@ -423,15 +433,17 @@ pub struct Target {
     expect: Option<Value>,
     /// Each transition is a new generation; older replies and wakes are ignored.
     gen: u64,
-    /// A matching sample came while the write waited for its reply.
-    matched: bool,
     /// The write in flight had its `ok` reply.
     replied: bool,
     /// At start: waits for the first sample of its confirm key.
     first: bool,
     wake: Option<Due>,
-    /// In the write queue.
+    /// Wants its write sent: in the write queue, or parked until its write in flight replies.
     queued: bool,
+    /// A write of this target waits for its reply.
+    inflight: bool,
+    /// Taken out of the queue while a write waited: back in when the reply comes.
+    parked: bool,
     /// Holds the subscription of its confirm key.
     held: bool,
 }
@@ -453,11 +465,12 @@ impl Target {
             write: Value::Null,
             expect: None,
             gen: 0,
-            matched: false,
             replied: false,
             first: false,
             wake: None,
             queued: false,
+            inflight: false,
+            parked: false,
             held: false,
         }
     }
@@ -729,7 +742,6 @@ impl Env<'_, '_> {
         t.expect = expect;
         t.for_state = Some(state.clone());
         t.attempts = 0;
-        t.matched = false;
         t.replied = false;
         t.first = false;
         self.cancel_wake(sid, t);
@@ -744,10 +756,9 @@ impl Env<'_, '_> {
     /// A transition for an enabled target: it writes `state`, the schedule's state now.
     fn begin(&mut self, sid: &str, t: &mut Target, state: &State) {
         self.plan(sid, t, state);
-        // a record for an earlier time of this state (the default has no occurrence) must not
-        // pass for this one after a restart
-        let key = (state.value.clone(), source_key(&state.source));
-        if t.recorded.as_ref() == Some(&key) {
+        // the record was for an earlier state: after a restart it must not pass for this one
+        // (the default has no occurrence, so a record for it matches any later default)
+        if t.recorded.is_some() {
             self.forget(sid, t);
         }
         self.enqueue(sid, t);
@@ -797,6 +808,7 @@ impl Env<'_, '_> {
         t.last_write = Some(now_of(self.cx));
         match self.cx.set(&t.def.point, t.write.clone()) {
             Ok(req) => {
+                t.inflight = true;
                 self.w
                     .inflight
                     .insert(req, (sid.to_owned(), t.def.id.clone(), t.gen));
@@ -813,7 +825,6 @@ impl Env<'_, '_> {
 
     fn failed(&mut self, sid: &str, t: &mut Target, e: AppError) {
         t.state = TState::Retrying;
-        t.matched = false;
         t.replied = false;
         t.last_error = Some(error_text(&e));
         let delay = backoff_ms(t.attempts, now_of(self.cx), sid, &t.def.id);
@@ -844,7 +855,6 @@ impl Env<'_, '_> {
     fn confirmed(&mut self, sid: &str, t: &mut Target) {
         t.state = TState::Confirmed;
         t.last_error = None;
-        t.matched = false;
         t.replied = false;
         t.first = false;
         self.cancel_wake(sid, t);
@@ -880,7 +890,6 @@ impl Env<'_, '_> {
         }
         match t.state {
             TState::Writing if matches && t.replied => self.confirmed(sid, t),
-            TState::Writing | TState::Pending if matches => t.matched = true,
             TState::Retrying if matches => self.confirmed(sid, t),
             TState::Confirmed if !matches => self.overridden(sid, t),
             _ => {}
@@ -907,9 +916,7 @@ impl Env<'_, '_> {
             return;
         }
         match result {
-            Ok(_) if t.def.confirm == Confirm::Ack || t.matched || self.shows(t) => {
-                self.confirmed(sid, t)
-            }
+            Ok(_) if t.def.confirm == Confirm::Ack || self.shows(t) => self.confirmed(sid, t),
             Ok(_) => {
                 t.replied = true;
                 self.set_wake(sid, t, DueKind::ConfirmTimeout, CONFIRM_TIMEOUT_MS);
@@ -1059,6 +1066,11 @@ impl Scheduler {
                 .get(&sid)
                 .is_some_and(|s| s.c.schedule().enabled);
             let live = match self.split(cx, &sid, &tid) {
+                // one write per target in flight: two could land in either order
+                Some((_, t)) if t.queued && t.inflight => {
+                    t.parked = true;
+                    false
+                }
                 Some((_, t)) if t.queued => {
                     if on && t.state == TState::Pending {
                         true
@@ -1090,7 +1102,15 @@ impl Scheduler {
             return;
         };
         if let Some((mut env, t)) = self.split(cx, &sid, &tid) {
+            t.inflight = false;
             env.reply(&sid, t, gen, result);
+            // a newer write waited for this reply
+            if t.parked {
+                t.parked = false;
+                if t.queued {
+                    env.w.queue.push_back((sid.clone(), tid.clone()));
+                }
+            }
         }
     }
 
@@ -1296,6 +1316,12 @@ impl Scheduler {
         }
         let next = s.next_target;
         let tid = format!("t{next}");
+        let after = next
+            .checked_add(1)
+            .ok_or_else(|| exhausted(format!("{sid}: no target ids left")))?;
+        if s.targets.iter().any(|t| t.def.id == tid) {
+            return Err(invalid("id", format!("{sid}/targets/{tid} exists")));
+        }
         let def = fields(
             tid.clone(),
             m,
@@ -1308,14 +1334,14 @@ impl Scheduler {
         let made = self.probe(cx, &[&def])?;
         let mut defs = s.defs();
         defs.push(def.clone());
-        if let Err(e) = self.save_targets(cx, sid, &defs, next.saturating_add(1)) {
+        if let Err(e) = self.save_targets(cx, sid, &defs, after) {
             Subs::undo(cx, &made);
             return Err(e);
         }
         self.w.subs.adopt(&made);
         if let Some(s) = self.scheds.get_mut(sid) {
             s.targets.push(Target::new(def));
-            s.next_target = next.saturating_add(1);
+            s.next_target = after;
         }
         self.nodes += 1;
         self.start_target(cx, sid, &tid, true);
@@ -1404,7 +1430,13 @@ impl Scheduler {
         sid: &str,
         tid: &str,
     ) -> Result<Value, AppError> {
-        self.target(sid, tid)?;
+        let t = self.target(sid, tid)?;
+        if !t.def.enabled {
+            // its key was not counted while it was off: another target may have taken the slot
+            self.loaded()?;
+            let def = t.def.clone();
+            self.check_subs(&[&def], None, Some((sid, tid)))?;
+        }
         self.save_enabled(cx, sid, tid, true)?;
         self.start_target(cx, sid, tid, true);
         Ok(Value::Null)

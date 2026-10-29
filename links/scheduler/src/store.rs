@@ -72,7 +72,7 @@ pub fn load_schedule(host: &dyn Host, id: &str) -> Result<Loaded, String> {
         _ => None,
     };
     Ok(Loaded {
-        next_target: targets::next_target(saved, &defs),
+        next_target: targets::next_target(saved, &defs).map_err(|e| e.msg)?,
         schedule: s,
         targets: defs,
     })

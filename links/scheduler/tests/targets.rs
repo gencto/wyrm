@@ -9,7 +9,7 @@ use wyrm_core::{Perm, Status, Value};
 use wyrm_link_api::buffer::Command;
 use wyrm_link_api::{AppError, Who};
 use wyrm_link_scheduler::limits::{
-    COMMANDS_PER_EVENT, CONFIRM_TIMEOUT_MS, FIRST_SAMPLE_MS, MAX_INFLIGHT, RETRY_CAP_MS,
+    COMMANDS_PER_EVENT, CONFIRM_TIMEOUT_MS, FIRST_SAMPLE_MS, MAX_INFLIGHT, MAX_SUBS, RETRY_CAP_MS,
     RETRY_FIRST_MS,
 };
 
@@ -917,6 +917,151 @@ fn a_stale_default_record_is_not_taken_for_now() {
     // the default again: the 07:00 record is not for this time of it
     assert!(outcome(&h, "o/lobby/t1").is_none());
     fail_all(&mut h);
+    h.restart().unwrap();
+    h.settle();
+    h.take_log();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("pending"));
+    // the device is back, still on: written, not taken for an override
+    h.deliver(FAN, Value::Bool(true));
+    assert_eq!(
+        sets_of(&h.take_log()),
+        vec![(FAN.to_owned(), Value::Bool(false))]
+    );
+}
+
+#[test]
+fn enable_rechecks_the_subscription_bound() {
+    // 50 schedules × 20 read_back targets = 1 000 keys, the bound
+    let mut h = started();
+    for s in 0..50 {
+        let sid = format!("s{s}");
+        h.invoke(
+            "",
+            "add_schedule",
+            map([("id", text(&sid)), ("default", Value::Bool(false))]),
+        )
+        .unwrap();
+        for t in 0..20 {
+            let p = format!("wy/s/downstream/plc/p{s}_{t}");
+            add_target(&mut h, &sid, read_back(&p)).unwrap();
+        }
+    }
+    assert_eq!(h.subs.len(), MAX_SUBS);
+    // off, its key frees a slot that a new target takes
+    h.invoke("s0/targets/t1", "disable", Value::Null).unwrap();
+    assert_eq!(h.subs.len(), MAX_SUBS - 1);
+    add_schedule(&mut h, "extra");
+    add_target(&mut h, "extra", read_back(FREE)).unwrap();
+    assert_eq!(h.subs.len(), MAX_SUBS);
+    let (r, cmds) = h.invoke_cmds("s0/targets/t1", "enable", Value::Null);
+    let (st, msg) = status(r);
+    assert_eq!(st, Status::ResourceExhausted);
+    assert!(msg.contains("1000 subscriptions"), "{msg}");
+    assert!(cmds.is_empty(), "{cmds:?}");
+    assert_eq!(state(&h, "s0/targets/t1"), text("disabled"));
+    // with room again it turns on
+    h.invoke("extra/targets/t1", "remove", Value::Null).unwrap();
+    h.invoke("s0/targets/t1", "enable", Value::Null).unwrap();
+    // queued: 50 writes are in flight
+    assert_eq!(state(&h, "s0/targets/t1"), text("pending"));
+    assert_eq!(h.subs.len(), MAX_SUBS);
+}
+
+#[test]
+fn target_ids_never_repeat() {
+    let mut src = lobby();
+    add_target(&mut src, "lobby", read_back(FAN)).unwrap();
+    let json = export(&mut src, "lobby");
+
+    // a next_target that does not fit, or an id that leaves no id after it
+    let mut big = json.clone();
+    big["next_target"] = 4_294_967_296u64.into();
+    let mut h = started();
+    let e = import(&mut h, &big).0.expect_err("refused");
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert!(e.msg.contains("next_target"), "{e}");
+    let mut top = json.clone();
+    top["targets"][0]["id"] = "t4294967295".into();
+    let e = import(&mut h, &top).0.expect_err("refused");
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert!(e.msg.contains("targets[0].id"), "{e}");
+    assert!(!h.has("lobby"));
+
+    // the last number: no id is left for a new target
+    let mut last = json.clone();
+    last["next_target"] = u64::from(u32::MAX).into();
+    import(&mut h, &last).0.unwrap();
+    let (r, cmds) = h.invoke_cmds("lobby", "add_target", read_back(PUMP));
+    let (st, msg) = status(r);
+    assert_eq!(st, Status::ResourceExhausted);
+    assert!(msg.contains("no target ids left"), "{msg}");
+    assert!(cmds.is_empty(), "{cmds:?}");
+}
+
+#[test]
+fn one_write_in_flight_per_target() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.set("lobby/default", Value::Bool(true)).unwrap();
+    let (first, _, v) = one_set(&h);
+    assert_eq!(v, Value::Bool(true));
+    // a newer transition before the reply: the newer write waits for it
+    h.set("lobby/default", Value::Bool(false)).unwrap();
+    h.settle();
+    assert_eq!(h.unreplied().len(), 1, "{:?}", h.unreplied());
+    let log = h.reply(first, Ok(Value::Null));
+    assert_eq!(sets_of(&log), vec![(FAN.to_owned(), Value::Bool(false))]);
+    assert_eq!(state(&h, "lobby/targets/t1"), text("writing"));
+    let (req, ..) = one_set(&h);
+    h.reply(req, Ok(Value::Null));
+    h.deliver(FAN, Value::Bool(false));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+    assert_eq!(
+        outcome(&h, "o/lobby/t1"),
+        Some(record(Value::Bool(false), "default", "confirmed"))
+    );
+}
+
+#[test]
+fn a_sample_that_moved_away_does_not_confirm() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    let (req, _, v) = one_set(&h);
+    assert_eq!(v, Value::Bool(true));
+    // the value shows, then goes, before the reply
+    h.deliver(FAN, Value::Bool(true));
+    h.deliver(FAN, Value::Bool(false));
+    h.reply(req, Ok(Value::Null));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("writing"));
+    assert!(outcome(&h, "o/lobby/t1").is_none(), "no record");
+}
+
+#[test]
+fn a_record_does_not_survive_a_later_transition() {
+    // 07:00 the default confirmed; from 08:00 the device is offline
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    assert!(
+        outcome(&h, "o/lobby/t1").is_none(),
+        "the 07:00 record is gone"
+    );
+    let fail_all = |h: &mut SimHost| {
+        for (id, ..) in h.unreplied() {
+            h.reply(id, err(Status::Timeout, "offline"));
+        }
+    };
+    fail_all(&mut h);
+    while h.now_us() < at("2026-10-29T12:00:00Z") {
+        h.advance(RETRY_CAP_MS);
+        fail_all(&mut h);
+    }
+    // down from 12:00 to 18:00: the link sees the default again only at start
+    h.step_clock(6 * 3_600_000);
     h.restart().unwrap();
     h.settle();
     h.take_log();

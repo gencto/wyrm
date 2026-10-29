@@ -722,7 +722,7 @@ impl Scheduler {
                 _ => None,
             };
             store::Loaded {
-                next_target: targets::next_target(saved, &targets),
+                next_target: targets::next_target(saved, &targets)?,
                 schedule: s,
                 targets,
             }
