@@ -47,3 +47,7 @@ description = "Scheduler: schedules of events that write values to points at tim
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 16 }
+
+[[bench]]
+name = "cold_start"
+harness = false

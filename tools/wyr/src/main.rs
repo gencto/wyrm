@@ -217,8 +217,8 @@ enum Cmd {
     /// the node callbacks they cause and values (links/probe). The
     /// password comes from WYR_GATEWAY_PASSWORD or stdin.
     Probe {
-        /// Built-in scenarios (history, storage, tokens, dataflows); none:
-        /// all of them.
+        /// Built-in scenarios (history, storage, tokens, dataflows,
+        /// scheduler); none: all of them.
         names: Vec<String>,
         /// A scenario file (JSON) instead of built-ins.
         #[arg(long)]

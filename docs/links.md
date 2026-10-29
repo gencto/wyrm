@@ -40,6 +40,11 @@ down. In the broker's own process it runs only as WASM.
   points), and a portable link (`examples/links/portable`, section 9) in its
   three modes. `examples/packages/build.sh` packages them with `wyr link pack`
   and makes a repository with `wyr repo add` (ADR 0021).
+- **Scheduler** (`links/scheduler`, ADR 0022): schedules of events that write
+  values to points at times. Every broker runs one at
+  `wy/<site>/downstream/scheduler`; it is also a portable link in the
+  packages `scheduler` (WASM) and `scheduler-process`. Guide:
+  [`docs/scheduler.md`](scheduler.md).
 
 ## 3. The Install Link menu
 

@@ -26,6 +26,7 @@ crates/wyrm-client      ✅ list()/subscribe()/set()/invoke() as Streams
 crates/wyrm-state       ✅ WAL (CBOR, HMAC-chain, CRC/record) + postcard snapshot
 crates/wyrm-history     ✅ embedded historian: watch groups, redb store (one file per UTC day), Get History + rollups (ADR 0014)
 crates/wyrm-storage     ✅ broker storage `wy/<site>/storage` as DSA `/data`: folders, typed values, publish, export/import JSON, one redb file (ADR 0017)
+crates/wyrm-schedule    ✅ schedule model (ADR 0022): events (windows, moments), RRULE subset, priorities, special days; `state_at`/`next_transition`/`occurrences` in local wall time per IANA zone (bundled tzdb, DST gap → after, fold → earlier); export `wyrm-schedule/1`, DSA localschedule import; pure, no clock, builds for wasm32
 crates/wyrm-flow        ✅ engine: compiler, node registry, rhai, runtime (deploy proofs per target)
 crates/wyrm-admin       ✅ registry, supervisor, tokens, CA, quarantine, ACL generator (links, operators, peers), audit, SecretStore
 crates/wyrm-gateway     ✅ user gateway: logins, sessions, roles → per-request ptok, WebSocket CBOR proxy
@@ -41,7 +42,8 @@ crates/wyrmd            ✅ binary (router, storage + rest plugins, admin, flow 
 links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin"); modbus and mockdev on the driver framework, bench mock on the raw layer
 tools/wyr               ✅ CLI ops part (dev commands: iteration 9); `wyr probe` runs links/probe scenarios through a gateway; `wyr link pack` / `wyr repo add` build link packages from `[package.metadata.wyrm-link]` and repositories with per-host `assets` (ADR 0021; format in `wyrm-link-sdk` feature `package`)
 dart/wyrm_flutter dataflow editor ✅ ADR 0019: Edit/New Dataflow window (palette from `dataflows/~act/node_types`, blocks with port rows, S-curve wires, drag out→in links, double-click unlinks, properties, validate as you edit, Deploy = version+1 with `layout`)
-links/probe             ✅ test link + runner: scenarios of actions, list callbacks (added/changed/removed + delay) and values through the user gateway (`wyrm-gateway-client`); built-ins history/storage/tokens/dataflows; run on the demo after changes that touch the tree
+links/probe             ✅ test link + runner: scenarios of actions, list callbacks (added/changed/removed + delay) and values through the user gateway (`wyrm-gateway-client`); built-ins history/storage/tokens/dataflows/scheduler; run on the demo after changes that touch the tree
+links/scheduler         ✅ scheduler link (ADR 0022) as a portable App: embedded in every `wyrmd` at `downstream/scheduler` (`scheduler: {enabled, store_mb}`, id reserved, own key `link:scheduler` at write on `downstream`), packages `scheduler` (WASM) and `scheduler-process` (operator grants per target link); one wake heap + 30 s clock watchdog, ≤ 800 commands per event, node budget 9 500; targets (`read_back`/`feedback`/`ack`, write queue ≤ 50, retries, override until the next transition, restart records) are `config` actions; guide `docs/scheduler.md`, demo load `examples/demo/scheduler-load.sh`
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
 ```

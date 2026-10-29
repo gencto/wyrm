@@ -73,6 +73,9 @@
                   counter: { table: "holding", addr: 0, dtype: "u16", poll_s: 1 },
                   setpoint: { table: "holding", addr: 10, dtype: "f32", writable: true, unit: "°C", poll_s: 1 },
                   fan: { table: "coil", addr: 3, dtype: "binary", writable: true, poll_s: 1 },
+                  // the fan's state as a separate read-only point: a scheduler
+                  // target on `fan` confirms on it (`confirm: feedback`)
+                  fan_status: { table: "coil", addr: 3, dtype: "binary", poll_s: 1 },
                 },
               },
             },

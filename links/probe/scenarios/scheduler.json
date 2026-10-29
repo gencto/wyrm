@@ -1,0 +1,20 @@
+{
+  "name": "scheduler",
+  "description": "Scheduler (ADR 0022): a schedule appears with its nodes; an event active now changes its current value; get_events, export, remove.",
+  "steps": [
+    { "require": "wy/{site}/downstream/scheduler" },
+    { "watch": "wy/{site}/downstream/scheduler" },
+    { "sub": "wy/{site}/downstream/scheduler/probe_sched/**" },
+    { "invoke": "wy/{site}/downstream/scheduler", "action": "add_schedule", "args": { "id": "probe_sched", "tz": "UTC", "default": 0 } },
+    { "added": "wy/{site}/downstream/scheduler", "name": "probe_sched" },
+    { "meta": "wy/{site}/downstream/scheduler/probe_sched", "has_action": ["add_event", "get_events", "export", "edit", "remove", "add_target"], "has_child": ["current", "default", "enabled", "events", "targets"] },
+    { "invoke": "wy/{site}/downstream/scheduler/probe_sched", "action": "add_event", "args": { "display": "probe", "value": 1, "start": "2026-01-01T00:00", "end": "2099-12-31T00:00" } },
+    { "value": "wy/{site}/downstream/scheduler/probe_sched/current", "equals": 1, "within_ms": 2000 },
+    { "children": "wy/{site}/downstream/scheduler/probe_sched/events", "contains": ["e1"] },
+    { "invoke": "wy/{site}/downstream/scheduler/probe_sched", "action": "get_events", "args": { "timerange": "2026-01-01T00:00:00Z/2027-01-01T00:00:00Z", "limit": 10 } },
+    { "invoke": "wy/{site}/downstream/scheduler/probe_sched", "action": "export" },
+    { "invoke": "wy/{site}/downstream/scheduler/probe_sched", "action": "add_event", "args": { "value": 2, "start": "2026-01-02T00:00", "end": "2026-01-01T00:00" }, "expect": "error", "error": "before start" },
+    { "invoke": "wy/{site}/downstream/scheduler/probe_sched", "action": "remove", "cleanup": true },
+    { "removed": "wy/{site}/downstream/scheduler", "name": "probe_sched", "cleanup": true }
+  ]
+}
