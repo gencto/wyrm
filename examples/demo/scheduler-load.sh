@@ -22,8 +22,9 @@
 # (`wyr probe --file`, generated scenarios; WYR_GATEWAY_PASSWORD); values are read with
 # `wyr sub` on the router (loopback reads need no token). The scheduler's responder allows
 # one caller 50 requests per second (burst 100): the scenarios pause 1 s after every 40
-# actions. Everything the script creates is removed at the end, also after a failure or
-# Ctrl+C; the mock point is reset.
+# actions. Everything the script creates is removed at the end, also after a failure,
+# Ctrl+C or SIGTERM: a schedule that a list still shows is removed again (three tries),
+# and the mock point is reset. The exit code is 1 when a schedule is still there.
 #
 # Needs: target/release/wyr (cargo build --release -p wyr), python3, the demo running.
 # Phase 3 needs the point fan_status of edge.json5 (restart the demo after pulling it).
@@ -46,6 +47,7 @@ import datetime as dt
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -113,6 +115,9 @@ def probe(name, steps, quiet=True):
     return ok, text
 
 
+subs = []  # the `wyr sub` processes running
+
+
 class Sub:
     """`wyr sub <pattern>` on the router; every line with its arrival time (time.time())."""
 
@@ -120,6 +125,7 @@ class Sub:
         self.lines = []
         self.p = subprocess.Popen([WYR, "--connect", ROUTER, "sub", pattern],
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+        subs.append(self)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -127,8 +133,10 @@ class Sub:
             self.lines.append((time.time(), line.rstrip("\n")))
 
     def stop(self):
-        self.p.terminate()
-        self.p.wait()
+        if self in subs:
+            subs.remove(self)
+            self.p.terminate()
+            self.p.wait()
 
     def samples(self, since=0.0):
         """(arrival, key, value text) of the lines after `since`."""
@@ -149,7 +157,26 @@ def remove(ids):
     return paced([{"invoke": f"{ROOT}/{i}", "action": "remove", "cleanup": True} for i in ids])
 
 
-created = []
+def present(ids):
+    """The ids of `ids` that are still schedules of the site (a list on the router); all of
+    them when the list fails."""
+    r = subprocess.run([WYR, "--connect", ROUTER, "--timeout", "10", "list", ROOT],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return list(ids)
+    names = {line.split()[0] for line in r.stdout.splitlines() if line.strip()}
+    return [i for i in ids if i in names]
+
+
+def forget_removed(ids):
+    """Takes the ids of `ids` that are gone out of `created`; True when none is left."""
+    left = set(present(ids))
+    created[:] = [c for c in created if c not in ids or c in left]
+    return not left
+
+
+created = []  # schedules this run made and has not seen removed
+mock_written = False  # the mock point holds a written value until `reset`
 report = []
 
 
@@ -190,9 +217,10 @@ def idle():
                   + (f"; keys: {', '.join(keys[:5])}" if keys else ""))
     t = time.time()
     probe("load-idle-remove", remove(ids))
-    gone = set(ids)
-    created[:] = [c for c in created if c not in gone]
-    print(f"idle: removed in {time.time() - t:.1f} s")
+    if forget_removed(set(ids)):
+        print(f"idle: removed in {time.time() - t:.1f} s")
+    else:
+        print("idle: some schedules are still there; the cleanup tries again", file=sys.stderr)
 
 
 def latency():
@@ -200,8 +228,10 @@ def latency():
     t0 = utc_now().replace(microsecond=0) + dt.timedelta(seconds=40)
     events = [{"value": k, "start": local(t0 + dt.timedelta(seconds=k - 1)),
                "end": local(t0 + dt.timedelta(seconds=k - 1))} for k in range(1, MOMENTS + 1)]
+    global mock_written
     target = {"id": "t1", "point": POINT, "confirm": "ack", "enabled": True}
     created.append(sid)
+    mock_written = True
     if not probe("load-lat", [{"invoke": ROOT, "action": "import",
                                "args": {"json": schedule_json(sid, 0, events, [target]),
                                         "overwrite": True}}])[0]:
@@ -229,9 +259,10 @@ def latency():
                           f"p99 {pct(lat, 99):.1f} ms, max {max(lat):.1f} ms")
         else:
             report.append(f"latency ({name}): no value arrived")
-    probe("load-lat-remove", remove([sid]) + [
+    ok, _ = probe("load-lat-remove", remove([sid]) + [
         {"invoke": f"wy/{SITE}/downstream/mock", "action": "reset", "cleanup": True}])
-    created.remove(sid)
+    forget_removed({sid})
+    mock_written = not ok
 
 
 def feedback():
@@ -266,7 +297,7 @@ def feedback():
     created.append(sid)
     print(f"feedback: the next transition at {t1.isoformat()}")
     ok, text = probe("load-fan", steps, quiet=False)
-    created.remove(sid)
+    forget_removed({sid})
     if "not on this site" in text:
         report.append(f"feedback: skipped, no {FAN_STATUS} (restart the demo with edge.json5)")
     else:
@@ -274,14 +305,41 @@ def feedback():
                                       "FAILED (see above)"))
 
 
+def terminated(signum, frame):
+    raise KeyboardInterrupt  # SIGTERM cleans up as Ctrl+C does
+
+
+signal.signal(signal.SIGTERM, terminated)
+interrupted = False
 try:
     for phase, run in (("idle", idle), ("latency", latency), ("feedback", feedback)):
         if phase in PHASES:
             run()
+except KeyboardInterrupt:
+    interrupted = True
+    print("interrupted: cleaning up", file=sys.stderr)
 finally:
-    if created:
-        print(f"cleanup: removing {len(created)} schedules", file=sys.stderr)
-        probe("load-cleanup", remove(created) + [
+    for sub in list(subs):
+        sub.stop()
+    # a failed remove (rate limit, a gateway drop) is tried again after a pause
+    for attempt in range(3):
+        left = present(created)
+        created[:] = left
+        if not left:
+            break
+        if attempt:
+            time.sleep(5)
+        print(f"cleanup: removing {len(left)} schedules", file=sys.stderr)
+        probe("load-cleanup", remove(left))
+    else:
+        created[:] = present(created)
+    if mock_written:
+        probe("load-cleanup-mock", [
             {"invoke": f"wy/{SITE}/downstream/mock", "action": "reset", "cleanup": True}])
+    if created:
+        print(f"cleanup: still there, remove by hand: {', '.join(created[:10])}"
+              + (" …" if len(created) > 10 else ""), file=sys.stderr)
     print("\n".join([f"\nscheduler load on {SITE} (probe reports in {LOG}):"] + report))
+if interrupted or created:
+    sys.exit(130 if interrupted else 1)
 PY
