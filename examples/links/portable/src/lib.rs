@@ -108,6 +108,7 @@ impl App for Echo {
                 .display("Echo")
                 .param("value", ParamMeta::of(TypeCode::Dynamic)),
         );
+        // Test hook for restart benchmarks; a link copied from this example drops it.
         if faults {
             host.declare_action(
                 "",
@@ -180,5 +181,6 @@ impl App for Echo {
     }
 }
 
-#[cfg(feature = "wasm")]
+// Only on wasm32: natively the exports would be bare global `start`/`stop`… symbols.
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 wyrm_link_guest::export!(Echo);

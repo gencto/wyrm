@@ -78,5 +78,6 @@ impl App for __TYPE__ {
     }
 }
 
-#[cfg(feature = "wasm")]
+// Only on wasm32: natively the exports would be bare global `start`/`stop`… symbols.
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 wyrm_link_guest::export!(__TYPE__);
