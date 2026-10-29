@@ -811,3 +811,45 @@ fn the_time_budget_splits_batches() {
     assert!(h.max_event_us < 700_000, "{} us", h.max_event_us);
     assert!(!stepped(&h.take_log()));
 }
+
+#[test]
+fn a_moment_due_in_the_last_batch_keeps_its_base() {
+    // K windows at 08:00 and a moment at 08:00:03 that falls due while the last batch of the
+    // burst runs; its continuation waits 2.2 s in the queue (review probe, fix round 2)
+    for (k, tick) in [(200usize, 2_000u64), (400, 1_000), (450, 1_000)] {
+        let mut v: Vec<Schedule> = (0..k)
+            .map(|i| {
+                schedule(
+                    &format!("s{i}"),
+                    vec![event(
+                        1,
+                        "2026-10-29T08:00",
+                        "2026-10-29T09:00",
+                        Some("FREQ=DAILY"),
+                    )],
+                )
+            })
+            .collect();
+        let mut m = schedule(
+            "m",
+            vec![event(1, "2026-10-29T08:00:03", "2026-10-29T08:00:03", None)],
+        );
+        m.events[0].value = Value::UInt(5);
+        v.push(m);
+        let mut h = SimHost::new(t0());
+        seed(&mut h, &v);
+        h.start(Value::Null).unwrap();
+        h.settle();
+        h.advance_to(at("2026-10-29T07:59:00Z"));
+        h.take_log();
+        h.queue_latency_ms = 2_200;
+        h.set_tick(tick);
+        h.advance(120_000);
+        assert_eq!(
+            h.value("m/current"),
+            Some(Value::UInt(5)),
+            "k {k}, tick {tick}: the moment fired"
+        );
+        assert!(!stepped(&h.take_log()));
+    }
+}

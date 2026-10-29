@@ -272,7 +272,7 @@ pub struct Scheduler {
     wakes: Wakes,
     timer: Timer,
     /// Wall clock when the batched work going on now began (the timer that started it fired);
-    /// kept across its `0` ms continuations, cleared when nothing is left to do.
+    /// kept across its `0` ms continuations, cleared when `arm` sets any other timer.
     drain: Option<Micros>,
 }
 
@@ -457,11 +457,6 @@ impl Scheduler {
         let now = now_of(cx);
         let base = *self.drain.get_or_insert(now);
         self.work(cx, now, base);
-        let idle =
-            self.pending.is_empty() && self.reeval.is_empty() && self.wakes.peek_due(now).is_none();
-        if idle {
-            self.drain = None;
-        }
     }
 
     fn work(&mut self, cx: &mut Counted, now: Micros, base: Micros) {
@@ -490,7 +485,9 @@ impl Scheduler {
     }
 
     /// Arms the one host timer: `0` ms while batched work waits, else for the earliest wake,
-    /// and the watchdog while any schedule is enabled.
+    /// and the watchdog while any schedule is enabled. A `0` ms timer continues the work: the
+    /// work keeps its base (or begins now, for a wake that fell due during this event); any
+    /// other timer ends it.
     fn arm(&mut self, cx: &mut Counted) {
         let now = now_of(cx);
         let next = if !self.pending.is_empty() || !self.reeval.is_empty() {
@@ -503,6 +500,11 @@ impl Scheduler {
                     .then(|| now.saturating_add((WATCHDOG_MS * 1000) as Micros))
             })
         };
+        if next.is_some_and(|t| t <= now) {
+            self.drain.get_or_insert(now);
+        } else {
+            self.drain = None;
+        }
         if let Err(e) = self.timer.arm(cx, now, next) {
             cx.log(Level::Error, &format!("{}", wake::no_timer(e)));
         }
