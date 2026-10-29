@@ -2037,7 +2037,7 @@ async fn logs_and_log_levels() {
     let env = Env::start(
         "logs",
         r#"links: {
-            mock: { driver: "mock", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
+            logmock: { driver: "mock", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
             pm: { driver: "mock", mode: "process", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } },
         },"#,
     )
@@ -2094,17 +2094,20 @@ async fn logs_and_log_levels() {
         .iter()
         .all(|r| ["warn", "error"].contains(&text(r, "level").as_str())));
 
-    // an embedded link: back to info for the broker, debug for `mock` alone;
-    // a refused token (debug, inside the link's span) shows under its id
+    // an embedded link: back to info for the broker, debug for `logmock` alone;
+    // a refused token (debug, inside the link's span) shows under its id. Link
+    // levels are process-wide and keyed by link id, and every broker start in
+    // this process sets the levels of its own embedded links: an id no other
+    // test uses keeps this one from being reset by another test's `mock`.
     c.set(&format!("{sys}/log_level"), Value::UInt(2))
         .await
         .unwrap();
     // choices: default, error, warn, info, debug, trace (an enum takes its index)
-    c.set(&format!("{sys}/links/mock/log_level"), Value::UInt(4))
+    c.set(&format!("{sys}/links/logmock/log_level"), Value::UInt(4))
         .await
         .unwrap();
     assert_eq!(
-        env.ctl.registry().links["mock"].log_level.as_deref(),
+        env.ctl.registry().links["logmock"].log_level.as_deref(),
         Some("debug")
     );
     let stranger = WyrmClient::new(env.session().await)
@@ -2113,15 +2116,14 @@ async fn logs_and_log_levels() {
             SITE,
         )))
         .with_timeout(Duration::from_secs(3));
-    // The log ring is shared by the whole test process (other tests' `mock`
-    // links log under the same id): refuse one set per try, so the line is
-    // fresh when it is read.
+    // The log ring is shared by the whole test process and keeps the last
+    // lines only: refuse one set per try, so the line is fresh when it is read.
     let mine = eventually("the link's debug line", 10, || async {
         let _ = stranger
-            .set(&format!("wy/{SITE}/downstream/mock/g0/p0"), 1.0)
+            .set(&format!("wy/{SITE}/downstream/logmock/g0/p0"), 1.0)
             .await;
         let r = rows(
-            c.invoke_one(&format!("{sys}/links/mock"), "get_log", args(vec![]))
+            c.invoke_one(&format!("{sys}/links/logmock"), "get_log", args(vec![]))
                 .await
                 .ok()?,
         );
@@ -2130,7 +2132,7 @@ async fn logs_and_log_levels() {
             .then_some(r)
     })
     .await;
-    assert!(mine.iter().all(|r| text(r, "link") == "mock"));
+    assert!(mine.iter().all(|r| text(r, "link") == "logmock"));
 
     // a process link: its output, and RUST_LOG from its level
     eventually("process output", 15, || async {
