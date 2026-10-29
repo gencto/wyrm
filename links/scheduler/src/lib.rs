@@ -6,6 +6,8 @@
 //! subset, priorities and special days); `wyrm-schedule` evaluates them. The link shows each
 //! schedule's value now in `<s>/current` and keeps one wake heap behind one host timer for the
 //! next transitions. Definitions live in the host store: `index` (the ids) and `s/<id>`.
+//! Each transition writes the schedule's targets ([`targets`]: write queue, confirmation,
+//! retries, override, the restart rules); their last outcomes are `o/<s>/<t>`.
 //!
 //! Bounds (ruling 5): every event buffers at most [`limits::COMMANDS_PER_EVENT`] commands and
 //! spends at most [`limits::EVENT_TIME_US`] on batched work; loading a big store, a burst of
@@ -17,20 +19,22 @@
 
 pub mod limits;
 mod store;
+mod targets;
 mod tree;
 mod wake;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use wyrm_core::{Quality, Sample, Status, Value};
-use wyrm_link_api::{App, AppError, Host, Level, TimerId, Who};
+use wyrm_link_api::{App, AppError, Host, Level, ReqId, SubId, TimerId, Who};
 use wyrm_schedule::{
-    dsa, next_transition, occurrences, schedule_from_value, schedule_to_value, state_at, valid_id,
-    validate, value_from_json, value_to_json, Compiled, Event, Invalid, Micros, Rule, Schedule,
-    Source, State, MAX_EVENTS,
+    dsa, next_transition, occurrences, schedule_from_value, state_at, valid_id, validate,
+    value_from_json, value_to_json, Compiled, Event, Invalid, Micros, Rule, Schedule, Source,
+    State, MAX_EVENTS,
 };
 
 use limits::{Counted, CLOCK_STEP_MS, DEFAULT_ROWS, MAX_ROWS, NODE_BUDGET, WATCHDOG_MS};
+use targets::{Probes, Target, TargetDef, Writer, BEGIN_COST, TARGET_COST};
 use wake::{Fired, Timer, Wake, Wakes};
 
 /// Commands of one transition: the schedule's attributes and `current`.
@@ -249,11 +253,27 @@ struct Sched {
     state: State,
     /// The next transition (none while disabled).
     next: Option<(Micros, State)>,
+    targets: Vec<Target>,
+    /// The next `n` of a target id `t<n>`; never goes down, so an id is never reused.
+    next_target: u32,
 }
 
 impl Sched {
     fn def(&self) -> &Schedule {
         self.c.schedule()
+    }
+
+    fn defs(&self) -> Vec<TargetDef> {
+        self.targets.iter().map(|t| t.def.clone()).collect()
+    }
+
+    fn nodes(&self) -> usize {
+        tree::nodes_of(self.def(), self.targets.len())
+    }
+
+    /// The definition as saved, with `def` for the schedule.
+    fn encode(&self, def: &Schedule) -> Result<Vec<u8>, AppError> {
+        store::encode(def, &self.defs(), self.next_target)
     }
 }
 
@@ -274,6 +294,8 @@ pub struct Scheduler {
     /// Wall clock when the batched work going on now began (the timer that started it fired);
     /// kept across its `0` ms continuations, cleared when `arm` sets any other timer.
     drain: Option<Micros>,
+    /// The targets' write queue, writes in flight and subscriptions.
+    w: Writer,
 }
 
 impl Scheduler {
@@ -299,8 +321,17 @@ impl Scheduler {
             .ok_or_else(|| AppError::new(Status::NotFound, id.to_owned()))
     }
 
-    /// Declares a compiled schedule's nodes, shows its state now and sets its next wake.
-    fn declare(&mut self, cx: &mut Counted, c: Compiled, now: Micros) {
+    /// Declares a compiled schedule's nodes, shows its state now and sets its next wake; its
+    /// targets write the state now (`fresh`) or follow the restart rules (loaded).
+    fn declare(
+        &mut self,
+        cx: &mut Counted,
+        c: Compiled,
+        targets: Vec<TargetDef>,
+        next_target: u32,
+        now: Micros,
+        fresh: bool,
+    ) {
         let def = c.schedule();
         let id = def.id.clone();
         let state = state_at(&c, now);
@@ -322,18 +353,46 @@ impl Scheduler {
             cx.declare_node(&tree::event(&id, &e.id), tree::event_meta(e));
         }
         cx.declare_node(&tree::targets(&id), tree::targets_meta());
-        self.nodes += tree::nodes_of(def);
+        self.nodes += tree::nodes_of(def, targets.len());
         self.wakes
             .set(Wake::Transition(id.clone()), next.as_ref().map(|n| n.0));
-        self.scheds.insert(id.clone(), Sched { c, state, next });
-        self.apply(cx, &id);
+        let targets = targets.into_iter().map(Target::new).collect();
+        self.scheds.insert(
+            id.clone(),
+            Sched {
+                c,
+                state,
+                next,
+                targets,
+                next_target,
+            },
+        );
+        self.show_current(cx, &id);
+        self.start_targets(cx, &id, fresh);
     }
 
-    /// The schedule's state changed: `current` shows it (Task 4: and its targets are written).
-    fn apply(&mut self, cx: &mut Counted, id: &str) {
+    fn show_current(&mut self, cx: &mut Counted, id: &str) {
         let Some(s) = self.scheds.get(id) else { return };
         let v = good(cx, s.state.value.clone());
         cx.update(&tree::current(id), v);
+    }
+
+    /// The schedule's state changed: `current` shows it and its targets write it.
+    fn apply(&mut self, cx: &mut Counted, id: &str) {
+        self.show_current(cx, id);
+        self.write_targets(cx, id);
+    }
+
+    /// Commands of a transition of schedule `id`: its attributes, `current`, its targets.
+    fn transition_cost(&self, id: &str) -> usize {
+        TRANSITION_COST + self.scheds.get(id).map_or(0, |s| s.targets.len()) * BEGIN_COST
+    }
+
+    fn wake_cost(&self, wake: &Wake) -> usize {
+        match wake {
+            Wake::Transition(id) => self.transition_cost(id),
+            Wake::Target(..) => TARGET_COST,
+        }
     }
 
     /// Re-declares the schedule node with its attributes now.
@@ -376,6 +435,7 @@ impl Scheduler {
     fn fire(&mut self, cx: &mut Counted, wake: Wake, now: Micros, base: Micros) {
         match wake {
             Wake::Transition(id) => self.transition(cx, &id, now, base),
+            Wake::Target(sid, tid) => self.target_due(cx, &sid, &tid),
         }
     }
 
@@ -416,7 +476,7 @@ impl Scheduler {
         let Some(id) = self.pending.front().cloned() else {
             return true;
         };
-        let def = match store::load_schedule(cx, &id) {
+        let loaded = match store::load_schedule(cx, &id) {
             Ok(d) => d,
             Err(e) => {
                 self.pending.pop_front();
@@ -424,7 +484,8 @@ impl Scheduler {
                 return true;
             }
         };
-        let c = match Compiled::new(&def) {
+        let def = &loaded.schedule;
+        let c = match Compiled::new(def) {
             Ok(c) => c,
             Err(e) => {
                 self.pending.pop_front();
@@ -432,18 +493,19 @@ impl Scheduler {
                 return true;
             }
         };
-        if !cx.room(tree::declare_cost(&def)) {
+        let n = loaded.targets.len();
+        if !cx.room(tree::declare_cost(def, n)) {
             return false;
         }
         self.pending.pop_front();
-        if let Err(e) = self.check_nodes(tree::nodes_of(&def), 0) {
+        if let Err(e) = self.check_nodes(tree::nodes_of(def, n), 0) {
             cx.log(
                 Level::Warn,
                 &format!("schedule {id}: not loaded: {}", e.msg),
             );
             return true;
         }
-        self.declare(cx, c, now);
+        self.declare(cx, c, loaded.targets, loaded.next_target, now, false);
         if self.pending.is_empty() {
             let n = self.scheds.len();
             cx.log(Level::Info, &format!("{n} schedules loaded"));
@@ -468,15 +530,19 @@ impl Scheduler {
                 continue;
             }
             if let Some(id) = self.reeval.front().cloned() {
-                if !cx.room(TRANSITION_COST) {
+                if !cx.room(self.transition_cost(&id)) {
                     return;
                 }
                 self.reeval.pop_front();
                 self.refresh(cx, &id, now, false, false);
                 continue;
             }
-            if self.wakes.peek_due(now).is_none() || !cx.room(TRANSITION_COST) {
+            if !self.deferred(cx) || !self.pump(cx) {
                 return;
+            }
+            match self.wakes.peek_due(now) {
+                Some(w) if cx.room(self.wake_cost(&w)) => {}
+                _ => return,
             }
             if let Some((_, wake)) = self.wakes.pop_due(now) {
                 self.fire(cx, wake, now, base);
@@ -490,7 +556,7 @@ impl Scheduler {
     /// other timer ends it.
     fn arm(&mut self, cx: &mut Counted) {
         let now = now_of(cx);
-        let next = if !self.pending.is_empty() || !self.reeval.is_empty() {
+        let next = if !self.pending.is_empty() || !self.reeval.is_empty() || self.w.has_work() {
             Some(now)
         } else {
             self.wakes.earliest().or_else(|| {
@@ -525,8 +591,10 @@ impl Scheduler {
     /// The wall clock stepped: evaluate every enabled schedule again and rebuild the heap; the
     /// work starts again at the new clock.
     fn clock_step(&mut self, cx: &mut Counted, off: Micros) {
-        self.drain = Some(now_of(cx));
+        let now = now_of(cx);
+        self.drain = Some(now);
         self.wakes.clear();
+        self.rewake_targets(now, off);
         self.reeval = self
             .index
             .iter()
@@ -543,37 +611,56 @@ impl Scheduler {
         );
     }
 
-    fn add_new(&mut self, cx: &mut Counted, def: Schedule, now: Micros) -> Result<(), AppError> {
+    /// Saves and declares a new schedule; `made`: the subscriptions that checked its targets'
+    /// keys, adopted once it is saved (the caller drops them on an error).
+    fn add_new(
+        &mut self,
+        cx: &mut Counted,
+        new: store::Loaded,
+        now: Micros,
+        made: &Probes,
+    ) -> Result<(), AppError> {
+        let def = new.schedule;
         let c = Compiled::new(&def).map_err(|e| refused(e, None))?;
-        self.check_nodes(tree::nodes_of(&def), 0)?;
+        self.check_nodes(tree::nodes_of(&def, new.targets.len()), 0)?;
         let mut ids = self.index.clone();
         ids.push(def.id.clone());
-        store::add(cx, &def, &ids)?;
+        let bytes = store::encode(&def, &new.targets, new.next_target)?;
+        store::add(cx, &def.id, &bytes, &ids)?;
         self.index = ids;
-        self.declare(cx, c, now);
+        self.w.subs.adopt(made);
+        self.declare(cx, c, new.targets, new.next_target, now, true);
         Ok(())
     }
 
-    /// Replaces a schedule of the index (loaded, waiting or unreadable) as a whole.
+    /// Nodes schedule `id` takes now (none when not loaded).
+    fn nodes_now(&self, id: &str) -> usize {
+        self.scheds.get(id).map_or(0, Sched::nodes)
+    }
+
+    /// Replaces a schedule of the index (loaded, waiting or unreadable) as a whole; its old
+    /// targets go with their records.
     fn replace_whole(
         &mut self,
         cx: &mut Counted,
-        def: Schedule,
+        new: store::Loaded,
         now: Micros,
+        made: &Probes,
     ) -> Result<(), AppError> {
+        let def = new.schedule;
         let c = Compiled::new(&def).map_err(|e| refused(e, None))?;
-        let old = self
-            .scheds
-            .get(&def.id)
-            .map_or(0, |s| tree::nodes_of(s.def()));
-        self.check_nodes(tree::nodes_of(&def), old)?;
-        store::replace(cx, &def)?;
+        let old = self.nodes_now(&def.id);
+        self.check_nodes(tree::nodes_of(&def, new.targets.len()), old)?;
+        let bytes = store::encode(&def, &new.targets, new.next_target)?;
+        store::replace(cx, &def.id, &bytes)?;
         self.pending.retain(|p| p != &def.id);
-        if self.scheds.remove(&def.id).is_some() {
+        if let Some(s) = self.scheds.remove(&def.id) {
             cx.remove_node(&def.id);
             self.nodes -= old;
+            self.drop_targets(cx, &def.id, s.targets);
         }
-        self.declare(cx, c, now);
+        self.w.subs.adopt(made);
+        self.declare(cx, c, new.targets, new.next_target, now, true);
         Ok(())
     }
 
@@ -597,25 +684,48 @@ impl Scheduler {
         if self.index.contains(&def.id) {
             return Err(invalid("id", format!("{} exists", def.id)));
         }
-        self.add_new(cx, def, now)?;
+        let new = store::Loaded {
+            schedule: def,
+            targets: Vec::new(),
+            next_target: 1,
+        };
+        self.add_new(cx, new, now, &Probes::new())?;
         Ok(Value::Null)
     }
 
-    fn import(&mut self, cx: &mut Counted, m: &Args, now: Micros) -> Result<Value, AppError> {
+    /// This link's export (with its targets, each checked as by `add_target`, `created_by` the
+    /// importer) or a DSA export (no targets).
+    fn import(
+        &mut self,
+        cx: &mut Counted,
+        m: &Args,
+        now: Micros,
+        who: &Who,
+    ) -> Result<Value, AppError> {
+        self.loaded()?;
         let json = req_str(m, "json")?;
         let id = opt_str(m, "id")?.filter(|i| !i.is_empty());
         let overwrite = opt_bool(m, "overwrite")?.unwrap_or(false);
         let parsed: serde_json::Value = serde_json::from_str(&json)
             .map_err(|e| invalid("json", format!("not valid JSON: {e}")))?;
-        let def = if parsed.get("format").is_some() {
-            // Task 4 models the export's targets
-            let (mut s, _targets) =
-                schedule_from_value(&value_from_json(&parsed)).map_err(|e| refused(e, None))?;
+        let new = if parsed.get("format").is_some() {
+            let v = value_from_json(&parsed);
+            let (mut s, t) = schedule_from_value(&v).map_err(|e| refused(e, None))?;
             if let Some(id) = id {
                 s.id = id;
                 validate(&s).map_err(|e| refused(e, None))?;
             }
-            s
+            let by = who.subject.clone().unwrap_or_default();
+            let targets = targets::defs_from_value(&t, Some(&by))?;
+            let saved = match &v {
+                Value::Map(m) => m.get("next_target"),
+                _ => None,
+            };
+            store::Loaded {
+                next_target: targets::next_target(saved, &targets),
+                schedule: s,
+                targets,
+            }
         } else {
             let id = match (id, parsed.get("name")) {
                 (Some(id), _) => id,
@@ -627,20 +737,35 @@ impl Scheduler {
                     ))
                 }
             };
-            dsa::import(&json, &id, &self.default_tz).map_err(|e| refused(e, None))?
-        };
-        let id = def.id.clone();
-        if self.index.contains(&id) {
-            if !overwrite {
-                return Err(invalid(
-                    "id",
-                    format!("{id} exists (overwrite: true replaces it)"),
-                ));
+            store::Loaded {
+                schedule: dsa::import(&json, &id, &self.default_tz)
+                    .map_err(|e| refused(e, None))?,
+                targets: Vec::new(),
+                next_target: 1,
             }
-            self.replace_whole(cx, def, now)?;
-        } else {
-            self.add_new(cx, def, now)?;
+        };
+        let id = new.schedule.id.clone();
+        let replacing = self.index.contains(&id);
+        if replacing && !overwrite {
+            return Err(invalid(
+                "id",
+                format!("{id} exists (overwrite: true replaces it)"),
+            ));
         }
+        // every check before the keys are subscribed, so a refusal leaves nothing behind
+        let nodes = tree::nodes_of(&new.schedule, new.targets.len());
+        self.check_nodes(nodes, self.nodes_now(&id))?;
+        let made = self.check_import(cx, &id, &new.targets, replacing)?;
+        let r = if replacing {
+            self.replace_whole(cx, new, now, &made)
+        } else {
+            self.add_new(cx, new, now, &made)
+        };
+        if let Err(e) = r {
+            targets::Subs::undo(cx, &made);
+            return Err(e);
+        }
+        self.w.subs.sweep(cx, &made);
         Ok(Value::Map(BTreeMap::from([(
             "id".to_owned(),
             Value::Str(id),
@@ -650,7 +775,8 @@ impl Scheduler {
     /// Saves an edited definition of loaded schedule `id` and compiles it in.
     fn save(&mut self, cx: &mut Counted, def: Schedule, ev: Option<usize>) -> Result<(), AppError> {
         let c = Compiled::new(&def).map_err(|e| refused(e, ev))?;
-        store::replace(cx, &def)?;
+        let bytes = self.sched(&def.id)?.encode(&def)?;
+        store::replace(cx, &def.id, &bytes)?;
         if let Some(s) = self.scheds.get_mut(&def.id) {
             s.c = c;
         }
@@ -712,7 +838,8 @@ impl Scheduler {
 
     fn export(&self, sid: &str) -> Result<Value, AppError> {
         let s = self.sched(sid)?;
-        let json = value_to_json(&schedule_to_value(s.def())).to_string();
+        let def = store::definition(s.def(), &s.defs(), s.next_target);
+        let json = value_to_json(&def).to_string();
         Ok(Value::Map(BTreeMap::from([(
             "json".to_owned(),
             Value::Str(json),
@@ -748,11 +875,13 @@ impl Scheduler {
     }
 
     fn remove_schedule(&mut self, cx: &mut Counted, sid: &str) -> Result<Value, AppError> {
-        let n = tree::nodes_of(self.sched(sid)?.def());
+        let n = self.sched(sid)?.nodes();
         let ids: Vec<String> = self.index.iter().filter(|i| *i != sid).cloned().collect();
         store::remove(cx, sid, &ids)?;
         self.index = ids;
-        self.scheds.remove(sid);
+        if let Some(s) = self.scheds.remove(sid) {
+            self.drop_targets(cx, sid, s.targets);
+        }
         self.nodes -= n;
         self.wakes.set(Wake::Transition(sid.to_owned()), None);
         cx.remove_node(sid);
@@ -810,6 +939,7 @@ impl Scheduler {
         path: &str,
         action: &str,
         m: &Args,
+        who: &Who,
     ) -> Result<Value, AppError> {
         let now = now_of(cx);
         let unknown = || AppError::new(Status::NotSupported, format!("{path:?}: no {action}"));
@@ -820,7 +950,7 @@ impl Scheduler {
         };
         match (parts.as_slice(), action) {
             ([], "add_schedule") => self.add_schedule(cx, m, now),
-            ([], "import") => self.import(cx, m, now),
+            ([], "import") => self.import(cx, m, now, who),
             ([s], "add_event") => self.add_event(cx, s, m, now),
             ([s], "get_events") => self.get_events(s, m),
             ([s], "export") => self.export(s),
@@ -828,6 +958,11 @@ impl Scheduler {
             ([s], "remove") => self.remove_schedule(cx, s),
             ([s, "events", e], "edit") => self.edit_event(cx, s, e, m, now),
             ([s, "events", e], "remove") => self.remove_event(cx, s, e, now),
+            ([s], "add_target") => self.add_target(cx, s, m, who),
+            ([s, "targets", t], "edit") => self.edit_target(cx, s, t, m),
+            ([s, "targets", t], "enable") => self.enable_target(cx, s, t),
+            ([s, "targets", t], "disable") => self.disable_target(cx, s, t),
+            ([s, "targets", t], "remove") => self.remove_target(cx, s, t),
             _ => Err(unknown()),
         }
     }
@@ -891,6 +1026,7 @@ impl App for Scheduler {
             wakes: Wakes::default(),
             timer: Timer::default(),
             drain: None,
+            w: Writer::default(),
         };
         app.timer.observe(now_of(&cx));
         app.run(&mut cx);
@@ -908,6 +1044,7 @@ impl App for Scheduler {
         let mut cx = Counted::new(host);
         self.check_clock(&mut cx);
         let r = self.set(&mut cx, path, value);
+        self.pump(&mut cx);
         self.arm(&mut cx);
         r
     }
@@ -918,12 +1055,15 @@ impl App for Scheduler {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Who,
+        who: &Who,
     ) -> Result<Value, AppError> {
         let m = args_of(args)?;
         let mut cx = Counted::new(host);
         let stepped = self.check_clock(&mut cx);
-        let r = self.invoke(&mut cx, path, action, &m);
+        let r = self.invoke(&mut cx, path, action, &m, who);
+        if r.is_ok() {
+            self.pump(&mut cx);
+        }
         if r.is_ok() || stepped {
             self.arm(&mut cx);
         }
@@ -951,6 +1091,23 @@ impl App for Scheduler {
             (None, Fired::Step(_)) => {}
         }
         self.run(&mut cx);
+        self.arm(&mut cx);
+    }
+
+    fn on_value(&mut self, host: &mut dyn Host, sub: SubId, _key: &str, sample: Sample) {
+        let mut cx = Counted::new(host);
+        // a backward step first: the arming below would take the new clock as its base
+        self.check_clock(&mut cx);
+        self.value(&mut cx, sub, sample);
+        self.pump(&mut cx);
+        self.arm(&mut cx);
+    }
+
+    fn on_reply(&mut self, host: &mut dyn Host, req: ReqId, result: Result<Value, AppError>) {
+        let mut cx = Counted::new(host);
+        self.check_clock(&mut cx);
+        self.reply(&mut cx, req, result);
+        self.pump(&mut cx);
         self.arm(&mut cx);
     }
 }

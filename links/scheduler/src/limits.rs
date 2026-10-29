@@ -24,6 +24,25 @@ pub const NODE_BUDGET: usize = 9_500;
 /// Nodes of one schedule without its events and targets: the schedule, `current`, `default`,
 /// `enabled`, `events` and `targets`.
 pub const NODES_PER_SCHEDULE: usize = 6;
+/// Targets of one schedule at most.
+pub const MAX_TARGETS: usize = 20;
+/// Writes in flight at most (the host allows 100); the others wait in the write queue.
+pub const MAX_INFLIGHT: usize = 50;
+/// Subscriptions at most (the host bound); targets that confirm on the same key share one.
+pub const MAX_SUBS: usize = 1_000;
+/// A failed write is tried again after this, doubled each time up to [`RETRY_CAP_MS`], with a
+/// jitter of ±[`RETRY_JITTER_PCT`] %.
+pub const RETRY_FIRST_MS: u64 = 1_000;
+pub const RETRY_CAP_MS: u64 = 60_000;
+pub const RETRY_JITTER_PCT: u64 = 20;
+/// No matching value this long after an `ok` reply to a write: the write failed.
+pub const CONFIRM_TIMEOUT_MS: u64 = 10_000;
+/// At start, a target without a record for the state now waits this long for the first sample
+/// of its confirm key before it writes (a target already showing the value is not written).
+pub const FIRST_SAMPLE_MS: u64 = 2_000;
+/// Number tolerance of a confirmation without `tolerance`: relative, absolute when the expected
+/// value is 0.
+pub const DEFAULT_TOLERANCE: f64 = 1e-6;
 /// Rows of one `get_events` at most, and without `limit`.
 pub const MAX_ROWS: usize = 5_000;
 pub const DEFAULT_ROWS: usize = 1_000;

@@ -4,12 +4,14 @@
 //! ```text
 //! ""              add_schedule, import (config)
 //! <s>             attrs display, tz, source, next_time, next_value; add_event, get_events,
-//!                 export, edit, remove (add_target: Task 4)
+//!                 export, edit, remove; add_target (config)
 //! <s>/current     the schedule's value now (read-only)
 //! <s>/default     writable value (saved)
 //! <s>/enabled     writable bool (saved)
 //! <s>/events/<e>  attrs value, start, end, recurrence, priority, special, display; edit, remove
-//! <s>/targets     folder (Task 4)
+//! <s>/targets     folder
+//! <s>/targets/<t> the target's state; attrs point, confirm, feedback, last_error,
+//!                 last_write, attempts, created_by; edit, enable, disable, remove (config)
 //! ```
 //!
 //! A value node cannot have children (spec 02: `type` only on leaves), so the schedule is a
@@ -24,6 +26,7 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 use wyrm_schedule::{format_local, Event, Micros, Schedule, Source, State};
 
 use crate::limits::NODES_PER_SCHEDULE;
+use crate::targets::{Target, RESUME_COST};
 
 pub fn current(s: &str) -> String {
     format!("{s}/current")
@@ -43,16 +46,19 @@ pub fn targets(s: &str) -> String {
 pub fn event(s: &str, e: &str) -> String {
     format!("{s}/events/{e}")
 }
-
-/// Nodes a schedule takes (Task 4 adds one per target).
-pub fn nodes_of(s: &Schedule) -> usize {
-    NODES_PER_SCHEDULE + s.events.len()
+pub fn target(s: &str, t: &str) -> String {
+    format!("{s}/targets/{t}")
 }
 
-/// Commands that declare a schedule: its nodes and the values of `current`, `default`,
-/// `enabled`.
-pub fn declare_cost(s: &Schedule) -> usize {
-    nodes_of(s) + 3
+/// Nodes a schedule with `targets` targets takes.
+pub fn nodes_of(s: &Schedule, targets: usize) -> usize {
+    NODES_PER_SCHEDULE + s.events.len() + targets
+}
+
+/// Commands that load and declare a schedule: its nodes, the values of `current`, `default`,
+/// `enabled`, and what each target does at start.
+pub fn declare_cost(s: &Schedule, targets: usize) -> usize {
+    NODES_PER_SCHEDULE + s.events.len() + 3 + targets * RESUME_COST
 }
 
 /// [`declare_cost`] of a schedule without events.
@@ -234,7 +240,96 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
             .display("Remove")
             .group(GROUP_EDIT),
     );
+    a.insert(
+        "add_target".into(),
+        // it points the scheduler at a device: configuration (ruling 6)
+        target_params(
+            ActionMeta::new()
+                .level(Perm::Config)
+                .display("Add Target")
+                .group(GROUP_NEW)
+                .result(ActionResult::Type(TypeCode::Map)),
+            true,
+        ),
+    );
     a
+}
+
+const POINT_ABOUT: &str =
+    "The point written on each transition: wy/<site>/downstream/<link>/<path>.";
+const CONFIRM_ABOUT: &str = "read_back: the point's value shows the write; feedback: another \
+     point shows the expected value; ack: an ok reply is enough.";
+const MAP_ABOUT: &str = "JSON object, schedule value → value to write ({\"true\": 1, \
+     \"false\": 0}).";
+const FEEDBACK_MAP_ABOUT: &str = "JSON object, schedule value → value the feedback point shows.";
+const TOLERANCE_ABOUT: &str = "Relative tolerance of numbers (absolute at 0); default 1e-6.";
+
+/// The fields of `add_target` and a target's `edit`; `required` marks `point` and `confirm`.
+fn target_params(a: ActionMeta, required: bool) -> ActionMeta {
+    a.param(
+        "point",
+        text_param("Point")
+            .required(required)
+            .placeholder("wy/site/downstream/plc/fan")
+            .description(POINT_ABOUT),
+    )
+    .param(
+        "confirm",
+        param(TypeCode::Enum, "Confirm")
+            .required(required)
+            .enum_values(["read_back", "feedback", "ack"])
+            .description(CONFIRM_ABOUT),
+    )
+    .param(
+        "feedback",
+        text_param("Feedback Point").description("With confirm feedback: the point to read."),
+    )
+    .param("map", text_param("Map").description(MAP_ABOUT))
+    .param(
+        "feedback_map",
+        text_param("Feedback Map").description(FEEDBACK_MAP_ABOUT),
+    )
+    .param(
+        "tolerance",
+        param(TypeCode::Number, "Tolerance").description(TOLERANCE_ABOUT),
+    )
+}
+
+fn target_actions() -> BTreeMap<String, ActionMeta> {
+    let config = |display: &str| {
+        ActionMeta::new()
+            .level(Perm::Config)
+            .display(display)
+            .group(GROUP_EDIT)
+    };
+    BTreeMap::from([
+        ("edit".to_owned(), target_params(config("Edit"), false)),
+        ("enable".to_owned(), config("Enable")),
+        ("disable".to_owned(), config("Disable")),
+        ("remove".to_owned(), config("Remove")),
+    ])
+}
+
+/// A target node: its state is the value, the rest attributes.
+pub fn target_meta(t: &Target) -> NodeMeta {
+    let d = &t.def;
+    let mut m = NodeMeta::leaf(TypeCode::String)
+        .display(d.id.clone())
+        .attr("point", d.point.clone())
+        .attr("confirm", d.confirm.as_str())
+        .attr(
+            "feedback",
+            d.feedback.clone().map_or(Value::Null, Value::Str),
+        )
+        .attr(
+            "last_error",
+            t.last_error.clone().map_or(Value::Null, Value::Str),
+        )
+        .attr("last_write", t.last_write.map_or(Value::Null, rfc3339))
+        .attr("attempts", Value::UInt(t.attempts))
+        .attr("created_by", d.created_by.clone());
+    m.actions = Some(target_actions());
+    m
 }
 
 /// The schedule node: its attributes now, with its actions.

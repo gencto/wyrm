@@ -9,9 +9,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
-use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, Value};
+use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, Value};
 use wyrm_link_api::buffer::{store_cost, BufferHost, Command, Counts, Limits, Services};
-use wyrm_link_api::{App, AppError, ConnId, Host, TimerId, Who};
+use wyrm_link_api::{App, AppError, ConnId, Host, ReqId, SubId, TimerId, Who};
 use wyrm_link_scheduler::Scheduler;
 
 pub const SITE: &str = "wy/s";
@@ -102,6 +102,12 @@ pub struct SimHost {
     pub max_event_us: u64,
     /// How long a `0` ms timer waits in the host's queue before it fires.
     pub queue_latency_ms: u64,
+    /// Live subscriptions: id → key.
+    pub subs: BTreeMap<u64, String>,
+    /// Sets without a reply yet: id → key and value.
+    pub sets: BTreeMap<u64, (String, Value)>,
+    /// The most sets without a reply after any event.
+    pub max_unreplied: usize,
 }
 
 impl SimHost {
@@ -138,6 +144,9 @@ impl SimHost {
             events: 0,
             max_event_us: 0,
             queue_latency_ms: 0,
+            subs: BTreeMap::new(),
+            sets: BTreeMap::new(),
+            max_unreplied: 0,
         }
     }
 
@@ -168,6 +177,8 @@ impl SimHost {
         self.root_actions.clear();
         self.timers.clear();
         self.armed = None;
+        self.subs.clear();
+        self.sets.clear();
         let params = self.params.clone();
         self.start(params)
     }
@@ -175,8 +186,8 @@ impl SimHost {
     fn counts(&self) -> Counts {
         Counts {
             timers: self.timers.len(),
-            subs: 0,
-            inflight: 0,
+            subs: self.subs.len(),
+            inflight: self.sets.len(),
         }
     }
 
@@ -212,7 +223,74 @@ impl SimHost {
             subject: Some("user:test".into()),
             grants: vec![],
         };
-        self.event(|app, h| app.on_invoke(h, path, action, args, &who))
+        self.invoke_as(&who, path, action, args)
+    }
+
+    pub fn invoke_as(
+        &mut self,
+        who: &Who,
+        path: &str,
+        action: &str,
+        args: Value,
+    ) -> (Result<Value, AppError>, Vec<Command>) {
+        self.event(|app, h| app.on_invoke(h, path, action, args, who))
+    }
+
+    /// Answers the set `req` (as the target link's responder would).
+    pub fn reply(&mut self, req: u64, result: Result<Value, AppError>) -> Vec<Command> {
+        assert!(
+            self.sets.remove(&req).is_some(),
+            "set {req} has no reply due"
+        );
+        self.event(|app, h| app.on_reply(h, ReqId(req), result)).1
+    }
+
+    /// The sets without a reply, oldest first: id, key, value.
+    pub fn unreplied(&self) -> Vec<(u64, String, Value)> {
+        self.sets
+            .iter()
+            .map(|(id, (k, v))| (*id, k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// A good sample of `key` to every live subscription on it; the number of subscriptions.
+    pub fn deliver(&mut self, key: &str, v: Value) -> usize {
+        let ids: Vec<u64> = self
+            .subs
+            .iter()
+            .filter(|(_, k)| *k == key)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &ids {
+            let sample = Sample {
+                v: v.clone(),
+                q: Quality::Good,
+                t: self.now_us(),
+            };
+            self.event(|app, h| app.on_value(h, SubId(*id), key, sample));
+        }
+        ids.len()
+    }
+
+    /// Live subscriptions on `key`.
+    pub fn subscribed(&self, key: &str) -> usize {
+        self.subs.values().filter(|k| *k == key).count()
+    }
+
+    /// Answers every set `ok` and reads its value back on the point, until none waits; the
+    /// `0` ms continuations run in between.
+    pub fn confirm_all(&mut self) {
+        loop {
+            self.settle();
+            let due = self.unreplied();
+            if due.is_empty() {
+                return;
+            }
+            for (id, key, v) in due {
+                self.reply(id, Ok(Value::Null));
+                self.deliver(&key, v);
+            }
+        }
     }
 
     pub fn set(&mut self, path: &str, value: Value) -> Result<(), AppError> {
@@ -299,6 +377,10 @@ impl SimHost {
             .insert(key.to_owned(), value);
     }
 
+    pub fn store_delete(&mut self, key: &str) {
+        self.shared.lock().unwrap().store.remove(key);
+    }
+
     pub fn store_keys(&self) -> Vec<String> {
         let mut k: Vec<_> = self.shared.lock().unwrap().store.keys().cloned().collect();
         k.sort();
@@ -350,6 +432,7 @@ impl SimHost {
             self.apply_one(c);
         }
         self.log.extend_from_slice(cmds);
+        self.max_unreplied = self.max_unreplied.max(self.sets.len());
     }
 
     fn apply_one(&mut self, c: &Command) {
@@ -430,6 +513,15 @@ impl SimHost {
             Command::StoreDelete(k) => {
                 self.shared.lock().unwrap().store.remove(k);
             }
+            Command::Subscribe(id, k) => {
+                self.subs.insert(id.0, k.clone());
+            }
+            Command::Unsubscribe(id) => {
+                self.subs.remove(&id.0);
+            }
+            Command::Set(id, k, v) => {
+                self.sets.insert(id.0, (k.clone(), v.clone()));
+            }
             _ => {}
         }
     }
@@ -475,6 +567,16 @@ pub fn started() -> SimHost {
 
 pub fn is_update(c: &Command, path: &str) -> bool {
     matches!(c, Command::Update(p, _) if p == path)
+}
+
+/// The sets among `cmds`: key and value.
+pub fn sets_of(cmds: &[Command]) -> Vec<(String, Value)> {
+    cmds.iter()
+        .filter_map(|c| match c {
+            Command::Set(_, k, v) => Some((k.clone(), v.clone())),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn status(r: Result<Value, AppError>) -> (Status, String) {

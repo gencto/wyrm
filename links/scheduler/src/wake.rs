@@ -1,7 +1,7 @@
 //! One wake heap behind one host timer, and the clock watchdog (ADR 0022 "The link").
 //!
-//! Every future piece of work (a schedule's next transition; Task 4 adds retries and confirm
-//! timeouts) is one [`Wake`] in a min-heap of wall-clock instants. The app holds one host
+//! Every future piece of work (a schedule's next transition; a target's retry, confirm timeout
+//! or first-sample wait) is one [`Wake`] in a min-heap of wall-clock instants. The app holds one host
 //! timer, armed for the earliest wake but never longer than [`WATCHDOG_MS`]. Host timers run on
 //! the monotonic clock, so when a timer fires the wall clock should have moved by the timer's
 //! delay; a difference over [`CLOCK_STEP_MS`] is a wall-clock step (NTP, a resume from sleep),
@@ -21,6 +21,9 @@ use crate::limits::{CLOCK_STEP_MS, WATCHDOG_MS};
 pub enum Wake {
     /// The schedule's next transition.
     Transition(String),
+    /// Target `.1` of schedule `.0`: what it waits for and its generation are the target's
+    /// own, so a wake of an older generation does nothing.
+    Target(String, String),
 }
 
 /// The heap. Replaced and cancelled entries stay in the heap until they reach the top; their
