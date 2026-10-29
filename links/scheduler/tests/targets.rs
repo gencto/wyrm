@@ -1073,3 +1073,64 @@ fn a_record_does_not_survive_a_later_transition() {
         vec![(FAN.to_owned(), Value::Bool(false))]
     );
 }
+
+#[test]
+fn a_record_from_before_a_disabled_start_does_not_pass() {
+    // 07:00 the default confirmed; the schedule is off across a restart
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    assert!(outcome(&h, "o/lobby/t1").is_some());
+    h.set("lobby/enabled", Value::Bool(false)).unwrap();
+    h.restart().unwrap();
+    h.settle();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("pending"));
+    // turned on: a transition writes the default, and that write fails
+    h.take_log();
+    h.set("lobby/enabled", Value::Bool(true)).unwrap();
+    let (req, _, v) = one_set(&h);
+    assert_eq!(v, Value::Bool(false));
+    assert!(
+        outcome(&h, "o/lobby/t1").is_none(),
+        "the 07:00 record is gone"
+    );
+    h.reply(req, err(Status::Timeout, "offline"));
+    h.restart().unwrap();
+    h.settle();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("pending"));
+    h.take_log();
+    h.advance(FIRST_SAMPLE_MS);
+    assert_eq!(
+        sets_of(&h.take_log()),
+        vec![(FAN.to_owned(), Value::Bool(false))]
+    );
+}
+
+#[test]
+fn a_reply_to_a_removed_target_is_ignored() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.set("lobby/default", Value::Bool(true)).unwrap();
+    let (w1, ..) = one_set(&h);
+    // the schedule goes and comes back with a target of the same id on the same point
+    h.invoke("lobby", "remove", Value::Null).unwrap();
+    add_schedule(&mut h, "lobby");
+    let r = add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    assert_eq!(r, map([("id", text("t1"))]));
+    let due = h.unreplied();
+    assert_eq!(due.len(), 2, "{due:?}");
+    let w2 = due.iter().find(|(id, ..)| *id != w1).unwrap().0;
+    // the old write's reply belongs to the removed target
+    h.reply(w1, Ok(Value::Null));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("writing"));
+    h.set("lobby/default", Value::Bool(true)).unwrap();
+    h.settle();
+    assert_eq!(
+        h.unreplied().iter().map(|(id, ..)| *id).collect::<Vec<_>>(),
+        vec![w2],
+        "no second write while W2 waits"
+    );
+    let log = h.reply(w2, Ok(Value::Null));
+    assert_eq!(sets_of(&log), vec![(FAN.to_owned(), Value::Bool(true))]);
+}

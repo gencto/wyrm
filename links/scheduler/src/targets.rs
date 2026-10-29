@@ -440,8 +440,9 @@ pub struct Target {
     wake: Option<Due>,
     /// Wants its write sent: in the write queue, or parked until its write in flight replies.
     queued: bool,
-    /// A write of this target waits for its reply.
-    inflight: bool,
+    /// The write of this target that waits for its reply (a reply to a write of an earlier
+    /// target with the same id does not count).
+    inflight: Option<ReqId>,
     /// Taken out of the queue while a write waited: back in when the reply comes.
     parked: bool,
     /// Holds the subscription of its confirm key.
@@ -469,7 +470,7 @@ impl Target {
             first: false,
             wake: None,
             queued: false,
-            inflight: false,
+            inflight: None,
             parked: false,
             held: false,
         }
@@ -758,9 +759,7 @@ impl Env<'_, '_> {
         self.plan(sid, t, state);
         // the record was for an earlier state: after a restart it must not pass for this one
         // (the default has no occurrence, so a record for it matches any later default)
-        if t.recorded.is_some() {
-            self.forget(sid, t);
-        }
+        self.forget(sid, t);
         self.enqueue(sid, t);
         self.sync_sub(sid, t);
         self.show(sid, t);
@@ -808,7 +807,7 @@ impl Env<'_, '_> {
         t.last_write = Some(now_of(self.cx));
         match self.cx.set(&t.def.point, t.write.clone()) {
             Ok(req) => {
-                t.inflight = true;
+                t.inflight = Some(req);
                 self.w
                     .inflight
                     .insert(req, (sid.to_owned(), t.def.id.clone(), t.gen));
@@ -1040,6 +1039,10 @@ impl Scheduler {
             w: &mut self.w,
             wakes: &mut self.wakes,
         };
+        if !fresh && (!t.def.enabled || !on) {
+            // memory and store agree on the record (`resume` loads it too)
+            t.recorded = store::load_outcome(env.cx, sid, tid).map(|r| (r.value, r.source));
+        }
         if !t.def.enabled {
             t.state = TState::Disabled;
             env.show(sid, t);
@@ -1067,7 +1070,7 @@ impl Scheduler {
                 .is_some_and(|s| s.c.schedule().enabled);
             let live = match self.split(cx, &sid, &tid) {
                 // one write per target in flight: two could land in either order
-                Some((_, t)) if t.queued && t.inflight => {
+                Some((_, t)) if t.queued && t.inflight.is_some() => {
                     t.parked = true;
                     false
                 }
@@ -1102,7 +1105,11 @@ impl Scheduler {
             return;
         };
         if let Some((mut env, t)) = self.split(cx, &sid, &tid) {
-            t.inflight = false;
+            if t.inflight != Some(req) {
+                // a write of an earlier target with this id (removed, or replaced by import)
+                return;
+            }
+            t.inflight = None;
             env.reply(&sid, t, gen, result);
             // a newer write waited for this reply
             if t.parked {
