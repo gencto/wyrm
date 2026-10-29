@@ -16,7 +16,7 @@ ADR 0012 (network for WASM links), ADR 0013 (links as requesters), ADR 0021
 |---|---|---|---|---|
 | `embedded` | in the broker process | a driver built into `wyrmd` | none: same process | the built-in drivers |
 | `process` | a child process the broker starts and watches | a built-in driver (`wyrmd link <driver>`) or a **process package** | own process, mTLS identity, ACL on its own branch, rlimits, cleared environment | your own driver in Rust |
-| WASM | in the broker process, in a sandbox | a **WASM package** or one component (`.wasm`) | WebAssembly sandbox: no files, no clock, only the TCP addresses you list, fuel, memory and time limits | small protocol drivers, computed points |
+| WASM | in the broker process, in a sandbox | a **WASM package** or one component (`.wasm`) | WebAssembly sandbox: no files, no WASI, only the imports of its world (an app also gets the host's clock, timers and its store), only the TCP addresses you list, fuel, memory and time limits | small protocol drivers, computed points, portable links (section 9) |
 | `external` | on another machine | anything that speaks the link protocol with a certificate from the broker's CA | mTLS identity, ACL on its own branch | gateways and devices in the field |
 
 New code that arrives while the broker runs never loads into the broker as

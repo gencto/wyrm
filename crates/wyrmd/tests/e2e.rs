@@ -1495,7 +1495,7 @@ struct EchoRun {
     ticks: Value,
     /// `starts` after the link's restart minus before it: the store kept the count.
     starts_added: f64,
-    /// `n` published again by the new instance (a sample newer than the restart).
+    /// `n` published again by the new instance (a good sample newer than the restart).
     n_after: Value,
 }
 
@@ -1541,12 +1541,14 @@ async fn echo_scenario(env: &Env, id: &str) -> EchoRun {
     invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
     let after = eventually(&format!("{id} starts again"), 30, || async {
         let s = last_sample(env, &starts_node).await?;
-        (s.t > restarted).then(|| s.v.as_f64()).flatten()
+        (s.t > restarted && s.q == wyrm_core::Quality::Good)
+            .then(|| s.v.as_f64())
+            .flatten()
     })
     .await;
     let n_after = eventually(&format!("{id}: n from the store"), 10, || async {
         let s = last_sample(env, &n_node).await?;
-        (s.t > restarted).then_some(s.v)
+        (s.t > restarted && s.q == wyrm_core::Quality::Good).then_some(s.v)
     })
     .await;
     EchoRun {
