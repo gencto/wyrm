@@ -294,14 +294,20 @@ impl<'a> SpecialDays<'a> {
     }
 }
 
-/// Mark the local days an occurrence touches.
+/// Mark the local days an occurrence touches, as [`touches`] decides them. A window that a DST
+/// gap collapsed to `start == end` touches the day of its instant, unless that instant is the
+/// day's own start (`o.end > d0` fails there).
 fn mark(c: &Compiled, o: &Occ, marked: &mut BTreeSet<Date>) {
-    let last = if c.events[o.ev].moment {
-        o.start
-    } else if o.end > o.start {
-        o.end - 1
+    let last = if c.events[o.ev].moment || o.end > o.start {
+        o.end.max(o.start + 1) - 1
     } else {
-        return;
+        let at_day_start = to_local(&c.tz, o.start)
+            .and_then(|d| day_bounds(c, d.date()))
+            .is_some_and(|(d0, _)| d0 == o.start);
+        if at_day_start {
+            return;
+        }
+        o.start
     };
     let (Some(first), Some(last)) = (to_local(&c.tz, o.start), to_local(&c.tz, last)) else {
         return;

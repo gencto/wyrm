@@ -687,6 +687,34 @@ fn by_parts_expand_and_filter() {
 }
 
 #[test]
+fn special_window_collapsed_by_a_gap_still_marks_the_day() {
+    let z = "Europe/Kyiv";
+    // 2027-03-28: 03:00 → 04:00 local; 03:10–03:40 maps to 04:00–04:00 (01:00 UTC).
+    let c = compile(
+        z,
+        vec![
+            Ev::new(
+                1,
+                "2027-03-20T08:00",
+                "2027-03-20T17:00",
+                Some("FREQ=DAILY"),
+            ),
+            Ev::new(2, "2027-03-28T03:10", "2027-03-28T03:40", None).special(),
+        ],
+    );
+    assert_eq!(state_at(&c, at(z, "2027-03-28T12:00")), default());
+    // The whole local day is special, so e1 starts again only on 2027-03-29 (05:00 UTC).
+    let next = next_transition(&c, utc("2027-03-28T00:00Z"));
+    assert_eq!(
+        next,
+        Some((utc("2027-03-29T05:00Z"), event(1, utc("2027-03-29T05:00Z"))))
+    );
+    let (p, s) = next.unwrap();
+    assert_eq!(state_at(&c, p), s);
+    assert_eq!(state_at(&c, p - 1), state_at(&c, utc("2027-03-28T00:00Z")));
+}
+
+#[test]
 fn rules_that_never_match_end() {
     let z = "UTC";
     let c = compile(
