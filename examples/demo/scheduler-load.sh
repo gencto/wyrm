@@ -153,8 +153,19 @@ def pct(xs, p):
     return xs[max(0, math.ceil(p / 100 * len(xs)) - 1)]
 
 
+# schedules this script gives a target `t1`: a schedule with targets is not removed, so the
+# target goes first (it needs config, as its import or add_target did)
+TARGETED = {"load_lat", "load_fan"}
+
+
 def remove(ids):
-    return paced([{"invoke": f"{ROOT}/{i}", "action": "remove", "cleanup": True} for i in ids])
+    steps = []
+    for i in ids:
+        if i in TARGETED:
+            steps.append({"invoke": f"{ROOT}/{i}/targets/t1", "action": "remove",
+                          "cleanup": True})
+        steps.append({"invoke": f"{ROOT}/{i}", "action": "remove", "cleanup": True})
+    return paced(steps)
 
 
 def present(ids):
@@ -291,6 +302,7 @@ def feedback():
         {"value": t, "equals": "override", "within_ms": 10000},
         {"value": t, "equals": "confirmed", "within_ms": 60000},
         {"value": FAN, "equals": True},
+        {"invoke": t, "action": "remove", "cleanup": True},
         {"invoke": f"{ROOT}/{sid}", "action": "remove", "cleanup": True},
         {"set": FAN, "value": False, "cleanup": True},
     ]
