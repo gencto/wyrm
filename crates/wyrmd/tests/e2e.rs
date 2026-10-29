@@ -5362,7 +5362,8 @@ async fn embedded_scheduler_drives_a_process_link() {
 
 /// ADR 0013 grants reach every link (ruling R13): the rebuild after `grant` starts embedded
 /// links again with the new grants; a running process link takes its grants and requester key
-/// only in its first `hello`, so the grant restarts it; a stopped one is not started by it.
+/// only in its first `hello`, so the grant restarts it (not when it repeats a grant the link
+/// has); a stopped one is not started by it.
 #[tokio::test(flavor = "multi_thread")]
 async fn grant_restarts_a_running_process_link() {
     let mock = |mode: &str| {
@@ -5416,8 +5417,9 @@ async fn grant_restarts_a_running_process_link() {
             .map(|r| r.op.clone())
             .collect::<Vec<_>>()
     };
-    // `ps` first: the rebuild after any grant starts every process link of the registry again
-    for id in ["ps", "pm", "em"] {
+    // `ps` first: the rebuild after any grant starts every process link of the registry again;
+    // `pm` twice: the same grant again changes nothing
+    for id in ["ps", "pm", "em", "pm"] {
         let watch = BrokerWatch::new(&env).await;
         slow_client(&env)
             .await
@@ -5438,7 +5440,16 @@ async fn grant_restarts_a_running_process_link() {
     assert_eq!(
         restarted("pm"),
         ["stop", "start"],
-        "the running process link"
+        "the running process link, once"
+    );
+    assert_eq!(
+        env.ctl
+            .audit_tail(1000)
+            .iter()
+            .filter(|r| r.op == "link_grant" && r.key == "pm")
+            .count(),
+        2,
+        "pm got the grant twice"
     );
     assert!(restarted("ps").is_empty(), "the stopped process link");
     assert!(

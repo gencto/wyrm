@@ -3813,13 +3813,22 @@ impl Admin {
             if let Some(c) = &app {
                 message.push_str(&format!("; capabilities {}", c.describe()));
             }
-            // the grants the package asks for, shown and audited
+            // the grants the package asks for, shown and audited; one restart for all of them
+            let mut changed = false;
             for (path, code) in &def.requester {
                 let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
-                self.grant(link, path, level, sub)
-                    .await
+                changed |= self
+                    .set_grant(link, path, level, sub)
                     .map_err(|e| e.to_string())?;
                 message.push_str(&format!("; grant {path} {}", level.name()));
+            }
+            if changed {
+                self.restart_for_grants(link, sub)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            if !def.requester.is_empty() {
+                self.ctl.schedule_reload();
             }
         }
         Ok(message)
@@ -4967,7 +4976,7 @@ impl Admin {
     /// on the rebuild, which also starts embedded links again with the new
     /// grants. A running process link takes its grants and requester key
     /// only in its first `hello` (a rebuild leaves it running), so it is
-    /// restarted here.
+    /// restarted here when its grants changed (a repeated grant does not).
     async fn grant(
         &self,
         id: &str,
@@ -4975,7 +4984,27 @@ impl Admin {
         level: Perm,
         sub: &str,
     ) -> wyrm_link_sdk::Result<()> {
-        self.def(id)?;
+        let changed = self.set_grant(id, path, level, sub)?;
+        if changed {
+            self.restart_for_grants(id, sub).await?;
+        }
+        self.ctl.schedule_reload();
+        Ok(())
+    }
+
+    /// Applies one grant of link `id` and audits it; `true` when its grants changed.
+    fn set_grant(
+        &self,
+        id: &str,
+        path: &str,
+        level: Perm,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<bool> {
+        let sorted = |mut g: Vec<(String, u8)>| {
+            g.sort();
+            g
+        };
+        let before = sorted(self.def(id)?.grants);
         if level != Perm::None {
             crate::registry::check_grant(path, level).map_err(LinkError::invalid_parameter)?;
         }
@@ -4997,11 +5026,22 @@ impl Admin {
             Status::Ok,
             &format!("{path} {}", level.name()),
         );
-        if def.mode == Mode::Process && self.ctl.supervisor.state(id).is_some() {
-            self.stop_link(id, sub).await?;
-            self.start_link(id, sub).await?;
+        Ok(sorted(def.grants) != before)
+    }
+
+    /// New grants of a running process link: it takes them (and its requester key) only in its
+    /// first `hello`, and a rebuild leaves it running, so it starts again. Embedded links start
+    /// again with the rebuild. A start that fails still leaves the rebuild scheduled.
+    async fn restart_for_grants(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let def = self.def(id)?;
+        if def.mode != Mode::Process || self.ctl.supervisor.state(id).is_none() {
+            return Ok(());
         }
-        self.ctl.schedule_reload();
+        self.stop_link(id, sub).await?;
+        if let Err(e) = self.start_link(id, sub).await {
+            self.ctl.schedule_reload();
+            return Err(e);
+        }
         Ok(())
     }
 
