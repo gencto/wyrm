@@ -74,7 +74,19 @@ zenoh-plugin-rest = { version = "=1.10.1", default-features = false, features = 
 axum = { version = "0.8.9", default-features = false }
 axum-server = { version = "0.8", default-features = false }
 # ring only: the rustls defaults pull in aws-lc.
-rustls = { version = "0.23", default-features = false }
+#
+# Pinned to 0.23.45. zenoh-link-tls 1.10.1 (and zenoh main as of 2026-10-29) gives
+# the reader and the writer task one `&mut TlsStream` each through an `UnsafeCell`.
+# rustls 0.23.46 reads `core.state` on every write (`check_error`), while every read
+# swaps that field (`process_new_packets`). The writer then sees "handshake not
+# complete" (the TLS link drops; messages in flight are lost) or a torn value (SIGBUS
+# in `check_error`). In 0.23.45 the two tasks meet only on rare paths (KeyUpdate,
+# queued alerts); the aliasing itself stays upstream's bug. The four 0.23.46
+# advisories (RUSTSEC-2026-0346..0349) do not apply to this feature set: brotli
+# certificate decompression is off; ring has no post-quantum key share to strip; no
+# ECH; nothing formats session values with `Debug`. Lift the pin when Zenoh fixes the
+# TLS link, or when process links move off `tls/`.
+rustls = { version = "=0.23.45", default-features = false }
 rustls-pki-types = "1.9"
 base64 = "0.22"
 tokio-tungstenite = "0.29"

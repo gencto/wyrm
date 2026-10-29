@@ -5670,7 +5670,8 @@ async fn sched_scenario(env: &Env, id: &str, point: &str, restart: bool) -> Sche
     })
     .await;
     let point_v = last_val(&c, point).await.and_then(|v| v.as_f64());
-    // the target link's responder audits the write (ruling 2); late under load (Task 5)
+    // the target link's responder audits the write (ruling 2); the record is a put of its
+    // own, so it may land after the reply
     eventually(&format!("{id}: the write audited"), 30, || async {
         (point_writes(env, point) > 0).then_some(())
     })
