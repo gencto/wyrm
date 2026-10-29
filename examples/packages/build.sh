@@ -15,6 +15,10 @@
 #     modbus, mqtt   the protocol links (links/modbus, links/mqtt)
 #     mockdev        simulated devices on the driver framework (links/mock)
 #     register       WASM package: the register component
+#     portable-echo  portable link (ADR 0023, examples/links/portable) as a
+#                    WASM package: the crate built for wasm32
+#     portable-echo-process
+#                    the same app as a process package
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -34,6 +38,12 @@ for crate in examples/links/responder examples/links/requester examples/links/bo
              links/probe links/modbus links/mqtt links/mock; do
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
+
+# one portable link, two packages: the component (kind = "wasm" in its
+# metadata) and the binary (--kind process, under another name)
+PORTABLE=$ROOT/examples/links/portable/Cargo.toml
+$WYR link pack --manifest-path "$PORTABLE" --out "$ZIPS"
+$WYR link pack --manifest-path "$PORTABLE" --kind process --name portable-echo-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \

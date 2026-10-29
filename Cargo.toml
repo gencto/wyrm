@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -91,6 +91,7 @@ wasmparser = { version = "0.243", default-features = false, features = ["std"] }
 wit-component = { version = "=0.243.0", default-features = false }
 wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 wyrm-link-wasm = { path = "links/wasm" }
+wyrm-example-portable = { path = "examples/links/portable" }
 # MCP (ADR 0005): server side only; no reqwest/auth features (no aws-lc).
 rmcp = { version = "=3.6.0", default-features = false }
 schemars = "1"

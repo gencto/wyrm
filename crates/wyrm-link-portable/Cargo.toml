@@ -23,3 +23,11 @@ zeroize.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["harness", "package"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 ed25519-dalek.workspace = true
+# benches/roundtrip.rs: the reference app, natively and as a component
+wyrm-example-portable.workspace = true
+wyrm-wasm-host.workspace = true
+wit-component.workspace = true
+
+[[bench]]
+name = "roundtrip"
+harness = false

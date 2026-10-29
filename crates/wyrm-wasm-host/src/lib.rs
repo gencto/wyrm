@@ -200,6 +200,8 @@ pub fn is_sha256_hex(s: &str) -> bool {
 pub struct Ctx {
     memory_bytes: usize,
     memory_hit: bool,
+    /// Linear memory of the instance now: the sum of its memories' sizes.
+    memory_used: usize,
     net: Net,
     /// `app` world: the caller's buffer during a call, a placeholder between calls.
     app: Option<BufferHost>,
@@ -323,7 +325,7 @@ impl driver_world::wyrm::link::tcp::Host for Ctx {
 impl ResourceLimiter for Ctx {
     fn memory_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
@@ -334,6 +336,9 @@ impl ResourceLimiter for Ctx {
                 self.memory_bytes
             )));
         }
+        self.memory_used = self
+            .memory_used
+            .saturating_add(desired.saturating_sub(current));
         Ok(true)
     }
 
@@ -676,6 +681,7 @@ impl<W: World> Runner<W> {
             Ctx {
                 memory_bytes: self.limits.memory_bytes,
                 memory_hit: false,
+                memory_used: 0,
                 net: Net {
                     policy: self.net.clone(),
                     ..Net::default()
@@ -1107,6 +1113,11 @@ impl AppRunner {
         self.fuel_used
     }
 
+    /// Linear memory of the live instance in bytes (what its memories have grown to).
+    pub fn memory_used(&self) -> Option<usize> {
+        self.live.as_ref().map(|l| l.store.data().memory_used)
+    }
+
     /// A new instance of the slot's current artifact, then its `start(config)`.
     pub fn start(&mut self, host: &mut BufferHost, config: &[u8]) -> Result<AppResult<()>, Error> {
         self.live = None;
@@ -1116,6 +1127,7 @@ impl AppRunner {
             Ctx {
                 memory_bytes: self.limits.memory_bytes,
                 memory_hit: false,
+                memory_used: 0,
                 net: Net::default(),
                 app: Some(placeholder()),
             },

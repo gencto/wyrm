@@ -1,0 +1,48 @@
+[package]
+name = "wyrm-example-portable"
+description = "Example portable link (ADR 0023): one App embedded, as a process and as a WASM component"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary, the broker (`portable-echo`) and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-example-portable"
+required-features = ["process"]
+
+[features]
+# The process link: `wyrm_link_sdk::process::main::<Portable<Echo>>()`.
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+# The WASM component: `wyrm_link_guest::export!(Echo)`.
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-portable.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package (the component, for every
+# host); `examples/packages/build.sh` also packs the binary built with
+# `features` (`--kind process --name portable-echo-process`).
+[package.metadata.wyrm-link]
+name = "portable-echo"
+description = "Portable link: n kept in its store, ping with a timer, echo"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 1 }

@@ -48,6 +48,9 @@ pub enum LinkCmd {
         /// --version).
         #[arg(long, requires_all = ["name", "version"])]
         component: Option<PathBuf>,
+        /// The package name: of the component, or instead of the crate's
+        /// (for example the process form of a portable link beside its wasm
+        /// form).
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
@@ -143,6 +146,18 @@ struct Plan {
     features: Vec<String>,
     /// The manifest; a process one without `entries` (one host per zip).
     manifest: Manifest,
+}
+
+impl Plan {
+    /// Another package name (`--name`); a component entry follows it.
+    fn rename(&mut self, name: &str) -> Result<(), Error> {
+        let m = &mut self.manifest;
+        m.name = name.to_owned();
+        if m.entry.is_some() {
+            m.entry = Some(format!("{name}.wasm"));
+        }
+        package::valid_name(name).map_err(|e| format!("--name {name}: {e}").into())
+    }
 }
 
 /// The plan of crate `p`; `kind` overrides the metadata's.
@@ -404,7 +419,10 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     }
     let md = cargo_metadata(&manifest_path)?;
     let p = pick(&md, &manifest_path, krate.as_deref())?;
-    let plan = plan(p, kind.as_deref())?;
+    let mut plan = plan(p, kind.as_deref())?;
+    if let Some(n) = &name {
+        plan.rename(n)?;
+    }
     let out = out.unwrap_or_else(|| md.target_directory.join("wyrm-link"));
     let bin = match &plan.artifact {
         Artifact::Component(lib) => {
@@ -679,6 +697,21 @@ pub(crate) mod tests {
         let typo = serde_json::json!({ "wyrm-link": { "kind": "wasm",
             "capabilities": { "store": 4 } } });
         assert!(plan(&app_pkg(typo), None).is_err());
+    }
+
+    /// `--name` renames a crate's package: both forms of one portable link in one repository.
+    #[test]
+    fn name_overrides_the_crate_package() {
+        let meta = serde_json::json!({ "wyrm-link": { "name": "acme", "kind": "wasm" } });
+        let mut wasm = plan(&app_pkg(meta.clone()), None).unwrap();
+        wasm.rename("acme-wasm").unwrap();
+        assert_eq!(wasm.manifest.name, "acme-wasm");
+        assert_eq!(wasm.manifest.entry.as_deref(), Some("acme-wasm.wasm"));
+        let mut proc = plan(&app_pkg(meta), Some("process")).unwrap();
+        proc.rename("acme-process").unwrap();
+        assert_eq!(proc.manifest.name, "acme-process");
+        assert_eq!(proc.manifest.entry, None);
+        assert!(proc.rename("bad name").is_err());
     }
 
     fn manifest(version: &str, hosts: &[&str]) -> Manifest {

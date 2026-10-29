@@ -22,6 +22,9 @@ wyrm-link-wasm.workspace = true
 wyrm-link-modbus.workspace = true
 wyrm-link-agent.workspace = true
 wyrm-link-mqtt.workspace = true
+wyrm-link-portable.workspace = true
+# the portable example app (ADR 0023): driver `portable-echo`
+wyrm-example-portable.workspace = true
 # Static plugins need the internal runtime API; this crate is the only one
 # that enables `internal`/`plugins`/`unstable`.
 zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_quic", "transport_unixsock-stream"] }

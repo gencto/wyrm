@@ -26,8 +26,9 @@ down. In the broker's own process it runs only as WASM.
 ## 2. What WYRM ships
 
 - **Built-in drivers** (in `wyrmd`): `mock`, `mockdev` (the mock on the driver
-  framework), `modbus`, `mqtt`, `agent`, `wasm`. Install them with
-  *from Driver*.
+  framework), `modbus`, `mqtt`, `agent`, `wasm`, `app` (a portable link on a
+  WASM component, section 9) and `portable-echo` (the example portable link,
+  native). Install them with *from Driver*.
 - **Link SDK** (`crates/wyrm-link-sdk`): the raw link layer, the driver
   framework (Connection → Device → Point with `Add`/`Edit`/`Remove` actions)
   and `process::run` for a link that runs as its own binary.
@@ -36,7 +37,8 @@ down. In the broker's own process it runs only as WASM.
 - **Example links** (`examples/links`): a responder (the `mockdev` driver
   as its own binary), a requester (records another link's values to CSV)
   and a link that is both (serves statistics of another link and writes its
-  points). `examples/packages/build.sh` packages them with `wyr link pack`
+  points), and a portable link (`examples/links/portable`, section 9) in its
+  three modes. `examples/packages/build.sh` packages them with `wyr link pack`
   and makes a repository with `wyr repo add` (ADR 0021).
 
 ## 3. The Install Link menu
@@ -223,8 +225,9 @@ wyr link pack --component register.wasm --name register --version 1.0.0
 Each build is one zip, `<name>-<version>-<host>.zip`, in
 `<target dir>/wyrm-link` (or `--out`); the same input gives the same bytes.
 Unknown fields in the section are refused. `--no-build` packs the binaries
-built before. The format lives in `wyrm-link-sdk` (feature `package`): the
-broker checks a package with the same code that `wyr` writes it with.
+built before; `--name` packs the crate under another package name. The
+format lives in `wyrm-link-sdk` (feature `package`): the broker checks a
+package with the same code that `wyr` writes it with.
 
 ## 8. WASM links
 
@@ -313,6 +316,26 @@ The app declares its nodes and actions in `start`, answers `on_set` and
 in the link's data directory. The host restarts a crashed instance with
 backoff; the store stays. `wyrm-link-guest` (`export!`) makes the WASM
 glue; `crates/wyrm-wasm-host/wit/app/app.wit` is the world.
+
+**The reference link** is `examples/links/portable` (`wyrm-example-portable`,
+app `Echo`). `wyrmd` runs it embedded as the driver `portable-echo`;
+`examples/packages/build.sh` packs it twice from the same crate:
+
+```sh
+wyr link pack --manifest-path examples/links/portable/Cargo.toml            # portable-echo-1.0.0.zip (wasm)
+wyr link pack --manifest-path examples/links/portable/Cargo.toml \
+  --kind process --name portable-echo-process                                # portable-echo-process-1.0.0-<os>-<arch>.zip
+```
+
+`--name` gives the process form its own package name: a broker keeps one
+package per name. The e2e test `one_app_three_modes` runs one scenario on
+the three modes and compares the results.
+
+**Cost of the modes** (`cargo bench -p wyrm-link-portable --bench roundtrip`,
+Apple M4 Max, release): one event round trip through the engine is about
+0.1 µs native and 1.4 µs WASM; a WASM instance starts again after a trap in
+20–30 µs (median; the backoff of 1 s, ×2, comes on top); one instance of the
+example has 1.1 MiB of linear memory, about 70 KiB of it resident.
 
 **Start a crate:**
 
@@ -498,7 +521,9 @@ network starts as usual: the field then says why the list is empty. Without
 | Install action | 120 s |
 | `git clone` | 120 s, depth 1, HTTPS only, needs `git` on the broker host |
 | WASM component | 16 MiB |
-| WASM call | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
+| WASM call, `driver`/`point` component (section 8) | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
+| WASM call, `app` component (section 9) | `call_ms` (2 s, at most 10 s), fuel 1 M per ms of `call_ms`, `memory_mb` (64 MiB, at most 512 MiB) |
+| Portable link (every mode) | 10 000 nodes, 1 000 timers, 1 000 subscriptions, 100 requests in flight, 1 000 commands per event; store `store_mb` (1 MiB, at most 64 MiB) |
 | WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
 
 ## 15. When an install fails
@@ -533,7 +558,13 @@ network starts as usual: the field then says why the list is empty. Without
    The point reads 7; write a number below 24 and read it back. The zips are
    under `out/<name>/<version>/`.
 6. Install Link ▸ from Repository, Package `register`, Name `reg2`.
-7. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a
+7. Install Link ▸ from Repository, Package `portable-echo`, Name `echo` (the
+   portable link as WASM), and Package `portable-echo-process`, Name `echop`
+   (the same app as a process). Install Link ▸ from Driver, Driver
+   `portable-echo`, Name `echoe` (embedded). In each, set `n`, ▸ Ping, then
+   `sys/links/<id>` ▸ Stop and ▸ Start: `n` comes back from the store and
+   `starts` goes up by one.
+8. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a
    requester), and ▸ from Url
    `http://127.0.0.1:8090/average/1.0.0/average-1.0.0-<os>-<arch>.zip`,
    Name `avg` (both). See

@@ -6008,6 +6008,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-example-portable"
+version = "1.0.0"
+dependencies = [
+ "tokio",
+ "wyrm-core",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-example-recorder"
 version = "1.0.0"
 dependencies = [
@@ -6225,10 +6237,13 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "wit-component 0.243.0",
  "wyrm-client",
  "wyrm-core",
+ "wyrm-example-portable",
  "wyrm-link-api",
  "wyrm-link-sdk",
+ "wyrm-wasm-host",
  "zeroize",
 ]
 
@@ -6384,6 +6399,7 @@ dependencies = [
  "wyrm-admin",
  "wyrm-client",
  "wyrm-core",
+ "wyrm-example-portable",
  "wyrm-flow",
  "wyrm-gateway",
  "wyrm-gateway-client",
@@ -6391,6 +6407,7 @@ dependencies = [
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",
+ "wyrm-link-portable",
  "wyrm-link-probe",
  "wyrm-link-sdk",
  "wyrm-link-wasm",

@@ -710,18 +710,23 @@ async fn authorize_and_deauthorize() {
 /// test's `wyrmd link mock`: the script path is absolute because the
 /// supervisor clears the environment.
 fn mock_package(version: &str) -> Vec<u8> {
+    driver_package("mockpkg", version, "mock link as a package", "mock")
+}
+
+/// A process package `name` whose entry runs `wyrmd link <driver>`.
+fn driver_package(name: &str, version: &str, description: &str, driver: &str) -> Vec<u8> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     let manifest = serde_json::json!({
-        "name": "mockpkg",
+        "name": name,
         "version": version,
-        "description": "mock link as a package",
+        "description": description,
         "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
         "kind": "process",
         "entries": { wyrm_admin::packages::platform(): "bin/run" },
     });
     let script = format!(
-        "#!/bin/sh\nexec \"{}\" link mock\n",
+        "#!/bin/sh\nexec \"{}\" link {driver}\n",
         env!("CARGO_BIN_EXE_wyrmd")
     );
     let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -1396,6 +1401,261 @@ async fn portable_app_installs_as_wasm() {
         .await
         .unwrap();
     assert_eq!(pong, Some(Value::Str("pong".into())));
+    env.stop().await;
+}
+
+/// `examples/links/portable` (`wyrm-example-portable`) for wasm32 with feature `wasm`, made a
+/// component, as `wyr link pack` builds it; `None` without the wasm32 target.
+fn portable_example_component() -> Option<Vec<u8>> {
+    use std::process::Command;
+    let libdir = Command::new("rustc")
+        .args([
+            "--print",
+            "target-libdir",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+    if !libdir.is_some_and(|d| d.exists()) {
+        return None;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("example-portable");
+    // a workspace member: the workspace's lock file and release profile
+    let out = Command::new(env!("CARGO"))
+        .args(["build", "--release", "--lib", "-p", "wyrm-example-portable"])
+        .args(["--target", "wasm32-unknown-unknown", "--features", "wasm"])
+        .arg("--manifest-path")
+        .arg(repo.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target)
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .output()
+        .expect("run cargo");
+    assert!(
+        out.status.success(),
+        "example build failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let core =
+        std::fs::read(target.join("wasm32-unknown-unknown/release/wyrm_example_portable.wasm"))
+            .expect("example wasm");
+    Some(
+        wit_component::ComponentEncoder::default()
+            .module(&core)
+            .expect("component type")
+            .validate(true)
+            .encode()
+            .expect("componentize"),
+    )
+}
+
+/// A client on a new session; `None` while the router is rebuilt.
+async fn client_now(env: &Env) -> Option<WyrmClient> {
+    let s = env.try_session().await?;
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    Some(
+        WyrmClient::new(s)
+            .with_tokens(Arc::new(SigningTokens::new(key, SITE)))
+            .with_timeout(Duration::from_secs(5)),
+    )
+}
+
+/// `invoke_one` retried on new sessions until it answers (installs rebuild the router).
+async fn invoke_retry(env: &Env, key: &str, action: &str, args: Value) -> Option<Value> {
+    eventually(&format!("{action} on {key}"), 40, || {
+        let args = args.clone();
+        async move {
+            let c = client_now(env).await?;
+            c.invoke_one(key, action, args).await.ok()
+        }
+    })
+    .await
+}
+
+/// The last sample of `node` (on a new session each try).
+async fn last_sample(env: &Env, node: &str) -> Option<wyrm_core::Sample> {
+    let c = client_now(env).await?;
+    let r = c.session().get(format!("{node}/~val")).await.ok()?;
+    let reply = r.recv_async().await.ok()?;
+    let s = reply.result().ok()?;
+    wyrm_core::codec::from_slice(&s.payload().to_bytes()).ok()
+}
+
+/// What one mode of the portable example shows in the scenario of `one_app_three_modes`.
+#[derive(Debug, PartialEq)]
+struct EchoRun {
+    pong: Option<Value>,
+    echo: Option<Value>,
+    n: Value,
+    ticks: Value,
+    /// `starts` after the link's restart minus before it: the store kept the count.
+    starts_added: f64,
+    /// `n` published again by the new instance (a sample newer than the restart).
+    n_after: Value,
+}
+
+/// `set n`, `invoke ping` and `echo`, `ticks` after the timer, then `sys/links/<id>` stop and
+/// start and `n` from the store.
+async fn echo_scenario(env: &Env, id: &str) -> EchoRun {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let pong = invoke_retry(env, &root, "ping", Value::Map(BTreeMap::new())).await;
+    let echo = invoke_retry(
+        env,
+        &root,
+        "echo",
+        Value::Map(BTreeMap::from([("value".to_owned(), Value::UInt(7))])),
+    )
+    .await;
+    let n_node = format!("{root}/n");
+    eventually(&format!("set {n_node}"), 20, || async {
+        client_now(env)
+            .await?
+            .set(&n_node, Value::UInt(5))
+            .await
+            .ok()
+    })
+    .await;
+    let n = eventually(&format!("{id}: n"), 10, || async {
+        last_sample(env, &n_node).await
+    })
+    .await;
+    let ticks_node = format!("{root}/ticks");
+    let ticks = eventually(&format!("{id}: ticks after the ping timer"), 10, || async {
+        last_sample(env, &ticks_node).await
+    })
+    .await;
+    let starts_node = format!("{root}/starts");
+    let before = eventually(&format!("{id}: starts"), 10, || async {
+        last_sample(env, &starts_node).await?.v.as_f64()
+    })
+    .await;
+
+    let link = format!("wy/{SITE}/sys/links/{id}");
+    let restarted = wyrm_link_sdk::now_us();
+    invoke_retry(env, &link, "stop", Value::Map(BTreeMap::new())).await;
+    invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
+    let after = eventually(&format!("{id} starts again"), 30, || async {
+        let s = last_sample(env, &starts_node).await?;
+        (s.t > restarted).then(|| s.v.as_f64()).flatten()
+    })
+    .await;
+    let n_after = eventually(&format!("{id}: n from the store"), 10, || async {
+        let s = last_sample(env, &n_node).await?;
+        (s.t > restarted).then_some(s.v)
+    })
+    .await;
+    EchoRun {
+        pong,
+        echo,
+        n: n.v,
+        ticks: ticks.v,
+        starts_added: after - before,
+        n_after,
+    }
+}
+
+/// ADR 0023: one app (`examples/links/portable`), three modes — embedded (driver
+/// `portable-echo`), a process package (its entry runs `Portable<Echo>` as `wyrmd link
+/// portable-echo`) and a WASM package (the crate built for wasm32) — answer the same scenario
+/// with the same results.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_app_three_modes() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    let env = Env::start(
+        "threemodes",
+        r#"links: { pe: { driver: "portable-echo" } },"#,
+    )
+    .await;
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |name: &str, zip: Vec<u8>| {
+        Value::Map(BTreeMap::from([
+            ("name".to_owned(), Value::from(name)),
+            ("zip".to_owned(), Value::Bytes(zip)),
+        ]))
+    };
+    let ok = |v: Option<Value>| {
+        let Some(Value::Map(m)) = &v else {
+            panic!("result map: {v:?}")
+        };
+        assert_eq!(m.get("success"), Some(&Value::Bool(true)), "{v:?}");
+    };
+
+    // the WASM package: an embedded link, no router rebuild
+    let mut ids = vec!["pe"];
+    match portable_example_component() {
+        Some(component) => {
+            let m = Manifest {
+                name: "portable-echo".into(),
+                version: "1.0.0".into(),
+                description: "the portable example as a component".into(),
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: Default::default(),
+                args: Vec::new(),
+                entry: Some("portable-echo.wasm".into()),
+                requester: Vec::new(),
+                world: Some("app".into()),
+                capabilities: Some(Capabilities {
+                    store_mb: Some(1),
+                    ..Capabilities::default()
+                }),
+            };
+            let files = [PackFile {
+                path: "portable-echo.wasm".into(),
+                data: component,
+                mode: 0o644,
+            }];
+            let zip = package::pack(&m, &files).unwrap();
+            ok(invoke_retry(&env, &links, "install_zip", install("pw", zip)).await);
+            ids.push("pw");
+        }
+        None => eprintln!(
+            "SKIP one_app_three_modes (WASM mode): target wasm32-unknown-unknown is not \
+             installed (rustup target add wasm32-unknown-unknown)"
+        ),
+    }
+    // the process package last: its install rebuilds the router (which restarts the embedded
+    // links); the process link answers only through the new router, so once it does, the
+    // broker has settled
+    let zip = driver_package(
+        "portable-echo-process",
+        "1.0.0",
+        "the portable example as a process",
+        "portable-echo",
+    );
+    ok(invoke_retry(&env, &links, "install_zip", install("pp", zip)).await);
+    ids.push("pp");
+    invoke_retry(
+        &env,
+        &format!("wy/{SITE}/downstream/pp"),
+        "echo",
+        Value::Map(BTreeMap::new()),
+    )
+    .await;
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["pe"].driver, "portable-echo");
+    assert_eq!(reg.links["pp"].mode, wyrm_admin::Mode::Process);
+    if ids.contains(&"pw") {
+        assert_eq!(reg.links["pw"].driver, "pkg:portable-echo");
+        assert_eq!(reg.links["pw"].mode, wyrm_admin::Mode::Embedded);
+    }
+
+    let want = EchoRun {
+        pong: Some(Value::Str("pong".into())),
+        echo: Some(Value::UInt(7)),
+        n: Value::UInt(5),
+        ticks: Value::UInt(1),
+        starts_added: 1.0,
+        n_after: Value::UInt(5),
+    };
+    for id in ids {
+        assert_eq!(echo_scenario(&env, id).await, want, "mode of {id}");
+    }
     env.stop().await;
 }
 
