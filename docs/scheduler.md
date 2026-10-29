@@ -46,7 +46,15 @@ with `--kind process --name scheduler-process`).
   embedded scheduler takes the system zone (`UTC` when the system zone has
   no IANA name). A package uses its param: add `default_tz` to the link's
   params, beside its capabilities, with the link's `update` (`sys/links/<id>`
-  or `wyr update`). An update replaces the params: give the others again.
+  or `wyr update`). An update replaces the params: give the others again,
+  as `sys/links/<id>` ▸ History shows them. For the WASM package:
+  `update {params: {net: "", store_mb: 16, memory_mb: 64, call_ms: 2000,
+  component: "scheduler", default_tz: "Europe/Kyiv"}}` (the process package
+  has no `component`). Without `store_mb` the store falls to 1 MiB.
+- **Without its keys.** The embedded scheduler signs its writes with keys
+  the admin keeps as link secrets. When the admin cannot save them (a full
+  or read-only disk), `wyrmd` logs it at `error` and runs without the
+  scheduler; the next router rebuild or restart tries again.
 - **Grants of a package.** A package has no grants of its own. Before a
   package scheduler can write a point, give it `write` on that point's link:
   `sys/links/<id>` ▸ Grant Access `{path: wy/<site>/downstream/<link>,
@@ -109,7 +117,7 @@ window (`start`, `end`).
 | `INTERVAL` | 1 to 1 000 (default 1) |
 | `COUNT` | 1 to 10 000 occurrences, or |
 | `UNTIL` | a local time: the last occurrence starts at or before it (not with `COUNT`) |
-| `BYDAY` | `MO,TU,…,SU`; with `MONTHLY` and `YEARLY` an ordinal in the month: `1MO` (first Monday), `-1FR` (last Friday) |
+| `BYDAY` | `MO,TU,…,SU`; with `MONTHLY` and `YEARLY` an ordinal in the month, 1 to 5 or -1 to -5: `1MO` (first Monday), `-1FR` (last Friday) |
 | `BYMONTHDAY` | 1 to 31, or `-1` (the last day of the month) |
 | `BYMONTH` | 1 to 12 |
 
@@ -156,9 +164,9 @@ event.
 
 **Moments** follow the same rules: a moment writes its value only if no
 window that would beat it is active at its instant. After it the schedule
-keeps the moment's value (`source` = its id) until its next transition.
-A moment missed while the link was down is not written later. After a
-restart the schedule shows the window state now (section 11).
+keeps the moment's value (`source` = its id) until its next transition, also
+across a restart. A moment missed while the link was down is not written
+later (section 11).
 
 ## 7. The tree
 
@@ -175,7 +183,9 @@ Paths under the link root (`wy/<site>/downstream/scheduler`):
 
 - `next_time` and `next_value` are the next **transition** (an event start,
   an event end, a day under a special day, a moment), up to 366 days ahead;
-  null when nothing changes in that time or the schedule is off.
+  null when nothing changes in that time or the schedule is off. An enabled
+  schedule with nothing in that time is evaluated again 365 days on, so an
+  event further ahead still fires, with no edit or restart.
 - `enabled` off: the schedule shows its value but wakes and writes nothing.
   Turned on, it is a transition: every target is written.
 - Writing `default` changes the definition (saved at once); a different
@@ -197,7 +207,7 @@ action answers.
 | `<s>` | `get_events` | read | `timerange` (required), `limit` (1 000, at most 5 000) | rows `{start, end, event, value, priority, special}` |
 | `<s>` | `export` | read | — | `{json}` |
 | `<s>` | `edit` | write | `display`, `tz`, `default` | — |
-| `<s>` | `remove` | write | — (its targets and their records go too) | — |
+| `<s>` | `remove` | write | — (refused while it has targets: remove them first, at `config`) | — |
 | `<s>` | `add_target` | config | `point`, `confirm` (required), `feedback`, `map`, `feedback_map`, `tolerance` | `{id}` (`t<n>`) |
 | `<s>/events/<e>` | `edit` | write | the fields of `add_event`; absent or null keeps a field; an empty `recurrence` makes it once | — |
 | `<s>/events/<e>` | `remove` | write | — | — |
@@ -223,10 +233,10 @@ Errors (the status, then `<field>: <rule>`):
 
 | Status | When |
 |---|---|
-| `invalid_parameter` | A field is missing or wrong: `end: end is before start`, `recurrence: COUNT: must be 1 to 10000`, `tz: unknown IANA time zone "Kyiv"`, `id: lobby exists`, `point: … is written by lobby/t1`. |
+| `invalid_parameter` | A field is missing or wrong: `end: end is before start`, `recurrence: COUNT: must be 1 to 10000`, `tz: unknown IANA time zone "Kyiv"`, `id: lobby exists`, `point: … is written by lobby/t1`, `default: a number must be finite (no NaN or infinity)` (also an event `value`, `map`, `feedback_map`). A schedule `remove` while it has targets: `lobby has 1 targets: remove its targets first`. |
 | `resource_exhausted` | A cap (section 13), named: `lobby: at most 100 events per schedule`, `at most 9500 nodes in the scheduler (9496 used)`. Also a full store. Nothing is saved or declared. |
 | `not_found` | No such schedule, event or target. |
-| `busy` | `import` and the target actions while the link still loads its schedules after a start (`N schedules are still loading`). Try again. |
+| `busy` | `import`, `add_target`, a target's `edit`, and `enable` of a disabled target, while the link still loads its schedules after a start (`N schedules are still loading`): they check one writer per point against every schedule. Try again. |
 | `not_supported` | No such action on that node. |
 | `permission_denied` | The caller's level is too low, or a package scheduler has no grant on the target's link. No message (spec 04). |
 
@@ -249,6 +259,9 @@ has an entry. Then it confirms the write:
 - **Equal** means: numbers within `tolerance` (default 1e-6, relative;
   absolute when the expected value is 0); `true`/`false` and 1/0 are equal;
   other values exactly.
+- A value with quality `uncertain` or `bad` (a device offline) confirms
+  nothing, and the link forgets the key's last value: a later `ok` does not
+  confirm on a value from before it.
 - **`map` keys** are the schedule value as text: `true`, `false`, a number
   in its shortest form (`1`, `0.5`), text as it is. Example:
   `{"true": 1, "false": 0}` writes 1 for `true`. A value without an entry is
@@ -296,7 +309,7 @@ target node.
 | Level on the scheduler | Allows |
 |---|---|
 | `read` | see the tree, `get_events`, `export` |
-| `write` | schedules and events: `add_schedule`, `add_event`, `edit`, `remove`, `default`, `enabled` |
+| `write` | schedules and events: `add_schedule`, `add_event`, `edit`, `remove` (a schedule without targets), `default`, `enabled` |
 | `config` | targets and import: `add_target`, a target's `edit`/`enable`/`disable`/`remove`, `import` |
 
 **Targets are configuration.** Whoever has `config` on the scheduler may
@@ -325,6 +338,14 @@ With the gateway's default roles:
   `write`, only under `wy/<site>/downstream`, only with the subject
   `link:scheduler`. A package scheduler signs with its requester key, up
   to its grants (section 2).
+- **Not itself.** The embedded scheduler does not trust its own key, so a
+  schedule cannot write the scheduler's own nodes (`<s>/default`,
+  `<s>/enabled`) in a loop. The app does not know its own link id, so
+  `add_target` accepts such a point; its writes fail with
+  `permission_denied` and the target stays `retrying`. Do not do that.
+- **Removing a schedule.** `remove` is at `write`, its targets are at
+  `config`: a schedule with targets is refused until someone with `config`
+  removes them.
 
 ## 11. Clock steps and restarts
 
@@ -346,12 +367,21 @@ what it missed.
 
 | Stored record for the target | At start |
 |---|---|
-| `confirmed` or `override` for this same state (value and occurrence) | left as it was: no write; a manual change survives a restart inside the same window |
-| none, or for another state; `ack` | written |
-| none, or for another state; `read_back`/`feedback` | waits 2 s for a first value of its confirm key: a value that already shows the expected one confirms without a write, else it is written |
+| `confirmed` or `override` for this same state (value and occurrence), and no transition since (`valid_until`) | left as it was: no write; a manual change survives a restart inside the same window |
+| none, for another state, or past its `valid_until`; `ack` | written |
+| none, for another state, or past its `valid_until`; `read_back`/`feedback` | waits 2 s for a first value of its confirm key: a value that already shows the expected one confirms without a write, else it is written |
 
-- A moment's value is not restored after a restart: the schedule shows the
-  window state now, and the targets follow the rules above.
+- **`valid_until`.** A record keeps the instant of the next transition after
+  its state (365 days on when there is none). A record past it is stale: the
+  link was down across a transition and back, and an override from before
+  does not pass for the state now. An edit that moves the next transition
+  puts the records again. Records of an older version have no `valid_until`
+  and are stale once, at the first start after the upgrade.
+- **Held moments.** A moment that fired and is still the schedule's state is
+  kept across a restart (store key `h/<s>`, deleted when the next
+  transition replaces it): the schedule shows it, and its targets follow the
+  rules above. A moment missed while the link was down is still not
+  written.
 - Records are kept only for `confirmed` and `override`; a target edit,
   disable or remove drops its record.
 
@@ -414,9 +444,9 @@ DSA has no targets: add them after the import.
 | Writes waiting for a reply | 50; the rest wait in the queue |
 | `COUNT` | 10 000 |
 | `INTERVAL` | 1 to 1 000 |
-| Next transition | 366 days ahead |
+| Next transition | 366 days ahead; with none, evaluated again 365 days on |
 | `get_events` | 5 000 rows (1 000 without `limit`) |
-| Store | embedded 64 MiB (`scheduler.store_mb`), packages 16 MiB; each schedule and each target record takes at least 4 KiB |
+| Store | embedded 64 MiB (`scheduler.store_mb`), packages 16 MiB; each schedule, held moment and target record takes at least 4 KiB. Keys at most `1 + 2 × schedules + targets` (8 031 within the node budget), below the host's 10 000 |
 | Requests | 50 per second per caller (burst 100), as every link |
 
 ## 14. Measurements
@@ -471,8 +501,6 @@ WASM package, 200 schedules × 10 events × 1 target: `start` answered in
   and writer on newer versions.
 - A forward clock step under 30 s while a long burst still runs replays the
   transitions of that span (moments too) instead of skipping them.
-- `YEARLY` with a `BYDAY` ordinal above 5 (`20MO`) is accepted but never
-  matches: ordinals count within a month.
 - An event `edit` cannot set the value to null (null keeps the old value).
 - A definition the link cannot read from its store stays in the index and
   cannot be removed with `remove`.
