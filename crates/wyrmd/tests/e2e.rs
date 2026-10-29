@@ -224,9 +224,10 @@ async fn list_resolve_set_invoke_over_router() {
     let Some(ListEvent::Refreshed(snap)) = links.next().await else {
         panic!()
     };
+    // and the embedded scheduler (ADR 0022)
     assert_eq!(
         snap.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["mock"]
+        ["mock", "scheduler"]
     );
     assert_eq!(c.children(&format!("{root}/g1")).await.unwrap().len(), 4);
     // multi-term match: the raw selector survives the router hop
@@ -2680,11 +2681,12 @@ async fn two_brokers_over_quic() {
             let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
-            (names.len() == 3).then_some(names)
+            (names.len() == 4).then_some(names)
         }
     })
     .await;
-    assert_eq!(names, ["mock", "pm", "slow"]);
+    // and edge's embedded scheduler (ADR 0022)
+    assert_eq!(names, ["mock", "pm", "scheduler", "slow"]);
     // Each broker shows its peer: the downstream edge beside central's
     // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
@@ -2952,7 +2954,7 @@ async fn chain_of_three_brokers() {
             .filter(|n| n.contains(&"pm".to_owned()))
     })
     .await;
-    assert_eq!(pm, ["pm"]);
+    assert_eq!(pm, ["pm", "scheduler"]);
     // edge shows plant beside its links, connected
     eventually(
         "edge's downstream/plant connected, seen from central",
@@ -4675,7 +4677,7 @@ async fn two_brokers_isolation() {
         .into_iter()
         .map(|c| c.name)
         .collect();
-    assert_eq!(names, ["mock"], "rogue link listed at central");
+    assert_eq!(names, ["mock", "scheduler"], "rogue link listed at central");
     let _ = rs.close().await;
     let _ = r_stop.send(());
     r_task.await.unwrap().unwrap();
@@ -5067,5 +5069,288 @@ async fn history_overlays_mark_recorded_points() {
         (h == Value::Array(vec![Value::from(format!("{group}/w1"))])).then_some(())
     })
     .await;
+    env.stop().await;
+}
+
+/// The embedded scheduler (ADR 0022) at `downstream/scheduler` writes a
+/// process link's point with its own key: the link's `hello` reply carried
+/// that key, its responder audits the write under `link:scheduler`. Targets
+/// are config (ruling 6): a user with `write` on the scheduler alone (or the
+/// built-in `operator`, `write` on all devices) adds schedules and events,
+/// never targets or imports; an `engineer` (`config`) adds targets.
+/// The id is reserved for new links.
+#[tokio::test(flavor = "multi_thread")]
+async fn embedded_scheduler_drives_a_process_link() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let port = free_port();
+    let env_lock = GATEWAY_ENV.lock().await;
+    std::env::set_var(
+        wyrmd::GATEWAY_ADMIN_PASSWORD_ENV,
+        "correct-horse-battery-staple",
+    );
+    let env = Env::start(
+        "scheduler",
+        &format!(
+            r#"links: {{ pm: {{ driver: "mock", mode: "process", params: {{ points: 2, rate_hz: 1, depth: 1, fanout: 1 }} }} }},
+            gateway: {{ listen: "127.0.0.1:{port}", admin_user: "root" }},"#
+        ),
+    )
+    .await;
+    drop(env_lock);
+    let gw = env.gateway.clone().expect("gateway configured");
+    // CI's debug build is slow on the first calls
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let state = format!("wy/{SITE}/sys/links/pm/state");
+    eventually("pm connected", 60, || async {
+        (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
+    })
+    .await;
+    let sched = format!("wy/{SITE}/downstream/scheduler");
+    eventually("scheduler up", 60, || async { c.meta(&sched).await.ok() }).await;
+
+    // a schedule whose event holds 1 now
+    // local wall-clock minutes in `tz`
+    let minute = |tz: &str, offset: i64| {
+        (jiff::Timestamp::now() + jiff::SignedDuration::from_mins(offset))
+            .to_zoned(jiff::tz::TimeZone::get(tz).unwrap())
+            .strftime("%Y-%m-%dT%H:%M")
+            .to_string()
+    };
+    c.invoke_one(
+        &sched,
+        "add_schedule",
+        m(&[
+            ("id", Value::from("s1")),
+            ("tz", Value::from("UTC")),
+            ("default", Value::UInt(0)),
+        ]),
+    )
+    .await
+    .expect("add_schedule");
+    let s1 = format!("{sched}/s1");
+    c.invoke_one(
+        &s1,
+        "add_event",
+        m(&[
+            ("value", Value::UInt(1)),
+            ("start", Value::from(minute("UTC", -1))),
+            ("end", Value::from(minute("UTC", 60))),
+        ]),
+    )
+    .await
+    .expect("add_event");
+    let current = format!("{s1}/current");
+    eventually("s1 current is 1", 15, || async {
+        last_val(&c, &current)
+            .await
+            .filter(|v| v.as_f64() == Some(1.0))
+    })
+    .await;
+    let point = format!("wy/{SITE}/downstream/pm/g0/p0");
+    let added = c
+        .invoke_one(
+            &s1,
+            "add_target",
+            m(&[
+                ("point", Value::from(point.as_str())),
+                // enum `read_back | feedback | ack`, by index
+                ("confirm", Value::UInt(0)),
+            ]),
+        )
+        .await
+        .expect("add_target");
+    assert!(
+        matches!(&added, Some(Value::Map(r)) if r.get("id") == Some(&Value::from("t1"))),
+        "{added:?}"
+    );
+    eventually("the point is written", 15, || async {
+        last_val(&c, &point)
+            .await
+            .filter(|v| v.as_f64() == Some(1.0))
+    })
+    .await;
+    let t1 = format!("{s1}/targets/t1");
+    eventually("t1 confirmed", 15, || async {
+        last_val(&c, &t1)
+            .await
+            .filter(|v| *v == Value::from("confirmed"))
+    })
+    .await;
+    // ruling 2: the target link's responder audits the write
+    let audited = |status: wyrm_core::Status| {
+        env.ctl.audit_tail(1000).iter().any(|r| {
+            r.op == "set"
+                && r.sub == "claimed:link:scheduler"
+                && r.key.starts_with(&point)
+                && r.status == status.code()
+                && r.detail.starts_with("link:pm ")
+        })
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while !audited(wyrm_core::Status::Ok) {
+        if tokio::time::Instant::now() > deadline {
+            let seen: Vec<_> = env
+                .ctl
+                .audit_tail(1000)
+                .into_iter()
+                .filter(|r| r.key.contains("/pm/") || r.detail.starts_with("link:pm "))
+                .map(|r| format!("{} {} {} {} {}", r.sub, r.op, r.key, r.status, r.detail))
+                .collect();
+            panic!("no audit record of the write; pm records: {seen:#?}");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // users through the gateway: their grants decide
+    let mut body = BTreeMap::new();
+    body.insert("user".to_owned(), Value::from("root"));
+    body.insert(
+        "password".to_owned(),
+        Value::from("correct-horse-battery-staple"),
+    );
+    let body = wyrm_core::codec::to_vec(&Value::Map(body)).unwrap();
+    let req = format!(
+        "POST /api/login HTTP/1.1\r\nHost: gw\r\nConnection: close\r\nContent-Type: application/cbor\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    );
+    let mut s = tokio::net::TcpStream::connect(gw.local_addr().await)
+        .await
+        .unwrap();
+    s.write_all(req.as_bytes()).await.unwrap();
+    s.write_all(&body).await.unwrap();
+    let mut resp = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), s.read_to_end(&mut resp))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(resp.starts_with(b"HTTP/1.1 200"), "login ok");
+    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let Value::Map(lm) = wyrm_core::codec::from_slice::<Value>(&resp[split + 4..]).unwrap() else {
+        panic!("login body is a map")
+    };
+    let Some(Value::Str(session)) = lm.get("session") else {
+        panic!("session token")
+    };
+    let p = gw.authenticate(session).expect("session verifies");
+    c.invoke_one(
+        &format!("wy/{SITE}/sys"),
+        "update_permissions",
+        m(&[
+            ("role", Value::from("sched")),
+            ("path", Value::from("wy/{site}/downstream/scheduler/**")),
+            ("level", Value::from("write")),
+        ]),
+    )
+    .await
+    .expect("a role with write on the scheduler alone");
+    let user = |name: &str, grants: wyrm_gateway::Grants| {
+        let mut q = p.clone();
+        q.name = name.to_owned();
+        q.grants = grants;
+        q
+    };
+    let writer = user("sched-user", gw.grants_of(&["sched".to_owned()]));
+    let cw = WyrmClient::new(env.session().await)
+        .with_tokens(Arc::new(gw.tokens_for(&writer)))
+        .with_timeout(Duration::from_secs(60));
+    cw.invoke_one(
+        &sched,
+        "add_schedule",
+        m(&[("id", Value::from("s2")), ("default", Value::UInt(0))]),
+    )
+    .await
+    .expect("write adds a schedule");
+    let s2 = format!("{sched}/s2");
+    // ruling 3: without `tz` the schedule has the system zone
+    let zone = c
+        .meta(&s2)
+        .await
+        .unwrap()
+        .attr_value("tz")
+        .cloned()
+        .unwrap();
+    let want = jiff::tz::TimeZone::system()
+        .iana_name()
+        .unwrap_or("UTC")
+        .to_owned();
+    assert_eq!(zone, Value::from(want.as_str()), "the system zone");
+    cw.invoke_one(
+        &s2,
+        "add_event",
+        m(&[
+            ("value", Value::UInt(1)),
+            ("start", Value::from(minute(&want, -1))),
+            ("end", Value::from(minute(&want, 60))),
+        ]),
+    )
+    .await
+    .expect("write adds an event");
+    let p1 = format!("wy/{SITE}/downstream/pm/g0/p1");
+    let target = m(&[
+        ("point", Value::from(p1.as_str())),
+        ("confirm", Value::UInt(0)),
+    ]);
+    let e = cw
+        .invoke_one(&s2, "add_target", target.clone())
+        .await
+        .expect_err("targets are config");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "add_target: {e}");
+    let e = cw
+        .invoke_one(&sched, "import", m(&[("json", Value::from("{}"))]))
+        .await
+        .expect_err("import carries targets: config");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "import: {e}");
+    // the built-in roles: `operator` has write on downstream/**, `engineer`
+    // config
+    let env_ref = &env;
+    let role_client = |role: &str| {
+        let u = user(
+            &format!("{role}-user"),
+            wyrm_gateway::RoleTable::default().grants(SITE, &[role.to_owned()]),
+        );
+        let tokens = Arc::new(gw.tokens_for(&u));
+        async move {
+            WyrmClient::new(env_ref.session().await)
+                .with_tokens(tokens)
+                .with_timeout(Duration::from_secs(60))
+        }
+    };
+    let e = role_client("operator")
+        .await
+        .invoke_one(&s2, "add_target", target.clone())
+        .await
+        .expect_err("write on downstream/** is not config");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "operator: {e}");
+    role_client("engineer")
+        .await
+        .invoke_one(&s2, "add_target", target)
+        .await
+        .expect("config on downstream/** adds a target");
+    eventually("the engineer's target writes", 15, || async {
+        last_val(&c, &p1).await.filter(|v| v.as_f64() == Some(1.0))
+    })
+    .await;
+
+    // reserved for new links
+    let e = c
+        .invoke_one(
+            &format!("wy/{SITE}/sys/links"),
+            "install",
+            m(&[
+                ("id", Value::from("scheduler")),
+                ("driver", Value::from("mock")),
+                ("mode", Value::from("embedded")),
+            ]),
+        )
+        .await
+        .expect_err("the id is the broker's");
+    assert!(e.to_string().contains("reserved"), "{e}");
     env.stop().await;
 }

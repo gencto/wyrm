@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use wyrm_admin::control::{SCHEDULER_LINK, STORAGE_LINK};
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
     UpstreamConf,
@@ -28,6 +29,7 @@ use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_portable::{Portable, PortableConfig};
+use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
 use wyrm_link_wasm::ComponentWorld;
@@ -102,6 +104,36 @@ pub struct Config {
     /// User gateway (HTTP + WebSocket, iteration 5). Off when absent.
     #[serde(default)]
     pub gateway: Option<GatewaySection>,
+    /// The embedded scheduler at `wy/<site>/downstream/scheduler` (ADR 0022).
+    #[serde(default)]
+    pub scheduler: SchedulerSection,
+}
+
+/// `scheduler` in `wyrmd.json5`: on by default.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulerSection {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Size of its store (definitions and last outcomes) in MiB.
+    #[serde(default = "default_scheduler_store_mb")]
+    pub store_mb: u32,
+}
+
+impl Default for SchedulerSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            store_mb: default_scheduler_store_mb(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_scheduler_store_mb() -> u32 {
+    64
 }
 
 /// The first admin's password comes from `WYRM_GATEWAY_ADMIN_PASSWORD` at
@@ -434,6 +466,20 @@ impl Config {
             if cfg.links.contains_key(&d.site) {
                 return Err(format!("links.{}: the name of a downstream site", d.site).into());
             }
+            // `downstream/scheduler` is the embedded scheduler (ADR 0022)
+            if d.site == SCHEDULER_LINK {
+                return Err(
+                    format!("peers.downstream {}: the id belongs to the broker", d.site).into(),
+                );
+            }
+        }
+        let mb = cfg.scheduler.store_mb;
+        if !(1..=wyrm_link_portable::MAX_STORE_MB).contains(&mb) {
+            return Err(format!(
+                "scheduler.store_mb {mb}: expected 1 to {}",
+                wyrm_link_portable::MAX_STORE_MB
+            )
+            .into());
         }
         if let Some(addr) = cfg.rest {
             // The REST plugin runs inside the router: the ACL never sees its
@@ -489,6 +535,10 @@ impl Config {
         }
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
+            // ids of the broker's own links (ADR 0017, 0022)
+            if [STORAGE_LINK, SCHEDULER_LINK].contains(&id.as_str()) {
+                return Err(format!("links.{id}: the id belongs to the broker").into());
+            }
             if let Some(m) = &l.mode {
                 Mode::parse(m).ok_or_else(|| format!("links.{id}.mode: unknown mode {m}"))?;
             }
@@ -761,6 +811,8 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "mqtt" => wyrm_link_sdk::process::run::<Mqtt>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
+        // the scheduler as a process link (ADR 0022 run modes)
+        "scheduler" => wyrm_link_sdk::process::run::<Portable<Scheduler>>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())
@@ -775,7 +827,18 @@ pub struct Broker {
     admin: Option<Attached>,
     flows: Option<LinkHandle<Engine>>,
     storage: Option<LinkHandle<Storage>>,
+    scheduler: Option<LinkHandle<Portable<Scheduler>>>,
     gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
+}
+
+/// The zone of schedules added without one (ruling 3): the system's IANA
+/// zone when the scheduler knows it, else UTC.
+fn system_zone() -> String {
+    jiff::tz::TimeZone::system()
+        .iana_name()
+        .filter(|n| jiff::tz::TimeZone::get(n).is_ok())
+        .unwrap_or("UTC")
+        .to_owned()
 }
 
 impl Broker {
@@ -833,7 +896,7 @@ impl Broker {
         // flows at write, each only under `storage`; upstream sites at
         // write (ADR 0018).
         let root = format!("wy/{}/storage", cfg.site);
-        let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::STORAGE_LINK);
+        let mut lcfg = LinkConfig::new(cfg.site.clone(), STORAGE_LINK);
         lcfg.root = Some(root.clone());
         lcfg.admin_keys = ctl.config().admin_keys.clone();
         lcfg.limited_keys = std::iter::once((flow_key, wyrm_core::Perm::Write))
@@ -863,6 +926,38 @@ impl Broker {
                 return Err(format!("storage: {e}").into());
             }
         };
+        // The scheduler (ADR 0022): trusted as every embedded link; it signs
+        // its writes with its own key, which links trust at write on
+        // `downstream` (made by the admin at attach).
+        let scheduler = if cfg.scheduler.enabled {
+            let site_down = format!("wy/{}/downstream", cfg.site);
+            let started = match ctl
+                .embedded_link_config(SCHEDULER_LINK, vec![(site_down, wyrm_core::Perm::Write)])
+            {
+                Ok(lcfg) => {
+                    let mut params = BTreeMap::new();
+                    params.insert("default_tz".to_owned(), Value::Str(system_zone()));
+                    let pcfg = PortableConfig {
+                        params: Value::Map(params),
+                        store_mb: cfg.scheduler.store_mb,
+                        ..PortableConfig::default()
+                    };
+                    wyrm_link_sdk::spawn::<Portable<Scheduler>>(session.clone(), lcfg, pcfg).await
+                }
+                Err(e) => Err(e),
+            };
+            match started {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    storage.stop().await;
+                    flows.stop().await;
+                    admin.stop().await;
+                    return Err(format!("scheduler: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
         runtime.start().await?;
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
@@ -885,6 +980,7 @@ impl Broker {
             admin: Some(admin),
             flows: Some(flows),
             storage: Some(storage),
+            scheduler,
             gateway,
         })
     }
@@ -907,6 +1003,10 @@ impl Broker {
         if let Some((tx, task)) = self.gateway.take() {
             let _ = tx.send(());
             let _ = task.await;
+        }
+        // first: it sends requests to the other links
+        if let Some(s) = self.scheduler.take() {
+            s.stop().await;
         }
         if let Some(f) = self.flows.take() {
             f.stop().await;
@@ -1239,6 +1339,7 @@ impl Daemon {
             anchor_dir: cfg.state_anchor_dir.clone(),
             anchor_init: cfg.init_anchors,
             repository: cfg.packages.repository.clone(),
+            scheduler: cfg.scheduler.enabled,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -1263,14 +1364,17 @@ impl Daemon {
         }
         // The broker storage owns this id since spec 0.2.2 (ADR 0017): a link
         // stored under it would share its audit records, overlays and logs.
-        if ctl
-            .registry()
-            .links
-            .contains_key(wyrm_admin::control::STORAGE_LINK)
-        {
+        if ctl.registry().links.contains_key(STORAGE_LINK) {
             return Err(format!(
-                "a link with id {:?} exists; the id belongs to the broker storage since spec 0.2.2 (ADR 0017): remove the link with the previous wyrmd first",
-                wyrm_admin::control::STORAGE_LINK
+                "a link with id {STORAGE_LINK:?} exists; the id belongs to the broker storage since spec 0.2.2 (ADR 0017): remove the link with the previous wyrmd first"
+            )
+            .into());
+        }
+        // The same for the embedded scheduler (ADR 0022): it would also share
+        // `downstream/scheduler`.
+        if ctl.registry().links.contains_key(SCHEDULER_LINK) {
+            return Err(format!(
+                "a link with id {SCHEDULER_LINK:?} exists; the id belongs to the embedded scheduler (ADR 0022): remove the link with the previous wyrmd first"
             )
             .into());
         }
@@ -1400,6 +1504,26 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduler_section_and_reserved_ids() {
+        let parse = |extra: &str| Config::from_json5(&format!(r#"{{ site: "s", {extra} }}"#));
+        let d = parse("").unwrap().scheduler;
+        assert!(d.enabled);
+        assert_eq!(d.store_mb, 64);
+        let off = parse("scheduler: { enabled: false }").unwrap().scheduler;
+        assert!(!off.enabled);
+        assert_eq!(off.store_mb, 64);
+        for bad in [
+            "scheduler: { store_mb: 0 }",
+            "scheduler: { store_mb: 65 }",
+            "scheduler: { other: 1 }",
+            r#"links: { scheduler: { driver: "mock" } }"#,
+            r#"links: { storage: { driver: "mock" } }"#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn a_pkg_app_runs_its_own_package() {

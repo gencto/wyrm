@@ -112,6 +112,9 @@ pub struct ControlConfig {
     /// Index of link packages for "Install Link ▸ from Repository" (ADR
     /// 0011), as DSA's `linkRepositoryUrl`.
     pub repository: Option<String>,
+    /// The embedded scheduler runs ([`SCHEDULER_LINK`], ADR 0022): its keys
+    /// are made at attach and every link trusts its requester key.
+    pub scheduler: bool,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -138,6 +141,9 @@ pub const AGENT_DRIVER: &str = "agent";
 pub const FLOWS_LINK: &str = "dataflows";
 /// Link id of the broker storage (rooted at `wy/<site>/storage`, ADR 0017).
 pub const STORAGE_LINK: &str = "storage";
+/// Link id of the embedded scheduler (`wy/<site>/downstream/scheduler`, ADR 0022): not a
+/// registry link; it signs its writes with its own requester key, trusted by every link.
+pub const SCHEDULER_LINK: &str = "scheduler";
 /// `sys/overlays/.sites`: overlays of downstream sites' points this site
 /// records, by full key, laid on by the gateway (ADR 0020). Never a link
 /// id: those may not start with `.`.
@@ -743,8 +749,41 @@ impl Control {
         let mut limited = self.cfg.link_keys.clone();
         limited.extend(self.agent_limited_keys());
         limited.extend(self.requester_limited_keys());
+        limited.extend(self.scheduler_limited_key());
         limited.extend(self.upstream_trust("downstream"));
         (self.cfg.admin_keys.clone(), limited)
+    }
+
+    /// The embedded scheduler's requester key: `write` on this site's
+    /// `downstream` only, bound to the subject `link:scheduler` (ADR 0022).
+    fn scheduler_limited_key(&self) -> Option<wyrm_link_sdk::LimitedKey> {
+        if !self.cfg.scheduler {
+            return None;
+        }
+        Some(wyrm_link_sdk::LimitedKey {
+            key: self.requester_key_of(SCHEDULER_LINK)?,
+            cap: Perm::Write,
+            scopes: vec![format!("wy/{}/downstream", self.cfg.site)],
+            subject: Some(format!("link:{SCHEDULER_LINK}")),
+        })
+    }
+
+    /// The link config of a link the broker runs in-process (an embedded
+    /// registry link or a built-in one): the links' trust, its secrets,
+    /// its private `data_dir` and `grants`.
+    pub fn embedded_link_config(
+        &self,
+        id: &str,
+        grants: Vec<(String, Perm)>,
+    ) -> Result<LinkConfig, LinkError> {
+        let mut lcfg = LinkConfig::new(self.cfg.site.clone(), id);
+        let (admin_keys, limited_keys) = self.link_trust();
+        lcfg.admin_keys = admin_keys;
+        lcfg.limited_keys = limited_keys;
+        lcfg.secrets = self.link_secrets(id);
+        lcfg.data_dir = Some(self.link_data_dir(id)?);
+        lcfg.grants = grants;
+        Ok(lcfg)
     }
 
     /// The requester key of a link with grants, one limited key per grant:
@@ -796,21 +835,30 @@ impl Control {
     /// A link with grants gets its requester key as a link secret, created
     /// once (it goes away with the link's secrets).
     fn ensure_requester_key(&self, def: &LinkDef) -> Result<(), Error> {
-        if def.grants.is_empty()
-            || self
-                .secrets
-                .names(&def.id)
-                .iter()
-                .any(|n| n == wyrm_link_sdk::REQUESTER_KEY)
-        {
+        if def.grants.is_empty() {
+            return Ok(());
+        }
+        self.ensure_requester_seed(&def.id)
+    }
+
+    /// The requester key secret of `id`, created once.
+    fn ensure_requester_seed(&self, id: &str) -> Result<(), Error> {
+        let name = wyrm_link_sdk::REQUESTER_KEY;
+        if self.secrets.names(id).iter().any(|n| n == name) {
             return Ok(());
         }
         let mut seed = zeroize::Zeroizing::new([0u8; 32]);
         getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
-        self.secrets
-            .set(&def.id, wyrm_link_sdk::REQUESTER_KEY, &seed[..])?;
-        info!(link = %def.id, "requester key created");
+        self.secrets.set(id, name, &seed[..])?;
+        info!(link = %id, "requester key created");
         Ok(())
+    }
+
+    /// A built-in link (not in the registry, [`SCHEDULER_LINK`]) gets its
+    /// requester key and store key as link secrets, each created once.
+    fn ensure_builtin_keys(&self, id: &str) -> Result<(), Error> {
+        self.ensure_requester_seed(id)?;
+        self.ensure_store_key(id)
     }
 
     /// Agent keys at `write`, each only under its link's `allowed_prefixes`.
@@ -1459,6 +1507,11 @@ impl Control {
     /// Run the admin responder, embedded links, process links and watchers
     /// on `session` (an in-process session of the router runtime).
     pub async fn attach(self: &Arc<Self>, session: Session) -> Result<Attached, Error> {
+        // The scheduler's key before the admin answers any `hello`: a process
+        // link trusts only the keys its `hello` reply carried.
+        if self.cfg.scheduler {
+            self.ensure_builtin_keys(SCHEDULER_LINK)?;
+        }
         // Agent keys first: every link started below trusts them.
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
@@ -1608,13 +1661,7 @@ async fn start_embedded(
     if running.lock().await.contains_key(&def.id) {
         return Ok(());
     }
-    let mut lcfg = LinkConfig::new(ctl.cfg.site.clone(), def.id.clone());
-    let (admin_keys, limited_keys) = ctl.link_trust();
-    lcfg.admin_keys = admin_keys;
-    lcfg.limited_keys = limited_keys;
-    lcfg.secrets = ctl.link_secrets(&def.id);
-    lcfg.data_dir = Some(ctl.link_data_dir(&def.id)?);
-    lcfg.grants = ctl.link_grants(def);
+    let lcfg = ctl.embedded_link_config(&def.id, ctl.link_grants(def))?;
     let link = ctl
         .host
         .start(
@@ -2473,6 +2520,9 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     let mut links: BTreeSet<String> = reg.links.keys().cloned().collect();
     links.insert(FLOWS_LINK.to_owned());
     links.insert(STORAGE_LINK.to_owned());
+    if ctl.cfg.scheduler {
+        links.insert(SCHEDULER_LINK.to_owned());
+    }
     links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
     ctx.declare_node(
@@ -4691,6 +4741,8 @@ impl Admin {
         if cfg.peers.downstream.contains(&site)
             || self.check_new_site(&site).is_err()
             || reg.links.contains_key(&site)
+            // `downstream/scheduler` is the embedded scheduler (ADR 0022)
+            || site == SCHEDULER_LINK
             || reg.blocklist.contains(&cn)
         {
             return refused(NOT_HERE);
@@ -5167,6 +5219,7 @@ fn broker_admissible(reg: &Registry, peers: &acl::Peers, own: &str, site: &str) 
         || peers.reachable().iter().any(|r| r == site)
         || reg.peers.contains_key(site)
         || reg.links.contains_key(site)
+        || site == SCHEDULER_LINK
         || reg.quarantine.contains_key(site)
         || reg.blocklist.contains(&crate::registry::broker_cn(site));
     !known
