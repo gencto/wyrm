@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use wyrm_core::meta::Writable;
 use wyrm_core::meta::{
     is_code, ActionResult, ParamMeta, Profile, EDITOR_FILE, EDITOR_PASSWORD, EDITOR_TEXTAREA,
@@ -293,6 +293,8 @@ pub struct Control {
     /// Set while the broker stops for a rebuild: new long actions answer
     /// `busy` instead of starting on a broker that is going away.
     closing: std::sync::atomic::AtomicBool,
+    /// The embedded scheduler's keys are saved: it runs ([`Control::scheduler_runs`]).
+    scheduler_keys: std::sync::atomic::AtomicBool,
     /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
     pub(crate) history: Arc<wyrm_history::Historian>,
     /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
@@ -616,6 +618,7 @@ impl Control {
                 repo: Mutex::new(None),
                 inflight: Default::default(),
                 closing: Default::default(),
+                scheduler_keys: Default::default(),
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
@@ -757,7 +760,7 @@ impl Control {
     /// The embedded scheduler's requester key: `write` on this site's
     /// `downstream` only, bound to the subject `link:scheduler` (ADR 0022).
     fn scheduler_limited_key(&self) -> Option<wyrm_link_sdk::LimitedKey> {
-        if !self.cfg.scheduler {
+        if !self.scheduler_runs() {
             return None;
         }
         Some(wyrm_link_sdk::LimitedKey {
@@ -777,7 +780,13 @@ impl Control {
         grants: Vec<(String, Perm)>,
     ) -> Result<LinkConfig, LinkError> {
         let mut lcfg = LinkConfig::new(self.cfg.site.clone(), id);
-        let (admin_keys, limited_keys) = self.link_trust();
+        let (admin_keys, mut limited_keys) = self.link_trust();
+        if id == SCHEDULER_LINK {
+            // R21: its own writes never reach its own nodes (no schedule writes the scheduler
+            // in a loop); the app cannot tell its own subtree from a point key
+            let own = self.requester_key_of(SCHEDULER_LINK);
+            limited_keys.retain(|k| Some(k.key) != own);
+        }
         lcfg.admin_keys = admin_keys;
         lcfg.limited_keys = limited_keys;
         lcfg.secrets = self.link_secrets(id);
@@ -852,6 +861,27 @@ impl Control {
         self.secrets.set(id, name, &seed[..])?;
         info!(link = %id, "requester key created");
         Ok(())
+    }
+
+    /// The embedded scheduler's keys, made once. Keys the admin cannot save do not fail the
+    /// broker's start (R22): it is logged at `error` and the broker runs without the scheduler.
+    pub fn prepare_scheduler(&self) {
+        let ok = self.cfg.scheduler
+            && match self.ensure_builtin_keys(SCHEDULER_LINK) {
+                Ok(()) => true,
+                Err(e) => {
+                    error!("scheduler: its keys are not saved ({e}): the broker runs without it");
+                    false
+                }
+            };
+        self.scheduler_keys
+            .store(ok, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The embedded scheduler runs: it is on and its keys are saved ([`Self::prepare_scheduler`]).
+    pub fn scheduler_runs(&self) -> bool {
+        self.scheduler_keys
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// A built-in link (not in the registry, [`SCHEDULER_LINK`]) gets its
@@ -1509,9 +1539,7 @@ impl Control {
     pub async fn attach(self: &Arc<Self>, session: Session) -> Result<Attached, Error> {
         // The scheduler's key before the admin answers any `hello`: a process
         // link trusts only the keys its `hello` reply carried.
-        if self.cfg.scheduler {
-            self.ensure_builtin_keys(SCHEDULER_LINK)?;
-        }
+        self.prepare_scheduler();
         // Agent keys first: every link started below trusts them.
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
@@ -5783,6 +5811,127 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use super::{Control, ControlConfig, SCHEDULER_LINK};
+    use wyrm_core::Perm;
+
+    struct NoDrivers;
+
+    impl super::EmbeddedHost for NoDrivers {
+        fn drivers(&self) -> Vec<&'static str> {
+            Vec::new()
+        }
+        fn validate(&self, _: &str, _: &wyrm_core::Value) -> Result<(), wyrm_link_sdk::LinkError> {
+            Ok(())
+        }
+        fn start(
+            &self,
+            _: zenoh::Session,
+            _: wyrm_link_sdk::LinkConfig,
+            _: String,
+            _: wyrm_core::Value,
+        ) -> super::BoxFut<'static, Result<Box<dyn super::RunningLink>, wyrm_link_sdk::LinkError>>
+        {
+            Box::pin(async { Err(wyrm_link_sdk::LinkError::internal("no drivers")) })
+        }
+    }
+
+    /// A control plane in a fresh directory; `prep` runs on it before it opens.
+    fn control(name: &str, scheduler: bool, prep: impl FnOnce(&std::path::Path)) -> Arc<Control> {
+        let dir = std::env::temp_dir().join(format!("wyrm-ctl-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        prep(&dir);
+        let cfg = ControlConfig {
+            site: "s".into(),
+            data_dir: dir,
+            admin_keys: Vec::new(),
+            control_keys: Vec::new(),
+            link_keys: Vec::new(),
+            operators: Vec::new(),
+            dev: false,
+            link_endpoint: None,
+            tls_names: Vec::new(),
+            metrics_interval: std::time::Duration::from_secs(1),
+            link_exe: std::path::PathBuf::from("wyrmd"),
+            max_restarts: 0,
+            link_limits: Default::default(),
+            per_link_router_rules: false,
+            anchor_dir: None,
+            anchor_init: false,
+            repository: None,
+            scheduler,
+        };
+        Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
+    }
+
+    fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
+        k.subject.as_deref() == Some("link:scheduler")
+    }
+
+    /// T5: links trust the embedded scheduler's key at `write`, only on this site's
+    /// `downstream`, only with the subject `link:scheduler`; no key when it is off.
+    #[test]
+    fn the_scheduler_key_is_pinned() {
+        let ctl = control("schedkey", true, |_| {});
+        ctl.prepare_scheduler();
+        assert!(ctl.scheduler_runs());
+        let k = ctl.scheduler_limited_key().expect("a key");
+        assert_eq!(k.cap, Perm::Write);
+        assert_eq!(k.scopes, vec!["wy/s/downstream".to_owned()]);
+        assert_eq!(k.subject.as_deref(), Some("link:scheduler"));
+        assert_eq!(Some(k.key), ctl.requester_key_of(SCHEDULER_LINK));
+        let off = control("schedoff", false, |_| {});
+        off.prepare_scheduler();
+        assert!(!off.scheduler_runs());
+        assert!(off.scheduler_limited_key().is_none());
+        assert!(!off.link_trust().1.iter().any(scheduler_subject));
+    }
+
+    /// R21: the scheduler does not trust its own key (a schedule cannot write the scheduler's
+    /// own nodes); every other link does.
+    #[test]
+    fn the_scheduler_does_not_trust_itself() {
+        let ctl = control("schedself", true, |_| {});
+        ctl.prepare_scheduler();
+        let own = ctl
+            .embedded_link_config(SCHEDULER_LINK, Vec::new())
+            .unwrap();
+        assert!(!own.limited_keys.iter().any(scheduler_subject));
+        let other = ctl.embedded_link_config("plc", Vec::new()).unwrap();
+        assert!(other.limited_keys.iter().any(scheduler_subject));
+    }
+
+    /// R22: keys the admin cannot save do not fail the broker's start: it runs without the
+    /// scheduler, and no unsaved key is used later.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_scheduler_key_failure_does_not_fail_attach() {
+        // `secrets.bin` is a directory: every save of the secret store fails
+        let ctl = control("schedfail", true, |d| {
+            std::fs::create_dir_all(d.join("secrets.bin").join("x")).unwrap();
+        });
+        let mut zc = zenoh::Config::default();
+        for (k, v) in [
+            ("mode", r#""peer""#),
+            ("listen/endpoints", "[]"),
+            ("connect/endpoints", "[]"),
+            ("scouting/multicast/enabled", "false"),
+            ("scouting/gossip/enabled", "false"),
+        ] {
+            zc.insert_json5(k, v).unwrap();
+        }
+        let session = zenoh::open(zc).await.unwrap();
+        let attached = ctl.attach(session.clone()).await.expect("attach");
+        assert!(!ctl.scheduler_runs());
+        assert!(ctl.scheduler_limited_key().is_none());
+        attached.stop().await;
+        // a rebuild tries again, and still finds no saved key
+        let attached = ctl.attach(session.clone()).await.expect("attach again");
+        assert!(!ctl.scheduler_runs());
+        attached.stop().await;
+        session.close().await.unwrap();
+    }
 
     #[test]
     fn overlays_of_other_sites_go_to_sites() {

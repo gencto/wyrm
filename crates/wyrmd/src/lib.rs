@@ -928,8 +928,9 @@ impl Broker {
         };
         // The scheduler (ADR 0022): trusted as every embedded link; it signs
         // its writes with its own key, which links trust at write on
-        // `downstream` (made by the admin at attach).
-        let scheduler = if cfg.scheduler.enabled {
+        // `downstream` (made by the admin at attach; without it the broker
+        // runs without the scheduler, R22).
+        let scheduler = if ctl.scheduler_runs() {
             let site_down = format!("wy/{}/downstream", cfg.site);
             let started = match ctl
                 .embedded_link_config(SCHEDULER_LINK, vec![(site_down, wyrm_core::Perm::Write)])

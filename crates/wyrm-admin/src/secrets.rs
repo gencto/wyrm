@@ -110,12 +110,28 @@ impl SecretStore {
         Ok(())
     }
 
+    /// Saves one secret; when the store cannot be saved it is as before (no secret only in
+    /// memory: a key lost at the next start would leave sealed data unreadable).
     pub fn set(&self, link: &str, name: &str, value: &[u8]) -> Result<(), Error> {
         let mut db = self.lock();
-        db.entry(link.to_owned())
-            .or_default()
-            .insert(name.to_owned(), Zeroizing::new(value.to_vec()));
-        self.save(&db)
+        let entry = db.entry(link.to_owned()).or_default();
+        let old = entry.insert(name.to_owned(), Zeroizing::new(value.to_vec()));
+        let saved = self.save(&db);
+        if saved.is_err() {
+            let entry = db.entry(link.to_owned()).or_default();
+            match old {
+                Some(v) => {
+                    entry.insert(name.to_owned(), v);
+                }
+                None => {
+                    entry.remove(name);
+                    if entry.is_empty() {
+                        db.remove(link);
+                    }
+                }
+            }
+        }
+        saved
     }
 
     /// `true` if it existed.
