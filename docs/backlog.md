@@ -335,3 +335,27 @@ history mark after a recorded point's name (tree and Metrics); a click
 opens its history, with the store shown (a choice when several); a site's
 historian is read at the point itself. Not covered: points of downstream
 sites (another broker's links).
+
+## 11. Portable links: review items left for later (ADR 0023, 2026-10-29)
+
+Found by the reviews of the portable-links plan; none breaks a scenario
+that was tested, all are hardening.
+
+- Runtime: an app's `log` has no rate limit; `set_timer(0)` has no floor
+  and there is no per-link event or publish budget; the store fsyncs every
+  put (up to 1 000 per event) instead of once per event; `store_after` is
+  quadratic over the event's pending puts; a native app that runs past
+  `call_ms` is not stopped (only WASM is).
+- Lifecycle: `hot_start` is audited `ok` before the new code started; the
+  upgrade branch that goes on past a failed link has no test; swaps of
+  driver `app` links with `component: <pkg>` are not audited; an upgrade
+  keeps each link's params, so changed manifest capabilities do not reach
+  existing links (only the audit shows them).
+- Install and pack: a world change on upgrade (driver ↔ app) is not
+  refused; `wyr link pack --component` always writes `world` (older
+  brokers refuse it); `--version`/`--description` are ignored for crate
+  packs; the scaffold's wasm32 build runs only in an `#[ignore]` test.
+- Tests and benches: the bench's panic hook hides every panic; no
+  "commands per second" number (ADR Tests); the e2e WASM mode skips
+  silently without the wasm32 target; SDK `set` has no deadline for its
+  wait in the SDK command queue (before the portable work, too).
