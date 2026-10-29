@@ -126,6 +126,24 @@ fn target_actions_are_config() {
     assert_eq!(h.attr("lobby/targets/t2", "created_by"), text(""));
 }
 
+/// The responder hands an enum arg as its index (`read_back | feedback | ack`); an import
+/// carries the text.
+#[test]
+fn confirm_by_enum_index() {
+    let mut h = lobby();
+    let by_index = |point: &str, i: u64| map([("point", text(point)), ("confirm", Value::UInt(i))]);
+    add_target(&mut h, "lobby", by_index(FAN, 2)).unwrap();
+    assert_eq!(h.attr("lobby/targets/t1", "confirm"), text("ack"));
+    add_target(&mut h, "lobby", by_index(PUMP, 0)).unwrap();
+    assert_eq!(h.attr("lobby/targets/t2", "confirm"), text("read_back"));
+    for bad in [Value::UInt(3), Value::Bool(true), text("never")] {
+        let args = map([("point", text(FREE)), ("confirm", bad.clone())]);
+        let (st, msg) = status(add_target(&mut h, "lobby", args));
+        assert_eq!(st, Status::InvalidParameter, "{bad:?}");
+        assert!(msg.contains("confirm"), "{bad:?}: {msg}");
+    }
+}
+
 #[test]
 fn add_target_checks_the_point() {
     let mut h = lobby();

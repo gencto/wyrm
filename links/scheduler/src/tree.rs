@@ -26,7 +26,7 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 use wyrm_schedule::{format_local, Event, Micros, Schedule, Source, State};
 
 use crate::limits::NODES_PER_SCHEDULE;
-use crate::targets::{Target, RESUME_COST};
+use crate::targets::{Confirm, Target, RESUME_COST};
 
 pub fn current(s: &str) -> String {
     format!("{s}/current")
@@ -277,7 +277,7 @@ fn target_params(a: ActionMeta, required: bool) -> ActionMeta {
         "confirm",
         param(TypeCode::Enum, "Confirm")
             .required(required)
-            .enum_values(["read_back", "feedback", "ack"])
+            .enum_values(Confirm::ALL.map(Confirm::as_str))
             .description(CONFIRM_ABOUT),
     )
     .param(

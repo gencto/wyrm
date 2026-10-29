@@ -60,6 +60,10 @@ pub enum Confirm {
 }
 
 impl Confirm {
+    /// In the order of the `confirm` enum param: an action gets the index of the choice (the
+    /// responder checks enum args as indices), an import the text.
+    pub const ALL: [Confirm; 3] = [Confirm::ReadBack, Confirm::Feedback, Confirm::Ack];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Confirm::ReadBack => "read_back",
@@ -292,11 +296,16 @@ pub fn fields(
         (None, None) => return Err(invalid("point", "required")),
     };
     check_key("point", &point)?;
-    let confirm = match (opt_str(m, "confirm")?, base) {
-        (Some(c), _) => Confirm::parse(&c)
-            .ok_or_else(|| invalid("confirm", "one of read_back, feedback, ack"))?,
-        (None, Some(b)) => b.confirm,
-        (None, None) => return Err(invalid("confirm", "required")),
+    let one_of = || invalid("confirm", "one of read_back, feedback, ack");
+    let confirm = match (m.get("confirm"), base) {
+        (Some(Value::UInt(i)), _) => usize::try_from(*i)
+            .ok()
+            .and_then(|i| Confirm::ALL.get(i).copied())
+            .ok_or_else(one_of)?,
+        (Some(Value::Str(c)), _) => Confirm::parse(c).ok_or_else(one_of)?,
+        (None | Some(Value::Null), Some(b)) => b.confirm,
+        (None | Some(Value::Null), None) => return Err(invalid("confirm", "required")),
+        (Some(_), _) => return Err(one_of()),
     };
     let given = opt_str(m, "feedback")?;
     let feedback = match confirm {
