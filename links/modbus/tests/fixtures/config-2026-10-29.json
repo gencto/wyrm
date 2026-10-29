@@ -1,0 +1,798 @@
+{
+  "comment": "Written by the code of links/modbus at commit 195b971 (2026-10-29), before the DSA parity plan. Never regenerate: the test `stored_config_still_loads` proves that configs stored by that code still load and decode the same values.",
+  "connections": [
+    {
+      "given": {
+        "host": "10.0.1.199",
+        "port": 1502,
+        "timeout_ms": 1500,
+        "transport": "rtu_over_tcp",
+        "write_mode": "multiple"
+      },
+      "kind": "ip_connection",
+      "name": "ip_full",
+      "to_map": {
+        "host": "10.0.1.199",
+        "port": 1502,
+        "timeout_ms": 1500,
+        "transport": "rtu_over_tcp",
+        "write_mode": "multiple"
+      }
+    },
+    {
+      "given": {
+        "host": "plc.local"
+      },
+      "kind": "ip_connection",
+      "name": "ip_minimal",
+      "to_map": {
+        "host": "plc.local",
+        "port": 502,
+        "timeout_ms": 1000,
+        "transport": "tcp",
+        "write_mode": "auto"
+      }
+    },
+    {
+      "given": {
+        "baud_rate": 19200,
+        "data_bits": 7,
+        "parity": "even",
+        "serial_port": "/dev/ttyUSB0",
+        "stop_bits": 2,
+        "timeout_ms": 2000,
+        "write_mode": "single"
+      },
+      "kind": "serial_connection",
+      "name": "serial_full",
+      "to_map": {
+        "baud_rate": 19200,
+        "data_bits": 7,
+        "parity": "even",
+        "serial_port": "/dev/ttyUSB0",
+        "stop_bits": 2,
+        "timeout_ms": 2000,
+        "write_mode": "single"
+      }
+    },
+    {
+      "given": {
+        "serial_port": "/dev/ttyS1"
+      },
+      "kind": "serial_connection",
+      "name": "serial_minimal",
+      "to_map": {
+        "baud_rate": 9600,
+        "data_bits": 8,
+        "parity": "none",
+        "serial_port": "/dev/ttyS1",
+        "stop_bits": 1,
+        "timeout_ms": 1000,
+        "write_mode": "auto"
+      }
+    }
+  ],
+  "devices": [
+    {
+      "given": {
+        "contiguous_only": true,
+        "max_bits": 1000,
+        "max_regs": 100,
+        "ping": "fc17",
+        "ping_s": 2.5,
+        "probe_addr": 10,
+        "probe_table": "input",
+        "unit": 247
+      },
+      "name": "dev_full",
+      "to_map": {
+        "contiguous_only": true,
+        "max_bits": 1000,
+        "max_regs": 100,
+        "ping": "fc17",
+        "ping_s": 2.5,
+        "probe_addr": 10,
+        "probe_table": "input",
+        "unit": 247
+      }
+    },
+    {
+      "given": {
+        "unit": 1
+      },
+      "name": "dev_minimal",
+      "to_map": {
+        "contiguous_only": false,
+        "max_bits": 2000,
+        "max_regs": 125,
+        "ping": "probe",
+        "ping_s": 5.0,
+        "probe_addr": 0,
+        "probe_table": "holding",
+        "unit": 1
+      }
+    }
+  ],
+  "points": [
+    {
+      "given": {
+        "addr": 100,
+        "bit": 3,
+        "dtype": "binary",
+        "table": "holding"
+      },
+      "name": "holding_binary",
+      "to_map": {
+        "addr": 100,
+        "bit": 3,
+        "dtype": "binary",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": true,
+      "words": [
+        8
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u16",
+        "table": "holding",
+        "writable": true
+      },
+      "name": "holding_u16",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u16",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": true
+      },
+      "value": 41394,
+      "words": [
+        41394
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u16_bswap",
+        "table": "holding"
+      },
+      "name": "holding_u16_bswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u16_bswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 45729,
+      "words": [
+        41394
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i16",
+        "table": "holding"
+      },
+      "name": "holding_i16",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i16",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -123,
+      "words": [
+        65413
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i16_bswap",
+        "table": "holding"
+      },
+      "name": "holding_i16_bswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i16_bswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -123,
+      "words": [
+        34303
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u32",
+        "table": "holding"
+      },
+      "name": "holding_u32",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u32",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 2712847316,
+      "words": [
+        41394,
+        50132
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u32_wswap",
+        "table": "holding"
+      },
+      "name": "holding_u32_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u32_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 3285492146,
+      "words": [
+        41394,
+        50132
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u32_bswap",
+        "table": "holding"
+      },
+      "name": "holding_u32_bswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u32_bswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 2996950211,
+      "words": [
+        41394,
+        50132
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i32",
+        "table": "holding"
+      },
+      "name": "holding_i32",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i32",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -22957373,
+      "words": [
+        65185,
+        45763
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i32_wswap",
+        "table": "holding",
+        "writable": true
+      },
+      "name": "holding_i32_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i32_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": true
+      },
+      "value": -1295778143,
+      "words": [
+        65185,
+        45763
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i32_bswap",
+        "table": "holding"
+      },
+      "name": "holding_i32_bswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i32_bswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -1577139278,
+      "words": [
+        65185,
+        45763
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "f32",
+        "table": "holding",
+        "writable": true
+      },
+      "name": "holding_f32",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "f32",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": true
+      },
+      "value": 1234.5625,
+      "words": [
+        17562,
+        20992
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "f32_wswap",
+        "table": "holding"
+      },
+      "name": "holding_f32_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "f32_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -1234.5625,
+      "words": [
+        20992,
+        50330
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u64",
+        "table": "holding"
+      },
+      "name": "holding_u64",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u64",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 11651590505119483672,
+      "words": [
+        41394,
+        50132,
+        58870,
+        1816
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "u64_wswap",
+        "table": "holding"
+      },
+      "name": "holding_u64_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "u64_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 511411405716758962,
+      "words": [
+        41394,
+        50132,
+        58870,
+        1816
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i64",
+        "table": "holding"
+      },
+      "name": "holding_i64",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i64",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -98601162665232889,
+      "words": [
+        65185,
+        45763,
+        54501,
+        62983
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "i64_wswap",
+        "table": "holding"
+      },
+      "name": "holding_i64_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "i64_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -718371532530516319,
+      "words": [
+        65185,
+        45763,
+        54501,
+        62983
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "f64",
+        "table": "holding"
+      },
+      "name": "holding_f64",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "f64",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 1099511627775.5,
+      "words": [
+        17007,
+        65535,
+        65535,
+        61440
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "f64_wswap",
+        "table": "holding"
+      },
+      "name": "holding_f64_wswap",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "f64_wswap",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": -1099511627775.5,
+      "words": [
+        61440,
+        65535,
+        65535,
+        49775
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "bcd16",
+        "table": "holding"
+      },
+      "name": "holding_bcd16",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "bcd16",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 4271,
+      "words": [
+        17009
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "bcd32",
+        "table": "holding"
+      },
+      "name": "holding_bcd32",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "bcd32",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": 12345678,
+      "words": [
+        4660,
+        22136
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "char",
+        "regs": 4,
+        "table": "holding",
+        "writable": true
+      },
+      "name": "holding_char",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "char",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 4,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": true
+      },
+      "value": "ABCDE",
+      "words": [
+        16706,
+        17220,
+        17696,
+        8224
+      ]
+    },
+    {
+      "given": {
+        "addr": 100,
+        "dtype": "varchar",
+        "regs": 4,
+        "table": "holding"
+      },
+      "name": "holding_varchar",
+      "to_map": {
+        "addr": 100,
+        "bit": 0,
+        "dtype": "varchar",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 4,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      },
+      "value": "ABC",
+      "words": [
+        16706,
+        17152,
+        0,
+        0
+      ]
+    },
+    {
+      "given": {
+        "addr": 65534,
+        "dtype": "i16",
+        "offset": -10.0,
+        "poll_s": 2.5,
+        "scale": 0.5,
+        "table": "input",
+        "unit": "°C"
+      },
+      "name": "input_i16_scaled",
+      "to_map": {
+        "addr": 65534,
+        "bit": 0,
+        "dtype": "i16",
+        "offset": -10.0,
+        "poll_s": 2.5,
+        "regs": 1,
+        "scale": 0.5,
+        "table": "input",
+        "unit": "°C",
+        "writable": false
+      },
+      "value": -71.5,
+      "words": [
+        65413
+      ]
+    },
+    {
+      "given": {
+        "addr": 3,
+        "dtype": "binary",
+        "table": "coil",
+        "writable": true
+      },
+      "name": "coil_binary",
+      "to_map": {
+        "addr": 3,
+        "bit": 0,
+        "dtype": "binary",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "coil",
+        "unit": "",
+        "writable": true
+      }
+    },
+    {
+      "given": {
+        "addr": 4,
+        "dtype": "binary",
+        "table": "discrete"
+      },
+      "name": "discrete_binary",
+      "to_map": {
+        "addr": 4,
+        "bit": 0,
+        "dtype": "binary",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "discrete",
+        "unit": "",
+        "writable": false
+      }
+    },
+    {
+      "given": {
+        "addr": 7,
+        "table": "holding"
+      },
+      "name": "holding_minimal",
+      "to_map": {
+        "addr": 7,
+        "bit": 0,
+        "dtype": "u16",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 1,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": false
+      }
+    }
+  ]
+}

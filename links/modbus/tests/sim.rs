@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 use wyrm_core::{Perm, Quality, Status, Value};
-use wyrm_link_modbus::{codec, sim, Modbus};
-use wyrm_link_sdk::driver::Tree;
+use wyrm_link_modbus::{codec, sim, Conn, Device, Modbus, Point};
+use wyrm_link_sdk::driver::{ParamSpec, Params, Tree};
 use wyrm_link_sdk::TestHarness;
 
 type H = TestHarness<Modbus>;
@@ -406,5 +406,363 @@ async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
         .await;
     assert_eq!(status(&r[0].att), Some(Status::Ok), "{:?}", r[0].att);
     assert!(matches!(r[0].value(), Some(Value::Map(_))));
+    h.stop().await;
+}
+
+/// JSON fixture value → tree value: integers stay `UInt`/`Int`, numbers
+/// with a fraction or exponent are `Float` (as `to_map` writes them).
+fn from_json(j: &serde_json::Value) -> Value {
+    use serde_json::Value as J;
+    match j {
+        J::Null => Value::Null,
+        J::Bool(b) => Value::Bool(*b),
+        J::Number(n) => match (n.as_u64(), n.as_i64()) {
+            (Some(u), _) => Value::UInt(u),
+            (None, Some(i)) => Value::Int(i),
+            _ => Value::Float(n.as_f64().expect("number")),
+        },
+        J::String(s) => Value::Str(s.clone()),
+        J::Array(a) => Value::Array(a.iter().map(from_json).collect()),
+        J::Object(o) => Value::Map(o.iter().map(|(k, v)| (k.clone(), from_json(v))).collect()),
+    }
+}
+
+type Map = std::collections::BTreeMap<String, Value>;
+
+/// Every stored key comes back unchanged; a key added since holds its
+/// schema default (so the stored config keeps its meaning).
+fn same_or_default(what: &str, stored: &Value, now: &Map, schema: &[ParamSpec]) {
+    let Value::Map(stored) = stored else {
+        panic!("{what}: to_map is not a map")
+    };
+    for (k, v) in stored {
+        assert_eq!(now.get(k), Some(v), "{what}: {k}");
+    }
+    for (k, v) in now.iter().filter(|(k, _)| !stored.contains_key(*k)) {
+        let spec = schema.iter().find(|s| s.name == k.as_str());
+        assert_eq!(
+            spec.and_then(|s| s.default.as_ref()),
+            Some(v),
+            "{what}: new param {k} must default"
+        );
+    }
+}
+
+/// Review Focus 1: a config stored by the code before the DSA parity plan
+/// (fixture written at 195b971, never regenerated) still loads through the
+/// framework's load path (`from_kind_value`: normalize, then `from_map`),
+/// gives the same params back, and decodes the same register words to the
+/// same values (existing data type names keep their byte order).
+#[test]
+fn stored_config_still_loads() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/config-2026-10-29.json"))
+            .expect("fixture is JSON");
+    let entries = |k: &str| doc[k].as_array().expect(k).clone();
+    let name = |e: &serde_json::Value| e["name"].as_str().expect("name").to_owned();
+
+    for e in entries("connections") {
+        let (n, kind) = (name(&e), e["kind"].as_str().expect("kind"));
+        let c = Conn::from_kind_value(kind, &from_json(&e["given"])).expect(&n);
+        assert_eq!(c.kind(), kind, "{n}");
+        let schema = Conn::kind_schema(kind).unwrap();
+        same_or_default(&n, &from_json(&e["to_map"]), &c.to_map(), &schema);
+        let Value::Map(stored) = from_json(&e["to_map"]) else {
+            unreachable!()
+        };
+        assert_eq!(
+            Conn::from_kind_map(kind, &stored).expect(&n),
+            c,
+            "{n}: from_map"
+        );
+    }
+    for e in entries("devices") {
+        let n = name(&e);
+        let d = Device::from_value(&from_json(&e["given"])).expect(&n);
+        same_or_default(&n, &from_json(&e["to_map"]), &d.to_map(), &Device::schema());
+        let Value::Map(stored) = from_json(&e["to_map"]) else {
+            unreachable!()
+        };
+        assert_eq!(Device::from_map(&stored).expect(&n), d, "{n}: from_map");
+    }
+    let mut decoded = 0;
+    for e in entries("points") {
+        let n = name(&e);
+        let p = Point::from_value(&from_json(&e["given"])).expect(&n);
+        same_or_default(&n, &from_json(&e["to_map"]), &p.to_map(), &Point::schema());
+        let Value::Map(stored) = from_json(&e["to_map"]) else {
+            unreachable!()
+        };
+        assert_eq!(Point::from_map(&stored).expect(&n), p, "{n}: from_map");
+        let Some(words) = e["words"].as_array() else {
+            continue;
+        };
+        let words: Vec<u16> = words
+            .iter()
+            .map(|w| u16::try_from(w.as_u64().expect("word")).expect("u16"))
+            .collect();
+        let value = from_json(&e["value"]);
+        assert_eq!(
+            codec::decode(p.dtype, &words, p.bit, p.scale, p.offset),
+            Ok(value.clone()),
+            "{n}: decode"
+        );
+        if p.dtype != codec::DType::Binary {
+            assert_eq!(
+                codec::encode(p.dtype, &value, p.regs, p.scale, p.offset),
+                Ok(words),
+                "{n}: encode"
+            );
+        }
+        decoded += 1;
+    }
+    // one point of every data type of 195b971 (23) plus a scaled one
+    assert_eq!(decoded, 24);
+}
+
+fn point(kv: &[(&str, Value)]) -> wyrm_link_sdk::Result<Point> {
+    Point::from_value(&map(kv))
+}
+
+/// Ruling 4: coil and discrete points default to `binary`; registers keep
+/// `u16`; a non-binary type on a bit table stays an error.
+#[test]
+fn bit_tables_default_to_binary() {
+    for table in ["coil", "discrete"] {
+        let p = point(&[("table", table.into()), ("addr", Value::UInt(1))]).unwrap();
+        assert_eq!(p.dtype, codec::DType::Binary, "{table}");
+        let e = point(&[
+            ("table", table.into()),
+            ("addr", Value::UInt(1)),
+            ("dtype", "u16".into()),
+        ])
+        .unwrap_err();
+        assert!(e.message.starts_with("dtype:"), "{e:?}");
+    }
+    for table in ["holding", "input"] {
+        let p = point(&[("table", table.into()), ("addr", Value::UInt(1))]).unwrap();
+        assert_eq!(p.dtype, codec::DType::U16, "{table}");
+    }
+    let e = point(&[
+        ("table", "coil".into()),
+        ("addr", Value::UInt(1)),
+        ("dtype", "bits16".into()),
+    ])
+    .unwrap_err();
+    assert!(e.message.starts_with("dtype:"), "{e:?}");
+}
+
+/// Ruling 5: one FC16 write carries at most 123 registers, so a writable
+/// point may not be longer; a read-only one may (one read takes 125).
+#[test]
+fn writable_points_fit_one_write() {
+    let text = |regs: u64, writable: bool| {
+        point(&[
+            ("table", "holding".into()),
+            ("addr", Value::UInt(0)),
+            ("dtype", "varchar".into()),
+            ("regs", Value::UInt(regs)),
+            ("writable", Value::Bool(writable)),
+        ])
+    };
+    let e = text(124, true).unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert!(e.message.starts_with("regs:"), "{e:?}");
+    assert!(e.message.contains("123"), "{e:?}");
+    assert!(text(123, true).is_ok());
+    assert!(text(125, false).is_ok());
+    let p = point(&[
+        ("table", "holding".into()),
+        ("addr", Value::UInt(0)),
+        ("dtype", "bits16".into()),
+        ("writable", Value::Bool(true)),
+    ])
+    .unwrap();
+    assert_eq!(p.dtype, codec::DType::Bits16);
+}
+
+/// Ruling 2: unit ids 0…255, default 1.
+#[test]
+fn unit_ids_0_to_255() {
+    let dev = |kv: &[(&str, Value)]| Device::from_value(&map(kv));
+    assert_eq!(dev(&[]).unwrap().unit, 1);
+    assert_eq!(dev(&[("unit", Value::UInt(0))]).unwrap().unit, 0);
+    assert_eq!(dev(&[("unit", Value::UInt(255))]).unwrap().unit, 255);
+    assert!(dev(&[("unit", Value::UInt(256))]).is_err());
+}
+
+/// A connection `c1` of `transport` with devices `(name, unit, points)`.
+fn units_tree(port: u16, transport: &str, devs: &[(&str, u64, Value)]) -> Tree {
+    let devices: Vec<(&str, Value)> = devs
+        .iter()
+        .map(|(n, unit, points)| {
+            (
+                *n,
+                map(&[
+                    ("unit", Value::UInt(*unit)),
+                    ("ping_s", Value::Float(0.1)),
+                    ("points", points.clone()),
+                ]),
+            )
+        })
+        .collect();
+    Tree(map(&[(
+        "connections",
+        map(&[(
+            "c1",
+            map(&[
+                ("host", "127.0.0.1".into()),
+                ("port", Value::UInt(port.into())),
+                ("transport", transport.into()),
+                ("timeout_ms", Value::UInt(200)),
+                ("devices", map(&devices)),
+            ]),
+        )]),
+    )]))
+}
+
+fn writable_u16(addr: u64) -> Value {
+    map(&[(
+        "sp",
+        pt("holding", addr, "u16", &[("writable", Value::Bool(true))]),
+    )])
+}
+
+/// Ruling 2: on Modbus TCP, units 0 and 255 are ordinary units (many TCP
+/// servers ignore the unit or expect 0 or 255).
+#[tokio::test(flavor = "multi_thread")]
+async fn tcp_units_0_and_255_read_and_write() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[10] = 7;
+        t.holding[20] = 9;
+    }
+    let h = H::start(units_tree(
+        addr.port(),
+        "tcp",
+        &[("u0", 0, writable_u16(10)), ("u255", 255, writable_u16(20))],
+    ))
+    .await;
+    let v = |p: &str| h.ctx().last(p).map(|s| s.v);
+    wait("both units read", || {
+        v("c1/u0/sp") == Some(Value::UInt(7)) && v("c1/u255/sp") == Some(Value::UInt(9))
+    })
+    .await;
+    let tok = || Some(h.ptok(Perm::Write));
+    assert_eq!(
+        status(&h.set("c1/u0/sp", 70u64, tok()).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(
+        status(&h.set("c1/u255/sp", 90u64, tok()).await),
+        Some(Status::Ok)
+    );
+    {
+        let t = dev.lock().unwrap();
+        assert_eq!((t.holding[10], t.holding[20]), (70, 90));
+        assert_eq!(t.units.iter().copied().collect::<Vec<u8>>(), [0, 255]);
+    }
+    for s in ["c1/u0", "c1/u255"] {
+        wait(s, || state(&h, s).as_deref() == Some("connected")).await;
+    }
+    h.stop().await;
+}
+
+/// Ruling P3: tokio-modbus 0.17 always awaits a reply on RTU, so a
+/// broadcast (unit 0) cannot be sent there: no request goes out for it, a
+/// write is refused with `invalid_parameter`, the device fails with the
+/// reason; other units on the same bus work.
+#[tokio::test(flavor = "multi_thread")]
+async fn rtu_unit_0_is_refused() {
+    let (addr, dev, _task) = sim::spawn_rtu_over_tcp("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().holding[20] = 9;
+    let h = H::start(units_tree(
+        addr.port(),
+        "rtu_over_tcp",
+        &[("u0", 0, writable_u16(10)), ("u1", 1, writable_u16(20))],
+    ))
+    .await;
+    wait("unit 1 read", || {
+        h.ctx().last("c1/u1/sp").map(|s| s.v) == Some(Value::UInt(9))
+    })
+    .await;
+    let att = h.set("c1/u0/sp", 70u64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
+    assert!(
+        att.err
+            .as_deref()
+            .is_some_and(|e| e.contains("broadcast (unit 0) is not supported on RTU")),
+        "{att:?}"
+    );
+    wait("unit 0 failed with the reason", || {
+        state(&h, "c1/u0").as_deref() == Some("failed")
+            && h.ctx()
+                .last("c1/u0/error")
+                .is_some_and(|s| matches!(&s.v, Value::Str(e) if e.contains("broadcast (unit 0)")))
+    })
+    .await;
+    {
+        let t = dev.lock().unwrap();
+        assert_eq!(t.holding[10], 0, "nothing written");
+        assert_eq!(
+            t.units.iter().copied().collect::<Vec<u8>>(),
+            [1],
+            "no unit 0 request"
+        );
+    }
+    assert_eq!(state(&h, "c1/u1").as_deref(), Some("connected"));
+    h.stop().await;
+}
+
+/// Ruling 3 end to end: a register as 16 bools (an array value, written
+/// as the whole word) and a modulo-10 000 value, polled and written.
+#[tokio::test(flavor = "multi_thread")]
+async fn bits16_and_m10k_poll_and_write() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[40] = 0x8005;
+        t.holding[50..52].copy_from_slice(&[5678, 1234]);
+    }
+    let wr = [("writable", Value::Bool(true))];
+    let points = map(&[
+        ("flags", pt("holding", 40, "bits16", &wr)),
+        ("energy", pt("holding", 50, "u32_m10k_wswap", &wr)),
+    ]);
+    let h = H::start(tree(addr.port(), &[("ping", "none".into())], points)).await;
+    let bits =
+        |set: &[usize]| Value::Array((0..16).map(|i| Value::Bool(set.contains(&i))).collect());
+    wait("polled", || {
+        val(&h, "flags") == Some(bits(&[0, 2, 15])) && val(&h, "energy").is_some()
+    })
+    .await;
+    assert_eq!(val(&h, "energy"), Some(Value::UInt(12_345_678)));
+    let (_, m) = h.meta("c1/d1/flags").await;
+    assert_eq!(m.unwrap().ty, Some(wyrm_core::TypeCode::Array));
+    let tok = || Some(h.ptok(Perm::Write));
+    assert_eq!(
+        status(&h.set("c1/d1/flags", bits(&[1, 3]), tok()).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(dev.lock().unwrap().holding[40], 0b1010);
+    assert_eq!(val(&h, "flags"), Some(bits(&[1, 3])), "read back");
+    assert_eq!(
+        status(&h.set("c1/d1/energy", 87_654_321u64, tok()).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(dev.lock().unwrap().holding[50..52], [4321, 8765]);
+    // a word of the wrong length is refused, nothing written
+    let att = h.set("c1/d1/flags", bits(&[]), tok()).await;
+    assert_eq!(status(&att), Some(Status::Ok), "16 false bools are fine");
+    let att = h
+        .set(
+            "c1/d1/flags",
+            Value::Array(vec![Value::Bool(true); 3]),
+            tok(),
+        )
+        .await;
+    assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
+    assert_eq!(dev.lock().unwrap().holding[40], 0);
     h.stop().await;
 }

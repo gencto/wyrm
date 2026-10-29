@@ -2,10 +2,12 @@
 //! Pure logic (wiki "Фреймворк драйверів", section "Типи даних Modbus").
 //!
 //! Register words are big-endian on the wire; multi-word values put the most
-//! significant word first. `_WSWAP` reverses the word order, `_BSWAP` swaps
-//! the two bytes inside each word. Unscaled integers publish exactly as
-//! `UInt`/`Int` (64-bit values never pass through `f64`); scaled values
-//! publish as `Float`.
+//! significant word first. `_wswap` reverses the word order, `_bswap` swaps
+//! the two bytes inside each word, `_wbswap` does both (DCBA: the bytes in
+//! reverse order). `_m10k` types are two words read as `hi × 10 000 + lo`
+//! (`lo` 0…9999). `bits16` is one register as 16 bools, bit 0 first.
+//! Unscaled integers publish exactly as `UInt`/`Int` (64-bit values never
+//! pass through `f64`); scaled values publish as `Float`.
 
 use wyrm_core::{TypeCode, Value};
 
@@ -13,6 +15,10 @@ use wyrm_core::{TypeCode, Value};
 pub const MAX_REGISTERS: u16 = 125;
 /// Most bits one read may return (FC1/FC2).
 pub const MAX_BITS: u16 = 2000;
+/// Most registers one write may carry (FC16).
+pub const MAX_WRITE_REGISTERS: u16 = 123;
+/// Most bits one write may carry (FC15).
+pub const MAX_WRITE_BITS: u16 = 1968;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum CodecError {
@@ -41,11 +47,18 @@ pub enum DType {
     U32,
     U32WSwap,
     U32BSwap,
+    U32WBSwap,
     I32,
     I32WSwap,
     I32BSwap,
+    I32WBSwap,
+    U32M10k,
+    U32M10kWSwap,
+    I32M10k,
+    I32M10kWSwap,
     F32,
     F32WSwap,
+    F32WBSwap,
     U64,
     U64WSwap,
     I64,
@@ -54,6 +67,8 @@ pub enum DType {
     F64WSwap,
     Bcd16,
     Bcd32,
+    Bcd32WSwap,
+    Bits16,
     Char,
     VarChar,
 }
@@ -67,11 +82,18 @@ const NAMES: &[(DType, &str)] = &[
     (DType::U32, "u32"),
     (DType::U32WSwap, "u32_wswap"),
     (DType::U32BSwap, "u32_bswap"),
+    (DType::U32WBSwap, "u32_wbswap"),
     (DType::I32, "i32"),
     (DType::I32WSwap, "i32_wswap"),
     (DType::I32BSwap, "i32_bswap"),
+    (DType::I32WBSwap, "i32_wbswap"),
+    (DType::U32M10k, "u32_m10k"),
+    (DType::U32M10kWSwap, "u32_m10k_wswap"),
+    (DType::I32M10k, "i32_m10k"),
+    (DType::I32M10kWSwap, "i32_m10k_wswap"),
     (DType::F32, "f32"),
     (DType::F32WSwap, "f32_wswap"),
+    (DType::F32WBSwap, "f32_wbswap"),
     (DType::U64, "u64"),
     (DType::U64WSwap, "u64_wswap"),
     (DType::I64, "i64"),
@@ -80,6 +102,8 @@ const NAMES: &[(DType, &str)] = &[
     (DType::F64WSwap, "f64_wswap"),
     (DType::Bcd16, "bcd16"),
     (DType::Bcd32, "bcd32"),
+    (DType::Bcd32WSwap, "bcd32_wswap"),
+    (DType::Bits16, "bits16"),
     (DType::Char, "char"),
     (DType::VarChar, "varchar"),
 ];
@@ -90,6 +114,8 @@ enum Layout {
     Normal,
     WordSwap,
     ByteSwap,
+    /// Words reversed and bytes swapped: all bytes in reverse order.
+    WordByteSwap,
 }
 
 impl DType {
@@ -102,11 +128,18 @@ impl DType {
         DType::U32,
         DType::U32WSwap,
         DType::U32BSwap,
+        DType::U32WBSwap,
         DType::I32,
         DType::I32WSwap,
         DType::I32BSwap,
+        DType::I32WBSwap,
+        DType::U32M10k,
+        DType::U32M10kWSwap,
+        DType::I32M10k,
+        DType::I32M10kWSwap,
         DType::F32,
         DType::F32WSwap,
+        DType::F32WBSwap,
         DType::U64,
         DType::U64WSwap,
         DType::I64,
@@ -115,6 +148,8 @@ impl DType {
         DType::F64WSwap,
         DType::Bcd16,
         DType::Bcd32,
+        DType::Bcd32WSwap,
+        DType::Bits16,
         DType::Char,
         DType::VarChar,
     ];
@@ -136,8 +171,10 @@ impl DType {
     pub fn words(self, regs: u8) -> u16 {
         use DType::*;
         match self {
-            Binary | U16 | U16BSwap | I16 | I16BSwap | Bcd16 => 1,
-            U32 | U32WSwap | U32BSwap | I32 | I32WSwap | I32BSwap | F32 | F32WSwap | Bcd32 => 2,
+            Binary | U16 | U16BSwap | I16 | I16BSwap | Bcd16 | Bits16 => 1,
+            U32 | U32WSwap | U32BSwap | U32WBSwap | I32 | I32WSwap | I32BSwap | I32WBSwap
+            | U32M10k | U32M10kWSwap | I32M10k | I32M10kWSwap | F32 | F32WSwap | F32WBSwap
+            | Bcd32 | Bcd32WSwap => 2,
             U64 | U64WSwap | I64 | I64WSwap | F64 | F64WSwap => 4,
             Char | VarChar => u16::from(regs.max(1)),
         }
@@ -147,6 +184,7 @@ impl DType {
         match self {
             DType::Binary => TypeCode::Bool,
             DType::Char | DType::VarChar => TypeCode::String,
+            DType::Bits16 => TypeCode::Array,
             _ => TypeCode::Number,
         }
     }
@@ -154,8 +192,10 @@ impl DType {
     fn layout(self) -> Layout {
         use DType::*;
         match self {
-            U32WSwap | I32WSwap | F32WSwap | U64WSwap | I64WSwap | F64WSwap => Layout::WordSwap,
+            U32WSwap | I32WSwap | F32WSwap | U64WSwap | I64WSwap | F64WSwap | U32M10kWSwap
+            | I32M10kWSwap | Bcd32WSwap => Layout::WordSwap,
             U16BSwap | I16BSwap | U32BSwap | I32BSwap => Layout::ByteSwap,
+            U32WBSwap | I32WBSwap | F32WBSwap => Layout::WordByteSwap,
             _ => Layout::Normal,
         }
     }
@@ -174,6 +214,7 @@ fn gather(words: &[u16], n: usize, layout: Layout) -> Result<u64, CodecError> {
         Layout::Normal => w.iter().for_each(|x| push(*x)),
         Layout::WordSwap => w.iter().rev().for_each(|x| push(*x)),
         Layout::ByteSwap => w.iter().for_each(|x| push(x.swap_bytes())),
+        Layout::WordByteSwap => w.iter().rev().for_each(|x| push(x.swap_bytes())),
     }
     Ok(acc)
 }
@@ -185,8 +226,39 @@ fn scatter(raw: u64, n: usize, layout: Layout) -> Vec<u16> {
         Layout::Normal => {}
         Layout::WordSwap => out.reverse(),
         Layout::ByteSwap => out.iter_mut().for_each(|x| *x = x.swap_bytes()),
+        Layout::WordByteSwap => {
+            out.reverse();
+            out.iter_mut().for_each(|x| *x = x.swap_bytes());
+        }
     }
     out
+}
+
+/// `[hi, lo]` (after layout) → `hi × 10 000 + lo`; `lo` must be 0…9999.
+/// Signed types read both words as `i16`, as DSA does.
+fn m10k_decode(raw: u64, signed: bool) -> Result<i128, CodecError> {
+    let (hi, lo) = ((raw >> 16) as u16, raw as u16);
+    let (hi, lo) = if signed {
+        (i128::from(hi as i16), i128::from(lo as i16))
+    } else {
+        (i128::from(hi), i128::from(lo))
+    };
+    if lo.abs() > 9999 {
+        return Err(CodecError::OutOfRange);
+    }
+    Ok(hi * 10_000 + lo)
+}
+
+/// Inverse of [`m10k_decode`]: truncating `/` and `%`, so a negative value
+/// has two negative words.
+fn m10k_encode(x: i128, signed: bool) -> Result<u64, CodecError> {
+    let x = if signed {
+        in_range(x, -327_689_999, 327_679_999)?
+    } else {
+        in_range(x, 0, 655_359_999)?
+    };
+    let (hi, lo) = ((x / 10_000) as i16 as u16, (x % 10_000) as i16 as u16);
+    Ok((u64::from(hi) << 16) | u64::from(lo))
 }
 
 fn bcd_decode(raw: u64, digits: u32) -> Result<u64, CodecError> {
@@ -250,7 +322,7 @@ pub fn decode(
             let w = *words.first().ok_or(CodecError::ShortInput)?;
             Value::Bool((w >> bit) & 1 == 1)
         }
-        U16 | U16BSwap | U32 | U32WSwap | U32BSwap | U64 | U64WSwap => {
+        U16 | U16BSwap | U32 | U32WSwap | U32BSwap | U32WBSwap | U64 | U64WSwap => {
             int_value(i128::from(gather(words, n, layout)?), scale, offset)
         }
         I16 | I16BSwap => int_value(
@@ -258,13 +330,21 @@ pub fn decode(
             scale,
             offset,
         ),
-        I32 | I32WSwap | I32BSwap => int_value(
+        I32 | I32WSwap | I32BSwap | I32WBSwap => int_value(
             i128::from(gather(words, n, layout)? as u32 as i32),
             scale,
             offset,
         ),
+        U32M10k | U32M10kWSwap => int_value(
+            m10k_decode(gather(words, n, layout)?, false)?,
+            scale,
+            offset,
+        ),
+        I32M10k | I32M10kWSwap => {
+            int_value(m10k_decode(gather(words, n, layout)?, true)?, scale, offset)
+        }
         I64 | I64WSwap => int_value(i128::from(gather(words, n, layout)? as i64), scale, offset),
-        F32 | F32WSwap => {
+        F32 | F32WSwap | F32WBSwap => {
             let f = f64::from(f32::from_bits(gather(words, n, layout)? as u32));
             Value::Float(f * scale + offset)
         }
@@ -277,11 +357,15 @@ pub fn decode(
             scale,
             offset,
         ),
-        Bcd32 => int_value(
+        Bcd32 | Bcd32WSwap => int_value(
             i128::from(bcd_decode(gather(words, 2, layout)?, 8)?),
             scale,
             offset,
         ),
+        Bits16 => {
+            let w = *words.first().ok_or(CodecError::ShortInput)?;
+            Value::Array((0..16).map(|i| Value::Bool((w >> i) & 1 == 1)).collect())
+        }
         Char => {
             let b = text(words, words.len())?;
             let end = b
@@ -378,11 +462,21 @@ pub fn encode(
             )?;
             scatter(u64::from(x as i16 as u16), n, layout)
         }
-        U32 | U32WSwap | U32BSwap => {
+        U32 | U32WSwap | U32BSwap | U32WBSwap => {
             let x = in_range(raw_int(value, scale, offset)?, 0, u32::MAX.into())?;
             scatter(x as u64, n, layout)
         }
-        I32 | I32WSwap | I32BSwap => {
+        U32M10k | U32M10kWSwap => scatter(
+            m10k_encode(raw_int(value, scale, offset)?, false)?,
+            n,
+            layout,
+        ),
+        I32M10k | I32M10kWSwap => scatter(
+            m10k_encode(raw_int(value, scale, offset)?, true)?,
+            n,
+            layout,
+        ),
+        I32 | I32WSwap | I32BSwap | I32WBSwap => {
             let x = in_range(
                 raw_int(value, scale, offset)?,
                 i32::MIN.into(),
@@ -402,7 +496,7 @@ pub fn encode(
             )?;
             scatter(x as i64 as u64, n, layout)
         }
-        F32 | F32WSwap => {
+        F32 | F32WSwap | F32WBSwap => {
             let f = raw_float(value, scale, offset)? as f32;
             if !f.is_finite() {
                 return Err(CodecError::OutOfRange);
@@ -414,9 +508,26 @@ pub fn encode(
             let x = in_range(raw_int(value, scale, offset)?, 0, 9999)?;
             scatter(bcd_encode(x as u64, 4), 1, layout)
         }
-        Bcd32 => {
+        Bcd32 | Bcd32WSwap => {
             let x = in_range(raw_int(value, scale, offset)?, 0, 99_999_999)?;
             scatter(bcd_encode(x as u64, 8), 2, layout)
+        }
+        Bits16 => {
+            let Value::Array(bits) = value else {
+                return Err(CodecError::TypeMismatch);
+            };
+            if bits.len() != 16 {
+                return Err(CodecError::OutOfRange);
+            }
+            let mut w = 0u16;
+            for (i, b) in bits.iter().enumerate() {
+                match b {
+                    Value::Bool(true) => w |= 1 << i,
+                    Value::Bool(false) => {}
+                    _ => return Err(CodecError::TypeMismatch),
+                }
+            }
+            vec![w]
         }
         Char | VarChar => {
             let mut b = ascii_text(value, n * 2)?;
@@ -734,6 +845,115 @@ mod tests {
         assert_eq!(decode(U32, &[1], 0, 1.0, 0.0), Err(ShortInput));
         assert_eq!(decode(F64, &[1, 2, 3], 0, 1.0, 0.0), Err(ShortInput));
         assert_eq!(decode(Binary, &[], 0, 1.0, 0.0), Err(ShortInput));
+    }
+
+    /// Ruling 3: the DSA types missing before (INT32M10K, UINT32M10K and
+    /// their SWAP forms, INT32SWAPSWAP/UINT32SWAPSWAP, FLOAT32 DCBA,
+    /// BCD32SWAP) and a register as 16 bools.
+    #[test]
+    fn dsa_types_match_hand_computed_words() {
+        let enc = |d, v: Value| encode(d, &v, 0, 1.0, 0.0);
+        let dec = |d, w: &[u16]| decode(d, w, 0, 1.0, 0.0);
+        // modulo 10 000: hi × 10 000 + lo
+        let v = Value::UInt(12_345_678);
+        assert_eq!(dec(U32M10k, &[1234, 5678]), Ok(v.clone()));
+        assert_eq!(enc(U32M10k, v.clone()), Ok(vec![1234, 5678]));
+        assert_eq!(dec(U32M10kWSwap, &[5678, 1234]), Ok(v.clone()));
+        assert_eq!(enc(U32M10kWSwap, v.clone()), Ok(vec![5678, 1234]));
+        assert_eq!(dec(I32M10k, &[1234, 5678]), Ok(v.clone()));
+        assert_eq!(dec(I32M10kWSwap, &[5678, 1234]), Ok(v));
+        // negative: both words negative (DSA truncating / and %)
+        let neg = Value::Int(-12_345_678);
+        let w = [(-1234i16) as u16, (-5678i16) as u16];
+        assert_eq!(enc(I32M10k, neg.clone()), Ok(w.to_vec()));
+        assert_eq!(dec(I32M10k, &w), Ok(neg.clone()));
+        assert_eq!(enc(I32M10kWSwap, neg.clone()), Ok(vec![w[1], w[0]]));
+        assert_eq!(dec(I32M10kWSwap, &[w[1], w[0]]), Ok(neg));
+        // the high word uses its whole range
+        assert_eq!(dec(U32M10k, &[65535, 9999]), Ok(Value::UInt(655_359_999)));
+        assert_eq!(
+            dec(I32M10k, &[(-32768i16) as u16, 0]),
+            Ok(Value::Int(-327_680_000))
+        );
+        rt(U32M10k, Value::UInt(655_359_999));
+        rt(I32M10k, Value::Int(-327_689_999));
+        rt(I32M10k, Value::UInt(327_679_999));
+        rt(I32M10k, Value::Int(-5));
+        // words and bytes swapped (DCBA)
+        let v = Value::UInt(0x1122_3344);
+        assert_eq!(enc(U32WBSwap, v.clone()), Ok(vec![0x4433, 0x2211]));
+        assert_eq!(dec(U32WBSwap, &[0x4433, 0x2211]), Ok(v));
+        assert_eq!(
+            dec(I32WBSwap, &[0xFFFF, 0xFFFE]),
+            Ok(Value::Int(-16_777_217)),
+            "0xFEFFFFFF"
+        );
+        rt(I32WBSwap, Value::Int(i32::MIN.into()));
+        // 1.0f32 = 0x3F800000 → bytes 00 00 80 3F
+        assert_eq!(enc(F32WBSwap, Value::Float(1.0)), Ok(vec![0x0000, 0x803F]));
+        assert_eq!(dec(F32WBSwap, &[0x0000, 0x803F]), Ok(Value::Float(1.0)));
+        rt(F32WBSwap, Value::Float(-1234.5625));
+        // BCD with the words swapped
+        let v = Value::UInt(12_345_678);
+        assert_eq!(enc(Bcd32WSwap, v.clone()), Ok(vec![0x5678, 0x1234]));
+        assert_eq!(dec(Bcd32WSwap, &[0x5678, 0x1234]), Ok(v));
+        assert_eq!(dec(Bcd32WSwap, &[0x56F8, 0x1234]), Err(CodecError::BadBcd));
+        // 16 bools, bit 0 first
+        let bits: Vec<Value> = (0..16)
+            .map(|i| Value::Bool(matches!(i, 0 | 2 | 15)))
+            .collect();
+        assert_eq!(dec(Bits16, &[0x8005]), Ok(Value::Array(bits.clone())));
+        assert_eq!(enc(Bits16, Value::Array(bits)), Ok(vec![0x8005]));
+        rt(Bits16, Value::Array(vec![Value::Bool(true); 16]));
+        assert_eq!(Bits16.type_code(), TypeCode::Array);
+        assert_eq!(Bits16.words(4), 1);
+        for d in [U32M10k, I32M10kWSwap, U32WBSwap, F32WBSwap, Bcd32WSwap] {
+            assert_eq!(d.words(4), 2, "{d:?}");
+        }
+    }
+
+    #[test]
+    fn dsa_types_refuse_bad_input() {
+        use CodecError::*;
+        let enc = |d, v: Value| encode(d, &v, 0, 1.0, 0.0);
+        // the modulo word holds 0..=9999
+        assert_eq!(decode(U32M10k, &[1, 10_000], 0, 1.0, 0.0), Err(OutOfRange));
+        assert_eq!(
+            decode(U32M10kWSwap, &[10_000, 1], 0, 1.0, 0.0),
+            Err(OutOfRange)
+        );
+        assert_eq!(
+            decode(I32M10k, &[1, (-10_000i16) as u16], 0, 1.0, 0.0),
+            Err(OutOfRange)
+        );
+        assert_eq!(decode(U32M10k, &[1], 0, 1.0, 0.0), Err(ShortInput));
+        assert_eq!(enc(U32M10k, Value::UInt(655_360_000)), Err(OutOfRange));
+        assert_eq!(enc(U32M10k, Value::Int(-1)), Err(OutOfRange));
+        assert_eq!(enc(I32M10k, Value::UInt(327_680_000)), Err(OutOfRange));
+        assert_eq!(enc(I32M10k, Value::Int(-327_690_000)), Err(OutOfRange));
+        assert_eq!(
+            enc(U32WBSwap, Value::UInt(u64::from(u32::MAX) + 1)),
+            Err(OutOfRange)
+        );
+        assert_eq!(enc(Bcd32WSwap, Value::UInt(100_000_000)), Err(OutOfRange));
+        // exactly 16 bools
+        assert_eq!(
+            enc(Bits16, Value::Array(vec![Value::Bool(true); 15])),
+            Err(OutOfRange)
+        );
+        let mut v = vec![Value::Bool(false); 16];
+        v[3] = Value::UInt(1);
+        assert_eq!(enc(Bits16, Value::Array(v)), Err(TypeMismatch));
+        assert_eq!(enc(Bits16, Value::UInt(5)), Err(TypeMismatch));
+        assert_eq!(decode(Bits16, &[], 0, 1.0, 0.0), Err(ShortInput));
+    }
+
+    /// Ruling 5: one FC16 write carries at most 123 registers, one FC15
+    /// write at most 1968 bits.
+    #[test]
+    fn write_bounds() {
+        assert_eq!(MAX_WRITE_REGISTERS, 123);
+        assert_eq!(MAX_WRITE_BITS, 1968);
     }
 
     #[test]

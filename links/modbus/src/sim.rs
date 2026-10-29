@@ -2,15 +2,17 @@
 //! inputs, input and holding registers, all zero at start. Addresses outside
 //! the tables answer `IllegalDataAddress`. Supports FC1–6, 15, 16, 17 and 22
 //! (FC22 can be switched off to test the read-modify-write fallback).
+//! Every unit id is served by the same tables; the ids seen are recorded.
 //! Stand-in for `diagslave` in tests.
 
+use std::collections::BTreeSet;
 use std::future;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio_modbus::server::tcp::{accept_tcp_connection, Server};
 use tokio_modbus::server::Service;
-use tokio_modbus::{ExceptionCode, Request, Response};
+use tokio_modbus::{ExceptionCode, Request, Response, SlaveRequest};
 
 pub const SIZE: usize = 1000;
 
@@ -24,6 +26,8 @@ pub struct Tables {
     pub requests: u64,
     /// Answer FC22 (mask write) with `IllegalFunction`.
     pub no_fc22: bool,
+    /// Unit ids of the requests served.
+    pub units: BTreeSet<u8>,
 }
 
 impl Default for Tables {
@@ -35,6 +39,7 @@ impl Default for Tables {
             holding: vec![0; SIZE],
             requests: 0,
             no_fc22: false,
+            units: BTreeSet::new(),
         }
     }
 }
@@ -56,15 +61,16 @@ fn slot<T>(t: &mut [T], addr: u16) -> Result<&mut T, ExceptionCode> {
 struct Sim(Device);
 
 impl Service for Sim {
-    type Request = Request<'static>;
+    type Request = SlaveRequest<'static>;
     type Response = Response;
     type Exception = ExceptionCode;
     type Future = future::Ready<Result<Response, ExceptionCode>>;
 
-    fn call(&self, req: Request<'static>) -> Self::Future {
+    fn call(&self, req: SlaveRequest<'static>) -> Self::Future {
         let mut t = self.0.lock().unwrap_or_else(|p| p.into_inner());
         t.requests += 1;
-        future::ready(match req {
+        t.units.insert(req.slave);
+        future::ready(match req.request {
             Request::ReadCoils(a, n) => range(&t.coils, a, n).map(Response::ReadCoils),
             Request::ReadDiscreteInputs(a, n) => {
                 range(&t.discrete, a, n).map(Response::ReadDiscreteInputs)

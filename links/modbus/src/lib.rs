@@ -18,6 +18,11 @@
 //! * device ping by reading a probe register (an exception reply = alive) or
 //!   FC17 Report Server ID.
 //!
+//! Unit ids are 0…255. On Modbus TCP 0 and 255 are ordinary units. On RTU
+//! (serial and RTU over TCP) 0 is the broadcast address, which needs a
+//! request without a reply; `tokio-modbus` 0.17 always waits for one, so a
+//! unit-0 device on RTU sends nothing and fails with that reason.
+//!
 //! Every request is bounded by `timeout_ms`; a timeout is a device miss, an
 //! I/O or protocol error drops the connection. Modbus ASCII and UDP are not
 //! supported.
@@ -38,7 +43,7 @@ use tokio_modbus::slave::SlaveContext;
 use tokio_modbus::{ExceptionCode, Request, Slave};
 use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, TypeCode, Value};
-use wyrm_link_sdk::driver::params::{field, ParamSpec};
+use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
 use wyrm_link_sdk::driver::{Driver, DriverError, Framework, ParamEnum, Params, PointId};
 use wyrm_link_sdk::LinkError;
@@ -156,7 +161,9 @@ pub struct SerialConn {
 
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct Device {
-    #[param(min = 1, max = 247, display = "Slave ID")]
+    /// 0 and 255 are ordinary units on Modbus TCP; 0 (broadcast) is refused
+    /// on RTU.
+    #[param(default = 1, min = 0, max = 255, display = "Slave ID")]
     pub unit: u8,
     #[param(enum, default = "probe", display = "Ping")]
     pub ping: Ping,
@@ -176,7 +183,8 @@ pub struct Device {
 }
 
 /// One point. Hand-written `Params` because `dtype` uses the codec names and
-/// the rules cross fields (coil/discrete ⇔ binary, writable tables, scale).
+/// the rules cross fields (coil/discrete ⇔ binary, writable tables, scale,
+/// one write per value).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Point {
     pub table: Table,
@@ -207,6 +215,20 @@ impl Point {
     }
 }
 
+/// A coil or discrete point without `dtype` is `binary`: the schema default
+/// (`u16`) is for registers.
+fn bit_table_default(v: &Value) -> Value {
+    let Value::Map(m) = v else {
+        return v.clone();
+    };
+    let bits = matches!(m.get("table"), Some(Value::Str(t)) if t == "coil" || t == "discrete");
+    let mut m = m.clone();
+    if bits && !m.contains_key("dtype") {
+        m.insert("dtype".into(), Value::Str(DType::Binary.name().into()));
+    }
+    Value::Map(m)
+}
+
 impl Params for Point {
     fn schema() -> Vec<ParamSpec> {
         vec![
@@ -219,6 +241,7 @@ impl Params for Point {
             ParamSpec::new("dtype", TypeCode::Enum)
                 .one_of(*DTYPE_NAMES)
                 .default("u16")
+                .desc("u16 for registers, binary for coil and discrete")
                 .display("Data Type"),
             ParamSpec::new("bit", TypeCode::Number)
                 .default(0u64)
@@ -247,6 +270,17 @@ impl Params for Point {
                 .default("")
                 .display("Unit"),
         ]
+    }
+
+    fn from_value(v: &Value) -> wyrm_link_sdk::Result<Self> {
+        Self::from_map(&normalize(&Self::schema(), &bit_table_default(v))?)
+    }
+
+    fn from_kind_value(kind: &str, v: &Value) -> wyrm_link_sdk::Result<Self> {
+        Self::from_kind_map(
+            kind,
+            &normalize(&Self::kind_schema(kind)?, &bit_table_default(v))?,
+        )
     }
 
     fn from_map(m: &BTreeMap<String, Value>) -> wyrm_link_sdk::Result<Self> {
@@ -280,6 +314,17 @@ impl Params for Point {
         }
         if u32::from(p.addr) + u32::from(p.words()) > 65_536 {
             return Err(LinkError::invalid_parameter("addr: value runs past 65535"));
+        }
+        // A value is written in one request (FC16 / FC15).
+        let max_write = if p.table.is_bits() {
+            codec::MAX_WRITE_BITS
+        } else {
+            codec::MAX_WRITE_REGISTERS
+        };
+        if p.writable && p.words() > max_write {
+            return Err(LinkError::invalid_parameter(format!(
+                "regs: a writable point holds at most {max_write} registers (one write)"
+            )));
         }
         Ok(p)
     }
@@ -331,8 +376,27 @@ fn serial_path_ok(p: &str) -> bool {
         })
     };
     const LINUX: &[&str] = &[
-        "ttyS", "ttyUSB", "ttyACM", "ttyAMA", "ttyTHS", "ttyXRUSB", "ttymxc", "ttyO", "ttySAC",
-        "ttyLP", "ttyGS", "rfcomm",
+        "ttyS",
+        "ttyUSB",
+        "ttyACM",
+        "ttyAMA",
+        "ttyTHS",
+        "ttyXRUSB",
+        "ttymxc",
+        "ttyO",
+        "ttySAC",
+        "ttyLP",
+        "ttyGS",
+        "rfcomm",
+        "ttySC",
+        "ttyM",
+        "ttyMXUSB",
+        "ttyMI",
+        "ttyRP",
+        "ttyXR",
+        "ttyCH343USB",
+        "ttyHS",
+        "ttyMSM",
     ];
     match rest.split_once('/') {
         None => {
@@ -378,6 +442,8 @@ pub struct Transport {
     ctx: Context,
     timeout: Duration,
     write_mode: WriteMode,
+    /// RTU framing (serial or RTU over TCP): unit 0 is broadcast there.
+    rtu: bool,
     /// Units that answered FC22 with `IllegalFunction`.
     no_fc22: HashSet<u8>,
 }
@@ -416,7 +482,17 @@ fn codec_err(e: codec::CodecError) -> DriverError {
     DriverError::Point(e.to_string())
 }
 
+/// Why a unit-0 device on RTU sends nothing.
+const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
+
 impl Transport {
+    /// Address `unit`; `false` = it is the RTU broadcast address, which
+    /// `tokio-modbus` cannot send (it always waits for a reply).
+    fn select(&mut self, unit: u8) -> bool {
+        self.ctx.set_slave(Slave(unit));
+        !(self.rtu && unit == 0)
+    }
+
     async fn read(&mut self, table: Table, addr: u16, n: u16) -> Reply<Vec<u16>> {
         let t = self.timeout;
         fn bits(r: Result<Vec<bool>, ExceptionCode>) -> Result<Vec<u16>, ExceptionCode> {
@@ -526,16 +602,23 @@ impl Driver for ModbusDriver {
                 rtu::attach_slave(stream, Slave(1))
             }
         };
+        let rtu = match conn {
+            Conn::Ip(c) => c.transport == IpTransport::RtuOverTcp,
+            Conn::Serial(_) => true,
+        };
         Ok(Transport {
             ctx,
             timeout,
             write_mode: conn.write_mode(),
+            rtu,
             no_fc22: HashSet::new(),
         })
     }
 
     async fn ping(t: &mut Transport, dev: &Device) -> Result<(), DriverError> {
-        t.ctx.set_slave(Slave(dev.unit));
+        if !t.select(dev.unit) {
+            return Err(DriverError::Device(NO_RTU_BROADCAST.into()));
+        }
         match dev.ping {
             Ping::None => Ok(()),
             // Any answer, exception included, means the device is alive.
@@ -583,7 +666,15 @@ impl Driver for ModbusDriver {
         dev: &Device,
         plan: &Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
-        t.ctx.set_slave(Slave(dev.unit));
+        if !t.select(dev.unit) {
+            let refused = DriverError::Device(NO_RTU_BROADCAST.into());
+            return plan
+                .tables
+                .iter()
+                .flat_map(|tr| tr.members.iter())
+                .map(|(id, _)| (id.clone(), Err(refused.clone())))
+                .collect();
+        }
         let mut out = Vec::new();
         for tr in &plan.tables {
             for span in &tr.spans {
@@ -623,7 +714,9 @@ impl Driver for ModbusDriver {
         p: &Point,
         v: &Value,
     ) -> Result<(), DriverError> {
-        t.ctx.set_slave(Slave(dev.unit));
+        if !t.select(dev.unit) {
+            return Err(DriverError::Point(NO_RTU_BROADCAST.into()));
+        }
         let timeout = t.timeout;
         match (p.table, p.dtype) {
             (Table::Coil, _) => {
@@ -713,6 +806,16 @@ mod serial_tests {
             "/dev/cu.usbserial-1410",
             "/dev/tty.usbmodem14101",
             "/dev/rfcomm0",
+            // industrial gateways and SoC UARTs (Linux)
+            "/dev/ttySC0",
+            "/dev/ttyM0",
+            "/dev/ttyMXUSB3",
+            "/dev/ttyMI1",
+            "/dev/ttyRP12",
+            "/dev/ttyXR0",
+            "/dev/ttyCH343USB0",
+            "/dev/ttyHS1",
+            "/dev/ttyMSM0",
             "/dev/serial/by-id/usb-FTDI_FT232R-if00-port0",
             "/dev/serial/by-path/pci-0000:00:14.0-usb-0:2:1.0-port0",
         ] {
@@ -726,6 +829,11 @@ mod serial_tests {
             "/dev/ttyprintk",
             "/dev/ttyp0",
             "/dev/ttyUSB",
+            "/dev/ttySC",
+            "/dev/ttyM",
+            "/dev/ttyMXUSB",
+            "/dev/ttyMSM1000",
+            "/dev/ttyHSx",
             "/dev/cu.",
             "/dev/sda",
             "/dev/mem",
