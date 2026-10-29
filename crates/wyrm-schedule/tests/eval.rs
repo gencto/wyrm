@@ -736,7 +736,7 @@ fn rules_that_never_match_end() {
                 3,
                 "2026-10-01T08:00",
                 "2026-10-01T08:30",
-                Some("FREQ=YEARLY;BYDAY=6MO"),
+                Some("FREQ=YEARLY;BYMONTH=2;BYDAY=5MO;BYMONTHDAY=30"),
             ),
         ],
     );

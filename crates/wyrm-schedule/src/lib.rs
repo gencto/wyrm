@@ -18,8 +18,8 @@ pub use eval::{
     next_transition, occurrences, state_at, Compiled, Occurrence, Source, State, HORIZON_DAYS,
 };
 pub use model::{
-    format_local, parse_local, valid_id, validate, DaySpec, Event, Freq, Invalid, Micros, Rule,
-    RuleEnd, Schedule, FORMAT, MAX_COUNT, MAX_EVENTS, MAX_INTERVAL,
+    finite, format_local, parse_local, valid_id, validate, DaySpec, Event, Freq, Invalid, Micros,
+    Rule, RuleEnd, Schedule, FORMAT, MAX_COUNT, MAX_EVENTS, MAX_INTERVAL,
 };
 
 #[cfg(test)]

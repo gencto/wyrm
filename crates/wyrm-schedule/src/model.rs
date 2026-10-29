@@ -171,6 +171,19 @@ pub fn format_local(dt: DateTime) -> String {
     }
 }
 
+/// Every number in `v` (inside arrays and maps too) is finite: NaN and ±infinity are no
+/// value to write.
+pub fn finite(v: &Value) -> bool {
+    match v {
+        Value::Float(f) => f.is_finite(),
+        Value::Array(a) => a.iter().all(finite),
+        Value::Map(m) => m.values().all(finite),
+        _ => true,
+    }
+}
+
+const NOT_FINITE: &str = "a number must be finite (no NaN or infinity)";
+
 /// Check a whole schedule. The first error names the field and the rule.
 pub fn validate(s: &Schedule) -> Result<(), Invalid> {
     if !valid_id(&s.id) {
@@ -184,6 +197,9 @@ pub fn validate(s: &Schedule) -> Result<(), Invalid> {
             "tz",
             format!("unknown IANA time zone {:?}", s.tz),
         ));
+    }
+    if !finite(&s.default) {
+        return Err(Invalid::new("default", NOT_FINITE));
     }
     if s.events.len() > MAX_EVENTS {
         return Err(Invalid::new(
@@ -218,6 +234,9 @@ fn validate_event(s: &Schedule, i: usize, e: &Event) -> Result<(), Invalid> {
             f("id"),
             format!("id not below next_event ({})", s.next_event),
         ));
+    }
+    if !finite(&e.value) {
+        return Err(Invalid::new(f("value"), NOT_FINITE));
     }
     if e.priority > 9 {
         return Err(Invalid::new(f("priority"), "must be 0 to 9"));

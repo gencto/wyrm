@@ -91,9 +91,9 @@ fn parse_day(freq: Freq, v: &str) -> Result<DaySpec, Invalid> {
     if ord.is_empty() {
         return Ok(DaySpec { ordinal: None, day });
     }
+    // the ordinal counts within the month, also with YEARLY (ruling R5)
     let max = match freq {
-        Freq::Monthly => 5i16,
-        Freq::Yearly => 53,
+        Freq::Monthly | Freq::Yearly => 5i16,
         _ => {
             return Err(Invalid::new(
                 "BYDAY",

@@ -14,6 +14,7 @@ fn rrule_round_trips() {
         "FREQ=MONTHLY;INTERVAL=1;BYDAY=-1FR",
         "FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=-1,15",
         "FREQ=YEARLY;INTERVAL=1;BYMONTH=3;BYDAY=-1SU",
+        "FREQ=YEARLY;INTERVAL=1;BYMONTH=5;BYDAY=-5MO,5SU",
         "FREQ=HOURLY;INTERVAL=4;COUNT=6",
         "FREQ=DAILY;INTERVAL=1;UNTIL=2027-03-01T00:00",
     ] {
@@ -37,6 +38,10 @@ fn rrule_refusals() {
         ("FREQ=WEEKLY;BYDAY=1MO", "BYDAY"),
         ("FREQ=MONTHLY;BYDAY=-128MO", "BYDAY"),
         ("FREQ=YEARLY;BYDAY=-128MO", "BYDAY"),
+        // ordinals count within a month (ruling R5): 6MO never matches
+        ("FREQ=YEARLY;BYDAY=6MO", "BYDAY"),
+        ("FREQ=YEARLY;BYDAY=-6FR", "BYDAY"),
+        ("FREQ=YEARLY;BYMONTH=3;BYDAY=20MO", "BYDAY"),
         ("FREQ=MONTHLY;BYMONTHDAY=0", "BYMONTHDAY"),
         ("FREQ=MONTHLY;BYMONTHDAY=32", "BYMONTHDAY"),
         ("FREQ=MONTHLY;BYMONTHDAY=-2", "BYMONTHDAY"),
@@ -133,6 +138,34 @@ fn validate_refusals() {
     )]);
     s.next_event = 3;
     assert_eq!(field(&s), "events[0].id");
+}
+
+/// A number that is not finite is no value to write (T2a): refused in the default and in
+/// event values, also inside an array or a map.
+#[test]
+fn validate_refuses_non_finite_numbers() {
+    let ok = || event("e1", "2026-10-05T08:00", "2026-10-05T09:00", None);
+    let bad = [
+        Value::Float(f64::NAN),
+        Value::Float(f64::INFINITY),
+        Value::Float(f64::NEG_INFINITY),
+        Value::Array(vec![Value::UInt(1), Value::Float(f64::NAN)]),
+        Value::Map([("k".to_owned(), Value::Float(f64::INFINITY))].into()),
+    ];
+    for v in &bad {
+        let mut s = sched(vec![ok()]);
+        s.default = v.clone();
+        let e = validate(&s).unwrap_err();
+        assert_eq!(e.field, "default", "{v:?}");
+        assert!(e.rule.contains("finite"), "{e}");
+        let mut e1 = ok();
+        e1.value = v.clone();
+        assert_eq!(field(&sched(vec![e1])), "events[0].value", "{v:?}");
+    }
+    let mut s = sched(vec![ok()]);
+    s.default = Value::Float(-1.5e300);
+    s.events[0].value = Value::Array(vec![Value::Float(0.0), Value::Int(-1)]);
+    assert!(validate(&s).is_ok());
 }
 
 #[test]
