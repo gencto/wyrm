@@ -1142,7 +1142,14 @@ where
     }
 
     async fn start(cfg: PortableConfig, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
-        let engine = E::make(&cfg, &ctx)?;
+        // a WASM engine compiles its component here: off the async workers, which serve the
+        // router and every other link
+        let engine = {
+            let (cfg, ctx) = (cfg.clone(), ctx.clone());
+            tokio::task::spawn_blocking(move || E::make(&cfg, &ctx))
+                .await
+                .map_err(|e| LinkError::internal(format!("engine: {e}")))??
+        };
         let code = engine.code_changes();
         let code_gen = code.as_ref().map_or(0, |rx| *rx.borrow());
         let store: SharedStore = Arc::new(Mutex::new(Store::open(
