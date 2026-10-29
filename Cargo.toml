@@ -107,3 +107,16 @@ webpki-roots = "1"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Debug builds (tests, CI) compile WASM components with cranelift: unoptimized
+# it takes seconds per component, and installs time out on slow hosts.
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+[profile.dev.package.cranelift-frontend]
+opt-level = 3
+[profile.dev.package.regalloc2]
+opt-level = 3
+[profile.dev.package.wasmtime-internal-cranelift]
+opt-level = 3
+[profile.dev.package.wasmparser]
+opt-level = 3

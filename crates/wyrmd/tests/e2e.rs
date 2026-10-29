@@ -1342,7 +1342,7 @@ async fn portable_app_installs_as_wasm() {
         package::pack(&m, &files).unwrap()
     };
     let env = Env::start("appwasm", "").await;
-    let c = env.client().await.with_timeout(Duration::from_secs(10));
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
     let links = format!("wy/{SITE}/sys/links");
     let install = |zip: Vec<u8>| {
         Value::Map(BTreeMap::from([
@@ -1372,11 +1372,13 @@ async fn portable_app_installs_as_wasm() {
         "{msg}"
     );
 
+    let t = std::time::Instant::now();
     let (ok, msg) = outcome(
         c.invoke_one(&links, "install_zip", install(zip("1.0.0", "app")))
             .await
             .unwrap(),
     );
+    eprintln!("install_zip of the app took {:?}", t.elapsed());
     assert!(ok, "{msg}");
     assert!(
         msg.contains("capabilities net none, store 2 MiB, memory 64 MiB, call 2000 ms"),
@@ -1466,10 +1468,12 @@ async fn install_zip(c: &WyrmClient, name: &str, zip: Vec<u8>) -> (bool, String)
         ("name".to_owned(), Value::from(name)),
         ("zip".to_owned(), Value::Bytes(zip)),
     ]));
+    let t = std::time::Instant::now();
     let v = c
         .invoke_one(&format!("wy/{SITE}/sys/links"), "install_zip", args)
         .await
         .unwrap();
+    eprintln!("install_zip {name} took {:?}", t.elapsed());
     let Some(Value::Map(m)) = v else {
         panic!("result map: {v:?}")
     };
@@ -1498,7 +1502,7 @@ async fn portable_app_update_and_rollback() {
         return;
     };
     let env = Env::start("appupd", "").await;
-    let c = env.client().await.with_timeout(Duration::from_secs(10));
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
     let caps = Capabilities {
         store_mb: Some(1),
         ..Capabilities::default()
