@@ -296,12 +296,15 @@ pub fn install_quiet() -> Arc<LogControl> {
 }
 
 fn install_inner(stdout: bool) -> Arc<LogControl> {
+    // One builder at a time: a second subscriber loses `try_init`, and its
+    // reload handle then points at a dropped subscriber.
+    GLOBAL.get_or_init(|| build(stdout)).clone()
+}
+
+fn build(stdout: bool) -> Arc<LogControl> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::{reload, EnvFilter};
-    if let Some(g) = global() {
-        return g;
-    }
     let initial = std::env::var("RUST_LOG").unwrap_or_else(|_| "info,zenoh=warn".into());
     let filter = EnvFilter::try_new(&initial).unwrap_or_else(|_| EnvFilter::new("info,zenoh=warn"));
     let (filter, handle) = reload::Layer::new(filter);
@@ -323,16 +326,14 @@ fn install_inner(stdout: bool) -> Arc<LogControl> {
         .with(text)
         .with(RingLayer(ring.clone()))
         .try_init();
-    let c = Arc::new(LogControl {
+    Arc::new(LogControl {
         ring,
         reload: Box::new(move |d| {
             let f = EnvFilter::try_new(d).map_err(|e| e.to_string())?;
             handle.reload(f).map_err(|e| e.to_string())
         }),
         levels,
-    });
-    let _ = GLOBAL.set(c.clone());
-    global().unwrap_or(c)
+    })
 }
 
 /// An `EnvFilter` for `level`: zenoh stays at `warn` unless it is `trace`.
