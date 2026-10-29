@@ -1,0 +1,33 @@
+[package]
+name = "wyrm-link-scheduler"
+description = "Scheduler link (ADR 0022): schedules of events that write values at times, as a portable App (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary, the broker and the tests
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The process link: `wyrm_link_sdk::process::main::<Portable<Scheduler>>()`.
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+# The WASM component: `wyrm_link_guest::export!(Scheduler)`.
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wyrm-schedule.workspace = true
+serde_json.workspace = true
+# RFC 3339 instants in attributes and `get_events`; never the OS clock or zone.
+jiff = { workspace = true, features = ["std"] }
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
