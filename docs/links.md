@@ -411,7 +411,10 @@ over a smaller `store_mb`.
 
 **Call time:** a `set` or `invoke` of a portable link may take `call_ms`;
 the broker waits `call_ms` + 1 s before it answers `timeout`. A request
-that was answered `timeout` while it waited in the queue is not run.
+that was answered `timeout` while it waited in the queue is not run. A
+caller's own timeout must be longer than the app's `call_ms` + 1 s: the
+`wyrm-client` waits 10 s by default (`DEFAULT_TIMEOUT`), so with `call_ms` above 9000 give the
+caller a longer timeout, or it sees `timeout` for a call that still runs.
 
 The broker tells the world from the component's exports: an `app`
 component runs on the driver `app`; a `driver` or `point` component on the
