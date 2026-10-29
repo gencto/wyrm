@@ -92,7 +92,7 @@ fn parse_day(freq: Freq, v: &str) -> Result<DaySpec, Invalid> {
         return Ok(DaySpec { ordinal: None, day });
     }
     let max = match freq {
-        Freq::Monthly => 5,
+        Freq::Monthly => 5i16,
         Freq::Yearly => 53,
         _ => {
             return Err(Invalid::new(
@@ -102,7 +102,7 @@ fn parse_day(freq: Freq, v: &str) -> Result<DaySpec, Invalid> {
         }
     };
     let n: i8 = ord.parse().map_err(|_| bad())?;
-    if n == 0 || n.abs() > max {
+    if n == 0 || i16::from(n).abs() > max {
         return Err(Invalid::new(
             "BYDAY",
             format!("ordinal must be 1 to {max} or -1 to -{max}"),
