@@ -5276,8 +5276,10 @@ async fn embedded_scheduler_drives_a_process_link() {
         .attr_value("tz")
         .cloned()
         .unwrap();
+    // as wyrmd picks it: the system's IANA name if known, else UTC
     let want = jiff::tz::TimeZone::system()
         .iana_name()
+        .filter(|n| jiff::tz::TimeZone::get(n).is_ok())
         .unwrap_or("UTC")
         .to_owned();
     assert_eq!(zone, Value::from(want.as_str()), "the system zone");
