@@ -15,10 +15,9 @@ use wyrm_core::{TypeCode, Value};
 pub const MAX_REGISTERS: u16 = 125;
 /// Most bits one read may return (FC1/FC2).
 pub const MAX_BITS: u16 = 2000;
-/// Most registers one write may carry (FC16).
+/// Most registers one write may carry (FC16). A coil point is one bit, so
+/// the FC15 bound (1968 bits) is never reached.
 pub const MAX_WRITE_REGISTERS: u16 = 123;
-/// Most bits one write may carry (FC15).
-pub const MAX_WRITE_BITS: u16 = 1968;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum CodecError {
@@ -948,12 +947,10 @@ mod tests {
         assert_eq!(decode(Bits16, &[], 0, 1.0, 0.0), Err(ShortInput));
     }
 
-    /// Ruling 5: one FC16 write carries at most 123 registers, one FC15
-    /// write at most 1968 bits.
+    /// Ruling 5: one FC16 write carries at most 123 registers.
     #[test]
     fn write_bounds() {
         assert_eq!(MAX_WRITE_REGISTERS, 123);
-        assert_eq!(MAX_WRITE_BITS, 1968);
     }
 
     #[test]

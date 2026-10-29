@@ -1,5 +1,5 @@
 {
-  "comment": "Written by the code of links/modbus at commit 195b971 (2026-10-29), before the DSA parity plan. Never regenerate: the test `stored_config_still_loads` proves that configs stored by that code still load and decode the same values.",
+  "comment": "Written by the code of links/modbus at commit 195b971 (2026-10-29), before the DSA parity plan. Never regenerate: the test `stored_config_still_loads` proves that configs stored by that code still load and decode the same values. Entry holding_varchar_writable_125 was added in Task 1 fix round 1, its to_map also written by the code at 195b971 (a worktree).",
   "connections": [
     {
       "given": {
@@ -792,6 +792,28 @@
         "table": "holding",
         "unit": "",
         "writable": false
+      }
+    },
+    {
+      "name": "holding_varchar_writable_125",
+      "given": {
+        "table": "holding",
+        "addr": 200,
+        "dtype": "varchar",
+        "regs": 125,
+        "writable": true
+      },
+      "to_map": {
+        "addr": 200,
+        "bit": 0,
+        "dtype": "varchar",
+        "offset": 0.0,
+        "poll_s": 1.0,
+        "regs": 125,
+        "scale": 1.0,
+        "table": "holding",
+        "unit": "",
+        "writable": true
       }
     }
   ]

@@ -552,10 +552,11 @@ fn bit_tables_default_to_binary() {
     assert!(e.message.starts_with("dtype:"), "{e:?}");
 }
 
-/// Ruling 5: one FC16 write carries at most 123 registers, so a writable
-/// point may not be longer; a read-only one may (one read takes 125).
+/// Ruling 5: one FC16 write carries at most 123 registers. A longer
+/// writable point still parses (a stored one must keep loading); its
+/// write is refused (`stored_writable_text_beyond_one_write`).
 #[test]
-fn writable_points_fit_one_write() {
+fn writable_points_beyond_one_write_parse() {
     let text = |regs: u64, writable: bool| {
         point(&[
             ("table", "holding".into()),
@@ -565,10 +566,8 @@ fn writable_points_fit_one_write() {
             ("writable", Value::Bool(writable)),
         ])
     };
-    let e = text(124, true).unwrap_err();
-    assert_eq!(e.status, Status::InvalidParameter);
-    assert!(e.message.starts_with("regs:"), "{e:?}");
-    assert!(e.message.contains("123"), "{e:?}");
+    assert!(text(124, true).is_ok());
+    assert!(text(125, true).is_ok());
     assert!(text(123, true).is_ok());
     assert!(text(125, false).is_ok());
     let p = point(&[
@@ -766,5 +765,38 @@ async fn bits16_and_m10k_poll_and_write() {
         .await;
     assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
     assert_eq!(dev.lock().unwrap().holding[40], 0xBEEF, "nothing written");
+    h.stop().await;
+}
+
+/// Review Focus 1 with ruling 5: the stored writable varchar of 125
+/// registers (fixture entry written by 195b971) loads and polls; its
+/// write is refused with the bound named, and nothing is written.
+#[tokio::test(flavor = "multi_thread")]
+async fn stored_writable_text_beyond_one_write() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/config-2026-10-29.json")).unwrap();
+    let entry = doc["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "holding_varchar_writable_125")
+        .expect("fixture entry");
+    let Value::Map(mut stored) = from_json(&entry["to_map"]) else {
+        unreachable!()
+    };
+    stored.insert("poll_s".into(), Value::Float(0.05));
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().holding[200..202].copy_from_slice(&[0x4142, 0x4300]);
+    let points = map(&[("text", Value::Map(stored))]);
+    let h = H::start(tree(addr.port(), &[("ping", "none".into())], points)).await;
+    wait("polled", || val(&h, "text") == Some(Value::from("ABC"))).await;
+    let att = h
+        .set("c1/d1/text", Value::from("XYZ"), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
+    let err = att.err.as_deref().unwrap_or_default();
+    assert!(err.starts_with("regs:") && err.contains("123"), "{att:?}");
+    assert_eq!(dev.lock().unwrap().holding[200..202], [0x4142, 0x4300]);
+    assert_eq!(val(&h, "text"), Some(Value::from("ABC")));
     h.stop().await;
 }

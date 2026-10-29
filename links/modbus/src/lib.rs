@@ -183,8 +183,7 @@ pub struct Device {
 }
 
 /// One point. Hand-written `Params` because `dtype` uses the codec names and
-/// the rules cross fields (coil/discrete ⇔ binary, writable tables, scale,
-/// one write per value).
+/// the rules cross fields (coil/discrete ⇔ binary, writable tables, scale).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Point {
     pub table: Table,
@@ -314,17 +313,6 @@ impl Params for Point {
         }
         if u32::from(p.addr) + u32::from(p.words()) > 65_536 {
             return Err(LinkError::invalid_parameter("addr: value runs past 65535"));
-        }
-        // A value is written in one request (FC16 / FC15).
-        let max_write = if p.table.is_bits() {
-            codec::MAX_WRITE_BITS
-        } else {
-            codec::MAX_WRITE_REGISTERS
-        };
-        if p.writable && p.words() > max_write {
-            return Err(LinkError::invalid_parameter(format!(
-                "regs: a writable point holds at most {max_write} registers (one write)"
-            )));
         }
         Ok(p)
     }
@@ -737,6 +725,18 @@ impl Driver for ModbusDriver {
                 t.write_bit(dev.unit, p.addr, p.bit, *on).await
             }
             (Table::Holding, _) => {
+                // One FC16 request per value. Checked here, not in
+                // `from_map`: a stored writable point with more registers
+                // still loads and polls (the framework parses stored, added
+                // and edited points alike).
+                if p.words() > codec::MAX_WRITE_REGISTERS {
+                    return Err(DriverError::Point(format!(
+                        "regs: a value of {} registers cannot be written; one write \
+                         carries at most {} registers",
+                        p.words(),
+                        codec::MAX_WRITE_REGISTERS
+                    )));
+                }
                 let words =
                     codec::encode(p.dtype, v, p.regs, p.scale, p.offset).map_err(codec_err)?;
                 let r = if words.len() == 1 && t.write_mode != WriteMode::Multiple {
