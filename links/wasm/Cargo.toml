@@ -21,7 +21,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
 wat.workspace = true
 ed25519-dalek.workspace = true
 wit-component.workspace = true

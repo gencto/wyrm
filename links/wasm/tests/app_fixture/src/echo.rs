@@ -9,7 +9,10 @@
 //! Actions on the root: `ping` (a 50 ms timer, answers `"pong"`), `call` (a request to another
 //! point), `slow` (runs 300 ms), and the faults `trap`, `spin` (never ends) and `grow` (asks for
 //! 100 MiB). A `set` of -1 panics; a `set` of -2 stores 9 and then runs 300 ms. With
-//! `extra: true` it declares `extra` on its first start only.
+//! `extra: true` it declares `extra` on its first start only. With `gate: <port>` the slow
+//! `set` and `slow` do not run a fixed time: each connects to `127.0.0.1:<port>` and returns
+//! when one byte arrives there, so a test knows the call is in flight (it accepted) and decides
+//! when it ends (it sends).
 
 use wyrm_core::meta::{ParamMeta, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
@@ -37,6 +40,24 @@ fn count(host: &dyn Host, key: &str) -> f64 {
 
 pub struct Echo {
     ticks: u64,
+    gate: Option<u16>,
+}
+
+impl Echo {
+    /// A slow call: 300 ms, or until the gate sends one byte (see the module docs).
+    fn slow(&self, host: &mut dyn Host) -> Result<(), AppError> {
+        if let Some(port) = self.gate {
+            let c = host.tcp_connect("127.0.0.1", port, 1_000)?;
+            let r = host.tcp_recv(c, 1, 9_000);
+            host.tcp_close(c);
+            return r.map(|_| ());
+        }
+        let end = host.now_us() + 300_000;
+        while host.now_us() < end {
+            std::hint::black_box(());
+        }
+        Ok(())
+    }
 }
 
 impl App for Echo {
@@ -63,6 +84,13 @@ impl App for Echo {
                 .param("value", ParamMeta::of(TypeCode::Number)),
         );
         let extra = matches!(&config, Value::Map(m) if m.get("extra") == Some(&Value::Bool(true)));
+        let gate = match &config {
+            Value::Map(m) => match m.get("gate") {
+                Some(Value::UInt(p)) => u16::try_from(*p).ok(),
+                _ => None,
+            },
+            _ => None,
+        };
         if extra && host.store_get("started").is_none() {
             host.declare_node("extra", NodeMeta::number());
             host.store_put("started", &[1])?;
@@ -78,7 +106,7 @@ impl App for Echo {
         }
         host.update("starts", sample(Value::Float(starts)));
         host.update("stopped", sample(Value::Float(count(host, "stopped"))));
-        Ok(Echo { ticks: 0 })
+        Ok(Echo { ticks: 0, gate })
     }
 
     fn on_set(
@@ -95,15 +123,11 @@ impl App for Echo {
             return Err(AppError::new(Status::NotFound, path));
         }
         if value.as_f64() == Some(-2.0) {
-            // a slow set: writes 9, then runs 300 ms (the hot swap test cuts it off)
+            // a slow set: writes 9, then runs on (the hot swap test cuts it off)
             let nine = Value::UInt(9);
             host.store_put("n", &wyrm_core::codec::to_vec(&nine).map_err(internal)?)?;
             host.update("n", sample(nine));
-            let end = host.now_us() + 300_000;
-            while host.now_us() < end {
-                std::hint::black_box(());
-            }
-            return Ok(());
+            return self.slow(host);
         }
         let b = wyrm_core::codec::to_vec(&value).map_err(internal)?;
         host.store_put("n", &b)?;
@@ -125,10 +149,7 @@ impl App for Echo {
                 Ok(Value::Str("pong".into()))
             }
             "slow" => {
-                let end = host.now_us() + 300_000;
-                while host.now_us() < end {
-                    std::hint::black_box(());
-                }
+                self.slow(host)?;
                 Ok(Value::Str("slow".into()))
             }
             "trap" => panic!("asked to trap"),

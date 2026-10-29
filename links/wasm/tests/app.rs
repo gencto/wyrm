@@ -551,13 +551,53 @@ async fn trap_fuel_memory_time_restart() {
 
 // ---------- hot swap ----------
 
+/// The gate of the fixture's slow calls (param `gate`): a slow call connects here when it runs
+/// and returns when its stream gets one byte. No sleep decides what is in flight.
+struct Gate(tokio::net::TcpListener);
+
+impl Gate {
+    async fn new() -> Self {
+        Self(
+            tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind the gate"),
+        )
+    }
+
+    fn port(&self) -> u16 {
+        self.0.local_addr().unwrap().port()
+    }
+
+    /// The next slow call is running: it connected. It runs until [`Gate::release`].
+    async fn entered(&self) -> tokio::net::TcpStream {
+        tokio::time::timeout(Duration::from_secs(30), self.0.accept())
+            .await
+            .expect("no slow call reached the gate in 30 s")
+            .expect("accept")
+            .0
+    }
+
+    async fn release(mut s: tokio::net::TcpStream) {
+        use tokio::io::AsyncWriteExt;
+        s.write_all(&[1]).await.expect("release the slow call");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hot_swap_keeps_store_and_fails_inflight() {
     if component("hot_swap_keeps_store_and_fails_inflight").is_none() {
         return;
     }
     let dir = data_dir("swap");
-    let h = start::<Wasm>(config("swap", &[]), &dir, Vec::new()).await;
+    let gate = Gate::new().await;
+    let port = gate.port();
+    let params = [
+        ("gate", Value::UInt(port.into())),
+        ("net", Value::Str(format!("127.0.0.1:{port}"))),
+        // the gate waits inside the call: room for a loaded machine
+        ("call_ms", Value::UInt(10_000)),
+    ];
+    let h = start::<Wasm>(config("swap", &params), &dir, Vec::new()).await;
     let att = h.set("n", 7i64, Some(h.ptok(Perm::Write))).await;
     assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
     assert_eq!(num(&h, "starts"), Some(1.0));
@@ -569,12 +609,14 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
         let h = h.clone();
         tokio::spawn(async move { h.set("n", -2i64, Some(h.ptok(Perm::Write))).await })
     };
-    tokio::time::sleep(Duration::from_millis(80)).await;
+    // the set runs in the old instance: the swap comes while it is in flight
+    let call = gate.entered().await;
     let swapped = tokio::task::spawn_blocking(|| wyrm_link_wasm::app::reload_component("swap"))
         .await
         .unwrap()
         .expect("reload");
     assert_eq!(swapped.len(), 1);
+    Gate::release(call).await;
     let att = slow_set.await.unwrap();
     assert_eq!(status(&att), Status::Busy, "{:?}", att.err);
     assert!(
@@ -592,12 +634,13 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
         let h = h.clone();
         tokio::spawn(async move { invoke(&h, "slow", empty()).await })
     };
-    tokio::time::sleep(Duration::from_millis(80)).await;
+    let call = gate.entered().await;
     let swapped = tokio::task::spawn_blocking(|| wyrm_link_wasm::app::reload_component("swap"))
         .await
         .unwrap()
         .expect("reload");
     assert_eq!(swapped.len(), 1);
+    Gate::release(call).await;
     let (s, v) = slow.await.unwrap();
     assert_eq!(s, Status::Busy, "the cut off invoke answered {v:?}");
 
@@ -613,7 +656,12 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
     let att = h.set("n", 8i64, Some(h.ptok(Perm::Write))).await;
     assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
     assert_eq!(num(&h, "n"), Some(8.0));
-    let (s, v) = invoke(&h, "slow", empty()).await;
+    let slow = {
+        let h = h.clone();
+        tokio::spawn(async move { invoke(&h, "slow", empty()).await })
+    };
+    Gate::release(gate.entered().await).await;
+    let (s, v) = slow.await.unwrap();
     assert_eq!((s, v), (Status::Ok, Some(str_v("slow"))));
 
     let Ok(h) = Arc::try_unwrap(h) else {
