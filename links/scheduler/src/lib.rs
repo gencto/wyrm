@@ -33,12 +33,17 @@ use wyrm_schedule::{
     State, MAX_EVENTS,
 };
 
-use limits::{Counted, CLOCK_STEP_MS, DEFAULT_ROWS, MAX_ROWS, NODE_BUDGET, WATCHDOG_MS};
+use limits::{
+    Counted, CLOCK_STEP_MS, DEFAULT_ROWS, MAX_ROWS, NODE_BUDGET, RECHECK_DAYS, WATCHDOG_MS,
+};
 use targets::{Probes, Target, TargetDef, Writer, BEGIN_COST, TARGET_COST};
 use wake::{Fired, Timer, Wake, Wakes};
 
-/// Commands of one transition: the schedule's attributes and `current`.
-const TRANSITION_COST: usize = 2;
+/// Commands of one transition: the schedule's attributes, `current`, its held moment and a log
+/// when that is not kept.
+const TRANSITION_COST: usize = 4;
+
+const DAY_US: Micros = 86_400_000_000;
 
 type Args = BTreeMap<String, Value>;
 
@@ -246,6 +251,17 @@ fn eval_now(c: &Compiled, now: Micros, held: &State) -> State {
     state_at(c, now)
 }
 
+/// When a schedule wakes: an enabled one at its next transition, else after [`RECHECK_DAYS`]
+/// (R18: a transition beyond the horizon comes into it then); one that is off does not wake.
+fn wake_of(enabled: bool, next: Option<&(Micros, State)>, now: Micros) -> Option<Micros> {
+    enabled.then(|| until_of(next, now))
+}
+
+/// Until when the state at `now` holds: its next transition, else the re-check (R19).
+fn until_of(next: Option<&(Micros, State)>, now: Micros) -> Micros {
+    next.map_or_else(|| now.saturating_add(RECHECK_DAYS * DAY_US), |n| n.0)
+}
+
 /// One loaded schedule.
 struct Sched {
     c: Compiled,
@@ -253,6 +269,8 @@ struct Sched {
     state: State,
     /// The next transition (none while disabled).
     next: Option<(Micros, State)>,
+    /// Until when `state` holds ([`until_of`]): what the targets' records say (R19).
+    until: Micros,
     targets: Vec<Target>,
     /// The next `n` of a target id `t<n>`; never goes down, so an id is never reused.
     next_target: u32,
@@ -322,7 +340,8 @@ impl Scheduler {
     }
 
     /// Declares a compiled schedule's nodes, shows its state now and sets its next wake; its
-    /// targets write the state now (`fresh`) or follow the restart rules (loaded).
+    /// targets write the state now (`fresh`) or follow the restart rules (loaded). A loaded
+    /// schedule keeps the moment it held while that is still its state (R17).
     fn declare(
         &mut self,
         cx: &mut Counted,
@@ -334,7 +353,18 @@ impl Scheduler {
     ) {
         let def = c.schedule();
         let id = def.id.clone();
-        let state = state_at(&c, now);
+        let held = if fresh {
+            None
+        } else {
+            store::load_held(cx, &id)
+        };
+        let state = match &held {
+            Some(h) => eval_now(&c, now, h),
+            None => state_at(&c, now),
+        };
+        if held.is_some_and(|h| h != state) {
+            cx.store_delete(&store::held_key(&id));
+        }
         let next = if def.enabled {
             next_transition(&c, now)
         } else {
@@ -354,14 +384,17 @@ impl Scheduler {
         }
         cx.declare_node(&tree::targets(&id), tree::targets_meta());
         self.nodes += tree::nodes_of(def, targets.len());
-        self.wakes
-            .set(Wake::Transition(id.clone()), next.as_ref().map(|n| n.0));
+        self.wakes.set(
+            Wake::Transition(id.clone()),
+            wake_of(def.enabled, next.as_ref(), now),
+        );
         let targets = targets.into_iter().map(Target::new).collect();
         self.scheds.insert(
             id.clone(),
             Sched {
                 c,
                 state,
+                until: until_of(next.as_ref(), now),
                 next,
                 targets,
                 next_target,
@@ -375,6 +408,26 @@ impl Scheduler {
         let Some(s) = self.scheds.get(id) else { return };
         let v = good(cx, s.state.value.clone());
         cx.update(&tree::current(id), v);
+    }
+
+    /// `h/<s>` follows the state (R17): put when it is a moment, deleted when a moment it held
+    /// ends. A put the store refuses is logged: the moment is then not kept across a restart.
+    fn keep_held(&mut self, cx: &mut Counted, id: &str, was: &State) {
+        let Some(s) = self.scheds.get(id) else { return };
+        let key = store::held_key(id);
+        let put = match store::encode_held(&s.state) {
+            Some(b) => b.and_then(|b| cx.store_put(&key, &b)),
+            None => {
+                if matches!(was.source, Source::Moment { .. }) {
+                    cx.store_delete(&key);
+                }
+                return;
+            }
+        };
+        if let Err(e) = put {
+            let msg = format!("schedule {id}: moment not kept ({})", e.status.name());
+            cx.log(Level::Warn, &msg);
+        }
     }
 
     /// The schedule's state changed: `current` shows it and its targets write it.
@@ -402,32 +455,33 @@ impl Scheduler {
         }
     }
 
-    /// Evaluates a schedule at `now` after an edit, a clock step or `enabled` turned on: a
-    /// different state is a transition (`force`: one anyway); the attributes are shown again
-    /// when anything they show changed (`show`: anyway).
+    /// Evaluates a schedule at `now` after an edit, a clock step, the re-check or `enabled`
+    /// turned on: a different state is a transition (`force`: one anyway); the attributes are
+    /// shown again when anything they show changed (`show`: anyway).
     fn refresh(&mut self, cx: &mut Counted, id: &str, now: Micros, show: bool, force: bool) {
         let Some(s) = self.scheds.get_mut(id) else {
             return;
         };
         let state = eval_now(&s.c, now, &s.state);
-        let next = if s.def().enabled {
-            next_transition(&s.c, now)
-        } else {
-            None
-        };
+        let on = s.def().enabled;
+        let next = if on { next_transition(&s.c, now) } else { None };
         let changed = state != s.state;
         let moved = next != s.next;
-        s.state = state;
+        let was = std::mem::replace(&mut s.state, state);
         s.next = next;
-        self.wakes.set(
-            Wake::Transition(id.to_owned()),
-            s.next.as_ref().map(|n| n.0),
-        );
+        s.until = until_of(s.next.as_ref(), now);
+        let wake = wake_of(on, s.next.as_ref(), now);
+        self.wakes.set(Wake::Transition(id.to_owned()), wake);
+        if changed {
+            self.keep_held(cx, id, &was);
+        }
         if changed || moved || show {
             self.show(cx, id);
         }
         if changed || force {
             self.apply(cx, id);
+        } else {
+            self.reuntil_targets(cx, id);
         }
     }
 
@@ -444,12 +498,14 @@ impl Scheduler {
     /// state is the precomputed one (a moment included) and the next transition follows from
     /// it, even when that one is already due (it fires in the same work). Late (the wake was
     /// due more than the step tolerance before the work began: the host was asleep or stuck),
-    /// the window state now (a missed moment is not replayed).
+    /// the window state now (a missed moment is not replayed). With no next transition the
+    /// wake is the re-check (R18): the schedule is evaluated at `now`.
     fn transition(&mut self, cx: &mut Counted, id: &str, now: Micros, base: Micros) {
         let Some(s) = self.scheds.get_mut(id) else {
             return;
         };
         let Some((at, next_state)) = s.next.take() else {
+            self.refresh(cx, id, now, false, false);
             return;
         };
         let late = base.saturating_sub(at) > (CLOCK_STEP_MS * 1000) as Micros;
@@ -459,15 +515,17 @@ impl Scheduler {
             (next_state, next_transition(&s.c, at))
         };
         let changed = state != s.state;
-        s.state = state;
+        let was = std::mem::replace(&mut s.state, state);
         s.next = next;
-        self.wakes.set(
-            Wake::Transition(id.to_owned()),
-            s.next.as_ref().map(|n| n.0),
-        );
+        s.until = until_of(s.next.as_ref(), now);
+        let wake = wake_of(s.def().enabled, s.next.as_ref(), now);
+        self.wakes.set(Wake::Transition(id.to_owned()), wake);
         self.show(cx, id);
         if changed {
+            self.keep_held(cx, id, &was);
             self.apply(cx, id);
+        } else {
+            self.reuntil_targets(cx, id);
         }
     }
 
@@ -653,6 +711,8 @@ impl Scheduler {
         self.check_nodes(tree::nodes_of(&def, new.targets.len()), old)?;
         let bytes = store::encode(&def, &new.targets, new.next_target)?;
         store::replace(cx, &def.id, &bytes)?;
+        // the new definition starts fresh: a moment the old one held is not its state
+        cx.store_delete(&store::held_key(&def.id));
         self.pending.retain(|p| p != &def.id);
         if let Some(s) = self.scheds.remove(&def.id) {
             cx.remove_node(&def.id);

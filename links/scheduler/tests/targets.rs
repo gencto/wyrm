@@ -73,12 +73,22 @@ fn outcome(h: &SimHost, key: &str) -> Option<Value> {
     h.store_get(key).map(|b| decode(&b))
 }
 
+/// A record as an older store has it: without `valid_until`.
 fn record(value: Value, source: &str, outcome: &str) -> Value {
     map([
         ("value", value),
         ("source", text(source)),
         ("outcome", text(outcome)),
     ])
+}
+
+/// A record with the instant of the next transition after its state (R19).
+fn record_until(value: Value, source: &str, outcome: &str, until: &str) -> Value {
+    let Value::Map(mut m) = record(value, source, outcome) else {
+        unreachable!()
+    };
+    m.insert("valid_until".to_owned(), Value::UInt(at(until)));
+    Value::Map(m)
 }
 
 fn subscribes(log: &[Command], key: &str) -> usize {
@@ -260,10 +270,11 @@ fn read_back_confirms() {
     assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
     assert_eq!(
         outcome(&h, "o/lobby/t1"),
-        Some(record(
+        Some(record_until(
             Value::Bool(true),
             "event:e1@2026-10-29T08:00:00Z",
-            "confirmed"
+            "confirmed",
+            "2026-10-29T17:00:00Z"
         ))
     );
     assert_eq!(
@@ -543,10 +554,11 @@ fn override_is_respected() {
     assert_eq!(state(&h, "lobby/targets/t1"), text("override"));
     assert_eq!(
         outcome(&h, "o/lobby/t1"),
-        Some(record(
+        Some(record_until(
             Value::Bool(true),
             "event:e1@2026-10-29T08:00:00Z",
-            "override"
+            "override",
+            "2026-10-29T17:00:00Z"
         ))
     );
     assert_eq!(
@@ -923,7 +935,12 @@ fn a_stale_default_record_is_not_taken_for_now() {
     h.confirm_all();
     assert_eq!(
         outcome(&h, "o/lobby/t1"),
-        Some(record(Value::Bool(false), "default", "confirmed"))
+        Some(record_until(
+            Value::Bool(false),
+            "default",
+            "confirmed",
+            "2026-10-29T08:00:00Z"
+        ))
     );
     h.advance_to(at("2026-10-29T08:00:00Z"));
     let fail_all = |h: &mut SimHost| {
@@ -1041,7 +1058,12 @@ fn one_write_in_flight_per_target() {
     assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
     assert_eq!(
         outcome(&h, "o/lobby/t1"),
-        Some(record(Value::Bool(false), "default", "confirmed"))
+        Some(record_until(
+            Value::Bool(false),
+            "default",
+            "confirmed",
+            "2026-10-29T08:00:00Z"
+        ))
     );
 }
 
@@ -1272,4 +1294,160 @@ fn remove_refuses_while_targets_exist() {
     h.invoke("lobby", "remove", Value::Null).unwrap();
     assert!(!h.has("lobby"));
     assert_eq!(h.store_keys(), vec!["index".to_owned()]);
+}
+
+const HEAT: &str = "wy/s/downstream/plc/heat";
+
+/// R17: a moment that fired and is still the state the schedule holds survives a restart
+/// (`h/<s>`); it is not replayed: the restart only keeps what was already written.
+#[test]
+fn a_held_moment_survives_a_restart() {
+    let mut h = SimHost::new(at("2026-10-29T05:00:00Z"));
+    h.start(Value::Null).unwrap();
+    h.settle();
+    h.invoke(
+        "",
+        "add_schedule",
+        map([("id", text("heat")), ("default", Value::UInt(17))]),
+    )
+    .unwrap();
+    // 06:00 a moment gives 21; 12:00–13:00 a window gives 25
+    for (v, start, end) in [
+        (21, "2026-10-29T06:00", "2026-10-29T06:00"),
+        (25, "2026-10-29T12:00", "2026-10-29T13:00"),
+    ] {
+        let ev = map([
+            ("value", Value::UInt(v)),
+            ("start", text(start)),
+            ("end", text(end)),
+        ]);
+        h.invoke("heat", "add_event", ev).unwrap();
+    }
+    add_target(&mut h, "heat", read_back(HEAT)).unwrap();
+    h.confirm_all();
+    assert!(h.store_get("h/heat").is_none(), "no moment held yet");
+    h.advance_to(at("2026-10-29T06:00:00Z"));
+    h.confirm_all();
+    assert_eq!(h.value("heat/current"), Some(Value::UInt(21)));
+    assert_eq!(
+        outcome(&h, "o/heat/t1"),
+        Some(record_until(
+            Value::UInt(21),
+            "moment:e1@2026-10-29T06:00:00Z",
+            "confirmed",
+            "2026-10-29T12:00:00Z"
+        ))
+    );
+    let held = decode(&h.store_get("h/heat").expect("the moment is held"));
+    assert_eq!(
+        held,
+        map([
+            ("event", text("e1")),
+            ("at", Value::UInt(at("2026-10-29T06:00:00Z"))),
+            ("value", Value::UInt(21)),
+        ])
+    );
+
+    // an ACL rebuild at 10:00 restarts the link
+    h.advance_to(at("2026-10-29T10:00:00Z"));
+    h.take_log();
+    h.restart().unwrap();
+    h.settle();
+    h.advance(FIRST_SAMPLE_MS + 1_000);
+    assert!(sets_of(&h.take_log()).is_empty(), "nothing written");
+    assert_eq!(h.value("heat/current"), Some(Value::UInt(21)));
+    assert_eq!(h.attr("heat", "source"), text("e1"));
+    assert_eq!(h.attr("heat", "next_time"), text("2026-10-29T12:00:00Z"));
+    assert_eq!(state(&h, "heat/targets/t1"), text("confirmed"));
+
+    // the next transition still fires, and replaces the held moment
+    h.advance_to(at("2026-10-29T12:00:00Z"));
+    assert_eq!(
+        sets_of(&h.take_log()),
+        vec![(HEAT.to_owned(), Value::UInt(25))]
+    );
+    assert!(h.store_get("h/heat").is_none(), "the window replaced it");
+    h.confirm_all();
+    h.advance_to(at("2026-10-29T13:30:00Z"));
+    h.confirm_all();
+    h.restart().unwrap();
+    h.settle();
+    assert_eq!(h.value("heat/current"), Some(Value::UInt(17)));
+    assert_eq!(h.attr("heat", "source"), text("default"));
+}
+
+/// R19: a record holds only until the next transition after its state. An override of the
+/// default at 07:00 with the link down from 07:30 to 18:00 (across the 08:00–17:00 window)
+/// does not pass for the default of 18:00; a record of an older store (no `valid_until`) is
+/// stale too.
+#[test]
+fn a_record_is_stale_after_its_next_transition() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    add_target(&mut h, "lobby", read_back(PUMP)).unwrap();
+    h.confirm_all();
+    h.deliver(FAN, Value::Bool(true));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("override"));
+    assert_eq!(
+        outcome(&h, "o/lobby/t1"),
+        Some(record_until(
+            Value::Bool(false),
+            "default",
+            "override",
+            "2026-10-29T08:00:00Z"
+        ))
+    );
+    // PUMP's record as an older store wrote it
+    h.store_put(
+        "o/lobby/t2",
+        wyrm_core::codec::to_vec(&record(Value::Bool(false), "default", "override")).unwrap(),
+    );
+    h.advance_to(at("2026-10-29T07:30:00Z"));
+    // down from 07:30 to 18:00
+    h.step_clock(10 * 3_600_000 + 1_800_000);
+    h.restart().unwrap();
+    h.settle();
+    h.take_log();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("pending"));
+    assert_eq!(state(&h, "lobby/targets/t2"), text("pending"));
+    // the device still shows the hand value: written
+    h.deliver(FAN, Value::Bool(true));
+    h.deliver(PUMP, Value::Bool(true));
+    let mut sets = sets_of(&h.take_log());
+    sets.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        sets,
+        vec![
+            (FAN.to_owned(), Value::Bool(false)),
+            (PUMP.to_owned(), Value::Bool(false)),
+        ]
+    );
+}
+
+/// R19: an edit that moves the next transition while the state stays keeps the records true
+/// to it.
+#[test]
+fn an_edit_moves_a_records_validity() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.deliver(FAN, Value::Bool(true));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("override"));
+    // the window now begins at 07:40: the default holds until then
+    h.invoke(
+        "lobby/events/e1",
+        "edit",
+        map([("start", text("2026-10-29T07:40"))]),
+    )
+    .unwrap();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("override"));
+    assert_eq!(
+        outcome(&h, "o/lobby/t1"),
+        Some(record_until(
+            Value::Bool(false),
+            "default",
+            "override",
+            "2026-10-29T07:40:00Z"
+        ))
+    );
 }

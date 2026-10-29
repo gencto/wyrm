@@ -15,8 +15,10 @@
 //! - Override: a sample that differs from a confirmed value marks the target `override`; it is
 //!   not written again until the next transition.
 //! - Records `o/<s>/<t>` (on confirm and on override only) name the schedule state they were
-//!   for. At start a target with a record for the state now is left as it was; the others wait
-//!   [`FIRST_SAMPLE_MS`] for a first sample that already shows the value, else they are written.
+//!   for and the instant of the next transition after it (`valid_until`, R19: an edit that moves
+//!   it puts the record again). At start a target with a record for the state now, not past its
+//!   `valid_until`, is left as it was; the others wait [`FIRST_SAMPLE_MS`] for a first sample
+//!   that already shows the value, else they are written.
 //! - Subscriptions: one per key, shared by the targets that confirm on it, held while a target
 //!   is enabled, not `override` and not `ack`.
 //!
@@ -444,8 +446,10 @@ pub struct Target {
     pub last_write: Option<Micros>,
     /// The schedule state the target works for, what it writes and what confirms it.
     for_state: Option<State>,
-    /// What its record `o/<s>/<t>` is for (value and source), when it has one.
-    recorded: Option<(Value, String)>,
+    /// Its record `o/<s>/<t>`, when it has one.
+    recorded: Option<store::Outcome>,
+    /// Until when `for_state` holds: the next transition after it (R19).
+    until: Micros,
     write: Value,
     expect: Option<Value>,
     /// Each transition is a new generation; older replies and wakes are ignored.
@@ -480,6 +484,7 @@ impl Target {
             last_write: None,
             for_state: None,
             recorded: None,
+            until: 0,
             write: Value::Null,
             expect: None,
             gen: 0,
@@ -761,9 +766,11 @@ impl Env<'_, '_> {
         }
     }
 
-    /// Plans the target for the schedule state `state` (a new generation).
-    fn plan(&mut self, sid: &str, t: &mut Target, state: &State) {
+    /// Plans the target for the schedule state `state`, which holds until `until` (a new
+    /// generation).
+    fn plan(&mut self, sid: &str, t: &mut Target, state: &State, until: Micros) {
         t.gen = self.w.next_gen();
+        t.until = until;
         let (write, expect) = t.def.plan(&state.value);
         t.write = write;
         t.expect = expect;
@@ -781,8 +788,8 @@ impl Env<'_, '_> {
     }
 
     /// A transition for an enabled target: it writes `state`, the schedule's state now.
-    fn begin(&mut self, sid: &str, t: &mut Target, state: &State) {
-        self.plan(sid, t, state);
+    fn begin(&mut self, sid: &str, t: &mut Target, state: &State, until: Micros) {
+        self.plan(sid, t, state, until);
         // the record was for an earlier state: after a restart it must not pass for this one
         // (the default has no occurrence, so a record for it matches any later default)
         self.forget(sid, t);
@@ -792,18 +799,24 @@ impl Env<'_, '_> {
     }
 
     /// At start, an enabled target of an enabled schedule in the state `state`: as its record
-    /// says when it is for this state, else it waits for a first sample (`ack`: it writes).
-    fn resume(&mut self, sid: &str, t: &mut Target, state: &State) {
-        self.plan(sid, t, state);
+    /// says when it is for this state and no transition came since (R19), else it waits for a
+    /// first sample (`ack`: it writes).
+    fn resume(&mut self, sid: &str, t: &mut Target, state: &State, until: Micros) {
+        self.plan(sid, t, state, until);
+        let now = now_of(self.cx);
         let record = store::load_outcome(self.cx, sid, &t.def.id);
-        t.recorded = record.as_ref().map(|r| (r.value.clone(), r.source.clone()));
+        t.recorded = record.clone();
         match record {
-            Some(r) if r.value == state.value && r.source == source_key(&state.source) => {
+            Some(r) if r.holds(&state.value, &source_key(&state.source), now) => {
                 t.state = if r.outcome == store::OVERRIDE {
                     TState::Override
                 } else {
                     TState::Confirmed
                 };
+                if r.valid_until != Some(until) {
+                    // the next transition moved (a re-check): the record says so
+                    self.record(sid, t, &r.outcome);
+                }
                 self.sync_sub(sid, t);
             }
             _ if t.def.confirm == Confirm::Ack => self.enqueue(sid, t),
@@ -865,11 +878,12 @@ impl Env<'_, '_> {
             value: st.value.clone(),
             source: source_key(&st.source),
             outcome: outcome.to_owned(),
+            valid_until: Some(t.until),
         };
         let saved = store::encode_outcome(&r)
             .and_then(|b| self.cx.store_put(&store::outcome_key(sid, &t.def.id), &b));
         match saved {
-            Ok(()) => t.recorded = Some((r.value, r.source)),
+            Ok(()) => t.recorded = Some(r),
             Err(e) => {
                 let what = format!("record not saved ({})", status_name(&e));
                 self.log(Level::Warn, sid, t, &what);
@@ -1029,14 +1043,44 @@ impl Scheduler {
         if !s.c.schedule().enabled {
             return;
         }
-        let state = s.state.clone();
+        let (state, until) = (s.state.clone(), s.until);
         let mut env = Env {
             cx,
             w: &mut self.w,
             wakes: &mut self.wakes,
         };
         for t in s.targets.iter_mut().filter(|t| t.def.enabled) {
-            env.begin(sid, t, &state);
+            env.begin(sid, t, &state, until);
+        }
+    }
+
+    /// The schedule's state is the same but holds until another instant (an edit, a clock step
+    /// or the re-check moved its next transition): the targets working for it take the new
+    /// instant, and their records say so (R19).
+    pub(crate) fn reuntil_targets(&mut self, cx: &mut Counted, sid: &str) {
+        let Some(s) = self.scheds.get_mut(sid) else {
+            return;
+        };
+        let (state, until) = (&s.state, s.until);
+        let mut env = Env {
+            cx,
+            w: &mut self.w,
+            wakes: &mut self.wakes,
+        };
+        for t in s.targets.iter_mut() {
+            if t.until == until || t.for_state.as_ref() != Some(state) {
+                continue;
+            }
+            t.until = until;
+            let source = source_key(&state.source);
+            let rec = t
+                .recorded
+                .as_ref()
+                .filter(|r| r.value == state.value && r.source == source)
+                .map(|r| r.outcome.clone());
+            if let Some(o) = rec {
+                env.record(sid, t, &o);
+            }
         }
     }
 
@@ -1056,7 +1100,7 @@ impl Scheduler {
         let Some(s) = self.scheds.get_mut(sid) else {
             return;
         };
-        let (state, on) = (s.state.clone(), s.c.schedule().enabled);
+        let (state, until, on) = (s.state.clone(), s.until, s.c.schedule().enabled);
         let Some(t) = s.targets.iter_mut().find(|t| t.def.id == tid) else {
             return;
         };
@@ -1067,7 +1111,7 @@ impl Scheduler {
         };
         if !fresh && (!t.def.enabled || !on) {
             // memory and store agree on the record (`resume` loads it too)
-            t.recorded = store::load_outcome(env.cx, sid, tid).map(|r| (r.value, r.source));
+            t.recorded = store::load_outcome(env.cx, sid, tid);
         }
         if !t.def.enabled {
             t.state = TState::Disabled;
@@ -1077,9 +1121,9 @@ impl Scheduler {
             t.state = TState::Pending;
             env.show(sid, t);
         } else if fresh {
-            env.begin(sid, t, &state);
+            env.begin(sid, t, &state, until);
         } else {
-            env.resume(sid, t, &state);
+            env.resume(sid, t, &state, until);
         }
     }
 

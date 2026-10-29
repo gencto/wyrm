@@ -853,3 +853,34 @@ fn a_moment_due_in_the_last_batch_keeps_its_base() {
         assert!(!stepped(&h.take_log()));
     }
 }
+
+/// R18: an enabled schedule with nothing within the horizon (366 days) is evaluated again 365
+/// days on, so a one-off event 400 days ahead fires without an edit or a restart.
+#[test]
+fn an_event_beyond_the_horizon_still_fires() {
+    const DAY_MS: u64 = 86_400_000;
+    let mut h = started();
+    add_lobby(&mut h);
+    // 2026-10-29 + 400 days
+    h.invoke(
+        "lobby",
+        "add_event",
+        map([
+            ("value", Value::UInt(9)),
+            ("start", text("2027-12-03T08:00")),
+            ("end", text("2027-12-03T09:00")),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(h.attr("lobby", "next_time"), Value::Null);
+    let due = at("2027-12-03T08:00:00Z");
+    // the watchdog fires every 30 s: a day at a time, no clock step on the way
+    while h.now_us() + DAY_MS * 1000 <= due {
+        h.advance(DAY_MS);
+        assert!(!stepped(&h.take_log()), "at {}", h.now_us());
+    }
+    assert_eq!(h.attr("lobby", "next_time"), text("2027-12-03T08:00:00Z"));
+    h.advance_to(due);
+    assert_eq!(h.value("lobby/current"), Some(Value::UInt(9)));
+    assert_eq!(h.attr("lobby", "next_time"), text("2027-12-03T09:00:00Z"));
+}

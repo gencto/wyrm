@@ -216,7 +216,8 @@ impl Timer {
     }
 }
 
-/// A timer the host refused: the app cannot wake, so the event fails loudly.
+/// A timer the host refused: the app cannot wake. The caller logs it at `error`; the event goes
+/// on (the next event arms the timer again).
 pub fn no_timer(e: AppError) -> AppError {
     AppError::new(Status::ResourceExhausted, format!("no timer: {}", e.msg))
 }

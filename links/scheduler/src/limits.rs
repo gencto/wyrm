@@ -12,6 +12,9 @@ pub const WATCHDOG_MS: u64 = 30_000;
 /// A difference larger than this between the wall clock and the time a timer was expected to
 /// fire is a wall-clock step.
 pub const CLOCK_STEP_MS: u64 = 2_000;
+/// An enabled schedule with no transition within the horizon ([`HORIZON_DAYS`]) is evaluated
+/// again this many days on (R18), so an event further ahead still fires.
+pub const RECHECK_DAYS: i64 = 365;
 /// Commands one event buffers at most (the host fails an event over 1 000).
 pub const COMMANDS_PER_EVENT: usize = 800;
 /// Wall time one event spends on batched work at most (ruling R7); the rest goes on a `0` ms

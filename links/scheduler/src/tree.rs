@@ -56,14 +56,14 @@ pub fn nodes_of(s: &Schedule, targets: usize) -> usize {
 }
 
 /// Commands that load and declare a schedule: its nodes, the values of `current`, `default`,
-/// `enabled`, and what each target does at start.
+/// `enabled`, a held moment that ended deleted, and what each target does at start.
 pub fn declare_cost(s: &Schedule, targets: usize) -> usize {
-    NODES_PER_SCHEDULE + s.events.len() + 3 + targets * RESUME_COST
+    NODES_PER_SCHEDULE + s.events.len() + 4 + targets * RESUME_COST
 }
 
 /// [`declare_cost`] of a schedule without events.
 pub fn declare_cost_min() -> usize {
-    NODES_PER_SCHEDULE + 3
+    NODES_PER_SCHEDULE + 4
 }
 
 /// An RFC 3339 instant (`2026-10-29T17:00:00Z`).
