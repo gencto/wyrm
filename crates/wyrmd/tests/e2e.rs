@@ -5360,6 +5360,103 @@ async fn embedded_scheduler_drives_a_process_link() {
     env.stop().await;
 }
 
+/// ADR 0013 grants reach every link (ruling R13): the rebuild after `grant` starts embedded
+/// links again with the new grants; a running process link takes its grants and requester key
+/// only in its first `hello`, so the grant restarts it; a stopped one is not started by it.
+#[tokio::test(flavor = "multi_thread")]
+async fn grant_restarts_a_running_process_link() {
+    let mock = |mode: &str| {
+        format!(
+            r#"{{ driver: "mock", mode: "{mode}", params: {{ points: 1, rate_hz: 0, depth: 0 }} }}"#
+        )
+    };
+    let env = Env::start(
+        "grantrestart",
+        &format!(
+            "links: {{ pm: {}, ps: {}, em: {} }},",
+            mock("process"),
+            mock("process"),
+            mock("embedded")
+        ),
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    let state = |id: &str| format!("wy/{SITE}/sys/links/{id}/state");
+    for id in ["pm", "ps"] {
+        eventually(&format!("{id} connected"), 60, || async {
+            (last_val(&c, &state(id)).await == Some(Value::UInt(2))).then_some(())
+        })
+        .await;
+    }
+    c.invoke_one(
+        &format!("wy/{SITE}/sys/links/ps"),
+        "stop",
+        Value::Map(BTreeMap::new()),
+    )
+    .await
+    .expect("stop ps");
+    eventually("ps stopped", 30, || async {
+        last_val(&c, &state("ps"))
+            .await
+            .filter(|v| *v != Value::UInt(2))
+    })
+    .await;
+    // `stop`/`start` records of link `id` after its `link_grant` record
+    let restarted = |id: &str| {
+        let tail = env.ctl.audit_tail(1000);
+        let Some(at) = tail
+            .iter()
+            .position(|r| r.op == "link_grant" && r.key == id)
+        else {
+            return Vec::new();
+        };
+        tail[at..]
+            .iter()
+            .filter(|r| r.key == id && (r.op == "stop" || r.op == "start"))
+            .map(|r| r.op.clone())
+            .collect::<Vec<_>>()
+    };
+    // `ps` first: the rebuild after any grant starts every process link of the registry again
+    for id in ["ps", "pm", "em"] {
+        let watch = BrokerWatch::new(&env).await;
+        slow_client(&env)
+            .await
+            .invoke_one(
+                &format!("wy/{SITE}/sys/links/{id}"),
+                "grant",
+                args_map(&[
+                    ("path", Value::from("wy/{site}/downstream/em")),
+                    ("level", Value::from("read")),
+                ]),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("grant {id}: {e}"));
+        watch
+            .rebuilt(&format!("the rebuild after the grant to {id}"))
+            .await;
+    }
+    assert_eq!(
+        restarted("pm"),
+        ["stop", "start"],
+        "the running process link"
+    );
+    assert!(restarted("ps").is_empty(), "the stopped process link");
+    assert!(
+        restarted("em").is_empty(),
+        "the embedded link: the rebuild starts it"
+    );
+    let c = slow_client(&env).await;
+    eventually("pm connected again", 60, || async {
+        (last_val(&c, &state("pm")).await == Some(Value::UInt(2))).then_some(())
+    })
+    .await;
+    eventually("em connected again", 60, || async {
+        (last_val(&c, &state("em")).await == Some(Value::UInt(2))).then_some(())
+    })
+    .await;
+    env.stop().await;
+}
+
 /// What one mode of the scheduler shows in the scenario of `scheduler_three_modes`.
 #[derive(Debug, PartialEq)]
 struct SchedRun {
@@ -5367,14 +5464,46 @@ struct SchedRun {
     state: Value,
     /// The target point's value then: the event's.
     point: Option<f64>,
-    /// Rows of `get_events` for the next 24 h.
-    rows: usize,
+    /// Rows of `get_events` for the next 24 h, without their instants (they follow the clock).
+    rows: Vec<EventRow>,
     /// The export imported under a new id gives the same rows.
     same_rows: bool,
     /// After `sys/links/<id>` stop and start (a package link; the embedded one has no such node):
     /// the target's state, the writes of its point the audit saw meanwhile, and whether the
     /// point's sample stayed the one from before (the static mock publishes only when written).
     restart: Option<(Value, usize, bool)>,
+}
+
+/// A `get_events` row as the modes must agree on it: the window's length, not its instants.
+#[derive(Debug, PartialEq)]
+struct EventRow {
+    event: Value,
+    value: Value,
+    priority: Value,
+    special: Value,
+    length: jiff::SignedDuration,
+}
+
+impl EventRow {
+    fn of(row: &Value) -> Self {
+        let Value::Map(m) = row else {
+            panic!("a get_events row: {row:?}")
+        };
+        let field = |k: &str| m.get(k).cloned().unwrap_or(Value::Null);
+        let instant = |k: &str| match m.get(k) {
+            Some(Value::Str(t)) => t
+                .parse::<jiff::Timestamp>()
+                .unwrap_or_else(|e| panic!("{k} {t:?}: {e}")),
+            other => panic!("{k}: {other:?}"),
+        };
+        EventRow {
+            event: field("event"),
+            value: field("value"),
+            priority: field("priority"),
+            special: field("special"),
+            length: instant("end").duration_since(instant("start")),
+        }
+    }
 }
 
 /// `{k: v, …}`.
@@ -5613,7 +5742,7 @@ async fn sched_scenario(env: &Env, id: &str, point: &str, restart: bool) -> Sche
     SchedRun {
         state,
         point: point_v,
-        rows: rows.len(),
+        rows: rows.iter().map(EventRow::of).collect(),
         same_rows,
         restart,
     }
@@ -5873,12 +6002,8 @@ async fn scheduler_three_modes() {
     assert!(msg.contains("store 16 MiB"), "{msg}");
     watch.rebuilt("the rebuild after the install of sp").await;
     refused_without_grant(&env, "sp", &point(4)).await;
+    // the grant restarts the running process link: it takes grants in its first `hello`
     grant("sp").await;
-    // a process link learns its grants (and its requester key) in its first `hello`; the
-    // rebuild leaves a running process alone, so it starts again to take them
-    let sp = format!("wy/{SITE}/sys/links/sp");
-    invoke_retry(&env, &sp, "stop", Value::Map(BTreeMap::new())).await;
-    invoke_retry(&env, &sp, "start", Value::Map(BTreeMap::new())).await;
     runs.push(("sp", point(2), true));
     let reg = env.ctl.registry();
     assert_eq!(reg.links["sp"].mode, wyrm_admin::Mode::Process);
@@ -5887,19 +6012,30 @@ async fn scheduler_three_modes() {
         assert_eq!(reg.links["sw"].mode, wyrm_admin::Mode::Embedded);
     }
 
+    let mut seen: Vec<(&str, SchedRun)> = Vec::new();
     for (id, point, restart) in runs {
+        let run = sched_scenario(&env, id, &point, restart).await;
+        // the modes agree with each other row for row …
+        if let Some((first, r)) = seen.first() {
+            assert_eq!(run.rows, r.rows, "get_events of {id} and of {first}");
+        }
+        // … and with the scenario
         let want = SchedRun {
             state: Value::from("confirmed"),
             point: Some(1.0),
-            rows: 1,
+            // the event of the scenario: now − 1 min … now + 60 min, whole minutes
+            rows: vec![EventRow {
+                event: Value::from("e1"),
+                value: Value::UInt(1),
+                priority: Value::UInt(0),
+                special: Value::Bool(false),
+                length: jiff::SignedDuration::from_mins(61),
+            }],
             same_rows: true,
             restart: restart.then(|| (Value::from("confirmed"), 0, true)),
         };
-        assert_eq!(
-            sched_scenario(&env, id, &point, restart).await,
-            want,
-            "mode of {id}"
-        );
+        assert_eq!(run, want, "mode of {id}");
+        seen.push((id, run));
     }
     if wasm.is_some() {
         wasm_store_at_size(&env).await;

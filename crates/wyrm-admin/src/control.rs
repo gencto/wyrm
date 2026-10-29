@@ -3414,7 +3414,7 @@ impl Link for Admin {
                     .copied()
                     .find(|p| p.name() == level)
                     .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
-                self.grant(id, &path, level, &sub).map(|_| None)
+                self.grant(id, &path, level, &sub).await.map(|_| None)
             }
             (["links", id], "get_log") => {
                 let (n, level, filter) = log_args(&args)?;
@@ -3817,6 +3817,7 @@ impl Admin {
             for (path, code) in &def.requester {
                 let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
                 self.grant(link, path, level, sub)
+                    .await
                     .map_err(|e| e.to_string())?;
                 message.push_str(&format!("; grant {path} {}", level.name()));
             }
@@ -4963,8 +4964,17 @@ impl Admin {
 
     /// `links/<id>/~act/grant`: one requester grant of a link. The router
     /// ACL (process and external links) and every link's trust list follow
-    /// on the rebuild.
-    fn grant(&self, id: &str, path: &str, level: Perm, sub: &str) -> wyrm_link_sdk::Result<()> {
+    /// on the rebuild, which also starts embedded links again with the new
+    /// grants. A running process link takes its grants and requester key
+    /// only in its first `hello` (a rebuild leaves it running), so it is
+    /// restarted here.
+    async fn grant(
+        &self,
+        id: &str,
+        path: &str,
+        level: Perm,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<()> {
         self.def(id)?;
         if level != Perm::None {
             crate::registry::check_grant(path, level).map_err(LinkError::invalid_parameter)?;
@@ -4987,6 +4997,10 @@ impl Admin {
             Status::Ok,
             &format!("{path} {}", level.name()),
         );
+        if def.mode == Mode::Process && self.ctl.supervisor.state(id).is_some() {
+            self.stop_link(id, sub).await?;
+            self.start_link(id, sub).await?;
+        }
         self.ctl.schedule_reload();
         Ok(())
     }
