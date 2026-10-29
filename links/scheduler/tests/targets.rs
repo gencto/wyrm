@@ -263,6 +263,37 @@ fn read_back_confirms() {
 }
 
 #[test]
+fn an_unchanged_value_confirms_on_ok() {
+    // links publish a value only when it changes: a write of the value the point shows brings
+    // no new sample
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    h.set("lobby/enabled", Value::Bool(false)).unwrap();
+    h.set("lobby/enabled", Value::Bool(true)).unwrap();
+    let (req, _, v) = one_set(&h);
+    assert_eq!(v, Value::Bool(false), "turned on: written again");
+    h.reply(req, Ok(Value::Null));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+    h.advance(2 * CONFIRM_TIMEOUT_MS);
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+    assert!(h.unreplied().is_empty());
+
+    // a different last value still waits for the sample
+    h.deliver(FAN, Value::Bool(true));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("override"));
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    let (req, _, v) = one_set(&h);
+    assert_eq!(v, Value::Bool(true));
+    h.reply(req, Ok(Value::Null));
+    assert_eq!(
+        state(&h, "lobby/targets/t1"),
+        text("writing"),
+        "the new subscription has no sample yet"
+    );
+}
+
+#[test]
 fn feedback_confirms_on_the_other_point() {
     let mut h = lobby();
     add_target(

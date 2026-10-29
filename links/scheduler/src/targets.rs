@@ -8,7 +8,8 @@
 //! - Confirmation: `read_back` (a sample of the point equals what was written), `feedback` (a
 //!   sample of another key equals the expected value), `ack` (an `ok` reply). A matching sample
 //!   counts while the write waits for its reply or after an `ok`; none [`CONFIRM_TIMEOUT_MS`]
-//!   after the `ok` fails the write.
+//!   after the `ok` fails the write. Links publish a value only when it changes, so a key whose
+//!   last sample already shows the value confirms on the `ok`.
 //! - A failed write is tried again with backoff through the one wake heap. Each transition gives
 //!   the target a new generation: replies and wakes of an older one are ignored.
 //! - Override: a sample that differs from a confirmed value marks the target `override`; it is
@@ -886,13 +887,29 @@ impl Env<'_, '_> {
         }
     }
 
+    /// The last good sample of the target's confirm key already shows the expected value (a
+    /// write of an unchanged value brings no new sample).
+    fn shows(&self, t: &Target) -> bool {
+        let (Some(expect), Some(key)) = (&t.expect, t.def.confirm_key()) else {
+            return false;
+        };
+        t.held
+            && self
+                .w
+                .subs
+                .last(key)
+                .is_some_and(|v| same(expect, v, t.def.tolerance()))
+    }
+
     /// The reply to the target's write of generation `gen`.
     fn reply(&mut self, sid: &str, t: &mut Target, gen: u64, result: Result<Value, AppError>) {
         if t.gen != gen || t.state != TState::Writing {
             return;
         }
         match result {
-            Ok(_) if t.def.confirm == Confirm::Ack || t.matched => self.confirmed(sid, t),
+            Ok(_) if t.def.confirm == Confirm::Ack || t.matched || self.shows(t) => {
+                self.confirmed(sid, t)
+            }
             Ok(_) => {
                 t.replied = true;
                 self.set_wake(sid, t, DueKind::ConfirmTimeout, CONFIRM_TIMEOUT_MS);
