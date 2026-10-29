@@ -33,7 +33,10 @@ crates/wyrm-ffi         ✅ C ABI over wyrm-client (include/wyrm.h), events as g
 dart/                   ✅ wyrm_core (fixtures), wyrm_client (gateway WS), wyrm_ffi, wyrm_flutter (WyrmTree)
 tools/wyrm-mcp          ✅ MCP server over the tree (dry-run first, human approval tokens for config)
 links/agent             ✅ AI agent link: ask → plan (LLM, read-only tools) → approve with human tokens → run
-crates/wyrm-wasm-host   ✅ wasmtime component host: WIT wyrm:flow/node + wyrm:link/point, no imports, fuel/memory/time limits (ADR 0010)
+crates/wyrm-wasm-host   ✅ wasmtime component host: WIT wyrm:flow/node + wyrm:link/point, no imports, fuel/memory/time limits (ADR 0010); world `wyrm:app` (`wit/app/app.wit`, import `wyrm:app/host` only), `component_world` (ADR 0023)
+crates/wyrm-link-api    ✅ portable links (ADR 0023): `App`/`Host` traits, `BufferHost` command buffer with bounds, `NetPolicy`, `Who`; builds for wasm32
+crates/wyrm-link-portable ✅ an App as a link: `Runtime<E>`, `Portable<A>` (native engine), sealed store, timers, subscriptions, restarts with backoff + re-declare sweep, hot start; `PortableConfig` (params, net, store_mb, call_ms, memory_mb)
+crates/wyrm-link-guest  ✅ `export!(App)` → a wasm32 component of world `wyrm:app`; run by `links/wasm` driver `app` (and `pkg:<name>` of an app package); `wyr new link --app` scaffolds, `wyr link pack` (`kind = "wasm"`, `capabilities`) packs
 crates/wyrmd            ✅ binary (router, storage + rest plugins, admin, flow engine, gateway, peers over QUIC, links; rebuild on ACL change)
 links/{mock,modbus,mqtt,opcua,bacnet,dlms}   lib + bin (feature "bin"); modbus and mockdev on the driver framework, bench mock on the raw layer
 tools/wyr               ✅ CLI ops part (dev commands: iteration 9); `wyr probe` runs links/probe scenarios through a gateway; `wyr link pack` / `wyr repo add` build link packages from `[package.metadata.wyrm-link]` and repositories with per-host `assets` (ADR 0021; format in `wyrm-link-sdk` feature `package`)

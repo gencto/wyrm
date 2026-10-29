@@ -3650,6 +3650,7 @@ impl Admin {
                 .map_err(|e| e.to_string())??
         };
         let def = unpacked.def.clone();
+        let app = unpacked.app.clone();
         if def.kind == PackageKind::Process && self.ctl.cfg.link_endpoint.is_none() {
             return Err("process links need a tls/ listener on the broker".into());
         }
@@ -3716,25 +3717,24 @@ impl Admin {
                     args.insert("mode".into(), Value::Str("process".into()));
                 }
                 PackageKind::Wasm => {
-                    // An embedded `wasm` link with one connection on the
-                    // package's component; devices and points come from its
-                    // own Add actions (ADR 0012).
+                    // Embedded: an app component (ADR 0023) runs as driver
+                    // `app` with its capabilities as params; a driver or
+                    // point component gets one connection on it, devices and
+                    // points come from its own Add actions (ADR 0012).
                     args.insert("mode".into(), Value::Str("embedded".into()));
-                    let main =
-                        BTreeMap::from([("component".to_owned(), Value::Str(def.name.clone()))]);
-                    let conns = BTreeMap::from([("main".to_owned(), Value::Map(main))]);
                     args.insert(
                         "params".into(),
-                        Value::Map(BTreeMap::from([(
-                            "connections".to_owned(),
-                            Value::Map(conns),
-                        )])),
+                        packages::link_params(&def.name, app.as_ref()),
                     );
                 }
             }
             let args = Value::Map(args);
             self.install(&args, sub).await.map_err(|e| e.to_string())?;
             message.push_str(&format!("; link {link} installed"));
+            // what the app link may use, shown (ADR 0023)
+            if let Some(c) = &app {
+                message.push_str(&format!("; capabilities {}", c.describe()));
+            }
             // the grants the package asks for, shown and audited
             for (path, code) in &def.requester {
                 let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;

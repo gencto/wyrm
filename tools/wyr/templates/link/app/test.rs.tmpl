@@ -1,0 +1,64 @@
+//! The app on the native adapter (`Portable<__TYPE__>`) in the SDK's test
+//! harness: `ping`, `set` and the store across a restart. The same app runs as
+//! a WASM component (`wyr link pack`) with the same behaviour.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use wyrm_core::status::StatusCode;
+use wyrm_core::{Perm, Status, Value};
+use wyrm_link_portable::{Portable, PortableConfig};
+use wyrm_link_sdk::harness::TestHarness;
+use wyrm_link_sdk::Secret;
+
+use __LIB__::__TYPE__;
+
+type Link = Portable<__TYPE__>;
+
+/// The link with its store in `dir` (a link's data directory and the key the
+/// broker seals the store with).
+async fn start(dir: &Path) -> TestHarness<Link> {
+    let dir = dir.to_path_buf();
+    TestHarness::<Link>::start_with(PortableConfig::default(), move |c| {
+        c.data_dir = Some(dir);
+        c.secrets.insert(".store_key", Secret::new(vec![7; 32]));
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ping_set_and_store() {
+    let dir = std::env::temp_dir().join(format!("__CRATE__-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let h = start(&dir).await;
+    let r = h
+        .invoke(
+            "",
+            "ping",
+            Value::Map(BTreeMap::new()),
+            Some(h.ptok(Perm::Write)),
+        )
+        .await;
+    assert_eq!(
+        r[0].value(),
+        Some(Value::Str("pong".into())),
+        "{:?}",
+        r[0].att
+    );
+    let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(
+        att.status,
+        Some(StatusCode::Known(Status::Ok)),
+        "{:?}",
+        att.err
+    );
+    h.stop().await;
+
+    // a new start reads `n` back from the store
+    let h = start(&dir).await;
+    assert_eq!(h.ctx().last("n").and_then(|s| s.v.as_f64()), Some(5.0));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

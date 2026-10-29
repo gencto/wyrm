@@ -7,7 +7,8 @@ does with it, what goes in a package, and what the limits are.
 
 Decisions behind this page: ADR 0004 (driver framework), ADR 0006 (ACL and
 quarantine), ADR 0010 (WASM host), ADR 0011 (installing links at runtime),
-ADR 0012 (network for WASM links), ADR 0013 (links as requesters).
+ADR 0012 (network for WASM links), ADR 0013 (links as requesters), ADR 0021
+(packaging with `wyr`), ADR 0023 (portable links).
 
 ## 1. How a link runs
 
@@ -76,7 +77,10 @@ operator certificate.
    - `wyrm-link.json` at the zip root, valid (section 6);
    - `wyrm_link` equal to the broker's link protocol version;
    - the entry for this host present (`process`), or the `.wasm` entry
-     present (`wasm`).
+     present (`wasm`);
+   - `wasm`: the component's world, read from its exports (`app`, `driver`
+     or `point`), matches `world` if the manifest has one; `capabilities`
+     only for an `app`, within their bounds (section 9).
 3. **Move into place** with one rename:
    `<data_dir>/packages/<name>/<version>/`. A failed install leaves nothing.
 4. **Record.** The registry (`<data_dir>/state`, a write-ahead log) stores
@@ -88,10 +92,13 @@ operator certificate.
      restarts for about a second, and open app connections reconnect), and
      starts the package entry.
    - `wasm` package: the broker copies the component to
-     `<data_dir>/packages/.wasm/<package>.wasm` and starts an embedded link
-     on the `wasm` driver with one connection `main`.
+     `<data_dir>/packages/.wasm/<package>.wasm` and starts an embedded link:
+     a `driver` or `point` component on the `wasm` driver with one
+     connection `main`; an `app` component on the driver `app` with its
+     capabilities as params (section 9).
 6. **Answer** `success: true` and a message such as
-   `package example-link 1.0.0 installed; link ex1 installed`.
+   `package example-link 1.0.0 installed; link ex1 installed` (an app adds
+   `; capabilities net none, store 1 MiB, memory 64 MiB, call 2000 ms`).
 
 A link from a package starts with an empty tree if its driver is a
 framework driver: add connections, devices and points with its *Add* actions.
@@ -149,8 +156,10 @@ A package is a zip with `wyrm-link.json` at its root.
 | `kind` | yes | `process` or `wasm`. |
 | `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`. One zip can carry several hosts. |
 | `args` | no | Arguments for the executable. |
-| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 9). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
+| `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 10). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
 | `entry` | `wasm` | The component file. |
+| `world` | no | `wasm`: `app`, `driver` or `point`. Informational: the broker reads the world from the component's exports and refuses a package whose `world` says otherwise. |
+| `capabilities` | no | `wasm` app only: `{"net": ["10.0.5.0/24:502"], "store_mb": 4, "memory_mb": 64, "call_ms": 2000}` (section 9). |
 
 Unknown fields are refused, so a typo does not pass silently.
 
@@ -283,11 +292,89 @@ protocol itself (for example Modbus TCP framing).
 
 **Building a component.** Any toolchain that produces a component for the
 world above works (for example Rust with `wit-bindgen` and `wasm-tools
-component new`). WYRM does not ship a guest template yet: the example
-components in `examples/packages` are written by hand in the component text
-format.
+component new`). The example components in `examples/packages` are written
+by hand in the component text format. For a new link, a portable link
+(section 9) is simpler: `wyr new link --app` scaffolds it and `wyr link
+pack` builds its component.
 
-## 9. Requester links
+## 9. Portable links
+
+A **portable link** (ADR 0023) is one Rust source, an `App` from
+`wyrm-link-api`, that runs in three modes with the same behaviour:
+
+| Mode | How | Built with |
+|---|---|---|
+| Embedded | `wyrm_link_portable::Portable<App>`, compiled into a broker | the crate as a dependency |
+| Process | `wyrm_link_sdk::process::main::<Portable<App>>()`, supervised | `--features process` |
+| WASM | a component of the world `wyrm:app` on the driver `app` | `--features wasm`, `wasm32-unknown-unknown` |
+
+The app declares its nodes and actions in `start`, answers `on_set` and
+`on_invoke`, and keeps its state in the host: the tree and a sealed store
+in the link's data directory. The host restarts a crashed instance with
+backoff; the store stays. `wyrm-link-guest` (`export!`) makes the WASM
+glue; `crates/wyrm-wasm-host/wit/app/app.wit` is the world.
+
+**Start a crate:**
+
+```sh
+wyr new link acme --app        # links/acme: lib (the App), src/bin, tests
+cargo test -p wyrm-link-acme   # the app on the native adapter
+```
+
+The crate has `crate-type = ["cdylib", "rlib"]`, the features `process`
+and `wasm`, and this section in its `Cargo.toml`:
+
+```toml
+[package.metadata.wyrm-link]
+name = "acme"
+kind = "wasm"                      # `wyr link pack --kind process` overrides
+features = ["process"]             # features of a process build
+capabilities = { net = ["10.0.5.0/24:502"], store_mb = 4, memory_mb = 64, call_ms = 2000 }
+requester = [{ path = "wy/{site}/downstream/mock", level = "read" }]
+```
+
+**Pack it:**
+
+```sh
+wyr link pack --manifest-path links/acme/Cargo.toml    # acme-<version>.zip
+```
+
+For `kind = "wasm"`, `wyr link pack`:
+1. runs `cargo build --release --lib --target wasm32-unknown-unknown
+   --features wasm` (`strip = true` is fine: it keeps the component type,
+   a custom section of the module);
+2. makes the module a component in-process (`wit-component`) and checks
+   that its world is `app`;
+3. writes one zip for every host, `<name>-<version>.zip`, with
+   `world: "app"` and the `capabilities` in `wyrm-link.json`.
+
+Add the target first: `rustup target add wasm32-unknown-unknown`.
+
+**Capabilities**, granted at install (*Install Link ▸ from Zip*, *Url*,
+*Git* or *Repository*). The install result lists them, for example
+`capabilities net none, store 1 MiB, memory 64 MiB, call 2000 ms`. They
+become the link's params:
+
+| Capability | Default | Bounds | Meaning |
+|---|---|---|---|
+| `net` | none | entries as in section 8 | Where the app may connect (`tcp_connect`). |
+| `store_mb` | 1 | 0–64 | Size of the store; 0 refuses every write. |
+| `memory_mb` | 64 | 1–512 | Linear memory of one instance. |
+| `call_ms` | 2000 | 1–10000 | Time of one call (also caps network waits). |
+
+`requester` grants (section 10) apply as for a process package. Later
+changes go the usual ways: grants with Grant Access, the others with the
+link's `update` (params). An upgrade (a new version of the package) keeps
+the params of the links on it and restarts them on the new component and
+the same store. *Install Link ▸ from WASM* with an app component installs
+it with the default capabilities.
+
+The broker tells the world from the component's exports: an `app`
+component runs on the driver `app`; a `driver` or `point` component on the
+framework `wasm` driver (section 8). A manifest whose `world` is not the
+component's, and capabilities on a driver or point component, are refused.
+
+## 10. Requester links
 
 A link that only serves its own branch is a **responder**. A link can also
 read and command other links (a **requester**, as `isRequester` in DSA), or
@@ -334,7 +421,7 @@ client.set(&point, value).await?;
 `write` grant) show both kinds; `examples/links/README.md` tells how to
 install them.
 
-## 10. Logs
+## 11. Logs
 
 - `sys/links/<id>` ▸ **Get Log** `{lines, level, filter}` shows the link's
   last lines: an embedded link's lines in the broker log (they carry its
@@ -348,7 +435,7 @@ install them.
 - A process package should log with `tracing-subscriber` (as the crates in
   `examples/links`): the level names in its lines become the level column.
 
-## 11. Repository
+## 12. Repository
 
 Set `packages: { repository: "https://…/index.json" }` in `wyrmd.json5` (as
 DSA's `linkRepositoryUrl`). The index is a JSON array, one entry per
@@ -383,7 +470,7 @@ The broker fetches the index in the background on every start and rebuild;
 network starts as usual: the field then says why the list is empty. Without
 `packages.repository` the item is still in the menu and says how to set it.
 
-## 12. Trust and security
+## 13. Trust and security
 
 - **Who can install:** users with `config` on `wy/<site>/sys/**`. Each
   install and removal is in the audit journal (`sys/audit`) with the user,
@@ -400,7 +487,7 @@ network starts as usual: the field then says why the list is empty. Without
 - Threat model entries: `docs/security/threats.md` (Link packages, WASM
   links).
 
-## 13. Limits
+## 14. Limits
 
 | What | Limit |
 |---|---|
@@ -414,7 +501,7 @@ network starts as usual: the field then says why the list is empty. Without
 | WASM call | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
 | WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
 
-## 14. When an install fails
+## 15. When an install fails
 
 | Message | Meaning |
 |---|---|
@@ -431,7 +518,7 @@ network starts as usual: the field then says why the list is empty. Without
 | `the broker is restarting; try again` | Another install rebuilt the router; repeat the action. |
 | `… is not in the link's net list` (point error) | Add the device address and port to the connection's Network. |
 
-## 15. Try it in the demo
+## 16. Try it in the demo
 
 1. Run `examples/packages/build.sh`. It writes the packages to
    `examples/packages/out/`.

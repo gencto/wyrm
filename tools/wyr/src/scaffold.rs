@@ -1,7 +1,8 @@
 //! `wyr new link|flow`: scaffolds from the templates in `tools/wyr/templates`
-//! (embedded at build time). Placeholders: `__NAME__` (link name = key
-//! segment and `Driver::NAME`), `__CRATE__` (`wyrm-link-<name>`), `__LIB__`
-//! (its Rust name), `__TYPE__` (CamelCase type prefix), `__ID__` (flow id).
+//! (embedded at build time). Placeholders, in file contents and paths:
+//! `__NAME__` (link name = key segment, `Driver::NAME` or `App::NAME`),
+//! `__CRATE__` (`wyrm-link-<name>`), `__LIB__` (its Rust name), `__TYPE__`
+//! (CamelCase type prefix), `__ID__` (flow id).
 
 use crate::Error;
 use clap::{Subcommand, ValueEnum};
@@ -16,6 +17,11 @@ pub enum NewCmd {
         name: String,
         #[arg(long, value_enum, default_value_t = Proto::Generic)]
         proto: Proto,
+        /// A portable link instead (ADR 0023): one `App` that runs embedded,
+        /// as a process (`--features process`) and as a WASM component
+        /// (`wyr link pack`).
+        #[arg(long, conflicts_with = "proto")]
+        app: bool,
         /// Parent directory; the crate goes to `<dir>/<name>`.
         #[arg(long, default_value = "links")]
         dir: PathBuf,
@@ -74,6 +80,34 @@ const MODBUS: [(&str, &str); 4] = [
     ),
 ];
 
+const APP: [(&str, &str); 4] = [
+    (
+        "Cargo.toml",
+        include_str!("../templates/link/app/Cargo.toml.tmpl"),
+    ),
+    (
+        "src/lib.rs",
+        include_str!("../templates/link/app/lib.rs.tmpl"),
+    ),
+    (
+        "src/bin/__CRATE__.rs",
+        include_str!("../templates/link/app/main.rs.tmpl"),
+    ),
+    (
+        "tests/app.rs",
+        include_str!("../templates/link/app/test.rs.tmpl"),
+    ),
+];
+
+/// What `wyr new link` writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A driver on the framework (ADR 0004) for a protocol.
+    Driver(Proto),
+    /// A portable link (ADR 0023).
+    App,
+}
+
 pub const FLOW: &str = include_str!("../templates/flow/flow.json5.tmpl");
 
 /// Type names the generated files already use at their roots (templates,
@@ -115,6 +149,19 @@ const RESERVED_TYPES: &[&str] = &[
     "Perm",
     "Quality",
     "Status",
+    // the app template (ADR 0023)
+    "App",
+    "AppError",
+    "Host",
+    "Who",
+    "ActionMeta",
+    "Sample",
+    "Link",
+    "Portable",
+    "PortableConfig",
+    "Secret",
+    "StatusCode",
+    "BTreeMap",
     // keyword and prelude
     "Self",
     "Option",
@@ -203,12 +250,16 @@ impl Names {
 }
 
 /// Rendered files of a link crate: (relative path, text).
-pub fn render_link(n: &Names, proto: Proto) -> Vec<(&'static str, String)> {
-    let files = match proto {
-        Proto::Generic => &GENERIC,
-        Proto::Modbus => &MODBUS,
+pub fn render_link(n: &Names, kind: Kind) -> Vec<(String, String)> {
+    let files = match kind {
+        Kind::Driver(Proto::Generic) => &GENERIC,
+        Kind::Driver(Proto::Modbus) => &MODBUS,
+        Kind::App => &APP,
     };
-    files.iter().map(|(p, t)| (*p, n.render(t))).collect()
+    files
+        .iter()
+        .map(|(p, t)| (n.render(p), n.render(t)))
+        .collect()
 }
 
 pub fn render_flow(id: &str) -> Result<String, Error> {
@@ -217,12 +268,12 @@ pub fn render_flow(id: &str) -> Result<String, Error> {
 }
 
 /// Write a new crate under `dir/<name>`; never overwrites. Returns its path.
-pub fn write_link(dir: &Path, n: &Names, proto: Proto) -> Result<PathBuf, Error> {
+pub fn write_link(dir: &Path, n: &Names, kind: Kind) -> Result<PathBuf, Error> {
     let root = dir.join(&n.name);
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     // `create_dir` (not `_all`) fails when the directory exists.
     std::fs::create_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?;
-    for (rel, text) in render_link(n, proto) {
+    for (rel, text) in render_link(n, kind) {
         let path = root.join(rel);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -253,9 +304,15 @@ fn write_new(path: &Path, text: &str) -> Result<(), Error> {
 
 pub fn run(cmd: NewCmd) -> Result<(), Error> {
     match cmd {
-        NewCmd::Link { name, proto, dir } => {
+        NewCmd::Link {
+            name,
+            proto,
+            app,
+            dir,
+        } => {
             let n = Names::new(&name)?;
-            let root = write_link(&dir, &n, proto)?;
+            let kind = if app { Kind::App } else { Kind::Driver(proto) };
+            let root = write_link(&dir, &n, kind)?;
             let member = root.display().to_string().replace('\\', "/");
             out!("created {member} ({})", n.krate);
             out!("next:");
@@ -265,12 +322,19 @@ pub fn run(cmd: NewCmd) -> Result<(), Error> {
                 n.krate
             );
             out!("  3. cargo test -p {}", n.krate);
-            out!(
-                "  4. to run it from wyrmd: register \"{}\" => {}::{} in crates/wyrmd/src/lib.rs (validation, start_boxed, run_link)",
-                n.name,
-                n.lib,
-                n.ty
-            );
+            if app {
+                out!(
+                    "  4. wyr link pack -p {} → a wasm package (Install Link ▸ from Zip); --kind process for a binary",
+                    n.krate
+                );
+            } else {
+                out!(
+                    "  4. to run it from wyrmd: register \"{}\" => {}::{} in crates/wyrmd/src/lib.rs (validation, start_boxed, run_link)",
+                    n.name,
+                    n.lib,
+                    n.ty
+                );
+            }
             Ok(())
         }
         NewCmd::Flow { id, dir } => {
@@ -320,8 +384,8 @@ mod tests {
     fn link_templates_render() {
         let n = Names::new("acme-x").unwrap();
         for proto in [Proto::Generic, Proto::Modbus] {
-            let files = render_link(&n, proto);
-            let paths: Vec<&str> = files.iter().map(|(p, _)| *p).collect();
+            let files = render_link(&n, Kind::Driver(proto));
+            let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
             assert_eq!(
                 paths,
                 ["Cargo.toml", "src/lib.rs", "src/sim.rs", "tests/sim.rs"]
@@ -329,7 +393,7 @@ mod tests {
             for (p, text) in &files {
                 assert!(!text.contains("__"), "{proto:?} {p}: placeholder left");
             }
-            let get = |p: &str| &files.iter().find(|(q, _)| *q == p).unwrap().1;
+            let get = |p: &str| &files.iter().find(|(q, _)| q == p).unwrap().1;
             assert!(get("Cargo.toml").contains("name = \"wyrm-link-acme-x\""));
             assert!(get("Cargo.toml").contains("wyrm-link-acme-x = { path = \".\""));
             let lib = get("src/lib.rs");
@@ -339,6 +403,30 @@ mod tests {
             assert!(lib.contains("#[derive(Debug, Clone, PartialEq, Params)]\npub struct Point"));
             assert!(get("tests/sim.rs").contains("use wyrm_link_acme_x::{sim, AcmeX};"));
         }
+        let files = render_link(&n, Kind::App);
+        let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "Cargo.toml",
+                "src/lib.rs",
+                "src/bin/wyrm-link-acme-x.rs",
+                "tests/app.rs"
+            ]
+        );
+        for (p, text) in &files {
+            assert!(!text.contains("__"), "app {p}: placeholder left");
+        }
+        let get = |p: &str| &files.iter().find(|(q, _)| q == p).unwrap().1;
+        let toml = get("Cargo.toml");
+        assert!(toml.contains("crate-type = [\"cdylib\", \"rlib\"]"));
+        assert!(toml.contains("[package.metadata.wyrm-link]\nname = \"acme-x\"\nkind = \"wasm\""));
+        let lib = get("src/lib.rs");
+        assert!(lib.contains("impl App for AcmeX"));
+        assert!(lib.contains("const NAME: &'static str = \"acme-x\";"));
+        assert!(lib.contains("#[cfg(feature = \"wasm\")]\nwyrm_link_guest::export!(AcmeX);"));
+        assert!(get("src/bin/wyrm-link-acme-x.rs")
+            .contains("wyrm_link_sdk::process::main::<Portable<wyrm_link_acme_x::AcmeX>>()"));
     }
 
     #[test]
@@ -383,7 +471,12 @@ mod tests {
             ("gen-generic", Proto::Generic),
             ("gen-modbus", Proto::Modbus),
         ] {
-            write_link(&ws.join("links"), &Names::new(name).unwrap(), proto).unwrap();
+            write_link(
+                &ws.join("links"),
+                &Names::new(name).unwrap(),
+                Kind::Driver(proto),
+            )
+            .unwrap();
         }
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
         for args in [
@@ -409,14 +502,107 @@ mod tests {
         let _ = std::fs::remove_dir_all(&ws);
     }
 
+    /// The `--app` crate (ADR 0023) builds, passes its test on the native adapter, clippy and
+    /// fmt, and `wyr link pack` makes a `wyrm:app` component package of it (when the wasm32
+    /// target is installed), all in a temporary workspace like
+    /// `generated_crates_build_and_pass` (whose `[profile.release]` strips: the component type
+    /// must survive it). Slow: `cargo test -p wyr -- --ignored app_template`.
+    #[test]
+    #[ignore]
+    fn app_template_builds_and_passes() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let repo = repo.canonicalize().unwrap();
+        let ws = std::env::temp_dir().join(format!("wyr-gen-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        let root = std::fs::read_to_string(repo.join("Cargo.toml")).unwrap();
+        let manifest: String = root
+            .lines()
+            .map(|l| {
+                if l.starts_with("members = ") {
+                    "members = [\"links/gen-app\"]".to_owned()
+                } else if l.starts_with("exclude = ") {
+                    String::new()
+                } else {
+                    l.replace("path = \"", &format!("path = \"{}/", repo.display()))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(ws.join("Cargo.toml"), manifest).unwrap();
+        std::fs::copy(repo.join("Cargo.lock"), ws.join("Cargo.lock")).unwrap();
+        let n = Names::new("gen-app").unwrap();
+        let krate = write_link(&ws.join("links"), &n, Kind::App).unwrap();
+        assert!(krate.join("src/bin/wyrm-link-gen-app.rs").is_file());
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let target = repo.join("target");
+        for args in [
+            &["test", "--offline"][..],
+            &[
+                "clippy",
+                "--offline",
+                "--all-targets",
+                "--features",
+                "process",
+                "--",
+                "-D",
+                "warnings",
+            ][..],
+            &["fmt", "--check"][..],
+        ] {
+            let st = std::process::Command::new(&cargo)
+                .args(args)
+                .current_dir(&ws)
+                .env("CARGO_TARGET_DIR", &target)
+                .status()
+                .unwrap();
+            assert!(st.success(), "cargo {args:?} failed in {}", ws.display());
+        }
+        let wasm32 = std::process::Command::new("rustc")
+            .args([
+                "--print",
+                "target-libdir",
+                "--target",
+                "wasm32-unknown-unknown",
+            ])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .is_some_and(|o| Path::new(String::from_utf8_lossy(&o.stdout).trim()).exists());
+        if !wasm32 {
+            eprintln!("SKIP the wasm pack: target wasm32-unknown-unknown is not installed");
+        } else {
+            // `wyr link pack` on the crate: plan from its metadata, build, componentize, zip
+            let manifest_path = krate.join("Cargo.toml");
+            let md = crate::pack::tests::metadata(&manifest_path);
+            let out = ws.join("out");
+            let zip = crate::pack::tests::pack_wasm(&md, &manifest_path, &target, &out);
+            assert_eq!(zip, out.join("gen-app-0.1.0.zip"));
+            let bytes = std::fs::read(&zip).unwrap();
+            let m = wyrm_link_sdk::package::read_manifest(&bytes).unwrap();
+            assert_eq!(m.kind, "wasm");
+            assert_eq!(m.world.as_deref(), Some("app"));
+            assert_eq!(m.capabilities.unwrap().store_mb, Some(1));
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            let mut component = Vec::new();
+            std::io::Read::read_to_end(&mut a.by_name("gen-app.wasm").unwrap(), &mut component)
+                .unwrap();
+            assert_eq!(
+                wyrm_wasm_host::component_world(&component).unwrap(),
+                wyrm_wasm_host::ComponentWorld::App
+            );
+        }
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
     #[test]
     fn refuses_to_overwrite() {
         let dir = std::env::temp_dir().join(format!("wyr-new-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let n = Names::new("demo").unwrap();
-        let root = write_link(&dir, &n, Proto::Generic).unwrap();
+        let root = write_link(&dir, &n, Kind::Driver(Proto::Generic)).unwrap();
         assert!(root.join("tests/sim.rs").is_file());
-        assert!(write_link(&dir, &n, Proto::Modbus).is_err());
+        assert!(write_link(&dir, &n, Kind::App).is_err());
         let f = write_flow(&dir, "f1").unwrap();
         assert!(f.is_file());
         assert!(write_flow(&dir, "f1").is_err());

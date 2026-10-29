@@ -46,3 +46,5 @@ ed25519-dalek.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 sha2.workspace = true
 wat.workspace = true
+wit-component.workspace = true
+wyrm-link-sdk = { workspace = true, features = ["package"] }

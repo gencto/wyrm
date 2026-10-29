@@ -29,6 +29,9 @@ wyrm-link-mock.workspace = true
 minicbor.workspace = true
 wyrm-link-probe.workspace = true
 wyrm-gateway-client.workspace = true
+wyrm-wasm-host.workspace = true
+wit-component.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
+zip.workspace = true

@@ -1,0 +1,82 @@
+//! __NAME__: a portable link (ADR 0023). One source, three modes:
+//! - embedded in a broker: `wyrm_link_portable::Portable<__TYPE__>`;
+//! - a process link: `cargo build --release --features process` (`src/bin`);
+//! - a WASM component: `wyr link pack` builds the lib for
+//!   `wasm32-unknown-unknown` with `--features wasm` and packs it with its
+//!   capabilities (`[package.metadata.wyrm-link]`).
+//!
+//! The tree: `n`, a writable number kept in the link's store (it comes back
+//! after a restart or an upgrade), and the action `ping` on the root, which
+//! answers `"pong"`.
+
+use wyrm_core::meta::Writable;
+use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, Value};
+use wyrm_link_api::{App, AppError, Host, Who};
+
+/// The app. Keep state in the host (the tree, the store): the host may
+/// restart an instance at any time.
+pub struct __TYPE__;
+
+fn internal(e: impl ToString) -> AppError {
+    AppError::new(Status::InternalError, e.to_string())
+}
+
+fn good(host: &dyn Host, v: Value) -> Sample {
+    Sample {
+        v,
+        q: Quality::Good,
+        t: host.now_us(),
+    }
+}
+
+impl App for __TYPE__ {
+    const NAME: &'static str = "__NAME__";
+    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+    fn start(host: &mut dyn Host, _config: Value) -> Result<Self, AppError> {
+        host.declare_node("n", NodeMeta::number().writable(Writable::Write));
+        host.declare_action("", "ping", ActionMeta::new().level(Perm::Write));
+        if let Some(b) = host.store_get("n") {
+            let v: Value = wyrm_core::codec::from_slice(&b).map_err(internal)?;
+            let s = good(host, v);
+            host.update("n", s);
+        }
+        Ok(__TYPE__)
+    }
+
+    fn on_set(
+        &mut self,
+        host: &mut dyn Host,
+        path: &str,
+        value: Value,
+        _who: &Who,
+    ) -> Result<(), AppError> {
+        if path != "n" {
+            return Err(AppError::new(Status::NotFound, path));
+        }
+        if value.as_f64().is_none() {
+            return Err(AppError::new(Status::InvalidParameter, "n: a number"));
+        }
+        host.store_put("n", &wyrm_core::codec::to_vec(&value).map_err(internal)?)?;
+        let s = good(host, value);
+        host.update("n", s);
+        Ok(())
+    }
+
+    fn on_invoke(
+        &mut self,
+        _host: &mut dyn Host,
+        path: &str,
+        action: &str,
+        _args: Value,
+        _who: &Who,
+    ) -> Result<Value, AppError> {
+        match (path, action) {
+            ("", "ping") => Ok(Value::Str("pong".into())),
+            _ => Err(AppError::new(Status::NotSupported, action)),
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+wyrm_link_guest::export!(__TYPE__);

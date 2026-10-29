@@ -856,15 +856,31 @@ mod tests {
         };
         match ok(&["new", "link", "acme", "--proto", "modbus", "--dir", "x"]).unwrap() {
             Cmd::New {
-                what: scaffold::NewCmd::Link { name, proto, dir },
+                what:
+                    scaffold::NewCmd::Link {
+                        name,
+                        proto,
+                        app,
+                        dir,
+                    },
             } => {
                 assert_eq!(name, "acme");
                 assert_eq!(proto, scaffold::Proto::Modbus);
+                assert!(!app);
                 assert_eq!(dir, PathBuf::from("x"));
             }
             other => panic!("{other:?}"),
         }
         assert!(ok(&["new", "link", "acme", "--proto", "opcua"]).is_err());
+        assert!(matches!(
+            ok(&["new", "link", "acme", "--app"]).unwrap(),
+            Cmd::New {
+                what: scaffold::NewCmd::Link { app: true, .. }
+            }
+        ));
+        assert!(ok(&["new", "link", "acme", "--app", "--proto", "modbus"]).is_err());
+        assert!(ok(&["link", "pack", "--kind", "wasm"]).is_ok());
+        assert!(ok(&["link", "pack", "--kind", "jar"]).is_err());
         assert!(ok(&["new", "flow", "peak"]).is_ok());
         assert!(ok(&["dev", "--flows", "f", "--site", "s"]).is_ok());
         assert!(ok(&["--key", "admin.key", "dev"]).is_ok());

@@ -145,6 +145,25 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// The package manifest checks `capabilities` against the same defaults and bounds
+    /// (`wyrm-link-sdk` cannot depend on this crate).
+    #[test]
+    fn package_capabilities_use_these_limits() {
+        use wyrm_link_sdk::package as p;
+        assert_eq!(
+            (DEFAULT_STORE_MB, MAX_STORE_MB),
+            (p::DEFAULT_STORE_MB, p::MAX_STORE_MB)
+        );
+        assert_eq!(
+            (DEFAULT_MEMORY_MB, MAX_MEMORY_MB),
+            (p::DEFAULT_MEMORY_MB, p::MAX_MEMORY_MB)
+        );
+        assert_eq!(
+            (DEFAULT_CALL_MS, MAX_CALL_MS),
+            (p::DEFAULT_CALL_MS, p::MAX_CALL_MS)
+        );
+    }
+
     #[test]
     fn host_keys_are_taken_out_of_params() {
         let mut m = BTreeMap::new();

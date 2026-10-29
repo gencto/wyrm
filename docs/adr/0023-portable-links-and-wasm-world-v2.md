@@ -122,9 +122,9 @@ All data on the boundary is canonical CBOR (principle 5); the guest uses `wyrm-c
 ### Capabilities, granted at install
 The package manifest (ADR 0021, `[package.metadata.wyrm-link]`) gains `capabilities`:
 - `net`: the `tcp` allowlist entries (ADR 0012 syntax) or `[]`;
-- `requester`: grants on other points (ADR 0013 syntax; the existing field);
+- `requester`: grants on other points (ADR 0013 syntax; the existing top-level field, not inside `capabilities`);
 - `store_mb`: store size (default 1, at most 64);
-- `limits`: `memory_mb` (default 64, at most 512), `call_ms` (default 2000, at most 10000).
+- limits, flat beside them: `memory_mb` (default 64, at most 512), `call_ms` (default 2000, at most 10000).
 
 Installing shows them and applies them as the link's settings. Later changes go the existing ways: requester grants through `sys/links/<id>/~act/grant` (ADR 0013, router rebuild), `net`, `store_mb` and `limits` through the link's `update` (params). A capability not granted fails its calls with `permission_denied`.
 - **The link knows its grants:** the admin sends them in the `hello` reply (process) and in `LinkConfig` (embedded, WASM), so a request outside them is refused in the link before it reaches the router (the router ACL still refuses it too). Reading another point (`subscribe`) needs a `read` grant in every mode: ADR 0013's "embedded links read everything" is not used by portable links.
@@ -145,7 +145,8 @@ process = ["wyrm-link-sdk/process"]       # bin: process::main::<Portable<App>>(
 wasm = ["dep:wyrm-link-guest"]            # cdylib: wyrm_link_guest::export!(App)
 [package.metadata.wyrm-link]
 kind = "wasm"                              # or "process"; `wyr link pack --kind` overrides
-capabilities = { requester = [...], store_mb = 4 }
+capabilities = { net = [...], store_mb = 4, memory_mb = 64, call_ms = 2000 }
+requester = [...]
 ```
 - `wyr link pack` for `kind = "wasm"`: `cargo build --release --target wasm32-unknown-unknown --lib --features wasm`, then turns the core module into a component in-process with the `wit-component` crate (bindings from `wit-bindgen` in `wyrm-link-guest` carry the component type), then packs it (ADR 0021). One zip for every host.
 - `rust-toolchain.toml` adds the target `wasm32-unknown-unknown`.

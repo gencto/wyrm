@@ -1247,6 +1247,18 @@ pub enum ComponentWorld {
     Point,
 }
 
+impl ComponentWorld {
+    /// The name a package manifest gives the world (`world`, ADR 0023): `app`, `driver` or
+    /// `point`.
+    pub fn name(self) -> &'static str {
+        match self {
+            ComponentWorld::App => "app",
+            ComponentWorld::Driver => "driver",
+            ComponentWorld::Point => "point",
+        }
+    }
+}
+
 const APP_EXPORTS: [&str; 7] = [
     "start",
     "on-set",

@@ -40,6 +40,100 @@ pub struct Manifest {
     /// Grants the link needs as a requester (ADR 0013).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requester: Vec<Grant>,
+    /// `wasm`: the component's world, `app` (`wyrm:app`, ADR 0023), `driver` or `point`.
+    /// Informational: the broker reads the world from the component and refuses a package
+    /// whose `world` says otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world: Option<String>,
+    /// `wasm` app: what its link may use, granted at install (ADR 0023).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Capabilities>,
+}
+
+/// Default store of an app link, MiB (ADR 0023).
+pub const DEFAULT_STORE_MB: u32 = 1;
+/// Largest store of an app link, MiB.
+pub const MAX_STORE_MB: u32 = 64;
+/// Default linear memory of an app instance, MiB.
+pub const DEFAULT_MEMORY_MB: u32 = 64;
+/// Largest linear memory of an app instance, MiB.
+pub const MAX_MEMORY_MB: u32 = 512;
+/// Default time of one app call, ms.
+pub const DEFAULT_CALL_MS: u32 = 2000;
+/// Longest time of one app call, ms.
+pub const MAX_CALL_MS: u32 = 10_000;
+/// Worlds a `wasm` package may name.
+pub const WORLDS: [&str; 3] = ["app", "driver", "point"];
+
+/// What an app link may use (ADR 0023 "Capabilities, granted at install"); absent fields take
+/// the defaults. `requester` grants stay [`Manifest::requester`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    /// TCP allowlist entries, `<ip>[/<prefix>]:<port>` (ADR 0012); none: no network.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub net: Vec<String>,
+    /// Store size, MiB (default 1, at most 64; 0 refuses every write).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_mb: Option<u32>,
+    /// Linear memory of an instance, MiB (default 64, 1 to 512).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u32>,
+    /// Time of one call, ms (default 2000, 1 to 10000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_ms: Option<u32>,
+}
+
+impl Capabilities {
+    /// The bounds of each field, as `Err` naming the field.
+    pub fn check(&self) -> Result<(), String> {
+        for e in &self.net {
+            if e.is_empty() || e.contains([',', ' ', '\n', '\r', '\t']) || !e.contains(':') {
+                return Err(format!(
+                    "capabilities.net {e:?}: one <ip>[/<prefix>]:<port> entry"
+                ));
+            }
+        }
+        let bound = |name: &str, v: Option<u32>, min: u32, max: u32| match v {
+            Some(n) if n < min || n > max => {
+                Err(format!("capabilities.{name} {n}: from {min} to {max}"))
+            }
+            _ => Ok(()),
+        };
+        bound("store_mb", self.store_mb, 0, MAX_STORE_MB)?;
+        bound("memory_mb", self.memory_mb, 1, MAX_MEMORY_MB)?;
+        bound("call_ms", self.call_ms, 1, MAX_CALL_MS)
+    }
+
+    /// The store size in MiB, the default when unset.
+    pub fn store_mb(&self) -> u32 {
+        self.store_mb.unwrap_or(DEFAULT_STORE_MB)
+    }
+
+    /// The memory of an instance in MiB, the default when unset.
+    pub fn memory_mb(&self) -> u32 {
+        self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
+
+    /// The time of one call in ms, the default when unset.
+    pub fn call_ms(&self) -> u32 {
+        self.call_ms.unwrap_or(DEFAULT_CALL_MS)
+    }
+
+    /// One line for an install result: `net none, store 1 MiB, memory 64 MiB, call 2000 ms`.
+    pub fn describe(&self) -> String {
+        let net = if self.net.is_empty() {
+            "none".to_owned()
+        } else {
+            self.net.join(" ")
+        };
+        format!(
+            "net {net}, store {} MiB, memory {} MiB, call {} ms",
+            self.store_mb(),
+            self.memory_mb(),
+            self.call_ms()
+        )
+    }
 }
 
 /// A requested grant: `{"path": "wy/{site}/downstream/mock", "level": "read"}`.
@@ -69,11 +163,33 @@ impl Manifest {
             ));
         }
         match self.kind.as_str() {
-            "process" if self.entries.is_empty() => Err("a process package needs `entries`".into()),
-            "wasm" if self.entry.is_none() => Err("a wasm package needs `entry`".into()),
-            "process" | "wasm" => Ok(()),
-            k => Err(format!("kind {k:?}: process or wasm")),
+            "process" if self.entries.is_empty() => {
+                return Err("a process package needs `entries`".into())
+            }
+            "wasm" if self.entry.is_none() => return Err("a wasm package needs `entry`".into()),
+            "process" | "wasm" => {}
+            k => return Err(format!("kind {k:?}: process or wasm")),
         }
+        if let Some(w) = &self.world {
+            if self.kind != "wasm" {
+                return Err("world: only a wasm package has one".into());
+            }
+            if !WORLDS.contains(&w.as_str()) {
+                return Err(format!("world {w:?}: app, driver or point"));
+            }
+        }
+        if let Some(c) = &self.capabilities {
+            if self.kind != "wasm" {
+                return Err("capabilities: only a wasm app package has them".into());
+            }
+            if let Some(w) = self.world.as_deref().filter(|w| *w != "app") {
+                return Err(format!(
+                    "capabilities: only an app component has them, world is {w:?}"
+                ));
+            }
+            c.check()?;
+        }
+        Ok(())
     }
 }
 
@@ -312,7 +428,113 @@ mod tests {
                 path: "wy/{site}/downstream/mock".into(),
                 level: "read".into(),
             }],
+            world: None,
+            capabilities: None,
         }
+    }
+
+    fn app(caps: Capabilities) -> Manifest {
+        Manifest {
+            name: "acme".into(),
+            version: "1.0.0".into(),
+            description: String::new(),
+            wyrm_link: crate::LINK_PROTOCOL,
+            kind: "wasm".into(),
+            entries: BTreeMap::new(),
+            args: vec![],
+            entry: Some("acme.wasm".into()),
+            requester: vec![],
+            world: Some("app".into()),
+            capabilities: Some(caps),
+        }
+    }
+
+    #[test]
+    fn capabilities_bounds_and_kinds() {
+        let ok = Capabilities {
+            net: vec!["10.0.0.0/8:502".into()],
+            store_mb: Some(64),
+            memory_mb: Some(512),
+            call_ms: Some(10_000),
+        };
+        assert!(app(ok.clone()).check().is_ok());
+        assert!(app(Capabilities::default()).check().is_ok());
+        assert_eq!(
+            Capabilities::default().describe(),
+            "net none, store 1 MiB, memory 64 MiB, call 2000 ms"
+        );
+        for (caps, field) in [
+            (
+                Capabilities {
+                    store_mb: Some(65),
+                    ..ok.clone()
+                },
+                "store_mb 65",
+            ),
+            (
+                Capabilities {
+                    memory_mb: Some(0),
+                    ..ok.clone()
+                },
+                "memory_mb 0",
+            ),
+            (
+                Capabilities {
+                    memory_mb: Some(513),
+                    ..ok.clone()
+                },
+                "memory_mb 513",
+            ),
+            (
+                Capabilities {
+                    call_ms: Some(0),
+                    ..ok.clone()
+                },
+                "call_ms 0",
+            ),
+            (
+                Capabilities {
+                    call_ms: Some(10_001),
+                    ..ok.clone()
+                },
+                "call_ms 10001",
+            ),
+            (
+                Capabilities {
+                    net: vec!["a:1,b:2".into()],
+                    ..ok.clone()
+                },
+                "capabilities.net",
+            ),
+            (
+                Capabilities {
+                    net: vec!["host".into()],
+                    ..ok.clone()
+                },
+                "capabilities.net",
+            ),
+        ] {
+            let err = app(caps).check().unwrap_err();
+            assert!(err.contains(field), "{field}: {err}");
+        }
+        // capabilities and world belong to wasm packages; an app's capabilities to an app
+        let mut m = process("acme");
+        m.capabilities = Some(Capabilities::default());
+        assert!(m.check().unwrap_err().contains("capabilities"));
+        let mut m = process("acme");
+        m.world = Some("app".into());
+        assert!(m.check().unwrap_err().contains("world"));
+        let mut m = app(Capabilities::default());
+        m.world = Some("driver".into());
+        assert!(m.check().unwrap_err().contains("\"driver\""));
+        m.capabilities = None;
+        assert!(m.check().is_ok());
+        m.world = Some("flow".into());
+        assert!(m.check().unwrap_err().contains("app, driver or point"));
+        // unknown capability fields are refused (`limits` is flat here)
+        let text = r#"{"name":"a","version":"1","wyrm_link":1,"kind":"wasm","entry":"a.wasm",
+            "capabilities":{"limits":{"call_ms":5}}}"#;
+        assert!(serde_json::from_str::<Manifest>(text).is_err());
     }
 
     #[test]

@@ -1,6 +1,10 @@
 //! `wyr link pack` and `wyr repo add` (ADR 0021): a link package from the
 //! crate's `Cargo.toml` (`[package.metadata.wyrm-link]`) and a repository
 //! directory with its `index.json`, in the SDK's package format.
+//!
+//! `kind = "wasm"` (ADR 0023): the crate's cdylib built for
+//! `wasm32-unknown-unknown` with feature `wasm`, made a component of world
+//! `wyrm:app` in-process (`wit-component`), packed with its `capabilities`.
 
 use crate::Error;
 use clap::Subcommand;
@@ -8,12 +12,18 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use wyrm_link_sdk::package::{self, Asset, Grant, Manifest, PackFile, RepoEntry};
+use wyrm_link_sdk::package::{self, Asset, Capabilities, Grant, Manifest, PackFile, RepoEntry};
+use wyrm_wasm_host::ComponentWorld;
+
+/// The target a `wasm` crate is built for.
+const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 #[derive(Subcommand, Debug)]
 pub enum LinkCmd {
     /// Build the link's release binary and write one package zip per host,
-    /// `<name>-<version>-<host>.zip`; or pack a WASM component.
+    /// `<name>-<version>-<host>.zip`; for `kind = "wasm"`, build the crate
+    /// as a component and write `<name>-<version>.zip`; or pack a prebuilt
+    /// WASM component.
     Pack {
         /// The link crate's Cargo.toml.
         #[arg(long, default_value = "Cargo.toml")]
@@ -28,6 +38,9 @@ pub enum LinkCmd {
         /// Use the binaries built before, without `cargo build`.
         #[arg(long)]
         no_build: bool,
+        /// Override `kind` of `[package.metadata.wyrm-link]`.
+        #[arg(long, value_parser = ["process", "wasm"])]
+        kind: Option<String>,
         /// Where the zips go (default `<target dir>/wyrm-link`).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -69,18 +82,20 @@ struct Meta {
     name: Option<String>,
     /// Default: the crate's description.
     description: Option<String>,
-    /// `process` (the only kind a crate builds).
+    /// `process` (a binary per host) or `wasm` (a `wyrm:app` component).
     #[serde(default = "process")]
     kind: String,
     /// The binary (default: the crate's only one).
     bin: Option<String>,
-    /// Cargo features to build with.
+    /// Cargo features of a process build (a wasm build uses `wasm`).
     #[serde(default)]
     features: Vec<String>,
     #[serde(default)]
     args: Vec<String>,
     #[serde(default)]
     requester: Vec<Grant>,
+    /// `wasm`: what the app link may use, granted at install (ADR 0023).
+    capabilities: Option<Capabilities>,
 }
 
 fn process() -> String {
@@ -106,23 +121,33 @@ struct CargoTarget {
 }
 
 #[derive(Debug, Deserialize)]
-struct CargoMetadata {
+pub(crate) struct CargoMetadata {
     packages: Vec<CargoPackage>,
     target_directory: PathBuf,
+}
+
+/// What a crate build makes.
+#[derive(Debug, PartialEq)]
+enum Artifact {
+    /// A process binary.
+    Bin(String),
+    /// A WASM component from this cdylib (its Rust name).
+    Component(String),
 }
 
 /// What to build and how to name it, from the crate.
 #[derive(Debug, PartialEq)]
 struct Plan {
     krate: String,
-    bin: String,
+    artifact: Artifact,
     features: Vec<String>,
-    /// The manifest without `entries` (one host per zip).
+    /// The manifest; a process one without `entries` (one host per zip).
     manifest: Manifest,
 }
 
-fn plan(p: &CargoPackage) -> Result<Plan, Error> {
-    let meta: Meta = match p.metadata.as_ref().and_then(|m| m.get("wyrm-link")) {
+/// The plan of crate `p`; `kind` overrides the metadata's.
+fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
+    let mut meta: Meta = match p.metadata.as_ref().and_then(|m| m.get("wyrm-link")) {
         Some(v) => serde_json::from_value(v.clone())
             .map_err(|e| format!("[package.metadata.wyrm-link]: {e}"))?,
         None => Meta {
@@ -130,12 +155,52 @@ fn plan(p: &CargoPackage) -> Result<Plan, Error> {
             ..Meta::default()
         },
     };
-    if meta.kind != "process" {
-        return Err(format!(
-            "kind {:?}: a crate builds a process package (a WASM component: --component)",
-            meta.kind
-        )
-        .into());
+    if let Some(k) = kind {
+        meta.kind = k.to_owned();
+    }
+    let name = meta.name.clone().unwrap_or_else(|| p.name.clone());
+    let description = meta
+        .description
+        .clone()
+        .or_else(|| p.description.clone())
+        .unwrap_or_default();
+    match meta.kind.as_str() {
+        "process" => {}
+        "wasm" => {
+            let lib = p
+                .targets
+                .iter()
+                .find(|t| t.kind.iter().any(|k| k == "cdylib"))
+                .map(|t| t.name.replace('-', "_"))
+                .ok_or_else(|| {
+                    format!(
+                        "{}: kind wasm needs a cdylib (crate-type = [\"cdylib\", \"rlib\"])",
+                        p.name
+                    )
+                })?;
+            let manifest = Manifest {
+                entry: Some(format!("{name}.wasm")),
+                name,
+                version: p.version.clone(),
+                description,
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: BTreeMap::new(),
+                args: Vec::new(),
+                requester: meta.requester,
+                world: Some("app".into()),
+                capabilities: meta.capabilities,
+            };
+            // before a long build
+            manifest.check().map_err(|e| format!("{}: {e}", p.name))?;
+            return Ok(Plan {
+                krate: p.name.clone(),
+                artifact: Artifact::Component(lib),
+                features: vec!["wasm".into()],
+                manifest,
+            });
+        }
+        k => return Err(format!("kind {k:?}: process or wasm").into()),
     }
     let bins: Vec<&str> = p
         .targets
@@ -159,23 +224,83 @@ fn plan(p: &CargoPackage) -> Result<Plan, Error> {
     };
     Ok(Plan {
         krate: p.name.clone(),
-        bin,
+        artifact: Artifact::Bin(bin),
         features: meta.features,
         manifest: Manifest {
-            name: meta.name.unwrap_or_else(|| p.name.clone()),
+            name,
             version: p.version.clone(),
-            description: meta
-                .description
-                .or_else(|| p.description.clone())
-                .unwrap_or_default(),
+            description,
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
             kind: "process".into(),
             entries: BTreeMap::new(),
             args: meta.args,
             entry: None,
             requester: meta.requester,
+            world: None,
+            capabilities: None,
         },
     })
+}
+
+/// A core module built with `wyrm-link-guest` as a component, which must be of world `wyrm:app`.
+fn componentize(core: &[u8]) -> Result<Vec<u8>, Error> {
+    let component = wit_component::ComponentEncoder::default()
+        .module(core)
+        .map_err(|e| format!("component type: {e:#} (is `wyrm_link_guest::export!` in the lib?)"))?
+        .validate(true)
+        .encode()
+        .map_err(|e| format!("componentize: {e:#}"))?;
+    match wyrm_wasm_host::component_world(&component) {
+        Ok(ComponentWorld::App) => Ok(component),
+        Ok(w) => Err(format!("the component is of world {}, not app", w.name()).into()),
+        Err(e) => Err(format!("the component: {e}").into()),
+    }
+}
+
+/// `kind = "wasm"`: build the cdylib for wasm32 with feature `wasm`, make it a component and
+/// pack `<name>-<version>.zip` into `out`.
+fn pack_component(
+    plan: &Plan,
+    lib: &str,
+    manifest_path: &Path,
+    target_dir: &Path,
+    no_build: bool,
+    out: &Path,
+) -> Result<PathBuf, Error> {
+    if !no_build {
+        let mut c = Command::new("cargo");
+        c.args(["build", "--release", "--lib", "-p", &plan.krate])
+            .args(["--target", WASM_TARGET])
+            .arg("--features")
+            .arg(plan.features.join(","))
+            .arg("--manifest-path")
+            .arg(manifest_path)
+            .arg("--target-dir")
+            .arg(target_dir);
+        if !c.status()?.success() {
+            return Err(format!(
+                "cargo build of {} for {WASM_TARGET} failed (rustup target add {WASM_TARGET})",
+                plan.krate
+            )
+            .into());
+        }
+    }
+    let wasm = target_dir
+        .join(WASM_TARGET)
+        .join("release")
+        .join(format!("{lib}.wasm"));
+    let core = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
+    let component = componentize(&core).map_err(|e| format!("{}: {e}", wasm.display()))?;
+    let m = &plan.manifest;
+    let zip = package::pack(
+        m,
+        &[PackFile {
+            path: m.entry.clone().unwrap_or_default(),
+            data: component,
+            mode: 0o644,
+        }],
+    )?;
+    write_zip(out, &format!("{}-{}.zip", m.name, m.version), &zip)
 }
 
 fn cargo_metadata(manifest_path: &Path) -> Result<CargoMetadata, Error> {
@@ -236,6 +361,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
         package: krate,
         targets,
         no_build,
+        kind,
         out,
         component,
         name,
@@ -245,6 +371,9 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     if let Some(wasm) = component {
         let (name, version) = (name.unwrap_or_default(), version.unwrap_or_default());
         let file = format!("{name}.wasm");
+        let data = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
+        let world = wyrm_wasm_host::component_world(&data)
+            .map_err(|e| format!("{}: {e}", wasm.display()))?;
         let m = Manifest {
             name: name.clone(),
             version: version.clone(),
@@ -255,8 +384,9 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
             args: Vec::new(),
             entry: Some(file.clone()),
             requester: Vec::new(),
+            world: Some(world.name().into()),
+            capabilities: None,
         };
-        let data = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
         let zip = package::pack(
             &m,
             &[PackFile {
@@ -274,12 +404,29 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     }
     let md = cargo_metadata(&manifest_path)?;
     let p = pick(&md, &manifest_path, krate.as_deref())?;
-    let plan = plan(p)?;
+    let plan = plan(p, kind.as_deref())?;
+    let out = out.unwrap_or_else(|| md.target_directory.join("wyrm-link"));
+    let bin = match &plan.artifact {
+        Artifact::Component(lib) => {
+            if !targets.is_empty() {
+                return Err("a wasm package runs on every host: no --target".into());
+            }
+            pack_component(
+                &plan,
+                lib,
+                &manifest_path,
+                &md.target_directory,
+                no_build,
+                &out,
+            )?;
+            return Ok(());
+        }
+        Artifact::Bin(bin) => bin.clone(),
+    };
     // before a long build: the manifest as it will be, with one entry
     let mut probe = plan.manifest.clone();
-    probe.entries.insert(package::platform(), plan.bin.clone());
+    probe.entries.insert(package::platform(), bin.clone());
     probe.check().map_err(|e| format!("{}: {e}", plan.krate))?;
-    let out = out.unwrap_or_else(|| md.target_directory.join("wyrm-link"));
     let builds: Vec<(Option<String>, String)> = if targets.is_empty() {
         vec![(None, package::platform())]
     } else {
@@ -295,7 +442,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     for (triple, host) in builds {
         if !no_build {
             let mut c = Command::new("cargo");
-            c.args(["build", "--release", "-p", &plan.krate, "--bin", &plan.bin])
+            c.args(["build", "--release", "-p", &plan.krate, "--bin", &bin])
                 .arg("--manifest-path")
                 .arg(&manifest_path);
             if !plan.features.is_empty() {
@@ -312,9 +459,9 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
             Some(t) => md.target_directory.join(t).join("release"),
             None => md.target_directory.join("release"),
         };
-        let exe = dir.join(&plan.bin);
+        let exe = dir.join(&bin);
         let data = std::fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
-        let entry = format!("bin/{host}/{}", plan.bin);
+        let entry = format!("bin/{host}/{bin}");
         let mut m = plan.manifest.clone();
         m.entries.insert(host.clone(), entry.clone());
         let zip = package::pack(
@@ -410,8 +557,29 @@ pub fn run_repo(cmd: RepoCmd) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// `cargo metadata` of a crate (for the scaffold test).
+    pub(crate) fn metadata(manifest_path: &Path) -> CargoMetadata {
+        cargo_metadata(manifest_path).unwrap()
+    }
+
+    /// What `wyr link pack` does for the `kind = "wasm"` crate of `manifest_path`, building in
+    /// `target_dir`: the path of the zip.
+    pub(crate) fn pack_wasm(
+        md: &CargoMetadata,
+        manifest_path: &Path,
+        target_dir: &Path,
+        out: &Path,
+    ) -> PathBuf {
+        let p = pick(md, manifest_path, None).unwrap();
+        let plan = plan(p, None).unwrap();
+        let Artifact::Component(lib) = &plan.artifact else {
+            panic!("not a wasm crate: {:?}", plan.artifact)
+        };
+        pack_component(&plan, lib, manifest_path, target_dir, false, out).unwrap()
+    }
 
     fn cargo_pkg(metadata: serde_json::Value, bins: &[&str]) -> CargoPackage {
         CargoPackage {
@@ -444,22 +612,73 @@ mod tests {
             }}),
             &["wyrm-example-recorder"],
         );
-        let got = plan(&p).unwrap();
-        assert_eq!(got.bin, "wyrm-example-recorder");
+        let got = plan(&p, None).unwrap();
+        assert_eq!(got.artifact, Artifact::Bin("wyrm-example-recorder".into()));
         assert_eq!(got.features, ["bin"]);
         assert_eq!(got.manifest.name, "recorder");
         assert_eq!(got.manifest.version, "1.2.0");
         assert_eq!(got.manifest.description, "records values");
         assert_eq!(got.manifest.requester[0].level, "read");
         // without the section: the crate as it is
-        let plain = plan(&cargo_pkg(serde_json::json!({}), &["a"])).unwrap();
+        let plain = plan(&cargo_pkg(serde_json::json!({}), &["a"]), None).unwrap();
         assert_eq!(plain.manifest.name, "wyrm-example-recorder");
         // several binaries need `bin`; a typo is refused
-        assert!(plan(&cargo_pkg(serde_json::json!({}), &["a", "b"])).is_err());
+        assert!(plan(&cargo_pkg(serde_json::json!({}), &["a", "b"]), None).is_err());
         let typo = serde_json::json!({ "wyrm-link": { "reqester": [] } });
-        assert!(plan(&cargo_pkg(typo, &["a"])).is_err());
+        assert!(plan(&cargo_pkg(typo, &["a"]), None).is_err());
+        let jar = serde_json::json!({ "wyrm-link": { "kind": "jar" } });
+        assert!(plan(&cargo_pkg(jar, &["a"]), None).is_err());
+    }
+
+    /// A crate with a cdylib and a process binary, as `wyr new link --app` writes it.
+    fn app_pkg(metadata: serde_json::Value) -> CargoPackage {
+        let mut p = cargo_pkg(metadata, &["wyrm-link-acme"]);
+        p.name = "wyrm-link-acme".into();
+        p.targets.push(CargoTarget {
+            name: "wyrm_link_acme".into(),
+            kind: vec!["cdylib".into(), "rlib".into()],
+        });
+        p
+    }
+
+    #[test]
+    fn plan_wasm_kind_reads_capabilities() {
+        let meta = serde_json::json!({ "wyrm-link": {
+            "name": "acme",
+            "kind": "wasm",
+            "features": ["process"],
+            "capabilities": { "store_mb": 4, "net": ["127.0.0.1:502"] },
+            "requester": [{ "path": "wy/{site}/downstream/mock", "level": "read" }],
+        }});
+        let got = plan(&app_pkg(meta.clone()), None).unwrap();
+        assert_eq!(got.artifact, Artifact::Component("wyrm_link_acme".into()));
+        assert_eq!(got.manifest.kind, "wasm");
+        assert_eq!(got.manifest.world.as_deref(), Some("app"));
+        assert_eq!(got.manifest.entry.as_deref(), Some("acme.wasm"));
+        let caps = got.manifest.capabilities.clone().unwrap();
+        assert_eq!(caps.store_mb, Some(4));
+        assert_eq!(caps.net, ["127.0.0.1:502"]);
+        assert_eq!(got.manifest.requester[0].level, "read");
+        // `--kind process` packs the binary of the same crate, without capabilities
+        let proc = plan(&app_pkg(meta), Some("process")).unwrap();
+        assert_eq!(proc.artifact, Artifact::Bin("wyrm-link-acme".into()));
+        assert_eq!(proc.features, ["process"]);
+        assert_eq!(proc.manifest.capabilities, None);
+        assert_eq!(proc.manifest.world, None);
+        // over the bounds, before any build
+        let big = serde_json::json!({ "wyrm-link": {
+            "kind": "wasm", "capabilities": { "store_mb": 65 } } });
+        let err = plan(&app_pkg(big), None).unwrap_err().to_string();
+        assert!(err.contains("store_mb 65"), "{err}");
+        // a wasm crate needs a cdylib
         let wasm = serde_json::json!({ "wyrm-link": { "kind": "wasm" } });
-        assert!(plan(&cargo_pkg(wasm, &["a"])).is_err());
+        let err = plan(&cargo_pkg(wasm, &["a"]), None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cdylib"), "{err}");
+        let typo = serde_json::json!({ "wyrm-link": { "kind": "wasm",
+            "capabilities": { "store": 4 } } });
+        assert!(plan(&app_pkg(typo), None).is_err());
     }
 
     fn manifest(version: &str, hosts: &[&str]) -> Manifest {
@@ -476,6 +695,8 @@ mod tests {
             args: vec![],
             entry: None,
             requester: vec![],
+            world: None,
+            capabilities: None,
         }
     }
 

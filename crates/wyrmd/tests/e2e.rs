@@ -1216,6 +1216,189 @@ async fn wasm_link_reads_a_device_over_tcp() {
     env.stop().await;
 }
 
+/// The `Echo` app of `links/wasm/tests/app_fixture` built for wasm32 and made a component, as
+/// `wyr link pack` does for `kind = "wasm"`; `None` without the wasm32 target.
+fn echo_app_component() -> Option<Vec<u8>> {
+    use std::process::Command;
+    let libdir = Command::new("rustc")
+        .args([
+            "--print",
+            "target-libdir",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+    if !libdir.is_some_and(|d| d.exists()) {
+        return None;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = repo.join("links/wasm/tests/app_fixture");
+    // its own workspace: seed the lock file from the main one (same versions)
+    std::fs::copy(repo.join("Cargo.lock"), fixture.join("Cargo.lock")).expect("copy Cargo.lock");
+    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("app-fixture");
+    let out = Command::new(env!("CARGO"))
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--manifest-path",
+        ])
+        .arg(fixture.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target)
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .output()
+        .expect("run cargo");
+    assert!(
+        out.status.success(),
+        "fixture build failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let core = std::fs::read(
+        target.join("wasm32-unknown-unknown/release/wyrm_link_wasm_app_fixture.wasm"),
+    )
+    .expect("fixture wasm");
+    Some(
+        wit_component::ComponentEncoder::default()
+            .module(&core)
+            .expect("component type")
+            .validate(true)
+            .encode()
+            .expect("componentize"),
+    )
+}
+
+/// A portable link packed as a WASM package (ADR 0023): installed from Zip it
+/// runs as an app with its capabilities, answers its action, and an upgrade
+/// (a new version) restarts it on the same store.
+#[tokio::test(flavor = "multi_thread")]
+async fn portable_app_installs_as_wasm() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    let Some(component) = echo_app_component() else {
+        eprintln!(
+            "SKIP portable_app_installs_as_wasm: target wasm32-unknown-unknown is not installed \
+             (rustup target add wasm32-unknown-unknown)"
+        );
+        return;
+    };
+    let zip = |version: &str, world: &str| {
+        let m = Manifest {
+            name: "echoapp".into(),
+            version: version.into(),
+            description: "the echo app".into(),
+            wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+            kind: "wasm".into(),
+            entries: Default::default(),
+            args: Vec::new(),
+            entry: Some("echoapp.wasm".into()),
+            requester: Vec::new(),
+            world: Some(world.into()),
+            capabilities: (world == "app").then(|| Capabilities {
+                store_mb: Some(2),
+                ..Capabilities::default()
+            }),
+        };
+        let files = [PackFile {
+            path: "echoapp.wasm".into(),
+            data: component.clone(),
+            mode: 0o644,
+        }];
+        package::pack(&m, &files).unwrap()
+    };
+    let env = Env::start("appwasm", "").await;
+    let c = env.client().await.with_timeout(Duration::from_secs(10));
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |zip: Vec<u8>| {
+        Value::Map(BTreeMap::from([
+            ("name".to_owned(), Value::from("e1")),
+            ("zip".to_owned(), Value::Bytes(zip)),
+        ]))
+    };
+    let outcome = |v: Option<Value>| -> (bool, String) {
+        let Some(Value::Map(m)) = v else {
+            panic!("result map: {v:?}")
+        };
+        let msg = match m.get("message") {
+            Some(Value::Str(s)) => s.clone(),
+            other => panic!("message: {other:?}"),
+        };
+        (m.get("success") == Some(&Value::Bool(true)), msg)
+    };
+
+    // a manifest that says another world than the component's is refused
+    let (ok, msg) = outcome(
+        c.invoke_one(&links, "install_zip", install(zip("1.0.0", "driver")))
+            .await
+            .unwrap(),
+    );
+    assert!(
+        !ok && msg.contains(r#""driver""#) && msg.contains(r#""app""#),
+        "{msg}"
+    );
+
+    let (ok, msg) = outcome(
+        c.invoke_one(&links, "install_zip", install(zip("1.0.0", "app")))
+            .await
+            .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    assert!(
+        msg.contains("capabilities net none, store 2 MiB, memory 64 MiB, call 2000 ms"),
+        "{msg}"
+    );
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["e1"].driver, "pkg:echoapp");
+    assert_eq!(reg.links["e1"].mode, wyrm_admin::Mode::Embedded);
+    assert_eq!(reg.packages["echoapp"].kind.name(), "wasm");
+
+    let root = format!("wy/{SITE}/downstream/e1");
+    let pong = eventually("ping answers pong", 20, || async {
+        c.invoke_one(&root, "ping", Value::Map(BTreeMap::new()))
+            .await
+            .ok()
+    })
+    .await;
+    assert_eq!(pong, Some(Value::Str("pong".into())));
+    c.set(&format!("{root}/n"), Value::UInt(5)).await.unwrap();
+    let starts = format!("{root}/starts");
+    eventually("first start", 10, || async {
+        (last_val(&c, &starts).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
+
+    // an upgrade restarts the link on the new version; its store is kept: `n` comes back from
+    // it, `starts` counts two starts and `stopped` the old instance's stop
+    let (ok, msg) = outcome(
+        c.invoke_one(&links, "install_zip", install(zip("1.0.1", "app")))
+            .await
+            .unwrap(),
+    );
+    assert!(ok && msg.contains("1.0.0 → 1.0.1"), "{msg}");
+    eventually("second start on the kept store", 20, || async {
+        (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
+    })
+    .await;
+    assert_eq!(
+        last_val(&c, &format!("{root}/stopped")).await,
+        Some(Value::Float(1.0))
+    );
+    assert_eq!(
+        last_val(&c, &format!("{root}/n")).await,
+        Some(Value::UInt(5))
+    );
+    let pong = c
+        .invoke_one(&root, "ping", Value::Map(BTreeMap::new()))
+        .await
+        .unwrap();
+    assert_eq!(pong, Some(Value::Str("pong".into())));
+    env.stop().await;
+}
+
 /// Logs in sys (owner request 2026-10-22): the broker's ring and level, an
 /// embedded link's lines by its span and its own level, a process link's
 /// output and its RUST_LOG (applied by a restart).

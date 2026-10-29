@@ -4,12 +4,21 @@
 //! A package is checked in a temp directory first ([`unpack`]) and moved
 //! into place in one rename ([`Unpacked::commit`]), so a failed install
 //! leaves nothing behind.
+//!
+//! A `wasm` package's world comes from its component's exports
+//! ([`wyrm_wasm_host::component_world`]), not from the manifest: an `app`
+//! component (ADR 0023) runs as driver `app` with the manifest's
+//! `capabilities` as link params ([`link_params`]); a `driver` or `point`
+//! component runs on the framework `wasm` driver (ADR 0012).
 
 use crate::registry::{PackageDef, PackageKind};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use wyrm_link_sdk::package::Manifest;
+use wyrm_core::Value;
+use wyrm_link_sdk::package::{Capabilities, Manifest};
+use wyrm_wasm_host::ComponentWorld;
 
 // The format is the SDK's (ADR 0021): `wyr` builds what this checks.
 pub use wyrm_link_sdk::package::{platform, RepoEntry, MANIFEST, MAX_INDEX, MAX_ZIP};
@@ -45,6 +54,8 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
         args: Vec::new(),
         entry: Some("component.wasm".into()),
         requester: Vec::new(),
+        world: None,
+        capabilities: None,
     };
     wyrm_link_sdk::package::pack(
         &manifest,
@@ -65,7 +76,40 @@ pub fn dir(root: &Path, def: &PackageDef) -> PathBuf {
 /// without [`Unpacked::commit`], it removes the temp directory.
 pub struct Unpacked {
     pub def: PackageDef,
+    /// A `wasm` package of world `app`: its capabilities (defaults when the
+    /// manifest has none). `None`: a process package or a driver/point
+    /// component.
+    pub app: Option<Capabilities>,
     tmp: PathBuf,
+}
+
+/// The params of a new link on the `wasm` package `name`: for an app
+/// (`app` = its capabilities) `component`, `net` (the allowlist joined by
+/// `,`), `store_mb`, `memory_mb` and `call_ms`, which the portable runtime
+/// takes out of the params, so the app's own config starts empty; for a
+/// driver or point component one connection `main` on it (ADR 0012).
+pub fn link_params(name: &str, app: Option<&Capabilities>) -> Value {
+    let map = |pairs: Vec<(&str, Value)>| {
+        Value::Map(
+            pairs
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v))
+                .collect::<BTreeMap<_, _>>(),
+        )
+    };
+    match app {
+        Some(c) => map(vec![
+            ("component", Value::from(name)),
+            ("net", Value::Str(c.net.join(","))),
+            ("store_mb", Value::UInt(c.store_mb().into())),
+            ("memory_mb", Value::UInt(c.memory_mb().into())),
+            ("call_ms", Value::UInt(c.call_ms().into())),
+        ]),
+        None => map(vec![(
+            "connections",
+            map(vec![("main", map(vec![("component", Value::from(name))]))]),
+        )]),
+    }
 }
 
 impl Unpacked {
@@ -88,6 +132,33 @@ impl Drop for Unpacked {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.tmp);
     }
+}
+
+/// The world of a `wasm` package's component, against the manifest: `Some`
+/// capabilities for an app, `None` for a driver or point component. A world
+/// in the manifest must be the component's; capabilities belong to an app
+/// and their `net` must parse as the link will parse it.
+fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilities>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{entry}: {e}"))?;
+    let world = wyrm_wasm_host::component_world(&bytes).map_err(|e| format!("{entry}: {e}"))?;
+    let actual = world.name();
+    if let Some(w) = m.world.as_deref().filter(|w| *w != actual) {
+        return Err(format!(
+            "invalid_parameter: the manifest says world {w:?}, the component is {actual:?}"
+        ));
+    }
+    if world != ComponentWorld::App {
+        if m.capabilities.is_some() {
+            return Err(format!(
+                "invalid_parameter: capabilities: only an app component has them, this one is {actual:?}"
+            ));
+        }
+        return Ok(None);
+    }
+    let caps = m.capabilities.clone().unwrap_or_default();
+    wyrm_wasm_host::NetPolicy::parse(&caps.net.join(","))
+        .map_err(|e| format!("invalid_parameter: capabilities.net: {e}"))?;
+    Ok(Some(caps))
 }
 
 /// Unpack `zip` into a new temp directory under `root` and check it: size
@@ -121,6 +192,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             installed: now,
             requester: Vec::new(),
         },
+        app: None,
         tmp,
     };
     let mut total = 0u64;
@@ -182,6 +254,9 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         .all(|c| matches!(c, std::path::Component::Normal(_)));
     if !inside || !entry_path.is_file() {
         return Err(format!("entry {entry}: not a file of the package"));
+    }
+    if kind == PackageKind::Wasm {
+        out.app = wasm_world(&m, &entry_path, &entry)?;
     }
     #[cfg(unix)]
     if kind == PackageKind::Process {
@@ -283,6 +358,123 @@ pub(crate) mod tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp"))
             .collect();
         assert!(left.is_empty(), "temp dirs removed");
+    }
+
+    /// A component exporting `exports` (names are all `component_world` reads), importing
+    /// `wyrm:link/tcp` when `tcp`.
+    fn component(exports: &[&str], tcp: bool) -> Vec<u8> {
+        let mut text = String::from("(component ");
+        if tcp {
+            text += r#"(import "wyrm:link/tcp@0.1.0" (instance)) "#;
+        }
+        text += r#"(core module $m (func (export "f"))) (core instance $i (instantiate $m))"#;
+        for e in exports {
+            text += &format!(r#" (func (export "{e}") (canon lift (core func $i "f")))"#);
+        }
+        wat::parse_str(text + ")").expect("component WAT")
+    }
+
+    fn app_component() -> Vec<u8> {
+        component(
+            &[
+                "start",
+                "on-set",
+                "on-invoke",
+                "on-timer",
+                "on-value",
+                "on-reply",
+                "stop",
+            ],
+            false,
+        )
+    }
+
+    fn driver_component() -> Vec<u8> {
+        component(&["init", "read", "write"], true)
+    }
+
+    /// A `wasm` package `demo` of `component` with `extra` manifest fields.
+    fn wasm_zip(component: &[u8], extra: &str) -> Vec<u8> {
+        let m = format!(
+            r#"{{ "name": "demo", "version": "1.0.0", "wyrm_link": {}, "kind": "wasm",
+                 "entry": "demo.wasm" {extra} }}"#,
+            wyrm_link_sdk::LINK_PROTOCOL
+        );
+        zip_of(&[
+            (MANIFEST, m.as_bytes(), 0o644),
+            ("demo.wasm", component, 0o644),
+        ])
+    }
+
+    #[test]
+    fn install_picks_world_from_exports() {
+        let root = root("world");
+        let map = |pairs: Vec<(&str, Value)>| {
+            Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+        };
+        // a driver component: the framework `wasm` driver, one connection on it
+        let u = unpack(&wasm_zip(&driver_component(), ""), &root, "zip", 0).unwrap();
+        assert_eq!(u.app, None);
+        assert_eq!(
+            link_params(&u.def.name, u.app.as_ref()),
+            map(vec![(
+                "connections",
+                map(vec![(
+                    "main",
+                    map(vec![("component", Value::from("demo"))])
+                )])
+            )])
+        );
+        // an app component (the manifest's world is optional): driver `app` params from its
+        // capabilities, defaults for the rest
+        for world in ["", r#", "world": "app""#] {
+            let extra = format!(
+                r#"{world}, "capabilities": {{ "store_mb": 4, "net": ["127.0.0.1:502"] }}"#
+            );
+            let u = unpack(&wasm_zip(&app_component(), &extra), &root, "zip", 0).unwrap();
+            let caps = u.app.clone().expect("an app");
+            assert_eq!(caps.store_mb, Some(4));
+            assert_eq!(
+                link_params(&u.def.name, Some(&caps)),
+                map(vec![
+                    ("component", Value::from("demo")),
+                    ("net", Value::from("127.0.0.1:502")),
+                    ("store_mb", Value::UInt(4)),
+                    ("memory_mb", Value::UInt(64)),
+                    ("call_ms", Value::UInt(2000)),
+                ])
+            );
+        }
+        // "from WASM" (no manifest of its own): an app with the default capabilities
+        let zip = wrap_component("demo", &app_component()).unwrap();
+        let u = unpack(&zip, &root, "wasm", 0).unwrap();
+        assert_eq!(u.app, Some(Default::default()));
+        // refused: a world that lies, capabilities on a driver, a bad net entry, no component
+        for (zip, why) in [
+            (
+                wasm_zip(&driver_component(), r#", "world": "app""#),
+                r#"world "app", the component is "driver""#,
+            ),
+            (
+                wasm_zip(&app_component(), r#", "world": "point""#),
+                r#"world "point", the component is "app""#,
+            ),
+            (
+                wasm_zip(&driver_component(), r#", "capabilities": {}"#),
+                "capabilities: only an app component",
+            ),
+            (
+                wasm_zip(
+                    &app_component(),
+                    r#", "capabilities": { "net": ["host:80"] }"#,
+                ),
+                "capabilities.net",
+            ),
+            (wasm_zip(b"junk", ""), "demo.wasm:"),
+        ] {
+            let err = unpack(&zip, &root, "zip", 0).err().unwrap_or_default();
+            assert!(err.contains(why), "{why}: got {err:?}");
+        }
     }
 
     #[test]

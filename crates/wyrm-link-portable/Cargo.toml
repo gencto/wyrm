@@ -20,6 +20,6 @@ hex.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-sdk = { workspace = true, features = ["harness", "package"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 ed25519-dalek.workspace = true
