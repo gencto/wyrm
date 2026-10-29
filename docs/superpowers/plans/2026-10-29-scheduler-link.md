@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2021, `wyrm-core` (Value, NodeMeta, codec), `wyrm-link-api` (`App`, `Host`, `BufferHost`), `wyrm-link-portable` (`Portable<A>`), `wyrm-link-guest` (`export!`), `jiff` 0.2 (civil date-times and bundled tzdb), `serde_json` (import/export text only).
 
-**Spec:** `docs/adr/0022-scheduler-link.md` (the scheduler) together with `docs/adr/0023-portable-links-and-wasm-world-v2.md` (the host it runs on). Where this plan rules on a gap between them and the code, the ruling is in "Rulings" below and goes into ADR 0022 in Task 8.
+**Spec:** `docs/adr/0022-scheduler-link.md` (the scheduler) together with `docs/adr/0023-portable-links-and-wasm-world-v2.md` (the host it runs on). Where this plan rules on a gap between them and the code, the ruling is in "Rulings" below and goes into ADR 0022 in Task 7.
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@
   - `CARGO_TARGET_DIR=target/r199 cargo +1.99.0 clippy --workspace --all-targets --all-features -- -D warnings`
   - `cargo test -p <every crate the task touched> --all-features`
   - `cargo test -p wyrmd --all-features --test e2e` when the task touches a link, the SDK, `wyrm-link-*`, the admin or `wyrmd`.
-  - `cargo build -p wyrm-schedule -p wyrm-link-scheduler --features wyrm-link-scheduler/wasm --lib --target wasm32-unknown-unknown` from Task 4 on (Task 1–3: `cargo build -p wyrm-schedule --target wasm32-unknown-unknown`).
+  - `cargo build -p wyrm-schedule -p wyrm-link-scheduler --features wyrm-link-scheduler/wasm --lib --target wasm32-unknown-unknown` from Task 3 on (Task 1–2: `cargo build -p wyrm-schedule --target wasm32-unknown-unknown`).
 - After the push, check `gh run list --limit 3`; a red run is fixed before the next task starts.
 - Never log secrets, `ptok`, or `~val` values above `trace`. Scheduler logs name schedule, event and target ids and states, never the values written or read.
 - Wire enums go through `wyrm_core::wire_enum!`; no `as u8`. Status codes are `wyrm_core::Status` variants (there is no "already exists": use `InvalidParameter` with a message that says the id exists).
@@ -30,33 +30,34 @@
   - confirm timeout `10_000` ms after an `ok` reply to `~set`;
   - start-up first-sample wait `2_000` ms;
   - writes in flight at most `50` (the host allows 100);
+  - commands per event at most `800` (the host allows 1 000);
   - node budget `9_500` (the host bounds 10 000; the root and its two actions are outside it);
   - subscriptions at most `1_000` (the host bound); targets with `read_back`/`feedback` share one subscription per key;
   - next-transition horizon `366` days (in `wyrm-schedule`);
   - `COUNT` at most `10_000`; `INTERVAL` 1 … `1_000`; at most `100` events per schedule and `20` targets per schedule;
   - number tolerance default `1e-6`, relative (absolute when the expected value is 0).
-- Store keys: `s/<schedule>` (definition, CBOR of the export map), `o/<schedule>/<target>` (last outcome). Embedded store `store_mb = 64`; the package capability `store_mb = 16`.
+- Store keys: `index` (CBOR array of schedule ids; the store has no key listing), `s/<schedule>` (definition, CBOR of the export map), `o/<schedule>/<target>` (last outcome). Embedded store `store_mb = 64`; the package capability `store_mb = 16`.
 
 ## Rulings (gaps between ADR 0022/0023 and the code; the owner checks these)
 
 1. **Tree shape (node budget).** ADR 0022's tree needs 9+ nodes per schedule; the host caps a link at 10 000 nodes, so 1 000 schedules (the ADR benchmark) do not fit. The schedule node's own value is `current`; `source`, `tz`, `next_time`, `next_value` and `display` are its attributes; an event is one node with its fields as attributes; a target is one node whose value is its `state` and whose other fields are attributes. Five nodes per schedule plus one per event and per target. The app counts its nodes and refuses an add over `9_500` with `resource_exhausted`, so the host never fails the event (which would restart the instance).
-2. **Audit.** The `Host` API has no audit call and the `wyrm:app@0.1.0` WIT stays frozen. Every write is audited by the target link's responder (`sys/audit/<target link>`, subject `link:<scheduler id>`), as any `~set`. Confirmations and overrides go to the link log at `info` (ids and states only) and to the target node. Task 6 tests the audit record.
+2. **Audit.** The `Host` API has no audit call and the `wyrm:app@0.1.0` WIT stays frozen. Every write is audited by the target link's responder (`sys/audit/<target link>`, subject `link:<scheduler id>`), as any `~set`. Confirmations and overrides go to the link log at `info` (ids and states only) and to the target node. Task 5 tests the audit record.
 3. **Default zone.** A WASM app cannot read the host zone. The app param `default_tz` (IANA name, default `UTC`) is the zone of `add_schedule` without `tz`. Embedded `wyrmd` fills it from the system zone (`jiff::tz::TimeZone::system().iana_name()`, else `UTC`); packages use their params.
 4. **Jitter** comes from a hash of `now_us` and the target id (FNV-1a 64), not `rand`.
-5. **Host bounds.** Retries and confirm timeouts go through the one wake heap (no timer per target). Writes beyond 50 in flight wait in a FIFO queue drained by `on_reply`. A target whose subscription the host refuses is refused at `add_target` with `resource_exhausted`. The guide states the caps.
-6. **Caller rights (`Who`).** `Who::may` today takes the longest matching grant and ignores `ptok` `max` and the verifying key's cap and scopes. The responder takes the first grant whose key expression intersects, capped by `max` and the key. A user with `[wy/s/downstream/** none, wy/s/downstream/plc/** write]` would pass `Who::may` and then the scheduler, signing with its own key, would write `plc` for them. Task 3 makes `Who` say what a responder would grant: grants in token order, each capped by `max` and by the key's cap, narrowed to the key's scopes; `Who::may` takes the first grant that covers the key and refuses (returns `false`) at the first grant whose pattern it cannot evaluate (any `*` other than a trailing `/**`).
+5. **Host bounds.** The host allows 1 000 commands per event and fails the event (and restarts the instance) when a void call goes over. Every event of the app spends at most `800` commands: `start` declares the root and loads the definitions, then declares and evaluates schedules in batches; a timer burst handles due wakes in batches; leftover work continues on a `0` ms timer. Retries and confirm timeouts go through the one wake heap (no timer per target). Writes beyond 50 in flight wait in a FIFO queue drained by `on_reply`. A target whose subscription the host refuses is refused at `add_target` with `resource_exhausted`. The guide states the caps.
+6. **Who may point the scheduler at a device (owner decision; this plan's default).** ADR 0022 wants `add_target` to check the caller's own `write` on the target point from the request's `ptok`. That is not possible: every token carries one grant, narrowed to the request key (`wyrm_client::SigningTokens::scoped`, also used by the gateway), so a request to `…/scheduler/s1/~act/add_target` says nothing about the caller's rights on `…/plc/fan`. Default ruling: **targets are configuration**. `add_target`, a target's `edit`/`enable`/`disable`/`remove`, and `import` (it carries targets) are `config` actions; the responder enforces the level before the app runs. Schedules and events stay at `write`. Who has `config` on the scheduler may point it at any device the scheduler can reach (embedded: all of `wy/<site>/downstream`; packages: their grants). The agent link (capped at `write`) can edit events but cannot add targets. The app does not read `Who` grants; `created_by` = `who.subject`. Alternative for the owner (not in this plan): a signed claim in `ptok` with the caller's full grants (spec 04 change, all SDKs).
 7. **Site check.** The app does not know its site. The host refuses a key outside the link's site at `subscribe`/`set` (`BufferHost` site prefix). `add_target` calls `host.subscribe(point)` (and `subscribe(feedback)`) inside the action: an error refuses the target with that error. In `ack` mode it unsubscribes in the same event.
 8. **Moments and `state_at`.** `state_at` is the window state only (`Default` or `Event`); it never returns a past moment (ADR: a missed moment is not replayed). `next_transition` returns moments as transitions (`Source::Moment`); the link holds a moment's state until the next transition.
 9. **Reserved id and visibility.** `scheduler` joins `RESERVED_NEW`; `Daemon::open` refuses a stored link with it, as with `storage`. It is not in `sys/links` (not a registry link); it is in `publish_overlays` (so history marks show). `wyrmd.json5` `scheduler: { enabled: true, store_mb: 64 }` (both optional) turns it off or sizes it.
-10. **Package grants.** The package carries no `requester` grants (a package cannot ask for a root); an operator grants `write` on each target link with `sys/links/<id>/~act/grant` (ADR 0013). Task 7 tests it.
+10. **Package grants.** The package carries no `requester` grants (a package cannot ask for a root); an operator grants `write` on each target link with `sys/links/<id>/~act/grant` (ADR 0013). Task 6 tests it.
 
 ## Review Focus
 
-1. **08:00 burst:** 200 targets transition in the same instant → all 200 written, none dropped, never more than 50 `set` in flight; the host never returns `resource_exhausted` to the app. Test in Task 5.
-2. **Clock step backward inside a window** (NTP correction of −5 min at 09:00 in an 08:00–17:00 window) → no write (same state), no transition missed afterwards, the 17:00 end still fires. Test in Task 4.
-3. **Restart after a manual override inside the same window** → the overridden target is not written again; a target whose state changed while down is written. Test in Task 5.
-4. **A caller with partial rights** (first-match `none` before a narrower `write`; `ptok` `max = read`; an agent key scoped to `wy/s/downstream/plc`) adds a target outside what a responder would grant → `permission_denied` naming the point. Tests in Task 3 and Task 5.
-5. **Budgets reached** (node budget, store full, 20 targets, 100 events) → the action fails with `resource_exhausted` naming the bound; the instance is not restarted; nothing half-saved. Test in Task 4.
+1. **08:00 burst:** 1 000 schedules with one target each transition in the same instant → all written, none dropped, never more than 50 `set` in flight, no event over 800 commands; the host never fails an event. Test in Task 4.
+2. **Clock step backward inside a window** (NTP correction of −5 min at 09:00 in an 08:00–17:00 window) → no write (same state), no transition missed afterwards, the 17:00 end still fires. Test in Task 3.
+3. **Restart after a manual override inside the same window** → the overridden target is not written again; a target whose state changed while down is written. Test in Task 4.
+4. **A caller with `write` but not `config` on the scheduler** (a gateway role with `write` on `downstream/scheduler/**`, or the agent) tries `add_target`, a target `edit` or an `import` with targets → `permission_denied` from the responder; schedules and events still work for that caller. Test in Task 5 (e2e).
+5. **Budgets reached** (node budget, store full, 20 targets, 100 events) → the action fails with `resource_exhausted` naming the bound; the instance is not restarted; nothing half-saved. Test in Task 3.
 
 ---
 
@@ -193,34 +194,7 @@
 
 ---
 
-### Task 3: `Who` says what a responder would grant
-
-**Files:**
-- Modify: `crates/wyrm-link-sdk/src/auth.rs` (`Caller` gains `key_cap: Perm` and `key_scopes: Vec<String>`; the verifier fills them: an admin key → `Config`, `[]`; a `LimitedKey` → its `cap` and `scopes`)
-- Modify: `crates/wyrm-link-portable/src/runtime.rs` (`who_of`)
-- Modify: `crates/wyrm-link-api/src/lib.rs` (`Who::may`, its doc, its tests)
-- Test: `crates/wyrm-link-api/src/lib.rs` tests, `crates/wyrm-link-portable/src/runtime.rs` tests
-
-**Interfaces:**
-- Produces: `Who` keeps its fields and CBOR. `who_of(c: &Caller) -> Who` returns grants in token order, each `p = min(p, claims.max, key_cap)`; with non-empty `key_scopes`, a grant is kept as is when its cover lies inside a scope, rewritten to `<scope>/**` when a scope lies inside its cover, dropped otherwise. `Who::may(key, need)` walks the grants in order: a grant whose pattern has a `*` other than one trailing `/**` → return `false`; the first grant that covers `key` decides (`p >= need`); none → `false`.
-
-- [ ] **Step 1: Write the failing tests:**
-  - `who_may_first_match_wins` (api): grants `[("wy/s/downstream/**", None), ("wy/s/downstream/plc/**", Write)]` → `may("wy/s/downstream/plc/p/~set", Write) == false`; reversed order → `true`.
-  - `who_may_refuses_patterns_it_cannot_read` (api): `[("wy/s/*/plc/**", None), ("wy/s/downstream/**", Write)]` → `false`.
-  - `who_reflects_max_and_key` (a unit test of `who_of` in `crates/wyrm-link-portable/src/runtime.rs`, with a constructed `Caller`): claims `max = Read` with a `Write` grant → `may(.., Write) == false`; a limited key `cap Write, scopes ["wy/s/downstream/plc"]` with a grant `wy/s/downstream/** Config` → `may("wy/s/downstream/plc/p", Write)` true, `may("wy/s/downstream/x/p", Write)` false.
-  - `gateway_operator_grants_pass` (api): the grants the gateway's built-in `operator` role issues for site `s` (`crates/wyrm-gateway/src/roles.rs`, copy the list with `{site}` = `s`) → `may("wy/s/downstream/mock/p0/~set", Write)` true, `may("wy/s/dataflows/f/~set", Write)` false.
-
-- [ ] **Step 2: Run** `cargo test -p wyrm-link-api -p wyrm-link-portable` → the new tests FAIL.
-
-- [ ] **Step 3: Implement.** Keep `Caller`'s other users compiling (grep `Caller {` in the workspace). The WASM host gets `Who` as CBOR from the same `who_of`, so all modes change at once.
-
-- [ ] **Step 4: Run** `cargo test -p wyrm-link-sdk -p wyrm-link-api -p wyrm-link-portable -p wyrm-link-wasm --all-features` → PASS; the wyrmd e2e suite → PASS.
-
-- [ ] **Step 5: Commit** `Portable links: Who carries the responder's rights (first match, max, key cap and scopes)`.
-
----
-
-### Task 4: The scheduler `App`: tree, schedules and events, store, wake heap, clock watchdog
+### Task 3: The scheduler `App`: tree, schedules and events, store, wake heap, clock watchdog
 
 **Files:**
 - Create: `links/scheduler/Cargo.toml` (crate `wyrm-link-scheduler`, `crate-type = ["cdylib", "rlib"]`, features `process` and `wasm` as `examples/links/portable/Cargo.toml`; deps `wyrm-core`, `wyrm-link-api`, `wyrm-schedule`, `serde_json`; optional `wyrm-link-guest`, `wyrm-link-sdk`, `wyrm-link-portable`)
@@ -235,18 +209,18 @@
   - `SimHost` (tests): wraps a `BufferHost` over a `Services` with a settable wall clock and an in-memory store; `fn event<R>(&mut self, f: impl FnOnce(&mut Scheduler, &mut dyn Host) -> R) -> (R, Vec<Command>)` applies `StorePut`/`StoreDelete`, records `SetTimer` (the last armed `(TimerId, ms)`), records `Subscribe`/`Set`; `fn advance(&mut self, ms: u64)` moves wall time and, when the armed timer is due, calls `on_timer`; `fn step_clock(&mut self, delta_ms: i64)` moves wall time only.
   - Tree (ruling 1), all paths relative to the link root:
     ```
-    ""            actions add_schedule {id, display?, tz?, default, enabled?}, import {json, overwrite?}
+    ""            actions add_schedule {id, display?, tz?, default, enabled?}, import {json, overwrite?} (config)
     <s>           value = current; attrs display, tz, source ("default" | <event id>), next_time (RFC 3339 | null), next_value
                   actions add_event {display?, value, start, end, recurrence?, priority?, special?} -> {id},
-                          add_target (Task 5), get_events {timerange, limit?} (read, editor daterange),
+                          add_target (Task 4), get_events {timerange, limit?} (read, editor daterange),
                           export -> {json} (read), edit {display?, tz?, default?}, remove
     <s>/default   writable value (saved)
     <s>/enabled   writable bool (saved)
     <s>/events    folder
     <s>/events/<e>  attrs value, start, end, recurrence, priority, special, display; actions edit {…same fields…}, remove
-    <s>/targets   folder (Task 5)
+    <s>/targets   folder (Task 4)
     ```
-    Actions at `write` except `get_events` and `export` at `read`.
+    Actions at `write` except `get_events` and `export` at `read`, and `import`, `add_target` and every action under `targets/` at `config` (ruling 6).
 
 - [ ] **Step 1: Write the failing tests** in `tests/schedules.rs` (all through `SimHost`, wall clock starting 2026-10-29T07:00Z, zone `UTC` unless stated):
   - `add_schedule_declares_and_saves`: `add_schedule {id: "lobby", default: false}` → nodes `lobby`, `lobby/default`, `lobby/enabled`, `lobby/events`, `lobby/targets` declared; store key `s/lobby` present; `current` false, `source` `default`. A second `add_schedule` with id `lobby` → `invalid_parameter` "lobby exists". `id: "a/b"` → `invalid_parameter` naming `id`.
@@ -257,6 +231,7 @@
   - `clock_step_backward_inside_a_window` (Review Focus 2): in a 08:00–17:00 window at 09:00, `step_clock(-300_000)` then `advance(30_000)` → no new `Update` of `current`'s value (same state), the heap re-built; `advance` to 17:00 wall → false.
   - `clock_step_forward_over_a_boundary`: at 16:00, `step_clock(+7_200_000)` then the watchdog fires → `current` false (17:00 passed), `next_time` tomorrow 08:00.
   - `budgets_refuse_cleanly` (Review Focus 5): 100 events then the 101st → `resource_exhausted` "at most 100 events"; node budget: `add_schedule` until 9 500 nodes would be passed → `resource_exhausted`, no `DeclareNode` in that event's commands, no store write; a `Services::store_used` near the quota so `store_put` fails → the action answers `resource_exhausted` and the schedule is not in the tree.
+  - `command_budget_at_start`: a store with 1 000 schedules × 10 events → `start` and the `0` ms timer events that follow each return at most 800 commands; after them all 1 000 schedules are in the tree with the right `current`; `BufferHost::finish` never returns an error.
   - `zero_messages_at_idle`: 1000 schedules with one daily event each at different hours; `advance` over a quiet hour with no transition → only watchdog wakes, no `Update` commands.
   - `default_tz_param`: params `{default_tz: "Europe/Kyiv"}` → `add_schedule` without `tz` stores `Europe/Kyiv`; `{default_tz: "Nowhere/X"}` → `start` fails `invalid_parameter` naming `params.default_tz`.
 
@@ -265,8 +240,9 @@
 - [ ] **Step 3: Implement.**
   - Each action validates fully (`wyrm_schedule::validate` on the edited copy) before any `Host` command; then `store_put` of `s/<id>`, then tree commands. A failed `store_put` returns its error and leaves the in-memory model unchanged.
   - Node count is the app's own counter (5 per schedule, 1 per event, 1 per target); check it before declaring.
-  - **Wake heap** (`wake.rs`): a `BinaryHeap` of `(Micros, Wake)` with `Wake::Transition(schedule)` (Task 5 adds `Retry(schedule, target)` and `ConfirmTimeout(…)`); stale entries are skipped by a per-schedule generation number. One host timer: armed for `min(earliest − now, 30_000 ms)`; re-armed (cancel then set) whenever the earliest changes. Keep `(armed_at_wall, armed_ms)`; on `on_timer`, if `|now − armed_at_wall − armed_ms| > 2_000 ms` → clock step: re-evaluate every enabled schedule at `now` and rebuild the heap; then pop due entries.
-  - **Transition** (`apply(schedule, state)`): set `current`, `source`, `next_time`, `next_value` (update attrs by re-declaring the node meta), then (Task 5) the targets. `next_transition` from the transition instant decides the next heap entry. An edit, import, `enabled` turned on or `default` changed → evaluate `state_at(now)`; a different state is a transition.
+  - **Wake heap** (`wake.rs`): a `BinaryHeap` of `(Micros, Wake)` with `Wake::Transition(schedule)` (Task 4 adds `Retry(schedule, target)` and `ConfirmTimeout(…)`); stale entries are skipped by a per-schedule generation number. One host timer: armed for `min(earliest − now, 30_000 ms)`; re-armed (cancel then set) whenever the earliest changes. Keep `(armed_at_wall, armed_ms)`; on `on_timer`, if `|now − armed_at_wall − armed_ms| > 2_000 ms` → clock step: re-evaluate every enabled schedule at `now` and rebuild the heap; then pop due entries.
+  - **Command budget** (ruling 5): a counter of the commands this event has buffered; work that would pass `800` goes to a pending queue (schedules to declare, due wakes to apply), continued by `host.set_timer(0)`; `start` only declares the root, loads `s/*` keys (the app keeps its own index key `index` with the list of schedule ids, written with each add/remove, since the store has no key listing) and starts the queue.
+  - **Transition** (`apply(schedule, state)`): set `current`, `source`, `next_time`, `next_value` (update attrs by re-declaring the node meta), then (Task 4) the targets. `next_transition` from the transition instant decides the next heap entry. An edit, import, `enabled` turned on or `default` changed → evaluate `state_at(now)`; a different state is a transition.
   - A disabled schedule shows `current` as computed but schedules no wakes and writes nothing.
 
 - [ ] **Step 4: Run** `cargo test -p wyrm-link-scheduler` → PASS; the wasm32 build of the crate with `--features wasm` → builds (add the `#[cfg(all(feature = "wasm", target_arch = "wasm32"))] wyrm_link_guest::export!(Scheduler);` line as in the Echo example).
@@ -275,14 +251,14 @@
 
 ---
 
-### Task 5: Targets: rights, writes, confirmation, retries, override, restart
+### Task 4: Targets: writes, confirmation, retries, override, restart
 
 **Files:**
 - Create: `links/scheduler/src/targets.rs`, `links/scheduler/tests/targets.rs`
 - Modify: `links/scheduler/src/{lib.rs, tree.rs, wake.rs, store.rs}`
 
 **Interfaces:**
-- Consumes: Task 3 `Who::may`; Task 4 `SimHost`, wake heap, `apply`.
+- Consumes: Task 3 `SimHost`, wake heap, `apply`, the command budget.
 - Produces:
   - `add_target {point, confirm: "read_back" | "feedback" | "ack", feedback?, map?, feedback_map?, tolerance?} -> {id}` on `<s>`; target ids `t<n>` (per schedule, never reused); actions on `<s>/targets/<t>`: `edit {…same…}`, `enable`, `disable`, `remove` (all `write`).
   - Target node: value = state, one of `pending | writing | confirmed | retrying | override | disabled` (a `wire_enum!`-free string enum in `targets.rs` with `as_str`); attrs `point`, `confirm`, `feedback`, `last_error`, `last_write` (RFC 3339), `attempts`, `created_by`.
@@ -290,7 +266,7 @@
   - Outcome record `o/<s>/<t>`: CBOR map `{value, source, outcome: "confirmed" | "override"}`, written only on confirm and on override.
 
 - [ ] **Step 1: Write the failing tests** in `tests/targets.rs` (`SimHost` answers `Set` with `on_reply` when the test says, and delivers samples with `on_value`):
-  - `add_target_checks_the_caller` (Review Focus 4): `Who` with no grants → `permission_denied` "no verified grants"; grants that allow `write` on `wy/s/downstream/plc/**` only → a point under `wy/s/downstream/mock/` refused, `permission_denied` naming the point; first-match `none` before a narrower `write` → refused; `feedback` needs `read` on the feedback key. `created_by` = `who.subject`.
+  - `target_actions_are_config` (ruling 6): the declared `ActionMeta` of `add_target`, `import` and the target actions has level `config`; `created_by` = `who.subject` (`""` when absent).
   - `add_target_checks_the_point`: not under `wy/<seg>/downstream/<seg>/…`, with `*`, `~`, or an empty segment → `invalid_parameter` naming `point`; `SimHost` refusing the `subscribe` (outside the site) → that error; a point another schedule already writes → `invalid_parameter` "written by <schedule>/<target>"; the 21st target → `resource_exhausted`.
   - `read_back_confirms`: transition at 08:00 → `Set(point, true)`, state `writing`; `on_reply ok` then a sample `true` → `confirmed`, outcome record stored, `last_write` set, `attempts` 1.
   - `feedback_confirms_on_the_other_point`: write coil `fan`, expect `fan_status` = `feedback_map["true"]` (`1`) → a sample `1` on `fan_status` confirms; a sample on `fan` does not.
@@ -298,9 +274,11 @@
   - `map_and_tolerance`: `map {"true": 1, "false": 0}` writes `1`; read back `1.0000001` with default tolerance → confirmed; `1.1` → not.
   - `retries_with_backoff`: error replies → `retrying`, re-writes at 1 s, 2 s, 4 s … capped at 60 s, each delay within ±20 %; `last_error` holds the status name and message; a newer transition cancels the retry and writes the new value. A confirm timeout (no matching sample 10 s after `ok`) → retry.
   - `override_is_respected`: after `confirmed`, a sample `false` → `override`, outcome record `override`, no write; the next transition (17:00) writes again.
-  - `burst_of_200` (Review Focus 1): 200 schedules with one target each, all transitioning at 08:00 → never more than 50 `Set` without a reply; after replies all 200 written and confirmed; no `Host::set` error reaches the app.
+  - `burst_of_1000` (Review Focus 1): 1 000 schedules with one target each, all transitioning at 08:00 → never more than 50 `Set` without a reply, no event over 800 commands; after replies all 1 000 written and confirmed; no `Host::set` error reaches the app.
   - `restart_keeps_override_and_confirmed` (Review Focus 3): confirmed target A and overridden target B in the 08:00–17:00 window; new `Scheduler::start` at 09:00 over the same store → no `Set` for A or B, A subscribed (override watch), B unsubscribed; a target C whose record is for yesterday's state → after the 2 s first-sample wait with no sample, `Set` written; a target D whose first sample already equals the value → `confirmed` with no `Set`.
   - `disable_and_remove`: `disable` → `disabled`, unsubscribed, no writes; `enable` → a transition for that target; `remove` → node, outcome record and subscription gone; removing the schedule removes all its targets.
+  - `import_with_targets_runs_target_checks`: an own-format JSON with a target outside the site (the `SimHost` refuses its `subscribe`), or on a point another schedule writes, or with 21 targets → the import is refused with that error and nothing is saved; a valid one → targets declared, `created_by` = the importer.
+  - `target_edit_rechecks_the_point`: `edit {point}` to a point another schedule writes → refused; to a free point → the old subscription dropped, the new one made, a write for the current state.
   - `shared_subscription`: two targets of different schedules with the same feedback key → one `Subscribe`; removing one keeps it.
 
 - [ ] **Step 2: Run** `cargo test -p wyrm-link-scheduler --test targets` → FAIL.
@@ -308,7 +286,7 @@
 - [ ] **Step 3: Implement** `targets.rs`:
   - Write queue: FIFO of `(schedule, target)`; `pump()` sends while fewer than 50 are in flight; `on_reply` frees a slot and pumps. A queued write for a target that got a newer transition is replaced, not doubled.
   - Equality: numbers within tolerance; `Bool` equals a number 1/0; otherwise `Value` equality.
-  - Wakes: `Retry` and `ConfirmTimeout` entries in the Task 4 heap, invalidated by the target's generation number.
+  - Wakes: `Retry` and `ConfirmTimeout` entries in the Task 3 heap, invalidated by the target's generation number.
   - Logs at `info`: `target <s>/<t> confirmed|override|retrying (<status>)`; no values.
 
 - [ ] **Step 4: Run** `cargo test -p wyrm-link-scheduler` → PASS; wasm32 build → builds.
@@ -317,7 +295,7 @@
 
 ---
 
-### Task 6: The embedded scheduler in `wyrmd`
+### Task 5: The embedded scheduler in `wyrmd`
 
 **Files:**
 - Modify: `crates/wyrm-admin/src/control.rs` (`pub const SCHEDULER_LINK: &str = "scheduler"`; `ensure_builtin_keys(id)` creating `wyrm_link_sdk::REQUESTER_KEY` and the store key for `SCHEDULER_LINK` once; `scheduler_limited_key()` in `link_trust()` as `LimitedKey { key, cap: Write, scopes: ["wy/<site>/downstream"], subject: Some("link:scheduler") }`; `publish_overlays` adds `SCHEDULER_LINK`)
@@ -327,8 +305,8 @@
 - Test: `crates/wyrmd/tests/e2e.rs` (`embedded_scheduler_drives_a_process_link`)
 
 **Interfaces:**
-- Consumes: Task 4–5 `Scheduler`; `Control::{link_trust, link_secrets, link_data_dir}`.
-- Produces: `wy/<site>/downstream/scheduler` on every broker with `scheduler.enabled`; `wyrmd link scheduler` runs it as a process link (Task 7).
+- Consumes: Task 3–4 `Scheduler`; `Control::{link_trust, link_secrets, link_data_dir}`.
+- Produces: `wy/<site>/downstream/scheduler` on every broker with `scheduler.enabled`; `wyrmd link scheduler` runs it as a process link (Task 6).
 
 - [ ] **Step 1: Write the failing e2e test** `embedded_scheduler_drives_a_process_link`: an `Env` with a `mock` link in `mode: "process"` that has a writable point (find the e2e test that `set`s a process mock point and copy its config). With the admin client:
   1. `add_schedule {id: "s1", tz: "UTC", default: 0}` on `wy/<SITE>/downstream/scheduler`.
@@ -336,8 +314,10 @@
   3. `add_target {point: <the mock point>, confirm: "read_back"}`.
   4. Within 15 s: the mock point's `~val` is 1; `targets/t1` value `confirmed`.
   5. `sys/audit/<mock id>` has a record for the point with subject `link:scheduler` (ruling 2).
-  6. Through the gateway (use the helpers other e2e tests use): a user whose role has `write` on `wy/{site}/downstream/scheduler/**` only (made with `sys/~act/update_permissions`) → `add_schedule` accepted, `add_target` on the mock point refused `permission_denied` naming the point (the app's own check); a user with the built-in `operator` role → `add_target` accepted.
+  6. Through the gateway (use the helpers other e2e tests use): a user whose role has `write` on `wy/{site}/downstream/scheduler/**` only (made with `sys/~act/update_permissions`) → `add_schedule` and `add_event` accepted, `add_target` and `import` refused `permission_denied` (the actions are at `config`, Review Focus 4); a user with the built-in `operator` role (`config` on `downstream/**`) → `add_target` accepted.
   7. `sys/links` `install {id: "scheduler", …}` → refused "reserved".
+
+Use a client with `with_timeout(Duration::from_secs(60))` for installs and the first calls (CI's debug build is slow; see `portable_app_installs_as_wasm`).
 
 - [ ] **Step 2: Run** `cargo test -p wyrmd --all-features --test e2e embedded_scheduler` → FAIL.
 
@@ -349,7 +329,7 @@
 
 ---
 
-### Task 7: Process and WASM packages; one scenario in three modes
+### Task 6: Process and WASM packages; one scenario in three modes
 
 **Files:**
 - Create: `links/scheduler/src/bin/wyrm-link-scheduler.rs` (`process::main::<Portable<Scheduler>>()`, as the Echo example's bin)
@@ -358,7 +338,7 @@
 - Modify: `crates/wyrmd/tests/e2e.rs` (generalise `portable_example_component()` to take the package name; add `scheduler_three_modes`)
 
 **Interfaces:**
-- Consumes: Task 6 `wyrmd link scheduler`; ADR 0013 `sys/links/<id>/~act/grant`.
+- Consumes: Task 5 `wyrmd link scheduler`; ADR 0013 `sys/links/<id>/~act/grant`.
 
 - [ ] **Step 1: Write the failing e2e test** `scheduler_three_modes`, modelled on `one_app_three_modes`: the embedded `scheduler`, the WASM package installed as link `sw`, the process package (`driver_package_with(..., "scheduler", Some(json!({"store_mb": 16})))`) installed as `sp`, last (its install rebuilds the router). For each package link, grant `write` on the mock link with `sys/links/<id>/~act/grant` before adding targets. Scenario per link (a `SchedRun` struct compared across modes, as `EchoRun`):
   1. `add_schedule`, `add_event` active now, `add_target` (`read_back`) on its own mock point (one point per mode: one writer per point).
@@ -367,6 +347,10 @@
   4. `export` → `import` under a new id → same `get_events` rows.
   5. `sys/links/<id>` `stop` and `start` (the embedded one: skip) → target still `confirmed`, no new audit record for the point (no second write).
   A package link without the grant → `add_target` refused `permission_denied` naming the point.
+
+  6. (WASM only) A store at the planned size: `import` 200 schedules × 10 events × 1 target into `sw`, `stop`/`start` it → the link status stays `running` (no `restarting`: `start` and each batch fit in `call_ms` 2000 and the fuel bound), all 200 schedules back in the tree within 30 s. If it fails, make the batches smaller (Task 3 command budget) before raising any host limit.
+
+Use a client with `with_timeout(Duration::from_secs(60))` for installs (the component carries the tzdb and is larger than Echo).
 
 - [ ] **Step 2: Run** `cargo test -p wyrmd --all-features --test e2e scheduler_three_modes` → FAIL.
 
@@ -378,7 +362,7 @@
 
 ---
 
-### Task 8: Guide, ADR, demo, probe and measurements
+### Task 7: Guide, ADR, demo, probe and measurements
 
 **Files:**
 - Create: `docs/scheduler.md` (user guide), `links/probe/scenarios/scheduler.json`, `examples/demo/scheduler-load.sh`, `links/scheduler/benches/cold_start.rs`
