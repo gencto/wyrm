@@ -99,15 +99,18 @@ impl Wakes {
     }
 }
 
-/// The one host timer.
+/// The one host timer, and the latest wall clock the app saw.
 #[derive(Default)]
 pub struct Timer {
     armed: Option<Armed>,
+    /// The latest wall clock seen in any event: the monotonic clock never goes back, so a wall
+    /// clock well below it is a backward step, whatever event sees it first.
+    seen: Option<Micros>,
 }
 
 struct Armed {
     id: TimerId,
-    /// Wall clock when it was armed, and its delay.
+    /// Wall clock when it was armed, and its delay (`0`: a continuation of batched work).
     at_wall: Micros,
     ms: u64,
 }
@@ -122,26 +125,55 @@ fn ms_to_us(ms: u64) -> Micros {
     i64::try_from(ms.saturating_mul(1000)).unwrap_or(i64::MAX)
 }
 
+const STEP_US: Micros = (CLOCK_STEP_MS * 1000) as Micros;
+
 /// What a fired timer says about the wall clock.
 pub enum Fired {
     /// Not the armed timer (a cancelled one that fired anyway): ignore it.
     Stale,
-    Ok,
+    /// `continuation`: the `0` ms timer of batched work.
+    Ok { continuation: bool },
     /// The wall clock moved by this many microseconds more (or less) than the timer's delay.
     Step(Micros),
 }
 
 impl Timer {
-    /// The host timer `id` fired at wall clock `now`.
+    /// Every event calls this first with its wall clock: `Some(offset)` (negative) when the
+    /// clock stepped back more than [`CLOCK_STEP_MS`] below the latest wall clock seen.
+    pub fn observe(&mut self, now: Micros) -> Option<Micros> {
+        let back = self
+            .seen
+            .filter(|s| now < s.saturating_sub(STEP_US))
+            .map(|s| now - s);
+        self.seen = Some(match (back, self.seen) {
+            (None, Some(s)) => s.max(now),
+            _ => now,
+        });
+        back
+    }
+
+    /// The host timer `id` fired at wall clock `now`. A continuation may wait in the host's
+    /// queue behind other events, so for it only a backward step or more than [`WATCHDOG_MS`]
+    /// beyond its arming counts as a step; the batched work itself is never taken for one.
     pub fn fired(&mut self, id: TimerId, now: Micros) -> Fired {
         match self.armed.take_if(|a| a.id == id) {
             None => Fired::Stale,
+            Some(a) if a.ms == 0 => {
+                let off = now.saturating_sub(a.at_wall);
+                if off < -STEP_US || off > ms_to_us(WATCHDOG_MS) {
+                    Fired::Step(off)
+                } else {
+                    Fired::Ok { continuation: true }
+                }
+            }
             Some(a) => {
                 let off = now.saturating_sub(a.due());
                 if off.unsigned_abs() > CLOCK_STEP_MS * 1000 {
                     Fired::Step(off)
                 } else {
-                    Fired::Ok
+                    Fired::Ok {
+                        continuation: false,
+                    }
                 }
             }
         }

@@ -24,6 +24,8 @@ struct Shared {
     store: HashMap<String, Vec<u8>>,
     /// Quota used by others, added to the store's own entries.
     extra_used: u64,
+    /// Wall time each `now_us` read moves on: time spent inside an event.
+    tick_us: u64,
 }
 
 struct SimServices(Arc<Mutex<Shared>>);
@@ -36,7 +38,10 @@ impl SimServices {
 
 impl Services for SimServices {
     fn now_us(&self) -> u64 {
-        self.lock().wall_us
+        let mut s = self.lock();
+        let t = s.wall_us;
+        s.wall_us += s.tick_us;
+        t
     }
     fn store_get(&self, key: &str) -> Option<Vec<u8>> {
         self.lock().store.get(key).cloned()
@@ -93,6 +98,10 @@ pub struct SimHost {
     pub max_cmds: usize,
     /// Events run (start, actions, sets, timers).
     pub events: usize,
+    /// The most wall time one event took (with [`SimHost::set_tick`]).
+    pub max_event_us: u64,
+    /// How long a `0` ms timer waits in the host's queue before it fires.
+    pub queue_latency_ms: u64,
 }
 
 impl SimHost {
@@ -127,6 +136,8 @@ impl SimHost {
             log: Vec::new(),
             max_cmds: 0,
             events: 0,
+            max_event_us: 0,
+            queue_latency_ms: 0,
         }
     }
 
@@ -176,8 +187,11 @@ impl SimHost {
         f: impl FnOnce(&mut Scheduler, &mut dyn Host) -> R,
     ) -> (R, Vec<Command>) {
         self.buf.set_counts(self.counts());
+        let began = self.now_us();
         let app = self.app.as_mut().expect("the app is started");
         let r = f(app, &mut self.buf);
+        let took = self.now_us() - began;
+        self.max_event_us = self.max_event_us.max(took);
         let cmds = self.buf.finish().expect("the host would fail the event");
         self.events += 1;
         self.apply(&cmds);
@@ -257,6 +271,12 @@ impl SimHost {
     pub fn step_clock(&mut self, delta_ms: i64) {
         let mut s = self.shared.lock().unwrap();
         s.wall_us = s.wall_us.checked_add_signed(delta_ms * 1000).unwrap();
+    }
+
+    /// Each wall clock read inside an event moves the clock on by `us` (the app's own work
+    /// takes time).
+    pub fn set_tick(&mut self, us: u64) {
+        self.shared.lock().unwrap().tick_us = us;
     }
 
     pub fn set_extra_used(&mut self, bytes: u64) {
@@ -393,7 +413,8 @@ impl SimHost {
                 n.value = Some(s.v.clone());
             }
             Command::SetTimer(id, ms) => {
-                self.timers.insert(id.0, self.mono_ms + ms);
+                let latency = if *ms == 0 { self.queue_latency_ms } else { 0 };
+                self.timers.insert(id.0, self.mono_ms + ms + latency);
                 self.armed = Some((*id, *ms));
             }
             Command::CancelTimer(id) => {

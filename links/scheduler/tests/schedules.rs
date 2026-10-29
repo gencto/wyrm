@@ -27,6 +27,12 @@ fn daily(value: Value, start: &str, end: &str) -> Value {
     ])
 }
 
+/// The log line of a detected wall-clock step.
+fn stepped(log: &[Command]) -> bool {
+    log.iter()
+        .any(|c| matches!(c, Command::Log(_, m) if m.starts_with("wall clock stepped")))
+}
+
 fn decode(bytes: &[u8]) -> Value {
     wyrm_core::codec::from_slice::<Value>(bytes).unwrap()
 }
@@ -371,10 +377,7 @@ fn clock_step_backward_inside_a_window() {
         !log.iter().any(|c| is_update(c, "lobby/current")),
         "same state, no write: {log:?}"
     );
-    assert!(
-        log.iter().any(|c| matches!(c, Command::Log(..))),
-        "the step is logged"
-    );
+    assert!(stepped(&log), "the step is logged: {log:?}");
     assert_eq!(h.app().next_wake(), Some(at("2026-10-29T17:00:00Z") as i64));
     h.advance_to(at("2026-10-29T17:00:00Z"));
     assert_eq!(h.value("lobby/current"), Some(Value::Bool(false)));
@@ -714,4 +717,97 @@ fn a_moment_is_held_until_the_next_transition() {
     h.restart().unwrap();
     h.settle();
     assert_eq!(h.value("lobby/current"), Some(Value::Bool(false)));
+}
+
+#[test]
+fn a_backward_step_seen_by_an_action_is_not_lost() {
+    let mut h = in_window();
+    h.advance_to(at("2026-10-29T18:00:00Z"));
+    assert_eq!(h.value("lobby/current"), Some(Value::Bool(false)));
+    h.take_log();
+    // back to 15:00, inside the window; a read action is the first event to see it
+    h.step_clock(-3 * 3_600_000);
+    h.invoke("lobby", "export", Value::Null).unwrap();
+    h.settle();
+    assert!(stepped(&h.take_log()), "the action sees the step");
+    assert_eq!(h.value("lobby/current"), Some(Value::Bool(true)));
+    assert_eq!(h.attr("lobby", "next_time"), text("2026-10-29T17:00:00Z"));
+    // a set sees it too
+    h.advance_to(at("2026-10-29T18:00:00Z"));
+    assert_eq!(h.value("lobby/current"), Some(Value::Bool(false)));
+    h.step_clock(-3 * 3_600_000);
+    h.set("lobby/default", Value::Bool(false)).unwrap();
+    h.settle();
+    assert!(stepped(&h.take_log()));
+    assert_eq!(h.value("lobby/current"), Some(Value::Bool(true)));
+    h.advance_to(at("2026-10-29T17:00:00Z"));
+    assert_eq!(h.value("lobby/current"), Some(Value::Bool(false)));
+}
+
+#[test]
+fn a_moment_inside_a_long_burst_still_fires() {
+    // 1 000 windows from 08:00 and a moment at 08:00:01; the burst is drained in several
+    // continuations, each 2 s late in the host's queue, and the app's work takes time too
+    let mut schedules: Vec<Schedule> = (0..1000)
+        .map(|i| {
+            schedule(
+                &format!("s{i}"),
+                vec![event(
+                    1,
+                    "2026-10-29T08:00",
+                    "2026-10-29T09:00",
+                    Some("FREQ=DAILY"),
+                )],
+            )
+        })
+        .collect();
+    let mut m = schedule(
+        "m",
+        vec![event(1, "2026-10-29T08:00:01", "2026-10-29T08:00:01", None)],
+    );
+    m.events[0].value = Value::UInt(5);
+    schedules.push(m);
+    let mut h = SimHost::new(t0());
+    seed(&mut h, &schedules);
+    h.start(Value::Null).unwrap();
+    h.settle();
+    h.take_log();
+    h.queue_latency_ms = 2_000;
+    h.set_tick(100);
+    let events = h.events;
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    // the continuations wait 2 s each in the queue: the moment's wake is taken after 08:00:03
+    h.advance(20_000);
+    assert!(h.events - events >= 4, "{} events", h.events - events);
+    assert_eq!(
+        h.value("m/current"),
+        Some(Value::UInt(5)),
+        "the moment fired"
+    );
+    assert_eq!(h.attr("m", "source"), text("e1"));
+    for i in 0..1000 {
+        assert_eq!(h.value(&format!("s{i}/current")), Some(Value::Bool(true)));
+    }
+    assert!(!stepped(&h.take_log()), "queued work is not a clock step");
+}
+
+#[test]
+fn the_time_budget_splits_batches() {
+    // R7: each wall clock read takes 10 ms, so 500 ms of work end the event
+    let schedules: Vec<Schedule> = (0..200)
+        .map(|i| schedule(&format!("s{i}"), vec![]))
+        .collect();
+    let mut h = SimHost::new(t0());
+    seed(&mut h, &schedules);
+    h.set_tick(10_000);
+    h.start(Value::Null).unwrap();
+    h.settle();
+    assert_eq!(h.nodes.len(), 200 * 6, "all loaded");
+    assert!(h.events > 10, "{} events", h.events);
+    assert!(
+        h.max_cmds < COMMANDS_PER_EVENT / 2,
+        "time, not commands, split them"
+    );
+    assert!(h.max_event_us < 700_000, "{} us", h.max_event_us);
+    assert!(!stepped(&h.take_log()));
 }

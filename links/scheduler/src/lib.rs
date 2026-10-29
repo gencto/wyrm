@@ -271,6 +271,9 @@ pub struct Scheduler {
     nodes: usize,
     wakes: Wakes,
     timer: Timer,
+    /// Wall clock when the batched work going on now began (the timer that started it fired);
+    /// kept across its `0` ms continuations, cleared when nothing is left to do.
+    drain: Option<Micros>,
 }
 
 impl Scheduler {
@@ -369,34 +372,32 @@ impl Scheduler {
         }
     }
 
-    /// A wake fell due.
-    fn fire(&mut self, cx: &mut Counted, wake: Wake, now: Micros) {
+    /// A wake fell due; `base` is the wall clock when the work that holds it began.
+    fn fire(&mut self, cx: &mut Counted, wake: Wake, now: Micros, base: Micros) {
         match wake {
-            Wake::Transition(id) => self.transition(cx, &id, now),
+            Wake::Transition(id) => self.transition(cx, &id, now, base),
         }
     }
 
-    /// The schedule's next transition fell due. On time, its state is the precomputed one (a
-    /// moment included); late (a wake held back past the step tolerance), the window state now
-    /// (a missed moment is not replayed).
-    fn transition(&mut self, cx: &mut Counted, id: &str, now: Micros) {
+    /// The schedule's next transition fell due. Lateness is judged at `base`, when the work
+    /// began (the timer fired), so the app's own batches never make a wake late. On time, the
+    /// state is the precomputed one (a moment included) and the next transition follows from
+    /// it, even when that one is already due (it fires in the same work). Late (the wake was
+    /// due more than the step tolerance before the work began: the host was asleep or stuck),
+    /// the window state now (a missed moment is not replayed).
+    fn transition(&mut self, cx: &mut Counted, id: &str, now: Micros, base: Micros) {
         let Some(s) = self.scheds.get_mut(id) else {
             return;
         };
         let Some((at, next_state)) = s.next.take() else {
             return;
         };
-        let late = now.saturating_sub(at) > (CLOCK_STEP_MS * 1000) as Micros;
-        let (mut state, from) = if late {
-            (state_at(&s.c, now), now)
+        let late = base.saturating_sub(at) > (CLOCK_STEP_MS * 1000) as Micros;
+        let (state, next) = if late {
+            (state_at(&s.c, now), next_transition(&s.c, now))
         } else {
-            (next_state, at)
+            (next_state, next_transition(&s.c, at))
         };
-        let mut next = next_transition(&s.c, from);
-        if next.as_ref().is_some_and(|(t, _)| *t <= now) {
-            state = state_at(&s.c, now);
-            next = next_transition(&s.c, now);
-        }
         let changed = state != s.state;
         s.state = state;
         s.next = next;
@@ -454,6 +455,16 @@ impl Scheduler {
     /// to evaluate again, then due wakes. What is left waits for a `0` ms timer.
     fn run(&mut self, cx: &mut Counted) {
         let now = now_of(cx);
+        let base = *self.drain.get_or_insert(now);
+        self.work(cx, now, base);
+        let idle =
+            self.pending.is_empty() && self.reeval.is_empty() && self.wakes.peek_due(now).is_none();
+        if idle {
+            self.drain = None;
+        }
+    }
+
+    fn work(&mut self, cx: &mut Counted, now: Micros, base: Micros) {
         loop {
             if !self.pending.is_empty() {
                 if !cx.room(tree::declare_cost_min()) || !self.load_next(cx, now) {
@@ -473,7 +484,7 @@ impl Scheduler {
                 return;
             }
             if let Some((_, wake)) = self.wakes.pop_due(now) {
-                self.fire(cx, wake, now);
+                self.fire(cx, wake, now, base);
             }
         }
     }
@@ -497,8 +508,22 @@ impl Scheduler {
         }
     }
 
-    /// The wall clock stepped: evaluate every enabled schedule again and rebuild the heap.
+    /// An action or a set saw the wall clock step back (a step forward shows when the timer
+    /// fires): evaluate again before this event's arming takes the new clock as its base.
+    fn check_clock(&mut self, cx: &mut Counted) -> bool {
+        match self.timer.observe(now_of(cx)) {
+            Some(off) => {
+                self.clock_step(cx, off);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The wall clock stepped: evaluate every enabled schedule again and rebuild the heap; the
+    /// work starts again at the new clock.
     fn clock_step(&mut self, cx: &mut Counted, off: Micros) {
+        self.drain = Some(now_of(cx));
         self.wakes.clear();
         self.reeval = self
             .index
@@ -863,7 +888,9 @@ impl App for Scheduler {
             nodes: 0,
             wakes: Wakes::default(),
             timer: Timer::default(),
+            drain: None,
         };
+        app.timer.observe(now_of(&cx));
         app.run(&mut cx);
         app.arm(&mut cx);
         Ok(app)
@@ -877,6 +904,7 @@ impl App for Scheduler {
         _who: &Who,
     ) -> Result<(), AppError> {
         let mut cx = Counted::new(host);
+        self.check_clock(&mut cx);
         let r = self.set(&mut cx, path, value);
         self.arm(&mut cx);
         r
@@ -892,8 +920,9 @@ impl App for Scheduler {
     ) -> Result<Value, AppError> {
         let m = args_of(args)?;
         let mut cx = Counted::new(host);
+        let stepped = self.check_clock(&mut cx);
         let r = self.invoke(&mut cx, path, action, &m);
-        if r.is_ok() {
+        if r.is_ok() || stepped {
             self.arm(&mut cx);
         }
         r
@@ -902,10 +931,22 @@ impl App for Scheduler {
     fn on_timer(&mut self, host: &mut dyn Host, timer: TimerId) {
         let mut cx = Counted::new(host);
         let now = now_of(&cx);
-        match self.timer.fired(timer, now) {
-            Fired::Stale => return,
-            Fired::Ok => {}
-            Fired::Step(off) => self.clock_step(&mut cx, off),
+        let back = self.timer.observe(now);
+        let fired = self.timer.fired(timer, now);
+        let step = match fired {
+            Fired::Step(off) => Some(off),
+            _ => back,
+        };
+        match (step, fired) {
+            (Some(off), _) => self.clock_step(&mut cx, off),
+            (None, Fired::Stale) => return,
+            // a continuation goes on with the work it continues; any other timer begins new work
+            (None, Fired::Ok { continuation }) => {
+                if !continuation {
+                    self.drain = None;
+                }
+            }
+            (None, Fired::Step(_)) => {}
         }
         self.run(&mut cx);
         self.arm(&mut cx);
