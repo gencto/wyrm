@@ -389,10 +389,7 @@ impl Host for BufferHost {
     }
 
     fn store_delete(&mut self, key: &str) {
-        // no such key can be stored
-        if key.is_empty() || key.len() > MAX_STORE_KEY_LEN {
-            return;
-        }
+        // any key: a store written before the key bound may hold longer ones
         if self.room().is_ok() {
             self.pending.insert(key.to_owned(), None);
             self.cmds.push(Command::StoreDelete(key.to_owned()));
@@ -699,6 +696,13 @@ mod tests {
             assert!(exhausted(&h.store_put(&bad, &[1]).unwrap_err()));
         }
         assert_eq!(h.finish().unwrap().len(), 1);
+
+        // a key longer than the bound, written before it: it can still be deleted
+        let long = "k".repeat(MAX_STORE_KEY_LEN + 44);
+        let mut h = stored_host(&[(long.as_str(), 1)], Limits::default());
+        h.store_delete(&long);
+        assert_eq!(h.store_get(&long), None);
+        assert_eq!(h.finish().unwrap(), [Command::StoreDelete(long)]);
     }
 
     #[test]

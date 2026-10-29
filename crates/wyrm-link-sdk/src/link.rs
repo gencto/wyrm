@@ -82,12 +82,21 @@ pub(crate) enum SinkItem {
 #[derive(Debug, Clone)]
 pub struct ReplySink {
     tx: mpsc::Sender<SinkItem>,
+    since: tokio::time::Instant,
 }
 
 impl ReplySink {
     pub(crate) fn new(capacity: usize) -> (Self, mpsc::Receiver<SinkItem>) {
         let (tx, rx) = mpsc::channel(capacity);
-        (Self { tx }, rx)
+        let since = tokio::time::Instant::now();
+        (Self { tx, since }, rx)
+    }
+
+    /// When the SDK took the request: its bound on the call (`timeout_ms` or
+    /// `LinkConfig::driver_timeout`) counts from here, the wait in the
+    /// driver's queue included.
+    pub fn since(&self) -> tokio::time::Instant {
+        self.since
     }
 
     /// Send one result (plain action) or one stream element. Waits when the

@@ -65,8 +65,19 @@ const STUCK: &str = "stuck";
 type Answer = oneshot::Sender<Result<Option<Value>, AppError>>;
 
 enum Input {
-    Request(Event, Answer),
+    Request(Request),
     Stop(oneshot::Sender<()>),
+}
+
+/// A `set`/`invoke` from the SDK.
+struct Request {
+    ev: Event,
+    answer: Answer,
+    /// When the SDK's bound on the call began (an `invoke`: when the SDK took it, its own queue
+    /// included).
+    since: Instant,
+    /// The `invoke`'s reply channel: closed once the SDK answered the caller `timeout`.
+    sink: Option<ReplySink>,
 }
 
 /// From the tasks of the current instance; ids that are no longer known are ignored.
@@ -272,6 +283,23 @@ struct InFlight {
 struct Pending {
     ev: Event,
     answer: Option<Answer>,
+    /// A request: when the SDK's bound on it began, and its reply sink (see [`Request`]).
+    since: Option<Instant>,
+    sink: Option<ReplySink>,
+}
+
+impl Pending {
+    /// The caller is gone: the SDK answered `timeout` already.
+    fn gone(&self) -> bool {
+        self.answer.as_ref().is_some_and(|a| a.is_closed())
+            || self.sink.as_ref().is_some_and(ReplySink::is_closed)
+    }
+
+    /// Waited so long that `call_ms` more could pass the SDK's bound (`call_ms` +
+    /// [`CALL_MARGIN`]): it would run on after its caller got `timeout`.
+    fn late(&self) -> bool {
+        self.since.is_some_and(|t| t.elapsed() > CALL_MARGIN)
+    }
 }
 
 struct Actor {
@@ -438,7 +466,7 @@ impl Actor {
             let sweep_at = self.sweep_at;
             tokio::select! {
                 inp = inputs.recv() => match inp {
-                    Some(Input::Request(ev, tx)) => self.on_request(ev, tx),
+                    Some(Input::Request(r)) => self.on_request(r),
                     Some(Input::Stop(tx)) => {
                         self.stop(&mut outcomes).await;
                         let _ = tx.send(());
@@ -473,21 +501,28 @@ impl Actor {
         }
     }
 
-    fn on_request(&mut self, ev: Event, tx: Answer) {
+    fn on_request(&mut self, r: Request) {
         if !matches!(self.state, State::Running) {
-            let _ = tx.send(Err(busy("the link is restarting")));
+            let _ = r.answer.send(Err(busy("the link is restarting")));
         } else if self.queue.len() >= QUEUE {
-            let _ = tx.send(Err(busy("the link's event queue is full")));
+            let _ = r.answer.send(Err(busy("the link's event queue is full")));
         } else {
             self.queue.push_back(Pending {
-                ev,
-                answer: Some(tx),
+                ev: r.ev,
+                answer: Some(r.answer),
+                since: Some(r.since),
+                sink: r.sink,
             });
         }
     }
 
     fn push(&mut self, ev: Event) {
-        self.queue.push_back(Pending { ev, answer: None });
+        self.queue.push_back(Pending {
+            ev,
+            answer: None,
+            since: None,
+            sink: None,
+        });
     }
 
     fn on_internal(&mut self, i: Internal) {
@@ -531,14 +566,26 @@ impl Actor {
             self.begin_swap();
             return;
         }
-        // a request whose caller is gone (the SDK answered `timeout`) is not run: a retry
-        // would run it twice
+        // a request whose caller is gone (the SDK answered `timeout`), or that could no longer
+        // end within the SDK's bound, is not run: its effects would land after the caller's
+        // `timeout`, and a retry would run it twice
         let p = loop {
             let Some(p) = self.queue.pop_front() else {
                 return;
             };
-            if p.answer.as_ref().is_some_and(|a| a.is_closed()) {
+            if p.gone() {
                 debug!("a queued request timed out before it ran: dropped");
+                continue;
+            }
+            if p.late() {
+                debug!("a queued request waited too long: answered timeout, not run");
+                answer(
+                    p.answer,
+                    Err(AppError::new(
+                        Status::Timeout,
+                        "the request waited in the link's queue too long",
+                    )),
+                );
                 continue;
             }
             break p;
@@ -1048,9 +1095,20 @@ fn client_of(ctx: &LinkCtx) -> WyrmClient {
 }
 
 impl<E> Runtime<E> {
-    async fn ask(&self, ev: Event) -> wyrm_link_sdk::Result<Option<Value>> {
+    async fn ask(
+        &self,
+        ev: Event,
+        since: Instant,
+        sink: Option<ReplySink>,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        if self.tx.try_send(Input::Request(ev, tx)).is_err() {
+        let r = Request {
+            ev,
+            answer: tx,
+            since,
+            sink,
+        };
+        if self.tx.try_send(Input::Request(r)).is_err() {
             return Err(LinkError::new(Status::Busy, "the link is busy"));
         }
         match rx.await {
@@ -1171,7 +1229,8 @@ where
             value,
             who: who_of(who),
         };
-        self.ask(ev).await.map(|_| ())
+        // the SDK's bound on a `set` starts with this call
+        self.ask(ev, Instant::now(), None).await.map(|_| ())
     }
 
     async fn on_invoke(
@@ -1182,13 +1241,17 @@ where
         who: &Caller,
         out: ReplySink,
     ) -> wyrm_link_sdk::Result<()> {
+        // timed out while it waited in the SDK's own queue: the caller has its `timeout`
+        if out.is_closed() {
+            return Err(LinkError::timeout("the caller is gone"));
+        }
         let ev = Event::Invoke {
             path: path.to_owned(),
             action: action.to_owned(),
             args,
             who: who_of(who),
         };
-        let v = self.ask(ev).await?;
+        let v = self.ask(ev, out.since(), Some(out.clone())).await?;
         out.reply(v.unwrap_or(Value::Null)).await
     }
 

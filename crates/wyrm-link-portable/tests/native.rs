@@ -33,7 +33,7 @@ fn sample(v: Value) -> Sample {
 /// A value of -1 makes it panic. With `extra: true` it declares `extra` on its first start only.
 /// `seen` shows the last subscribed value. `arm` sets a 100 ms timer that `slow_cancel` cancels
 /// after 400 ms; `late` sets a timer whose `on_timer` takes 3 s and then writes `late` to the store.
-/// `sleep` takes 600 ms; `actions {n}` declares `n` more actions on the root.
+/// `sleep` takes 600 ms, `nap` 2 s; `actions {n}` declares `n` more actions on the root.
 struct Echo {
     ticks: u64,
     armed: Option<TimerId>,
@@ -52,7 +52,7 @@ impl App for Echo {
         host.declare_node("ticks", NodeMeta::number());
         host.declare_node("reply", NodeMeta::leaf(TypeCode::String));
         host.declare_node("seen", NodeMeta::number());
-        for a in ["ping", "arm", "slow_cancel", "late", "sleep"] {
+        for a in ["ping", "arm", "slow_cancel", "late", "sleep", "nap"] {
             host.declare_action("", a, ActionMeta::new().level(Perm::Write));
         }
         // `actions {n}` declares `n` more actions on the root
@@ -141,6 +141,10 @@ impl App for Echo {
             "sleep" => {
                 std::thread::sleep(Duration::from_millis(600));
                 Ok(Value::Str("awake".into()))
+            }
+            "nap" => {
+                std::thread::sleep(Duration::from_secs(2));
+                Ok(Value::Null)
             }
             "actions" => {
                 let n = match &args {
@@ -651,6 +655,91 @@ async fn a_request_that_timed_out_in_the_queue_is_not_run() {
     let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
     let n: Value = wyrm_core::codec::from_slice(&store.get("n").expect("n stored")).unwrap();
     assert_eq!(n.as_f64(), Some(6.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// I2 (round 2): a request that waited in the queue longer than the margin could run past the
+/// SDK's bound; it is answered `timeout` by the link and not run, even when the SDK itself
+/// would wait longer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_that_waited_past_the_margin_is_answered_timeout() {
+    let dir = data_dir("late-dequeue");
+    let cfg = config(&[("call_ms", Value::UInt(1))]);
+    let d = dir.clone();
+    let h = TestHarness::<Portable<Echo>>::start_with(cfg, move |c| {
+        c.data_dir = Some(d);
+        c.secrets
+            .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
+        // the SDK waits 10 s: only the link's own rule can answer earlier
+        c.driver_timeout = Duration::from_secs(10);
+    })
+    .await;
+    let r = h
+        .invoke("", "late", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let t = Instant::now();
+    let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Timeout, "{:?}", att.err);
+    // answered when the 3 s timer event ended, by the link (the SDK would wait 10 s)
+    let waited = t.elapsed();
+    assert!(
+        waited > Duration::from_millis(2000) && waited < Duration::from_secs(5),
+        "{waited:?}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(last(&h, "n"), None);
+    h.stop().await;
+    let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
+    assert_eq!(store.get("n"), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// I2 (round 2): an `invoke` that the SDK answered `timeout` while it waited in the SDK's own
+/// queue (behind a 2 s call) is not run by the link.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_invoke_that_timed_out_in_the_sdk_queue_is_not_run() {
+    let dir = data_dir("sdk-queue");
+    // the SDK's bound: max(200 ms, call_ms 1 + 1 s) = about 1 s
+    let cfg = config(&[("call_ms", Value::UInt(1))]);
+    let d = dir.clone();
+    let h = TestHarness::<Portable<Echo>>::start_with(cfg, move |c| {
+        c.data_dir = Some(d);
+        c.secrets
+            .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
+        c.driver_timeout = Duration::from_millis(200);
+    })
+    .await;
+    let (nap, ping) = tokio::join!(
+        h.invoke("", "nap", empty(), Some(h.ptok(Perm::Write))),
+        async {
+            // behind `nap` in the SDK's queue
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            h.invoke("", "ping", empty(), Some(h.ptok(Perm::Write)))
+                .await
+        }
+    );
+    assert_eq!(status(&nap[0].att), Status::Timeout, "{:?}", nap[0].att.err);
+    assert_eq!(
+        status(&ping[0].att),
+        Status::Timeout,
+        "{:?}",
+        ping[0].att.err
+    );
+    // `nap` ends at 2 s; `ping` (a 50 ms timer, then `ticks`) never ran
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(last(&h, "ticks"), None);
+    // the link answers again
+    let r = h
+        .invoke("", "ping", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(r[0].value(), Some(str_v("pong")), "{:?}", r[0].att);
+    assert!(
+        eventually(Duration::from_millis(500), || last(&h, "ticks").is_some()).await,
+        "ticks after the last ping"
+    );
+    h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 

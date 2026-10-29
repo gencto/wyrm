@@ -1688,6 +1688,73 @@ async fn portable_app_upgrade_is_a_hot_start() {
     env.stop().await;
 }
 
+/// I1 (round 2): a process package's capabilities reach its link: with `store_mb: 0` the
+/// portable app's `set n` is refused (`resource_exhausted`); an `update` to `store_mb: 1` (not
+/// checked by the broker: the binary parses it) lets it write, a `rollback` refuses it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn process_app_capabilities_reach_the_link() {
+    let env = Env::start("proccaps", "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let zip = driver_package_with(
+        "portable-echo-caps",
+        "1.0.0",
+        "the portable example as a process, no store",
+        "portable-echo",
+        Some(serde_json::json!({ "store_mb": 0 })),
+    );
+    let r = invoke_retry(
+        &env,
+        &links,
+        "install_zip",
+        Value::Map(BTreeMap::from([
+            ("name".to_owned(), Value::from("q0")),
+            ("zip".to_owned(), Value::Bytes(zip)),
+        ])),
+    )
+    .await;
+    assert!(
+        matches!(&r, Some(Value::Map(m)) if m.get("success") == Some(&Value::Bool(true))),
+        "{r:?}"
+    );
+    let n = format!("wy/{SITE}/downstream/q0/n");
+    // `Ok(status)` of one `set n`; `None` while the link or the router is not there
+    let set = |v: u64| {
+        let (env, n) = (&env, n.clone());
+        async move {
+            let c = client_now(env).await?;
+            match c.set(&n, Value::UInt(v)).await {
+                Ok(()) => Some(wyrm_core::Status::Ok),
+                Err(e) => match status_of(&e) {
+                    Some(s @ wyrm_core::Status::ResourceExhausted) => Some(s),
+                    _ => None,
+                },
+            }
+        }
+    };
+    let refused =
+        || async { (set(5).await? == wyrm_core::Status::ResourceExhausted).then_some(()) };
+    let taken = || async { (set(6).await? == wyrm_core::Status::Ok).then_some(()) };
+    eventually("set n refused: store_mb 0 from the manifest", 30, refused).await;
+
+    let node = format!("{links}/q0");
+    let params = Value::Map(BTreeMap::from([(
+        "params".to_owned(),
+        Value::Map(BTreeMap::from([("store_mb".to_owned(), Value::UInt(1))])),
+    )]));
+    assert_eq!(
+        invoke_retry(&env, &node, "update", params).await,
+        Some(Value::UInt(2))
+    );
+    eventually("set n taken after update store_mb 1", 30, taken).await;
+    let rollback = Value::Map(BTreeMap::from([("rev".to_owned(), Value::UInt(1))]));
+    assert_eq!(
+        invoke_retry(&env, &node, "rollback", rollback).await,
+        Some(Value::UInt(3))
+    );
+    eventually("set n refused again after the rollback", 30, refused).await;
+    env.stop().await;
+}
+
 /// `examples/links/portable` (`wyrm-example-portable`) for wasm32 with feature `wasm`, made a
 /// component, as `wyr link pack` builds it; `None` without the wasm32 target.
 fn portable_example_component() -> Option<Vec<u8>> {
