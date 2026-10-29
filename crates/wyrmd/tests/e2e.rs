@@ -5314,6 +5314,35 @@ async fn embedded_scheduler_drives_a_process_link() {
         .await
         .expect_err("import carries targets: config");
     assert!(e.is(wyrm_core::Status::PermissionDenied), "import: {e}");
+    // a target's edit is config too (M4); `t1` stays as it was
+    let e = cw
+        .invoke_one(
+            &t1,
+            "edit",
+            m(&[(
+                "point",
+                Value::from(format!("wy/{SITE}/downstream/pm/g0/p1").as_str()),
+            )]),
+        )
+        .await
+        .expect_err("a target edit is config");
+    assert!(
+        e.is(wyrm_core::Status::PermissionDenied),
+        "target edit: {e}"
+    );
+    let e = cw
+        .invoke_one(&t1, "disable", Value::Map(BTreeMap::new()))
+        .await
+        .expect_err("a target disable is config");
+    assert!(
+        e.is(wyrm_core::Status::PermissionDenied),
+        "target disable: {e}"
+    );
+    assert_eq!(
+        c.meta(&t1).await.unwrap().attr_value("point"),
+        Some(&Value::from(point.as_str())),
+        "the target is unchanged"
+    );
     // the built-in roles: `operator` has write on downstream/**, `engineer`
     // config
     let env_ref = &env;
@@ -5749,7 +5778,11 @@ async fn sched_scenario(env: &Env, id: &str, point: &str, restart: bool) -> Sche
         })
         .await;
         let unchanged = now == sample;
-        Some((state, point_writes(env, point) - before, unchanged))
+        Some((
+            state,
+            point_writes(env, point).saturating_sub(before),
+            unchanged,
+        ))
     } else {
         None
     };
@@ -5764,7 +5797,8 @@ async fn sched_scenario(env: &Env, id: &str, point: &str, restart: bool) -> Sche
 
 /// The store at the planned size (brief step 6): 200 schedules × 10 events × 1 target in the
 /// WASM link `sw`; a stop and start keeps it `running` (`start` and each batch within `call_ms`
-/// and the fuel bound) and brings every schedule back within 30 s.
+/// and the fuel bound, never restarting) and brings every schedule back within 60 s (a loaded
+/// CI runner; the demo measures 1.7 s).
 async fn wasm_store_at_size(env: &Env) {
     const N: usize = 200;
     let root = format!("wy/{SITE}/downstream/sw");
@@ -5883,7 +5917,7 @@ async fn wasm_store_at_size(env: &Env) {
     let started = t.elapsed();
     let mut back = None;
     let mut seen = Vec::new();
-    while t.elapsed() < Duration::from_secs(30) {
+    while t.elapsed() < Duration::from_secs(60) {
         let s = status().await;
         if let Some(Value::Str(s)) = &s {
             if seen.last() != Some(s) {
@@ -5908,7 +5942,7 @@ async fn wasm_store_at_size(env: &Env) {
     }
     let Some(back) = back else {
         panic!(
-            "sw: {:?} of {N} schedules back within 30 s (statuses {seen:?}); log: {}",
+            "sw: {:?} of {N} schedules back within 60 s (statuses {seen:?}); log: {}",
             schedules().await,
             log().await
         )

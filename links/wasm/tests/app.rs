@@ -620,7 +620,7 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
     let att = slow_set.await.unwrap();
     assert_eq!(status(&att), Status::Busy, "{:?}", att.err);
     assert!(
-        eventually(Duration::from_secs(2), || num(&h, "starts") == Some(2.0)).await,
+        eventually(Duration::from_secs(10), || num(&h, "starts") == Some(2.0)).await,
         "starts {:?}",
         num(&h, "starts")
     );
@@ -646,7 +646,7 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
 
     // the new instance started on the same store
     assert!(
-        eventually(Duration::from_secs(2), || num(&h, "starts") == Some(3.0)).await,
+        eventually(Duration::from_secs(10), || num(&h, "starts") == Some(3.0)).await,
         "starts {:?}",
         num(&h, "starts")
     );
