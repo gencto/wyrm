@@ -295,10 +295,10 @@ impl Pending {
             || self.sink.as_ref().is_some_and(ReplySink::is_closed)
     }
 
-    /// Waited so long that `call_ms` more could pass the SDK's bound (`call_ms` +
-    /// [`CALL_MARGIN`]): it would run on after its caller got `timeout`.
-    fn late(&self) -> bool {
-        self.since.is_some_and(|t| t.elapsed() > CALL_MARGIN)
+    /// Waited so long that `call_ms` more could pass the SDK's bound: it would run on after
+    /// its caller got `timeout`. `slack` is that bound less `call_ms` (at least [`CALL_MARGIN`]).
+    fn late(&self, slack: Duration) -> bool {
+        self.since.is_some_and(|t| t.elapsed() > slack)
     }
 }
 
@@ -320,6 +320,9 @@ struct Actor {
     /// The SDK's bound on one call (`call_ms` + [`CALL_MARGIN`]): an app action's `timeout_ms`
     /// is raised to it.
     call_bound_ms: u32,
+    /// How long a request may wait in the queue and still end within the SDK's bound
+    /// (`LinkCtx::driver_timeout` less `call_ms`).
+    queue_slack: Duration,
     /// When the nodes of dead instances that were not declared again go.
     sweep_at: Option<Instant>,
     store: SharedStore,
@@ -577,7 +580,7 @@ impl Actor {
                 debug!("a queued request timed out before it ran: dropped");
                 continue;
             }
-            if p.late() {
+            if p.late(self.queue_slack) {
                 debug!("a queued request waited too long: answered timeout, not run");
                 answer(
                     p.answer,
@@ -1175,6 +1178,10 @@ where
 
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
         let call_bound_ms = u32::try_from(call_bound(&cfg).as_millis()).unwrap_or(u32::MAX);
+        let queue_slack = ctx
+            .driver_timeout()
+            .saturating_sub(call_time)
+            .max(CALL_MARGIN);
         let actor = Actor {
             client: client_of(&ctx),
             ctx,
@@ -1191,6 +1198,7 @@ where
             max_nodes: limits.max_nodes,
             max_actions: limits.max_actions,
             call_bound_ms,
+            queue_slack,
             sweep_at: None,
             store: actor_store,
             seq: 0,

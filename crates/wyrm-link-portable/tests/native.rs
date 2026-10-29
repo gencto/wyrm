@@ -658,20 +658,43 @@ async fn a_request_that_timed_out_in_the_queue_is_not_run() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// I2 (round 2): a request that waited in the queue longer than the margin could run past the
-/// SDK's bound; it is answered `timeout` by the link and not run, even when the SDK itself
-/// would wait longer.
+/// I2 (round 2): a request that waited in the queue so long that `call_ms` more could pass the
+/// SDK's bound is answered `timeout` by the link and not run; with room left in the bound it
+/// runs.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_that_waited_past_the_margin_is_answered_timeout() {
-    let dir = data_dir("late-dequeue");
-    let cfg = config(&[("call_ms", Value::UInt(1))]);
+    // the SDK waits 4 s, a call may take 2 s: a request may wait 2 s; a 3 s event is ahead
+    let (att, waited, n, stored) = set_behind_a_slow_event("late-dequeue", 4).await;
+    assert_eq!(status(&att), Status::Timeout, "{:?}", att.err);
+    // answered when the 3 s timer event ended, by the link (the SDK would wait 4 s)
+    assert!(
+        waited > Duration::from_millis(2500) && waited < Duration::from_millis(3900),
+        "{waited:?}"
+    );
+    assert_eq!(n, None);
+    assert_eq!(stored, None);
+
+    // the SDK waits 10 s: 3 s in the queue + 2 s still fit, so it runs
+    let (att, _, n, stored) = set_behind_a_slow_event("late-dequeue-fits", 10).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
+    assert_eq!(n.and_then(|v| v.as_f64()), Some(5.0));
+    assert!(stored.is_some());
+}
+
+/// `set n = 5` queued behind a 3 s timer event, with `call_ms` 2000 and the SDK bound
+/// `driver_s`: the reply, how long it took, the last `n` sample and the stored `n`.
+async fn set_behind_a_slow_event(
+    name: &str,
+    driver_s: u64,
+) -> (Attachment, Duration, Option<Value>, Option<Vec<u8>>) {
+    let dir = data_dir(name);
+    let cfg = config(&[("call_ms", Value::UInt(2000))]);
     let d = dir.clone();
     let h = TestHarness::<Portable<Echo>>::start_with(cfg, move |c| {
         c.data_dir = Some(d);
         c.secrets
             .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
-        // the SDK waits 10 s: only the link's own rule can answer earlier
-        c.driver_timeout = Duration::from_secs(10);
+        c.driver_timeout = Duration::from_secs(driver_s);
     })
     .await;
     let r = h
@@ -681,19 +704,14 @@ async fn a_request_that_waited_past_the_margin_is_answered_timeout() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     let t = Instant::now();
     let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
-    assert_eq!(status(&att), Status::Timeout, "{:?}", att.err);
-    // answered when the 3 s timer event ended, by the link (the SDK would wait 10 s)
     let waited = t.elapsed();
-    assert!(
-        waited > Duration::from_millis(2000) && waited < Duration::from_secs(5),
-        "{waited:?}"
-    );
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(last(&h, "n"), None);
+    let n = last(&h, "n");
     h.stop().await;
     let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
-    assert_eq!(store.get("n"), None);
+    let stored = store.get("n");
     let _ = std::fs::remove_dir_all(&dir);
+    (att, waited, n, stored)
 }
 
 /// I2 (round 2): an `invoke` that the SDK answered `timeout` while it waited in the SDK's own

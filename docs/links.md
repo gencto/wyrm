@@ -410,10 +410,11 @@ with `resource_exhausted`. A write that does not grow the store passes even
 over a smaller `store_mb`.
 
 **Call time:** a `set` or `invoke` of a portable link may take `call_ms`;
-the broker waits `call_ms` + 1 s before it answers `timeout`. A request
-that was answered `timeout` while it waited in the queue is not run, and
-one that waited in the link's queue longer than 1 s gets `timeout` at once
-instead of running (`call_ms` more could pass the bound). A
+the broker waits at least `call_ms` + 1 s (and at least 5 s) before it
+answers `timeout`. A request that was answered `timeout` while it waited in
+the queue is not run, and one that waited in the link's queue so long that
+`call_ms` more would pass that bound gets `timeout` at once instead of
+running. A
 caller's own timeout must be longer than the app's `call_ms` + 1 s: the
 `wyrm-client` waits 10 s by default (`DEFAULT_TIMEOUT`), so with `call_ms` above 9000 give the
 caller a longer timeout, or it sees `timeout` for a call that still runs.

@@ -41,6 +41,7 @@ pub(crate) struct Inner {
     pub metrics: Metrics,
     pub data_dir: Option<PathBuf>,
     pub grants: Vec<(String, wyrm_core::Perm)>,
+    pub driver_timeout: std::time::Duration,
 }
 
 /// What the host hands to a new [`LinkCtx`] besides its address.
@@ -48,6 +49,7 @@ pub(crate) struct HostState {
     pub secrets: SecretStore,
     pub data_dir: Option<PathBuf>,
     pub grants: Vec<(String, wyrm_core::Perm)>,
+    pub driver_timeout: std::time::Duration,
 }
 
 /// Cheap to clone; all clones share one tree.
@@ -89,6 +91,7 @@ impl LinkCtx {
             metrics: Metrics::default(),
             data_dir: host.data_dir,
             grants: host.grants,
+            driver_timeout: host.driver_timeout,
         }))
     }
 
@@ -488,6 +491,13 @@ impl LinkCtx {
     /// pass the router ACL, so a runtime may refuse it before it leaves.
     pub fn grants(&self) -> &[(String, wyrm_core::Perm)] {
         &self.0.grants
+    }
+
+    /// How long the SDK waits for one `on_set`/`on_invoke` before it answers
+    /// the caller `timeout` (`LinkConfig::driver_timeout`, raised to
+    /// [`Link::call_timeout`](crate::Link::call_timeout)).
+    pub fn driver_timeout(&self) -> std::time::Duration {
+        self.0.driver_timeout
     }
 
     /// Lay the broker's overlays over the tree (ADR 0016) and publish the

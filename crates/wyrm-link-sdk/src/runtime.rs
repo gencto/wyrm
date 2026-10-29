@@ -238,6 +238,7 @@ pub async fn spawn<L: Link>(
             secrets: cfg.secrets,
             data_dir: cfg.data_dir,
             grants: cfg.grants,
+            driver_timeout: cfg.driver_timeout,
         },
     );
     let queryable = session
