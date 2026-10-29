@@ -45,7 +45,8 @@ pub struct Manifest {
     /// whose `world` says otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world: Option<String>,
-    /// `wasm` app: what its link may use, granted at install (ADR 0023).
+    /// A portable app (`wasm` app component or `process`): what its link may use, granted at
+    /// install as link params (ADR 0023).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Capabilities>,
 }
@@ -178,10 +179,9 @@ impl Manifest {
                 return Err(format!("world {w:?}: app, driver or point"));
             }
         }
+        // a process package may carry them too: a portable app run as a process takes the
+        // same params as its WASM twin (ADR 0023, one source for all modes)
         if let Some(c) = &self.capabilities {
-            if self.kind != "wasm" {
-                return Err("capabilities: only a wasm app package has them".into());
-            }
             if let Some(w) = self.world.as_deref().filter(|w| *w != "app") {
                 return Err(format!(
                     "capabilities: only an app component has them, world is {w:?}"
@@ -517,10 +517,18 @@ mod tests {
             let err = app(caps).check().unwrap_err();
             assert!(err.contains(field), "{field}: {err}");
         }
-        // capabilities and world belong to wasm packages; an app's capabilities to an app
+        // world belongs to wasm packages; capabilities to an app, WASM or process
         let mut m = process("acme");
-        m.capabilities = Some(Capabilities::default());
-        assert!(m.check().unwrap_err().contains("capabilities"));
+        m.capabilities = Some(Capabilities {
+            store_mb: Some(4),
+            ..Capabilities::default()
+        });
+        assert!(m.check().is_ok());
+        m.capabilities = Some(Capabilities {
+            store_mb: Some(65),
+            ..Capabilities::default()
+        });
+        assert!(m.check().unwrap_err().contains("store_mb"));
         let mut m = process("acme");
         m.world = Some("app".into());
         assert!(m.check().unwrap_err().contains("world"));

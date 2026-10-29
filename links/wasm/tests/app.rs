@@ -574,7 +574,7 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
         .await
         .unwrap()
         .expect("reload");
-    assert_eq!(swapped, 1);
+    assert_eq!(swapped.len(), 1);
     let att = slow_set.await.unwrap();
     assert_eq!(status(&att), Status::Busy, "{:?}", att.err);
     assert!(
@@ -597,7 +597,7 @@ async fn hot_swap_keeps_store_and_fails_inflight() {
         .await
         .unwrap()
         .expect("reload");
-    assert_eq!(swapped, 1);
+    assert_eq!(swapped.len(), 1);
     let (s, v) = slow.await.unwrap();
     assert_eq!(s, Status::Busy, "the cut off invoke answered {v:?}");
 
@@ -640,7 +640,7 @@ async fn an_idle_link_starts_the_new_code_after_stop() {
         .await
         .unwrap()
         .expect("reload");
-    assert_eq!(swapped, 1);
+    assert_eq!(swapped.len(), 1);
     let t = Instant::now();
     assert!(
         eventually(Duration::from_secs(1), || h.ctx().has_node("v2")).await,

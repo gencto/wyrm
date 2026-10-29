@@ -30,9 +30,10 @@ use crate::{component_path, host};
 /// A portable link on a WASM component: driver `app`.
 pub type App = Runtime<WasmEngine>;
 
-/// A running `app` link: its package, its slot and how its runtime hears of a swap.
+/// A running `app` link: its id, package, slot and how its runtime hears of a swap.
 struct Running {
     id: u64,
+    link: String,
     package: String,
     slot: Slot<AppWorld>,
     code: watch::Sender<u64>,
@@ -47,18 +48,18 @@ fn slots() -> std::sync::MutexGuard<'static, Vec<Running>> {
 }
 
 /// Reads `<root>/<package>.wasm` again and swaps it into every running `app` link of the
-/// package; returns how many. Each link's runtime then cuts off its call in flight (`busy`),
-/// runs the old instance's `stop` and starts the new code with its store, without waiting for
-/// an event. Compiles the component: call it off the async workers.
-pub fn reload_component(package: &str) -> Result<usize, LinkError> {
+/// package; returns their link ids. Each link's runtime then cuts off its call in flight
+/// (`busy`), runs the old instance's `stop` and starts the new code with its store, without
+/// waiting for an event. Compiles the component: call it off the async workers.
+pub fn reload_component(package: &str) -> Result<Vec<String>, LinkError> {
     let art = load(package)?;
-    let mut n = 0;
+    let mut ids = Vec::new();
     for r in slots().iter().filter(|r| r.package == package) {
         r.slot.swap(art.clone());
         r.code.send_replace(r.slot.generation());
-        n += 1;
+        ids.push(r.link.clone());
     }
-    Ok(n)
+    Ok(ids)
 }
 
 fn load(package: &str) -> Result<wyrm_wasm_host::AppArtifact, LinkError> {
@@ -219,7 +220,7 @@ impl MakeEngine for WasmEngine {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     type E = Self;
 
-    fn make(cfg: &PortableConfig, _ctx: &LinkCtx) -> Result<Self, LinkError> {
+    fn make(cfg: &PortableConfig, ctx: &LinkCtx) -> Result<Self, LinkError> {
         let package = cfg
             .component
             .clone()
@@ -229,6 +230,7 @@ impl MakeEngine for WasmEngine {
         let (tx, code) = watch::channel(slot.generation());
         slots().push(Running {
             id,
+            link: ctx.link().to_owned(),
             package: package.clone(),
             slot: slot.clone(),
             code: tx,

@@ -329,16 +329,18 @@ impl ResourceLimiter for Ctx {
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        if desired > self.memory_bytes {
+        // the limit is the instance's: all its memories together
+        let used = self
+            .memory_used
+            .saturating_add(desired.saturating_sub(current));
+        if used > self.memory_bytes {
             self.memory_hit = true;
             return Err(wasmtime::Error::msg(format!(
                 "memory limit of {} bytes exceeded",
                 self.memory_bytes
             )));
         }
-        self.memory_used = self
-            .memory_used
-            .saturating_add(desired.saturating_sub(current));
+        self.memory_used = used;
         Ok(true)
     }
 
@@ -1024,6 +1026,9 @@ impl Services for NoServices {
     fn store_used(&self) -> u64 {
         0
     }
+    fn store_keys(&self) -> usize {
+        0
+    }
     fn store_ready(&self) -> Result<(), AppError> {
         Err(no_call())
     }
@@ -1334,5 +1339,30 @@ pub fn component_world(bytes: &[u8]) -> Result<ComponentWorld, Error> {
         Err(Error::Invalid(
             "neither an app (wyrm:app/app) nor a point driver (wyrm:link/point, driver)".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// M2: the memory limit holds for the instance, all its memories together.
+    #[test]
+    fn the_memory_limit_is_the_sum_of_all_memories() {
+        let mut c = Ctx {
+            memory_bytes: 64 << 20,
+            memory_hit: false,
+            memory_used: 0,
+            net: Net::default(),
+            app: None,
+        };
+        // a first memory of 40 MiB, then a second one of 40 MiB: 80 MiB in all
+        assert!(c.memory_growing(0, 40 << 20, None).unwrap());
+        assert!(c.memory_growing(0, 40 << 20, None).is_err());
+        assert!(c.memory_hit);
+        // the first one grows to the limit; one byte more does not fit
+        assert!(c.memory_growing(40 << 20, 64 << 20, None).unwrap());
+        assert!(c.memory_growing(0, 1, None).is_err());
+        assert_eq!(c.memory_used, 64 << 20);
     }
 }

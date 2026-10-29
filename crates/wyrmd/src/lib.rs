@@ -655,8 +655,42 @@ impl EmbeddedHost for Drivers {
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
             "portable-echo" => PortableConfig::from_params(params).map(|_| ()),
+            // a `wasm` package link, through the driver it runs on (as `start` picks it); the
+            // admin does not ask for a process package, whose params its own binary parses
+            d if d.starts_with("pkg:") => {
+                let name = &d["pkg:".len()..];
+                match wyrm_link_wasm::package_world(name) {
+                    Some(ComponentWorld::App) => {
+                        <wyrm_link_wasm::App as Link>::Config::from_params(&app_component(
+                            name,
+                            params.clone(),
+                        )?)
+                        .map(|_| ())
+                    }
+                    Some(_) => Tree::from_params(params).map(|_| ()),
+                    None => Err(LinkError::invalid_parameter(format!(
+                        "package {name}: no WASM component here"
+                    ))),
+                }
+            }
             d => Err(LinkError::invalid_parameter(format!("unknown driver {d}"))),
         }
+    }
+
+    fn reload_package(
+        &self,
+        name: &str,
+    ) -> wyrm_admin::control::BoxFut<'static, Result<Vec<String>, LinkError>> {
+        let name = name.to_owned();
+        Box::pin(async move {
+            if wyrm_link_wasm::package_world(&name) != Some(ComponentWorld::App) {
+                return Ok(Vec::new());
+            }
+            // compiles the component: off the async workers
+            tokio::task::spawn_blocking(move || wyrm_link_wasm::app::reload_component(&name))
+                .await
+                .map_err(|e| LinkError::internal(format!("reload: {e}")))?
+        })
     }
 
     fn start(

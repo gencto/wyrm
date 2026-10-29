@@ -205,9 +205,12 @@ impl<L: Link> Drop for LinkHandle<L> {
 /// driver task and the liveliness token `wy/<site>/downstream/<link>`.
 pub async fn spawn<L: Link>(
     session: Session,
-    cfg: LinkConfig,
+    mut cfg: LinkConfig,
     link_cfg: L::Config,
 ) -> Result<LinkHandle<L>> {
+    if let Some(floor) = L::call_timeout(&link_cfg) {
+        cfg.driver_timeout = cfg.driver_timeout.max(floor);
+    }
     keyspace::validate_segment(&cfg.site)?;
     keyspace::validate_segment(&cfg.link)?;
     // Every task of the link runs in this span: its log lines carry the link

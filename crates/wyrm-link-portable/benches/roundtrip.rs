@@ -52,6 +52,9 @@ impl Services for Bare {
     fn store_used(&self) -> u64 {
         0
     }
+    fn store_keys(&self) -> usize {
+        0
+    }
     fn may(&self, _key: &str, _perm: Perm) -> bool {
         false
     }

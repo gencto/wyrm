@@ -62,6 +62,13 @@ pub trait EmbeddedHost: Send + Sync + 'static {
         driver: String,
         params: Value,
     ) -> BoxFut<'static, Result<Box<dyn RunningLink>, LinkError>>;
+    /// Hot start (ADR 0023): swap the new component of `wasm` package `name`
+    /// (already in the component store) into its running app links without
+    /// a stop and start; returns the ids of the links it swapped. A host
+    /// without app links, or a package that is not an app, swaps none.
+    fn reload_package(&self, _name: &str) -> BoxFut<'static, Result<Vec<String>, LinkError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2922,6 +2929,21 @@ fn outcome(r: Result<String, String>) -> Value {
 }
 
 /// `packages/<name>`: version, kind, source, SHA-256; `remove`.
+/// The `package_install` audit detail (install and upgrade): version,
+/// SHA-256 and source, then what the package's links may use: its
+/// capabilities and the requester grants it asks for.
+fn install_detail(def: &PackageDef, caps: Option<&wyrm_link_sdk::package::Capabilities>) -> String {
+    let mut d = format!("{} sha256:{} {}", def.version, def.sha256, def.source);
+    if let Some(c) = caps {
+        d.push_str(&format!("; capabilities {}", c.describe()));
+    }
+    for (path, code) in &def.requester {
+        let level = Perm::try_from(*code).map_or("?", |p| p.name());
+        d.push_str(&format!("; requester {path} {level}"));
+    }
+    d
+}
+
 async fn declare_package(ctx: &LinkCtx, p: &PackageDef) -> wyrm_link_sdk::Result<()> {
     let path = format!("packages/{}", p.name);
     let mut node = NodeMeta::folder()
@@ -3687,21 +3709,19 @@ impl Admin {
                     "package_install",
                     &def.name,
                     Status::Ok,
-                    &format!("{} sha256:{} {}", def.version, def.sha256, def.source),
+                    &install_detail(&def, app.as_ref()),
                 );
                 declare_package(&self.ctx, &def)
                     .await
                     .map_err(|e| e.to_string())?;
                 if let Some(old) = old {
-                    // Upgrade: the links on it restart from the new files.
-                    for l in reg.links.values().filter(|l| l.driver == driver) {
-                        let _ = self.stop_link(&l.id, sub).await;
-                        self.start_link(&l.id, sub)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                    }
+                    let failed = self.upgrade_links(&def, app.is_some(), sub).await;
                     let _ = std::fs::remove_dir_all(packages::dir(&root, old));
-                    format!("package {} {} → {}", def.name, old.version, def.version)
+                    let mut m = format!("package {} {} → {}", def.name, old.version, def.version);
+                    if !failed.is_empty() {
+                        m.push_str(&format!("; not restarted: {}", failed.join(", ")));
+                    }
+                    m
                 } else {
                     format!("package {} {} installed", def.name, def.version)
                 }
@@ -3715,6 +3735,14 @@ impl Admin {
             match def.kind {
                 PackageKind::Process => {
                     args.insert("mode".into(), Value::Str("process".into()));
+                    // a portable app as a process: its capabilities as params, as
+                    // for its WASM twin (ADR 0023)
+                    if app.is_some() {
+                        args.insert(
+                            "params".into(),
+                            packages::link_params(&def.name, def.kind, app.as_ref()),
+                        );
+                    }
                 }
                 PackageKind::Wasm => {
                     // Embedded: an app component (ADR 0023) runs as driver
@@ -3724,7 +3752,7 @@ impl Admin {
                     args.insert("mode".into(), Value::Str("embedded".into()));
                     args.insert(
                         "params".into(),
-                        packages::link_params(&def.name, app.as_ref()),
+                        packages::link_params(&def.name, def.kind, app.as_ref()),
                     );
                 }
             }
@@ -3744,6 +3772,48 @@ impl Admin {
             }
         }
         Ok(message)
+    }
+
+    /// After an upgrade, the links of package `def` run the new version:
+    /// an app component's running links swap code in place (hot start, ADR
+    /// 0023: the tree stays, the store carries over); every other link of the
+    /// package stops and starts from the new files. One link that fails does
+    /// not stop the others; returns `<id> (<error>)` of each that failed, each
+    /// also audited.
+    async fn upgrade_links(&self, def: &PackageDef, app: bool, sub: &str) -> Vec<String> {
+        let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
+        let mut failed = Vec::new();
+        let swapped = if def.kind == PackageKind::Wasm && app {
+            match self.ctl.host.reload_package(&def.name).await {
+                Ok(ids) => ids,
+                Err(e) => {
+                    warn!(package = %def.name, "hot start: {e}; the links restart instead");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let reg = self.ctl.registry();
+        for l in reg.links.values().filter(|l| l.driver == driver) {
+            if swapped.contains(&l.id) {
+                self.ctl
+                    .record(sub, "hot_start", &l.id, Status::Ok, &def.version);
+                continue;
+            }
+            let _ = self.stop_link(&l.id, sub).await;
+            if let Err(e) = self.start_link(&l.id, sub).await {
+                self.ctl.record(
+                    sub,
+                    "start",
+                    &l.id,
+                    e.status,
+                    &format!("after upgrade to {}: {}", def.version, e.message),
+                );
+                failed.push(format!("{} ({})", l.id, e.message));
+            }
+        }
+        failed
     }
 
     /// "from Repository": the index entry's zip, which must match its
@@ -3909,7 +3979,16 @@ impl Admin {
             ));
         }
         crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
-        if def.mode != Mode::External {
+        // A process package's params are its binary's to parse (at `hello`):
+        // the broker cannot know their type, so they are not checked here, as
+        // at install. Every other link is checked by the driver it runs on (a
+        // `wasm` package by its component's world).
+        let process_package = def
+            .driver
+            .strip_prefix(packages::DRIVER_PREFIX)
+            .and_then(|n| self.ctl.registry().packages.get(n).map(|p| p.kind))
+            == Some(PackageKind::Process);
+        if def.mode != Mode::External && !process_package {
             self.ctl.host.validate(&def.driver, &params)?;
         }
         self.ctl

@@ -10,6 +10,10 @@
 //! * A write goes to a temporary file, is synced, renamed over the old file, then the directory
 //!   is synced: a crash leaves the old record or the new one.
 //! * All records are read at open and kept in memory (the store is at most 64 MiB).
+//! * Each entry counts its key and value length rounded up to 4 KiB, at least 4 KiB
+//!   ([`store_cost`]); at most [`MAX_STORE_KEYS`] keys of at most [`MAX_STORE_KEY_LEN`] bytes. The
+//!   command buffer refuses a write over the quota first; [`Store::put`] checks the key bounds
+//!   again.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
@@ -18,6 +22,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use wyrm_core::Value;
+use wyrm_link_api::buffer::{store_cost, MAX_STORE_KEYS, MAX_STORE_KEY_LEN};
 use wyrm_link_sdk::seal;
 use zeroize::Zeroizing;
 
@@ -36,7 +41,7 @@ pub struct Store {
 }
 
 fn size(k: &str, v: &[u8]) -> u64 {
-    (k.len() + v.len()) as u64
+    store_cost(k.len(), v.len())
 }
 
 fn file_name(key: &str) -> String {
@@ -135,9 +140,23 @@ impl Store {
         self.map.get(key).cloned()
     }
 
-    /// Bytes held: the sum of key and value lengths.
+    /// Quota used: the sum of [`store_cost`] of the entries.
     pub fn used(&self) -> u64 {
         self.used
+    }
+
+    /// Keys held.
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// The value length of `key`; `None` when absent.
+    pub fn value_len(&self, key: &str) -> Option<usize> {
+        self.map.get(key).map(Vec::len)
     }
 
     pub fn put(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
@@ -145,6 +164,12 @@ impl Store {
             return Err("the link stopped".into());
         }
         let (dir, k) = self.at.as_ref().ok_or("the link has no store")?;
+        if key.is_empty() || key.len() > MAX_STORE_KEY_LEN {
+            return Err(format!("a store key is 1 to {MAX_STORE_KEY_LEN} bytes"));
+        }
+        if !self.map.contains_key(key) && self.map.len() >= MAX_STORE_KEYS {
+            return Err(format!("at most {MAX_STORE_KEYS} store keys"));
+        }
         let mut m = BTreeMap::new();
         m.insert("k".to_owned(), Value::Str(key.to_owned()));
         m.insert("v".to_owned(), Value::Bytes(value.to_vec()));
@@ -222,13 +247,14 @@ mod tests {
         s.put("a", b"one").unwrap();
         s.put("a", b"two!").unwrap();
         s.put("b", b"x").unwrap();
-        assert_eq!(s.used(), 1 + 4 + 1 + 1);
+        // one 4 KiB block per entry however small
+        assert_eq!((s.used(), s.len()), (2 * 4096, 2));
         s.delete("b").unwrap();
         s.delete("missing").unwrap();
         let s = Store::open(Some(&d), Some(&key));
         assert_eq!(s.get("a").as_deref(), Some(&b"two!"[..]));
         assert_eq!(s.get("b"), None);
-        assert_eq!(s.used(), 5);
+        assert_eq!((s.used(), s.len(), s.value_len("a")), (4096, 1, Some(4)));
         // another key opens nothing
         let s = Store::open(Some(&d), Some(&[4u8; 32]));
         assert_eq!(s.get("a"), None);
@@ -246,6 +272,23 @@ mod tests {
         let s = Store::open(Some(&d), Some(&key));
         assert_eq!(s.get("a"), None);
         assert_eq!(s.get("b"), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn put_checks_the_key_bounds() {
+        let d = dir("bounds");
+        let mut s = Store::open(Some(&d), Some(&[3u8; 32]));
+        assert!(s.put("", b"1").is_err());
+        assert!(s.put(&"k".repeat(MAX_STORE_KEY_LEN + 1), b"1").is_err());
+        s.put(&"k".repeat(MAX_STORE_KEY_LEN), b"1").unwrap();
+        // the key count: the bound is checked on the map, so fill it without files
+        for i in s.len()..MAX_STORE_KEYS {
+            s.map.insert(format!("f{i}"), Vec::new());
+        }
+        assert!(s.put("one-more", b"1").unwrap_err().contains("store keys"));
+        // an existing key is not a new one
+        s.put(&"k".repeat(MAX_STORE_KEY_LEN), b"2").unwrap();
         let _ = std::fs::remove_dir_all(&d);
     }
 

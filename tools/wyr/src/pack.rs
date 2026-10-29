@@ -97,7 +97,7 @@ struct Meta {
     args: Vec<String>,
     #[serde(default)]
     requester: Vec<Grant>,
-    /// `wasm`: what the app link may use, granted at install (ADR 0023).
+    /// A portable app (either kind): what its link may use, granted at install (ADR 0023).
     capabilities: Option<Capabilities>,
 }
 
@@ -237,6 +237,10 @@ fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
             .into())
         }
     };
+    // before a long build (the manifest gets its `entries` per host later)
+    if let Some(c) = &meta.capabilities {
+        c.check().map_err(|e| format!("{}: {e}", p.name))?;
+    }
     Ok(Plan {
         krate: p.name.clone(),
         artifact: Artifact::Bin(bin),
@@ -252,7 +256,8 @@ fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
             entry: None,
             requester: meta.requester,
             world: None,
-            capabilities: None,
+            // a portable app run as a process takes the same capabilities (ADR 0023)
+            capabilities: meta.capabilities,
         },
     })
 }
@@ -677,12 +682,16 @@ pub(crate) mod tests {
         assert_eq!(caps.store_mb, Some(4));
         assert_eq!(caps.net, ["127.0.0.1:502"]);
         assert_eq!(got.manifest.requester[0].level, "read");
-        // `--kind process` packs the binary of the same crate, without capabilities
+        // `--kind process` packs the binary of the same crate, with the same capabilities
         let proc = plan(&app_pkg(meta), Some("process")).unwrap();
         assert_eq!(proc.artifact, Artifact::Bin("wyrm-link-acme".into()));
         assert_eq!(proc.features, ["process"]);
-        assert_eq!(proc.manifest.capabilities, None);
+        assert_eq!(proc.manifest.capabilities, Some(caps));
         assert_eq!(proc.manifest.world, None);
+        let big = serde_json::json!({ "wyrm-link": {
+            "kind": "process", "capabilities": { "call_ms": 0 } } });
+        let err = plan(&app_pkg(big), None).unwrap_err().to_string();
+        assert!(err.contains("call_ms 0"), "{err}");
         // over the bounds, before any build
         let big = serde_json::json!({ "wyrm-link": {
             "kind": "wasm", "capabilities": { "store_mb": 65 } } });

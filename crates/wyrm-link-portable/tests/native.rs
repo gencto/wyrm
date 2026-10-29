@@ -33,6 +33,7 @@ fn sample(v: Value) -> Sample {
 /// A value of -1 makes it panic. With `extra: true` it declares `extra` on its first start only.
 /// `seen` shows the last subscribed value. `arm` sets a 100 ms timer that `slow_cancel` cancels
 /// after 400 ms; `late` sets a timer whose `on_timer` takes 3 s and then writes `late` to the store.
+/// `sleep` takes 600 ms; `actions {n}` declares `n` more actions on the root.
 struct Echo {
     ticks: u64,
     armed: Option<TimerId>,
@@ -51,9 +52,17 @@ impl App for Echo {
         host.declare_node("ticks", NodeMeta::number());
         host.declare_node("reply", NodeMeta::leaf(TypeCode::String));
         host.declare_node("seen", NodeMeta::number());
-        for a in ["ping", "arm", "slow_cancel", "late"] {
+        for a in ["ping", "arm", "slow_cancel", "late", "sleep"] {
             host.declare_action("", a, ActionMeta::new().level(Perm::Write));
         }
+        // `actions {n}` declares `n` more actions on the root
+        host.declare_action(
+            "",
+            "actions",
+            ActionMeta::new()
+                .level(Perm::Write)
+                .param("n", ParamMeta::of(TypeCode::Number)),
+        );
         host.declare_action(
             "",
             "call",
@@ -127,6 +136,20 @@ impl App for Echo {
             "late" => {
                 self.late = true;
                 host.set_timer(0)?;
+                Ok(Value::Null)
+            }
+            "sleep" => {
+                std::thread::sleep(Duration::from_millis(600));
+                Ok(Value::Str("awake".into()))
+            }
+            "actions" => {
+                let n = match &args {
+                    Value::Map(m) => m.get("n").and_then(Value::as_f64).unwrap_or(0.0),
+                    _ => 0.0,
+                };
+                for i in 0..n as u32 {
+                    host.declare_action("", &format!("x{i}"), ActionMeta::new());
+                }
                 Ok(Value::Null)
             }
             "call" => {
@@ -563,5 +586,110 @@ async fn a_store_write_after_stop_gave_up_is_refused() {
     tokio::time::sleep(Duration::from_secs(2)).await;
     let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
     assert_eq!(store.get("late"), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// I2: the SDK's bound on a call is raised to `call_ms` + 1 s, so a call shorter than `call_ms`
+/// is not answered `timeout` (here the host's own bound is 300 ms).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_call_bound_covers_call_ms() {
+    let dir = data_dir("callbound");
+    let cfg = config(&[("call_ms", Value::UInt(1000))]);
+    let d = dir.clone();
+    let h = TestHarness::<Portable<Echo>>::start_with(cfg, move |c| {
+        c.data_dir = Some(d);
+        c.secrets
+            .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
+        c.driver_timeout = Duration::from_millis(300);
+    })
+    .await;
+    let r = h
+        .invoke("", "sleep", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    assert_eq!(r[0].value(), Some(str_v("awake")));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// I2: a request that waits in the queue until its caller got `timeout` is dropped, not run
+/// later (a retry would run it twice).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_that_timed_out_in_the_queue_is_not_run() {
+    let dir = data_dir("dropped");
+    // the SDK's bound: max(200 ms, call_ms 1 + 1 s) = about 1 s
+    let cfg = config(&[("call_ms", Value::UInt(1))]);
+    let d = dir.clone();
+    let h = TestHarness::<Portable<Echo>>::start_with(cfg, move |c| {
+        c.data_dir = Some(d);
+        c.secrets
+            .insert(".store_key", Secret::new(STORE_KEY.to_vec()));
+        c.driver_timeout = Duration::from_millis(200);
+    })
+    .await;
+    let r = h
+        .invoke("", "late", empty(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    // `on_timer` now holds the engine for 3 s; this set waits behind it and times out
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let t = Instant::now();
+    let att = h.set("n", 5i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Timeout, "{:?}", att.err);
+    assert!(
+        t.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        t.elapsed()
+    );
+    // the timer event ends; the set is not run after it
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    assert_eq!(last(&h, "n"), None);
+    // the link still answers
+    let att = h.set("n", 6i64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Status::Ok, "{:?}", att.err);
+    h.stop().await;
+    let store = wyrm_link_portable::store::Store::open(Some(&dir), Some(&STORE_KEY));
+    let n: Value = wyrm_core::codec::from_slice(&store.get("n").expect("n stored")).unwrap();
+    assert_eq!(n.as_f64(), Some(6.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// M5: at most 64 actions on one node; the event that declares more fails as a whole.
+#[tokio::test(flavor = "multi_thread")]
+async fn actions_per_node_are_bounded() {
+    let dir = data_dir("actions");
+    let h = start::<Echo>(config(&[]), &dir, Vec::new()).await;
+    let n = |n: u64| Value::Map(BTreeMap::from([("n".to_owned(), Value::UInt(n))]));
+    let own = h
+        .ctx()
+        .meta("")
+        .and_then(|m| m.actions)
+        .map_or(0, |a| a.len());
+    let room = (wyrm_link_api::buffer::MAX_ACTIONS - own) as u64;
+    let r = h
+        .invoke("", "actions", n(room), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    // re-declares add nothing
+    let r = h
+        .invoke("", "actions", n(room), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&r[0].att), Status::Ok, "{:?}", r[0].att.err);
+    let r = h
+        .invoke("", "actions", n(room + 1), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(
+        status(&r[0].att),
+        Status::ResourceExhausted,
+        "{:?}",
+        r[0].att.err
+    );
+    let actions = h
+        .ctx()
+        .meta("")
+        .and_then(|m| m.actions)
+        .map_or(0, |a| a.len());
+    assert_eq!(actions, wyrm_link_api::buffer::MAX_ACTIONS);
+    h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

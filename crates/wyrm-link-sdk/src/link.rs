@@ -57,6 +57,13 @@ pub trait Link: Send + Sized + 'static {
         async { Err(LinkError::not_supported("invoke")) }
     }
 
+    /// The shortest bound on one driver call this link needs with `cfg`. The SDK raises
+    /// `LinkConfig::driver_timeout` to it, so a driver whose own calls may take this long is not
+    /// answered `timeout` while the call still runs (a portable link: its `call_ms` + 1 s).
+    fn call_timeout(_cfg: &Self::Config) -> Option<std::time::Duration> {
+        None
+    }
+
     /// Graceful stop: close device connections. Bounded to 10 s by the SDK.
     fn stop(&mut self) -> impl Future<Output = ()> + Send {
         async {}

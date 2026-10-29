@@ -424,7 +424,9 @@ mod tests {
         let lib = get("src/lib.rs");
         assert!(lib.contains("impl App for AcmeX"));
         assert!(lib.contains("const NAME: &'static str = \"acme-x\";"));
-        assert!(lib.contains("#[cfg(feature = \"wasm\")]\nwyrm_link_guest::export!(AcmeX);"));
+        assert!(lib.contains(
+            "#[cfg(all(feature = \"wasm\", target_arch = \"wasm32\"))]\nwyrm_link_guest::export!(AcmeX);"
+        ));
         assert!(get("src/bin/wyrm-link-acme-x.rs")
             .contains("wyrm_link_sdk::process::main::<Portable<wyrm_link_acme_x::AcmeX>>()"));
     }

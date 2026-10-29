@@ -53,6 +53,9 @@ const STOP_WAIT: Duration = Duration::from_secs(2);
 /// `Link::start` waits this long for the app's first `start`, then returns anyway.
 const FIRST_START_WAIT: Duration = Duration::from_secs(10);
 const INPUTS: usize = 64;
+/// A request may wait this long beyond `call_ms` (the SDK's bound on a call is `call_ms` plus
+/// this, see [`Runtime::call_timeout`](Link::call_timeout)).
+pub const CALL_MARGIN: Duration = Duration::from_secs(1);
 const MIB: u64 = 1024 * 1024;
 
 const RUNNING: &str = "running";
@@ -285,6 +288,10 @@ struct Actor {
     reqs: HashMap<u64, AbortHandle>,
     paths: Paths,
     max_nodes: usize,
+    max_actions: usize,
+    /// The SDK's bound on one call (`call_ms` + [`CALL_MARGIN`]): an app action's `timeout_ms`
+    /// is raised to it.
+    call_bound_ms: u32,
     /// When the nodes of dead instances that were not declared again go.
     sweep_at: Option<Instant>,
     store: SharedStore,
@@ -524,8 +531,17 @@ impl Actor {
             self.begin_swap();
             return;
         }
-        let Some(p) = self.queue.pop_front() else {
-            return;
+        // a request whose caller is gone (the SDK answered `timeout`) is not run: a retry
+        // would run it twice
+        let p = loop {
+            let Some(p) = self.queue.pop_front() else {
+                return;
+            };
+            if p.answer.as_ref().is_some_and(|a| a.is_closed()) {
+                debug!("a queued request timed out before it ran: dropped");
+                continue;
+            }
+            break p;
         };
         self.seq += 1;
         if self
@@ -758,17 +774,48 @@ impl Actor {
         self.status = Some(want);
     }
 
+    /// Room for action `name` on `path`: a re-declare adds nothing; a new one needs room under
+    /// `max_actions`.
+    fn admit_action(&self, path: &str, name: &str) -> Result<(), AppError> {
+        let n = self
+            .ctx
+            .meta(path)
+            .and_then(|m| m.actions)
+            .filter(|a| !a.contains_key(name))
+            .map_or(0, |a| a.len());
+        if n >= self.max_actions {
+            return Err(AppError::new(
+                Status::ResourceExhausted,
+                format!("{path:?}: at most {} actions per node", self.max_actions),
+            ));
+        }
+        Ok(())
+    }
+
+    /// An action's own `timeout_ms` replaces the SDK's bound on the call: it may not be shorter
+    /// than `call_ms` + [`CALL_MARGIN`], or the caller would get `timeout` while the call runs.
+    fn bound_timeout(&self, a: &mut wyrm_core::ActionMeta) {
+        if let Some(t) = a.timeout_ms.as_mut() {
+            *t = (*t).max(self.call_bound_ms);
+        }
+    }
+
     /// Apply one event's commands in order (paths were checked by `conclude`). A new node over
     /// `max_nodes` fails the event.
     async fn apply(&mut self, cmds: Vec<Command>) -> Result<(), AppError> {
         for c in cmds {
             match c {
-                Command::DeclareNode(p, m) => {
+                Command::DeclareNode(p, mut m) => {
                     self.paths.admit(&p, self.max_nodes)?;
+                    for a in m.actions.iter_mut().flat_map(|a| a.values_mut()) {
+                        self.bound_timeout(a);
+                    }
                     self.ctx.declare_node(&p, m).await.map_err(from_link)?;
                     self.paths.declared(p);
                 }
-                Command::DeclareAction(p, name, a) => {
+                Command::DeclareAction(p, name, mut a) => {
+                    self.admit_action(&p, &name)?;
+                    self.bound_timeout(&mut a);
                     self.ctx
                         .declare_action(&p, &name, a)
                         .await
@@ -1014,6 +1061,11 @@ impl<E> Runtime<E> {
     }
 }
 
+/// The SDK's bound on one call of a portable link: `call_ms` + [`CALL_MARGIN`].
+fn call_bound(cfg: &PortableConfig) -> Duration {
+    Duration::from_millis(cfg.call_ms.into()) + CALL_MARGIN
+}
+
 impl<E> Link for Runtime<E>
 where
     E: Engine + MakeEngine<E = E>,
@@ -1021,6 +1073,12 @@ where
     const NAME: &'static str = <E as MakeEngine>::NAME;
     const VERSION: &'static str = <E as MakeEngine>::VERSION;
     type Config = PortableConfig;
+
+    /// `call_ms` + 1 s: a call may take `call_ms`, and the SDK must not answer `timeout` while it
+    /// runs (its effects would still apply, and a retry would run it twice).
+    fn call_timeout(cfg: &PortableConfig) -> Option<Duration> {
+        Some(call_bound(cfg))
+    }
 
     async fn start(cfg: PortableConfig, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
         let engine = E::make(&cfg, &ctx)?;
@@ -1058,6 +1116,7 @@ where
             .map_err(|e| LinkError::internal(format!("engine thread: {e}")))?;
 
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
+        let call_bound_ms = u32::try_from(call_bound(&cfg).as_millis()).unwrap_or(u32::MAX);
         let actor = Actor {
             client: client_of(&ctx),
             ctx,
@@ -1072,6 +1131,8 @@ where
             reqs: HashMap::new(),
             paths: Paths::default(),
             max_nodes: limits.max_nodes,
+            max_actions: limits.max_actions,
+            call_bound_ms,
             sweep_at: None,
             store: actor_store,
             seq: 0,

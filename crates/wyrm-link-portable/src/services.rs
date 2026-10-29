@@ -131,6 +131,14 @@ impl Services for RuntimeServices {
         lock(&self.store).used()
     }
 
+    fn store_keys(&self) -> usize {
+        lock(&self.store).len()
+    }
+
+    fn store_len(&self, key: &str) -> Option<usize> {
+        lock(&self.store).value_len(key)
+    }
+
     fn store_ready(&self) -> Result<(), AppError> {
         if lock(&self.store).is_ready() {
             Ok(())

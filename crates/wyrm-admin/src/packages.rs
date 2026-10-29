@@ -9,7 +9,9 @@
 //! ([`wyrm_wasm_host::component_world`]), not from the manifest: an `app`
 //! component (ADR 0023) runs as driver `app` with the manifest's
 //! `capabilities` as link params ([`link_params`]); a `driver` or `point`
-//! component runs on the framework `wasm` driver (ADR 0012).
+//! component runs on the framework `wasm` driver (ADR 0012). A `process`
+//! package may carry `capabilities` too (a portable app run as a process):
+//! they become its link params the same way, without `component`.
 
 use crate::registry::{PackageDef, PackageKind};
 use sha2::{Digest, Sha256};
@@ -76,19 +78,21 @@ pub fn dir(root: &Path, def: &PackageDef) -> PathBuf {
 /// without [`Unpacked::commit`], it removes the temp directory.
 pub struct Unpacked {
     pub def: PackageDef,
-    /// A `wasm` package of world `app`: its capabilities (defaults when the
-    /// manifest has none). `None`: a process package or a driver/point
-    /// component.
+    /// The capabilities that become the link's params: a `wasm` package of
+    /// world `app` always has them (defaults when the manifest has none); a
+    /// `process` package when its manifest names them (a portable app).
+    /// `None`: a driver/point component or a process package without them.
     pub app: Option<Capabilities>,
     tmp: PathBuf,
 }
 
-/// The params of a new link on the `wasm` package `name`: for an app
-/// (`app` = its capabilities) `component`, `net` (the allowlist joined by
-/// `,`), `store_mb`, `memory_mb` and `call_ms`, which the portable runtime
-/// takes out of the params, so the app's own config starts empty; for a
-/// driver or point component one connection `main` on it (ADR 0012).
-pub fn link_params(name: &str, app: Option<&Capabilities>) -> Value {
+/// The params of a new link on the package `name`: for an app (`app` = its
+/// capabilities) `net` (the allowlist joined by `,`), `store_mb`,
+/// `memory_mb` and `call_ms`, which the portable runtime takes out of the
+/// params, so the app's own config starts empty, plus `component` for a
+/// `wasm` one; for a driver or point component one connection `main` on it
+/// (ADR 0012); `Null` for a process package without capabilities.
+pub fn link_params(name: &str, kind: PackageKind, app: Option<&Capabilities>) -> Value {
     let map = |pairs: Vec<(&str, Value)>| {
         Value::Map(
             pairs
@@ -97,15 +101,21 @@ pub fn link_params(name: &str, app: Option<&Capabilities>) -> Value {
                 .collect::<BTreeMap<_, _>>(),
         )
     };
-    match app {
-        Some(c) => map(vec![
-            ("component", Value::from(name)),
-            ("net", Value::Str(c.net.join(","))),
-            ("store_mb", Value::UInt(c.store_mb().into())),
-            ("memory_mb", Value::UInt(c.memory_mb().into())),
-            ("call_ms", Value::UInt(c.call_ms().into())),
-        ]),
-        None => map(vec![(
+    match (kind, app) {
+        (_, Some(c)) => {
+            let mut v = vec![
+                ("net", Value::Str(c.net.join(","))),
+                ("store_mb", Value::UInt(c.store_mb().into())),
+                ("memory_mb", Value::UInt(c.memory_mb().into())),
+                ("call_ms", Value::UInt(c.call_ms().into())),
+            ];
+            if kind == PackageKind::Wasm {
+                v.push(("component", Value::from(name)));
+            }
+            map(v)
+        }
+        (PackageKind::Process, None) => Value::Null,
+        (PackageKind::Wasm, None) => map(vec![(
             "connections",
             map(vec![("main", map(vec![("component", Value::from(name))]))]),
         )]),
@@ -156,9 +166,15 @@ fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilit
         return Ok(None);
     }
     let caps = m.capabilities.clone().unwrap_or_default();
-    wyrm_wasm_host::NetPolicy::parse(&caps.net.join(","))
-        .map_err(|e| format!("invalid_parameter: capabilities.net: {e}"))?;
+    check_net(&caps)?;
     Ok(Some(caps))
+}
+
+/// `capabilities.net` parses as the link will parse it.
+fn check_net(caps: &Capabilities) -> Result<(), String> {
+    wyrm_wasm_host::NetPolicy::parse(&caps.net.join(","))
+        .map(|_| ())
+        .map_err(|e| format!("invalid_parameter: capabilities.net: {e}"))
 }
 
 /// Unpack `zip` into a new temp directory under `root` and check it: size
@@ -257,6 +273,9 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     }
     if kind == PackageKind::Wasm {
         out.app = wasm_world(&m, &entry_path, &entry)?;
+    } else if let Some(caps) = &m.capabilities {
+        check_net(caps)?;
+        out.app = Some(caps.clone());
     }
     #[cfg(unix)]
     if kind == PackageKind::Process {
@@ -416,7 +435,7 @@ pub(crate) mod tests {
         let u = unpack(&wasm_zip(&driver_component(), ""), &root, "zip", 0).unwrap();
         assert_eq!(u.app, None);
         assert_eq!(
-            link_params(&u.def.name, u.app.as_ref()),
+            link_params(&u.def.name, u.def.kind, u.app.as_ref()),
             map(vec![(
                 "connections",
                 map(vec![(
@@ -435,7 +454,7 @@ pub(crate) mod tests {
             let caps = u.app.clone().expect("an app");
             assert_eq!(caps.store_mb, Some(4));
             assert_eq!(
-                link_params(&u.def.name, Some(&caps)),
+                link_params(&u.def.name, u.def.kind, Some(&caps)),
                 map(vec![
                     ("component", Value::from("demo")),
                     ("net", Value::from("127.0.0.1:502")),
@@ -475,6 +494,50 @@ pub(crate) mod tests {
             let err = unpack(&zip, &root, "zip", 0).err().unwrap_or_default();
             assert!(err.contains(why), "{why}: got {err:?}");
         }
+    }
+
+    /// A process package may carry capabilities (a portable app run as a
+    /// process): the same params as its WASM twin, without `component`.
+    #[test]
+    fn process_capabilities_become_params() {
+        let root = root("proccaps");
+        let map = |pairs: Vec<(&str, Value)>| {
+            Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+        };
+        let zip = |extra: &str| {
+            zip_of(&[
+                (MANIFEST, &manifest(extra), 0o644),
+                ("bin/run", b"#!/bin/sh\n", 0o644),
+            ])
+        };
+        let u = unpack(&zip(""), &root, "zip", 0).unwrap();
+        assert_eq!(u.app, None);
+        assert_eq!(link_params("demo", u.def.kind, None), Value::Null);
+        let u = unpack(
+            &zip(r#", "capabilities": { "store_mb": 2, "net": ["127.0.0.1:502"] }"#),
+            &root,
+            "zip",
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            link_params(&u.def.name, u.def.kind, u.app.as_ref()),
+            map(vec![
+                ("net", Value::from("127.0.0.1:502")),
+                ("store_mb", Value::UInt(2)),
+                ("memory_mb", Value::UInt(64)),
+                ("call_ms", Value::UInt(2000)),
+            ])
+        );
+        let err = unpack(
+            &zip(r#", "capabilities": { "net": ["host:80"] }"#),
+            &root,
+            "zip",
+            0,
+        )
+        .err()
+        .unwrap_or_default();
+        assert!(err.contains("capabilities.net"), "{err}");
     }
 
     #[test]

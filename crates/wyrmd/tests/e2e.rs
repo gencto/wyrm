@@ -715,9 +715,20 @@ fn mock_package(version: &str) -> Vec<u8> {
 
 /// A process package `name` whose entry runs `wyrmd link <driver>`.
 fn driver_package(name: &str, version: &str, description: &str, driver: &str) -> Vec<u8> {
+    driver_package_with(name, version, description, driver, None)
+}
+
+/// [`driver_package`] with `capabilities` in its manifest (a portable app as a process).
+fn driver_package_with(
+    name: &str,
+    version: &str,
+    description: &str,
+    driver: &str,
+    capabilities: Option<serde_json::Value>,
+) -> Vec<u8> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
-    let manifest = serde_json::json!({
+    let mut manifest = serde_json::json!({
         "name": name,
         "version": version,
         "description": description,
@@ -725,6 +736,9 @@ fn driver_package(name: &str, version: &str, description: &str, driver: &str) ->
         "kind": "process",
         "entries": { wyrm_admin::packages::platform(): "bin/run" },
     });
+    if let Some(c) = capabilities {
+        manifest["capabilities"] = c;
+    }
     let script = format!(
         "#!/bin/sh\nexec \"{}\" link {driver}\n",
         env!("CARGO_BIN_EXE_wyrmd")
@@ -1224,6 +1238,11 @@ async fn wasm_link_reads_a_device_over_tcp() {
 /// The `Echo` app of `links/wasm/tests/app_fixture` built for wasm32 and made a component, as
 /// `wyr link pack` does for `kind = "wasm"`; `None` without the wasm32 target.
 fn echo_app_component() -> Option<Vec<u8>> {
+    echo_app_component_with("")
+}
+
+/// The fixture app with cargo `features` (`v2`: the "new code", which also declares `v2`).
+fn echo_app_component_with(features: &str) -> Option<Vec<u8>> {
     use std::process::Command;
     let libdir = Command::new("rustc")
         .args([
@@ -1243,13 +1262,20 @@ fn echo_app_component() -> Option<Vec<u8>> {
     let fixture = repo.join("links/wasm/tests/app_fixture");
     // its own workspace: seed the lock file from the main one (same versions)
     std::fs::copy(repo.join("Cargo.lock"), fixture.join("Cargo.lock")).expect("copy Cargo.lock");
-    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("app-fixture");
+    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!(
+            "app-fixture{}",
+            if features.is_empty() { "" } else { "-" }
+        ))
+        .join(features);
     let out = Command::new(env!("CARGO"))
         .args([
             "build",
             "--release",
             "--target",
             "wasm32-unknown-unknown",
+            "--features",
+            features,
             "--manifest-path",
         ])
         .arg(fixture.join("Cargo.toml"))
@@ -1401,6 +1427,264 @@ async fn portable_app_installs_as_wasm() {
         .await
         .unwrap();
     assert_eq!(pong, Some(Value::Str("pong".into())));
+    env.stop().await;
+}
+
+/// A `wasm` package `name` of the app fixture, world `app`, with `capabilities`.
+fn echo_app_zip(
+    name: &str,
+    version: &str,
+    component: &[u8],
+    capabilities: wyrm_link_sdk::package::Capabilities,
+) -> Vec<u8> {
+    use wyrm_link_sdk::package::{self, Manifest, PackFile};
+    let entry = format!("{name}.wasm");
+    let m = Manifest {
+        name: name.into(),
+        version: version.into(),
+        description: "the echo app".into(),
+        wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+        kind: "wasm".into(),
+        entries: Default::default(),
+        args: Vec::new(),
+        entry: Some(entry.clone()),
+        requester: Vec::new(),
+        world: Some("app".into()),
+        capabilities: Some(capabilities),
+    };
+    let files = [PackFile {
+        path: entry,
+        data: component.to_vec(),
+        mode: 0o644,
+    }];
+    package::pack(&m, &files).unwrap()
+}
+
+/// `install_zip {name, zip}` and its `(success, message)`.
+async fn install_zip(c: &WyrmClient, name: &str, zip: Vec<u8>) -> (bool, String) {
+    let args = Value::Map(BTreeMap::from([
+        ("name".to_owned(), Value::from(name)),
+        ("zip".to_owned(), Value::Bytes(zip)),
+    ]));
+    let v = c
+        .invoke_one(&format!("wy/{SITE}/sys/links"), "install_zip", args)
+        .await
+        .unwrap();
+    let Some(Value::Map(m)) = v else {
+        panic!("result map: {v:?}")
+    };
+    let msg = match m.get("message") {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("message: {other:?}"),
+    };
+    (m.get("success") == Some(&Value::Bool(true)), msg)
+}
+
+fn status_of(e: &wyrm_client::ClientError) -> Option<wyrm_core::Status> {
+    match e.status {
+        wyrm_core::status::StatusCode::Known(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// I1: `update` and `rollback` of an app package link (`pkg:<name>`) are checked by the driver
+/// it runs on (`app`) and take effect: `store_mb: 0` refuses the store write of `set n`, the
+/// rollback gives the store back; params the `app` driver refuses are refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn portable_app_update_and_rollback() {
+    use wyrm_link_sdk::package::Capabilities;
+    let Some(component) = echo_app_component() else {
+        eprintln!("SKIP portable_app_update_and_rollback: no wasm32-unknown-unknown target");
+        return;
+    };
+    let env = Env::start("appupd", "").await;
+    let c = env.client().await.with_timeout(Duration::from_secs(10));
+    let caps = Capabilities {
+        store_mb: Some(1),
+        ..Capabilities::default()
+    };
+    let (ok, msg) = install_zip(&c, "u1", echo_app_zip("echoupd", "1.0.0", &component, caps)).await;
+    assert!(ok, "{msg}");
+    let root = format!("wy/{SITE}/downstream/u1");
+    let node = format!("wy/{SITE}/sys/links/u1");
+    let set_n = |v: u64| {
+        let c = &c;
+        let key = format!("{root}/n");
+        async move { c.set(&key, Value::UInt(v)).await }
+    };
+    eventually("set n on the first start", 20, || async {
+        set_n(5).await.ok()
+    })
+    .await;
+    let params = |store_mb: Value| {
+        Value::Map(BTreeMap::from([(
+            "params".to_owned(),
+            Value::Map(BTreeMap::from([
+                ("net".to_owned(), Value::from("")),
+                ("store_mb".to_owned(), store_mb),
+                ("call_ms".to_owned(), Value::UInt(2000)),
+            ])),
+        )]))
+    };
+
+    // the `app` driver checks the params: over the bound, or another package's component
+    let err = c
+        .invoke_one(&node, "update", params(Value::UInt(65)))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        status_of(&err),
+        Some(wyrm_core::Status::InvalidParameter),
+        "{err}"
+    );
+    let mut other = params(Value::UInt(1));
+    if let Value::Map(m) = &mut other {
+        if let Some(Value::Map(p)) = m.get_mut("params") {
+            p.insert("component".into(), Value::from("someone-else"));
+        }
+    }
+    let err = c.invoke_one(&node, "update", other).await.unwrap_err();
+    assert_eq!(
+        status_of(&err),
+        Some(wyrm_core::Status::InvalidParameter),
+        "{err}"
+    );
+
+    // store_mb 0: the restarted link refuses the store write
+    let rev = c
+        .invoke_one(&node, "update", params(Value::UInt(0)))
+        .await
+        .unwrap();
+    assert_eq!(rev, Some(Value::UInt(2)));
+    let refused = eventually("set n refused by the empty store", 20, || async {
+        match set_n(6).await {
+            Err(e) if status_of(&e) == Some(wyrm_core::Status::ResourceExhausted) => Some(e),
+            _ => None,
+        }
+    })
+    .await;
+    assert!(refused.to_string().contains("store"), "{refused}");
+
+    // rollback to rev 1: the store takes writes again, and kept `n`
+    let rev = c
+        .invoke_one(
+            &node,
+            "rollback",
+            Value::Map(BTreeMap::from([("rev".to_owned(), Value::UInt(1))])),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rev, Some(Value::UInt(3)));
+    eventually("n from the store after the rollback", 20, || async {
+        (last_val(&c, &format!("{root}/n")).await == Some(Value::UInt(5))).then_some(())
+    })
+    .await;
+    eventually("set n after the rollback", 20, || async {
+        set_n(7).await.ok()
+    })
+    .await;
+    env.stop().await;
+}
+
+/// M1: an upgrade of an app package is a hot start (ADR 0023): the link's code is swapped in
+/// place, the link is never removed (its liveliness token stays), the old instance's `stop`
+/// runs, the store carries over and the new code answers (it declares `v2`).
+#[tokio::test(flavor = "multi_thread")]
+async fn portable_app_upgrade_is_a_hot_start() {
+    use wyrm_link_sdk::package::Capabilities;
+    let (Some(v1), Some(v2)) = (echo_app_component(), echo_app_component_with("v2")) else {
+        eprintln!("SKIP portable_app_upgrade_is_a_hot_start: no wasm32-unknown-unknown target");
+        return;
+    };
+    let env = Env::start("apphot", "").await;
+    let c = env.client().await.with_timeout(Duration::from_secs(10));
+    let caps = Capabilities::default;
+    let (ok, msg) = install_zip(&c, "h1", echo_app_zip("echohot", "1.0.0", &v1, caps())).await;
+    assert!(ok, "{msg}");
+    let root = format!("wy/{SITE}/downstream/h1");
+    let ping = || {
+        let c = &c;
+        let root = root.clone();
+        async move {
+            c.invoke_one(&root, "ping", Value::Map(BTreeMap::new()))
+                .await
+                .ok()
+                .flatten()
+        }
+    };
+    assert_eq!(
+        eventually("ping on v1", 20, || async { ping().await }).await,
+        Value::Str("pong".into())
+    );
+    c.set(&format!("{root}/n"), Value::UInt(5)).await.unwrap();
+    let starts = format!("{root}/starts");
+    eventually("first start", 10, || async {
+        (last_val(&c, &starts).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
+    assert!(!c
+        .children(&root)
+        .await
+        .unwrap()
+        .iter()
+        .any(|ch| ch.name == "v2"));
+
+    // the link's presence, watched across the upgrade
+    let s = env.session().await;
+    let presence = s
+        .liveliness()
+        .declare_subscriber(root.as_str())
+        .await
+        .unwrap();
+    let (ok, msg) = install_zip(&c, "h1", echo_app_zip("echohot", "1.0.1", &v2, caps())).await;
+    assert!(ok && msg.contains("1.0.0 → 1.0.1"), "{msg}");
+    assert!(!msg.contains("not restarted"), "{msg}");
+    eventually("the new code declares v2", 20, || async {
+        c.children(&root)
+            .await
+            .ok()?
+            .iter()
+            .any(|ch| ch.name == "v2")
+            .then_some(())
+    })
+    .await;
+    eventually("second start on the kept store", 20, || async {
+        (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
+    })
+    .await;
+    assert_eq!(
+        last_val(&c, &format!("{root}/stopped")).await,
+        Some(Value::Float(1.0))
+    );
+    assert_eq!(
+        last_val(&c, &format!("{root}/n")).await,
+        Some(Value::UInt(5))
+    );
+    assert_eq!(ping().await, Some(Value::Str("pong".into())));
+    // never removed: no liveliness delete for the link
+    while let Ok(Some(sample)) = presence.try_recv() {
+        assert_ne!(
+            sample.kind(),
+            zenoh::sample::SampleKind::Delete,
+            "the link went away during the upgrade"
+        );
+    }
+    let audit = env.ctl.audit_tail(50);
+    assert!(
+        audit.iter().any(|r| r.op == "hot_start" && r.key == "h1"),
+        "{audit:?}"
+    );
+    assert!(
+        !audit.iter().any(|r| r.op == "stop" && r.key == "h1"),
+        "{audit:?}"
+    );
+    // the install record names what the links may use (M6)
+    assert!(
+        audit.iter().any(|r| r.op == "package_install"
+            && r.key == "echohot"
+            && r.detail.contains("capabilities net none, store 1 MiB")),
+        "{audit:?}"
+    );
     env.stop().await;
 }
 
@@ -1624,13 +1908,21 @@ async fn one_app_three_modes() {
     // the process package last: its install rebuilds the router (which restarts the embedded
     // links); the process link answers only through the new router, so once it does, the
     // broker has settled
-    let zip = driver_package(
+    // with the same capabilities as its WASM twin: they become its params (I1)
+    let zip = driver_package_with(
         "portable-echo-process",
         "1.0.0",
         "the portable example as a process",
         "portable-echo",
+        Some(serde_json::json!({ "store_mb": 1 })),
     );
-    ok(invoke_retry(&env, &links, "install_zip", install("pp", zip)).await);
+    let r = invoke_retry(&env, &links, "install_zip", install("pp", zip)).await;
+    assert!(
+        matches!(&r, Some(Value::Map(m)) if matches!(m.get("message"),
+            Some(Value::Str(s)) if s.contains("capabilities net none, store 1 MiB"))),
+        "{r:?}"
+    );
+    ok(r);
     ids.push("pp");
     invoke_retry(
         &env,

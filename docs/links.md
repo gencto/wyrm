@@ -112,7 +112,7 @@ The framework keeps that tree in the link's data directory.
 |---|---|
 | Install the same package (same version, same bytes) under another *Name* | A second link of the same package. The files are reused. |
 | Install the same version with other bytes | Refused: `… is installed with other content`. Raise the version. |
-| Install a new version (any *Name* that runs the package, or a new one) | The new version replaces the old one. Every link of the package restarts on it. The old files are deleted. Links keep their devices and points. |
+| Install a new version (any *Name* that runs the package, or a new one) | The new version replaces the old one. Every link of the package restarts on it; a running link of an app component gets the new code in place instead (hot start, section 9). The old files are deleted. Links keep their devices and points. A link that does not start is named in the result (`not restarted: <id> (<error>)`); the others run the new version. |
 | `sys/links/<id>` ▸ Remove | The link stops and goes away. A process or external link's id is **retired**: its certificate stays valid until it expires, so the id cannot be used again (ADR 0006). |
 | `sys/packages/<name>` ▸ Remove | Refused while a link runs the package. Otherwise the package files and its WASM component are deleted. |
 
@@ -161,7 +161,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 10). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
 | `entry` | `wasm` | The component file. |
 | `world` | no | `wasm`: `app`, `driver` or `point`. Informational: the broker reads the world from the component's exports and refuses a package whose `world` says otherwise. |
-| `capabilities` | no | `wasm` app only: `{"net": ["10.0.5.0/24:502"], "store_mb": 4, "memory_mb": 64, "call_ms": 2000}` (section 9). |
+| `capabilities` | no | A portable app (`wasm` app component or `process`): `{"net": ["10.0.5.0/24:502"], "store_mb": 4, "memory_mb": 64, "call_ms": 2000}` (section 9). |
 
 Unknown fields are refused, so a typo does not pass silently.
 
@@ -382,15 +382,36 @@ become the link's params:
 |---|---|---|---|
 | `net` | none | entries as in section 8 | Where the app may connect (`tcp_connect`). |
 | `store_mb` | 1 | 0–64 | Size of the store; 0 refuses every write. |
-| `memory_mb` | 64 | 1–512 | Linear memory of one instance. |
+| `memory_mb` | 64 | 1–512 | Linear memory of one instance (all its memories together). |
 | `call_ms` | 2000 | 1–10000 | Time of one call (also caps network waits). |
+
+The install result and the `package_install` audit record list the
+capabilities and the `requester` grants. A `process` package of the same
+app may carry the same `capabilities` (`wyr link pack --kind process`
+keeps them): they become its params too, without `component`.
 
 `requester` grants (section 10) apply as for a process package. Later
 changes go the usual ways: grants with Grant Access, the others with the
-link's `update` (params). An upgrade (a new version of the package) keeps
-the params of the links on it and restarts them on the new component and
-the same store. *Install Link ▸ from WASM* with an app component installs
-it with the default capabilities.
+link's `update` (params) or `rollback`. The broker checks the new params
+with the driver the link runs on (`app` for an app component); it does not
+check a process package's params: its binary parses them when it starts.
+
+An upgrade (a new version of the package) keeps the params of the links on
+it. A running app link gets the new code in place (**hot start**): the
+link is not stopped and its tree stays, the old instance's `stop` runs (at
+most 2 s), requests in flight get `busy`, and the new code starts at once
+on the same store (audit op `hot_start`). *Install Link ▸ from WASM* with
+an app component installs it with the default capabilities.
+
+**Bounds of the store:** each entry counts its key and value rounded up to
+4 KiB, and at least 4 KiB (a 1 MiB store holds at most 256 entries); at
+most 10 000 keys; a key is 1 to 256 bytes. Over a bound, `store_put` fails
+with `resource_exhausted`. A write that does not grow the store passes even
+over a smaller `store_mb`.
+
+**Call time:** a `set` or `invoke` of a portable link may take `call_ms`;
+the broker waits `call_ms` + 1 s before it answers `timeout`. A request
+that was answered `timeout` while it waited in the queue is not run.
 
 The broker tells the world from the component's exports: an `app`
 component runs on the driver `app`; a `driver` or `point` component on the
@@ -522,8 +543,9 @@ network starts as usual: the field then says why the list is empty. Without
 | `git clone` | 120 s, depth 1, HTTPS only, needs `git` on the broker host |
 | WASM component | 16 MiB |
 | WASM call, `driver`/`point` component (section 8) | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
-| WASM call, `app` component (section 9) | `call_ms` (2 s, at most 10 s), fuel 1 M per ms of `call_ms`, `memory_mb` (64 MiB, at most 512 MiB) |
-| Portable link (every mode) | 10 000 nodes, 1 000 timers, 1 000 subscriptions, 100 requests in flight, 1 000 commands per event; store `store_mb` (1 MiB, at most 64 MiB) |
+| WASM call, `app` component (section 9) | `call_ms` (2 s, at most 10 s), fuel 1 M per ms of `call_ms`, `memory_mb` per instance (64 MiB, at most 512 MiB) |
+| Portable link (every mode) | 10 000 nodes, 64 actions per node, 1 000 timers, 1 000 subscriptions, 100 requests in flight, 1 000 commands per event; a `set`/`invoke` waits `call_ms` + 1 s |
+| Portable link store | `store_mb` (1 MiB, at most 64 MiB); each entry at least 4 KiB (rounded up to 4 KiB); 10 000 keys; key 1–256 bytes |
 | WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
 
 ## 15. When an install fails

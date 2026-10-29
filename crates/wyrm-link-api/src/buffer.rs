@@ -15,6 +15,34 @@ fn exhausted(what: &str) -> AppError {
     AppError::new(Status::ResourceExhausted, what)
 }
 
+/// Store quota unit: each entry costs its key and value length rounded up to this, and at least
+/// this (one file per key on disk, ADR 0023).
+pub const STORE_BLOCK: u64 = 4096;
+/// Longest store key, in bytes.
+pub const MAX_STORE_KEY_LEN: usize = 256;
+/// Keys in one link's store.
+pub const MAX_STORE_KEYS: usize = 10_000;
+/// Actions on one node.
+pub const MAX_ACTIONS: usize = 64;
+
+/// What one store entry counts toward the quota: key and value length in [`STORE_BLOCK`]s,
+/// at least one block.
+pub fn store_cost(key_len: usize, value_len: usize) -> u64 {
+    let n = (key_len as u64).saturating_add(value_len as u64);
+    n.div_ceil(STORE_BLOCK).max(1).saturating_mul(STORE_BLOCK)
+}
+
+/// An action name: one key segment, not `.` or `..` (it becomes `~act/<name>`).
+pub fn check_action_name(name: &str) -> Result<(), AppError> {
+    if matches!(name, "." | "..") || keyspace::validate_segment(name).is_err() {
+        return Err(AppError::new(
+            Status::InvalidParameter,
+            format!("{name:?} is not an action name (one key segment)"),
+        ));
+    }
+    Ok(())
+}
+
 /// One effect of an event, applied by the runtime after the event returns.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -38,8 +66,15 @@ pub enum Command {
 pub trait Services {
     fn now_us(&self) -> u64;
     fn store_get(&self, key: &str) -> Option<Vec<u8>>;
-    /// Bytes in the link's store now, without this event's pending writes.
+    /// Quota the link's store uses now ([`store_cost`] of each entry), without this event's
+    /// pending writes.
     fn store_used(&self) -> u64;
+    /// Keys in the link's store now, without this event's pending writes.
+    fn store_keys(&self) -> usize;
+    /// The value length of `key` in the store now; `None` when absent.
+    fn store_len(&self, key: &str) -> Option<usize> {
+        self.store_get(key).map(|v| v.len())
+    }
     /// `Err` when this host gives the link no store (no data directory or no store key):
     /// `store_put` then fails with this error at once.
     fn store_ready(&self) -> Result<(), AppError> {
@@ -65,7 +100,11 @@ pub struct Limits {
     pub max_subs: usize,
     pub max_inflight: usize,
     pub max_commands: usize,
+    /// Quota of the store, counted in [`store_cost`].
     pub store_bytes: u64,
+    pub max_store_keys: usize,
+    /// Actions per node. Like `max_nodes`, the runtime enforces it (only it sees the tree).
+    pub max_actions: usize,
 }
 
 impl Default for Limits {
@@ -77,6 +116,8 @@ impl Default for Limits {
             max_inflight: 100,
             max_commands: 1_000,
             store_bytes: 1024 * 1024,
+            max_store_keys: MAX_STORE_KEYS,
+            max_actions: MAX_ACTIONS,
         }
     }
 }
@@ -213,11 +254,33 @@ impl BufferHost {
         Ok(())
     }
 
-    fn pending_bytes(&self) -> u64 {
-        self.pending
-            .iter()
-            .filter_map(|(k, v)| v.as_ref().map(|v| (k.len() + v.len()) as u64))
-            .sum()
+    /// Store quota and keys after this event's pending writes, with `pending[key]` replaced by
+    /// `next` (`Some(len)` = a put of that length, `None` = a delete). An overwrite costs only the
+    /// difference to the stored entry and is never a new key.
+    fn store_after(&self, key: &str, next: Option<Option<usize>>) -> (u64, usize) {
+        let mut used = self.services.store_used();
+        let mut keys = self.services.store_keys();
+        let mut account = |k: &str, put: Option<usize>| {
+            let stored = self.services.store_len(k);
+            if let Some(len) = stored {
+                used = used.saturating_sub(store_cost(k.len(), len));
+                keys = keys.saturating_sub(1);
+            }
+            if let Some(len) = put {
+                used = used.saturating_add(store_cost(k.len(), len));
+                keys += 1;
+            }
+        };
+        for (k, v) in &self.pending {
+            if next.is_some() && k == key {
+                continue;
+            }
+            account(k, v.as_ref().map(Vec::len));
+        }
+        if let Some(put) = next {
+            account(key, put);
+        }
+        (used, keys)
     }
 
     fn request(&mut self, key: &str, perm: Perm) -> Result<ReqId, AppError> {
@@ -234,10 +297,27 @@ impl BufferHost {
 impl Host for BufferHost {
     fn declare_node(&mut self, path: &str, meta: NodeMeta) {
         // `max_nodes` is the runtime's: only it knows whether `path` is new.
+        if let Some(actions) = &meta.actions {
+            if actions.len() > self.limits.max_actions {
+                self.fail(exhausted(&format!(
+                    "{path:?}: at most {} actions per node",
+                    self.limits.max_actions
+                )));
+                return;
+            }
+            if let Some(e) = actions.keys().find_map(|n| check_action_name(n).err()) {
+                self.fail(e);
+                return;
+            }
+        }
         self.push(Command::DeclareNode(path.to_owned(), meta));
     }
 
     fn declare_action(&mut self, path: &str, name: &str, action: ActionMeta) {
+        if let Err(e) = check_action_name(name) {
+            self.fail(e);
+            return;
+        }
         self.push(Command::DeclareAction(
             path.to_owned(),
             name.to_owned(),
@@ -282,21 +362,24 @@ impl Host for BufferHost {
 
     fn store_put(&mut self, key: &str, value: &[u8]) -> Result<(), AppError> {
         self.services.store_ready()?;
-        let others = self.pending_bytes()
-            - self
-                .pending
-                .get(key)
-                .and_then(|v| v.as_ref())
-                .map_or(0, |v| (key.len() + v.len()) as u64);
-        let new = (key.len() + value.len()) as u64;
-        if self
-            .services
-            .store_used()
-            .saturating_add(others)
-            .saturating_add(new)
-            > self.limits.store_bytes
-        {
+        if key.is_empty() || key.len() > MAX_STORE_KEY_LEN {
+            return Err(exhausted(&format!(
+                "a store key is 1 to {MAX_STORE_KEY_LEN} bytes"
+            )));
+        }
+        let (used_now, keys_now) = self.store_after(key, None);
+        let (used, keys) = self.store_after(key, Some(Some(value.len())));
+        // a write that does not grow the store passes even over the quota (after a smaller
+        // `store_mb`), so the app can shrink it; a quota of 0 refuses every write
+        let quota = self.limits.store_bytes;
+        if quota == 0 || (used > quota && used > used_now) {
             return Err(exhausted("store is full"));
+        }
+        if keys > self.limits.max_store_keys && keys > keys_now {
+            return Err(exhausted(&format!(
+                "too many store keys (at most {})",
+                self.limits.max_store_keys
+            )));
         }
         self.room()?;
         self.pending.insert(key.to_owned(), Some(value.to_vec()));
@@ -306,6 +389,10 @@ impl Host for BufferHost {
     }
 
     fn store_delete(&mut self, key: &str) {
+        // no such key can be stored
+        if key.is_empty() || key.len() > MAX_STORE_KEY_LEN {
+            return;
+        }
         if self.room().is_ok() {
             self.pending.insert(key.to_owned(), None);
             self.cmds.push(Command::StoreDelete(key.to_owned()));
@@ -337,6 +424,7 @@ impl Host for BufferHost {
     }
 
     fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError> {
+        check_action_name(action)?;
         let id = self.request(key, Perm::Read)?;
         self.cmds
             .push(Command::Invoke(id, key.to_owned(), action.to_owned(), args));
@@ -368,22 +456,31 @@ impl Host for BufferHost {
 mod tests {
     use super::*;
     use crate::{AppError, ConnId, Host, Level};
-    use wyrm_core::{Perm, Quality, Sample, Status, Value};
+    use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, Value};
 
     struct FakeServices {
         used: u64,
         allow: bool,
+        stored: HashMap<String, Vec<u8>>,
     }
 
     impl Services for FakeServices {
         fn now_us(&self) -> u64 {
             42
         }
-        fn store_get(&self, _key: &str) -> Option<Vec<u8>> {
-            None
+        fn store_get(&self, key: &str) -> Option<Vec<u8>> {
+            self.stored.get(key).cloned()
         }
         fn store_used(&self) -> u64 {
             self.used
+                + self
+                    .stored
+                    .iter()
+                    .map(|(k, v)| store_cost(k.len(), v.len()))
+                    .sum::<u64>()
+        }
+        fn store_keys(&self) -> usize {
+            self.stored.len()
         }
         fn may(&self, _key: &str, _perm: Perm) -> bool {
             self.allow
@@ -402,7 +499,11 @@ mod tests {
 
     fn host(used: u64, allow: bool, limits: Limits) -> BufferHost {
         BufferHost::new(
-            Box::new(FakeServices { used, allow }),
+            Box::new(FakeServices {
+                used,
+                allow,
+                stored: HashMap::new(),
+            }),
             limits,
             Counts::default(),
             1,
@@ -460,6 +561,9 @@ mod tests {
             fn store_used(&self) -> u64 {
                 0
             }
+            fn store_keys(&self) -> usize {
+                0
+            }
             fn store_ready(&self) -> Result<(), AppError> {
                 Err(AppError::new(Status::NotSupported, "no store"))
             }
@@ -483,6 +587,7 @@ mod tests {
             Box::new(NoStore(FakeServices {
                 used: 0,
                 allow: true,
+                stored: HashMap::new(),
             })),
             Limits::default(),
             Counts::default(),
@@ -497,13 +602,132 @@ mod tests {
     #[test]
     fn store_put_replacing_a_key_counts_the_new_size_once() {
         let limits = Limits {
-            store_bytes: 10,
+            store_bytes: STORE_BLOCK,
             ..Limits::default()
         };
         let mut h = host(0, true, limits);
         h.store_put("a", &[0; 8]).unwrap();
         h.store_put("a", &[0; 8]).unwrap();
         assert!(h.store_put("b", &[0; 8]).is_err());
+    }
+
+    fn stored_host(stored: &[(&str, usize)], limits: Limits) -> BufferHost {
+        BufferHost::new(
+            Box::new(FakeServices {
+                used: 0,
+                allow: true,
+                stored: stored
+                    .iter()
+                    .map(|(k, n)| ((*k).to_owned(), vec![0; *n]))
+                    .collect(),
+            }),
+            limits,
+            Counts::default(),
+            1,
+            "wy/s".into(),
+        )
+    }
+
+    #[test]
+    fn each_store_entry_costs_at_least_one_block() {
+        assert_eq!(store_cost(1, 0), STORE_BLOCK);
+        assert_eq!(store_cost(1, 4095), STORE_BLOCK);
+        assert_eq!(store_cost(1, 4096), 2 * STORE_BLOCK);
+        let limits = Limits {
+            store_bytes: 3 * STORE_BLOCK,
+            ..Limits::default()
+        };
+        let mut h = host(0, true, limits);
+        for k in ["a", "b", "c"] {
+            h.store_put(k, &[1]).unwrap();
+        }
+        assert!(exhausted(&h.store_put("d", &[1]).unwrap_err()));
+        // a delete in the same event makes room
+        h.store_delete("a");
+        h.store_put("d", &[1]).unwrap();
+    }
+
+    #[test]
+    fn a_full_store_still_takes_overwrites_and_shrinks() {
+        let limits = Limits {
+            store_bytes: 2 * STORE_BLOCK,
+            ..Limits::default()
+        };
+        // full: two one-block entries
+        let mut h = stored_host(&[("a", 10), ("b", 10)], limits.clone());
+        h.store_put("a", &[0; 100]).unwrap();
+        assert!(exhausted(&h.store_put("c", &[1]).unwrap_err()));
+        assert!(exhausted(&h.store_put("a", &[0; 5000]).unwrap_err()));
+        h.finish().unwrap();
+        // over the quota (it was made smaller): a write that does not grow passes
+        let small = Limits {
+            store_bytes: STORE_BLOCK,
+            ..Limits::default()
+        };
+        let mut h = stored_host(&[("a", 10), ("b", 10)], small);
+        h.store_put("a", &[1]).unwrap();
+        assert!(exhausted(&h.store_put("c", &[1]).unwrap_err()));
+        // but a quota of 0 (`store_mb: 0`) takes nothing
+        let none = Limits {
+            store_bytes: 0,
+            ..Limits::default()
+        };
+        let mut h = stored_host(&[("a", 10)], none);
+        assert!(exhausted(&h.store_put("a", &[1]).unwrap_err()));
+    }
+
+    #[test]
+    fn store_keys_are_bounded_in_number_and_length() {
+        let limits = Limits {
+            max_store_keys: 2,
+            ..Limits::default()
+        };
+        let mut h = stored_host(&[("a", 1)], limits);
+        h.store_put("b", &[1]).unwrap();
+        let e = h.store_put("c", &[1]).unwrap_err();
+        assert!(exhausted(&e), "{e:?}");
+        // an overwrite is not a new key
+        h.store_put("a", &[2]).unwrap();
+        h.store_put("b", &[2]).unwrap();
+        h.store_delete("a");
+        h.store_put("c", &[1]).unwrap();
+        h.finish().unwrap();
+
+        let mut h = host(0, true, Limits::default());
+        h.store_put(&"k".repeat(MAX_STORE_KEY_LEN), &[1]).unwrap();
+        for bad in [String::new(), "k".repeat(MAX_STORE_KEY_LEN + 1)] {
+            assert!(exhausted(&h.store_put(&bad, &[1]).unwrap_err()));
+        }
+        assert_eq!(h.finish().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn action_names_are_one_segment_and_bounded_per_node() {
+        let mut h = host(0, true, Limits::default());
+        for bad in ["*", "a/b", ".", "..", "", "$x", "~x", "a*"] {
+            let e = h.invoke("wy/s/x", bad, Value::Null).unwrap_err();
+            assert_eq!(e.status, Status::InvalidParameter, "{bad:?}");
+            h.declare_action("", bad, ActionMeta::new());
+            let e = h.finish().unwrap_err();
+            assert_eq!(e.status, Status::InvalidParameter, "{bad:?}");
+        }
+        h.declare_action("", "go.now", ActionMeta::new());
+        assert!(h.invoke("wy/s/x", "go-now", Value::Null).is_ok());
+        assert_eq!(h.finish().unwrap().len(), 2);
+
+        // inline actions of a node: the same names, at most `max_actions`
+        let with = |names: Vec<String>| NodeMeta {
+            actions: Some(names.into_iter().map(|n| (n, ActionMeta::new())).collect()),
+            ..NodeMeta::default()
+        };
+        h.declare_node("p", with(vec!["a/b".into()]));
+        assert_eq!(h.finish().unwrap_err().status, Status::InvalidParameter);
+        let many = (0..=MAX_ACTIONS).map(|i| format!("a{i}")).collect();
+        h.declare_node("p", with(many));
+        assert!(exhausted(&h.finish().unwrap_err()));
+        let enough = (0..MAX_ACTIONS).map(|i| format!("a{i}")).collect();
+        h.declare_node("p", with(enough));
+        assert_eq!(h.finish().unwrap().len(), 1);
     }
 
     #[test]
@@ -546,6 +770,7 @@ mod tests {
             Box::new(FakeServices {
                 used: 0,
                 allow: true,
+                stored: HashMap::new(),
             }),
             limits,
             counts,
@@ -604,6 +829,7 @@ mod tests {
                 Box::new(FakeServices {
                     used: 0,
                     allow: true,
+                    stored: HashMap::new(),
                 }),
                 Limits::default(),
                 Counts::default(),
