@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use wyrm_core::{keyspace, Quality, Sample, Status, Value};
 use wyrm_link_api::{AppError, Host, Level, ReqId, SubId, Who};
-use wyrm_schedule::{value_from_json, Micros, Source, State};
+use wyrm_schedule::{finite, value_from_json, Micros, Source, State};
 
 use crate::limits::{
     Counted, CONFIRM_TIMEOUT_MS, DEFAULT_TOLERANCE, FIRST_SAMPLE_MS, MAX_INFLIGHT, MAX_SUBS,
@@ -250,8 +250,16 @@ fn check_key(field: &str, key: &str) -> Result<(), AppError> {
 }
 
 /// A map of schedule values to values: a map, or its JSON text. `None`: absent (an edit keeps
-/// it); null, `""` or `{}`: none.
+/// it); null, `""` or `{}`: none. A value that is not finite (NaN, infinity) is refused.
 fn value_map(m: &Args, k: &str) -> Result<Option<BTreeMap<String, Value>>, AppError> {
+    let map = any_map(m, k)?;
+    if map.as_ref().is_some_and(|x| !x.values().all(finite)) {
+        return Err(invalid(k, "a number must be finite (no NaN or infinity)"));
+    }
+    Ok(map)
+}
+
+fn any_map(m: &Args, k: &str) -> Result<Option<BTreeMap<String, Value>>, AppError> {
     let bad = || invalid(k, "a map of schedule values to values (a JSON object)");
     match m.get(k) {
         None => Ok(None),
@@ -590,6 +598,15 @@ impl Subs {
         }
         if s.holders.is_empty() {
             self.drop_key(cx, key);
+        }
+    }
+
+    /// A sample of subscription `sub` that is not good: its key's last value is unknown, so an
+    /// `ok` reply cannot confirm on the value before it.
+    fn unknown(&mut self, sub: SubId) {
+        let s = self.by_id.get(&sub).and_then(|k| self.by_key.get_mut(k));
+        if let Some(s) = s {
+            s.last = None;
         }
     }
 
@@ -1134,6 +1151,7 @@ impl Scheduler {
     /// rest waits for the next batches.
     pub(crate) fn value(&mut self, cx: &mut Counted, sub: SubId, sample: Sample) {
         if sample.q != Quality::Good {
+            self.w.subs.unknown(sub);
             return;
         }
         let Some(holders) = self.w.subs.sample(sub, &sample.v) else {

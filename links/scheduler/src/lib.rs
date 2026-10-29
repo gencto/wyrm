@@ -874,8 +874,20 @@ impl Scheduler {
         Ok(Value::Null)
     }
 
+    /// Refused while the schedule has targets: they are configuration (ruling 6, R20), and
+    /// `remove` is at `write`.
     fn remove_schedule(&mut self, cx: &mut Counted, sid: &str) -> Result<Value, AppError> {
-        let n = self.sched(sid)?.nodes();
+        let s = self.sched(sid)?;
+        if !s.targets.is_empty() {
+            return Err(AppError::new(
+                Status::InvalidParameter,
+                format!(
+                    "{sid} has {} targets: remove its targets first",
+                    s.targets.len()
+                ),
+            ));
+        }
+        let n = s.nodes();
         let ids: Vec<String> = self.index.iter().filter(|i| *i != sid).cloned().collect();
         store::remove(cx, sid, &ids)?;
         self.index = ids;

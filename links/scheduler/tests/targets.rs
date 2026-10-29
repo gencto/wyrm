@@ -697,12 +697,16 @@ fn disable_and_remove() {
     assert!(outcome(&h, "o/lobby/t1").is_none());
     assert_eq!(h.subscribed(FAN), 0);
 
-    // ids are not reused; removing the schedule removes its targets
+    // ids are not reused; the schedule goes once its targets have gone (R20)
     let r = add_target(&mut h, "lobby", read_back(FAN)).unwrap();
     assert_eq!(r, map([("id", text("t2"))]));
     add_target(&mut h, "lobby", read_back(PUMP)).unwrap();
     h.confirm_all();
     assert!(outcome(&h, "o/lobby/t2").is_some());
+    for t in ["t2", "t3"] {
+        h.invoke(&format!("lobby/targets/{t}"), "remove", Value::Null)
+            .unwrap();
+    }
     h.invoke("lobby", "remove", Value::Null).unwrap();
     assert!(h.subs.is_empty(), "{:?}", h.subs);
     assert!(!h.has("lobby"));
@@ -1132,6 +1136,7 @@ fn a_reply_to_a_removed_target_is_ignored() {
     h.set("lobby/default", Value::Bool(true)).unwrap();
     let (w1, ..) = one_set(&h);
     // the schedule goes and comes back with a target of the same id on the same point
+    h.invoke("lobby/targets/t1", "remove", Value::Null).unwrap();
     h.invoke("lobby", "remove", Value::Null).unwrap();
     add_schedule(&mut h, "lobby");
     let r = add_target(&mut h, "lobby", read_back(FAN)).unwrap();
@@ -1151,4 +1156,120 @@ fn a_reply_to_a_removed_target_is_ignored() {
     );
     let log = h.reply(w2, Ok(Value::Null));
     assert_eq!(sets_of(&log), vec![(FAN.to_owned(), Value::Bool(true))]);
+}
+
+/// T4: a sample that is not good says nothing about the point; the value before it must not
+/// confirm a later write.
+#[test]
+fn a_bad_sample_forgets_the_last_value() {
+    let mut h = lobby();
+    // both states write 1: the 08:00 write equals the value the point showed
+    let same = map([("true", Value::UInt(1)), ("false", Value::UInt(1))]);
+    let args = map([
+        ("point", text(FAN)),
+        ("confirm", text("read_back")),
+        ("map", same),
+    ]);
+    add_target(&mut h, "lobby", args).unwrap();
+    h.confirm_all();
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+    // the device goes offline: its link publishes the last value as bad
+    h.deliver_q(FAN, Value::UInt(1), wyrm_core::Quality::Bad);
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    let (req, _, v) = one_set(&h);
+    assert_eq!(v, Value::UInt(1));
+    h.reply(req, Ok(Value::Null));
+    assert_eq!(
+        state(&h, "lobby/targets/t1"),
+        text("writing"),
+        "the bad sample does not confirm"
+    );
+    // a good sample does
+    h.deliver(FAN, Value::UInt(1));
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+}
+
+/// T2a: NaN and infinity are no value to write: refused in `map`, `feedback_map`, `default`
+/// and event values; nothing is saved.
+#[test]
+fn non_finite_values_are_refused() {
+    let mut h = lobby();
+    let before = h.store_get("s/lobby");
+    for (k, bad) in [
+        ("map", Value::Float(f64::NAN)),
+        ("map", Value::Array(vec![Value::Float(f64::INFINITY)])),
+        ("feedback_map", Value::Float(f64::NEG_INFINITY)),
+    ] {
+        let mut args = map([
+            ("point", text(FAN)),
+            ("confirm", text("feedback")),
+            ("feedback", text(FAN_STATUS)),
+        ]);
+        if let Value::Map(m) = &mut args {
+            m.insert(k.to_owned(), map([("true", bad.clone())]));
+        }
+        let (st, msg) = status(add_target(&mut h, "lobby", args));
+        assert_eq!(st, Status::InvalidParameter, "{k} {bad:?}");
+        assert!(msg.starts_with(&format!("{k}: ")), "{msg}");
+        assert!(msg.contains("finite"), "{msg}");
+    }
+    assert!(!h.has("lobby/targets/t1"));
+    assert!(h.subs.is_empty(), "{:?}", h.subs);
+
+    let e = h.set("lobby/default", Value::Float(f64::NAN)).unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert!(e.msg.starts_with("default: "), "{}", e.msg);
+    let (st, msg) = status(h.invoke(
+        "lobby",
+        "edit",
+        map([("default", Value::Float(f64::INFINITY))]),
+    ));
+    assert_eq!(
+        (st, msg.starts_with("default: ")),
+        (Status::InvalidParameter, true),
+        "{msg}"
+    );
+    let mut ev = daily(Value::Float(f64::NAN));
+    if let Value::Map(m) = &mut ev {
+        m.remove("recurrence");
+    }
+    let (st, msg) = status(h.invoke("lobby", "add_event", ev));
+    assert_eq!(
+        (st, msg.starts_with("value: ")),
+        (Status::InvalidParameter, true),
+        "{msg}"
+    );
+    let (st, _) = status(h.invoke(
+        "",
+        "add_schedule",
+        map([("id", text("x")), ("default", Value::Float(f64::NAN))]),
+    ));
+    assert_eq!(st, Status::InvalidParameter);
+    assert!(!h.has("x"));
+    assert_eq!(h.store_get("s/lobby"), before, "nothing saved");
+    assert_eq!(h.value("lobby/default"), Some(Value::Bool(false)));
+}
+
+/// R20: targets are configuration (ruling 6), so `remove` (level write) does not drop them:
+/// a schedule with targets is refused, and nothing changes.
+#[test]
+fn remove_refuses_while_targets_exist() {
+    let mut h = lobby();
+    add_target(&mut h, "lobby", read_back(FAN)).unwrap();
+    h.confirm_all();
+    let keys = h.store_keys();
+    let nodes: Vec<String> = h.nodes.keys().cloned().collect();
+    let subs = h.subs.clone();
+    let (st, msg) = status(h.invoke("lobby", "remove", Value::Null));
+    assert_eq!(st, Status::InvalidParameter);
+    assert!(msg.contains("remove its targets first"), "{msg}");
+    assert_eq!(h.store_keys(), keys);
+    assert_eq!(h.nodes.keys().cloned().collect::<Vec<_>>(), nodes);
+    assert_eq!(h.subs, subs);
+    assert_eq!(state(&h, "lobby/targets/t1"), text("confirmed"));
+    // the target goes first (config), then the schedule (write)
+    h.invoke("lobby/targets/t1", "remove", Value::Null).unwrap();
+    h.invoke("lobby", "remove", Value::Null).unwrap();
+    assert!(!h.has("lobby"));
+    assert_eq!(h.store_keys(), vec!["index".to_owned()]);
 }

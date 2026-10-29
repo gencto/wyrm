@@ -255,6 +255,11 @@ impl SimHost {
 
     /// A good sample of `key` to every live subscription on it; the number of subscriptions.
     pub fn deliver(&mut self, key: &str, v: Value) -> usize {
+        self.deliver_q(key, v, Quality::Good)
+    }
+
+    /// A sample of `key` with quality `q` to every live subscription on it.
+    pub fn deliver_q(&mut self, key: &str, v: Value, q: Quality) -> usize {
         let ids: Vec<u64> = self
             .subs
             .iter()
@@ -264,7 +269,7 @@ impl SimHost {
         for id in &ids {
             let sample = Sample {
                 v: v.clone(),
-                q: Quality::Good,
+                q,
                 t: self.now_us(),
             };
             self.event(|app, h| app.on_value(h, SubId(*id), key, sample));
