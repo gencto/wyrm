@@ -437,18 +437,28 @@ Apple M4 Max, release builds.
 - The worst `COUNT` compile (100 events whose rule never matches, 400
   years each): 17–84 ms.
 
-`cargo bench -p wyrm-link-scheduler --bench cold_start` (the link, 1 000
-schedules × 2 events × 1 target, `ack`): `start` to the last write sent
-p50 TBD (measured in step 4).
+`cargo bench -p wyrm-link-scheduler --bench cold_start` (the link on
+`SimHost`, 1 000 schedules × 2 events × 1 target, 10 rounds, p50 / max, from
+the start of `Scheduler::start`):
 
-On the demo (`examples/demo/scheduler-load.sh`, edge, embedded):
+| Confirm | `start` event | tree complete | last write sent | all confirmed |
+|---|---|---|---|---|
+| `ack` | 1.71 / 1.94 ms | 26.22 / 29.96 ms | 40.34 / 45.50 ms | 40.85 / 46.03 ms |
+| `read_back` | 1.67 / 1.76 ms | 25.84 / 26.53 ms | 44.27 / 45.02 ms | 44.92 / 45.74 ms |
+
+With `read_back` or `feedback`, a real host adds the 2 000 ms first-sample
+wait before the writes.
+
+On the demo (`examples/demo/scheduler-load.sh`; Apple M4 Max, demo edge
+site, embedded scheduler, release build, 2026-10-29):
 
 | Measurement | Result |
 |---|---|
-| Samples in 60 s at idle, 1 000 schedules | TBD (measured in step 4) (target 0) |
-| Transition latency, 100 moments, `current` p50 / p99 | TBD (measured in step 4) (target < 50 ms) |
-| Transition latency, the written mock point p50 / p99 | TBD (measured in step 4) |
-| `feedback` target on the Modbus simulator: confirmed, override, written again | TBD (measured in step 4) |
+| Samples in 60 s at idle, 1 000 schedules | 0 (target 0); 3 000 stored values at subscribe |
+| Making and removing the 1 000 schedules | 47.1 s and 42.8 s (50 requests per second per caller) |
+| Transition latency, 100 moments, `current` | p50 16.0 ms, p99 23.7 ms, max 26.7 ms (target < 50 ms) |
+| Transition latency, the written mock point (`ack` target) | p50 16.9 ms, p99 24.8 ms, max 27.6 ms |
+| `feedback` target on `plc1/line1/ahu1/fan` with `fan_status` | `confirmed` after 390 ms; a write of `false` by hand: `override` after 973 ms; the next transition wrote `true` again: `confirmed` |
 
 WASM package, 200 schedules × 10 events × 1 target: `start` answered in
 0.29 s, all 200 back in the tree in 1.7 s (e2e `scheduler_three_modes`).
