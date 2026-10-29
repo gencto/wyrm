@@ -19,6 +19,11 @@
 #                    WASM package: the crate built for wasm32
 #     portable-echo-process
 #                    the same app as a process package
+#     scheduler      the scheduler link (ADR 0022, links/scheduler) as a WASM
+#                    package; no grants: an operator grants write on each
+#                    target link (sys/links/<id>/~act/grant)
+#     scheduler-process
+#                    the same app as a process package
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -44,6 +49,10 @@ done
 PORTABLE=$ROOT/examples/links/portable/Cargo.toml
 $WYR link pack --manifest-path "$PORTABLE" --out "$ZIPS"
 $WYR link pack --manifest-path "$PORTABLE" --kind process --name portable-echo-process --out "$ZIPS"
+# the scheduler, packed the same way
+SCHEDULER=$ROOT/links/scheduler/Cargo.toml
+$WYR link pack --manifest-path "$SCHEDULER" --out "$ZIPS"
+$WYR link pack --manifest-path "$SCHEDULER" --kind process --name scheduler-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \

@@ -14,6 +14,10 @@ publish = false
 # rlib: the process binary, the broker and the tests
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "wyrm-link-scheduler"
+required-features = ["process"]
+
 [features]
 # The process link: `wyrm_link_sdk::process::main::<Portable<Scheduler>>()`.
 process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
@@ -31,3 +35,15 @@ jiff = { workspace = true, features = ["std"] }
 wyrm-link-guest = { workspace = true, optional = true }
 wyrm-link-sdk = { workspace = true, optional = true }
 wyrm-link-portable = { workspace = true, optional = true }
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package (the component, for every
+# host); `examples/packages/build.sh` also packs the binary built with
+# `features` (`--kind process --name scheduler-process`). No `requester`
+# grants: an operator grants `write` on each target link
+# (`sys/links/<id>/~act/grant`, ADR 0013).
+[package.metadata.wyrm-link]
+name = "scheduler"
+description = "Scheduler: schedules of events that write values to points at times"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 16 }

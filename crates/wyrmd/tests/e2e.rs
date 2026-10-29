@@ -1760,9 +1760,10 @@ async fn process_app_capabilities_reach_the_link() {
     env.stop().await;
 }
 
-/// `examples/links/portable` (`wyrm-example-portable`) for wasm32 with feature `wasm`, made a
-/// component, as `wyr link pack` builds it; `None` without the wasm32 target.
-fn portable_example_component() -> Option<Vec<u8>> {
+/// The portable app of workspace package `package` (`wyrm-example-portable`,
+/// `wyrm-link-scheduler`) for wasm32 with feature `wasm`, made a component, as `wyr link pack`
+/// builds it; `None` without the wasm32 target.
+fn portable_component(package: &str) -> Option<Vec<u8>> {
     use std::process::Command;
     let libdir = Command::new("rustc")
         .args([
@@ -1779,10 +1780,10 @@ fn portable_example_component() -> Option<Vec<u8>> {
         return None;
     }
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("example-portable");
+    let target = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(package);
     // a workspace member: the workspace's lock file and release profile
     let out = Command::new(env!("CARGO"))
-        .args(["build", "--release", "--lib", "-p", "wyrm-example-portable"])
+        .args(["build", "--release", "--lib", "-p", package])
         .args(["--target", "wasm32-unknown-unknown", "--features", "wasm"])
         .arg("--manifest-path")
         .arg(repo.join("Cargo.toml"))
@@ -1794,12 +1795,14 @@ fn portable_example_component() -> Option<Vec<u8>> {
         .expect("run cargo");
     assert!(
         out.status.success(),
-        "example build failed:\n{}",
+        "{package} build failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let core =
-        std::fs::read(target.join("wasm32-unknown-unknown/release/wyrm_example_portable.wasm"))
-            .expect("example wasm");
+    let core = std::fs::read(target.join(format!(
+        "wasm32-unknown-unknown/release/{}.wasm",
+        package.replace('-', "_")
+    )))
+    .expect("component core wasm");
     Some(
         wit_component::ComponentEncoder::default()
             .module(&core)
@@ -1945,7 +1948,7 @@ async fn one_app_three_modes() {
 
     // the WASM package: an embedded link, no router rebuild
     let mut ids = vec!["pe"];
-    match portable_example_component() {
+    match portable_component("wyrm-example-portable") {
         Some(component) => {
             let m = Manifest {
                 name: "portable-echo".into(),
@@ -5354,5 +5357,552 @@ async fn embedded_scheduler_drives_a_process_link() {
         .await
         .expect_err("the id is the broker's");
     assert!(e.to_string().contains("reserved"), "{e}");
+    env.stop().await;
+}
+
+/// What one mode of the scheduler shows in the scenario of `scheduler_three_modes`.
+#[derive(Debug, PartialEq)]
+struct SchedRun {
+    /// `s1/targets/t1` once written: `confirmed`.
+    state: Value,
+    /// The target point's value then: the event's.
+    point: Option<f64>,
+    /// Rows of `get_events` for the next 24 h.
+    rows: usize,
+    /// The export imported under a new id gives the same rows.
+    same_rows: bool,
+    /// After `sys/links/<id>` stop and start (a package link; the embedded one has no such node):
+    /// the target's state, the writes of its point the audit saw meanwhile, and whether the
+    /// point's sample stayed the one from before (the static mock publishes only when written).
+    restart: Option<(Value, usize, bool)>,
+}
+
+/// `{k: v, …}`.
+fn args_map(kv: &[(&str, Value)]) -> Value {
+    Value::Map(
+        kv.iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
+}
+
+/// Local wall-clock minutes in UTC, `offset` minutes from now.
+fn utc_minute(offset: i64) -> String {
+    (jiff::Timestamp::now() + jiff::SignedDuration::from_mins(offset))
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .strftime("%Y-%m-%dT%H:%M")
+        .to_string()
+}
+
+/// A client on a new session that waits as long as a slow debug build needs.
+async fn slow_client(env: &Env) -> WyrmClient {
+    eventually("a session", 40, || client_now(env))
+        .await
+        .with_timeout(Duration::from_secs(60))
+}
+
+/// `set` records of the audit for `point` (its own key, not `…/p1` for `…/p10`), any caller.
+fn point_writes(env: &Env, point: &str) -> usize {
+    let below = format!("{point}/");
+    env.ctl
+        .audit_tail(10_000)
+        .iter()
+        .filter(|r| r.op == "set" && (r.key == point || r.key.starts_with(&below)))
+        .count()
+}
+
+/// The broker's liveliness token, watched from before an action that rebuilds the router.
+struct BrokerWatch {
+    _session: zenoh::Session,
+    sub: zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
+}
+
+impl BrokerWatch {
+    async fn new(env: &Env) -> Self {
+        let session = env.session().await;
+        let sub = session
+            .liveliness()
+            .declare_subscriber(format!("wy/{SITE}/sys/broker"))
+            .await
+            .unwrap();
+        BrokerWatch {
+            _session: session,
+            sub,
+        }
+    }
+
+    /// Waits for the old broker to go and a new one to come (as a process link sees it).
+    async fn rebuilt(self, what: &str) {
+        use zenoh::sample::SampleKind;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
+        let mut gone = false;
+        loop {
+            let s = tokio::time::timeout_at(deadline, self.sub.recv_async())
+                .await
+                .unwrap_or_else(|_| panic!("timeout: {what}"))
+                .unwrap();
+            match s.kind() {
+                SampleKind::Delete => gone = true,
+                SampleKind::Put if gone => return,
+                SampleKind::Put => {}
+            }
+        }
+    }
+}
+
+/// A package link without a grant on the mock: `add_target` is refused `permission_denied`
+/// (the host refuses the probe `subscribe` of the point).
+async fn refused_without_grant(env: &Env, id: &str, point: &str) {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let c = slow_client(env).await;
+    eventually(&format!("{id}: add_schedule ng"), 60, || async {
+        let r = client_now(env)
+            .await?
+            .with_timeout(Duration::from_secs(60))
+            .invoke_one(
+                &root,
+                "add_schedule",
+                args_map(&[("id", Value::from("ng")), ("default", Value::UInt(0))]),
+            )
+            .await;
+        match r {
+            Ok(_) => Some(()),
+            // an earlier try that timed out on the caller's side
+            Err(e) if e.to_string().contains("exists") => Some(()),
+            Err(_) => None,
+        }
+    })
+    .await;
+    let e = c
+        .invoke_one(
+            &format!("{root}/ng"),
+            "add_target",
+            args_map(&[("point", Value::from(point)), ("confirm", Value::UInt(0))]),
+        )
+        .await
+        .expect_err("no grant on the mock");
+    // the responder sends no message with `permission_denied` (`wyrm-link-sdk` `err_att`)
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{id}: {e}");
+}
+
+/// On scheduler link `id`: a schedule `s1` with an event active now and a `read_back` target on
+/// `point`; `get_events`; export and import as `s1copy` (without its target: one writer per
+/// point); with `restart`, `sys/links/<id>` stop and start.
+async fn sched_scenario(env: &Env, id: &str, point: &str, restart: bool) -> SchedRun {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let c = slow_client(env).await;
+    c.invoke_one(
+        &root,
+        "add_schedule",
+        args_map(&[
+            ("id", Value::from("s1")),
+            ("tz", Value::from("UTC")),
+            ("default", Value::UInt(0)),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: add_schedule: {e}"));
+    let s1 = format!("{root}/s1");
+    c.invoke_one(
+        &s1,
+        "add_event",
+        args_map(&[
+            ("value", Value::UInt(1)),
+            ("start", Value::from(utc_minute(-1))),
+            ("end", Value::from(utc_minute(60))),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: add_event: {e}"));
+    c.invoke_one(
+        &s1,
+        "add_target",
+        // enum `read_back | feedback | ack`, by index
+        args_map(&[("point", Value::from(point)), ("confirm", Value::UInt(0))]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: add_target: {e}"));
+    let t1 = format!("{s1}/targets/t1");
+    let state = eventually(&format!("{id}: t1 confirmed"), 30, || async {
+        last_val(&c, &t1)
+            .await
+            .filter(|v| *v == Value::from("confirmed"))
+    })
+    .await;
+    let point_v = last_val(&c, point).await.and_then(|v| v.as_f64());
+    // the target link's responder audits the write (ruling 2); late under load (Task 5)
+    eventually(&format!("{id}: the write audited"), 30, || async {
+        (point_writes(env, point) > 0).then_some(())
+    })
+    .await;
+
+    let day = format!(
+        "{}/{}",
+        jiff::Timestamp::now(),
+        jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24)
+    );
+    let events = |node: String| {
+        let (c, day) = (&c, &day);
+        async move {
+            match c
+                .invoke_one(
+                    &node,
+                    "get_events",
+                    args_map(&[("timerange", Value::from(day.as_str()))]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("get_events on {node}: {e}"))
+            {
+                Some(Value::Array(rows)) => rows,
+                other => panic!("get_events on {node}: {other:?}"),
+            }
+        }
+    };
+    let rows = events(s1.clone()).await;
+    let exported = c
+        .invoke_one(&s1, "export", Value::Map(BTreeMap::new()))
+        .await
+        .unwrap_or_else(|e| panic!("{id}: export: {e}"));
+    let Some(Value::Map(x)) = exported else {
+        panic!("{id}: export result: {exported:?}")
+    };
+    let Some(Value::Str(json)) = x.get("json") else {
+        panic!("{id}: export json: {x:?}")
+    };
+    // the target stays with s1: its point has one writer
+    let mut def: serde_json::Value = serde_json::from_str(json).unwrap();
+    def.as_object_mut().unwrap().remove("targets");
+    c.invoke_one(
+        &root,
+        "import",
+        args_map(&[
+            ("json", Value::from(def.to_string().as_str())),
+            ("id", Value::from("s1copy")),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: import: {e}"));
+    let same_rows = events(format!("{root}/s1copy")).await == rows;
+
+    let restart = if restart {
+        let before = point_writes(env, point);
+        let sample = eventually(&format!("{id}: the point's sample"), 10, || async {
+            last_sample(env, point).await
+        })
+        .await;
+        let link = format!("wy/{SITE}/sys/links/{id}");
+        let restarted = wyrm_link_sdk::now_us();
+        invoke_retry(env, &link, "stop", Value::Map(BTreeMap::new())).await;
+        invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
+        let state = eventually(&format!("{id}: t1 after the restart"), 60, || async {
+            let s = last_sample(env, &t1).await?;
+            (s.t > restarted && s.q == wyrm_core::Quality::Good).then_some(s.v)
+        })
+        .await;
+        // the first-sample wait at start, then time for a write that should not come
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let now = eventually(&format!("{id}: the point's sample again"), 10, || async {
+            last_sample(env, point).await
+        })
+        .await;
+        let unchanged = now == sample;
+        Some((state, point_writes(env, point) - before, unchanged))
+    } else {
+        None
+    };
+    SchedRun {
+        state,
+        point: point_v,
+        rows: rows.len(),
+        same_rows,
+        restart,
+    }
+}
+
+/// The store at the planned size (brief step 6): 200 schedules × 10 events × 1 target in the
+/// WASM link `sw`; a stop and start keeps it `running` (`start` and each batch within `call_ms`
+/// and the fuel bound) and brings every schedule back within 30 s.
+async fn wasm_store_at_size(env: &Env) {
+    const N: usize = 200;
+    let root = format!("wy/{SITE}/downstream/sw");
+    let c = slow_client(env).await;
+    let point = |i: usize| format!("wy/{SITE}/downstream/m/p{}", 10 + i);
+    c.invoke_one(
+        &root,
+        "add_schedule",
+        args_map(&[
+            ("id", Value::from("b0")),
+            ("tz", Value::from("UTC")),
+            ("default", Value::UInt(0)),
+        ]),
+    )
+    .await
+    .expect("add_schedule b0");
+    let b0 = format!("{root}/b0");
+    // ten daily windows that began a month ago
+    let day = (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(30 * 24))
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+    for h in 0..10 {
+        c.invoke_one(
+            &b0,
+            "add_event",
+            args_map(&[
+                ("value", Value::UInt(h + 1)),
+                (
+                    "start",
+                    Value::from(format!("{day}T{:02}:00", 2 * h).as_str()),
+                ),
+                (
+                    "end",
+                    Value::from(format!("{day}T{:02}:30", 2 * h).as_str()),
+                ),
+                ("recurrence", Value::from("FREQ=DAILY")),
+            ]),
+        )
+        .await
+        .expect("add_event");
+    }
+    c.invoke_one(
+        &b0,
+        "add_target",
+        args_map(&[
+            ("point", Value::from(point(0).as_str())),
+            ("confirm", Value::UInt(0)),
+        ]),
+    )
+    .await
+    .expect("add_target b0");
+    let Some(Value::Map(x)) = c
+        .invoke_one(&b0, "export", Value::Map(BTreeMap::new()))
+        .await
+        .expect("export b0")
+    else {
+        panic!("export result")
+    };
+    let Some(Value::Str(json)) = x.get("json") else {
+        panic!("export json")
+    };
+    let mut def: serde_json::Value = serde_json::from_str(json).unwrap();
+    let t = std::time::Instant::now();
+    for i in 1..N {
+        def["targets"][0]["point"] = serde_json::Value::from(point(i));
+        c.invoke_one(
+            &root,
+            "import",
+            args_map(&[
+                ("json", Value::from(def.to_string().as_str())),
+                ("id", Value::from(format!("b{i}").as_str())),
+            ]),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("import b{i}: {e}"));
+    }
+    eprintln!("sw: {N} schedules added in {:?}", t.elapsed());
+    eventually("every b target confirmed", 120, || async {
+        for i in 0..N {
+            let v = last_val(&c, &format!("{root}/b{i}/targets/t1")).await?;
+            if v != Value::from("confirmed") {
+                return None;
+            }
+        }
+        Some(())
+    })
+    .await;
+
+    let link = format!("wy/{SITE}/sys/links/sw");
+    let log = || async {
+        let lines = c
+            .invoke_one(&link, "get_log", args_map(&[("lines", Value::UInt(40))]))
+            .await;
+        format!("{lines:#?}")
+    };
+    let schedules = || async {
+        c.children(&root).await.ok().map(|ch| {
+            ch.iter()
+                .filter(|k| k.name.starts_with('b') && k.name[1..].parse::<usize>().is_ok())
+                .count()
+        })
+    };
+    let status = || async {
+        c.meta(&root)
+            .await
+            .ok()
+            .and_then(|m| m.attr_value("status").cloned())
+    };
+    c.invoke_one(&link, "stop", Value::Map(BTreeMap::new()))
+        .await
+        .expect("stop sw");
+    let t = std::time::Instant::now();
+    c.invoke_one(&link, "start", Value::Map(BTreeMap::new()))
+        .await
+        .expect("start sw");
+    let started = t.elapsed();
+    let mut back = None;
+    let mut seen = Vec::new();
+    while t.elapsed() < Duration::from_secs(30) {
+        let s = status().await;
+        if let Some(Value::Str(s)) = &s {
+            if seen.last() != Some(s) {
+                seen.push(s.clone());
+            }
+            assert_eq!(
+                s,
+                "running",
+                "sw after {:?} (start answered after {started:?}); log: {}",
+                t.elapsed(),
+                log().await
+            );
+        }
+        if back.is_none() && schedules().await == Some(N) {
+            back = Some(t.elapsed());
+        }
+        // a few more seconds of `running` once every schedule is back
+        if back.is_some_and(|b| t.elapsed() > b + Duration::from_secs(5)) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    let Some(back) = back else {
+        panic!(
+            "sw: {:?} of {N} schedules back within 30 s (statuses {seen:?}); log: {}",
+            schedules().await,
+            log().await
+        )
+    };
+    eprintln!("sw: start answered after {started:?}, {N} schedules back after {back:?}, statuses {seen:?}");
+}
+
+/// ADR 0022 run modes: the scheduler embedded in `wyrmd`, as a WASM package (`sw`) and as a
+/// process package (`sp`) answer the same scenario with the same results. A package carries
+/// no grants: until an operator grants `write` on the target link (ADR 0013, ruling 10) its
+/// `add_target` is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn scheduler_three_modes() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    // static points: `p0`–`p2` the scenario's (one writer each), `p3`/`p4` the refusals,
+    // `p10`–`p209` the WASM store at size
+    let env = Env::start(
+        "schedmodes",
+        r#"links: { m: { driver: "mock", params: { points: 210, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(209)).await
+    })
+    .await;
+    eventually("scheduler up", 60, || async {
+        c.meta(&format!("wy/{SITE}/downstream/scheduler"))
+            .await
+            .ok()
+    })
+    .await;
+    let grant = |id: &str| {
+        let env = &env;
+        let id = id.to_owned();
+        async move {
+            let watch = BrokerWatch::new(env).await;
+            slow_client(env)
+                .await
+                .invoke_one(
+                    &format!("wy/{SITE}/sys/links/{id}"),
+                    "grant",
+                    args_map(&[
+                        ("path", Value::from("wy/{site}/downstream/m")),
+                        ("level", Value::from("write")),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("grant {id}: {e}"));
+            watch
+                .rebuilt(&format!("the rebuild after the grant to {id}"))
+                .await;
+        }
+    };
+
+    // the WASM package: an embedded link, no router rebuild
+    let mut runs = vec![("scheduler", point(0), false)];
+    let wasm = portable_component("wyrm-link-scheduler");
+    match &wasm {
+        Some(component) => {
+            let m = Manifest {
+                name: "scheduler".into(),
+                version: "1.0.0".into(),
+                description: "the scheduler as a component".into(),
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: Default::default(),
+                args: Vec::new(),
+                entry: Some("scheduler.wasm".into()),
+                requester: Vec::new(),
+                world: Some("app".into()),
+                capabilities: Some(Capabilities {
+                    store_mb: Some(16),
+                    ..Capabilities::default()
+                }),
+            };
+            let files = [PackFile {
+                path: "scheduler.wasm".into(),
+                data: component.clone(),
+                mode: 0o644,
+            }];
+            let (ok, msg) = install_zip(&c, "sw", package::pack(&m, &files).unwrap()).await;
+            assert!(ok, "install sw: {msg}");
+            refused_without_grant(&env, "sw", &point(3)).await;
+            grant("sw").await;
+            runs.push(("sw", point(1), true));
+        }
+        None => eprintln!(
+            "SKIP scheduler_three_modes (WASM mode): target wasm32-unknown-unknown is not \
+             installed (rustup target add wasm32-unknown-unknown)"
+        ),
+    }
+    // the process package last: its install rebuilds the router
+    let zip = driver_package_with(
+        "scheduler-process",
+        "1.0.0",
+        "the scheduler as a process",
+        "scheduler",
+        Some(serde_json::json!({ "store_mb": 16 })),
+    );
+    let watch = BrokerWatch::new(&env).await;
+    let (ok, msg) = install_zip(&slow_client(&env).await, "sp", zip).await;
+    assert!(ok, "install sp: {msg}");
+    assert!(msg.contains("store 16 MiB"), "{msg}");
+    watch.rebuilt("the rebuild after the install of sp").await;
+    refused_without_grant(&env, "sp", &point(4)).await;
+    grant("sp").await;
+    // a process link learns its grants (and its requester key) in its first `hello`; the
+    // rebuild leaves a running process alone, so it starts again to take them
+    let sp = format!("wy/{SITE}/sys/links/sp");
+    invoke_retry(&env, &sp, "stop", Value::Map(BTreeMap::new())).await;
+    invoke_retry(&env, &sp, "start", Value::Map(BTreeMap::new())).await;
+    runs.push(("sp", point(2), true));
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["sp"].mode, wyrm_admin::Mode::Process);
+    if wasm.is_some() {
+        assert_eq!(reg.links["sw"].driver, "pkg:scheduler");
+        assert_eq!(reg.links["sw"].mode, wyrm_admin::Mode::Embedded);
+    }
+
+    for (id, point, restart) in runs {
+        let want = SchedRun {
+            state: Value::from("confirmed"),
+            point: Some(1.0),
+            rows: 1,
+            same_rows: true,
+            restart: restart.then(|| (Value::from("confirmed"), 0, true)),
+        };
+        assert_eq!(
+            sched_scenario(&env, id, &point, restart).await,
+            want,
+            "mode of {id}"
+        );
+    }
+    if wasm.is_some() {
+        wasm_store_at_size(&env).await;
+    }
     env.stop().await;
 }
