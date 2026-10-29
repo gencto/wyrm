@@ -12,3 +12,7 @@ authors.workspace = true
 wyrm-core.workspace = true
 serde_json.workspace = true
 jiff = { workspace = true, features = ["std", "tzdb-bundle-always"] }
+
+[[bench]]
+name = "eval"
+harness = false
