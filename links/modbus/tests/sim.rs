@@ -467,33 +467,33 @@ fn stored_config_still_loads() {
         assert_eq!(c.kind(), kind, "{n}");
         let schema = Conn::kind_schema(kind).unwrap();
         same_or_default(&n, &from_json(&e["to_map"]), &c.to_map(), &schema);
-        let Value::Map(stored) = from_json(&e["to_map"]) else {
-            unreachable!()
-        };
+        // the full stored map loads too (params added since take defaults)
         assert_eq!(
-            Conn::from_kind_map(kind, &stored).expect(&n),
+            Conn::from_kind_value(kind, &from_json(&e["to_map"])).expect(&n),
             c,
-            "{n}: from_map"
+            "{n}: stored to_map"
         );
     }
     for e in entries("devices") {
         let n = name(&e);
         let d = Device::from_value(&from_json(&e["given"])).expect(&n);
         same_or_default(&n, &from_json(&e["to_map"]), &d.to_map(), &Device::schema());
-        let Value::Map(stored) = from_json(&e["to_map"]) else {
-            unreachable!()
-        };
-        assert_eq!(Device::from_map(&stored).expect(&n), d, "{n}: from_map");
+        assert_eq!(
+            Device::from_value(&from_json(&e["to_map"])).expect(&n),
+            d,
+            "{n}: stored to_map"
+        );
     }
     let mut decoded = 0;
     for e in entries("points") {
         let n = name(&e);
         let p = Point::from_value(&from_json(&e["given"])).expect(&n);
         same_or_default(&n, &from_json(&e["to_map"]), &p.to_map(), &Point::schema());
-        let Value::Map(stored) = from_json(&e["to_map"]) else {
-            unreachable!()
-        };
-        assert_eq!(Point::from_map(&stored).expect(&n), p, "{n}: from_map");
+        assert_eq!(
+            Point::from_value(&from_json(&e["to_map"])).expect(&n),
+            p,
+            "{n}: stored to_map"
+        );
         let Some(words) = e["words"].as_array() else {
             continue;
         };
@@ -752,9 +752,11 @@ async fn bits16_and_m10k_poll_and_write() {
         Some(Status::Ok)
     );
     assert_eq!(dev.lock().unwrap().holding[50..52], [4321, 8765]);
-    // a word of the wrong length is refused, nothing written
+    // 16 false bools are fine; a word of the wrong length is refused
     let att = h.set("c1/d1/flags", bits(&[]), tok()).await;
-    assert_eq!(status(&att), Some(Status::Ok), "16 false bools are fine");
+    assert_eq!(status(&att), Some(Status::Ok), "{att:?}");
+    assert_eq!(dev.lock().unwrap().holding[40], 0);
+    dev.lock().unwrap().holding[40] = 0xBEEF;
     let att = h
         .set(
             "c1/d1/flags",
@@ -763,6 +765,6 @@ async fn bits16_and_m10k_poll_and_write() {
         )
         .await;
     assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
-    assert_eq!(dev.lock().unwrap().holding[40], 0);
+    assert_eq!(dev.lock().unwrap().holding[40], 0xBEEF, "nothing written");
     h.stop().await;
 }
