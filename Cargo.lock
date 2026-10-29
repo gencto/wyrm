@@ -2097,6 +2097,7 @@ dependencies = [
  "defmt",
  "jiff-core",
  "jiff-static",
+ "jiff-tzdb",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
@@ -6336,6 +6337,15 @@ dependencies = [
  "wyrm-link-sdk",
  "zenoh",
  "zeroize",
+]
+
+[[package]]
+name = "wyrm-schedule"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde_json",
+ "wyrm-core",
 ]
 
 [[package]]

@@ -1,0 +1,14 @@
+[package]
+name = "wyrm-schedule"
+description = "WYRM schedule model: events, RRULE subset, validation, export and DSA import (ADR 0022). Pure: no I/O, no clock; builds for wasm32"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+wyrm-core.workspace = true
+serde_json.workspace = true
+jiff = { workspace = true, features = ["std", "tzdb-bundle-always"] }
