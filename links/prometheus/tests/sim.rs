@@ -628,10 +628,7 @@ async fn params_are_checked() {
         ("timeout below 100", vec![("timeout_ms", Value::UInt(50))]),
         ("scrape below 1 s", vec![("scrape_s", Value::Float(0.5))]),
         ("scrape above 1 h", vec![("scrape_s", Value::Float(3601.0))]),
-        (
-            "body above 256 MiB",
-            vec![("max_body_mib", Value::UInt(257))],
-        ),
+        ("body above 64 MiB", vec![("max_body_mib", Value::UInt(65))]),
         ("series 0", vec![("max_series", Value::UInt(0))]),
         ("not http", vec![("url", "ftp://h/metrics".into())]),
         ("user info", vec![("url", "http://u:p@127.0.0.1/".into())]),

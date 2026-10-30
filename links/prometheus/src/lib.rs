@@ -19,7 +19,8 @@
 //! after that, retries slow down to one per `scrape_s`.
 //!
 //! Errors ([`DriverError`]): a connect, TLS or I/O failure, a body over
-//! `max_body_mib` or more series than `max_series` → `Transport` (the
+//! `max_body_mib`, more series than `max_series` or a parse over its memory
+//! budget ([`expo::MEMORY_FACTOR`] × the body bound) → `Transport` (the
 //! connection fails with the reason and reconnects with backoff); no
 //! complete response within `timeout_ms` or a non-2xx status → `Device`
 //! (the quality ladder); a selector that matches nothing, several series
@@ -169,7 +170,7 @@ impl Params for Conn {
                 .display("Accept Gzip"),
             ParamSpec::new("max_body_mib", TypeCode::Number)
                 .default(8u64)
-                .bounds(1.0, 256.0)
+                .bounds(1.0, 64.0)
                 .display("Max Body (MiB)"),
             ParamSpec::new("max_series", TypeCode::Number)
                 .default(100_000u64)
@@ -435,6 +436,8 @@ pub struct Transport {
     client: http::Client,
     scrape_every: Duration,
     max_series: usize,
+    /// Memory budget of one parse ([`expo::MEMORY_FACTOR`] × `max_body`).
+    max_parsed: usize,
     insecure: bool,
     seq: u64,
     good: Option<Snapshot>,
@@ -472,6 +475,7 @@ impl Transport {
             client,
             scrape_every: Duration::from_secs_f64(c.scrape_s),
             max_series: c.max_series as usize,
+            max_parsed: c.max_body_mib as usize * 1024 * 1024 * expo::MEMORY_FACTOR,
             insecure: c.insecure_skip_verify,
             seq: 0,
             good: None,
@@ -523,6 +527,9 @@ impl Transport {
 
     async fn scrape(&mut self) -> Result<(), DriverError> {
         let at = Instant::now();
+        // The last scrape goes either way: drop it before the new body
+        // arrives, so that two parsed expositions never live at once.
+        self.good = None;
         let r = self.fetch_and_parse().await;
         match &r {
             Ok(scrape) => {
@@ -574,10 +581,10 @@ impl Transport {
             }
         };
         self.outcomes.push(Outcome::Reply(f.rtt));
-        let max = self.max_series;
+        let (max, max_parsed) = (self.max_series, self.max_parsed);
         let parsed = tokio::task::spawn_blocking(move || {
             let text = String::from_utf8_lossy(&f.body);
-            expo::parse(&text, max)
+            expo::parse(&text, max, max_parsed)
         })
         .await
         .map_err(|e| DriverError::Transport(format!("parse task: {e}")))?

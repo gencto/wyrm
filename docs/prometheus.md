@@ -82,8 +82,8 @@ links: [{
 | `insecure_skip_verify` | `false` | | Accept any server certificate. For tests only: the `status` leaf shows a warning while it is on. |
 | `headers` | `""` | at most 32 | Extra request headers, one `Name: value` per line. Not for credentials. |
 | `gzip` | `true` | | Send `Accept-Encoding: gzip` and decode gzip bodies. |
-| `max_body_mib` | 8 | 1 … 256 | Bound on the body, on the wire and after gzip decoding. |
-| `max_series` | 100 000 | 1 … 1 000 000 | Bound on the series of one scrape. |
+| `max_body_mib` | 8 | 1 … 64 | Bound on the body, on the wire and after gzip decoding. The parsed exposition may take up to 16 times this in memory (section 9). |
+| `max_series` | 100 000 | 1 … 1 000 000 | Bound on the series of one scrape, and on its `# TYPE` and `# UNIT` entries. |
 
 Rules checked when you add or edit a connection (the edit is refused and
 nothing changes):
@@ -181,11 +181,11 @@ published only when it changes.
 | What happens | Class | Effect |
 |---|---|---|
 | connect refused, DNS, TLS or I/O error, broken response | connection | connection `failed` with the `error` leaf; devices `Stopped by Parent`; points `bad/disconnected`; reconnect with backoff (1 s … 60 s) |
-| body over `max_body_mib`, more than `max_series` series | connection | as above; the error names the param |
+| body over `max_body_mib`, more than `max_series` series, a parsed exposition over 16 × `max_body_mib` of memory | connection | as above; the error names the param |
 | no complete response within `timeout_ms` | device miss | points `uncertain/stale`; after 3 misses in a row the device is `failed` and points are `bad/comm_fail` |
 | HTTP status other than 2xx (500, 404, …) | device miss | as above; the device `error` leaf shows `HTTP <code>` |
 | no series matches, several match with `none`, not a finite number, broken histogram | point | that point `bad`; its device stays `connected` |
-| a line of the exposition that does not parse | none | the line is skipped and counted in `parse_errors` |
+| a line of the exposition that does not parse or is over a line bound (section 9) | none | the line is skipped and counted in `parse_errors` |
 
 A failed scrape is not kept: the next second tries again, so each failed
 attempt is one miss. After 3 misses the link tries once per `scrape_s`.
@@ -268,3 +268,14 @@ What Prometheus has that this link does not do:
 - An edit of a device or point re-plans its connection's points, and
   their rates start again: the first scrape after it gives no rate.
 - An HTTP redirect (3xx) is a device miss; the link does not follow it.
+- **Memory.** One scrape holds its body (at most `max_body_mib`) and then
+  the parsed exposition. The link estimates the memory of the parsed
+  exposition while it parses and stops at 16 × `max_body_mib` (a
+  connection error). A typical exposition takes 3 to 6 times its size, so
+  the default 8 MiB gives about 50 MiB at most in practice and 128 MiB in
+  the worst case. Keep `max_body_mib` low on small boards. The last scrape
+  is dropped before the next one arrives, so two never live at once.
+- **Line bounds.** A line over 1 MiB, a sample with more than 128 labels,
+  a metric or label name over 1 KiB and a label value over 16 KiB are
+  skipped and counted in `parse_errors`. `# TYPE` and `# UNIT` lines past
+  `max_series` names are skipped the same way.
