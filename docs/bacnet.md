@@ -159,8 +159,10 @@ Out-of-service and overridden values are published as `good`: the driver
 framework has no way for a driver to mark one point `uncertain`. Read the
 `status_flags` point beside the value to see them.
 
-Invoke ids are counted per remote device. A reply is taken only from the
-device's address (and network) with the request's invoke id; a reply that
+Invoke ids are counted per remote device, for the life of the link
+process: a connection that reopens on the same port goes on from the last
+id. A reply is taken only from the device's address (and network) with the
+request's invoke id and (in an ACK or Error) its service; a reply that
 comes after its timeout is dropped and counted in `late_replies`.
 
 ## 7. Discovery and bindings

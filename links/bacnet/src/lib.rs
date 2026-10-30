@@ -37,9 +37,10 @@
 //!   point `bad`. Out-of-service and overridden values are published as
 //!   they are (the framework has no per-point `uncertain` from a driver).
 //!
-//! Actions: connection `who_is {low?, high?, wait_ms = 3000}`; device
-//! `list_objects {limit = 1000}`, `read_property {...}` (level read) and
-//! `relinquish {object_type, instance, priority = 16}` (level config).
+//! Actions: connection `who_is {low?, high?, wait_ms = 3000}` (level
+//! config); device `list_objects {limit = 1000}` (level config),
+//! `read_property {...}` (level read) and `relinquish {object_type,
+//! instance, priority = 16}` (level config).
 //!
 //! Not supported: BACnet MS/TP (serial; a routed MS/TP device behind a
 //! BACnet/IP router is), segmentation, COV subscriptions, alarms and
@@ -54,6 +55,7 @@ pub mod sim;
 use codec::{Apdu, AppValue, Bvlc, IAm, NetAddr, ObjectId, PropRef};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
@@ -1100,6 +1102,8 @@ enum Incoming {
     Reply {
         peer: Peer,
         invoke_id: u8,
+        /// The service the reply is for (none in a Reject or Abort).
+        service: Option<u8>,
         reply: Reply,
     },
     IAm(Heard),
@@ -1171,10 +1175,17 @@ fn incoming(buf: &[u8], from: SocketAddr, bbmd: Option<SocketAddrV4>) -> Incomin
         } => Reply::Abort(reason),
         _ => return Incoming::Other,
     };
+    let service = match apdu {
+        Apdu::SimpleAck { service, .. }
+        | Apdu::ComplexAck { service, .. }
+        | Apdu::Error { service, .. } => Some(service),
+        _ => None,
+    };
     match apdu.reply_invoke_id() {
         Some(invoke_id) => Incoming::Reply {
             peer,
             invoke_id,
+            service,
             reply,
         },
         None => Incoming::Other,
@@ -1210,10 +1221,31 @@ pub struct Transport {
     /// When the foreign-device registration is renewed.
     reregister_at: Option<Instant>,
     devs: HashMap<DevKey, DevState>,
-    /// The next invoke id per remote peer.
-    invokes: HashMap<Peer, u8>,
     outcomes: Vec<Outcome>,
     buf: Vec<u8>,
+}
+
+/// The next invoke id per remote peer, kept for the whole process: a
+/// connection reopened on the same port (47808) goes on from where the old
+/// socket stopped, so a late reply to the old socket is not taken for a
+/// new request. Per peer: two tree devices that reach one device (an
+/// address and Who-Is) share its id space.
+static INVOKE_IDS: LazyLock<Mutex<HashMap<Peer, u8>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Peers remembered at most in [`INVOKE_IDS`] (only peers that requests go
+/// to, so a bound that a real port never reaches).
+const INVOKE_PEERS_MAX: usize = 65_536;
+
+fn next_invoke_id(peer: &Peer) -> u8 {
+    let mut ids = INVOKE_IDS.lock().unwrap_or_else(|e| e.into_inner());
+    if ids.len() >= INVOKE_PEERS_MAX && !ids.contains_key(peer) {
+        ids.clear();
+    }
+    let next = ids.entry(peer.clone()).or_default();
+    let id = *next;
+    *next = next.wrapping_add(1);
+    id
 }
 
 fn io_err(what: &str, e: std::io::Error) -> DriverError {
@@ -1257,7 +1289,6 @@ impl Transport {
             bbmd,
             reregister_at: None,
             devs: HashMap::new(),
-            invokes: HashMap::new(),
             outcomes: Vec::new(),
             buf: vec![0; 2048],
         };
@@ -1350,11 +1381,7 @@ impl Transport {
         data: &[u8],
     ) -> Result<Reply, DriverError> {
         self.renew().await?;
-        // Per remote peer: two tree devices that reach one device (an
-        // address and Who-Is) share its id space.
-        let next = self.invokes.entry(peer.clone()).or_default();
-        let invoke_id = *next;
-        *next = next.wrapping_add(1);
+        let invoke_id = next_invoke_id(peer);
         let apdu = codec::confirmed_request(invoke_id, service, self.conn.max_apdu, data);
         let mut npdu = Vec::with_capacity(apdu.len() + 8);
         codec::npdu_header(&mut npdu, peer.net.as_ref(), true);
@@ -1368,6 +1395,7 @@ impl Transport {
                 let Incoming::Reply {
                     peer: from,
                     invoke_id: id,
+                    service: of,
                     reply,
                 } = inc
                 else {
@@ -1376,7 +1404,8 @@ impl Transport {
                 if from != *peer {
                     continue;
                 }
-                if id != invoke_id {
+                // Reject and Abort name no service: the id alone.
+                if id != invoke_id || of.is_some_and(|s| s != service) {
                     // A reply to an earlier request that timed out.
                     self.outcomes.push(Outcome::Count(LATE));
                     debug!(peer = %peer.describe(), id, invoke_id, "late reply dropped");
@@ -2962,6 +2991,123 @@ mod tests {
         );
     }
 
+    fn test_conn(port: u16, peer: SocketAddr) -> Conn {
+        Conn {
+            bind_host: "127.0.0.1".into(),
+            bind_port: port,
+            broadcast: peer.to_string(),
+            bbmd: String::new(),
+            bbmd_ttl_s: 300,
+            apdu_timeout_ms: 100,
+            apdu_retries: 0,
+            max_apdu: 1476,
+        }
+    }
+
+    /// The invoke id and service of a confirmed request in `frame`.
+    fn request_of(frame: &[u8]) -> (u8, u8) {
+        let Ok(Bvlc::Npdu { npdu, .. }) = codec::parse_bvlc(frame) else {
+            panic!("not an NPDU")
+        };
+        let n = codec::parse_npdu(npdu).unwrap();
+        match codec::parse_apdu(n.apdu).unwrap() {
+            Apdu::ConfirmedRequest {
+                invoke_id, service, ..
+            } => (invoke_id, service),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn reply_frame(apdu: &[u8]) -> Vec<u8> {
+        let mut n = Vec::new();
+        codec::npdu_header(&mut n, None, false);
+        n.extend_from_slice(apdu);
+        codec::bvlc_wrap(codec::bvlc::ORIGINAL_UNICAST, &n)
+    }
+
+    fn dev_read() -> Vec<u8> {
+        codec::read_property(
+            ObjectId::new(ObjectId::DEVICE, 1),
+            PropRef {
+                id: codec::prop::SYSTEM_STATUS,
+                index: None,
+            },
+        )
+    }
+
+    /// A reopened port (same local port) does not start its invoke ids
+    /// again: a late reply to the old socket's request is never taken for
+    /// the new socket's request.
+    #[tokio::test]
+    async fn invoke_ids_go_on_after_a_reopen() {
+        let raw = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let SocketAddr::V4(raw_addr) = raw.local_addr().unwrap() else {
+            panic!()
+        };
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let conn = test_conn(port, raw_addr.into());
+        let peer = Peer {
+            addr: raw_addr,
+            net: None,
+        };
+        let mut ids = Vec::new();
+        let mut buf = vec![0u8; 2048];
+        for _ in 0..2 {
+            let mut t = Transport::open(&conn).await.unwrap();
+            let r = t
+                .confirmed(&peer, codec::service::READ_PROPERTY, &dev_read())
+                .await;
+            assert!(matches!(r, Err(DriverError::Device(_))), "{r:?}");
+            let (n, _) = raw.recv_from(&mut buf).await.unwrap();
+            ids.push(request_of(&buf[..n]).0);
+            drop(t);
+        }
+        assert_ne!(ids[0], ids[1], "{ids:?}");
+    }
+
+    /// A reply with the request's invoke id but another service is not
+    /// the reply (it is dropped and counted late).
+    #[tokio::test]
+    async fn a_reply_of_another_service_is_not_taken() {
+        let raw = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let SocketAddr::V4(raw_addr) = raw.local_addr().unwrap() else {
+            panic!()
+        };
+        let conn = test_conn(0, raw_addr.into());
+        let peer = Peer {
+            addr: raw_addr,
+            net: None,
+        };
+        let mut t = Transport::open(&conn).await.unwrap();
+        let answer = tokio::spawn(async move {
+            let mut buf = vec![0u8; 2048];
+            let (n, from) = raw.recv_from(&mut buf).await.unwrap();
+            let (id, service) = request_of(&buf[..n]);
+            assert_eq!(service, codec::service::READ_PROPERTY);
+            // a SimpleACK of a WriteProperty with this id
+            let f = reply_frame(&codec::simple_ack(id, codec::service::WRITE_PROPERTY));
+            raw.send_to(&f, from).await.unwrap();
+            // an Error of a WriteProperty with this id
+            let f = reply_frame(&codec::error_pdu(id, codec::service::WRITE_PROPERTY, 2, 40));
+            raw.send_to(&f, from).await.unwrap();
+        });
+        let r = t
+            .confirmed(&peer, codec::service::READ_PROPERTY, &dev_read())
+            .await;
+        answer.await.unwrap();
+        assert!(matches!(r, Err(DriverError::Device(_))), "{r:?}");
+        let late = t
+            .outcomes
+            .iter()
+            .filter(|o| matches!(o, Outcome::Count(LATE)))
+            .count();
+        assert_eq!(late, 2);
+    }
+
     #[test]
     fn incoming_frames() {
         let from: SocketAddr = "10.0.0.9:47808".parse().unwrap();
@@ -2979,6 +3125,7 @@ mod tests {
         let Incoming::Reply {
             peer,
             invoke_id: 3,
+            service: Some(15),
             reply: Reply::Simple,
         } = incoming(&f, from, None)
         else {
