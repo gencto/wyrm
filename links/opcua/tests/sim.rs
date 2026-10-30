@@ -1088,6 +1088,74 @@ async fn add_connection_checks_params() {
     h.stop().await;
 }
 
+/// A secured connection added at runtime (`add_connection`, then
+/// `add_device` and `add_point`) finds the link's PKI directory: the
+/// parse runs with the `data_dir` in scope.
+#[tokio::test(flavor = "multi_thread")]
+async fn secured_connection_added_at_runtime() {
+    let d = dir();
+    let s = spawn(&d.0, |_| {}).await;
+    let data = d.0.join("data");
+    let h = start_in(
+        Tree(map(&[("poll_unsubscribed", Value::Bool(true))])),
+        &data,
+    )
+    .await;
+    let pin = s.certificate_pem();
+    let mut args = vec![
+        ("name", Value::from("c1")),
+        ("endpoint", Value::from(s.url().as_str())),
+        ("request_timeout_ms", Value::UInt(1000)),
+    ];
+    args.extend(secured(&[("server_cert_pem", pin.as_str().into())]));
+    let call = |path: &'static str, action: &'static str, args: Value| {
+        let h = &h;
+        async move {
+            let mut r = h
+                .invoke(path, action, args, Some(h.ptok(Perm::Config)))
+                .await;
+            status(&r.remove(0).att)
+        }
+    };
+    assert_eq!(
+        call("", "add_connection", map(&args)).await,
+        Some(Status::Ok)
+    );
+    assert_eq!(
+        call(
+            "c1",
+            "add_device",
+            map(&[
+                ("name", "d1".into()),
+                ("namespace_uri", NS.into()),
+                ("ping_s", Value::Float(0.2)),
+            ])
+        )
+        .await,
+        Some(Status::Ok)
+    );
+    assert_eq!(
+        call(
+            "c1/d1",
+            "add_point",
+            map(&[
+                ("name", "int32".into()),
+                ("node_id", line("Int32").as_str().into()),
+                ("poll_s", Value::Float(0.1)),
+            ])
+        )
+        .await,
+        Some(Status::Ok)
+    );
+    connected(&h).await;
+    wait("good", || {
+        val(&h, "c1/d1/int32").is_some_and(|(_, q)| q == Quality::Good)
+    })
+    .await;
+    assert!(data.join("opcua-pki/servers").is_dir());
+    h.stop().await;
+}
+
 /// Replies later than the request timeout: the points go stale, and a late
 /// reply is never taken for a later request (the library matches request
 /// handles), so each point shows its own value once replies are fast again.

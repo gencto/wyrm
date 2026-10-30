@@ -443,14 +443,32 @@ pub use crate::pki::pem;
 
 /// What the relay does with traffic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum RelayMode {
     /// Forward both ways.
-    Pass = 0,
+    Pass,
     /// Keep connections open, forward nothing (a silent server).
-    Silent = 1,
+    Silent,
     /// Close every connection and refuse new ones (a server gone).
-    Drop = 2,
+    Drop,
+}
+
+impl RelayMode {
+    /// The mode as kept in an atomic.
+    const fn code(self) -> u8 {
+        match self {
+            RelayMode::Pass => 0,
+            RelayMode::Silent => 1,
+            RelayMode::Drop => 2,
+        }
+    }
+
+    fn load(a: &AtomicU8) -> RelayMode {
+        match a.load(Ordering::SeqCst) {
+            1 => RelayMode::Silent,
+            2 => RelayMode::Drop,
+            _ => RelayMode::Pass,
+        }
+    }
 }
 
 /// A TCP relay to a simulator, for failure modes the server has no switch
@@ -484,7 +502,7 @@ impl Relay {
     }
 
     pub fn set_mode(&self, m: RelayMode) {
-        self.mode.store(m as u8, Ordering::SeqCst);
+        self.mode.store(m.code(), Ordering::SeqCst);
         if m == RelayMode::Drop {
             for c in self
                 .conns
@@ -499,7 +517,8 @@ impl Relay {
 
     /// Hold every chunk this long before forwarding it (slow replies).
     pub fn set_delay(&self, d: Duration) {
-        self.delay_ms.store(d.as_millis() as u64, Ordering::SeqCst);
+        let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+        self.delay_ms.store(ms, Ordering::SeqCst);
     }
 }
 
@@ -507,7 +526,7 @@ impl Relay {
 pub async fn relay(upstream: SocketAddr) -> std::io::Result<Relay> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
-    let mode = Arc::new(AtomicU8::new(RelayMode::Pass as u8));
+    let mode = Arc::new(AtomicU8::new(RelayMode::Pass.code()));
     let delay_ms = Arc::new(AtomicU64::new(0));
     let conns: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::default();
     let task = {
@@ -517,7 +536,7 @@ pub async fn relay(upstream: SocketAddr) -> std::io::Result<Relay> {
                 let Ok((client, _)) = listener.accept().await else {
                     return;
                 };
-                if mode.load(Ordering::SeqCst) == RelayMode::Drop as u8 {
+                if RelayMode::load(&mode) == RelayMode::Drop {
                     drop(client);
                     continue;
                 }
@@ -578,10 +597,10 @@ async fn pump(
         if d > 0 {
             tokio::time::sleep(Duration::from_millis(d)).await;
         }
-        match mode.load(Ordering::SeqCst) {
-            m if m == RelayMode::Silent as u8 => continue,
-            m if m == RelayMode::Drop as u8 => return,
-            _ => {}
+        match RelayMode::load(&mode) {
+            RelayMode::Silent => continue,
+            RelayMode::Drop => return,
+            RelayMode::Pass => {}
         }
         if to.write_all(&buf[..n]).await.is_err() {
             return;
