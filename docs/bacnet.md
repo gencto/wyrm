@@ -177,7 +177,9 @@ comes after its timeout is dropped and counted in `late_replies`.
   not change it. Two answers for one device are refused (`set its
   address`). For devices with writable points, prefer a fixed `address`.
 - **A device with an address** gets one unicast Who-Is per connection open
-  to learn its max APDU (when `max_apdu = 0`).
+  to learn its max APDU (when `max_apdu = 0`). Its I-Am ends the wait; a
+  device that does not answer costs one `apdu_timeout_ms` and gets 480. Set
+  `max_apdu` to skip the Who-Is.
 - **Forwarded-NPDU** (from a BBMD) names the original source. The link
   believes it only from the configured `bbmd`; from anyone else it is
   dropped.

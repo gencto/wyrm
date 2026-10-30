@@ -571,6 +571,28 @@ async fn silent_device_goes_stale_then_bad() {
     h.stop().await;
 }
 
+/// A device with an address and `max_apdu = 0` learns its max APDU from a
+/// unicast Who-Is: its I-Am ends the wait, not the whole APDU timeout (a
+/// port with many devices would wait one timeout per device per open).
+#[tokio::test(flavor = "multi_thread")]
+async fn max_apdu_who_is_ends_at_the_answer() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();
+    dev.lock().unwrap().max_apdu = 206;
+    let started = tokio::time::Instant::now();
+    let h = H::start(tree(
+        addr,
+        &[("apdu_timeout_ms", Value::UInt(6000))],
+        &[],
+        map(&[("temp", pt("analog_input", 1, &[]))]),
+    ))
+    .await;
+    wait("value", || qual(&h, "temp") == Some(Quality::Good)).await;
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(3000), "{took:?}");
+    assert_eq!(dev.lock().unwrap().who_is, 1, "one unicast Who-Is");
+    h.stop().await;
+}
+
 /// The device answers the first RPM of a poll but not the last: the points
 /// of the request without an answer take the ladder alone (framework,
 /// `DriverError::Device` per point), the others stay good and the device

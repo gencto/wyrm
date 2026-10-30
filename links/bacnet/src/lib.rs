@@ -1440,11 +1440,13 @@ impl Transport {
 
     /// The I-Ams in `range` until `deadline` (the window of the Who-Is
     /// just sent), every answer kept: one device may answer from several
-    /// addresses, or something else may answer for it.
+    /// addresses, or something else may answer for it. With `until`, the
+    /// first I-Am from that peer ends the wait (only its answer counts).
     async fn collect_i_am(
         &mut self,
         range: Option<(u32, u32)>,
         deadline: Instant,
+        until: Option<&Peer>,
     ) -> Result<BTreeMap<u32, Vec<Heard>>, DriverError> {
         let mut found: BTreeMap<u32, Vec<Heard>> = BTreeMap::new();
         while let Some(inc) = self.recv_until(deadline).await? {
@@ -1453,9 +1455,13 @@ impl Transport {
             if range.is_some_and(|(lo, hi)| inst < lo || inst > hi) {
                 continue;
             }
+            let done = until.is_some_and(|p| *p == h.peer);
             let seen = found.entry(inst).or_default();
             if !seen.iter().any(|s| s.peer == h.peer) && seen.len() < 8 {
                 seen.push(h);
+            }
+            if done {
+                break;
             }
         }
         Ok(found)
@@ -1477,13 +1483,14 @@ impl Transport {
                 let max = match (dev.max_apdu, known_apdu) {
                     (0, Some(m)) => m,
                     // the configured address answers its own Who-Is (only
-                    // its answer counts: the binding is the address)
+                    // its answer counts: the binding is the address, and
+                    // that answer ends the wait)
                     (0, None) if !asked => {
                         self.devs.entry(key.clone()).or_default().asked = true;
                         let range = Some((dev.instance, dev.instance));
                         self.send_who_is(range, Some(&peer)).await?;
                         let deadline = Instant::now() + self.conn.timeout();
-                        self.collect_i_am(range, deadline)
+                        self.collect_i_am(range, deadline, Some(&peer))
                             .await?
                             .remove(&dev.instance)
                             .and_then(|hs| hs.into_iter().find(|h| h.peer == peer))
@@ -1530,7 +1537,7 @@ impl Transport {
             self.send_who_is(range, None).await?;
             let deadline = Instant::now() + self.conn.timeout();
             let mut answers = self
-                .collect_i_am(range, deadline)
+                .collect_i_am(range, deadline, None)
                 .await?
                 .remove(&instance)
                 .unwrap_or_default();
@@ -1944,7 +1951,10 @@ async fn who_is_action(
     };
     t.send_who_is(range, None).await.map_err(action_err)?;
     let deadline = Instant::now() + Duration::from_millis(wait);
-    let found = t.collect_i_am(range, deadline).await.map_err(action_err)?;
+    let found = t
+        .collect_i_am(range, deadline, None)
+        .await
+        .map_err(action_err)?;
     Ok(Value::Array(
         found
             .into_values()
