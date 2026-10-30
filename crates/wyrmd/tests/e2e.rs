@@ -5086,6 +5086,12 @@ async fn history_overlays_mark_recorded_points() {
         };
         assert_eq!((flag("p0"), flag("p1")), (Some(true), None), "{link}");
     }
+    // overlays are the broker's service values: no node in sys
+    let sys = c.children(&format!("wy/{SITE}/sys")).await.unwrap();
+    assert!(
+        !sys.iter().any(|k| k.name == "overlays"),
+        "overlays listed in sys"
+    );
 
     // a storage value (ADR 0017): recorded, marked and answered like a point
     let storage = format!("wy/{SITE}/storage");
@@ -5151,6 +5157,48 @@ async fn history_overlays_mark_recorded_points() {
             .then_some(())
     })
     .await;
+
+    // a watch on a link that is not installed: its overlay comes with the
+    // watch and is deleted with it
+    let mut ghost = c
+        .subscribe(&format!("wy/{SITE}/sys/overlays/ghost"))
+        .await
+        .unwrap();
+    c.invoke_one(&hist, "add_watch_group", m(&[("name", Value::from("gh"))]))
+        .await
+        .unwrap();
+    c.invoke_one(
+        &format!("{hist}/gh"),
+        "add_watch_path",
+        m(&[("path", Value::from("downstream/ghost/x"))]),
+    )
+    .await
+    .unwrap();
+    macro_rules! next {
+        () => {
+            tokio::time::timeout(Duration::from_secs(10), ghost.next())
+                .await
+                .expect("an overlay event")
+                .expect("stream open")
+        };
+    }
+    match next!() {
+        ValEvent::Sample { sample, .. } => {
+            let Value::Map(paths) = sample.v else {
+                panic!("not a map: {:?}", sample.v)
+            };
+            assert!(paths.contains_key("x"), "{paths:?}");
+        }
+        e => panic!("expected the overlay, got {e:?}"),
+    }
+    c.invoke_one(&format!("{hist}/gh/w1"), "unsubscribe", m(&[]))
+        .await
+        .unwrap();
+    assert!(
+        matches!(next!(), ValEvent::Removed(_)),
+        "the overlay of a link that is not installed is deleted"
+    );
+    drop(ghost);
 
     // a router rebuild (a new link) publishes it again
     c.invoke_one(

@@ -156,6 +156,12 @@ pub fn signing_keys_key(site: &str) -> String {
     format!("wy/{site}/sys/signing_keys/~val")
 }
 
+/// The broker's attributes for the nodes of link `id` (ADR 0016): a value
+/// key with no node in `sys`.
+pub fn overlay_key(site: &str, id: &str) -> String {
+    format!("wy/{site}/sys/overlays/{id}/~val")
+}
+
 /// `~set` and `~act/<a>` keys of `sections` on `sites`.
 fn command_keys(sites: &[String], sections: &[&str]) -> Vec<String> {
     sites
@@ -283,7 +289,7 @@ pub fn access_control_with_peers(
             &[format!("wy/{site}/sys/audit/{id}")],
         ));
         // The broker's attributes for its nodes (ADR 0016): read, never put.
-        let overlays = vec![format!("wy/{site}/sys/overlays/{id}/~val")];
+        let overlays = vec![overlay_key(site, id)];
         rules.push(rule(
             &format!("overlays-{id}-in"),
             &["ingress"],

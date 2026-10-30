@@ -2545,11 +2545,13 @@ pub(crate) fn overlay_maps(
         .collect()
 }
 
-/// Publish every link's overlay map at `sys/overlays/<link>` (ADR 0016):
-/// after each broker build (the memory storage starts empty) and after each
-/// watch change. Links without overlays get an empty map, which clears any
-/// they had; a name that is neither a link nor watched any more (a watch
-/// on a link not installed yet, a removed link) loses its node.
+/// Publish every link's overlay map at `sys/overlays/<link>/~val` (ADR
+/// 0016): after each broker build (the memory storage starts empty) and
+/// after each watch change. The keys carry values only, with no node in
+/// `sys`: they are the broker's service data for the links' SDKs, not part
+/// of the tree people browse. Links without overlays get an empty map,
+/// which clears any they had; a name that is neither a link nor watched any
+/// more (a watch on a link not installed yet, a removed link) is deleted.
 pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     let reg = ctl.registry();
     let mut maps = overlay_maps(&reg, &ctl.cfg.site);
@@ -2561,21 +2563,23 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     }
     links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
-    ctx.declare_node(
-        "overlays",
-        NodeMeta::folder().attr(
-            "description",
-            "Attributes the broker lays over link nodes (ADR 0016): attr.history of recorded points.",
-        ),
-    )
-    .await?;
-    let t = now_us();
     drop(reg);
+    let site = &ctl.cfg.site;
+    let session = ctx.client();
+    let t = now_us();
     for link in &links {
-        let m = maps.remove(link).unwrap_or_default();
-        let k = format!("overlays/{link}");
-        ctx.declare_node(&k, NodeMeta::leaf(TypeCode::Map)).await?;
-        ctx.update(&k, Value::Map(m), Quality::Good, t).await?;
+        let sample = wyrm_core::Sample {
+            v: Value::Map(maps.remove(link).unwrap_or_default()),
+            q: Quality::Good,
+            t,
+        };
+        let bytes = wyrm_core::codec::to_vec(&sample)
+            .map_err(|e| wyrm_link_sdk::LinkError::internal(e.to_string()))?;
+        session
+            .put(acl::overlay_key(site, link), bytes)
+            .priority(zenoh::qos::Priority::Data)
+            .await
+            .map_err(|e| wyrm_link_sdk::LinkError::internal(e.to_string()))?;
     }
     let gone: Vec<String> = {
         let mut shown = ctl.overlays_shown.lock().unwrap_or_else(|p| p.into_inner());
@@ -2584,10 +2588,10 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
         gone
     };
     for link in gone {
-        let k = format!("overlays/{link}");
-        if ctx.has_node(&k) {
-            ctx.remove_node(&k).await?;
-        }
+        session
+            .delete(acl::overlay_key(site, &link))
+            .await
+            .map_err(|e| wyrm_link_sdk::LinkError::internal(e.to_string()))?;
     }
     Ok(())
 }
