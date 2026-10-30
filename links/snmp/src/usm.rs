@@ -19,7 +19,10 @@ const EXPANDED: usize = 1_048_576;
 /// `usmStats` (1.3.6.1.6.3.15.1.1): the counters a Report PDU names.
 pub const USM_STATS: [u32; 9] = [1, 3, 6, 1, 6, 3, 15, 1, 1];
 
-/// Report reasons (`usmStats.<n>.0`).
+/// `snmpUnknownContexts.0` (SNMP-TARGET-MIB, RFC 3413).
+pub const UNKNOWN_CONTEXTS: [u32; 10] = [1, 3, 6, 1, 6, 3, 12, 1, 5, 0];
+
+/// Report reasons (`usmStats.<n>.0`, `snmpUnknownContexts.0`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportKind {
     UnsupportedSecLevel,
@@ -28,12 +31,18 @@ pub enum ReportKind {
     UnknownEngineId,
     WrongDigest,
     DecryptionError,
-    /// Another report (snmpUnknownContexts, …): the OID.
+    /// `snmpUnknownContexts` (SNMP-TARGET-MIB): the request's context name is
+    /// not one the agent has.
+    UnknownContext,
+    /// Another report: its OID is in the message.
     Other,
 }
 
 impl ReportKind {
     pub fn of(oid: &Oid) -> ReportKind {
+        if oid.0 == UNKNOWN_CONTEXTS {
+            return ReportKind::UnknownContext;
+        }
         match oid.suffix(&Oid(USM_STATS.to_vec())) {
             Some([1, 0]) => ReportKind::UnsupportedSecLevel,
             Some([2, 0]) => ReportKind::NotInTimeWindow,
@@ -54,6 +63,7 @@ impl ReportKind {
             ReportKind::UnknownEngineId => 4,
             ReportKind::WrongDigest => 5,
             ReportKind::DecryptionError | ReportKind::Other => 6,
+            ReportKind::UnknownContext => return Oid(UNKNOWN_CONTEXTS.to_vec()),
         };
         Oid(USM_STATS.to_vec()).join(&[n, 0])
     }
@@ -81,6 +91,10 @@ impl ReportKind {
             ReportKind::DecryptionError => {
                 "the agent could not decrypt the request (usmStatsDecryptionErrors): check \
                  priv_protocol and priv_passphrase"
+            }
+            ReportKind::UnknownContext => {
+                "the agent does not know this context (snmpUnknownContexts): check the device's \
+                 context"
             }
             ReportKind::Other => "the agent answered with a report",
         }
@@ -287,11 +301,16 @@ mod tests {
             ReportKind::UnknownEngineId,
             ReportKind::WrongDigest,
             ReportKind::DecryptionError,
+            ReportKind::UnknownContext,
         ] {
             assert_eq!(ReportKind::of(&k.oid()), k);
         }
         assert_eq!(
             ReportKind::of(&Oid::parse("1.3.6.1.6.3.12.1.5.0").unwrap()),
+            ReportKind::UnknownContext
+        );
+        assert_eq!(
+            ReportKind::of(&Oid::parse("1.3.6.1.6.3.11.2.1.3.0").unwrap()),
             ReportKind::Other
         );
     }

@@ -910,7 +910,7 @@ async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
     })
     .await;
     let err = error(&h, "c1/d1");
-    assert_eq!(qual(&h, "name"), Some(Quality::Bad), "{forge:?}");
+    wait("bad", || qual(&h, "name") == Some(Quality::Bad)).await;
     agent.lock().unwrap().forge = None;
     wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
     assert!(
@@ -1031,6 +1031,29 @@ async fn an_unknown_engine_report_for_the_known_engine_keeps_the_connection() {
     );
     agent.lock().unwrap().forge = None;
     wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
+    h.stop().await;
+}
+
+/// A v3 context the agent does not know: the device fails with a message
+/// that names `snmpUnknownContexts` (the connection, in the default
+/// context, stays connected).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_v3_context_is_named() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    agent.lock().unwrap().contexts = Some(vec![String::new(), "ctx1".into()]);
+    let points = map(&[("name", scalar(SYS_NAME, &[]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("context", "nope".into())],
+        points,
+    ))
+    .await;
+    wait("device failed", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("snmpUnknownContexts"))
+    })
+    .await;
+    assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
     h.stop().await;
 }
 

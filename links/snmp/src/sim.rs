@@ -96,6 +96,9 @@ pub struct Agent {
     /// Answer nothing to a request that asks for this OID (a vendor MIB
     /// handler that hangs).
     pub hang: Option<Oid>,
+    /// v3 contexts the agent knows (`None` = any); another context gets a
+    /// `snmpUnknownContexts` report.
+    pub contexts: Option<Vec<String>>,
     /// Requests received (all, dropped ones too).
     pub requests: u64,
     /// GET requests and their sizes (varbinds), GETBULK as negative counts.
@@ -234,6 +237,7 @@ impl Agent {
             max_varbinds: None,
             gen_err: None,
             hang: None,
+            contexts: None,
             requests: 0,
             gets: Vec::new(),
             bad_community: 0,
@@ -612,6 +616,11 @@ impl Agent {
         };
         if self.hangs(&scoped.pdu) {
             return None;
+        }
+        if let Some(known) = &self.contexts {
+            if !known.iter().any(|c| c.as_bytes() == scoped.context) {
+                return Some(self.report(id, ReportKind::UnknownContext, None));
+            }
         }
         let forge = self.forge.clone();
         if let Some((_, marker)) = &forge {

@@ -509,10 +509,15 @@ impl Session {
                         Ok(Got::Pdu(pdu))
                     }
                     msg::REPORT => {
-                        let kind = pdu
-                            .varbinds
-                            .first()
-                            .map_or(ReportKind::Other, |(o, _)| ReportKind::of(o));
+                        let oid = pdu.varbinds.first().map(|(o, _)| o);
+                        let kind = oid.map_or(ReportKind::Other, ReportKind::of);
+                        if kind == ReportKind::Other {
+                            let named = oid.map_or_else(|| "no OID".into(), Oid::to_string);
+                            return Err(Fail::Error(DriverError::Device(format!(
+                                "{} ({named})",
+                                kind.message()
+                            ))));
+                        }
                         Err(self.report(kind, authentic, m.usm.engine_id))
                     }
                     _ => Ok(Got::Undecodable),
