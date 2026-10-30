@@ -1379,3 +1379,401 @@ async fn diagnostics_count_requests_and_reopens() {
     );
     h.stop().await;
 }
+
+/// Invoke `action` on `path` with a token of `perm`: the reply's status,
+/// its value and its error message.
+async fn act(
+    h: &H,
+    path: &str,
+    action: &str,
+    args: Value,
+    perm: Perm,
+) -> (Option<Status>, Option<Value>, String) {
+    let mut r = h.invoke(path, action, args, Some(h.ptok(perm))).await;
+    assert_eq!(r.len(), 1, "{path} {action}: one reply");
+    let r = r.remove(0);
+    let msg = r
+        .att
+        .err
+        .as_ref()
+        .map(|e| format!("{e:?}"))
+        .unwrap_or_default();
+    (status(&r.att), r.value(), msg)
+}
+
+fn field<'a>(v: &'a Option<Value>, k: &str) -> &'a Value {
+    match v {
+        Some(Value::Map(m)) => m.get(k).unwrap_or_else(|| panic!("no {k} in {m:?}")),
+        other => panic!("not a map: {other:?}"),
+    }
+}
+
+/// A link on the simulator with `c1/d1` (unit 1, no ping) and no points.
+async fn bare(port: u16, conn: &[(&str, Value)]) -> H {
+    let h = H::start(conn_tree(port, conn, &[("ping", "none".into())], map(&[]))).await;
+    wait("connected", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    h
+}
+
+/// Ruling 13: `read_registers` and `read_device_id` on a device at level
+/// read, `scan_units` on a connection at level config.
+#[tokio::test(flavor = "multi_thread")]
+async fn commissioning_action_levels() {
+    let (addr, _dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let h = bare(addr.port(), &[]).await;
+    let (_, dev) = h.meta("c1/d1").await;
+    let acts = dev.unwrap().actions.unwrap();
+    assert_eq!(acts["read_registers"].level, Some(Perm::Read));
+    assert_eq!(acts["read_device_id"].level, Some(Perm::Read));
+    assert!(acts["read_registers"].timeout_ms.is_some());
+    assert!(acts["read_device_id"].timeout_ms.is_some());
+    let (_, conn) = h.meta("c1").await;
+    let acts = conn.unwrap().actions.unwrap();
+    assert_eq!(acts["scan_units"].level, Some(Perm::Config));
+    // 247 units at 200 ms with a reopen after each silent one
+    assert!(acts["scan_units"].timeout_ms.unwrap() >= 247 * 250);
+    let (s, _, _) = act(&h, "c1", "scan_units", map(&[]), Perm::Read).await;
+    assert_eq!(s, Some(Status::PermissionDenied));
+    let (s, _, _) = act(&h, "c1", "scan_units", map(&[]), Perm::Write).await;
+    assert_eq!(s, Some(Status::PermissionDenied));
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_registers_returns_words_and_value() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let words = codec::encode(codec::DType::F32, &Value::Float(21.5), 1, 1.0, 0.0).unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[10..12].copy_from_slice(&words);
+        t.input[3] = 7;
+        t.input[4] = 0x00FA; // not BCD
+        t.coils[5] = true;
+    }
+    let h = bare(addr.port(), &[]).await;
+    let args = |kv: &[(&str, Value)]| map(kv);
+    let (s, v, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        args(&[
+            ("table", "holding".into()),
+            ("addr", Value::UInt(10)),
+            ("count", Value::UInt(2)),
+            ("dtype", "f32".into()),
+        ]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    let want: Vec<Value> = words.iter().map(|w| Value::UInt((*w).into())).collect();
+    assert_eq!(field(&v, "words"), &Value::Array(want));
+    assert_eq!(field(&v, "value"), &Value::Float(21.5));
+    // no dtype: words only; count defaults to 1
+    let (s, v, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        args(&[("table", "input".into()), ("addr", Value::UInt(3))]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(field(&v, "words"), &Value::Array(vec![Value::UInt(7)]));
+    let Some(Value::Map(m)) = &v else { panic!() };
+    assert!(!m.contains_key("value"));
+    // words that do not decode as the dtype: the words and why
+    let (s, v, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        args(&[
+            ("table", "input".into()),
+            ("addr", Value::UInt(4)),
+            ("dtype", "bcd16".into()),
+        ]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(field(&v, "words"), &Value::Array(vec![Value::UInt(0xFA)]));
+    assert!(matches!(field(&v, "error"), Value::Str(_)), "{v:?}");
+    // bit tables answer bits
+    let (s, v, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        args(&[
+            ("table", "coil".into()),
+            ("addr", Value::UInt(4)),
+            ("count", Value::UInt(3)),
+        ]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(
+        field(&v, "bits"),
+        &Value::Array(vec![
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false)
+        ])
+    );
+    // an address the device lacks: its exception
+    let (s, _, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        args(&[("table", "holding".into()), ("addr", Value::UInt(2000))]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::InvalidParameter), "{m}");
+    assert!(m.contains("IllegalDataAddress"), "{m}");
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_registers_bounds() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let h = bare(addr.port(), &[]).await;
+    let before = dev.lock().unwrap().requests;
+    for (kv, why) in [
+        (
+            vec![("table", "holding".into()), ("count", Value::UInt(126))],
+            "count",
+        ),
+        (
+            vec![("table", "holding".into()), ("count", Value::UInt(0))],
+            "count",
+        ),
+        (
+            vec![("table", "holding".into()), ("count", Value::Float(1.5))],
+            "count",
+        ),
+        (
+            vec![
+                ("table", "holding".into()),
+                ("addr", Value::UInt(65_535)),
+                ("count", Value::UInt(2)),
+            ],
+            "addr",
+        ),
+        (
+            vec![
+                ("table", "holding".into()),
+                ("count", Value::UInt(1)),
+                ("dtype", "f32".into()),
+            ],
+            "dtype",
+        ),
+        (
+            vec![("table", "coil".into()), ("dtype", "u16".into())],
+            "dtype",
+        ),
+        (vec![("addr", Value::UInt(1))], "table"),
+    ] {
+        let mut kv = kv;
+        if !kv.iter().any(|(k, _)| *k == "addr") {
+            kv.push(("addr", Value::UInt(0)));
+        }
+        let (s, _, m) = act(&h, "c1/d1", "read_registers", map(&kv), Perm::Read).await;
+        assert_eq!(s, Some(Status::InvalidParameter), "{kv:?}: {m}");
+        assert!(m.contains(why), "{kv:?}: {m}");
+    }
+    assert_eq!(
+        dev.lock().unwrap().requests,
+        before,
+        "refused before any request"
+    );
+    // 125 is the limit
+    let (s, v, m) = act(
+        &h,
+        "c1/d1",
+        "read_registers",
+        map(&[
+            ("table", "holding".into()),
+            ("addr", Value::UInt(0)),
+            ("count", Value::UInt(125)),
+        ]),
+        Perm::Read,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    let Value::Array(w) = field(&v, "words") else {
+        panic!()
+    };
+    assert_eq!(w.len(), 125);
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_device_id_returns_objects() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    // two objects per reply: the driver follows `more follows`
+    dev.lock().unwrap().id_per_reply = 2;
+    let h = bare(addr.port(), &[]).await;
+    let (s, v, m) = act(&h, "c1/d1", "read_device_id", map(&[]), Perm::Read).await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    for (k, want) in [
+        ("vendor_name", "WYRM"),
+        ("product_code", "WYRM-SIM"),
+        ("revision", "1.0"),
+        ("vendor_url", "https://wyrm.invalid"),
+        ("product_name", "Modbus Simulator"),
+        ("model_name", "SIM-1000"),
+    ] {
+        assert_eq!(field(&v, k), &Value::from(want), "{k}");
+    }
+    let Some(Value::Map(m)) = &v else { panic!() };
+    assert!(!m.contains_key("user_application_name"));
+    let fc43 = dev.lock().unwrap().count(0x2B);
+    assert!(
+        fc43 >= 3,
+        "{fc43} FC43 requests: continuation not followed?"
+    );
+    // a device without FC43
+    dev.lock().unwrap().no_fc43 = true;
+    let (s, _, m) = act(&h, "c1/d1", "read_device_id", map(&[]), Perm::Read).await;
+    assert_eq!(s, Some(Status::NotSupported), "{m}");
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scan_units_finds_answering_units() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().answer_units = Some([1, 7].into());
+    let h = bare(addr.port(), &[]).await;
+    let t0 = std::time::Instant::now();
+    let (s, v, m) = act(
+        &h,
+        "c1",
+        "scan_units",
+        map(&[
+            ("from", Value::UInt(1)),
+            ("to", Value::UInt(8)),
+            ("timeout_ms", Value::UInt(100)),
+        ]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(v, Some(Value::Array(vec![Value::UInt(1), Value::UInt(7)])));
+    // six silent units at 100 ms each, not at the connection's 200 ms
+    let took = t0.elapsed();
+    assert!(took < Duration::from_millis(1100), "{took:?}");
+    {
+        let t = dev.lock().unwrap();
+        let probed: Vec<u8> = t.log.iter().map(|(u, _, _)| *u).collect();
+        assert_eq!(probed, (1..=8).collect::<Vec<u8>>(), "one probe per unit");
+    }
+    // a gateway's "target did not respond" is no answer; another exception is
+    {
+        let mut t = dev.lock().unwrap();
+        t.answer_units = None;
+        t.except_once = Some((2, 0, tokio_modbus::ExceptionCode::GatewayTargetDevice));
+    }
+    let (s, v, m) = act(
+        &h,
+        "c1",
+        "scan_units",
+        map(&[("from", Value::UInt(1)), ("to", Value::UInt(3))]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(v, Some(Value::Array(vec![Value::UInt(1), Value::UInt(3)])));
+    dev.lock().unwrap().except_once = Some((3, 0, tokio_modbus::ExceptionCode::IllegalDataAddress));
+    let (_, v, _) = act(
+        &h,
+        "c1",
+        "scan_units",
+        map(&[("from", Value::UInt(3)), ("to", Value::UInt(3))]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(v, Some(Value::Array(vec![Value::UInt(3)])));
+    // the default range at 200 ms fits the action's bound; at 1000 ms it does not
+    let (s, _, m) = act(
+        &h,
+        "c1",
+        "scan_units",
+        map(&[("timeout_ms", Value::UInt(1000))]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(s, Some(Status::InvalidParameter), "{m}");
+    assert!(m.contains("smaller range"), "{m}");
+    // bad ranges
+    for kv in [
+        vec![("from", Value::UInt(9)), ("to", Value::UInt(8))],
+        vec![("from", Value::UInt(1)), ("to", Value::UInt(256))],
+        vec![("timeout_ms", Value::UInt(5))],
+    ] {
+        let (s, _, m) = act(&h, "c1", "scan_units", map(&kv), Perm::Config).await;
+        assert_eq!(s, Some(Status::InvalidParameter), "{kv:?}: {m}");
+    }
+    h.stop().await;
+}
+
+/// P12: while a scan holds the owner, actions queue up to the owner
+/// queue's depth (256); the rest are answered `busy` at once, and the link
+/// keeps answering.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_owner_queue_answers_busy() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    dev.lock().unwrap().answer_units = Some([1].into());
+    // Off: the per-caller rate limit would answer first.
+    let h = H::start_with(
+        conn_tree(addr.port(), &[], &[("ping", "none".into())], map(&[])),
+        |c| c.rate_limit = None,
+    )
+    .await;
+    wait("connected", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    let h = std::sync::Arc::new(h);
+    // about 3 s of silent units
+    let scan = {
+        let h = h.clone();
+        tokio::spawn(async move {
+            let args = map(&[
+                ("from", Value::UInt(2)),
+                ("to", Value::UInt(31)),
+                ("timeout_ms", Value::UInt(100)),
+            ]);
+            act(&h, "c1", "scan_units", args, Perm::Config).await
+        })
+    };
+    wait("scan running", || dev.lock().unwrap().dropped > 0).await;
+    let mut reads = tokio::task::JoinSet::new();
+    for _ in 0..300 {
+        let h = h.clone();
+        reads.spawn(async move {
+            let args = map(&[("table", "holding".into()), ("addr", Value::UInt(0))]);
+            act(&h, "c1/d1", "read_registers", args, Perm::Read).await
+        });
+        // Let the link task take each one (its own queue is 256 deep too).
+        tokio::task::yield_now().await;
+    }
+    let (mut ok, mut busy) = (0, 0);
+    while let Some(r) = reads.join_next().await {
+        let (s, _, m) = r.unwrap();
+        match s {
+            Some(Status::Ok) => ok += 1,
+            Some(Status::Busy) if m.contains("connection busy") => busy += 1,
+            other => panic!("{other:?}: {m}"),
+        }
+    }
+    assert!(busy > 0, "no busy answer");
+    assert!(ok >= 200, "{ok} reads answered");
+    let (s, v, m) = scan.await.unwrap();
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    assert_eq!(v, Some(Value::Array(vec![])));
+    std::sync::Arc::try_unwrap(h).ok().unwrap().stop().await;
+}

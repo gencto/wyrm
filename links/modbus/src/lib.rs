@@ -41,6 +41,13 @@
 //! counted for its device and connection as answered, an exception, a
 //! timeout or an I/O or protocol error, with its round trip; `reopens`
 //! counts the reopens after an unanswered request.
+//!
+//! Commissioning actions (ruling 13), run on the connection's owner task
+//! between polls: device `read_registers` (one read of up to 125 registers
+//! or bits, raw and decoded) and `read_device_id` (FC43/14 basic and
+//! regular objects), both at level read; connection `scan_units` (one
+//! probe read per unit id, config level). A scan holds the owner for its
+//! whole run, so the connection's polls wait until it ends.
 
 #![forbid(unsafe_code)]
 
@@ -54,14 +61,17 @@ use std::net::SocketAddr;
 use std::sync::LazyLock;
 use std::time::Duration;
 use tokio_modbus::client::{rtu, tcp, Client, Context};
+use tokio_modbus::prelude::ReadCode;
 use tokio_modbus::slave::SlaveContext;
 use tokio_modbus::{ExceptionCode, Request, Response, Slave};
 use tracing::debug;
-use wyrm_core::meta::Writable;
-use wyrm_core::{NodeMeta, TypeCode, Value};
+use wyrm_core::meta::{ActionResult, ParamMeta, Writable};
+use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
-use wyrm_link_sdk::driver::{Driver, DriverError, Framework, Outcome, ParamEnum, Params, PointId};
+use wyrm_link_sdk::driver::{
+    Driver, DriverError, Framework, Level, Outcome, ParamEnum, Params, PointId, Target,
+};
 use wyrm_link_sdk::LinkError;
 use wyrm_link_sdk::{ParamEnum, Params};
 
@@ -484,9 +494,9 @@ pub struct Transport {
     /// transaction id fails the next request and drops the connection. So
     /// the next request reopens the transport first (ruling 7, P8).
     unanswered: bool,
-    /// When the unanswered request went out (the serial guard waits out
-    /// the rest of its window).
-    sent: Option<tokio::time::Instant>,
+    /// When the unanswered request's reply window ends (it went out with
+    /// its own timeout; the serial guard waits out the rest of it).
+    window_end: Option<tokio::time::Instant>,
     /// Reopens after an unanswered request (also counted in `outcomes`).
     reopens: u64,
     /// Outcomes of the requests since the framework last took them.
@@ -651,10 +661,8 @@ impl Transport {
         let guard = match &self.conn {
             Conn::Serial(c) => {
                 let rest = self
-                    .sent
-                    .map(|t| {
-                        (t + self.timeout).saturating_duration_since(tokio::time::Instant::now())
-                    })
+                    .window_end
+                    .map(|end| end.saturating_duration_since(tokio::time::Instant::now()))
                     .unwrap_or_default();
                 Some(serial_guard(c, rest))
             }
@@ -663,7 +671,7 @@ impl Transport {
         self.ctx = connect(&self.conn, self.timeout, guard).await?;
         self.ctx.set_slave(Slave(self.unit));
         self.unanswered = false;
-        self.sent = None;
+        self.window_end = None;
         self.reopens += 1;
         self.outcomes.push(Outcome::Count(REOPENS));
         debug!(
@@ -678,6 +686,17 @@ impl Transport {
     /// protocol error drops the connection). A request after an unanswered
     /// one goes out on a reopened transport.
     async fn call(&mut self, req: Request<'static>) -> Reply<Response> {
+        self.call_with(req, self.timeout, self.retries).await
+    }
+
+    /// [`Transport::call`] with its own bound and retries (the actions);
+    /// the connection's stay as they are, even when the call is cut.
+    async fn call_with(
+        &mut self,
+        req: Request<'static>,
+        timeout: Duration,
+        retries: u8,
+    ) -> Reply<Response> {
         let mut retry = 0;
         loop {
             if self.unanswered {
@@ -685,8 +704,8 @@ impl Transport {
             }
             self.unanswered = true;
             let sent = tokio::time::Instant::now();
-            self.sent = Some(sent);
-            let r = tokio::time::timeout(self.timeout, self.ctx.call(req.clone())).await;
+            self.window_end = Some(sent + timeout);
+            let r = tokio::time::timeout(timeout, self.ctx.call(req.clone())).await;
             self.outcomes.push(match &r {
                 Err(_) => Outcome::Timeout,
                 Ok(Ok(Ok(_))) => Outcome::Reply(sent.elapsed()),
@@ -694,14 +713,14 @@ impl Transport {
                 Ok(Err(_)) => Outcome::Error,
             });
             match r {
-                Err(_) if retry < self.retries => {
+                Err(_) if retry < retries => {
                     retry += 1;
                     debug!(retry, "request timed out; sending it again");
                 }
                 Err(_) => return Err(DriverError::Device("request timed out".into())),
                 Ok(r) => {
                     self.unanswered = false;
-                    self.sent = None;
+                    self.window_end = None;
                     return r.map_err(|e| DriverError::Transport(e.to_string()));
                 }
             }
@@ -802,6 +821,343 @@ impl Transport {
     }
 }
 
+/// Bound on `read_registers` and `read_device_id` (ruling 13, P12): they
+/// send each request once (no retries) at the connection's `timeout_ms`,
+/// so one request at the longest timeout (10 s) and a reopen fit.
+const READ_ACTION_MS: u32 = 12_000;
+
+/// Bound on `scan_units`: 247 units at 200 ms with a reopen after each
+/// silent one take about 62 s; below the gateway's 180 s wait on an action
+/// (its `timeout_ms` + 5 s).
+const SCAN_ACTION_MS: u32 = 170_000;
+
+/// `scan_units` per-unit timeout: default, min, max (ms).
+const SCAN_UNIT_MS: (u32, u32, u32) = (200, 20, 1000);
+
+/// Requests of one FC43/14 category (`more follows` continuations).
+const MAX_ID_REQUESTS: usize = 4;
+
+/// FC43/14 basic and regular object names, by object id.
+const ID_OBJECTS: [&str; 7] = [
+    "vendor_name",
+    "product_code",
+    "revision",
+    "vendor_url",
+    "product_name",
+    "model_name",
+    "user_application_name",
+];
+
+fn uint_param(display: &str, desc: &str, default: Option<u64>) -> ParamMeta {
+    ParamMeta {
+        default: default.map(Value::UInt),
+        ..ParamMeta::of(TypeCode::Number)
+            .display(display)
+            .description(desc)
+    }
+}
+
+/// A choice by name, as the framework's forms declare one (`string` with
+/// `enum_values`).
+fn enum_param(display: &str, names: &[&str]) -> ParamMeta {
+    ParamMeta::of(TypeCode::String)
+        .enum_values(names.iter().copied())
+        .display(display)
+}
+
+/// A whole-number arg in `min..=max`, `default` when absent (the SDK checks
+/// types, not bounds).
+fn arg_uint(
+    args: &BTreeMap<String, Value>,
+    name: &str,
+    default: Option<u64>,
+    (min, max): (u64, u64),
+) -> Result<u64, LinkError> {
+    let Some(v) = args.get(name) else {
+        return default.ok_or_else(|| LinkError::invalid_parameter(format!("missing {name}")));
+    };
+    let n = match v {
+        Value::UInt(u) => Some(*u),
+        Value::Int(i) => u64::try_from(*i).ok(),
+        Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 => {
+            Some(*f as u64)
+        }
+        _ => None,
+    }
+    .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: expected a whole number")))?;
+    if !(min..=max).contains(&n) {
+        return Err(LinkError::invalid_parameter(format!(
+            "{name}: {n} is not in {min}…{max}"
+        )));
+    }
+    Ok(n)
+}
+
+fn arg_enum<E: ParamEnum>(
+    args: &BTreeMap<String, Value>,
+    name: &str,
+) -> Result<Option<E>, LinkError> {
+    match args.get(name) {
+        None => Ok(None),
+        Some(Value::Str(s)) => E::from_name(s)
+            .map(Some)
+            .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: unknown {s}"))),
+        Some(_) => Err(LinkError::invalid_parameter(format!(
+            "{name}: expected a name"
+        ))),
+    }
+}
+
+/// A failed action request as the caller sees it. A broken transport is
+/// `disconnected`: the framework reconnects.
+fn action_err(e: DriverError) -> LinkError {
+    match e {
+        DriverError::Transport(m) => LinkError::new(Status::Disconnected, m),
+        DriverError::Device(m) => LinkError::timeout(m),
+        DriverError::Point(m) => LinkError::new(Status::NotAvailable, m),
+    }
+}
+
+fn exception_err(e: ExceptionCode) -> LinkError {
+    let m = format!("device exception {e:?}");
+    match e {
+        ExceptionCode::IllegalFunction => LinkError::not_supported(m),
+        ExceptionCode::IllegalDataAddress | ExceptionCode::IllegalDataValue => {
+            LinkError::invalid_parameter(m)
+        }
+        _ => LinkError::new(Status::NotAvailable, m),
+    }
+}
+
+/// Device action `read_registers {table, addr, count = 1, dtype?}`: one read
+/// of up to 125 registers or bits → `{words}` or `{bits}`, and with `dtype`
+/// the `value` decoded from the first words (unscaled; `error` instead when
+/// they do not decode).
+async fn read_registers(
+    t: &mut Transport,
+    dev: &Device,
+    args: &BTreeMap<String, Value>,
+) -> Result<Value, LinkError> {
+    let table: Table =
+        arg_enum(args, "table")?.ok_or_else(|| LinkError::invalid_parameter("missing table"))?;
+    let addr = arg_uint(args, "addr", None, (0, 65_535))?;
+    let max = u64::from(codec::MAX_REGISTERS);
+    let count = arg_uint(args, "count", Some(1), (1, max))?;
+    if addr + count > 65_536 {
+        return Err(LinkError::invalid_parameter(
+            "addr: the read runs past 65535",
+        ));
+    }
+    let dtype: Option<DType> = match args.get("dtype") {
+        None => None,
+        Some(Value::Str(s)) => Some(
+            DType::parse(s)
+                .ok_or_else(|| LinkError::invalid_parameter(format!("dtype: unknown {s}")))?,
+        ),
+        Some(_) => return Err(LinkError::invalid_parameter("dtype: expected a name")),
+    };
+    let in_range = |_| LinkError::invalid_parameter("addr: out of range");
+    let (addr, count) = (
+        u16::try_from(addr).map_err(in_range)?,
+        u16::try_from(count).map_err(in_range)?,
+    );
+    let regs = u8::try_from(count).unwrap_or(u8::MAX);
+    match dtype {
+        Some(d) if table.is_bits() && d != DType::Binary => {
+            return Err(LinkError::invalid_parameter(
+                "dtype: coil and discrete tables hold binary values only",
+            ));
+        }
+        Some(d) if !table.is_bits() && d.words(regs) > count => {
+            return Err(LinkError::invalid_parameter(format!(
+                "dtype: {} needs {} registers, count is {count}",
+                d.name(),
+                d.words(regs)
+            )));
+        }
+        _ => {}
+    }
+    if !t.select(dev.unit) {
+        return Err(LinkError::invalid_parameter(NO_RTU_BROADCAST));
+    }
+    let req = match table {
+        Table::Coil => Request::ReadCoils(addr, count),
+        Table::Discrete => Request::ReadDiscreteInputs(addr, count),
+        Table::Input => Request::ReadInputRegisters(addr, count),
+        Table::Holding => Request::ReadHoldingRegisters(addr, count),
+    };
+    let reply = t.call_with(req, t.timeout, 0).await.map_err(action_err)?;
+    let mut out = BTreeMap::new();
+    match reply.map_err(exception_err)? {
+        Response::ReadCoils(b) | Response::ReadDiscreteInputs(b) => {
+            let bits: Vec<Value> = b.into_iter().take(count.into()).map(Value::Bool).collect();
+            if dtype.is_some() {
+                if let Some(first) = bits.first() {
+                    out.insert("value".into(), first.clone());
+                }
+            }
+            out.insert("bits".into(), Value::Array(bits));
+        }
+        Response::ReadInputRegisters(w) | Response::ReadHoldingRegisters(w) => {
+            if let Some(d) = dtype {
+                let n = usize::from(d.words(regs)).min(w.len());
+                match codec::decode(d, &w[..n], 0, 1.0, 0.0) {
+                    Ok(v) => out.insert("value".into(), v),
+                    Err(e) => out.insert("error".into(), Value::Str(e.to_string())),
+                };
+            }
+            let words = w.into_iter().map(|x| Value::UInt(x.into())).collect();
+            out.insert("words".into(), Value::Array(words));
+        }
+        other => return Err(action_err(unexpected(&other))),
+    }
+    Ok(Value::Map(out))
+}
+
+/// One FC43/14 category from object `start` into `objects`, following
+/// `more follows` (at most [`MAX_ID_REQUESTS`] requests; a next object id
+/// that does not advance ends it). The device's conformity level.
+async fn read_id_category(
+    t: &mut Transport,
+    code: ReadCode,
+    start: u8,
+    objects: &mut BTreeMap<u8, String>,
+) -> Result<Result<u8, ExceptionCode>, LinkError> {
+    let mut next = start;
+    let mut level = 0;
+    for _ in 0..MAX_ID_REQUESTS {
+        let req = Request::ReadDeviceIdentification(code, next);
+        let r = match t.call_with(req, t.timeout, 0).await.map_err(action_err)? {
+            Err(e) => return Ok(Err(e)),
+            Ok(Response::ReadDeviceIdentification(r)) => r,
+            Ok(other) => return Err(action_err(unexpected(&other))),
+        };
+        level = r.conformity_level.value();
+        for o in &r.device_id_objects {
+            objects.insert(o.id, String::from_utf8_lossy(&o.value).into_owned());
+        }
+        if !r.more_follows {
+            break;
+        }
+        if r.next_object_id <= next {
+            debug!(
+                next = r.next_object_id,
+                "FC43: next object id does not advance"
+            );
+            break;
+        }
+        next = r.next_object_id;
+    }
+    Ok(Ok(level))
+}
+
+/// Device action `read_device_id`: FC43/14 basic objects, and the regular
+/// ones when the device's conformity level has them → `{vendor_name,
+/// product_code, revision, vendor_url, …}` (strings; an object without a
+/// name of its own as `object_<id>`).
+async fn read_device_id(t: &mut Transport, dev: &Device) -> Result<Value, LinkError> {
+    if !t.select(dev.unit) {
+        return Err(LinkError::invalid_parameter(NO_RTU_BROADCAST));
+    }
+    let mut objects = BTreeMap::new();
+    let level = read_id_category(t, ReadCode::Basic, 0, &mut objects)
+        .await?
+        .map_err(|e| match e {
+            ExceptionCode::IllegalFunction => LinkError::not_supported(
+                "the device does not support FC43/14 Read Device Identification",
+            ),
+            e => exception_err(e),
+        })?;
+    // Conformity 0x02/0x03 (stream only) or 0x82/0x83: regular objects too.
+    if level & 0x7F >= 2 {
+        if let Err(e) = read_id_category(t, ReadCode::Regular, 3, &mut objects).await? {
+            debug!("FC43 regular objects: device exception {e:?}");
+        }
+    }
+    let named = objects
+        .into_iter()
+        .map(|(id, v)| {
+            let name = ID_OBJECTS
+                .get(usize::from(id))
+                .map_or_else(|| format!("object_{id}"), |n| (*n).to_owned());
+            (name, Value::Str(v))
+        })
+        .collect();
+    Ok(Value::Map(named))
+}
+
+/// Connection action `scan_units {from = 1, to = 247, timeout_ms = 200}`:
+/// one probe read (holding register 0) per unit, sent once with its own
+/// timeout; any reply but a gateway's "target did not respond" counts, a
+/// timeout skips the unit, a transport error stops the scan
+/// (`disconnected`). Unit 0 is skipped on RTU (broadcast). → the answering
+/// units. Holds the connection's owner for the whole scan: its polls wait.
+async fn scan_units(
+    t: &mut Transport,
+    conn: &Conn,
+    args: &BTreeMap<String, Value>,
+) -> Result<Value, LinkError> {
+    let from = arg_uint(args, "from", Some(1), (0, 255))?;
+    let to = arg_uint(args, "to", Some(247), (0, 255))?;
+    let (dflt, min, max) = SCAN_UNIT_MS;
+    let per_unit = arg_uint(
+        args,
+        "timeout_ms",
+        Some(dflt.into()),
+        (min.into(), max.into()),
+    )?;
+    if from > to {
+        return Err(LinkError::invalid_parameter(format!(
+            "from: {from} is above to ({to})"
+        )));
+    }
+    // Every silent unit costs its timeout and a reopen (ruling 7, P8).
+    let reopen = match conn {
+        Conn::Serial(c) => {
+            u64::try_from(serial_guard(c, Duration::ZERO).as_millis()).unwrap_or(u64::MAX)
+        }
+        Conn::Ip(_) => 50,
+    };
+    let worst = (to - from + 1).saturating_mul(per_unit.saturating_add(reopen));
+    let budget = u64::from(SCAN_ACTION_MS) - 1000;
+    if worst > budget {
+        return Err(LinkError::invalid_parameter(format!(
+            "a scan of {} units at {per_unit} ms may take {} s, more than the {} s an action \
+             may run: scan a smaller range or use a shorter timeout_ms",
+            to - from + 1,
+            worst / 1000,
+            budget / 1000
+        )));
+    }
+    let timeout = Duration::from_millis(per_unit);
+    let unit_id = |u| u8::try_from(u).map_err(|_| LinkError::invalid_parameter("unit id"));
+    let mut found = Vec::new();
+    for unit in unit_id(from)?..=unit_id(to)? {
+        if !t.select(unit) {
+            continue;
+        }
+        match t
+            .call_with(Request::ReadHoldingRegisters(0, 1), timeout, 0)
+            .await
+        {
+            Ok(Ok(_)) => found.push(Value::UInt(unit.into())),
+            // A gateway answers for a silent unit behind it.
+            Ok(Err(ExceptionCode::GatewayTargetDevice | ExceptionCode::GatewayPathUnavailable)) => {
+            }
+            Ok(Err(_)) => found.push(Value::UInt(unit.into())),
+            Err(DriverError::Transport(e)) => {
+                return Err(LinkError::new(
+                    Status::Disconnected,
+                    format!("scan stopped at unit {unit}: {e}; answering before it: {found:?}"),
+                ));
+            }
+            // No reply in time.
+            Err(_) => {}
+        }
+    }
+    Ok(Value::Array(found))
+}
+
 pub struct ModbusDriver;
 
 impl Driver for ModbusDriver {
@@ -829,7 +1185,7 @@ impl Driver for ModbusDriver {
             rtu,
             unit: 1,
             unanswered: false,
-            sent: None,
+            window_end: None,
             reopens: 0,
             outcomes: Vec::new(),
             no_fc22: HashSet::new(),
@@ -1047,6 +1403,83 @@ impl Driver for ModbusDriver {
     }
 
     const RESCAN: Option<&'static str> = Some("Rescan For Serial Ports");
+
+    /// Commissioning actions (ruling 13): `read_registers` and
+    /// `read_device_id` on a device (level read), `scan_units` on a
+    /// connection (level config).
+    fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
+        let read = |display: &str| {
+            ActionMeta::new()
+                .level(Perm::Read)
+                .display(display)
+                .timeout_ms(READ_ACTION_MS)
+                .result(ActionResult::Type(TypeCode::Map))
+        };
+        match level {
+            Level::Device => vec![
+                (
+                    "read_registers",
+                    read("Read Registers")
+                        .param(
+                            "table",
+                            enum_param("Object Type", Table::NAMES).required(true),
+                        )
+                        .param(
+                            "addr",
+                            uint_param("Offset", "first register or bit", None).required(true),
+                        )
+                        .param(
+                            "count",
+                            uint_param("Count", "registers or bits, 1…125", Some(1)),
+                        )
+                        .param(
+                            "dtype",
+                            enum_param("Data Type", &DTYPE_NAMES)
+                                .description("decode the first registers (unscaled)"),
+                        ),
+                ),
+                ("read_device_id", read("Read Device Identification")),
+            ],
+            Level::Connection => vec![(
+                "scan_units",
+                ActionMeta::new()
+                    .level(Perm::Config)
+                    .display("Scan Unit IDs")
+                    .timeout_ms(SCAN_ACTION_MS)
+                    .result(ActionResult::Type(TypeCode::Array))
+                    .param("from", uint_param("From", "first unit id", Some(1)))
+                    .param("to", uint_param("To", "last unit id", Some(247)))
+                    .param(
+                        "timeout_ms",
+                        uint_param(
+                            "Timeout per Unit (ms)",
+                            "20…1000; polling of this connection waits during a scan",
+                            Some(SCAN_UNIT_MS.0.into()),
+                        ),
+                    ),
+            )],
+        }
+    }
+
+    async fn invoke(
+        t: &mut Transport,
+        conn: &Conn,
+        target: Target<'_, Self>,
+        action: &str,
+        args: &Value,
+    ) -> Result<Value, LinkError> {
+        let empty = BTreeMap::new();
+        let args = match args {
+            Value::Map(m) => m,
+            _ => &empty,
+        };
+        match (target, action) {
+            (Target::Device { dev, .. }, "read_registers") => read_registers(t, dev, args).await,
+            (Target::Device { dev, .. }, "read_device_id") => read_device_id(t, dev).await,
+            (Target::Connection, "scan_units") => scan_units(t, conn, args).await,
+            _ => Err(LinkError::not_supported(format!("action {action}"))),
+        }
+    }
 
     const DIAGNOSTICS: bool = true;
     const DIAG_EXTRA: &'static [&'static str] = &[REOPENS];

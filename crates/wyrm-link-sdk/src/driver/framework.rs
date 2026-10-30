@@ -1002,8 +1002,10 @@ impl<D: Driver> Framework<D> {
         let bound = timeout_ms.map(|ms| Duration::from_millis(ms.into()));
         // The SDK's bound on this call, counted from the request.
         let deadline = out.since() + bound.unwrap_or_else(|| self.ctx.driver_timeout());
+        // Never wait for room: a full queue (a long action holds the owner)
+        // answers `busy` and does not stall the link task (P12).
         run.tx
-            .send(Req::Invoke {
+            .try_send(Req::Invoke {
                 dev,
                 action: action.to_owned(),
                 args,
@@ -1011,8 +1013,14 @@ impl<D: Driver> Framework<D> {
                 deadline,
                 reply,
             })
-            .await
-            .map_err(|_| LinkError::new(Status::Disconnected, "connection stopped"))?;
+            .map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => {
+                    LinkError::new(Status::Busy, "connection busy: too many requests queued")
+                }
+                mpsc::error::TrySendError::Closed(_) => {
+                    LinkError::new(Status::Disconnected, "connection stopped")
+                }
+            })?;
         tokio::spawn(
             async move {
                 let _ = match rx.await {

@@ -1,11 +1,12 @@
 //! Minimal Modbus TCP device simulator (feature `sim`): 1000 coils, discrete
 //! inputs, input and holding registers, all zero at start. Addresses outside
-//! the tables answer `IllegalDataAddress`. Supports FC1–6, 15, 16, 17 and 22
-//! (FC22 can be switched off to test the read-modify-write fallback).
-//! Every unit id is served by the same tables; the ids seen are recorded.
-//! Faults for tests: a fixed latency on every reply, one late reply, one
-//! exception and dropped (unanswered) requests, keyed by unit and address. Stand-in for
-//! `diagslave` in tests.
+//! the tables answer `IllegalDataAddress`. Supports FC1–6, 15, 16, 17, 22
+//! and 43/14 Read Device Identification (basic and regular objects; FC22
+//! and FC43 can be switched off). Every unit id is served by the same
+//! tables unless [`Tables::answer_units`] names the units that answer; the
+//! ids seen are recorded. Faults for tests: a fixed latency on every reply,
+//! one late reply, one exception and dropped (unanswered) requests, keyed by
+//! unit and address. Stand-in for `diagslave` in tests.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::future::Future;
@@ -14,6 +15,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio_modbus::prelude::{
+    ConformityLevel, DeviceIdObject, ReadCode, ReadDeviceIdentificationResponse,
+};
 use tokio_modbus::server::tcp::{accept_tcp_connection, Server};
 use tokio_modbus::server::Service;
 use tokio_modbus::{ExceptionCode, Request, Response, SlaveRequest};
@@ -49,6 +53,17 @@ pub struct Tables {
     pub dropped: u64,
     /// TCP connections accepted.
     pub connections: u64,
+    /// Units that answer (`None` = every unit); requests to others are
+    /// left unanswered (counted in `dropped`).
+    pub answer_units: Option<BTreeSet<u8>>,
+    /// Answer FC43 with `IllegalFunction` (a device without identification).
+    pub no_fc43: bool,
+    /// FC43/14 objects by id: 0–2 basic (vendor name, product code,
+    /// revision), 3–6 regular (vendor URL, product name, model name, user
+    /// application name).
+    pub device_id: BTreeMap<u8, String>,
+    /// Objects per FC43 reply (0 = all); fewer sets `more follows`.
+    pub id_per_reply: usize,
 }
 
 /// Entries kept in [`Tables::log`] (a long-running simulator stays bounded).
@@ -79,6 +94,17 @@ impl Default for Tables {
             except_once: None,
             dropped: 0,
             connections: 0,
+            answer_units: None,
+            no_fc43: false,
+            device_id: BTreeMap::from([
+                (0, "WYRM".to_owned()),
+                (1, "WYRM-SIM".to_owned()),
+                (2, "1.0".to_owned()),
+                (3, "https://wyrm.invalid".to_owned()),
+                (4, "Modbus Simulator".to_owned()),
+                (5, "SIM-1000".to_owned()),
+            ]),
+            id_per_reply: 0,
         }
     }
 }
@@ -134,6 +160,10 @@ impl Service for Sim {
         }
         t.log.push_back((unit, fc, addr));
         *t.by_fc.entry(fc).or_default() += 1;
+        if t.answer_units.as_ref().is_some_and(|u| !u.contains(&unit)) {
+            t.dropped += 1;
+            return Box::pin(std::future::ready(Ok(None)));
+        }
         if let Some((u, a, n)) = t.drop_next {
             if (u, a) == (unit, addr) && n > 0 {
                 t.drop_next = (n > 1).then_some((u, a, n - 1));
@@ -215,8 +245,51 @@ impl Sim {
             }
             // FC17 Report Server ID: id 1, run indicator on.
             Request::Custom(0x11, _) => Ok(Response::Custom(0x11, vec![2, 1, 0xFF].into())),
+            Request::ReadDeviceIdentification(code, start) if !t.no_fc43 => {
+                Self::device_id(t, code, start)
+            }
             _ => Err(ExceptionCode::IllegalFunction),
         }
+    }
+
+    /// FC43/14 stream access from object `start` within the category of
+    /// `code` (basic 0–2, regular 3–6; extended has none), at most
+    /// `id_per_reply` objects per reply; individual access: one object.
+    fn device_id(t: &Tables, code: ReadCode, start: u8) -> Result<Response, ExceptionCode> {
+        let ids = match code {
+            ReadCode::Basic => 0..=2,
+            ReadCode::Regular => 3..=6,
+            ReadCode::Extended => 0x80..=0xFF,
+            ReadCode::Specific => start..=start,
+        };
+        let mut objects: Vec<DeviceIdObject> = t
+            .device_id
+            .range(ids)
+            .filter(|(id, _)| **id >= start)
+            .map(|(id, v)| DeviceIdObject {
+                id: *id,
+                value: v.clone().into_bytes().into(),
+            })
+            .collect();
+        if code == ReadCode::Specific && objects.is_empty() {
+            return Err(ExceptionCode::IllegalDataAddress);
+        }
+        let more = t.id_per_reply > 0 && objects.len() > t.id_per_reply;
+        let next = if more {
+            objects.truncate(t.id_per_reply + 1);
+            objects.pop().map_or(0, |o| o.id)
+        } else {
+            0
+        };
+        Ok(Response::ReadDeviceIdentification(
+            ReadDeviceIdentificationResponse {
+                read_code: code,
+                conformity_level: ConformityLevel::RegularIdentification,
+                more_follows: more,
+                next_object_id: next,
+                device_id_objects: objects,
+            },
+        ))
     }
 }
 
