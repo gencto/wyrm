@@ -2473,8 +2473,12 @@ impl Driver for BacnetDriver {
             Level::Device => vec![
                 (
                     "list_objects",
+                    // commissioning: it holds the connection's owner task
+                    // for up to thousands of requests, so polling of every
+                    // device on the port waits (config, as modbus
+                    // scan_units); read_property is one request (read)
                     ActionMeta::new()
-                        .level(Perm::Read)
+                        .level(Perm::Config)
                         .display("List Objects")
                         .timeout_ms(LIST_ACTION_MS)
                         .result(ActionResult::Type(TypeCode::Map))

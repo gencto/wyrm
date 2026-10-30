@@ -190,7 +190,7 @@ comes after its timeout is dropped and counted in `late_replies`.
 | Node | Action | Level | Result |
 |---|---|---|---|
 | connection | `who_is {low?, high?, wait_ms}` | config | Devices that answered (section 7). |
-| device | `list_objects {limit = 1000}` | read | `{objects: [{object_type, instance, name, units?, unit?}], count, truncated}`. Reads `object-list` whole, or index by index when it does not fit one reply, then the names (and the units of analog objects). Stops at 160 s with `truncated = true`. |
+| device | `list_objects {limit = 1000}` | config | `{objects: [{object_type, instance, name, units?, unit?}], count, truncated}`. Reads `object-list` whole, or index by index when it does not fit one reply, then the names (and the units of analog objects). Stops at 160 s with `truncated = true`. |
 | device | `read_property {object_type, instance, property = present_value, array_index?}` | read | `{value}` as sent; for `units` also `units` (name) and `unit` (symbol). `property` takes the point names and `object_list`, `object_identifier`, `object_type`, `vendor_identifier`, `max_apdu_length_accepted`, `segmentation_supported`, `number_of_states`, or a number. |
 | device | `relinquish {object_type, instance, priority = 16}` | config | NULL at that priority (section 5). |
 

@@ -786,7 +786,10 @@ async fn list_objects_whole_and_index_by_index() {
         state(&h, "c1/d1").as_deref() == Some("connected")
     })
     .await;
-    let (st, v, msg) = act(&h, "c1/d1", "list_objects", map(&[]), Perm::Read).await;
+    // a commissioning action that holds the connection: config, not read
+    let (st, _, _) = act(&h, "c1/d1", "list_objects", map(&[]), Perm::Read).await;
+    assert_ne!(st, Some(Status::Ok));
+    let (st, v, msg) = act(&h, "c1/d1", "list_objects", map(&[]), Perm::Config).await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
     let v = v.unwrap();
     assert_eq!(field(&v, "count"), &Value::UInt(8));
@@ -819,7 +822,7 @@ async fn list_objects_whole_and_index_by_index() {
         "c1/d1",
         "list_objects",
         map(&[("limit", Value::UInt(120))]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
@@ -1087,7 +1090,9 @@ async fn params_bounds_forms_and_no_secrets() {
     let (_, d1) = h.meta("c1/d1").await;
     let d1 = d1.unwrap();
     let actions = d1.actions.as_ref().unwrap();
-    assert_eq!(actions["list_objects"].level, Some(Perm::Read));
+    assert_eq!(actions["list_objects"].level, Some(Perm::Config));
+    // one request: read, as modbus read_registers (ruling 13)
+    assert_eq!(actions["read_property"].level, Some(Perm::Read));
     assert_eq!(actions["relinquish"].level, Some(Perm::Config));
     assert_eq!(
         d1.cfg.as_ref().unwrap()["instance"],
