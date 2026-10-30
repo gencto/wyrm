@@ -31,8 +31,8 @@ pub type Handle = u64;
 pub const DEFAULT_ROWS: usize = 1_000;
 /// The most rows a query may ask for.
 pub const MAX_ROWS: usize = 5_000;
-/// Lists open at once in one query.
-pub const MAX_LISTS: usize = 500;
+/// Lists open at once in one query (the host allows 2 000 per link).
+pub const MAX_LISTS: usize = 1_000;
 /// Samples of keys no row needs yet, kept for rows that may appear.
 pub const MAX_CACHE: usize = 20_000;
 /// A query is `ready` with an `incomplete` error this long after its start unless

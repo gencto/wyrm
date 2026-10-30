@@ -6273,6 +6273,16 @@ dependencies = [
 [[package]]
 name = "wyrm-link-dql"
 version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde_json",
+ "wyrm-core",
+ "wyrm-dql",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+]
 
 [[package]]
 name = "wyrm-link-guest"

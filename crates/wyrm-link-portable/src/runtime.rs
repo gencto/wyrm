@@ -1148,7 +1148,9 @@ impl<E> Drop for Runtime<E> {
     }
 }
 
-/// The verified caller as the app sees it.
+/// The verified caller as the app sees it. Each grant is capped at the request's effective level
+/// (a `LimitedKey`'s limit, ADR 0025): a flow or agent token never shows the app more than the
+/// responder let it do.
 fn who_of(c: &Caller) -> Who {
     Who {
         subject: c
@@ -1158,7 +1160,12 @@ fn who_of(c: &Caller) -> Who {
         grants: c
             .claims
             .as_ref()
-            .map(|cl| cl.grants.iter().map(|g| (g.k.clone(), g.p)).collect())
+            .map(|cl| {
+                cl.grants
+                    .iter()
+                    .map(|g| (g.k.clone(), g.p.min(c.perm)))
+                    .collect()
+            })
             .unwrap_or_default(),
     }
 }
