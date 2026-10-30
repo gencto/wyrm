@@ -40,7 +40,7 @@ use opcua::types::{
 };
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -477,9 +477,16 @@ pub struct Relay {
     pub addr: SocketAddr,
     mode: Arc<AtomicU8>,
     delay_ms: Arc<AtomicU64>,
+    hide_limit: Arc<AtomicBool>,
     conns: Arc<Mutex<Vec<JoinHandle<()>>>>,
     task: JoinHandle<()>,
 }
+
+/// `i=11705` (Server_ServerCapabilities_OperationLimits_MaxNodesPerRead) as
+/// a four-byte NodeId in a request, and the unknown `i=65535` of the same
+/// length.
+const LIMIT_NODE: [u8; 4] = [0x01, 0x00, 0xB9, 0x2D];
+const NO_NODE: [u8; 4] = [0x01, 0x00, 0xFF, 0xFF];
 
 impl Drop for Relay {
     fn drop(&mut self) {
@@ -515,6 +522,15 @@ impl Relay {
         }
     }
 
+    /// While set, a client's read of `MaxNodesPerRead` (i=11705) asks for a
+    /// node that does not exist, so the client learns no limit, while the
+    /// server still enforces its own: a server that does not publish the
+    /// limit it enforces. Security None only (the relay rewrites the
+    /// plain request bytes).
+    pub fn set_hide_read_limit(&self, on: bool) {
+        self.hide_limit.store(on, Ordering::SeqCst);
+    }
+
     /// Hold every chunk this long before forwarding it (slow replies).
     pub fn set_delay(&self, d: Duration) {
         let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
@@ -528,9 +544,11 @@ pub async fn relay(upstream: SocketAddr) -> std::io::Result<Relay> {
     let addr = listener.local_addr()?;
     let mode = Arc::new(AtomicU8::new(RelayMode::Pass.code()));
     let delay_ms = Arc::new(AtomicU64::new(0));
+    let hide_limit = Arc::new(AtomicBool::new(false));
     let conns: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::default();
     let task = {
         let (mode, delay_ms, conns) = (mode.clone(), delay_ms.clone(), conns.clone());
+        let hide_limit = hide_limit.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((client, _)) = listener.accept().await else {
@@ -545,8 +563,14 @@ pub async fn relay(upstream: SocketAddr) -> std::io::Result<Relay> {
                 };
                 let (cr, cw) = client.into_split();
                 let (sr, sw) = server.into_split();
-                let up = tokio::spawn(pump(cr, sw, mode.clone(), delay_ms.clone()));
-                let down = tokio::spawn(pump(sr, cw, mode.clone(), delay_ms.clone()));
+                let up = tokio::spawn(pump(
+                    cr,
+                    sw,
+                    mode.clone(),
+                    delay_ms.clone(),
+                    Some(hide_limit.clone()),
+                ));
+                let down = tokio::spawn(pump(sr, cw, mode.clone(), delay_ms.clone(), None));
                 let both = tokio::spawn(async move {
                     let up = AbortGuard(up);
                     let down = AbortGuard(down);
@@ -562,6 +586,7 @@ pub async fn relay(upstream: SocketAddr) -> std::io::Result<Relay> {
         addr,
         mode,
         delay_ms,
+        hide_limit,
         conns,
         task,
     })
@@ -586,6 +611,7 @@ async fn pump(
     mut to: tokio::net::tcp::OwnedWriteHalf,
     mode: Arc<AtomicU8>,
     delay_ms: Arc<AtomicU64>,
+    hide_limit: Option<Arc<AtomicBool>>,
 ) {
     let mut buf = vec![0u8; 64 * 1024];
     loop {
@@ -601,6 +627,21 @@ async fn pump(
             RelayMode::Silent => continue,
             RelayMode::Drop => return,
             RelayMode::Pass => {}
+        }
+        if hide_limit
+            .as_ref()
+            .is_some_and(|h| h.load(Ordering::SeqCst))
+        {
+            let chunk = &mut buf[..n];
+            let mut i = 0;
+            while i + LIMIT_NODE.len() <= chunk.len() {
+                if chunk[i..i + LIMIT_NODE.len()] == LIMIT_NODE {
+                    chunk[i..i + LIMIT_NODE.len()].copy_from_slice(&NO_NODE);
+                    i += LIMIT_NODE.len();
+                } else {
+                    i += 1;
+                }
+            }
         }
         if to.write_all(&buf[..n]).await.is_err() {
             return;

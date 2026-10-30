@@ -312,7 +312,9 @@ A link on it (`wyrmd.json5` link params):
 ```
 
 The tests (`links/opcua/tests/sim.rs`) also use `sim::relay`, a TCP relay
-in front of the server that goes silent, slow or drops connections.
+in front of the server that goes silent, slow or drops connections, or
+(security None only) hides the server's `MaxNodesPerRead` from the client
+while the server still enforces it.
 
 ## 9. Known limits
 

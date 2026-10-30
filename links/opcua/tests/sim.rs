@@ -509,6 +509,55 @@ async fn reads_are_batched_by_the_server_limit() {
     h.stop().await;
 }
 
+/// A server that enforces a lower limit than it publishes (here: it
+/// publishes none to the client): every Read of more nodes answers
+/// BadTooManyOperations. The link halves the nodes per Read for the
+/// session, and the points become good without an edit.
+#[tokio::test(flavor = "multi_thread")]
+async fn too_many_operations_shrinks_the_reads() {
+    let d = dir();
+    let s = spawn(&d.0, |o| o.max_nodes_per_read = 2).await;
+    let r = sim::relay(s.addr).await.unwrap();
+    r.set_hide_read_limit(true);
+    let names = [
+        "Double", "Int32", "Boolean", "String", "Array", "Time", "Bytes",
+    ];
+    let points = Value::Map(
+        names
+            .iter()
+            .map(|n| {
+                (
+                    n.to_lowercase(),
+                    pt(&line(n), &[("poll_s", Value::Float(0.5))]),
+                )
+            })
+            .collect(),
+    );
+    // the device's limit (500) stays: only the server's answers lower it
+    let h = H::start(tree(
+        &r.url(),
+        &[],
+        &[("ping_s", Value::Float(3600.0))],
+        points,
+    ))
+    .await;
+    connected(&h).await;
+    wait("all points good", || {
+        names.iter().all(|n| {
+            val(&h, &format!("c1/d1/{}", n.to_lowercase())).is_some_and(|(_, q)| q == Quality::Good)
+        })
+    })
+    .await;
+    // and they stay good poll after poll
+    for _ in 0..20 {
+        assert!(names.iter().all(|n| {
+            val(&h, &format!("c1/d1/{}", n.to_lowercase())).is_some_and(|(_, q)| q == Quality::Good)
+        }));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn silent_server_degrades_quality() {
     let d = dir();
