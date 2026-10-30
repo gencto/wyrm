@@ -94,6 +94,11 @@ fn ports_are_unique_and_never_kernel_assigned() {
         ports.iter().all(|p| (20_000..32_000).contains(p)),
         "{ports:?}"
     );
+    // and below this machine's, where it can be read
+    if let Ok(range) = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range") {
+        let low: u32 = range.split_whitespace().next().unwrap().parse().unwrap();
+        assert!(low >= 32_000, "ephemeral ports start at {low}: {range}");
+    }
 }
 
 fn temp_dir(name: &str) -> PathBuf {
