@@ -1352,6 +1352,18 @@ async fn unrelated_values_stay_intact() {
                 ("role", string("$.role"), Some("***istrator".into())),
             ],
         ),
+        (
+            // a zero-led PIN echoed as a JSON number (no leading zeros)
+            "0123",
+            r#"{"pin": 123, "near": 1234, "power": 51234.5, "zero": 0}"#,
+            vec![
+                ("pin", num("$.pin", &[]), None),
+                ("near", num("$.near", &[]), Some(Value::Float(1234.0))),
+                ("power", num("$.power", &[]), Some(Value::Float(51234.5))),
+                ("zero", num("$.zero", &[]), Some(Value::Float(0.0))),
+                ("pin_s", string("$.pin"), Some("***".into())),
+            ],
+        ),
     ];
     for (password, raw, points) in cases {
         let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -1405,6 +1417,9 @@ async fn unrelated_values_stay_intact() {
             let e = format!("{:?}", field(&v, "error"));
             assert!(e.contains("value hidden"), "{e}");
             assert!(!format!("{v:?}").contains("1234"), "{v:?}");
+        } else if password == "0123" {
+            assert!(body.contains("\\\"pin\\\":\\\"***\\\""), "{body}");
+            assert!(body.contains("1234") && body.contains("51234.5"), "{body}");
         } else {
             assert!(
                 body.contains("***State") && !body.contains("admin"),
