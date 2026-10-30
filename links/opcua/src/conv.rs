@@ -278,8 +278,9 @@ pub fn type_name(t: VariantScalarTypeId) -> &'static str {
 /// The variant to write for `v` into a node of type `t` (an array when
 /// `array`). Lossy conversions are refused: a fraction into an integer, a
 /// number out of the type's range, an integer a Double cannot hold exactly,
-/// a number for a Boolean. A Float takes any finite number in its range at
-/// f32 precision (0.1 cannot be exact in either type).
+/// a number for a Boolean. A Float takes a number in its range at f32
+/// precision (0.1 cannot be exact in either type), but not an integer above
+/// 2^24 (it would change) or a nonzero number that would become 0.
 pub fn to_variant(v: &Value, t: VariantScalarTypeId, array: bool) -> Result<Variant, String> {
     if array {
         let Value::Array(items) = v else {
@@ -296,8 +297,10 @@ pub fn to_variant(v: &Value, t: VariantScalarTypeId, array: bool) -> Result<Vari
     scalar(v, t)
 }
 
-/// An integral number in `[min, max]`; a float within 1e-9 of an integer
-/// counts as that integer (a scaled write: `21.5 / 0.1`).
+/// An integral number in `[min, max]`; a float that differs from an
+/// integer only by rounding noise (a few ulps, relative) counts as that
+/// integer (a scaled write: `21.5 / 0.1 = 214.99999999999997`). A real
+/// fraction is refused at any magnitude.
 fn integer(v: &Value, min: i128, max: i128, name: &str) -> Result<i128, String> {
     let n: i128 = match v {
         Value::Int(i) => i128::from(*i),
@@ -307,7 +310,7 @@ fn integer(v: &Value, min: i128, max: i128, name: &str) -> Result<i128, String> 
                 return Err(format!("{f} does not fit {name}"));
             }
             let r = f.round();
-            if (f - r).abs() > 1e-9 * r.abs().max(1.0) {
+            if (f - r).abs() > 4.0 * f64::EPSILON * r.abs().max(1.0) {
                 return Err(format!("{f} has a fraction; {name} takes whole numbers"));
             }
             if r < -1.8e19 || r > 1.9e19 {
@@ -332,20 +335,34 @@ fn scalar(v: &Value, t: VariantScalarTypeId) -> Result<Variant, String> {
             Value::Bool(b) => Variant::Boolean(*b),
             _ => return Err("expected true or false for Boolean".into()),
         },
-        T::SByte => Variant::SByte(int(i8::MIN.into(), i8::MAX.into())? as i8),
-        T::Byte => Variant::Byte(int(0, u8::MAX.into())? as u8),
-        T::Int16 => Variant::Int16(int(i16::MIN.into(), i16::MAX.into())? as i16),
-        T::UInt16 => Variant::UInt16(int(0, u16::MAX.into())? as u16),
-        T::Int32 => Variant::Int32(int(i32::MIN.into(), i32::MAX.into())? as i32),
-        T::UInt32 => Variant::UInt32(int(0, u32::MAX.into())? as u32),
-        T::Int64 => Variant::Int64(int(i64::MIN.into(), i64::MAX.into())? as i64),
-        T::UInt64 => Variant::UInt64(int(0, u64::MAX.into())? as u64),
+        T::SByte => Variant::SByte(fit(int(i8::MIN.into(), i8::MAX.into())?, name)?),
+        T::Byte => Variant::Byte(fit(int(0, u8::MAX.into())?, name)?),
+        T::Int16 => Variant::Int16(fit(int(i16::MIN.into(), i16::MAX.into())?, name)?),
+        T::UInt16 => Variant::UInt16(fit(int(0, u16::MAX.into())?, name)?),
+        T::Int32 => Variant::Int32(fit(int(i32::MIN.into(), i32::MAX.into())?, name)?),
+        T::UInt32 => Variant::UInt32(fit(int(0, u32::MAX.into())?, name)?),
+        T::Int64 => Variant::Int64(fit(int(i64::MIN.into(), i64::MAX.into())?, name)?),
+        T::UInt64 => Variant::UInt64(fit(int(0, u64::MAX.into())?, name)?),
         T::Float => {
-            let f = number(v, name)?;
-            if f.is_finite() && f.abs() > f64::from(f32::MAX) {
+            const EXACT: u64 = 1 << 24;
+            let f = match v {
+                Value::Int(i) if i.unsigned_abs() > EXACT => {
+                    return Err("integer too large for Float exactly".into())
+                }
+                Value::UInt(u) if *u > EXACT => {
+                    return Err("integer too large for Float exactly".into())
+                }
+                _ => number(v, name)?,
+            };
+            if f.abs() > f64::from(f32::MAX) {
                 return Err(format!("{f} is out of range for Float"));
             }
-            Variant::Float(f as f32)
+            // in range: the cast rounds to the nearest f32
+            let x = f as f32;
+            if x == 0.0 && f != 0.0 {
+                return Err(format!("{f} is too small for Float (it would be 0)"));
+            }
+            Variant::Float(x)
         }
         T::Double => Variant::Double(number(v, name)?),
         T::String => match v {
@@ -365,6 +382,11 @@ fn scalar(v: &Value, t: VariantScalarTypeId) -> Result<Variant, String> {
         },
         _ => return Err(format!("writing type {t:?} is not supported")),
     })
+}
+
+/// An integer already checked against the type's range.
+fn fit<T: TryFrom<i128>>(n: i128, name: &str) -> Result<T, String> {
+    T::try_from(n).map_err(|_| format!("{n} is out of range for {name}"))
 }
 
 /// A finite number; an integer beyond 2^53 does not fit a double exactly.
@@ -605,6 +627,43 @@ mod tests {
         );
         assert!(to_variant(&Value::Float(1.0), T::Double, true).is_err());
         assert!(to_variant(&Value::Array(vec![Value::Float(1.5)]), T::Int32, true).is_err());
+    }
+
+    /// Only rounding noise counts as a whole number, at any magnitude.
+    #[test]
+    fn integers_refuse_real_fractions_at_any_size() {
+        let raw = unscale(&Value::Float(2.5), 0.1, 0.0).unwrap();
+        assert_eq!(scalar(&raw, T::Int16).unwrap(), Variant::Int16(25));
+        let raw = unscale(&Value::Float(21.5), 0.1, 0.0).unwrap();
+        assert_eq!(scalar(&raw, T::Int16).unwrap(), Variant::Int16(215));
+        assert!(scalar(&Value::Float(600_000_000.4), T::Int32).is_err());
+        assert!(scalar(&Value::Float(3_000_000_000.5), T::UInt32).is_err());
+        assert!(scalar(&Value::Float(1_000_000.0005), T::Int64).is_err());
+        assert_eq!(
+            scalar(&Value::Float(600_000_000.0), T::Int32).unwrap(),
+            Variant::Int32(600_000_000)
+        );
+    }
+
+    /// Float follows Double's rule: an integer it cannot hold exactly and a
+    /// nonzero number that becomes 0 are refused.
+    #[test]
+    fn floats_refuse_what_they_cannot_hold() {
+        assert_eq!(
+            scalar(&Value::UInt(1 << 24), T::Float).unwrap(),
+            Variant::Float(16_777_216.0)
+        );
+        assert!(scalar(&Value::UInt((1 << 24) + 1), T::Float).is_err());
+        assert!(scalar(&Value::Int(-(1 << 24) - 1), T::Float).is_err());
+        assert!(scalar(&Value::Float(1e-50), T::Float).is_err());
+        assert_eq!(
+            scalar(&Value::Float(0.0), T::Float).unwrap(),
+            Variant::Float(0.0)
+        );
+        assert_eq!(
+            scalar(&Value::Float(0.1), T::Float).unwrap(),
+            Variant::Float(0.1)
+        );
     }
 
     #[test]

@@ -111,12 +111,15 @@ integers.
    type of the current value; ValueRank ≥ 0 means an array.
 2. It undoes `scale`/`offset`: raw = (value − `offset`) / `scale`.
 3. It converts and **refuses lossy conversions** with `invalid_parameter`
-   and a clear text: a fraction to an integer type (a float within 1e-9 of a
-   whole number counts as that number, for scaled writes), a number out of
-   the type's range, an integer above 2^53 to Double, a number to Boolean or
-   String, a text that is not RFC 3339 to DateTime. A Float takes any finite
-   number in its range, rounded to f32 precision (0.1 is not exact in
-   either type, so an exact round trip cannot be the rule).
+   and a clear text: a fraction to an integer type (only rounding noise of
+   a few ulps, relative to the number, counts as a whole number, so that
+   the scaled write 21.5 / 0.1 = 214.99999999999997 lands on 215; a real
+   fraction such as 600000000.4 is refused at any size), a number out of
+   the type's range, an integer above 2^53 to Double or above 2^24 to
+   Float, a nonzero number too small for Float (it would become 0), a
+   number to Boolean or String, a text that is not RFC 3339 to DateTime.
+   Other numbers to Float are rounded to f32 precision (0.1 is not exact
+   in either type, so an exact round trip cannot be the rule).
 4. It sends one Write. A non-Good result (BadNotWritable,
    BadUserAccessDenied, BadTypeMismatch, …) is the write's error. There is
    no optimistic update: the framework reads the point back.
