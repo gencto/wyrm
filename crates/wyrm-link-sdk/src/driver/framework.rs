@@ -450,6 +450,9 @@ type DevMap<D> = BTreeMap<String, DevRun<D>>;
 struct View<D: Driver> {
     gen: u64,
     devs: Arc<DevMap<D>>,
+    /// When this plan began: a server's remote request received before it
+    /// was asked of an older plan ([`Driver::apply_remote`]).
+    since: tokio::time::Instant,
 }
 
 type SharedView<D> = Arc<tokio::sync::RwLock<View<D>>>;
@@ -1385,6 +1388,7 @@ impl<D: Driver> Framework<D> {
                 let view = Arc::new(tokio::sync::RwLock::new(View {
                     gen: 0,
                     devs: devs.clone(),
+                    since: tokio::time::Instant::now(),
                 }));
                 let owner = tokio::spawn(
                     owner::<D>(
@@ -1531,6 +1535,7 @@ impl<D: Driver> Framework<D> {
             let mut v = run.view.write().await;
             v.gen += 1;
             v.devs = devs.clone();
+            v.since = tokio::time::Instant::now();
             v.gen
         };
         let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx, gen, server).await;
@@ -1862,25 +1867,36 @@ impl<D: Driver> Owner<D> {
             .is_some_and(|(gen, _)| *gen == self.gen)
     }
 
-    /// A server connection: hand the current plan to the server, publish
-    /// what it serves, and show every device `Connected`. Each point that
-    /// is new to the server, or whose params or device params changed, gets
-    /// its last value in the tree written first (after open: every point),
-    /// so values come from the tree: a reopened server, a device started
-    /// again, a point edited to another scale serve the tree's value. A
+    /// A server connection: hand the current plan to the server, then write
+    /// the tree's last value of each point that is new to the server or
+    /// whose params or device params changed (after open: every point), and
+    /// publish what it serves. So values come from the tree: a reopened
+    /// server, a device started again, a point edited to another scale
+    /// serve the tree's value, and a point the tree never set has none. A
     /// point that stays as it was keeps what it serves (a master may have
-    /// written it). Under the plan's read lock; each write bounded by
+    /// written it). Devices the server refuses show `Failed`, the others
+    /// `Connected`. Under the plan's read lock; each write bounded by
     /// `bound`.
     async fn serve_plan(&mut self, t: &mut D::Transport, bound: Duration) {
         let devs = self.devs.clone();
         let before = self.served.take().map(|(_, d)| d);
+        let served: Vec<Served<'_, D>> = devs
+            .iter()
+            .map(|(name, d)| Served {
+                name,
+                dev: &d.cfg,
+                points: &d.points,
+            })
+            .collect();
+        let refused: BTreeMap<String, String> = D::serve(t, &served).into_iter().collect();
+        self.served = Some((self.gen, devs.clone()));
         let same = |name: &str, d: &DevRun<D>, id: &str, p: &D::Point| {
             before
                 .as_ref()
                 .and_then(|b| b.get(name))
                 .is_some_and(|old| old.cfg == d.cfg && old.points.get(id) == Some(p))
         };
-        for (name, d) in devs.iter() {
+        for (name, d) in devs.iter().filter(|(n, _)| !refused.contains_key(*n)) {
             for (id, p) in &d.points {
                 if same(name, d, id, p) {
                     continue;
@@ -1894,21 +1910,12 @@ impl<D: Driver> Owner<D> {
                 }
             }
         }
-        // `serve` gives every value served below.
-        let _ = D::take_changed(t);
-        let served: Vec<Served<'_, D>> = devs
-            .iter()
-            .map(|(name, d)| Served {
-                name,
-                dev: &d.cfg,
-                points: &d.points,
-            })
-            .collect();
-        D::serve(t, &served);
-        self.served = Some((self.gen, devs.clone()));
         self.publish_changed(t).await;
         for d in devs.keys() {
-            self.dev_ok(d).await;
+            match refused.get(d) {
+                Some(why) => self.dev_state(d, NodeState::Failed, Some(why)).await,
+                None => self.dev_ok(d).await,
+            }
         }
     }
 
@@ -2093,7 +2100,8 @@ fn transport_error(results: &[(PointId, Result<Value, DriverError>)]) -> Option<
 /// request of the remote side, already applied.
 enum Next {
     Req(Req),
-    Remote(std::result::Result<super::Remote, DriverError>),
+    /// [`Driver::remote`] took a request.
+    Remote(std::result::Result<(), DriverError>),
 }
 
 /// Serve requests on an open transport. `None` = stopped; `Some(err)` =
@@ -2134,9 +2142,17 @@ async fn serve<D: Driver>(
                 debug!(conn = %o.conn, "remote request: {e}");
                 continue;
             }
-            Next::Remote(Ok(r)) => {
-                o.record(t, r.dev.as_deref(), false);
+            Next::Remote(Ok(())) => {
+                // Answered against the plan in force, which the server has:
+                // a re-plan cannot come between (the read lock), and one
+                // that came while the request waited makes it busy.
                 let current = view.read().await;
+                o.adopt(&current);
+                if !o.plan_served() {
+                    o.serve_plan(t, timeout).await;
+                }
+                let r = D::apply_remote(t, current.since);
+                o.record(t, r.dev.as_deref(), false);
                 o.publish_changed(t).await;
                 drop(current);
                 // The remote side gets its answer once the tree shows it.

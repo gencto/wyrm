@@ -42,7 +42,14 @@ fn free_port() -> u16 {
 
 /// `s1` (an `ip_slave` on `port`) serving unit 1 as `d1` with `points`.
 fn slave_tree(port: u16, points: Value) -> Tree {
-    let dev = map(&[("unit", Value::UInt(1)), ("points", points)]);
+    slave_tree_with(port, &[], points)
+}
+
+/// [`slave_tree`] with device params `dev` beside the unit.
+fn slave_tree_with(port: u16, dev: &[(&str, Value)], points: Value) -> Tree {
+    let mut d = vec![("unit", Value::UInt(1)), ("points", points)];
+    d.extend_from_slice(dev);
+    let dev = map(&d);
     let conn = map(&[
         ("kind", "ip_slave".into()),
         ("listen_port", Value::UInt(port.into())),
@@ -262,7 +269,11 @@ async fn read_only_point_written_by_master_gets_exception_3() {
     );
     assert_eq!(val(&h, "ro"), Some(Value::UInt(5)));
     assert_eq!(val(&h, "rw"), Some(Value::UInt(6)));
-    assert_eq!(val(&h, "coil"), Some(Value::Bool(false)));
+    assert_eq!(
+        val(&h, "coil"),
+        None,
+        "never set, and the master's write refused"
+    );
     // counted as exceptions
     h.meta("s1/d1").await;
     wait("exceptions counted", || {
@@ -280,8 +291,9 @@ async fn unknown_address_gets_exception_2() {
     let w = [("writable_by_master", Value::Bool(true))];
     let points = map(&[("sp", pt("holding", 10, "u16", &w))]);
     let (h, port) = start(points).await;
+    assert_eq!(set(&h, "sp", 3u64).await, Some(Status::Ok));
     let mut m = master(port, 1).await;
-    assert_eq!(m.read_holding_registers(10, 1).await.unwrap(), Ok(vec![0]));
+    assert_eq!(m.read_holding_registers(10, 1).await.unwrap(), Ok(vec![3]));
     for (addr, n) in [(11, 1), (9, 2), (10, 2)] {
         assert_eq!(
             m.read_holding_registers(addr, n).await.unwrap(),
@@ -306,7 +318,7 @@ async fn unknown_address_gets_exception_2() {
         m.write_multiple_registers(10, &[1, 2]).await.unwrap(),
         Err(ExceptionCode::IllegalDataAddress)
     );
-    assert_eq!(val(&h, "sp"), Some(Value::UInt(0)), "nothing written");
+    assert_eq!(val(&h, "sp"), Some(Value::UInt(3)), "nothing written");
     assert_eq!(
         m.call(Request::Custom(0x41, Vec::new().into()))
             .await
@@ -381,11 +393,24 @@ async fn act(h: &H, path: &str, action: &str, args: Value) -> Option<Status> {
 /// offered.
 #[tokio::test(flavor = "multi_thread")]
 async fn slave_kinds_are_served_not_polled() {
+    // Fast polls and pings, were they run: a slave's `poll` and `ping` fail
+    // (it is never polled), so one tick would fail the device.
+    let fast = [("poll_s", Value::Float(0.05))];
     let points = map(&[
-        ("level", pt("input", 3, "u16", &[])),
-        ("sp", pt("holding", 4, "u16", &[])),
+        ("level", pt("input", 3, "u16", &fast)),
+        ("sp", pt("holding", 4, "u16", &fast)),
     ]);
-    let (h, _port) = start(points).await;
+    let port = free_port();
+    let h = H::start(slave_tree_with(
+        port,
+        &[("ping_s", Value::Float(0.1))],
+        points,
+    ))
+    .await;
+    wait("slave listening", || {
+        state(&h, "s1/d1").as_deref() == Some("connected")
+    })
+    .await;
     let (_, root) = h.meta("").await;
     let root = root.unwrap().actions.unwrap();
     assert_eq!(
@@ -413,10 +438,16 @@ async fn slave_kinds_are_served_not_polled() {
         let (_, meta) = h.meta(&format!("s1/d1/{p}")).await;
         assert_eq!(meta.unwrap().writable, Some(Writable::Write), "{p}");
     }
-    // served values are published at once
-    assert_eq!(val(&h, "level"), Some(Value::UInt(0)));
-    // no poll and no ping: no request at all
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(set(&h, "level", 4u64).await, Some(Status::Ok));
+    // no poll and no ping: the device stays connected, the value good, and
+    // no request is counted
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(state(&h, "s1/d1").as_deref(), Some("connected"));
+    let level = h.ctx().last("s1/d1/level").unwrap();
+    assert_eq!(
+        (level.v, level.q),
+        (Value::UInt(4), wyrm_core::Quality::Good)
+    );
     h.meta("s1/d1").await;
     wait("diagnostics published", || {
         h.ctx().last("s1/d1/requests").is_some()
@@ -460,14 +491,13 @@ async fn slave_values_survive_a_replan_and_a_restart() {
     ]);
     assert_eq!(act(&h, "s1/d1/f1", "add_point", b).await, Some(Status::Ok));
     let mut m = master(port, 1).await;
-    wait("b published", || {
-        h.ctx().last("s1/d1/f1/b").map(|s| s.v) == Some(Value::UInt(0))
-    })
-    .await;
+    // b is served at once, without a value until the tree sets one
     assert_eq!(
         m.read_holding_registers(1, 2).await.unwrap(),
-        Ok(vec![7, 0])
+        Err(ExceptionCode::ServerDeviceFailure)
     );
+    assert_eq!(m.read_holding_registers(1, 1).await.unwrap(), Ok(vec![7]));
+    assert_eq!(h.ctx().last("s1/d1/f1/b"), None);
     assert_eq!(
         status(&h.set("s1/d1/f1/b", 8u64, Some(h.ptok(Perm::Write))).await),
         Some(Status::Ok)
@@ -544,5 +574,123 @@ async fn slave_copy_export_import() {
     }
     // s1 still serves its port alone
     assert_eq!(read_when_up(port, 1, 1).await, vec![7]);
+    h.stop().await;
+}
+
+/// Ruling P24: a point the tree never set has no value. Nothing is
+/// published for it, a master read touching it answers exception 0x04, and
+/// a new point does not take over the words of a removed one.
+#[tokio::test(flavor = "multi_thread")]
+async fn unset_points_have_no_value() {
+    let points = map(&[
+        ("a", pt("holding", 1, "u16", &[])),
+        ("b", pt("holding", 2, "u16", &[])),
+    ]);
+    let (h, port) = start(points).await;
+    let mut m = master(port, 1).await;
+    assert_eq!(
+        m.read_holding_registers(1, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure)
+    );
+    assert_eq!(h.ctx().last("s1/d1/a"), None, "no invented value");
+    assert_eq!(set(&h, "a", 7u64).await, Some(Status::Ok));
+    assert_eq!(m.read_holding_registers(1, 1).await.unwrap(), Ok(vec![7]));
+    assert_eq!(
+        m.read_holding_registers(1, 2).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure),
+        "b is unset"
+    );
+    assert_eq!(h.ctx().last("s1/d1/b"), None);
+    // a removed point's words do not pass to a new point at its address
+    assert_eq!(
+        act(&h, "s1/d1/a", "remove", map(&[])).await,
+        Some(Status::Ok)
+    );
+    let c = map(&[
+        ("name", "c".into()),
+        ("table", "holding".into()),
+        ("addr", Value::UInt(1)),
+    ]);
+    assert_eq!(act(&h, "s1/d1", "add_point", c).await, Some(Status::Ok));
+    assert_eq!(
+        m.read_holding_registers(1, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure)
+    );
+    assert_eq!(h.ctx().last("s1/d1/c"), None);
+    h.stop().await;
+}
+
+/// Ruling P25: a master write that a point it touches cannot decode
+/// (invalid BCD) or that makes a float not finite answers exception 3 and
+/// changes nothing; a valid partial write of a set value goes through.
+#[tokio::test(flavor = "multi_thread")]
+async fn undecodable_master_write_gets_exception_3() {
+    let w = [("writable_by_master", Value::Bool(true))];
+    let points = map(&[
+        ("bcd", pt("holding", 50, "bcd16", &w)),
+        ("temp", pt("holding", 60, "f32", &w)),
+    ]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "bcd", 12u64).await, Some(Status::Ok));
+    assert_eq!(set(&h, "temp", 1.0).await, Some(Status::Ok));
+    let mut m = master(port, 1).await;
+    assert_eq!(
+        m.write_single_register(50, 0x00FA).await.unwrap(),
+        Err(ExceptionCode::IllegalDataValue),
+        "0x00FA is no BCD"
+    );
+    assert_eq!(
+        m.read_holding_registers(50, 1).await.unwrap(),
+        Ok(vec![0x0012])
+    );
+    assert_eq!(val(&h, "bcd"), Some(Value::UInt(12)));
+    let one = m.read_holding_registers(60, 2).await.unwrap().unwrap();
+    for words in [[0x7FC0, 0x0000], [0x7F80, 0x0000]] {
+        assert_eq!(
+            m.write_multiple_registers(60, &words).await.unwrap(),
+            Err(ExceptionCode::IllegalDataValue),
+            "NaN or Inf: {words:x?}"
+        );
+    }
+    assert_eq!(m.read_holding_registers(60, 2).await.unwrap(), Ok(one));
+    assert_eq!(val(&h, "temp"), Some(Value::Float(1.0)));
+    // the high word of 2.0 alone: a valid value
+    m.write_single_register(60, 0x4000).await.unwrap().unwrap();
+    assert_eq!(val(&h, "temp"), Some(Value::Float(2.0)));
+    h.stop().await;
+}
+
+/// `listen_host = "localhost"` listens on every address it resolves to:
+/// an IPv4 master reaches it (macOS resolves `::1` first), and so does an
+/// IPv6 one where the host has `::1`.
+#[tokio::test(flavor = "multi_thread")]
+async fn localhost_listens_on_every_address() {
+    let port = free_port();
+    let dev = map(&[
+        ("unit", Value::UInt(1)),
+        ("points", map(&[("a", pt("holding", 1, "u16", &[]))])),
+    ]);
+    let conn = map(&[
+        ("kind", "ip_slave".into()),
+        ("listen_host", "localhost".into()),
+        ("listen_port", Value::UInt(port.into())),
+        ("devices", map(&[("d1", dev)])),
+    ]);
+    let h = H::start(Tree(map(&[("connections", map(&[("s1", conn)]))]))).await;
+    wait("slave listening", || {
+        state(&h, "s1/d1").as_deref() == Some("connected")
+    })
+    .await;
+    assert_eq!(set(&h, "a", 5u64).await, Some(Status::Ok));
+    assert_eq!(read_when_up(port, 1, 1).await, vec![5], "IPv4");
+    let v6: SocketAddr = (std::net::Ipv6Addr::LOCALHOST, port).into();
+    let has_v6 = std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_ok();
+    let resolves_v6 = tokio::net::lookup_host(("localhost", port))
+        .await
+        .is_ok_and(|mut a| a.any(|a| a.is_ipv6()));
+    if has_v6 && resolves_v6 {
+        let mut m = tcp::connect_slave(v6, Slave(1)).await.expect("IPv6 master");
+        assert_eq!(m.read_holding_registers(1, 1).await.unwrap(), Ok(vec![5]));
+    }
     h.stop().await;
 }

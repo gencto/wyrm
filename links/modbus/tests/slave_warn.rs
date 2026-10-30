@@ -48,6 +48,11 @@ fn map(kv: &[(&str, Value)]) -> Value {
     )
 }
 
+/// `{connections: {<name>: <conn>}}`.
+fn conns_map(conns: &[(&str, Value)]) -> Vec<(&'static str, Value)> {
+    vec![("connections", map(conns))]
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|l| l.local_addr())
@@ -84,19 +89,29 @@ async fn warning(h: &H, conn: &str) -> Option<Value> {
 async fn non_loopback_listen_is_flagged() {
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(Capture))
         .expect("the only subscriber");
-    let (wide, local) = (free_port(), free_port());
-    let tree = Tree(map(&[(
-        "connections",
-        map(&[
-            ("open", slave("0.0.0.0", wide)),
-            ("lo", slave("127.0.0.1", local)),
-        ]),
-    )]));
-    let h = H::start(tree).await;
-    wait("both listening", || {
-        connected(&h, "open") && connected(&h, "lo")
+    let (wide, local, v6) = (free_port(), free_port(), free_port());
+    // `::` (every IPv6 address) where the host has IPv6
+    let has_v6 = std::net::TcpListener::bind("[::]:0").is_ok();
+    let mut conns = vec![
+        ("open", slave("0.0.0.0", wide)),
+        ("lo", slave("127.0.0.1", local)),
+    ];
+    if has_v6 {
+        conns.push(("open6", slave("::", v6)));
+    }
+    let h = H::start(Tree(map(&conns_map(&conns)))).await;
+    wait("all listening", || {
+        connected(&h, "open") && connected(&h, "lo") && (!has_v6 || connected(&h, "open6"))
     })
     .await;
+    if has_v6 {
+        let Some(Value::Str(note)) = warning(&h, "open6").await else {
+            panic!("no warning on open6/status");
+        };
+        assert!(note.contains("not loopback"), "{note}");
+    } else {
+        eprintln!("no IPv6 on this host: `::` not tested");
+    }
 
     let Some(Value::Str(note)) = warning(&h, "open").await else {
         panic!("no warning on open/status");
@@ -111,8 +126,9 @@ async fn non_loopback_listen_is_flagged() {
         .filter(|w| w.contains("not loopback"))
         .cloned()
         .collect();
-    assert_eq!(logged.len(), 1, "{logged:?}");
-    assert!(logged[0].contains("conn=open"), "{logged:?}");
+    let open = logged.iter().filter(|w| w.contains("conn=open ")).count();
+    assert_eq!(open, 1, "{logged:?}");
+    assert_eq!(logged.len(), 1 + usize::from(has_v6), "{logged:?}");
 
     // back to loopback: the warning goes
     let edit = map(&[

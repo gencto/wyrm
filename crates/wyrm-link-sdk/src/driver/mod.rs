@@ -100,15 +100,18 @@ pub const REPORT_KEYS: [&str; 2] = ["created", "reenter"];
 pub struct Served<'a, D: Driver> {
     /// The device's name in the tree.
     pub name: &'a str,
+    /// The device's params.
     pub dev: &'a D::Dev,
+    /// Its points by id (folders left out: ids are unique on a device).
     pub points: &'a BTreeMap<PointId, D::Point>,
 }
 
-/// One request of a server connection's remote side, applied by
-/// [`Driver::remote`].
+/// One request of a server connection's remote side, answered by
+/// [`Driver::apply_remote`].
 pub struct Remote {
-    /// The device it was for: its diagnostics and its connection's count
-    /// it (`None`: the connection's only).
+    /// The device the request was for. The request is counted in that
+    /// device's diagnostics and in its connection's; `None`: in the
+    /// connection's only.
     pub dev: Option<String>,
     /// Run once the framework published the values it changed (the reply
     /// to the remote side, so that it never sees a value before the tree).
@@ -298,8 +301,8 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// [`Driver::point_meta`] says: [`Driver::write`] puts the value into
     /// what the server serves, without a read-back, and the framework
     /// publishes [`Driver::take_changed`]. Requests of the remote side come
-    /// through [`Driver::remote`] on the owner task, so they and the tree's
-    /// sets are applied in one order. Driver actions of such a connection
+    /// through [`Driver::remote`] and [`Driver::apply_remote`] on the owner
+    /// task, so they and the tree's sets are applied in one order. Driver actions of such a connection
     /// and its devices are [`Driver::server_actions`].
     fn is_server(_conn: &Self::Conn) -> bool {
         false
@@ -307,27 +310,41 @@ pub trait Driver: Sized + Send + Sync + 'static {
 
     /// A server connection's devices and points as planned, after open and
     /// after every re-plan, on the owner task (never during a request). The
-    /// values it serves for them go to [`Driver::take_changed`]. Before it,
+    /// values it serves for them go to [`Driver::take_changed`]; a point
+    /// new to the plan has none until the tree sets one. Right after it,
     /// the framework writes ([`Driver::write`]) the tree's last value of
     /// each point new to the server or whose params or device params
     /// changed (after open: every point), so values come from the tree.
-    fn serve(_t: &mut Self::Transport, _devs: &[Served<'_, Self>]) {}
+    /// Returns the devices the server refuses, with why: they show
+    /// `Failed` with that error, the others `Connected`.
+    fn serve(_t: &mut Self::Transport, _devs: &[Served<'_, Self>]) -> Vec<(String, String)> {
+        Vec::new()
+    }
 
     /// Wait for the next request of a server connection's remote side and
-    /// apply it; the values it changed go to [`Driver::take_changed`]. It
-    /// must be cancel-safe (the owner waits for its own requests beside it):
-    /// await only the receipt of the request, then apply it at once. A
-    /// `Transport` error (the server stopped) makes the framework reopen.
+    /// keep it for [`Driver::apply_remote`]. It must be cancel-safe (the
+    /// owner waits for its own requests beside it): await only the receipt.
+    /// A `Transport` error (the server stopped) makes the framework reopen.
     /// Never called on a connection that is not a server.
-    fn remote(
-        _t: &mut Self::Transport,
-    ) -> impl Future<Output = Result<Remote, DriverError>> + Send {
+    fn remote(_t: &mut Self::Transport) -> impl Future<Output = Result<(), DriverError>> + Send {
         std::future::pending()
+    }
+
+    /// Answer the request [`Driver::remote`] took, under the plan's read
+    /// lock once the server has the plan in force; the values it changed go
+    /// to [`Driver::take_changed`]. A request received before `since` (when
+    /// the plan in force began) was asked of an older plan: answer busy and
+    /// apply nothing, as a tree set planned before a re-plan is.
+    fn apply_remote(_t: &mut Self::Transport, _since: tokio::time::Instant) -> Remote {
+        Remote {
+            dev: None,
+            done: None,
+        }
     }
 
     /// The values a server connection changed since the last call
     /// (drained), published by the framework after [`Driver::serve`],
-    /// [`Driver::remote`] and [`Driver::write`].
+    /// [`Driver::apply_remote`] and [`Driver::write`].
     fn take_changed(_t: &mut Self::Transport) -> Vec<Changed> {
         Vec::new()
     }

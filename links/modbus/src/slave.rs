@@ -11,22 +11,33 @@
 //! value published is the value the next master read returns. The master
 //! gets its reply after the framework published what its write changed.
 //!
+//! * A point the tree never set has no value (ruling P24): nothing is
+//!   published for it, and a master read touching it answers exception 4
+//!   (server device failure). A new point never takes over the words of a
+//!   removed or changed one.
 //! * An address no point covers answers exception 2 (illegal data address);
 //!   a write touching a point without `writable_by_master` answers
-//!   exception 3 (illegal data value), and so does a read or write of more
-//!   registers or bits than one request carries. A refused request changes
-//!   nothing. Function codes other than FC1–6, 15, 16 and 22 answer
-//!   exception 1.
+//!   exception 3 (illegal data value), and so does a write that a point it
+//!   touches cannot decode or that makes a float not finite (ruling P25),
+//!   and a read or write of more registers or bits than one request
+//!   carries. A refused request changes nothing. FC22 on a register without
+//!   a value answers 4. Function codes other than FC1–6, 15, 16 and 22
+//!   answer exception 1.
 //! * A unit no device serves: no reply on RTU (another slave on the bus may
-//!   have it; unit 0 is the broadcast, which needs no reply and is not
-//!   applied), exception 0x0B (gateway target failed to respond) on TCP.
+//!   have it), exception 0x0B (gateway target failed to respond) on TCP.
+//!   An RTU broadcast (unit 0) write goes to every served unit that takes
+//!   it, with no reply; a broadcast read is ignored (ruling P26). A device
+//!   with unit 0 under `serial_slave` is refused (it is the broadcast).
+//! * A request received before the plan in force began (a re-plan while it
+//!   waited) answers busy and changes nothing, as a tree set does; one whose
+//!   master stopped waiting (it got busy) is dropped, never applied late.
 //! * A master write is logged at info with the points it changed (never the
 //!   value) and counted in the diagnostics; it is not in the site's audit
 //!   trail (no WYRM caller, ruling P4).
 
 use crate::codec::{self, DType};
-use crate::{serial_builder, serial_path_ok, Conn, Device, Plan, Point, Table};
-use std::collections::{BTreeMap, HashMap};
+use crate::{serial_builder, serial_path_ok, Conn, Point, Table, NO_RTU_BROADCAST};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -128,7 +139,11 @@ pub struct Slave {
     /// RTU framing (serial).
     rtu: bool,
     note: Option<String>,
-    /// Served words; a coil or discrete input is 0 or 1. Absent = 0.
+    /// The request received by [`Slave::remote`], applied by
+    /// [`Slave::apply_remote`].
+    pending: Option<Ask>,
+    /// Served words; a coil or discrete input is 0 or 1. Absent: no value
+    /// (the tree never set it).
     words: HashMap<Addr, u16>,
     points: Vec<ServedPoint>,
     /// The points that cover each address.
@@ -153,28 +168,57 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
     match conn {
         Conn::IpSlave(c) => {
             let target = format!("{}:{}", c.listen_host, c.listen_port);
-            let addr: SocketAddr = tokio::net::lookup_host(&target)
+            let mut addrs: Vec<SocketAddr> = tokio::net::lookup_host(&target)
                 .await
                 .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
-                .next()
-                .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
-            let listener = bind(addr, &target).await?;
-            let local = listener
-                .local_addr()
-                .map_err(|e| DriverError::Transport(format!("listen on {target}: {e}")))?;
-            // Judged on the address bound, not on the name given.
-            let note = (!local.ip().is_loopback()).then(|| {
+                .collect();
+            addrs.sort_unstable();
+            addrs.dedup();
+            // Every address the name resolves to (`localhost`: `::1` and
+            // `127.0.0.1`); one the host lacks is left out, none is an error.
+            let mut listeners = Vec::new();
+            let mut failed = None;
+            for addr in addrs {
+                match bind(addr, &target).await {
+                    Ok(l) => listeners.push(l),
+                    Err(e) => {
+                        debug!(%addr, "not listening there: {e}");
+                        failed.get_or_insert(e);
+                    }
+                }
+            }
+            if listeners.is_empty() {
+                return Err(failed.unwrap_or_else(|| {
+                    DriverError::Transport(format!("resolve {target}: no address"))
+                }));
+            }
+            // Judged on the addresses bound, not on the name given.
+            let wide: Vec<String> = listeners
+                .iter()
+                .filter_map(|l| l.local_addr().ok())
+                .filter(|a| !a.ip().is_loopback())
+                .map(|a| a.to_string())
+                .collect();
+            let note = (!wide.is_empty()).then(|| {
                 format!(
-                    "listening on {local}, not loopback: Modbus has no authentication, any \
-                     host that reaches this port reads the served values and writes those a \
-                     master may write"
+                    "listening on {}, not loopback: Modbus has no authentication, any host \
+                     that reaches this port reads the served values and writes those a \
+                     master may write",
+                    wide.join(", ")
                 )
             });
             let front = Front {
                 tx: tx.clone(),
                 rtu: false,
             };
-            let task = tokio::spawn(serve_tcp(listener, front, tx));
+            let task = tokio::spawn(async move {
+                // Dropped (the task aborted): every listener's task ends.
+                let mut set = tokio::task::JoinSet::new();
+                for l in listeners {
+                    set.spawn(serve_tcp(l, front.clone(), tx.clone()));
+                }
+                while set.join_next().await.is_some() {}
+            });
             Ok(Slave::new(rx, task, false, note))
         }
         Conn::SerialSlave(c) => {
@@ -254,6 +298,7 @@ impl Slave {
             task,
             rtu,
             note,
+            pending: None,
             words: HashMap::new(),
             points: Vec::new(),
             cover: HashMap::new(),
@@ -289,18 +334,37 @@ impl Slave {
         std::mem::take(&mut self.outcomes)
     }
 
-    /// The devices and points to serve; every point's value goes to
-    /// `changed`. Values no point covers any more are dropped (a point
-    /// added there later starts from 0).
-    pub(crate) fn serve(&mut self, devs: &[Served<'_, crate::ModbusDriver>]) {
-        self.points.clear();
+    /// The devices and points to serve; the value of every point that has
+    /// one goes to `changed`. Words covered only by points new to the plan
+    /// (added, or with other params or another unit) are dropped: such a
+    /// point has no value until the tree sets one (the framework writes the
+    /// tree's next). Refuses (`(device, why)`) a unit-0 device on RTU.
+    pub(crate) fn serve(
+        &mut self,
+        devs: &[Served<'_, crate::ModbusDriver>],
+    ) -> Vec<(String, String)> {
+        let before: HashMap<(String, PointId), (u8, Point)> = self
+            .points
+            .drain(..)
+            .map(|p| ((p.dev, p.id), (p.unit, p.point)))
+            .collect();
         self.cover.clear();
         self.units.clear();
+        let mut refused = Vec::new();
+        let mut fresh = HashSet::new();
         for d in devs {
             let unit = d.dev.unit;
+            if self.rtu && unit == 0 {
+                refused.push((d.name.to_owned(), NO_RTU_BROADCAST.to_owned()));
+                continue;
+            }
             self.units.entry(unit).or_insert_with(|| d.name.to_owned());
             for (id, p) in d.points {
                 let i = self.points.len();
+                let key = (d.name.to_owned(), id.clone());
+                if before.get(&key) != Some(&(unit, p.clone())) {
+                    fresh.insert(i);
+                }
                 for a in span(p) {
                     self.cover.entry((unit, p.table, a)).or_default().push(i);
                 }
@@ -313,10 +377,15 @@ impl Slave {
             }
         }
         let cover = &self.cover;
-        self.words.retain(|a, _| cover.contains_key(a));
+        self.words.retain(|a, _| {
+            cover
+                .get(a)
+                .is_some_and(|pts| pts.iter().any(|i| !fresh.contains(i)))
+        });
         for i in 0..self.points.len() {
             self.push_changed(i);
         }
+        refused
     }
 
     /// A value set in the tree: `v` goes into the served words of `p`.
@@ -329,11 +398,9 @@ impl Slave {
             vec![bit(want_bool()?)]
         } else if p.dtype == DType::Binary {
             let (and, or) = codec::bit_masks(p.bit, want_bool()?);
-            vec![codec::apply_masks(
-                self.word((unit, p.table, p.addr)),
-                and,
-                or,
-            )]
+            // The register's other bits: 0 until something sets them.
+            let cur = self.word((unit, p.table, p.addr)).unwrap_or(0);
+            vec![codec::apply_masks(cur, and, or)]
         } else {
             codec::encode(p.dtype, v, p.regs, p.scale, p.offset)
                 .map_err(|e| DriverError::Point(e.to_string()))?
@@ -343,57 +410,92 @@ impl Slave {
         Ok(())
     }
 
-    /// The values of `plan`'s points as served.
-    pub(crate) fn values(
-        &self,
-        dev: &Device,
-        plan: &Plan,
-    ) -> Vec<(PointId, Result<Value, DriverError>)> {
-        plan.tables
-            .iter()
-            .flat_map(|t| t.members.iter())
-            .map(|(id, p)| {
-                let v = self
-                    .decode(dev.unit, p)
-                    .map_err(|e| DriverError::Point(e.to_string()));
-                (id.clone(), v)
-            })
-            .collect()
+    /// Wait for the next master request (cancel-safe: only the receipt is
+    /// awaited, and a request is kept as soon as it is taken). One whose
+    /// master stopped waiting is dropped: it got busy, and a late write
+    /// would change what it was told was not changed.
+    pub(crate) async fn remote(&mut self) -> Result<(), DriverError> {
+        if self.pending.is_some() {
+            return Ok(());
+        }
+        loop {
+            match self.rx.recv().await {
+                Some(Msg::Ask(a)) if a.reply.is_closed() => {
+                    debug!(unit = a.unit, "request dropped: its master gave up");
+                }
+                Some(Msg::Ask(a)) => {
+                    self.pending = Some(a);
+                    return Ok(());
+                }
+                Some(Msg::Down(why)) => return Err(DriverError::Transport(why)),
+                None => return Err(DriverError::Transport("server stopped".into())),
+            }
+        }
     }
 
-    /// Wait for the next master request and answer it (cancel-safe: only
-    /// the receipt is awaited). The reply goes out in [`Remote::done`].
-    pub(crate) async fn remote(&mut self) -> Result<Remote, DriverError> {
-        let ask = match self.rx.recv().await {
-            Some(Msg::Ask(a)) => a,
-            Some(Msg::Down(why)) => return Err(DriverError::Transport(why)),
-            None => return Err(DriverError::Transport("server stopped".into())),
+    /// Answer the request [`Slave::remote`] took. One received before
+    /// `since` (the start of the plan in force) was asked of an older plan:
+    /// busy, nothing applied. The reply goes out in [`Remote::done`].
+    pub(crate) fn apply_remote(&mut self, since: Instant) -> Remote {
+        let idle = Remote {
+            dev: None,
+            done: None,
         };
-        let Ask {
+        let Some(Ask {
             unit,
             req,
             at,
             reply,
-        } = ask;
+        }) = self.pending.take()
+        else {
+            return idle;
+        };
+        if reply.is_closed() {
+            debug!(unit, "request dropped: its master gave up");
+            return idle;
+        }
         let dev = self.units.get(&unit).cloned();
-        let answer = self.answer(unit, req);
+        let answer = if at < since {
+            debug!(unit, "request of an older plan: busy");
+            self.busy()
+        } else {
+            self.answer(unit, req)
+        };
         match &answer {
             Ok(Some(_)) => self.outcomes.push(Outcome::Reply(at.elapsed())),
             Err(_) => self.outcomes.push(Outcome::Exception(at.elapsed())),
             // Not ours to answer (RTU).
             Ok(None) => {}
         }
-        Ok(Remote {
+        Remote {
             dev,
             done: Some(Box::new(move || {
                 let _ = reply.send(answer);
             })),
-        })
+        }
+    }
+
+    /// Busy: an exception on TCP, silence on RTU.
+    fn busy(&self) -> Answer {
+        if self.rtu {
+            Ok(None)
+        } else {
+            Err(ExceptionCode::ServerDeviceBusy)
+        }
     }
 
     fn answer(&mut self, unit: u8, req: Request<'static>) -> Answer {
         if self.rtu && unit == 0 {
-            // A broadcast: never answered (and not applied).
+            // A broadcast: a write goes to every unit that takes it; never
+            // answered.
+            if is_write(&req) {
+                let units: Vec<u8> = self.units.keys().copied().collect();
+                for u in units {
+                    if let Err(e) = self.apply(u, req.clone()) {
+                        debug!(unit = u, "broadcast not applied: {e:?}");
+                    }
+                }
+            }
             return Ok(None);
         }
         if !self.units.contains_key(&unit) {
@@ -403,9 +505,14 @@ impl Slave {
                 Err(ExceptionCode::GatewayTargetDevice)
             };
         }
+        self.apply(unit, req).map(Some)
+    }
+
+    /// One request to a served unit.
+    fn apply(&mut self, unit: u8, req: Request<'static>) -> Result<Response, ExceptionCode> {
         use Request as R;
         let bits = |w: Vec<u16>| w.into_iter().map(|b| b != 0).collect::<Vec<_>>();
-        Ok(Some(match req {
+        Ok(match req {
             R::ReadCoils(a, n) => Response::ReadCoils(bits(self.read(unit, Table::Coil, a, n)?)),
             R::ReadDiscreteInputs(a, n) => {
                 Response::ReadDiscreteInputs(bits(self.read(unit, Table::Discrete, a, n)?))
@@ -435,20 +542,24 @@ impl Slave {
             }
             R::MaskWriteRegister(a, and, or) => {
                 self.check_write(unit, Table::Holding, a, 1)?;
-                let cur = self.word((unit, Table::Holding, a));
+                let cur = self
+                    .word((unit, Table::Holding, a))
+                    .ok_or(ExceptionCode::ServerDeviceFailure)?;
                 let w = codec::apply_masks(cur, and, or);
                 self.write(unit, Table::Holding, a, &[w])?;
                 Response::MaskWriteRegister(a, and, or)
             }
             _ => return Err(ExceptionCode::IllegalFunction),
-        }))
+        })
     }
 
-    fn word(&self, a: Addr) -> u16 {
-        self.words.get(&a).copied().unwrap_or(0)
+    /// A served word, `None` while it has no value.
+    fn word(&self, a: Addr) -> Option<u16> {
+        self.words.get(&a).copied()
     }
 
-    /// `n` words or bits from `a`, every one covered by a point.
+    /// `n` words or bits from `a`, every one covered by a point and with a
+    /// value.
     fn read(&self, unit: u8, table: Table, a: u16, n: u16) -> Result<Vec<u16>, ExceptionCode> {
         let max = if table.is_bits() {
             codec::MAX_BITS
@@ -458,14 +569,20 @@ impl Slave {
         if n == 0 || n > max {
             return Err(ExceptionCode::IllegalDataValue);
         }
-        let addrs = range(a, n).ok_or(ExceptionCode::IllegalDataAddress)?;
+        let addrs: Vec<u16> = range(a, n)
+            .ok_or(ExceptionCode::IllegalDataAddress)?
+            .collect();
+        if addrs
+            .iter()
+            .any(|x| !self.cover.contains_key(&(unit, table, *x)))
+        {
+            return Err(ExceptionCode::IllegalDataAddress);
+        }
         addrs
+            .iter()
             .map(|x| {
-                let k = (unit, table, x);
-                self.cover
-                    .contains_key(&k)
-                    .then(|| self.word(k))
-                    .ok_or(ExceptionCode::IllegalDataAddress)
+                self.word((unit, table, *x))
+                    .ok_or(ExceptionCode::ServerDeviceFailure)
             })
             .collect()
     }
@@ -498,10 +615,23 @@ impl Slave {
     }
 
     /// A master write of `w` from `a`, checked first: nothing changes on a
-    /// refusal.
+    /// refusal. Every point it touches must decode the words as they would
+    /// be, to a finite value where it is a float (ruling P25); a point that
+    /// would still lack a word has no value yet and is not checked.
     fn write(&mut self, unit: u8, table: Table, a: u16, w: &[u16]) -> Result<(), ExceptionCode> {
         let n = u16::try_from(w.len()).map_err(|_| ExceptionCode::IllegalDataValue)?;
         self.check_write(unit, table, a, n)?;
+        let new: HashMap<Addr, u16> = (a..=u16::MAX)
+            .zip(w)
+            .map(|(x, v)| ((unit, table, x), *v))
+            .collect();
+        for i in self.covering(unit, table, a, n) {
+            let p = &self.points[i];
+            match self.value_with(p.unit, &p.point, &new) {
+                None | Some(Ok(_)) => {}
+                Some(Err(_)) => return Err(ExceptionCode::IllegalDataValue),
+            }
+        }
         self.store(unit, table, a, w);
         self.changed_at(unit, table, a, n, true);
         Ok(())
@@ -516,6 +646,17 @@ impl Slave {
     /// Every point covering `n` words or bits from `a` goes to `changed`
     /// (once); a master's write is logged by point.
     fn changed_at(&mut self, unit: u8, table: Table, a: u16, n: u16, master: bool) {
+        for i in self.covering(unit, table, a, n) {
+            if master {
+                let p = &self.points[i];
+                info!(point = %format!("{}/{}", p.dev, p.id), "written by a master");
+            }
+            self.push_changed(i);
+        }
+    }
+
+    /// The points covering `n` words or bits from `a`, each once.
+    fn covering(&self, unit: u8, table: Table, a: u16, n: u16) -> Vec<usize> {
         let mut hit: Vec<usize> = range(a, n)
             .into_iter()
             .flatten()
@@ -525,32 +666,60 @@ impl Slave {
             .collect();
         hit.sort_unstable();
         hit.dedup();
-        for i in hit {
-            if master {
-                let p = &self.points[i];
-                info!(point = %format!("{}/{}", p.dev, p.id), "written by a master");
-            }
-            self.push_changed(i);
-        }
+        hit
     }
 
+    /// The point's value to `changed`; a point without one (a word never
+    /// set) is left out.
     fn push_changed(&mut self, i: usize) {
         let p = &self.points[i];
-        match self.decode(p.unit, &p.point) {
-            Ok(v) => self.changed.push((p.dev.clone(), p.id.clone(), v)),
-            // A value no data type of the point can hold (a master wrote
-            // it): the tree keeps the last one.
-            Err(e) => debug!(point = %format!("{}/{}", p.dev, p.id), "not decoded: {e}"),
+        match self.value_with(p.unit, &p.point, &HashMap::new()) {
+            None => {}
+            Some(Ok(v)) => self.changed.push((p.dev.clone(), p.id.clone(), v)),
+            // Not reached: master writes are checked and tree values are
+            // encoded by the point's own data type.
+            Some(Err(e)) => debug!(point = %format!("{}/{}", p.dev, p.id), "not decoded: {e}"),
         }
     }
 
-    fn decode(&self, unit: u8, p: &Point) -> Result<Value, codec::CodecError> {
-        let w: Vec<u16> = span(p).map(|x| self.word((unit, p.table, x))).collect();
+    /// The value of `p` with the words of `over` in place of the served
+    /// ones: `None` while a word of it has no value; an error for words its
+    /// data type cannot hold or a float that is not finite.
+    fn value_with(
+        &self,
+        unit: u8,
+        p: &Point,
+        over: &HashMap<Addr, u16>,
+    ) -> Option<Result<Value, codec::CodecError>> {
+        let w: Option<Vec<u16>> = span(p)
+            .map(|x| {
+                let k = (unit, p.table, x);
+                over.get(&k).copied().or_else(|| self.word(k))
+            })
+            .collect();
+        let w = w?;
         if p.table.is_bits() {
-            return Ok(Value::Bool(w.first().is_some_and(|b| *b != 0)));
+            return Some(Ok(Value::Bool(w.first().is_some_and(|b| *b != 0))));
         }
-        codec::decode(p.dtype, &w, p.bit, p.scale, p.offset)
+        Some(
+            codec::decode(p.dtype, &w, p.bit, p.scale, p.offset).and_then(|v| match v {
+                Value::Float(f) if !f.is_finite() => Err(codec::CodecError::OutOfRange),
+                v => Ok(v),
+            }),
+        )
     }
+}
+
+/// A write function code (a broadcast applies these only).
+fn is_write(r: &Request<'_>) -> bool {
+    matches!(
+        r,
+        Request::WriteSingleCoil(..)
+            | Request::WriteMultipleCoils(..)
+            | Request::WriteSingleRegister(..)
+            | Request::WriteMultipleRegisters(..)
+            | Request::MaskWriteRegister(..)
+    )
 }
 
 /// `n` addresses from `a`, `None` when they run past 65535.
@@ -614,13 +783,15 @@ mod pty_tests {
             points: &points,
         }];
         s.serve(&served);
+        s.set(3, &points["sp"], &Value::UInt(0)).unwrap();
         s.set(3, &points["ro"], &Value::UInt(42)).unwrap();
         s.take_changed();
         // The owner task's part: apply each request, then answer it.
         let changed = Arc::new(Mutex::new(Vec::new()));
         let seen = changed.clone();
         let owner = tokio::spawn(async move {
-            while let Ok(r) = s.remote().await {
+            loop {
+                let r = next(&mut s).await;
                 seen.lock().unwrap().extend(s.take_changed());
                 if let Some(done) = r.done {
                     done();
@@ -644,11 +815,169 @@ mod pty_tests {
         );
         let read = tokio::time::timeout(t, m.read_holding_registers(10, 2)).await;
         assert_eq!(read.unwrap().unwrap(), Ok(vec![7, 42]));
-        // unit 4 is not served here: no reply at all
-        tokio_modbus::slave::SlaveContext::set_slave(&mut m, tokio_modbus::Slave(4));
+        // unit 5 is not served here: no reply at all
+        tokio_modbus::slave::SlaveContext::set_slave(&mut m, tokio_modbus::Slave(5));
         let silent =
             tokio::time::timeout(Duration::from_millis(300), m.read_holding_registers(10, 1)).await;
-        assert!(silent.is_err(), "unit 4 answered: {silent:?}");
+        assert!(silent.is_err(), "unit 5 answered: {silent:?}");
         owner.abort();
+    }
+
+    /// The owner task's part: take the next master request and answer it.
+    async fn next(s: &mut Slave) -> Remote {
+        s.remote().await.expect("a request");
+        // a plan in force since before every request of the test
+        let since = Instant::now()
+            .checked_sub(Duration::from_secs(60))
+            .unwrap_or_else(Instant::now);
+        s.apply_remote(since)
+    }
+
+    fn served(s: &mut Slave, devs: &[(&str, u8)], points: &BTreeMap<String, Point>) {
+        let cfgs: Vec<crate::Device> = devs
+            .iter()
+            .map(|(_, u)| {
+                crate::Device::from_value(&params(&[("unit", Value::UInt((*u).into()))])).unwrap()
+            })
+            .collect();
+        let served: Vec<Served<'_, ModbusDriver>> = devs
+            .iter()
+            .zip(&cfgs)
+            .map(|((name, _), dev)| Served { name, dev, points })
+            .collect();
+        let _ = s.serve(&served);
+    }
+
+    fn ask(unit: u8, req: Request<'static>) -> (Msg, oneshot::Receiver<Answer>) {
+        let (reply, answer) = oneshot::channel();
+        let at = Instant::now();
+        (
+            Msg::Ask(Ask {
+                unit,
+                req,
+                at,
+                reply,
+            }),
+            answer,
+        )
+    }
+
+    /// Ruling 3 of the review: a write whose master already got `busy` (its
+    /// `Front` stopped waiting) is never applied later.
+    #[tokio::test]
+    async fn a_write_whose_master_gave_up_is_not_applied() {
+        let (tx, rx) = mpsc::channel(QUEUE);
+        let mut s = Slave::new(rx, tokio::spawn(async {}), false, None);
+        let points = BTreeMap::from([("sp".to_owned(), holding(10, true))]);
+        served(&mut s, &[("d1", 1)], &points);
+        let (write, gone) = ask(1, Request::WriteSingleRegister(10, 9));
+        drop(gone);
+        let (read, mut answer) = ask(1, Request::ReadHoldingRegisters(10, 1));
+        tx.send(write).await.unwrap();
+        tx.send(read).await.unwrap();
+        let mut got = None;
+        for _ in 0..2 {
+            if let Some(done) = next(&mut s).await.done {
+                done();
+            }
+            if let Ok(a) = answer.try_recv() {
+                got = Some(a);
+                break;
+            }
+        }
+        // nothing was written: the point has no value yet
+        assert_eq!(got, Some(Err(ExceptionCode::ServerDeviceFailure)));
+        assert!(s.take_changed().is_empty());
+    }
+
+    /// Ruling P26: an RTU broadcast (unit 0) write goes to every served unit
+    /// that has the address, with no reply; a broadcast read is ignored.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rtu_broadcast_writes_every_unit() {
+        let (port, other_end) = tokio_serial::SerialStream::pair().expect("a pty pair");
+        let (tx, rx) = mpsc::channel(QUEUE);
+        let mut s = Slave::rtu(port, tx, rx);
+        let points = BTreeMap::from([("sp".to_owned(), holding(10, true))]);
+        served(&mut s, &[("d3", 3), ("d4", 4)], &points);
+        let changed = Arc::new(Mutex::new(Vec::new()));
+        let seen = changed.clone();
+        let owner = tokio::spawn(async move {
+            loop {
+                let r = next(&mut s).await;
+                seen.lock().unwrap().extend(s.take_changed());
+                if let Some(done) = r.done {
+                    done();
+                }
+            }
+        });
+        let mut m = rtu::attach_slave(other_end, tokio_modbus::Slave(0));
+        let quiet = Duration::from_millis(300);
+        let w = tokio::time::timeout(quiet, m.write_single_register(10, 5)).await;
+        assert!(w.is_err(), "a broadcast is not answered: {w:?}");
+        let r = tokio::time::timeout(quiet, m.read_holding_registers(10, 1)).await;
+        assert!(r.is_err(), "a broadcast read is ignored: {r:?}");
+        for unit in [3, 4] {
+            tokio_modbus::slave::SlaveContext::set_slave(&mut m, tokio_modbus::Slave(unit));
+            let r = tokio::time::timeout(Duration::from_secs(2), m.read_holding_registers(10, 1));
+            assert_eq!(r.await.unwrap().unwrap(), Ok(vec![5]), "unit {unit}");
+        }
+        let mut c = changed.lock().unwrap().clone();
+        c.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            c,
+            [
+                ("d3".to_owned(), "sp".to_owned(), Value::UInt(5)),
+                ("d4".to_owned(), "sp".to_owned(), Value::UInt(5)),
+            ]
+        );
+        owner.abort();
+    }
+
+    /// Review finding 10: a unit-0 device under `serial_slave` is the RTU
+    /// broadcast address; the server refuses it (the device shows `Failed`)
+    /// and serves the others.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rtu_unit_0_is_refused() {
+        let (port, _other_end) = tokio_serial::SerialStream::pair().expect("a pty pair");
+        let (tx, rx) = mpsc::channel(QUEUE);
+        let mut s = Slave::rtu(port, tx, rx);
+        let points = BTreeMap::from([("sp".to_owned(), holding(10, true))]);
+        let cfgs: Vec<crate::Device> = [0u64, 3]
+            .iter()
+            .map(|u| crate::Device::from_value(&params(&[("unit", Value::UInt(*u))])).unwrap())
+            .collect();
+        let served: Vec<Served<'_, ModbusDriver>> = ["d0", "d3"]
+            .iter()
+            .zip(&cfgs)
+            .map(|(name, dev)| Served {
+                name,
+                dev,
+                points: &points,
+            })
+            .collect();
+        assert_eq!(
+            s.serve(&served),
+            vec![("d0".to_owned(), NO_RTU_BROADCAST.to_owned())]
+        );
+        assert_eq!(s.units.keys().copied().collect::<Vec<_>>(), vec![3]);
+    }
+
+    /// Review finding 6: a request received before the plan in force began
+    /// (a re-plan came while it waited) answers busy and changes nothing.
+    #[tokio::test]
+    async fn a_request_of_an_older_plan_is_busy() {
+        let (tx, rx) = mpsc::channel(QUEUE);
+        let mut s = Slave::new(rx, tokio::spawn(async {}), false, None);
+        let points = BTreeMap::from([("sp".to_owned(), holding(10, true))]);
+        served(&mut s, &[("d1", 1)], &points);
+        let (write, mut answer) = ask(1, Request::WriteSingleRegister(10, 9));
+        tx.send(write).await.unwrap();
+        s.remote().await.unwrap();
+        // the plan in force began after the request came
+        let r = s.apply_remote(Instant::now() + Duration::from_millis(1));
+        r.done.expect("answered")();
+        assert_eq!(answer.try_recv(), Ok(Err(ExceptionCode::ServerDeviceBusy)));
+        assert!(s.take_changed().is_empty());
+        assert_eq!(s.word((1, Table::Holding, 10)), None, "not applied");
     }
 }

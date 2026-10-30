@@ -53,7 +53,8 @@
 //! ([`IpSlaveConn`]: Modbus TCP on `listen_host:listen_port`, loopback by
 //! default) and `Add Serial Slave` ([`SerialSlaveConn`]: RTU on a serial
 //! port) serve their devices (unit ids) to masters. A point's value comes
-//! from the tree (`~set`, level write) and is what masters read; a master
+//! from the tree (`~set`, level write) and is what masters read (one the
+//! tree never set has none: a master read of it answers exception 4); a master
 //! may write a point with `writable_by_master` (coil and holding), which
 //! publishes the new value. `poll_s` and the device's ping and batching
 //! params do nothing there, `writable_by_master` nothing on a master
@@ -228,7 +229,8 @@ pub struct SerialConn {
     pub retries: u8,
 }
 
-/// A Modbus TCP slave: masters connect to `listen_host:listen_port`.
+/// A Modbus TCP slave: masters connect to `listen_host:listen_port` (every
+/// address the host name resolves to).
 /// Another address than loopback is allowed (logged at warn and shown on
 /// the connection's `status`): Modbus has no authentication.
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -624,8 +626,12 @@ fn unexpected(r: &Response) -> DriverError {
 /// Diagnostics counter of transport reopens (ruling P1).
 const REOPENS: &str = "reopens";
 
+/// Why a slave's `poll` and `ping` fail: the framework runs neither on a
+/// server kind, so one that did would show.
+const NOT_POLLED: &str = "a slave is not polled";
+
 /// Why a unit-0 device on RTU sends nothing.
-const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
+pub(crate) const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
 
 /// Bits on the wire per character: start, data, parity, stop.
 fn char_bits(c: &SerialConn) -> u32 {
@@ -1326,9 +1332,9 @@ impl Driver for ModbusDriver {
     }
 
     async fn ping(t: &mut Transport, dev: &Device) -> Result<(), DriverError> {
-        // A slave is never pinged (a server kind).
+        // A slave is never pinged (a server kind: the framework sends no ping).
         let Transport::Master(t) = t else {
-            return Ok(());
+            return Err(DriverError::Device(NOT_POLLED.into()));
         };
         if !t.select(dev.unit) {
             return Err(DriverError::Device(NO_RTU_BROADCAST.into()));
@@ -1380,7 +1386,16 @@ impl Driver for ModbusDriver {
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
         let t = match t {
             Transport::Master(m) => m,
-            Transport::Slave(s) => return s.values(dev, plan),
+            // A slave is never polled (a server kind).
+            Transport::Slave(_) => {
+                let e = DriverError::Device(NOT_POLLED.into());
+                return plan
+                    .tables
+                    .iter()
+                    .flat_map(|t| t.members.iter())
+                    .map(|(id, _)| (id.clone(), Err(e.clone())))
+                    .collect();
+            }
         };
         if !t.select(dev.unit) {
             let refused = DriverError::Device(NO_RTU_BROADCAST.into());
@@ -1660,16 +1675,27 @@ impl Driver for ModbusDriver {
         conn.is_slave()
     }
 
-    fn serve(t: &mut Transport, devs: &[Served<'_, Self>]) {
-        if let Transport::Slave(s) = t {
-            s.serve(devs);
+    fn serve(t: &mut Transport, devs: &[Served<'_, Self>]) -> Vec<(String, String)> {
+        match t {
+            Transport::Slave(s) => s.serve(devs),
+            Transport::Master(_) => Vec::new(),
         }
     }
 
-    async fn remote(t: &mut Transport) -> Result<Remote, DriverError> {
+    async fn remote(t: &mut Transport) -> Result<(), DriverError> {
         match t {
             Transport::Slave(s) => s.remote().await,
             Transport::Master(_) => std::future::pending().await,
+        }
+    }
+
+    fn apply_remote(t: &mut Transport, since: tokio::time::Instant) -> Remote {
+        match t {
+            Transport::Slave(s) => s.apply_remote(since),
+            Transport::Master(_) => Remote {
+                dev: None,
+                done: None,
+            },
         }
     }
 

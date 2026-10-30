@@ -1,6 +1,6 @@
 [package]
 name = "wyrm-link-modbus"
-description = "WYRM Modbus TCP connector on tokio-modbus"
+description = "WYRM Modbus connector on tokio-modbus: master (TCP, RTU over TCP or serial) and slave (TCP, serial RTU)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -48,6 +48,6 @@ required-features = ["process"]
 # The package (ADR 0021): `wyr link pack`.
 [package.metadata.wyrm-link]
 name = "modbus"
-description = "Modbus TCP and RTU (over TCP or serial) devices: FC1-4 batched reads, FC5/6/15/16/22 writes"
+description = "Modbus TCP and RTU (over TCP or serial) devices: FC1-4 batched reads, FC5/6/15/16/22 writes; slave mode serving the tree (TCP, serial RTU)"
 bin = "wyrm-link-modbus"
 features = ["process"]
