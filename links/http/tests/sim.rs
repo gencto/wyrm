@@ -999,6 +999,119 @@ async fn secrets_are_never_shown() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A filter never compares against an echoed secret (re-review N1): the
+/// selector sees every value that holds a secret in its masked form, so a
+/// count, "nothing found" or a value gives the same answer whatever the
+/// secret is, through `test_selector` and through polled `count` points.
+/// Two runs with two secrets must answer alike; `==` with the true secret
+/// finds nothing. Member names stay raw.
+#[tokio::test(flavor = "multi_thread")]
+async fn filters_cannot_probe_a_secret() {
+    let token_filters = vec![
+        r#"$[?(@.authorization > "Bearer a")]"#.to_owned(),
+        r#"$[?(@.authorization > "Bearer tok-5")]"#.to_owned(),
+        r#"$[?(@.authorization < "Bearer tok-5")]"#.to_owned(),
+        r#"$[?(@.authorization >= "Bearer tok-1")]"#.to_owned(),
+        r#"$[?(@.authorization <= "Bearer tok-9")]"#.to_owned(),
+        r#"$[?(@.authorization != "Bearer tok-1111111")]"#.to_owned(),
+        r#"$[?(@.authorization == "Bearer tok-1111111")]"#.to_owned(),
+        r#"$[?(@.authorization == "Bearer tok-9999999")]"#.to_owned(),
+    ];
+    let pin_filters = vec![
+        "$[?(@.pin > 5000)]".to_owned(),
+        "$[?(@.pin > 50000000)]".to_owned(),
+        "$[?(@.pin < 50000000)]".to_owned(),
+        "$[?(@.pin == 11111111)]".to_owned(),
+        "$[?(@.pin != 11111111)]".to_owned(),
+        r#"$[?(@.pin == "11111111")]"#.to_owned(),
+        r#"$[?(@.pin > "5")]"#.to_owned(),
+    ];
+    // (two secrets, device path, raw body for a secret, filters, the filter
+    // that names the true secret)
+    type Raw = fn(&str) -> Option<String>;
+    let echo: Raw = |_| None;
+    let pins: Raw = |p| {
+        Some(format!(
+            r#"{{"a": {{"pin": {p}}}, "b": {{"pin": "{p}"}}, "c": {{"x": 1}}}}"#
+        ))
+    };
+    let cases: [([&str; 2], &str, Raw, Vec<String>, fn(&str) -> String); 2] = [
+        (
+            ["tok-1111111", "tok-9999999"],
+            "/echo",
+            echo,
+            token_filters,
+            |t| format!(r#"$[?(@.authorization == "Bearer {t}")]"#),
+        ),
+        (["11111111", "99999999"], "/raw", pins, pin_filters, |p| {
+            format!("$[?(@.pin == {p})]")
+        }),
+    ];
+    for (secrets, path, raw, filters, exact) in cases {
+        let mut seen = Vec::new();
+        for secret in secrets {
+            let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+            {
+                let mut t = st(&s);
+                t.auth = SimAuth::Bearer(secret.into());
+                t.raw = raw(secret);
+            }
+            let names: Vec<String> = (0..filters.len()).map(|i| format!("f{i}")).collect();
+            let mut pts: Vec<(&str, Value)> = filters
+                .iter()
+                .zip(&names)
+                .map(|(f, n)| (n.as_str(), pt(f, &[("aggregate", "count".into())])))
+                .collect();
+            // aggregate none: "nothing found" or a value
+            let one = format!("{}.x", filters[1]);
+            pts.push(("one", pt(&one, &[("type", "string".into())])));
+            let h = H::start(tree(
+                base(addr.port()),
+                &[("auth", "bearer".into()), ("token", secret.into())],
+                &[("d1", dev(&[("path", path.into())], map(&pts)))],
+            ))
+            .await;
+            for n in &names {
+                let p = format!("c1/d1/{n}");
+                wait(&p, || qual(&h, &p) == Some(Quality::Good)).await;
+            }
+            wait("one", || qual(&h, "c1/d1/one").is_some()).await;
+            let mut answers: Vec<String> = names
+                .iter()
+                .map(|n| format!("{:?}", val(&h, &format!("c1/d1/{n}"))))
+                .collect();
+            answers.push(format!("{:?}", qual(&h, "c1/d1/one")));
+            let cfg = Perm::Config;
+            let (r, _, e) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+            assert_eq!(r, Some(Status::Ok), "{e}");
+            for f in &filters {
+                let args = map(&[("path", f.as_str().into())]);
+                let (r, v, e) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+                assert_eq!(r, Some(Status::Ok), "{f}: {e}");
+                answers.push(format!("{:?}", field(&v, "count")));
+            }
+            // the true secret as a literal finds nothing
+            let args = map(&[("path", exact(secret).into())]);
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+            assert_eq!(field(&v, "count"), &Value::UInt(0), "{secret}: {v:?}");
+            // member names stay raw: the members are still found
+            let args = map(&[("path", "$.*".into())]);
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+            assert!(
+                matches!(field(&v, "count"), Value::UInt(n) if *n >= 2),
+                "{v:?}"
+            );
+            assert!(!format!("{v:?}").contains(secret), "{v:?}");
+            h.stop().await;
+            seen.push(answers);
+        }
+        assert_eq!(
+            seen[0], seen[1],
+            "answers depend on the secret: {filters:?}"
+        );
+    }
+}
+
 /// The secret header, echoed by the server, is masked in a point and in
 /// `try_request`, and never in `~meta` or `export`.
 #[tokio::test(flavor = "multi_thread")]

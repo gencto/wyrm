@@ -1291,32 +1291,46 @@ fn secret_number(prep: &Prepared, j: &Json) -> bool {
     }
 }
 
-/// Mask `j` for showing: every string and member name as [`shown`], every
-/// number equal to a numeric secret as the string `***`. Two member names
-/// that mask alike are both kept (`***#2`). Runs on what is shown only
-/// (a point's value, an action reply), never before a selector, so a
-/// reading or a name that only contains a secret's characters is selected
-/// as it is. Depth is bounded by `serde_json`'s 128.
-fn mask_json(prep: &Prepared, j: &mut Json) {
+/// A text that is a plain decimal number (`[-+]?\d+(\.\d+)?`, spaces
+/// around it allowed): masked like a number, by equality only.
+fn numeric_text(s: &str) -> bool {
+    let t = s.trim();
+    let d = t.strip_prefix(['-', '+']).unwrap_or(t);
+    let (int, frac) = d.split_once('.').unwrap_or((d, "0"));
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(int) && digits(frac)
+}
+
+/// Mask the values of `j` (and, with `keys`, its member names) as a user
+/// and a selector see them:
+///
+/// * a number, or a numeric text, equal to a numeric secret, and a text
+///   equal to a secret, become the string `***` (equality only, so
+///   `51234.5` stays with the PIN `1234`);
+/// * any other text masks every secret in it ([`shown`]);
+/// * with `keys`, every member name as [`shown`]; two names that mask
+///   alike are both kept (`***#2`).
+///
+/// Depth is bounded by `serde_json`'s 128.
+fn mask_tree(prep: &Prepared, j: &mut Json, keys: bool) {
     if prep.masks.is_empty() {
         return;
     }
+    if matches!(j, Json::Number(_) | Json::String(_)) && secret_number(prep, j) {
+        *j = Json::String(HIDDEN.to_owned());
+        return;
+    }
     match j {
-        Json::String(s) => {
+        Json::String(s) if !numeric_text(s) => {
             if let Cow::Owned(m) = shown(prep, s) {
                 *s = m;
             }
         }
-        Json::Number(_) => {
-            if secret_number(prep, j) {
-                *j = Json::String(HIDDEN.to_owned());
-            }
-        }
-        Json::Array(a) => a.iter_mut().for_each(|v| mask_json(prep, v)),
-        Json::Object(o) => {
+        Json::Array(a) => a.iter_mut().for_each(|v| mask_tree(prep, v, keys)),
+        Json::Object(o) if keys => {
             let old = std::mem::take(o);
             for (k, mut v) in old {
-                mask_json(prep, &mut v);
+                mask_tree(prep, &mut v, keys);
                 let k = shown(prep, &k).into_owned();
                 let mut key = k.clone();
                 let mut n = 2;
@@ -1327,22 +1341,39 @@ fn mask_json(prep: &Prepared, j: &mut Json) {
                 o.insert(key, v);
             }
         }
+        Json::Object(o) => o.values_mut().for_each(|v| mask_tree(prep, v, keys)),
         _ => {}
     }
 }
 
+/// Mask `j` for showing: values and member names ([`mask_tree`]).
+fn mask_json(prep: &Prepared, j: &mut Json) {
+    mask_tree(prep, j, true);
+}
+
+/// The reply as a selector sees it: every value that holds a secret in its
+/// masked form, member names raw. A filter (`<`, `>`, `==`, `!=`) then
+/// compares `***` or `Bearer ***`, never the secret, so a count, "nothing
+/// found" or "selects N values" cannot depend on it (no oracle to read a
+/// secret back one character at a time); `$.adminState` with the password
+/// `admin` still selects, and `51234.5` with the PIN `1234` stays a number.
+fn selection_view(prep: &Prepared, j: &mut Json) {
+    mask_tree(prep, j, false);
+}
+
 /// The value of a point (or of `test_selector`) from the matches in the
-/// unmasked reply, as a user sees it: a number equal to a numeric secret
-/// fails ("value hidden"); a string is masked ([`mask_json`] on the
-/// matches, so an object shown as text is masked inside). A count or a
-/// bool shows no secret.
+/// [`selection_view`], as a user sees it: a number point whose match was
+/// masked fails ("value hidden"); a string point masks the member names of
+/// an object or array it shows as text (the values are masked already). A
+/// count or a bool shows no secret.
 fn shown_value(prep: &Prepared, conv: &Conv<'_>, found: &[&Json]) -> Result<Value, String> {
     if prep.masks.is_empty() {
         return conv.eval(found);
     }
     match conv.vtype {
         ValueType::Number if conv.aggregate != Aggregate::Count => {
-            if found.iter().any(|j| secret_number(prep, j)) {
+            let masked = |j: &&Json| matches!(j, Json::String(s) if s.contains(HIDDEN));
+            if found.iter().any(masked) {
                 return Err(format!(
                     "{}: value hidden: it holds a connection secret",
                     conv.path
@@ -1480,10 +1511,12 @@ fn test_selector(
             ),
         )
     })?;
-    let json: Json = serde_json::from_slice(body)
+    let mut json: Json = serde_json::from_slice(body)
         .map_err(|_| LinkError::new(Status::NotAvailable, "the last reply is not JSON"))?;
-    // Selected from the reply as received; what is shown is masked.
+    // Selected from the view with secret values masked (no filter oracle);
+    // member names are masked as shown.
     let prep = &t.client.prep;
+    selection_view(prep, &mut json);
     let found = sel.select(&json);
     let mut truncated = found.len() > SHOW_VALUES;
     let values = found
@@ -1591,11 +1624,13 @@ impl Driver for HttpDriver {
         if !expected(&plan.expect, code) {
             return all(DriverError::Device(status_err(&what, code)));
         }
-        let Ok(json) = serde_json::from_slice::<Json>(&reply.body) else {
+        let Ok(mut json) = serde_json::from_slice::<Json>(&reply.body) else {
             return all(DriverError::Device(format!("{what}: reply is not JSON")));
         };
-        // Selected from the reply as received; each value masked as shown.
+        // Selected from the view with secret values masked, member names
+        // raw: a filter never compares a secret (no oracle).
         let prep = t.client.prep.clone();
+        selection_view(&prep, &mut json);
         let out = plan
             .points
             .iter()
@@ -2025,6 +2060,14 @@ mod tests {
         assert!(!secret_number(prep, &json!(51234.5)));
         assert!(secret_number(prep, &json!(1234)));
         assert!(secret_number(prep, &json!(" 1234.0 ")));
+        // the selection view: values masked, member names raw; a numeric
+        // text masks like a number (equality only)
+        let mut j = json!({"a1234": "x1234y", "s": "51234.5", "t": " 1234 ", "n": [1234, 12]});
+        selection_view(prep, &mut j);
+        assert_eq!(
+            j,
+            json!({"a1234": "x***y", "s": "51234.5", "t": "***", "n": ["***", 12]})
+        );
         let mut j = json!({"a1234": 51234.5, "b": 1234, "a***": 0});
         mask_json(prep, &mut j);
         assert_eq!(j, json!({"a***": 0, "a***#2": 51234.5, "b": "***"}));
