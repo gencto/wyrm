@@ -121,7 +121,7 @@ pub struct ConnParams {
         default = "",
         editor = "textarea",
         display = "CA Certificates (PEM)",
-        desc = "https: trust these CAs only; empty = the public web roots",
+        desc = "https: trust these CAs only; empty = the CA certificates of the host",
         dest
     )]
     pub ca_pem: String,
@@ -525,9 +525,18 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
     }
 }
 
-/// The host's CA certificates (`rustls-native-certs`), loaded once.
-static SYSTEM_ROOTS: std::sync::LazyLock<Vec<rustls_pki_types::CertificateDer<'static>>> =
-    std::sync::LazyLock::new(|| rustls_native_certs::load_native_certs().certs);
+/// The host's CA certificates (`rustls-native-certs`), loaded once per
+/// process (CAs the host adds later need a restart), and the first
+/// error of the load, if any.
+type Roots = (
+    Vec<rustls_pki_types::CertificateDer<'static>>,
+    Option<String>,
+);
+
+static SYSTEM_ROOTS: std::sync::LazyLock<Roots> = std::sync::LazyLock::new(|| {
+    let r = rustls_native_certs::load_native_certs();
+    (r.certs, r.errors.first().map(|e| e.to_string()))
+});
 
 fn tls_config(p: &ConnParams) -> wyrm_link_sdk::Result<rustls::ClientConfig> {
     use rustls_pki_types::pem::PemObject;
@@ -549,11 +558,16 @@ fn tls_config(p: &ConnParams) -> wyrm_link_sdk::Result<rustls::ClientConfig> {
     } else {
         let mut roots = rustls::RootCertStore::empty();
         if p.ca_pem.trim().is_empty() {
-            roots.add_parsable_certificates(SYSTEM_ROOTS.iter().cloned());
+            let (certs, err) = &*SYSTEM_ROOTS;
+            roots.add_parsable_certificates(certs.iter().cloned());
             if roots.is_empty() {
+                let why = err
+                    .as_deref()
+                    .map(|e| format!(" ({e})"))
+                    .unwrap_or_default();
                 return Err(bad(
                     "ca_pem",
-                    "no system CA certificates found: give ca_pem",
+                    format!("no system CA certificates found{why}: give ca_pem"),
                 ));
             }
         } else {
