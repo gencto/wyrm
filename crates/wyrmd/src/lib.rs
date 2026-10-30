@@ -678,8 +678,9 @@ where
     )))
 }
 
-/// `mock`, `mockdev`, `modbus`, `mqtt`, `prometheus`, `agent` and `portable-echo` (the portable
-/// example app, ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
+/// `mock`, `mockdev`, `modbus`, `mqtt`, `agent` and `portable-echo` (the portable example app,
+/// ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
+/// `prometheus` (scrape connector), embedded or as `wyrmd link prometheus`.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -702,9 +703,8 @@ impl EmbeddedHost for Drivers {
             "mock" => MockConfig::from_params(params).map(|_| ()),
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
-            "mockdev" | "modbus" | "mqtt" | "prometheus" | "wasm" => {
-                Tree::from_params(params).map(|_| ())
-            }
+            "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
+            "prometheus" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`

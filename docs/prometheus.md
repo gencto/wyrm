@@ -201,7 +201,7 @@ because a ping would mark a device good between failed scrapes.
 
 ## 6. Actions and diagnostics
 
-- **List Series** (`list_series {match?, limit = 200}`, level `read`) on a
+- **List Series** (`list_series {match?, limit = 200}`, level `config`: it may scrape and holds the connection) on a
   connection: the series of the last scrape (or a new one when it is
   old): `total`, `truncated`, `bad_lines`, `age_ms` and `series`, each
   with `name`, `type` (from `# TYPE`), `labels` and `value` (`"NaN"`,

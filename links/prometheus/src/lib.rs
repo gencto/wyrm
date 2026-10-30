@@ -833,8 +833,9 @@ impl Driver for PrometheusDriver {
         match level {
             Level::Connection => vec![(
                 "list_series",
+                // Commissioning: it may scrape and holds the connection.
                 ActionMeta::new()
-                    .level(Perm::Read)
+                    .level(Perm::Config)
                     .display("List Series")
                     .timeout_ms(LIST_ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Map))

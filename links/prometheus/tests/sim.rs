@@ -762,7 +762,7 @@ async fn list_series_for_commissioning() {
         let h = &h;
         async move {
             let r = h
-                .invoke("c1", "list_series", args, Some(h.ptok(Perm::Read)))
+                .invoke("c1", "list_series", args, Some(h.ptok(Perm::Config)))
                 .await;
             let r = r.first().expect("a reply");
             assert_eq!(status(&r.att), Some(Status::Ok));
@@ -772,6 +772,15 @@ async fn list_series_for_commissioning() {
             }
         }
     };
+    // it holds the connection: a commissioning action at config
+    let r = h
+        .invoke("c1", "list_series", map(&[]), Some(h.ptok(Perm::Write)))
+        .await;
+    let refused = r.first().and_then(|r| status(&r.att));
+    assert!(
+        refused.is_some() && refused != Some(Status::Ok),
+        "{refused:?}"
+    );
     let m = call(map(&[
         ("match", "sim_temperature_celsius".into()),
         ("limit", Value::UInt(1)),
@@ -799,7 +808,7 @@ async fn list_series_for_commissioning() {
             "c1",
             "list_series",
             map(&[("match", "{a=~\"(\"}".into())]),
-            Some(h.ptok(Perm::Read)),
+            Some(h.ptok(Perm::Config)),
         )
         .await;
     assert_eq!(
