@@ -23,7 +23,7 @@ use opcua::types::{
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
@@ -31,6 +31,28 @@ use tracing::debug;
 use wyrm_core::{Status, Value};
 use wyrm_link_sdk::driver::{DriverError, Outcome, PointId};
 use wyrm_link_sdk::LinkError;
+
+/// The server's `MaxNodesPerRead` by endpoint ([`endpoint_key`]), as the
+/// last open read it, for [`crate::OpcuaDriver::poll_timeout`] (which gets
+/// no transport).
+static LIMITS: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::new());
+
+/// The server limit last read at `url` (0: none known or no limit).
+pub fn server_limit(url: &str) -> usize {
+    LIMITS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&endpoint_key(url))
+        .copied()
+        .unwrap_or(0)
+}
+
+fn set_server_limit(url: &str, n: usize) {
+    LIMITS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(endpoint_key(url), n);
+}
 
 /// The open session of one connection.
 pub struct Transport {
@@ -390,6 +412,7 @@ impl Transport {
             .await
             .map_err(|e| transport(format!("read the namespace array: {}", e.status())))?;
         let max_read = read_max_nodes(&session).await;
+        set_server_limit(&p.endpoint, max_read);
         let note = (p.security_mode == Mode::None && !is_loopback(&p.endpoint)).then(|| {
             format!(
                 "security mode None to {}: values travel unsigned and unencrypted",

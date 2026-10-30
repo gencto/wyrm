@@ -319,7 +319,20 @@ impl Params for Point {
 /// The points of one `(device, poll period)` group.
 pub struct Plan {
     points: Vec<(PointId, Point)>,
-    chunks: usize,
+    /// The device's `max_nodes_per_read`.
+    per: usize,
+}
+
+impl Plan {
+    /// Read requests of one poll: chunks of the device's limit, lowered to
+    /// the server's (`server`, 0: none known).
+    fn chunks(&self, server: usize) -> usize {
+        let per = match server {
+            0 => self.per,
+            s => self.per.min(s),
+        };
+        self.points.len().div_ceil(per.max(1)).max(1)
+    }
 }
 
 /// Bound on `browse` and `get_endpoints`.
@@ -345,10 +358,9 @@ impl Driver for OpcuaDriver {
     }
 
     fn plan(dev: &Dev, points: &[(PointId, Point)]) -> Plan {
-        let per = dev.max_nodes_per_read.max(1) as usize;
         Plan {
             points: points.to_vec(),
-            chunks: points.len().div_ceil(per).max(1),
+            per: usize::try_from(dev.max_nodes_per_read.max(1)).unwrap_or(usize::MAX),
         }
     }
 
@@ -405,8 +417,10 @@ impl Driver for OpcuaDriver {
     }
 
     fn poll_timeout(conn: &Conn, plan: &Plan) -> Duration {
+        // the server's limit as the last open of this endpoint read it
+        let chunks = plan.chunks(session::server_limit(&conn.p.endpoint));
         let per = Duration::from_millis(u64::from(conn.p.request_timeout_ms) + 1000);
-        per * plan.chunks as u32
+        per * u32::try_from(chunks).unwrap_or(u32::MAX)
     }
 
     fn write_timeout(conn: &Conn, _point: &Point) -> Duration {
@@ -698,8 +712,11 @@ mod tests {
         let dev = Dev::from_value(&map(&[("max_nodes_per_read", 2u64.into())])).unwrap();
         let p = Point::from_value(&map(&[("node_id", "i=1".into())])).unwrap();
         let pts: Vec<_> = (0..5).map(|i| (format!("p{i}"), p.clone())).collect();
-        assert_eq!(OpcuaDriver::plan(&dev, &pts).chunks, 3);
-        assert_eq!(OpcuaDriver::plan(&dev, &[]).chunks, 1);
+        assert_eq!(OpcuaDriver::plan(&dev, &pts).chunks(0), 3);
+        assert_eq!(OpcuaDriver::plan(&dev, &[]).chunks(0), 1);
+        // the server's limit lowers the device's
+        assert_eq!(OpcuaDriver::plan(&dev, &pts).chunks(1), 5);
+        assert_eq!(OpcuaDriver::plan(&dev, &pts).chunks(100), 3);
         assert!(Dev::from_value(&map(&[("max_nodes_per_read", 0u64.into())])).is_err());
     }
 }

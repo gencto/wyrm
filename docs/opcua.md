@@ -310,9 +310,7 @@ in front of the server that goes silent, slow or drops connections.
   in RSA decryption (the "Marvin" advisory, no fixed 0.9 release). It
   concerns RSA decryption with a key an attacker can time over many
   attempts.
-- `poll_timeout` (the bound on one poll) counts Read requests from the
-  device's `max_nodes_per_read`. A server with a smaller `MaxNodesPerRead`
-  needs more requests than that bound counts, so a slow server may show
-  device misses; lower `max_nodes_per_read` to the server's limit. (The
-  framework's `poll_timeout` gets no transport, so it cannot know the
-  server's limit.)
+- The bound on one poll is (`request_timeout_ms` + 1 s) per Read request.
+  It counts the requests with the server's `MaxNodesPerRead` as the last
+  open of that endpoint read it (the framework's `poll_timeout` gets no
+  transport, so the link keeps that limit per endpoint in the process).
