@@ -26,7 +26,7 @@ down. In the broker's own process it runs only as WASM.
 ## 2. What WYRM ships
 
 - **Built-in drivers** (in `wyrmd`): `mock`, `mockdev` (the mock on the driver
-  framework), `modbus`, `mqtt`, `agent`, `wasm`, `app` (a portable link on a
+  framework), `modbus`, `mqtt`, `snmp` (SNMP v2c/v3 poller: [snmp.md](snmp.md)), `agent`, `wasm`, `app` (a portable link on a
   WASM component, section 9) and `portable-echo` (the example portable link,
   native). Install them with *from Driver*.
 - **Link SDK** (`crates/wyrm-link-sdk`): the raw link layer, the driver

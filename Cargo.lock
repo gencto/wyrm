@@ -522,6 +522,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb-mode"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "738b8d467867f80a71351933f70461f5b56f24d5c93e0cf216e59229c968d330"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6314,6 +6323,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-snmp"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cfb-mode",
+ "clap",
+ "getrandom 0.3.4",
+ "hmac",
+ "sha1",
+ "sha2",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-sdk",
+ "wyrm-link-snmp",
+ "zeroize",
+]
+
+[[package]]
 name = "wyrm-link-wasm"
 version = "0.1.0"
 dependencies = [
@@ -6440,6 +6468,7 @@ dependencies = [
  "wyrm-link-probe",
  "wyrm-link-scheduler",
  "wyrm-link-sdk",
+ "wyrm-link-snmp",
  "wyrm-link-wasm",
  "wyrm-state",
  "wyrm-storage",
