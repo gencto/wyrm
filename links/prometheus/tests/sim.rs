@@ -277,6 +277,59 @@ async fn one_scrape_per_interval() {
     h.stop().await;
 }
 
+/// A failing endpoint: one attempt per round of polls, not one per device
+/// (each attempt takes the whole timeout here).
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_scrapes_are_shared_by_devices() {
+    let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let names = ["d1", "d2", "d3", "d4", "d5"];
+    let devices = Value::Map(
+        names
+            .iter()
+            .map(|d| {
+                (
+                    (*d).to_owned(),
+                    dev(
+                        "",
+                        map(&[(
+                            "t",
+                            pt("sim_temperature_celsius", &[("aggregate", "max".into())]),
+                        )]),
+                    ),
+                )
+            })
+            .collect(),
+    );
+    let h = H::start(tree(
+        addr.port(),
+        &[("timeout_ms", Value::UInt(550))],
+        devices,
+    ))
+    .await;
+    wait("values", || {
+        names
+            .iter()
+            .all(|d| good(&h, &format!("c1/{d}/t")).is_some())
+    })
+    .await;
+    exporter(&e).fail = Fail::Silent;
+    wait("all bad", || {
+        names
+            .iter()
+            .all(|d| quality(&h, &format!("c1/{d}/t")) == Some(Quality::Bad))
+    })
+    .await;
+    let r0 = exporter(&e).requests;
+    tokio::time::sleep(Duration::from_millis(6_000)).await;
+    let n = exporter(&e).requests - r0;
+    // one per second; one per device would keep the owner busy: about 10
+    assert!((3..=8).contains(&n), "{n} attempts in 6 s with 5 devices");
+    for d in names {
+        assert_eq!(state(&h, &format!("c1/{d}")).as_deref(), Some("failed"));
+    }
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn rate_per_s_counter_reset_and_histogram_rate() {
     let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();

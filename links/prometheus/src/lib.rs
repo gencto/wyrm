@@ -40,7 +40,7 @@ pub mod sim;
 use eval::{Aggregate, Function, Mode};
 use expo::{Scrape, Series};
 use select::{Matcher, Selector};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -442,6 +442,8 @@ pub struct Transport {
     attempt: Option<(Instant, Result<(), DriverError>)>,
     /// Failed attempts in a row.
     fails: u32,
+    /// Plans (device groups) that got the last attempt's failure.
+    served: HashSet<u64>,
     rates: HashMap<(u64, PointId), RateState>,
     outcomes: Vec<Outcome>,
 }
@@ -475,32 +477,48 @@ impl Transport {
             good: None,
             attempt: None,
             fails: 0,
+            served: HashSet::new(),
             rates: HashMap::new(),
             outcomes: Vec::new(),
         })
     }
 
     /// Make sure there is a current scrape: reuse it, or scrape now.
-    async fn ensure(&mut self) -> Result<(), DriverError> {
-        let now = Instant::now();
+    /// `plan`: the device group that polls (`None`: an action).
+    ///
+    /// A good scrape serves every poll until it is `scrape_s` old. A failed
+    /// attempt serves each group once (one miss per group per attempt, and
+    /// one attempt per round of polls, however long it took); a group that
+    /// already got it tries again, after the ladder reached `bad/comm_fail`
+    /// only once per `scrape_s`.
+    async fn ensure(&mut self, plan: Option<u64>) -> Result<(), DriverError> {
         let half = EVAL_TICK / 2;
         if let Some((at, r)) = &self.attempt {
-            let age = now.saturating_duration_since(*at);
-            // The same tick: another device's poll shares this attempt.
-            if age < half {
-                return r.clone();
-            }
+            let age = Instant::now().saturating_duration_since(*at);
             let fresh = age + half < self.scrape_every;
             match r {
-                Ok(()) if fresh => return Ok(()),
-                // After the ladder reached bad/comm_fail: retry per scrape_s.
-                Err(DriverError::Device(_)) if fresh && self.fails >= stale_misses() => {
-                    return r.clone()
+                Ok(()) if fresh || age < half => return Ok(()),
+                Ok(()) => {}
+                Err(e) => {
+                    let first = match plan {
+                        Some(id) => self.served.insert(id),
+                        None => age < half,
+                    };
+                    let slow = matches!(e, DriverError::Device(_))
+                        && fresh
+                        && self.fails >= stale_misses();
+                    if first || slow {
+                        return r.clone();
+                    }
                 }
-                _ => {}
             }
         }
-        self.scrape().await
+        let r = self.scrape().await;
+        self.served.clear();
+        if let Some(id) = plan {
+            self.served.insert(id);
+        }
+        r
     }
 
     async fn scrape(&mut self) -> Result<(), DriverError> {
@@ -740,7 +758,7 @@ impl Driver for PrometheusDriver {
         dev: &Dev,
         plan: &Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
-        if let Err(e) = t.ensure().await {
+        if let Err(e) = t.ensure(Some(plan.id)).await {
             return plan
                 .points
                 .iter()
@@ -883,7 +901,7 @@ async fn list_series(t: &mut Transport, args: &Value) -> Result<Value, LinkError
             _ => return Err(bad("limit", "an integer 1…10000")),
         },
     };
-    if let Err(e) = t.ensure().await {
+    if let Err(e) = t.ensure(None).await {
         return Err(match e {
             DriverError::Transport(e) => LinkError::new(Status::Disconnected, e),
             DriverError::Device(e) | DriverError::Point(e) => {
