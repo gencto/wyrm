@@ -46,6 +46,7 @@ links/probe             ✅ test link + runner: scenarios of actions, list callb
 links/scheduler         ✅ scheduler link (ADR 0022) as a portable App: embedded in every `wyrmd` at `downstream/scheduler` (`scheduler: {enabled, store_mb}`, id reserved, own key `link:scheduler` at write on `downstream`), packages `scheduler` (WASM) and `scheduler-process` (operator grants per target link); one wake heap + 30 s clock watchdog, ≤ 800 commands per event, node budget 9 500; targets (`read_back`/`feedback`/`ack`, write queue ≤ 50, retries, override until the next transition, restart records) are `config` actions; guide `docs/scheduler.md`, demo load `examples/demo/scheduler-load.sh`
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
+links/prometheus        ✅ Prometheus / OpenMetrics scrape link on the driver framework: connection = one HTTP(S) endpoint (one scrape per `scrape_s` shared by all its devices; points evaluated every 1 s on the last scrape), device = label filter, point = selector + `aggregate` / `rate_per_s` / `histogram_quantile`; in-crate parser (0.0.4 + OpenMetrics 1.0), hyper + tokio-rustls (ring), gzip, `list_series`; simulator `wyrm-prometheus-sim`; guide `docs/prometheus.md`
 ```
 
 ## Current state

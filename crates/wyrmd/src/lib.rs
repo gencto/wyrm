@@ -29,6 +29,7 @@ use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_portable::{Portable, PortableConfig};
+use wyrm_link_prometheus::Prometheus;
 use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
@@ -677,8 +678,8 @@ where
     )))
 }
 
-/// `mock`, `mockdev`, `modbus`, `mqtt`, `agent` and `portable-echo` (the portable example app,
-/// ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
+/// `mock`, `mockdev`, `modbus`, `mqtt`, `prometheus`, `agent` and `portable-echo` (the portable
+/// example app, ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -688,6 +689,7 @@ impl EmbeddedHost for Drivers {
             Framework::<MockDev>::NAME,
             Modbus::NAME,
             Mqtt::NAME,
+            Prometheus::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
             wyrm_link_wasm::App::NAME,
@@ -700,7 +702,9 @@ impl EmbeddedHost for Drivers {
             "mock" => MockConfig::from_params(params).map(|_| ()),
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
-            "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
+            "mockdev" | "modbus" | "mqtt" | "prometheus" | "wasm" => {
+                Tree::from_params(params).map(|_| ())
+            }
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
@@ -756,6 +760,7 @@ impl EmbeddedHost for Drivers {
                 "mockdev" => start_boxed::<Framework<MockDev>>(session, cfg, params).await,
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
                 "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
+                "prometheus" => start_boxed::<Prometheus>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 // a portable link on a WASM component (ADR 0023)
                 "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
@@ -809,6 +814,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "mockdev" => wyrm_link_sdk::process::run::<Framework<MockDev>>().await?,
         "modbus" => wyrm_link_sdk::process::run::<Modbus>().await?,
         "mqtt" => wyrm_link_sdk::process::run::<Mqtt>().await?,
+        "prometheus" => wyrm_link_sdk::process::run::<Prometheus>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
         // the scheduler as a process link (ADR 0022 run modes)

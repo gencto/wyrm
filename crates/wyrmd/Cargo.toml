@@ -22,6 +22,7 @@ wyrm-link-wasm.workspace = true
 wyrm-link-modbus.workspace = true
 wyrm-link-agent.workspace = true
 wyrm-link-mqtt.workspace = true
+wyrm-link-prometheus.workspace = true
 wyrm-link-portable.workspace = true
 # the portable example app (ADR 0023): driver `portable-echo`
 wyrm-example-portable.workspace = true

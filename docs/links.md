@@ -51,6 +51,7 @@ down. In the broker's own process it runs only as WASM.
   a `dslink-java-modbus` tree. Its `Scaling` multiplies where DSA's
   divides: read the guide first,
   [`docs/modbus.md`](modbus.md).
+- **Prometheus** (`links/prometheus`, driver and package `prometheus`): scrapes Prometheus / OpenMetrics endpoints and turns series selectors into points. Guide: [`docs/prometheus.md`](prometheus.md).
 
 ## 3. The Install Link menu
 
