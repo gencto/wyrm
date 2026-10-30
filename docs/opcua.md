@@ -306,10 +306,31 @@ in front of the server that goes silent, slow or drops connections.
   offered; CA-signed trust chains and CRLs are not checked beyond the
   library (a pin or trust on first use trusts one certificate).
 - The application certificate is not renewed before it expires (10 years).
-- The `rsa` crate (0.9) under `async-opcua` has a known timing side channel
-  in RSA decryption (the "Marvin" advisory, no fixed 0.9 release). It
-  concerns RSA decryption with a key an attacker can time over many
-  attempts.
+- **RUSTSEC-2023-0071 ("Marvin", `rsa` 0.9 under `async-opcua`)**: a
+  timing side channel in RSA decryption; no 0.9 release fixes it. Where
+  the link uses its private key:
+  - Decryption (the exposed operation): the response to every
+    OpenSecureChannel, on the first open and on every token renewal, in
+    both `sign` and `sign_and_encrypt` (the library decrypts before it
+    checks the signature). Anyone who answers at the endpoint, or a man in
+    the middle, can send ciphertexts, before the server certificate is
+    checked in CreateSession, at one per open (the framework's backoff
+    limits the rate). A trusted server also sets the renewal rate through
+    the token lifetime it grants.
+  - Signatures (not exposed by this advisory): the OpenSecureChannel
+    request, the client signature of CreateSession/ActivateSession, the
+    X.509 user token signature.
+  - Not on the client: the decryption of user tokens is server side (the
+    simulator only).
+
+  What is at stake is the application key, which every connection with
+  the same `application_uri` shares; with it an attacker can act as this
+  client to every server that trusts it. The practical risk is low (remote
+  timing, one query per handshake). Give each trust domain its own
+  `application_uri` (so its own key), or its own `cert_pem`/`key_pem`.
+  Basic128Rsa15 (PKCS#1 v1.5 padding, the classic padding oracle) is not
+  offered. When `cargo audit` or `cargo deny` runs in CI, this advisory
+  needs a tracked ignore with this rationale (neither runs in CI today).
 - The bound on one poll is (`request_timeout_ms` + 1 s) per Read request.
   It counts the requests with the server's `MaxNodesPerRead` as the last
   open of that endpoint read it (the framework's `poll_timeout` gets no
