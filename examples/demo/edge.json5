@@ -13,8 +13,8 @@
       ca: "./data/central/pki/ca.pem",
       cert: "./data/central/peers/edge/broker.pem",
       key: "./data/central/peers/edge/broker.key",
-      // central's users may run sys actions here too (ADR 0018); plant
-      // does not allow edge, so plant's sys stays closed from above
+      // central's users may run config actions here too: sys, and link
+      // actions such as Export, Edit, Stop (ADR 0018)
       allow_config: true,
     }],
     upstream_val_hz: 5,

@@ -73,8 +73,8 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
            bacnet udp :47809, opcua :4840 (logs in data/*-sim.log)
   chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸
            plant, from edge: wy/edge/downstream/plant
-  above:   central's users set and invoke on edge's and plant's devices, flows and storage;
-           edge's sys too (edge.json5 allow_config), plant's sys not (ADR 0018)
+  above:   central's users run every action on edge and plant, sys and link config
+           (Export, Edit, Stop) included: allow_config in edge.json5 and plant.json5 (ADR 0018)
   install: sys/links ▸ Install Link (packages in examples/packages/out, see docs/links.md)
   peers:   another broker adds central in its sys/upstream (Url quic/127.0.0.1:7450,
            CA data/central/pki/ca.pem); central ▸ sys/quarantine ▸ Authorize

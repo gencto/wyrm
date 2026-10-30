@@ -120,6 +120,15 @@ class ActApi implements WyrmApi {
 
 /// `c` with two config-level values: a bool and an enum; setting the enum
 /// to `warn` is refused.
+/// Refuses every action as a responder does: `permission_denied`, no text.
+class DeniedApi extends ActApi {
+  @override
+  Stream<Value> invoke(String key, String action, [Value? args]) {
+    invoked.add((key, action, args));
+    return Stream.error(WyrmException.of(Status.permissionDenied, ''));
+  }
+}
+
 class SettableApi extends ActApi {
   final sets = <(String, Value)>[];
   static final opt = NodeMeta(ty: TypeCode.bool_, writable: Writable.config, hasChildren: false);
@@ -467,6 +476,21 @@ void main() {
     await t.tap(find.text('Invoke'));
     await t.pumpAndSettle();
     expect(api.invoked.single.$2, 'reset');
+  });
+
+  testWidgets('a refusal without a message shows its status', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = DeniedApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await rightClick(t, find.text('m'));
+    await t.tap(find.text('reset'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect(find.text('error'), findsOneWidget);
+    expect(find.text('permission denied'), findsOneWidget);
   });
 
   testWidgets('a triangle only where the tree has children; points in Metrics have a menu', (t) async {

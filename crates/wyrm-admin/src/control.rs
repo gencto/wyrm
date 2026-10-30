@@ -342,7 +342,8 @@ pub struct UpstreamConf {
     pub ca: PathBuf,
     pub cert: PathBuf,
     pub key: PathBuf,
-    /// Its users may run `config` actions on our `sys` (ADR 0018).
+    /// Its users may run `config` actions on our site: `sys`, links,
+    /// flows, storage (ADR 0018).
     pub allow_config: bool,
 }
 
@@ -2402,7 +2403,9 @@ struct Upstream<'a> {
 fn allow_config_param() -> ParamMeta {
     ParamMeta::of(TypeCode::Bool)
         .display("Allow Config")
-        .description("Its users may run config actions here (sys), as far as their own grants go")
+        .description(
+            "Its users may run config actions here (sys and links), as far as their own grants go",
+        )
 }
 
 impl<'a> Upstream<'a> {

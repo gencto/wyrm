@@ -215,8 +215,9 @@ pub struct UpstreamPeer {
     /// `data_dir/peers/<this site>/broker.pem`) and its key (`broker.key`).
     pub cert: PathBuf,
     pub key: PathBuf,
-    /// Its users may run `config` actions on our `sys` (ADR 0018); `write`
-    /// on devices, flows and storage they always have.
+    /// Its users may run `config` actions on our site: `sys`, links, flows
+    /// and storage (ADR 0018); `write` on links, flows and storage they
+    /// always have.
     #[serde(default)]
     pub allow_config: bool,
 }

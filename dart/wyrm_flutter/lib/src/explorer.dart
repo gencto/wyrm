@@ -829,8 +829,13 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       if (mounted) {
         setState(() {
           _status = _Status.error;
-          // the message alone, not `WyrmException(status): …`
-          _error = e is WyrmException ? e.message : '$e';
+          // the message alone, not `WyrmException(status): …`; a refusal
+          // carries none (spec 04), so its status instead
+          _error = e is! WyrmException
+              ? '$e'
+              : e.message.isEmpty
+                  ? e.status.name.replaceAll('_', ' ')
+                  : e.message;
         });
       }
     }

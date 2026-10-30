@@ -2968,7 +2968,8 @@ async fn chain_of_three_brokers() {
               peers: {{ listen: "quic/127.0.0.1:{e_quic}",
                         upstream: [{up}],
                         downstream: [{{ site: "plant" }}] }},
-              links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+              links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }},
+                        md: {{ driver: "mockdev", params: {{ connections: {{}} }} }} }} }}"#,
         e_dir.display(),
     ));
     let up = upstream_entry("edge", e_quic, &e_dir, "plant");
@@ -2976,7 +2977,8 @@ async fn chain_of_three_brokers() {
         r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
               admin_keys: ["{plant_admin}"],
               peers: {{ upstream: [{up}] }},
-              links: {{ pm: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+              links: {{ pm: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }},
+                        md: {{ driver: "mockdev", params: {{ connections: {{}} }} }} }} }}"#,
         p_dir.display(),
     ));
     // Upstream sites first: opening one issues its downstream's certificate.
@@ -3042,7 +3044,7 @@ async fn chain_of_three_brokers() {
             .filter(|n| n.contains(&"pm".to_owned()))
     })
     .await;
-    assert_eq!(pm, ["pm", "scheduler"]);
+    assert_eq!(pm, ["md", "pm", "scheduler"]);
     // edge shows plant beside its links, connected
     eventually(
         "edge's downstream/plant connected, seen from central",
@@ -3060,8 +3062,8 @@ async fn chain_of_three_brokers() {
         assert!(sys.contains(&n.to_owned()), "{n}: {sys:?}");
     }
     // a downstream broker is not a sys/links entry (as in DSA, ADR 0015)
-    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["mock"]);
-    assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["pm"]);
+    assert_eq!(names("wy/edge/sys/links").await.unwrap(), ["md", "mock"]);
+    assert_eq!(names("wy/plant/sys/links").await.unwrap(), ["md", "pm"]);
     assert_eq!(names("wy/plant/upstream").await.unwrap(), ["edge"]);
     assert_eq!(
         names("wy/central/upstream").await.unwrap(),
@@ -3097,6 +3099,19 @@ async fn chain_of_three_brokers() {
             .ok()
     })
     .await;
+    // allow_config opens config on edge's links too (Export is config);
+    // plant's links stay at write (plant does not allow edge)
+    eventually("central exports an edge link", 20, || async {
+        ce.invoke_one("wy/edge/downstream/md", "export", none())
+            .await
+            .ok()
+    })
+    .await;
+    let e = c
+        .invoke_one("wy/plant/downstream/md", "export", none())
+        .await
+        .expect_err("config on plant's link from above");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
     // hello checks a link token, not a ptok: never from above, even with
     // allow_config (edge's ACL drops it, so no answer comes)
     let hello = Value::Map(BTreeMap::from([(

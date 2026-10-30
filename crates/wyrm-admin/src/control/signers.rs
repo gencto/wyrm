@@ -75,37 +75,44 @@ impl Control {
         }
     }
 
-    /// Upstream keys trusted on our `section`: `downstream`, `dataflows` and
-    /// `storage` at `write`; `sys` at `config`, only the `config` keys of
-    /// upstream sites with `allow_config`. Never admin keys: each is capped
-    /// and scoped to `wy/<site>/<section>`.
+    /// Upstream keys trusted on our `section`: the `config` keys of upstream
+    /// sites with `allow_config` at `config` on every section (as the group
+    /// of a DSA upstream connection); the `write` keys of all upstream sites
+    /// at `write`, except on `sys`. Never admin keys: each is capped and
+    /// scoped to `wy/<site>/<section>`.
     pub fn upstream_trust(&self, section: &str) -> Vec<wyrm_link_sdk::LimitedKey> {
         let peers = self.peers();
-        let sys = section == "sys";
-        let cap = if sys { Perm::Config } else { Perm::Write };
         let scope = format!("wy/{}/{section}", self.cfg.site);
         let reg = self.registry();
-        let map = if sys {
-            &reg.config_signers
-        } else {
-            &reg.signers
+        let keys = |map: &BTreeMap<String, BTreeMap<String, Vec<String>>>, config: bool| {
+            peers
+                .upstream
+                .iter()
+                .filter(|u| !config || peers.config_from.contains(u))
+                .filter_map(|u| map.get(u))
+                .flat_map(|m| m.values().flatten().cloned())
+                .collect::<BTreeSet<String>>()
         };
-        let keys: BTreeSet<String> = peers
-            .upstream
-            .iter()
-            .filter(|u| !sys || peers.config_from.contains(u))
-            .filter_map(|u| map.get(u))
-            .flat_map(|m| m.values().flatten().cloned())
-            .collect();
-        keys.iter()
-            .filter_map(|h| parse_key(h))
-            .map(|key| wyrm_link_sdk::LimitedKey {
-                key,
-                cap,
-                scopes: vec![scope.clone()],
-                subject: None,
-            })
-            .collect()
+        let config = keys(&reg.config_signers, true);
+        let write = if section == "sys" {
+            BTreeSet::new()
+        } else {
+            &keys(&reg.signers, false) - &config
+        };
+        let limited = |set: BTreeSet<String>, cap: Perm| {
+            set.into_iter()
+                .filter_map(|h| parse_key(&h))
+                .map(|key| wyrm_link_sdk::LimitedKey {
+                    key,
+                    cap,
+                    scopes: vec![scope.clone()],
+                    subject: None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut out = limited(config, Perm::Config);
+        out.extend(limited(write, Perm::Write));
+        out
     }
 }
 

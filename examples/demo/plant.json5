@@ -13,6 +13,9 @@
       ca: "./data/edge/pki/ca.pem",
       cert: "./data/edge/peers/plant/broker.pem",
       key: "./data/edge/peers/plant/broker.key",
+      // edge's users, and central's through edge (edge allows central),
+      // may run config actions here (ADR 0018)
+      allow_config: true,
     }],
   },
   gateway: { listen: "127.0.0.1:8446", admin_user: "admin" },
