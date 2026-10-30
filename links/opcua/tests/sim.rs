@@ -243,8 +243,19 @@ fn status(a: &wyrm_core::Attachment) -> Option<Status> {
     }
 }
 
+/// Invoke at level `config` (browse and get_endpoints are commissioning).
 async fn act(h: &H, path: &str, action: &str, args: Value) -> (Option<Status>, Option<Value>) {
-    let mut r = h.invoke(path, action, args, Some(h.ptok(Perm::Read))).await;
+    act_as(h, Perm::Config, path, action, args).await
+}
+
+async fn act_as(
+    h: &H,
+    perm: Perm,
+    path: &str,
+    action: &str,
+    args: Value,
+) -> (Option<Status>, Option<Value>) {
+    let mut r = h.invoke(path, action, args, Some(h.ptok(perm))).await;
     assert_eq!(r.len(), 1, "{path} {action}: one reply");
     let r = r.remove(0);
     (status(&r.att), r.value())
@@ -875,6 +886,12 @@ async fn browse_and_get_endpoints() {
     let s = spawn(&d.0, |_| {}).await;
     let h = H::start(tree(&s.url(), &[], &[], map(&[]))).await;
     connected(&h).await;
+    // commissioning: config, not read (they hold the connection and show
+    // the server's whole address space)
+    let (st, _) = act_as(&h, Perm::Read, "c1/d1", "browse", map(&[])).await;
+    assert_eq!(st, Some(Status::PermissionDenied));
+    let (st, _) = act_as(&h, Perm::Read, "c1", "get_endpoints", map(&[])).await;
+    assert_eq!(st, Some(Status::PermissionDenied));
     // the Objects folder has Line1
     let (st, v) = act(&h, "c1/d1", "browse", map(&[])).await;
     assert_eq!(st, Some(Status::Ok), "{v:?}");
@@ -930,6 +947,29 @@ async fn browse_and_get_endpoints() {
     .await;
     assert_eq!(st, Some(Status::Ok));
     assert_eq!(names(&v).len(), 3, "limit");
+    // a node reached by two references is listed once
+    let (st, v) = act(
+        &h,
+        "c1/d1",
+        "browse",
+        map(&[("node", format!("nsu={NS};s=Line1").into())]),
+    )
+    .await;
+    assert_eq!(st, Some(Status::Ok));
+    let Some(Value::Array(all)) = &v else {
+        panic!("{v:?}")
+    };
+    let mut ids: Vec<String> = all
+        .iter()
+        .map(|e| match e {
+            Value::Map(m) => format!("{:?}", m.get("node_id")),
+            o => panic!("{o:?}"),
+        })
+        .collect();
+    let n = ids.len();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), n, "no node twice: {v:?}");
     // bounds
     let (st, _) = act(&h, "c1/d1", "browse", map(&[("depth", Value::UInt(9))])).await;
     assert_eq!(st, Some(Status::InvalidParameter));

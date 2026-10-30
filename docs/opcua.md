@@ -206,8 +206,13 @@ values.
 
 | Node | Action | Level | Args | Result |
 |---|---|---|---|---|
-| device | `browse` | read | `node` (default `i=85`, the Objects folder; without `ns=` it is namespace 0), `depth` 1…5 (default 1), `limit` 1…5000 (default 500) | `[{node_id, namespace_uri, browse_name, display_name, node_class, data_type}]`, hierarchical references forward, breadth first; `data_type` for variables (built-in name or node id) |
-| connection | `get_endpoints` | read | — | `[{endpoint_url, security_policy, security_mode, security_level, user_tokens, server_certificate_thumbprint}]` |
+| device | `browse` | config | `node` (default `i=85`, the Objects folder; without `ns=` it is namespace 0), `depth` 1…5 (default 1), `limit` 1…5000 (default 500) | `[{node_id, namespace_uri, browse_name, display_name, node_class, data_type}]`, hierarchical references forward, breadth first, each node once; `data_type` for variables (built-in name or node id) |
+| connection | `get_endpoints` | config | — | `[{endpoint_url, security_policy, security_mode, security_level, user_tokens, server_certificate_thumbprint}]` |
+
+Both are commissioning actions at level `config`: `browse` walks the
+server's address space (not only the configured points) on the
+connection's owner task, so polls of that connection wait behind it (at
+most 30 s); `get_endpoints` opens a second TCP connection.
 
 ## 8. Simulator
 

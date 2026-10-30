@@ -22,6 +22,9 @@
 //! | `Uncertain` | Double | 5.0 with UncertainLastUsableValue |
 //! | `Slow` | Double | 7.0; a read waits [`Sim::set_slow`] first |
 //!
+//! `Line1` also has a HasComponent reference to `Int32` (two hierarchical
+//! references to one node).
+//!
 //! Endpoints at `/`: None, Basic256Sha256 Sign and SignAndEncrypt, with
 //! anonymous, user [`USER`]/[`PASSWORD`] and (optionally) an X.509 user.
 
@@ -31,8 +34,8 @@ use opcua::server::diagnostics::NamespaceMetadata;
 use opcua::server::node_manager::memory::{simple_node_manager, SimpleNodeManager};
 use opcua::server::{ServerBuilder, ServerHandle, ServerUserToken, ANONYMOUS_USER_TOKEN_ID};
 use opcua::types::{
-    ByteString, DataTypeId, DataValue, DateTime, MessageSecurityMode, NodeId, ObjectId, StatusCode,
-    Variant,
+    ByteString, DataTypeId, DataValue, DateTime, MessageSecurityMode, NodeId, ObjectId,
+    ReferenceTypeId, StatusCode, Variant,
 };
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -291,6 +294,8 @@ pub async fn spawn(opts: Options) -> std::io::Result<Sim> {
         for v in vars {
             v.organized_by(folder.clone()).insert(&mut *a);
         }
+        // a second hierarchical reference to one node (browse lists it once)
+        a.insert_reference(&folder, &id("Int32"), ReferenceTypeId::HasComponent);
     }
     nm.inner()
         .add_read_callback(id("Bad"), |_, _, _| Err(StatusCode::BadSensorFailure));

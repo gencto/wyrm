@@ -418,8 +418,10 @@ impl Driver for OpcuaDriver {
         match level {
             Level::Device => vec![(
                 "browse",
+                // Commissioning: it walks the server's address space (not
+                // only the configured points) and holds the connection.
                 ActionMeta::new()
-                    .level(Perm::Read)
+                    .level(Perm::Config)
                     .display("Browse")
                     .timeout_ms(ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Array))
@@ -453,8 +455,9 @@ impl Driver for OpcuaDriver {
             )],
             Level::Connection => vec![(
                 "get_endpoints",
+                // Commissioning: opens a second TCP connection.
                 ActionMeta::new()
-                    .level(Perm::Read)
+                    .level(Perm::Config)
                     .display("Get Endpoints")
                     .timeout_ms(ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Array)),

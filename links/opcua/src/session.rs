@@ -20,7 +20,7 @@ use opcua::types::{
     ReferenceTypeId, StatusCode, TimestampsToReturn, UserTokenType, VariableId, Variant,
     VariantScalarTypeId, WriteValue,
 };
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -591,6 +591,9 @@ impl Transport {
         let start = start
             .resolve("", &self.nss)
             .map_err(LinkError::invalid_parameter)?;
+        // Nodes queued or listed: a node reached by two hierarchical
+        // references (Organizes and HasComponent) is listed once.
+        let mut seen = HashSet::from([start.clone()]);
         let mut queue = VecDeque::from([(start, 1u32)]);
         let mut found: Vec<(NodeId, BTreeMap<String, Value>, NodeClass)> = Vec::new();
         'outer: while let Some((node, level)) = queue.pop_front() {
@@ -630,6 +633,9 @@ impl Transport {
                         continue;
                     }
                     let id = rd.node_id.node_id.clone();
+                    if !seen.insert(id.clone()) {
+                        continue;
+                    }
                     let mut m = BTreeMap::new();
                     m.insert("node_id".into(), Value::Str(id.to_string()));
                     let uri = self
