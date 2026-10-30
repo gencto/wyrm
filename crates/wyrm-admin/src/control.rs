@@ -301,6 +301,9 @@ pub struct Control {
     enroll_wake: tokio::sync::Notify,
     /// Polls of waiting enrollment requests, by site (not persisted).
     enroll_seen: Mutex<HashMap<String, EnrollSeen>>,
+    /// Overlay names published last ([`publish_overlays`]): one that is
+    /// gone (its last watch removed, its link removed) loses its node.
+    overlays_shown: Mutex<BTreeSet<String>>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -623,6 +626,7 @@ impl Control {
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
+                overlays_shown: Mutex::default(),
             }),
             rx,
         ))
@@ -2544,7 +2548,8 @@ pub(crate) fn overlay_maps(
 /// Publish every link's overlay map at `sys/overlays/<link>` (ADR 0016):
 /// after each broker build (the memory storage starts empty) and after each
 /// watch change. Links without overlays get an empty map, which clears any
-/// they had.
+/// they had; a name that is neither a link nor watched any more (a watch
+/// on a link not installed yet, a removed link) loses its node.
 pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     let reg = ctl.registry();
     let mut maps = overlay_maps(&reg, &ctl.cfg.site);
@@ -2565,11 +2570,24 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     )
     .await?;
     let t = now_us();
-    for link in links {
-        let m = maps.remove(&link).unwrap_or_default();
+    drop(reg);
+    for link in &links {
+        let m = maps.remove(link).unwrap_or_default();
         let k = format!("overlays/{link}");
         ctx.declare_node(&k, NodeMeta::leaf(TypeCode::Map)).await?;
         ctx.update(&k, Value::Map(m), Quality::Good, t).await?;
+    }
+    let gone: Vec<String> = {
+        let mut shown = ctl.overlays_shown.lock().unwrap_or_else(|p| p.into_inner());
+        let gone = shown.difference(&links).cloned().collect();
+        *shown = links;
+        gone
+    };
+    for link in gone {
+        let k = format!("overlays/{link}");
+        if ctx.has_node(&k) {
+            ctx.remove_node(&k).await?;
+        }
     }
     Ok(())
 }

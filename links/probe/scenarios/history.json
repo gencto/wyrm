@@ -1,9 +1,10 @@
 {
   "name": "history",
-  "description": "A watch group and a watch appear with their callbacks (added under history, history changed under sys), refuse a second group of the same name, and go again.",
+  "description": "A watch group and a watch appear with their callbacks (added under history, history changed under sys), refuse a second group of the same name, and go again; the overlay of the watched link (not installed) comes with the watch and goes with it.",
   "steps": [
     { "watch": "wy/{site}/sys" },
     { "watch": "wy/{site}/sys/history" },
+    { "watch": "wy/{site}/sys/overlays" },
     { "invoke": "wy/{site}/sys/history", "action": "add_watch_group",
       "args": { "name": "p{run}", "logging_type": "Interval", "interval": 5 } },
     { "added": "wy/{site}/sys/history", "name": "p{run}" },
@@ -16,9 +17,11 @@
     { "invoke": "wy/{site}/sys/history/p{run}", "action": "add_watch_path",
       "args": { "path": "downstream/probe/p{run}" } },
     { "added": "wy/{site}/sys/history/p{run}", "name": "w1" },
+    { "added": "wy/{site}/sys/overlays", "name": "probe" },
     { "meta": "wy/{site}/sys/history/p{run}/w1", "has_action": ["unsubscribe", "get_history"] },
     { "invoke": "wy/{site}/sys/history/p{run}/w1", "action": "unsubscribe" },
     { "removed": "wy/{site}/sys/history/p{run}", "name": "w1" },
+    { "removed": "wy/{site}/sys/overlays", "name": "probe" },
     { "invoke": "wy/{site}/sys/history/p{run}", "action": "remove", "args": { "purge": true }, "cleanup": true },
     { "removed": "wy/{site}/sys/history", "name": "p{run}", "cleanup": true }
   ]
