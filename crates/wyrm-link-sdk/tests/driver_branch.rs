@@ -4,6 +4,7 @@
 
 use serde_json::{json, Value as Json};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use wyrm_core::meta::Writable;
@@ -70,7 +71,12 @@ struct Point {
 
 struct Transport(Log);
 
-/// Every point reads 1.0. An IP connection opens only with a password.
+/// Armed by a test: the next declaration of a point with `addr` 666 panics
+/// (a call cut half-way through).
+static BOOM: AtomicBool = AtomicBool::new(false);
+
+/// Every point reads its `addr`; a poll with `addr` 5 takes 300 ms. An IP
+/// connection opens only with a password.
 struct Br;
 
 impl Driver for Br {
@@ -80,7 +86,7 @@ impl Driver for Br {
     type Dev = Dev;
     type Point = Point;
     type Transport = Transport;
-    type Plan = Vec<PointId>;
+    type Plan = Vec<(PointId, u32)>;
 
     const FOLDERS: bool = true;
 
@@ -101,7 +107,7 @@ impl Driver for Br {
     }
 
     fn plan(_dev: &Dev, points: &[(PointId, Point)]) -> Self::Plan {
-        points.iter().map(|(id, _)| id.clone()).collect()
+        points.iter().map(|(id, p)| (id.clone(), p.addr)).collect()
     }
 
     async fn poll(
@@ -109,9 +115,13 @@ impl Driver for Br {
         _dev: &Dev,
         plan: &Self::Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
-        t.0.lock().unwrap().push(format!("poll:{}", plan.join(",")));
+        let ids: Vec<&str> = plan.iter().map(|(id, _)| id.as_str()).collect();
+        t.0.lock().unwrap().push(format!("poll:{}", ids.join(",")));
+        if plan.iter().any(|(_, a)| *a == 5) {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
         plan.iter()
-            .map(|id| (id.clone(), Ok(Value::Float(1.0))))
+            .map(|(id, a)| (id.clone(), Ok(Value::Float((*a).into()))))
             .collect()
     }
 
@@ -125,7 +135,10 @@ impl Driver for Br {
         Ok(())
     }
 
-    fn point_meta(_p: &Point) -> NodeMeta {
+    fn point_meta(p: &Point) -> NodeMeta {
+        if p.addr == 666 && BOOM.swap(false, Ordering::SeqCst) {
+            panic!("cut while declaring");
+        }
         NodeMeta::number().writable(Writable::Write)
     }
 
@@ -942,5 +955,108 @@ async fn largest_import_fits_the_call_bound() {
             Some(wyrm_link_sdk::driver::branch::ACTION_MS)
         );
     }
+    h.stop().await;
+}
+
+/// Fix round 1: a copy or an import cut half-way through (here: a panic
+/// while its nodes are declared) has already changed the tree as a whole
+/// and saved it, so a restart shows the new tree in full (never the old
+/// connection lost, never half of the new one).
+#[tokio::test(flavor = "multi_thread")]
+async fn cut_apply_keeps_a_whole_tree() {
+    let tag = 69;
+    let dir = temp_dir("cut");
+    let h = start_stored(tree(tag), &dir).await;
+    let mut c1 = export(&h, "c1").await;
+    c1["params"]["host"] = json!("h9");
+    c1["children"][0]["children"] = json!([
+        {"kind": "point", "name": "boom", "params": {"addr": 666}},
+        {"kind": "point", "name": "p0", "params": {"addr": 1}}
+    ]);
+    BOOM.store(true, Ordering::SeqCst);
+    let o = run(&h, "", "import", import_args(&c1, None, true)).await;
+    assert_ne!(o.status, Some(Status::Ok), "the cut call fails");
+    h.stop().await;
+
+    let h = start_stored(tree(tag), &dir).await;
+    let now = export(&h, "c1").await;
+    assert_eq!(now["params"]["host"], "h9", "the new connection in full");
+    assert_eq!(children(&now["children"][0]), ["boom", "p0"]);
+    assert!(exists(&h, "c1/d1/boom").await && exists(&h, "c1/d1/p0").await);
+    assert!(!exists(&h, "c1/d1/f1").await);
+
+    BOOM.store(true, Ordering::SeqCst);
+    let o = run(&h, "c1/d1", "copy", named("d2")).await;
+    assert_ne!(o.status, Some(Status::Ok), "the cut call fails");
+    h.stop().await;
+
+    let h = start_stored(tree(tag), &dir).await;
+    let (d1, d2) = (export(&h, "c1/d1").await, export(&h, "c1/d2").await);
+    assert_eq!(d2["children"], d1["children"], "the copy in full");
+    assert_eq!(d2["enabled"], false);
+    assert!(exists(&h, "c1/d2/boom").await && exists(&h, "c1/d2/p0").await);
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fix round 1: an overwrite never shows a value read with the old params
+/// on the new node of the same key (the old plan is gone before the new
+/// nodes are declared). `b` at `addr` 5 polls slowly, so a poll of it is
+/// in flight when the import comes.
+#[tokio::test(flavor = "multi_thread")]
+async fn overwrite_does_not_take_old_values() {
+    let h = H::start(tree(70)).await;
+    let folder = |addr: u64| {
+        json!({"format": FORMAT, "driver": "br", "kind": "folder", "name": "g", "params": {},
+            "children": [{"kind": "point", "name": "b", "params": {"addr": addr, "poll_s": 0.01}}]})
+    };
+    ok(&h, "c1/d1", "import", import_args(&folder(5), None, false)).await;
+    let b = |h: &H| h.ctx().last("c1/d1/g/b").map(|s| s.v);
+    wait("b reads 5", || b(&h) == Some(Value::Float(5.0))).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    ok(&h, "c1/d1", "import", import_args(&folder(9), None, true)).await;
+    let until = tokio::time::Instant::now() + Duration::from_millis(700);
+    while tokio::time::Instant::now() < until {
+        assert_ne!(
+            b(&h),
+            Some(Value::Float(5.0)),
+            "an old value on the new node"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(b(&h), Some(Value::Float(9.0)));
+    h.stop().await;
+}
+
+/// Ruling P17: an overwrite of a connection keeps its sealed secrets while
+/// the destination (`dest` fields) stays the same; another destination
+/// drops them and the import lists them.
+#[tokio::test(flavor = "multi_thread")]
+async fn overwrite_keeps_secrets_for_the_same_destination() {
+    let h = H::start(tree(71)).await;
+    let c1 = export(&h, "c1").await;
+    let r = ok(&h, "", "import", import_args(&c1, None, true))
+        .await
+        .unwrap();
+    let Value::Map(r) = r else { panic!() };
+    assert_eq!(r.get("reenter"), Some(&Value::Array(vec![])), "kept");
+    assert_eq!(state(&h, "c1"), is_state(NodeState::Stopped));
+    ok(&h, "c1", "start", map(&[])).await;
+    wait("c1 connected with the kept password", || {
+        state(&h, "c1") == is_state(NodeState::Connected)
+    })
+    .await;
+
+    let mut moved = c1.clone();
+    moved["params"]["host"] = json!("h2");
+    let r = ok(&h, "", "import", import_args(&moved, None, true))
+        .await
+        .unwrap();
+    let Value::Map(r) = r else { panic!() };
+    assert_eq!(
+        r.get("reenter"),
+        Some(&Value::Array(vec![Value::Str("c1.password".into())]))
+    );
+    assert_eq!(state(&h, "c1"), is_state(NodeState::Failed));
     h.stop().await;
 }

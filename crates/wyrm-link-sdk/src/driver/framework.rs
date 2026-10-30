@@ -424,7 +424,9 @@ enum Req<D: Driver> {
         deadline: tokio::time::Instant,
         reply: oneshot::Sender<Result<()>>,
     },
-    Reconfigure(Arc<DevMap<D>>),
+    /// A new view of the devices; the owner answers `ack` once it uses it
+    /// (every earlier poll published).
+    Reconfigure(Arc<DevMap<D>>, Option<oneshot::Sender<()>>),
     /// A driver action on the connection (`dev: None`) or a device.
     Invoke {
         dev: Option<String>,
@@ -1287,26 +1289,7 @@ impl<D: Driver> Framework<D> {
         let Some(run) = self.conns.get_mut(name).and_then(|c| c.run.take()) else {
             return;
         };
-        let _ = run.tick_stop.send(true);
-        let _ = run.stop.send(true);
-        for t in run.tickers {
-            let _ = tokio::time::timeout(Duration::from_secs(1), t).await;
-        }
-        let mut owner = run.owner;
-        if tokio::time::timeout(Duration::from_secs(3), &mut owner)
-            .await
-            .is_err()
-        {
-            owner.abort();
-        }
-        if let Some((mut task, _)) = run.flusher {
-            if tokio::time::timeout(Duration::from_secs(1), &mut task)
-                .await
-                .is_err()
-            {
-                task.abort();
-            }
-        }
+        stop_run(run).await;
     }
 
     /// A device's diagnostics from zero, published at once.
@@ -1400,6 +1383,17 @@ impl<D: Driver> Framework<D> {
 
     /// Device/point change: new plan for the owner, new tickers, no reconnect.
     async fn replan(&mut self, conn: &str) {
+        self.replan_with(conn, false).await;
+    }
+
+    /// [`Self::replan`], returning once the owner uses the new plan (at
+    /// most [`LinkCtx::driver_timeout`]): no poll of the old plan publishes
+    /// after it (an overwrite declares new nodes at the old keys next).
+    async fn replan_settled(&mut self, conn: &str) {
+        self.replan_with(conn, true).await;
+    }
+
+    async fn replan_with(&mut self, conn: &str, settle: bool) {
         let devs = Arc::new(self.dev_map(conn));
         let Some(run) = self.conns.get_mut(conn).and_then(|c| c.run.take()) else {
             return;
@@ -1408,7 +1402,17 @@ impl<D: Driver> Framework<D> {
         for t in run.tickers {
             let _ = tokio::time::timeout(Duration::from_secs(1), t).await;
         }
-        let _ = run.tx.send(Req::Reconfigure(devs.clone())).await;
+        let (ack, acked) = match settle {
+            true => {
+                let (tx, rx) = oneshot::channel();
+                (Some(tx), Some(rx))
+            }
+            false => (None, None),
+        };
+        let _ = run.tx.send(Req::Reconfigure(devs.clone(), ack)).await;
+        if let Some(rx) = acked {
+            let _ = tokio::time::timeout(self.ctx.driver_timeout(), rx).await;
+        }
         let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx).await;
         self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
             tickers,
@@ -1470,6 +1474,30 @@ impl<D: Driver> Framework<D> {
         self.conns
             .get_mut(name)
             .ok_or_else(|| LinkError::not_found(name.to_owned()))
+    }
+}
+
+/// Stop a connection's owner and tickers; returns after they ended.
+async fn stop_run<D: Driver>(run: ConnRun<D>) {
+    let _ = run.tick_stop.send(true);
+    let _ = run.stop.send(true);
+    for t in run.tickers {
+        let _ = tokio::time::timeout(Duration::from_secs(1), t).await;
+    }
+    let mut owner = run.owner;
+    if tokio::time::timeout(Duration::from_secs(3), &mut owner)
+        .await
+        .is_err()
+    {
+        owner.abort();
+    }
+    if let Some((mut task, _)) = run.flusher {
+        if tokio::time::timeout(Duration::from_secs(1), &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+        }
     }
 }
 
@@ -1741,7 +1769,12 @@ async fn owner<D: Driver>(
                     Some(Req::Invoke { reply, .. }) => {
                         let _ = reply.send(Err(LinkError::new(Status::Disconnected, failure.clone())));
                     }
-                    Some(Req::Reconfigure(m)) => o.devs = m,
+                    Some(Req::Reconfigure(m, ack)) => {
+                        o.devs = m;
+                        if let Some(a) = ack {
+                            let _ = a.send(());
+                        }
+                    }
                     Some(Req::Poll { dev, group }) => {
                         if let Some(g) = o.devs.get(&dev).and_then(|d| d.groups.get(group)) {
                             g.inflight.store(false, Ordering::Release);
@@ -1771,7 +1804,12 @@ async fn serve<D: Driver>(
             _ = stop.changed() => return None,
         };
         match req {
-            Req::Reconfigure(m) => o.devs = m,
+            Req::Reconfigure(m, ack) => {
+                o.devs = m;
+                if let Some(a) = ack {
+                    let _ = a.send(());
+                }
+            }
             Req::Poll { dev, group } => {
                 let devs = o.devs.clone();
                 let Some(d) = devs.get(&dev) else { continue };
@@ -1998,14 +2036,14 @@ impl<D: Driver> Link for Framework<D> {
             path.split('/').map(str::to_owned).collect()
         };
         if matches!(action, "copy" | "import") {
-            // The reply ends the call: it goes out once the tree is saved.
             let at = self.resolve(&parts)?;
+            // Both save the tree as soon as it changed (before any node is
+            // declared), so a call cut later leaves a whole tree on disk.
             let reply = if action == "copy" {
                 self.copy(&at, &args).await?
             } else {
                 self.import(&at, &args).await?
             };
-            self.save()?;
             return out.reply(reply).await;
         }
         let changes =
@@ -2578,6 +2616,36 @@ fn folder_tree<D: Driver>(n: &Node, at: &str, reenter: &mut Vec<String>) -> Resu
     Ok(m)
 }
 
+/// Ruling P17: an overwritten connection keeps its sealed secrets for the
+/// imported one while the destination stays the same (the `keep_secrets`
+/// rule of `edit`); the kept ones leave `reenter`.
+fn keep_conn_secrets<P: Params>(
+    old: &Slot<P>,
+    new: &mut Slot<P>,
+    at: &str,
+    reenter: &mut Vec<String>,
+) {
+    if old.kind != new.kind {
+        return;
+    }
+    let schema = new.schema();
+    let merged = map_of(&keep_secrets(&schema, &old.raw, &new.raw));
+    let kept: Vec<String> = schema
+        .iter()
+        .filter(|s| s.secret && merged.get(s.name).is_some_and(|v| !blank(v)))
+        .map(|s| format!("{at}.{}", s.name))
+        .collect();
+    if kept.is_empty() {
+        return;
+    }
+    reenter.retain(|r| !kept.contains(r));
+    let mut m = merged;
+    if multi_kind::<P>() {
+        m.insert("kind".into(), Value::Str(new.kind.clone()));
+    }
+    *new = Slot::parse(Value::Map(m));
+}
+
 fn twice(at: &str, name: &str) -> LinkError {
     LinkError::invalid_parameter(format!("{at}/{name}: twice in the branch"))
 }
@@ -2669,6 +2737,7 @@ impl<D: Driver> Framework<D> {
                     run: None,
                 };
                 self.conns.insert(name.clone(), entry);
+                self.save()?;
                 self.declare_conn_tree(&name).await?;
                 self.bring_up(&name).await;
             }
@@ -2686,6 +2755,7 @@ impl<D: Driver> Framework<D> {
                 let mut entry = src.clone();
                 entry.enabled = false;
                 c.devices.insert(name.clone(), entry);
+                self.save()?;
                 self.declare_branch(conn, &name).await?;
                 set_status(
                     &self.ctx,
@@ -2739,6 +2809,7 @@ impl<D: Driver> Framework<D> {
                 d.folders.extend(subs.iter().cloned());
                 let ids: Vec<String> = new_points.iter().map(|(n, _)| n.clone()).collect();
                 d.points.extend(new_points);
+                self.save()?;
                 for f in &subs {
                     self.declare_folder(conn, dev, f).await?;
                 }
@@ -2769,6 +2840,7 @@ impl<D: Driver> Framework<D> {
                     )));
                 }
                 d.points.insert(name.clone(), entry);
+                self.save()?;
                 self.declare_point(conn, dev, &name).await?;
                 self.replan(conn).await;
             }
@@ -2840,20 +2912,26 @@ impl<D: Driver> Framework<D> {
                     diag_reserved::<D>(dn)?;
                     check_new::<D>(d.points.keys(), &d.folders)?;
                 }
-                if self.conns.contains_key(&name) && !overwrite {
-                    return Err(exists_err(&name));
+                if let Some(old) = self.conns.get(&name) {
+                    if !overwrite {
+                        return Err(exists_err(&name));
+                    }
+                    keep_conn_secrets(&old.slot, &mut entry.slot, &name, &mut reenter);
                 }
                 entry.enabled = false;
                 entry.slot.note_reenter(&name, &reenter);
                 for (dn, d) in entry.devices.iter_mut() {
                     d.note_reenter(&format!("{name}/{dn}"), &reenter);
                 }
-                if self.conns.contains_key(&name) {
-                    self.tear_down(&name).await;
-                    self.conns.remove(&name);
+                // The tree changes in one step and is saved; the nodes follow.
+                let old = self.conns.insert(name.clone(), entry);
+                self.save()?;
+                if let Some(mut old) = old {
+                    if let Some(run) = old.run.take() {
+                        stop_run(run).await;
+                    }
                     self.ctx.remove_node(&name).await?;
                 }
-                self.conns.insert(name.clone(), entry);
                 self.declare_conn_tree(&name).await?;
                 self.bring_up(&name).await;
             }
@@ -2870,14 +2948,17 @@ impl<D: Driver> Framework<D> {
                 }
                 entry.enabled = false;
                 entry.note_reenter(&path, &reenter);
+                // The tree changes in one step and is saved; the nodes follow.
+                self.conn_mut(conn)?.devices.insert(name.clone(), entry);
+                self.save()?;
                 if old {
-                    self.conn_mut(conn)?.devices.remove(&name);
-                    self.ctx.remove_node(&path).await?;
                     if let Some(run) = self.conns.get(conn.as_str()).and_then(|c| c.run.as_ref()) {
                         diag::remove_dev(&run.book, &name);
                     }
+                    // The old device's plan ends before its nodes go.
+                    self.replan_settled(conn).await;
+                    self.ctx.remove_node(&path).await?;
                 }
-                self.conn_mut(conn)?.devices.insert(name.clone(), entry);
                 self.declare_branch(conn, &name).await?;
                 set_status(&self.ctx, &path, NodeState::Stopped, None).await;
                 self.reset_diag(conn, &name);
@@ -2941,12 +3022,17 @@ impl<D: Driver> Framework<D> {
                     let at = format!("{devpath}/{}", child(&p.folder, id).join("/"));
                     p.slot.note_reenter(&at, &reenter);
                 }
-                if old {
-                    self.ctx.remove_node(&at_base).await?;
-                }
+                // The tree changes in one step and is saved; the nodes follow.
                 let d = self.dev_mut(conn, dev)?;
                 d.points = points;
                 d.folders = folders;
+                self.save()?;
+                if old {
+                    // The old points' plan ends before their nodes go: no
+                    // value read with old params lands on a new node.
+                    self.replan_settled(conn).await;
+                    self.ctx.remove_node(&at_base).await?;
+                }
                 for f in &new_folders {
                     self.declare_folder(conn, dev, f).await?;
                 }
