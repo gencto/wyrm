@@ -92,7 +92,7 @@ pub trait Driver: Sized + Send + Sync + 'static {
         Some(Duration::from_secs(5))
     }
 
-    /// Bound on one ping or write (and on opening the connection).
+    /// Bound on one ping (and on opening the connection).
     fn io_timeout(_conn: &Self::Conn) -> Duration {
         Duration::from_secs(2)
     }
@@ -102,6 +102,19 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// results are lost, so it should grow with the plan.
     fn poll_timeout(conn: &Self::Conn, _plan: &Self::Plan) -> Duration {
         Self::io_timeout(conn)
+    }
+
+    /// Bound on one write of `point` (default: [`Driver::io_timeout`]); a
+    /// value written in several requests needs more.
+    fn write_timeout(conn: &Self::Conn, _point: &Self::Point) -> Duration {
+        Self::io_timeout(conn)
+    }
+
+    /// Read the point back after a failed write too (not after a broken
+    /// connection), for a write that may have gone through in part.
+    /// Default: only after a write that succeeded.
+    fn read_back_on_error(_dev: &Self::Dev) -> bool {
+        false
     }
 
     /// Heartbeat: publish an unchanged value again once its last sample is

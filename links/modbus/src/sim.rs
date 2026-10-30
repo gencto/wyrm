@@ -3,8 +3,8 @@
 //! the tables answer `IllegalDataAddress`. Supports FC1–6, 15, 16, 17 and 22
 //! (FC22 can be switched off to test the read-modify-write fallback).
 //! Every unit id is served by the same tables; the ids seen are recorded.
-//! Faults for tests: a fixed latency on every reply, one late reply and
-//! dropped (unanswered) requests, keyed by unit and address. Stand-in for
+//! Faults for tests: a fixed latency on every reply, one late reply, one
+//! exception and dropped (unanswered) requests, keyed by unit and address. Stand-in for
 //! `diagslave` in tests.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -43,6 +43,8 @@ pub struct Tables {
     pub delay_once: Option<(u8, u16, Duration)>,
     /// Leave the next `n` requests to `(unit, addr)` unanswered.
     pub drop_next: Option<(u8, u16, u32)>,
+    /// Answer the next request to `(unit, addr)` with this exception (once).
+    pub except_once: Option<(u8, u16, ExceptionCode)>,
     /// Requests left unanswered so far.
     pub dropped: u64,
     /// TCP connections accepted.
@@ -74,6 +76,7 @@ impl Default for Tables {
             latency: Duration::ZERO,
             delay_once: None,
             drop_next: None,
+            except_once: None,
             dropped: 0,
             connections: 0,
         }
@@ -145,7 +148,13 @@ impl Service for Sim {
                 delay += d;
             }
         }
-        let answer = Self::answer(&mut t, req.request).map(Some);
+        let answer = match t.except_once {
+            Some((u, a, e)) if (u, a) == (unit, addr) => {
+                t.except_once = None;
+                Err(e)
+            }
+            _ => Self::answer(&mut t, req.request).map(Some),
+        };
         drop(t);
         Box::pin(async move {
             if !delay.is_zero() {

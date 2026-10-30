@@ -915,7 +915,8 @@ async fn a_timeout_is_retried_once() {
         seen.lock().unwrap()
     );
     assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
-    assert_eq!(dev.lock().unwrap().connections, 1, "no reconnect");
+    // ruling P8: the retry goes out on a reopened connection
+    assert_eq!(dev.lock().unwrap().connections, 2, "one reopen");
     h.stop().await;
 }
 
@@ -950,12 +951,22 @@ async fn an_exception_is_not_retried() {
             .is_some_and(|s| s.q == Quality::Bad)
     })
     .await;
+    assert_eq!(
+        dev.lock()
+            .unwrap()
+            .log
+            .iter()
+            .filter(|r| **r == (1, 3, 2000))
+            .count(),
+        1,
+        "the exception read is not retried"
+    );
     let att = h.set("c1/d1/bad", 1u64, Some(h.ptok(Perm::Write))).await;
     assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
     tokio::time::sleep(Duration::from_millis(500)).await;
     let t = dev.lock().unwrap();
-    // one read at start, one write (no read-back after a failed write)
-    assert_eq!(t.log.iter().filter(|r| **r == (1, 3, 2000)).count(), 1);
+    // one read at start, one write, one read-back (ruling P7); none retried
+    assert_eq!(t.log.iter().filter(|r| **r == (1, 3, 2000)).count(), 2);
     assert_eq!(t.log.iter().filter(|r| **r == (1, 6, 2000)).count(), 1);
 }
 
@@ -1026,9 +1037,9 @@ async fn a_late_reply_is_not_taken() {
 }
 
 /// Ruling 8: the poll's whole-operation bound grows with the plan. Ten
-/// spans of 20 ms each and one slow span (three timeouts of 100 ms, then
-/// an answer) take about 520 ms: more than 4 × 100 ms, within
-/// 100 × 4 × 10 + 1000.
+/// spans with 100 ms latency each (timeout 200, no retries) take about
+/// 1000 ms: more than the default bound (`io_timeout` = 4 × 200 ms), within
+/// `poll_timeout` = 200 × 10 + 1000 ms.
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_bound_grows_with_spans() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -1037,31 +1048,47 @@ async fn poll_bound_grows_with_spans() {
         for i in 0..10 {
             t.holding[i * 2] = 100 + i as u16;
         }
-        t.latency = Duration::from_millis(20);
-        t.drop_next = Some((1, 8, 3));
+        t.latency = Duration::from_millis(100);
     }
-    let points: Vec<(String, Value)> = (0..10u64)
-        .map(|i| {
-            (
-                format!("p{i}"),
-                pt("holding", i * 2, "u16", &[("poll_s", Value::Float(60.0))]),
-            )
-        })
+    let point = |i: u64| pt("holding", i * 2, "u16", &[("poll_s", Value::Float(60.0))]);
+    let device = [
+        ("ping", "none".into()),
+        ("contiguous_only", Value::Bool(true)),
+    ];
+    // The bounds, and that one poll really takes longer than the default.
+    let conn = Conn::from_kind_value(
+        "ip_connection",
+        &map(&[
+            ("host", "127.0.0.1".into()),
+            ("port", Value::UInt(addr.port().into())),
+            ("timeout_ms", Value::UInt(200)),
+        ]),
+    )
+    .unwrap();
+    let d = Device::from_value(&map(&device)).unwrap();
+    let members: Vec<(String, Point)> = (0..10u64)
+        .map(|i| (format!("p{i}"), Point::from_value(&point(i)).unwrap()))
         .collect();
-    let points = Value::Map(points.into_iter().collect());
-    let h = H::start(conn_tree(
-        addr.port(),
-        &[
-            ("timeout_ms", Value::UInt(100)),
-            ("retries", Value::UInt(3)),
-        ],
-        &[
-            ("ping", "none".into()),
-            ("contiguous_only", Value::Bool(true)),
-        ],
-        points,
-    ))
-    .await;
+    let plan = ModbusDriver::plan(&d, &members);
+    let default_bound = ModbusDriver::io_timeout(&conn);
+    assert_eq!(default_bound, Duration::from_millis(800));
+    assert_eq!(
+        ModbusDriver::poll_timeout(&conn, &plan),
+        Duration::from_millis(3000)
+    );
+    let mut t = ModbusDriver::open(&conn).await.unwrap();
+    let t0 = tokio::time::Instant::now();
+    let r = ModbusDriver::poll(&mut t, &d, &plan).await;
+    let took = t0.elapsed();
+    assert!(r.iter().all(|(_, v)| v.is_ok()), "{r:?}");
+    assert!(
+        took > default_bound,
+        "the default bound would not cut {took:?}"
+    );
+    drop(t);
+    // Through the framework: the poll is not cut.
+    let points = Value::Map((0..10u64).map(|i| (format!("p{i}"), point(i))).collect());
+    let h = H::start(conn_tree(addr.port(), &[], &device, points)).await;
     wait("all ten spans", || {
         (0..10).all(|i| val(&h, &format!("p{i}")).is_some())
     })
@@ -1073,7 +1100,6 @@ async fn poll_bound_grows_with_spans() {
             "p{i}"
         );
     }
-    assert_eq!(dev.lock().unwrap().dropped, 3);
     assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
     h.stop().await;
 }
@@ -1118,4 +1144,168 @@ async fn a_late_reply_does_not_reach_another_unit() {
     let r = ModbusDriver::poll(&mut t, &u3, &plan(&u3, 30)).await;
     assert_eq!(r, [("p".to_owned(), Ok(Value::UInt(3030)))]);
     assert_eq!(dev.lock().unwrap().connections, 2, "exactly one reopen");
+}
+
+/// The `status` values (state indexes) published for `base`.
+async fn states(h: &H, base: &str) -> std::sync::Arc<std::sync::Mutex<Vec<String>>> {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.session()
+        .declare_subscriber(h.key(&format!("{base}/status"), "~val"))
+        .callback(move |sample| {
+            if let Ok(wyrm_core::Sample {
+                v: Value::UInt(i), ..
+            }) = wyrm_core::codec::from_slice(&sample.payload().to_bytes())
+            {
+                if let Some(n) = wyrm_link_sdk::driver::NodeState::NAMES.get(i as usize) {
+                    s.lock().unwrap().push((*n).to_owned());
+                }
+            }
+        })
+        .background()
+        .await
+        .expect("subscriber");
+    seen
+}
+
+/// Ruling P7: after a failed write the framework reads the point back. A
+/// single-mode series that fails on its second word shows the first
+/// word's change at once (the device's real state), not the old value.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_partial_series_shows_the_real_state() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let f32_words =
+        |x: f64| codec::encode(codec::DType::F32, &Value::Float(x), 1, 1.0, 0.0).unwrap();
+    dev.lock().unwrap().holding[60..62].copy_from_slice(&f32_words(1.0));
+    let points = map(&[(
+        "temp",
+        pt(
+            "holding",
+            60,
+            "f32",
+            &[
+                ("writable", Value::Bool(true)),
+                ("poll_s", Value::Float(60.0)),
+            ],
+        ),
+    )]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("write_mode", "single".into())],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    wait("polled", || val(&h, "temp") == Some(Value::Float(1.0))).await;
+    dev.lock().unwrap().except_once = Some((1, 61, tokio_modbus::ExceptionCode::IllegalDataValue));
+    let att = h.set("c1/d1/temp", 21.5, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
+    assert!(
+        att.err
+            .as_deref()
+            .is_some_and(|e| e.contains("after 1 of 2")),
+        "{att:?}"
+    );
+    let real = [f32_words(21.5)[0], f32_words(1.0)[1]];
+    assert_eq!(dev.lock().unwrap().holding[60..62], real);
+    // read back before the reply: the tree already shows the device
+    assert_eq!(
+        val(&h, "temp"),
+        Some(codec::decode(codec::DType::F32, &real, 0, 1.0, 0.0).unwrap())
+    );
+    h.stop().await;
+}
+
+/// Ruling P8: on Modbus TCP a timeout reopens the connection too. With
+/// `retries = 1` and a reply 300 ms late (timeout 200), the retry goes out
+/// on a fresh connection and gets its own reply: no header mismatch, no
+/// framework reconnect, no backoff.
+#[tokio::test(flavor = "multi_thread")]
+async fn tcp_retry_goes_out_on_a_fresh_connection() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[70] = 5;
+        t.holding[80] = 8;
+        t.delay_once = Some((1, 70, Duration::from_millis(300)));
+    }
+    let once = |a: u64| pt("holding", a, "u16", &[("poll_s", Value::Float(60.0))]);
+    let points = map(&[("a", once(70)), ("b", once(80))]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("retries", Value::UInt(1))],
+        &[
+            ("ping", "none".into()),
+            ("contiguous_only", Value::Bool(true)),
+        ],
+        points,
+    ))
+    .await;
+    let seen = states(&h, "c1").await;
+    let t0 = tokio::time::Instant::now();
+    wait("both values", || {
+        val(&h, "a") == Some(Value::UInt(5)) && val(&h, "b") == Some(Value::UInt(8))
+    })
+    .await;
+    // one timeout (200 ms) and the retry; a reconnect would add ≥ 1 s backoff
+    assert!(
+        t0.elapsed() < Duration::from_millis(900),
+        "{:?}",
+        t0.elapsed()
+    );
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(
+        !seen.lock().unwrap().iter().any(|s| s == "failed"),
+        "{:?}",
+        seen.lock().unwrap()
+    );
+    assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
+    assert_eq!(dev.lock().unwrap().connections, 2, "one reopen");
+    h.stop().await;
+}
+
+/// Ruling P9: the write bound grows with the FC6 series (`timeout × (1 +
+/// retries) × words + 1 s`). An `f64` (4 × FC6) and a 16-character
+/// varchar (8 × FC6) written in single mode to a device answering each
+/// request after 150 ms (timeout 200) are not cut. The varchar takes
+/// 1200 ms, more than the old bound of 4 × 200 ms.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_series_write_is_not_cut() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let wr = |dtype: &str, a: u64, regs: u64| {
+        pt(
+            "holding",
+            a,
+            dtype,
+            &[
+                ("writable", Value::Bool(true)),
+                ("regs", Value::UInt(regs)),
+                ("poll_s", Value::Float(60.0)),
+            ],
+        )
+    };
+    let points = map(&[("big", wr("f64", 100, 1)), ("text", wr("varchar", 200, 8))]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("write_mode", "single".into())],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    wait("polled", || {
+        val(&h, "big").is_some() && val(&h, "text").is_some()
+    })
+    .await;
+    dev.lock().unwrap().latency = Duration::from_millis(150);
+    let tok = || Some(h.ptok(Perm::Write));
+    let att = h.set("c1/d1/big", 1234.5, tok()).await;
+    assert_eq!(status(&att), Some(Status::Ok), "{att:?}");
+    assert_eq!(val(&h, "big"), Some(Value::Float(1234.5)));
+    let text = "ABCDEFGHIJKLMNOP";
+    let att = h.set("c1/d1/text", Value::from(text), tok()).await;
+    assert_eq!(status(&att), Some(Status::Ok), "{att:?}");
+    assert_eq!(val(&h, "text"), Some(Value::from(text)));
+    assert_eq!(dev.lock().unwrap().count(6), 12);
+    assert_eq!(dev.lock().unwrap().count(16), 0);
+    h.stop().await;
 }

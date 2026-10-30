@@ -21,10 +21,12 @@
 //!   starts; device and point edits re-plan without reconnecting.
 //! * A config that fails validation at load keeps its node (`Failed`,
 //!   error shown) and stays editable; nothing is deleted.
-//! * A poll is bounded by [`Driver::poll_timeout`] (it may take many
-//!   requests), pings and writes by [`Driver::io_timeout`]. A value is
-//!   published on a change, and again when unchanged once its last sample
-//!   is [`Driver::republish`] old.
+//! * A poll is bounded by [`Driver::poll_timeout`] and a write by
+//!   [`Driver::write_timeout`] (both may take many requests), a ping by
+//!   [`Driver::io_timeout`]. A value is published on a change, and again
+//!   when unchanged once its last sample is [`Driver::republish`] old.
+//!   After a write the point is read back; after a failed one only when
+//!   [`Driver::read_back_on_error`] says so.
 
 use super::params::{normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
@@ -1178,8 +1180,8 @@ async fn owner<D: Driver>(
 }
 
 /// Serve requests on an open transport. `None` = stopped; `Some(err)` =
-/// the transport broke. Pings and writes are bounded by
-/// [`Driver::io_timeout`], polls by [`Driver::poll_timeout`].
+/// the transport broke. Pings are bounded by [`Driver::io_timeout`],
+/// writes by [`Driver::write_timeout`], polls by [`Driver::poll_timeout`].
 async fn serve<D: Driver>(
     o: &mut Owner<D>,
     t: &mut D::Transport,
@@ -1237,27 +1239,15 @@ async fn serve<D: Driver>(
                     let _ = reply.send(Err(LinkError::not_found(format!("{dev}/{point}"))));
                     continue;
                 };
-                let r = match tokio::time::timeout(timeout, D::write(t, &d.cfg, &point, p, &value))
+                let bound = D::write_timeout(cfg, p);
+                let r = match tokio::time::timeout(bound, D::write(t, &d.cfg, &point, p, &value))
                     .await
                 {
                     Err(_) => Err(DriverError::Device("write timed out".into())),
                     Ok(r) => r,
                 };
                 let outcome = match r {
-                    Ok(()) => {
-                        // Read back: the tree shows what the device holds.
-                        let plan = D::plan(&d.cfg, &[(point.clone(), p.clone())]);
-                        let bound = D::poll_timeout(cfg, &plan);
-                        if let Ok(results) =
-                            tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await
-                        {
-                            if let Err(e) = o.publish_results(&dev, results).await {
-                                let _ = reply.send(Ok(()));
-                                return Some(e);
-                            }
-                        }
-                        Ok(())
-                    }
+                    Ok(()) => Ok(()),
                     Err(DriverError::Point(e)) => Err(LinkError::invalid_parameter(e)),
                     Err(DriverError::Device(e)) => Err(LinkError::timeout(e)),
                     Err(DriverError::Transport(e)) => {
@@ -1265,6 +1255,21 @@ async fn serve<D: Driver>(
                         return Some(e);
                     }
                 };
+                // Read back: the tree shows what the device holds (after a
+                // failed write too, when the driver asks: a write may have
+                // gone through in part).
+                if outcome.is_ok() || D::read_back_on_error(&d.cfg) {
+                    let plan = D::plan(&d.cfg, &[(point.clone(), p.clone())]);
+                    let bound = D::poll_timeout(cfg, &plan);
+                    if let Ok(results) =
+                        tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await
+                    {
+                        if let Err(e) = o.publish_results(&dev, results).await {
+                            let _ = reply.send(outcome);
+                            return Some(e);
+                        }
+                    }
+                }
                 let _ = reply.send(outcome);
             }
         }

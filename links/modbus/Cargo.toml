@@ -33,7 +33,7 @@ clap = { workspace = true, optional = true }
 [dev-dependencies]
 wyrm-link-modbus = { path = ".", features = ["sim"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 # The stored-config fixture is JSON (tests only).
 serde_json.workspace = true
 

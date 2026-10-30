@@ -26,13 +26,14 @@
 //!
 //! Every request is bounded by `timeout_ms` and sent again up to `retries`
 //! times after a timeout (never after an exception); a last timeout is a
-//! device miss, an I/O or protocol error drops the connection. On RTU a
-//! reply that comes after its timeout would be taken for the next request
-//! of the same unit and function (`tokio-modbus` cannot drain input), so
-//! the next request after a timeout reopens the transport first. Modbus TCP
-//! never takes a late reply (its transaction id differs); `tokio-modbus`
-//! reports it as a protocol error, which reconnects. A poll is bounded by
-//! `timeout_ms × (1 + retries) × requests + 1 s`. `republish_s` on a
+//! device miss, an I/O or protocol error drops the connection. A reply that
+//! comes after its timeout would be taken for the next request of the same
+//! unit and function on RTU (`tokio-modbus` cannot drain input), and would
+//! fail the next request with a transaction id mismatch on Modbus TCP, so
+//! the next request after a timeout reopens the transport first; a
+//! reopened serial port waits out the late reply and clears its input. A
+//! poll is bounded by `timeout_ms × (1 + retries) × requests + 1 s`, a
+//! write likewise by its requests, and a failed write is read back. `republish_s` on a
 //! device publishes unchanged values again (a heartbeat). Modbus ASCII and
 //! UDP are not supported.
 
@@ -471,12 +472,17 @@ pub struct Transport {
     rtu: bool,
     /// The unit addressed (set again on a reopened transport).
     unit: u8,
-    /// RTU only: a request went out and its reply was not taken (timed
-    /// out, or the framework's bound cut the operation). The reply may
-    /// still come, and `tokio-modbus` cannot drain it, so the next request
-    /// reopens the transport first.
+    /// A request went out and its reply was not taken (timed out, or the
+    /// framework's bound cut the operation). The reply may still come:
+    /// `tokio-modbus` cannot drain it on RTU (it would be taken for the next
+    /// request of the same unit and function), and on Modbus TCP its old
+    /// transaction id fails the next request and drops the connection. So
+    /// the next request reopens the transport first (ruling 7, P8).
     unanswered: bool,
-    /// Reopens after an unanswered RTU request (diagnostics: Task 3).
+    /// When the unanswered request went out (the serial guard waits out
+    /// the rest of its window).
+    sent: Option<tokio::time::Instant>,
+    /// Reopens after an unanswered request (diagnostics: Task 3).
     reopens: u64,
     /// Units that answered FC22 with `IllegalFunction`.
     no_fc22: HashSet<u8>,
@@ -523,8 +529,50 @@ fn unexpected(r: &Response) -> DriverError {
 /// Why a unit-0 device on RTU sends nothing.
 const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
 
-/// Open the connection's socket or serial port (unit 1 addressed).
-async fn connect(conn: &Conn, timeout: Duration) -> Result<Context, DriverError> {
+/// Bits on the wire per character: start, data, parity, stop.
+fn char_bits(c: &SerialConn) -> u32 {
+    1 + u32::from(c.data_bits) + u32::from(c.parity != Parity::None) + u32::from(c.stop_bits)
+}
+
+/// Ruling P10: how long a reopened serial port waits before its first
+/// request: 3.5 character times (the RTU frame gap), at least 50 ms, plus
+/// the rest of the unanswered request's window (`rest`), so a late reply
+/// still on the wire has ended before the input is cleared.
+fn serial_guard(c: &SerialConn, rest: Duration) -> Duration {
+    let gap =
+        Duration::from_secs_f64(3.5 * f64::from(char_bits(c)) / f64::from(c.baud_rate.max(1)));
+    gap.max(Duration::from_millis(50)) + rest
+}
+
+/// A port whose received, unread bytes can be thrown away.
+trait ClearInput {
+    fn clear_input(&self) -> std::io::Result<()>;
+}
+
+impl ClearInput for tokio_serial::SerialStream {
+    fn clear_input(&self) -> std::io::Result<()> {
+        use tokio_serial::SerialPort;
+        self.clear(tokio_serial::ClearBuffer::Input)
+            .map_err(std::io::Error::from)
+    }
+}
+
+/// Wait `guard`, then drop whatever arrived meanwhile (the tail of a late
+/// reply), so the next request reads only its own reply.
+async fn settle(port: &impl ClearInput, guard: Duration) -> std::io::Result<()> {
+    tokio::time::sleep(guard).await;
+    port.clear_input()
+}
+
+/// Open the connection's socket or serial port (unit 1 addressed). A
+/// serial port reopened after an unanswered request first waits `guard`
+/// and clears its input ([`serial_guard`]); a socket needs nothing (bytes
+/// sent to the closed one are gone).
+async fn connect(
+    conn: &Conn,
+    timeout: Duration,
+    guard: Option<Duration>,
+) -> Result<Context, DriverError> {
     Ok(match conn {
         Conn::Ip(c) => {
             let target = format!("{}:{}", c.host, c.port);
@@ -565,6 +613,11 @@ async fn connect(conn: &Conn, timeout: Duration) -> Result<Context, DriverError>
             }
             let stream = tokio_serial::SerialStream::open(&serial_builder(c))
                 .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
+            if let Some(guard) = guard {
+                settle(&stream, guard)
+                    .await
+                    .map_err(|e| DriverError::Transport(format!("clear {}: {e}", c.serial_port)))?;
+            }
             rtu::attach_slave(stream, Slave(1))
         }
     })
@@ -579,33 +632,48 @@ impl Transport {
         !(self.rtu && unit == 0)
     }
 
-    /// Close the transport and open it again (ruling 7): a late reply to
-    /// the unanswered request then arrives on the closed one.
+    /// Close the transport and open it again (ruling 7, P8): a late reply
+    /// to the unanswered request then arrives on the closed socket, or (a
+    /// serial port) is waited out and cleared (P10).
     async fn reopen(&mut self) -> Result<(), DriverError> {
         // Close first: a serial port opens exclusively.
         let _ = tokio::time::timeout(self.timeout, self.ctx.disconnect()).await;
-        self.ctx = connect(&self.conn, self.timeout).await?;
+        let guard = match &self.conn {
+            Conn::Serial(c) => {
+                let rest = self
+                    .sent
+                    .map(|t| {
+                        (t + self.timeout).saturating_duration_since(tokio::time::Instant::now())
+                    })
+                    .unwrap_or_default();
+                Some(serial_guard(c, rest))
+            }
+            Conn::Ip(_) => None,
+        };
+        self.ctx = connect(&self.conn, self.timeout, guard).await?;
         self.ctx.set_slave(Slave(self.unit));
         self.unanswered = false;
+        self.sent = None;
         self.reopens += 1;
         debug!(
             reopens = self.reopens,
-            "RTU transport reopened after an unanswered request"
+            "transport reopened after an unanswered request"
         );
         Ok(())
     }
 
     /// One request, bounded by `timeout_ms`, sent again up to `retries`
     /// times after a timeout only (an exception is an answer; an I/O or
-    /// protocol error drops the connection). On RTU a request after an
-    /// unanswered one goes out on a reopened transport.
+    /// protocol error drops the connection). A request after an unanswered
+    /// one goes out on a reopened transport.
     async fn call(&mut self, req: Request<'static>) -> Reply<Response> {
         let mut retry = 0;
         loop {
             if self.unanswered {
                 self.reopen().await?;
             }
-            self.unanswered = self.rtu;
+            self.unanswered = true;
+            self.sent = Some(tokio::time::Instant::now());
             match tokio::time::timeout(self.timeout, self.ctx.call(req.clone())).await {
                 Err(_) if retry < self.retries => {
                     retry += 1;
@@ -614,6 +682,7 @@ impl Transport {
                 Err(_) => return Err(DriverError::Device("request timed out".into())),
                 Ok(r) => {
                     self.unanswered = false;
+                    self.sent = None;
                     return r.map_err(|e| DriverError::Transport(e.to_string()));
                 }
             }
@@ -727,7 +796,7 @@ impl Driver for ModbusDriver {
 
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
         let timeout = Duration::from_millis(conn.timeout_ms().into());
-        let ctx = connect(conn, timeout).await?;
+        let ctx = connect(conn, timeout, None).await?;
         let rtu = match conn {
             Conn::Ip(c) => c.transport == IpTransport::RtuOverTcp,
             Conn::Serial(_) => true,
@@ -741,6 +810,7 @@ impl Driver for ModbusDriver {
             rtu,
             unit: 1,
             unanswered: false,
+            sent: None,
             reopens: 0,
             no_fc22: HashSet::new(),
         })
@@ -909,9 +979,8 @@ impl Driver for ModbusDriver {
         (dev.ping != Ping::None).then(|| Duration::from_secs_f64(dev.ping_s))
     }
 
-    /// Bound on a ping or write (up to 4 requests: FC22 + read-modify-write,
-    /// each with its retries); each request inside is bounded by
-    /// `timeout_ms`.
+    /// Bound on a ping and on opening the connection (each request inside
+    /// is bounded by `timeout_ms`, with its retries).
     fn io_timeout(conn: &Conn) -> Duration {
         Duration::from_millis(u64::from(conn.timeout_ms()) * 4 * (1 + u64::from(conn.retries())))
     }
@@ -921,6 +990,26 @@ impl Driver for ModbusDriver {
         let per = u64::from(conn.timeout_ms()) * (1 + u64::from(conn.retries()));
         let n = u64::try_from(plan.requests()).unwrap_or(u64::MAX);
         Duration::from_millis(per.saturating_mul(n).saturating_add(1000))
+    }
+
+    /// Ruling P9: `timeout_ms × (1 + retries) × requests + 1 s`, where a
+    /// register value written as a series of FC6 takes one request per
+    /// word and a bit in a register up to three (FC22, then read and FC6);
+    /// never below [`ModbusDriver::io_timeout`].
+    fn write_timeout(conn: &Conn, p: &Point) -> Duration {
+        let requests = match (p.table, p.dtype) {
+            (Table::Holding, DType::Binary) => 3,
+            _ => u64::from(p.words()),
+        };
+        let per = u64::from(conn.timeout_ms()) * (1 + u64::from(conn.retries()));
+        let bound = Duration::from_millis(per.saturating_mul(requests).saturating_add(1000));
+        bound.max(Self::io_timeout(conn))
+    }
+
+    /// Ruling P7: a series of FC6 may fail part-way; the read-back shows
+    /// what the device holds.
+    fn read_back_on_error(_dev: &Device) -> bool {
+        true
     }
 
     fn republish(dev: &Device) -> Option<Duration> {
@@ -994,5 +1083,78 @@ mod serial_tests {
         ] {
             assert!(!serial_path_ok(bad), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::{serial_guard, settle, ClearInput, Conn, SerialConn};
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use wyrm_core::Value;
+    use wyrm_link_sdk::driver::Params;
+
+    fn serial(kv: &[(&str, Value)]) -> SerialConn {
+        let mut m: std::collections::BTreeMap<String, Value> = kv
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect();
+        m.insert("serial_port".into(), "/dev/ttyUSB0".into());
+        match Conn::from_kind_value("serial_connection", &Value::Map(m)).unwrap() {
+            Conn::Serial(c) => c,
+            Conn::Ip(_) => unreachable!(),
+        }
+    }
+
+    /// Ruling P10: 3.5 character times, at least 50 ms, plus the rest of
+    /// the unanswered request's window.
+    #[test]
+    fn guard_is_the_frame_gap_or_50_ms_plus_the_rest() {
+        let ms = Duration::from_millis;
+        // 9600 8N1: 10 bits, 3.5 chars = 3.6 ms → 50 ms
+        assert_eq!(serial_guard(&serial(&[]), Duration::ZERO), ms(50));
+        assert_eq!(serial_guard(&serial(&[]), ms(120)), ms(170));
+        // 300 baud 8E2: 12 bits, 3.5 chars = 140 ms
+        let slow = serial(&[
+            ("baud_rate", Value::UInt(300)),
+            ("parity", "even".into()),
+            ("stop_bits", Value::UInt(2)),
+        ]);
+        assert_eq!(serial_guard(&slow, Duration::ZERO), ms(140));
+        // 1200 7O1: 10 bits, 3.5 chars ≈ 29 ms → 50 ms
+        let seven = serial(&[
+            ("baud_rate", Value::UInt(1200)),
+            ("data_bits", Value::UInt(7)),
+            ("parity", "odd".into()),
+        ]);
+        assert_eq!(serial_guard(&seven, ms(10)), ms(60));
+    }
+
+    /// A port that records when its input was cleared.
+    struct Fake {
+        cleared: Mutex<Vec<tokio::time::Instant>>,
+    }
+
+    impl ClearInput for Fake {
+        fn clear_input(&self) -> std::io::Result<()> {
+            self.cleared
+                .lock()
+                .unwrap()
+                .push(tokio::time::Instant::now());
+            Ok(())
+        }
+    }
+
+    /// The input is cleared once, after the whole guard.
+    #[tokio::test(start_paused = true)]
+    async fn settle_waits_then_clears_once() {
+        let port = Fake {
+            cleared: Mutex::new(Vec::new()),
+        };
+        let t0 = tokio::time::Instant::now();
+        settle(&port, Duration::from_millis(170)).await.unwrap();
+        let cleared = port.cleared.lock().unwrap();
+        assert_eq!(cleared.len(), 1);
+        assert!(cleared[0] - t0 >= Duration::from_millis(170));
     }
 }
