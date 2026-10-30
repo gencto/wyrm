@@ -217,6 +217,9 @@ pub struct Session {
     /// The connection opened, but the agent's answers were all outside the
     /// time window of the clock kept for it (Reset Engine Clock).
     clock_refused: bool,
+    /// Reconnect at the next request (after Reset Engine Clock: the
+    /// framework reads the status note only when a connection opens).
+    reopen: bool,
     outcomes: Vec<Outcome>,
     buf: Vec<u8>,
 }
@@ -285,6 +288,7 @@ impl Session {
             engine: None,
             stale: false,
             clock_refused: false,
+            reopen: false,
             outcomes: Vec::new(),
             buf: vec![0u8; msg::MAX_MESSAGE + 64],
         };
@@ -333,6 +337,7 @@ impl Session {
         e.at = Instant::now();
         e.seeded = false;
         self.clock_refused = false;
+        self.reopen = true;
         true
     }
 
@@ -393,6 +398,11 @@ impl Session {
         varbinds: Vec<(Oid, SnmpValue)>,
         scope: Scope<'_>,
     ) -> Result<Pdu, DriverError> {
+        if std::mem::take(&mut self.reopen) {
+            return Err(DriverError::Transport(
+                "the engine clock was reset: reconnecting to learn it again".into(),
+            ));
+        }
         let mut resynced = false;
         let mut ids: Vec<i32> = Vec::new();
         let mut attempt = 0u8;
@@ -969,6 +979,7 @@ mod tests {
             }),
             stale: false,
             clock_refused: false,
+            reopen: false,
             outcomes: Vec::new(),
             buf: Vec::new(),
         }

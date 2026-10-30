@@ -330,6 +330,15 @@ async fn diag(h: &H, name: &str) -> u64 {
     }
 }
 
+/// `attr.warning` of the connection's `status` leaf.
+async fn warning(h: &H, conn: &str) -> Option<String> {
+    let (_, meta) = h.meta(&format!("{conn}/status")).await;
+    match meta.and_then(|m| m.attr_value("warning").cloned()) {
+        Some(Value::Str(s)) => Some(s),
+        _ => None,
+    }
+}
+
 /// Wait until the diagnostics counter `name` of `c1` is at least `n`.
 async fn wait_diag(h: &H, name: &str, n: u64) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
@@ -1227,11 +1236,23 @@ async fn reset_engine_clock_after_the_agent_lost_its_boots() {
     .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_ne!(qual(&h, "name"), Some(Quality::Good), "still refused");
+    let w = warning(&h, "c1").await;
+    assert!(
+        w.as_deref()
+            .is_some_and(|w| w.contains("Reset Engine Clock")),
+        "{w:?}"
+    );
     let (s, _) = act(&h, "c1", "reset_engine_clock", map(&[]), Perm::Write).await;
     assert_eq!(s, Some(Status::PermissionDenied));
     let (s, _) = act(&h, "c1", "reset_engine_clock", map(&[]), Perm::Config).await;
     assert_eq!(s, Some(Status::Ok));
     wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
+    // the connection reopened after the reset: the warning is gone
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while warning(&h, "c1").await.is_some() {
+        assert!(tokio::time::Instant::now() < deadline, "warning cleared");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     h.stop().await;
     // v2c has no engine clock: no action
     let h = H::start(tree(&v2c(addr.port(), &[]), &[], map(&[]))).await;

@@ -239,7 +239,10 @@ connection. The device ping is the same GET in the device's view; any answer,
 * The clock is kept across reconnects, so a forced reconnect (a forged ICMP
   error or report) does not open a window for replays. **Reset Engine Clock**
   (connection action, `config`, v3) forgets it; run it only when the agent
-  really lost its boots counter (it was reinstalled or reset). A connection
+  really lost its boots counter (it was reinstalled or reset). When it
+  succeeds, the connection reconnects once at its next request (its devices
+  show `stopped_by_parent` for a moment), learns the clock again, and the
+  warning on its `status` clears. A connection
   restart does not forget it: to the link a restart is one more open, like
   any reconnect, and a reconnect can be forced from the network. The kept
   clock is in the link's memory: restarting the link process (or `wyrmd` for
