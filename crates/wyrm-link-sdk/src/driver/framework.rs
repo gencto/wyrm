@@ -68,6 +68,13 @@ use tracing::{debug, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
+/// A new run token: a device gets one when it is added, edited, started or
+/// restarted, so the owner forgets what it knew of the device before.
+fn run_token() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// How deep folders nest below a device ([`Driver::FOLDERS`]).
 pub const MAX_FOLDER_DEPTH: usize = 4;
 
@@ -271,6 +278,8 @@ struct PointEntry<P: Params> {
 struct DevEntry<D: Driver> {
     slot: Slot<D::Dev>,
     enabled: bool,
+    /// See [`run_token`].
+    token: u64,
     /// Every point of the device by id (unique across its folders).
     points: BTreeMap<String, PointEntry<D::Point>>,
     /// Every folder (a parent sorts before its children).
@@ -282,6 +291,7 @@ impl<D: Driver> Clone for DevEntry<D> {
         Self {
             slot: self.slot.clone(),
             enabled: self.enabled,
+            token: run_token(),
             points: self.points.clone(),
             folders: self.folders.clone(),
         }
@@ -401,6 +411,8 @@ struct Group<D: Driver> {
 /// What the owner task needs about one device.
 struct DevRun<D: Driver> {
     cfg: D::Dev,
+    /// The device's run token ([`run_token`]).
+    token: u64,
     points: BTreeMap<PointId, D::Point>,
     /// The node key of each point (folders included).
     paths: BTreeMap<PointId, String>,
@@ -411,10 +423,13 @@ type DevMap<D> = BTreeMap<String, DevRun<D>>;
 
 /// The devices of a running connection as planned, with the generation of
 /// that plan (ruling P19). The link task replaces it on every re-plan
-/// (under the write lock); the owner reads it before every request and
-/// publishes results under the read lock, only for requests of the current
-/// generation. So nothing planned before a change runs or publishes after
-/// it, whatever the owner was doing.
+/// (under the write lock). The owner reads it before every request and
+/// drops a request of an older generation before it starts (a write or
+/// action answers `busy`). I/O already started is not interrupted: a poll
+/// or ping runs to its end, and a write that passed the check is sent. Its
+/// results, the read-back and every device status are published under the
+/// read lock, and only while their generation is still current. So once a
+/// re-plan returns, nothing of the old plan publishes any more.
 struct View<D: Driver> {
     gen: u64,
     devs: Arc<DevMap<D>>,
@@ -1182,6 +1197,7 @@ impl<D: Driver> Framework<D> {
                 name.clone(),
                 DevRun {
                     cfg: cfg.clone(),
+                    token: d.token,
                     points,
                     paths,
                     groups,
@@ -1608,10 +1624,11 @@ async fn ping_ticker(
 }
 
 /// Per-device bookkeeping inside the owner.
-#[derive(Default)]
 struct DevHealth {
     state: Option<NodeState>,
     misses: u32,
+    /// The device's run token this entry is about ([`run_token`]).
+    token: u64,
 }
 
 struct Owner<D: Driver> {
@@ -1628,9 +1645,31 @@ struct Owner<D: Driver> {
 impl<D: Driver> Owner<D> {
     /// Take the current plan.
     async fn refresh(&mut self) {
-        let v = self.view.read().await;
+        let view = self.view.clone();
+        let v = view.read().await;
+        self.adopt(&v);
+    }
+
+    /// Use plan `v`. On a new generation, forget the state and misses of
+    /// devices that left it or got a new run token (added, edited, started,
+    /// restarted, replaced), so their next outcome is published afresh.
+    fn adopt(&mut self, v: &View<D>) {
+        if v.gen != self.gen {
+            self.health
+                .retain(|d, h| v.devs.get(d).is_some_and(|r| r.token == h.token));
+        }
         self.devs = v.devs.clone();
         self.gen = v.gen;
+    }
+
+    /// The bookkeeping of `dev` under the current plan.
+    fn health(&mut self, dev: &str) -> &mut DevHealth {
+        let token = self.devs.get(dev).map_or(0, |r| r.token);
+        self.health.entry(dev.to_owned()).or_insert(DevHealth {
+            state: None,
+            misses: 0,
+            token,
+        })
     }
 
     /// Count the requests of the operation that just ran for `dev` (or the
@@ -1655,7 +1694,7 @@ impl<D: Driver> Owner<D> {
     }
 
     async fn dev_state(&mut self, dev: &str, s: NodeState, err: Option<&str>) {
-        let h = self.health.entry(dev.to_owned()).or_default();
+        let h = self.health(dev);
         if h.state == Some(s) && err.is_none() {
             return;
         }
@@ -1664,7 +1703,7 @@ impl<D: Driver> Owner<D> {
     }
 
     async fn dev_ok(&mut self, dev: &str) {
-        self.health.entry(dev.to_owned()).or_default().misses = 0;
+        self.health(dev).misses = 0;
         self.dev_state(dev, NodeState::Connected, None).await;
     }
 
@@ -1672,7 +1711,7 @@ impl<D: Driver> Owner<D> {
     /// `Failed`, points `bad/comm_fail`.
     async fn dev_miss(&mut self, dev: &str, why: &str) {
         let misses = {
-            let h = self.health.entry(dev.to_owned()).or_default();
+            let h = self.health(dev);
             h.misses += 1;
             h.misses
         };
@@ -1701,7 +1740,7 @@ impl<D: Driver> Owner<D> {
     async fn cascade_down(&mut self) {
         let devs: Vec<String> = self.devs.keys().cloned().collect();
         for d in devs {
-            self.health.entry(d.clone()).or_default().misses = 0;
+            self.health(&d).misses = 0;
             self.dev_state(&d, NodeState::StoppedByParent, None).await;
             mark(
                 &self.ctx,
@@ -1796,10 +1835,16 @@ async fn owner<D: Driver>(
                 attempt = 0;
                 o.record(&mut t, None, false);
                 set_status(&o.ctx, &o.conn, NodeState::Connected, None).await;
-                o.refresh().await;
-                let devs: Vec<String> = o.devs.keys().cloned().collect();
-                for d in devs {
-                    o.dev_state(&d, NodeState::Connecting, None).await;
+                {
+                    // Under the plan's read lock: a re-plan (an overwrite)
+                    // waits for this loop and never sees it after.
+                    let view = o.view.clone();
+                    let v = view.read().await;
+                    o.adopt(&v);
+                    let devs: Vec<String> = o.devs.keys().cloned().collect();
+                    for d in devs {
+                        o.dev_state(&d, NodeState::Connecting, None).await;
+                    }
                 }
                 match serve::<D>(&mut o, &mut t, &mut rx, &mut stop, &cfg).await {
                     None => return,
@@ -1811,8 +1856,12 @@ async fn owner<D: Driver>(
         };
         warn!(conn = %o.conn, "connection failed: {failure}");
         set_status(&o.ctx, &o.conn, NodeState::Failed, Some(&failure)).await;
-        o.refresh().await;
-        o.cascade_down().await;
+        {
+            let view = o.view.clone();
+            let v = view.read().await;
+            o.adopt(&v);
+            o.cascade_down().await;
+        }
         // Backoff; writes meanwhile are answered `disconnected`.
         let sleep = tokio::time::sleep(backoff(attempt, jitter()));
         tokio::pin!(sleep);
@@ -2241,6 +2290,7 @@ fn load_dev<D: Driver>(cn: &str, dn: &str, dv: &Value) -> Result<DevEntry<D>> {
     Ok(DevEntry {
         slot: Slot::parse(Value::Map(dm)),
         enabled,
+        token: run_token(),
         points,
         folders,
     })
@@ -2336,6 +2386,7 @@ impl<D: Driver> Framework<D> {
                     DevEntry {
                         slot: Slot::valid(cfg),
                         enabled: true,
+                        token: run_token(),
                         points: BTreeMap::new(),
                         folders: BTreeSet::new(),
                     },
@@ -2481,6 +2532,7 @@ impl<D: Driver> Framework<D> {
                     return Ok(());
                 }
                 d.slot = Slot::valid(cfg);
+                d.token = run_token();
                 self.declare_dev(conn, dev).await?;
                 self.replan(conn).await;
             }
@@ -2557,7 +2609,7 @@ impl<D: Driver> Framework<D> {
                 self.bring_up(conn).await;
             }
             (At::Dev(conn, dev), "restart") => {
-                self.conn_mut(conn)?;
+                self.dev_mut(conn, dev)?.token = run_token();
                 self.reset_diag(conn, dev);
                 self.replan(conn).await;
             }
@@ -2582,12 +2634,20 @@ impl<D: Driver> Framework<D> {
                     return Ok(());
                 }
                 d.enabled = on;
+                if on {
+                    d.token = run_token();
+                }
                 let base = format!("{conn}/{dev}");
                 self.declare_run_toggle(&base, on).await?;
                 if on {
+                    // `New` first: the owner, on the new plan, starts from
+                    // scratch for this device and publishes `Connected`.
                     set_status(&self.ctx, &base, NodeState::New, None).await;
                     self.reset_diag(conn, dev);
+                    self.replan(conn).await;
                 } else {
+                    // The plan first: nothing of it publishes after the mark.
+                    self.replan(conn).await;
                     set_status(&self.ctx, &base, NodeState::Stopped, None).await;
                     let paths = Self::point_paths(
                         conn,
@@ -2596,7 +2656,6 @@ impl<D: Driver> Framework<D> {
                     );
                     mark(&self.ctx, paths, Quality::Bad, QUAL_DISCONNECTED).await;
                 }
-                self.replan(conn).await;
             }
             _ => return Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         }

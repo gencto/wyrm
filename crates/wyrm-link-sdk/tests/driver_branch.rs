@@ -80,6 +80,11 @@ struct Transport(Log);
 /// (a call cut half-way through).
 static BOOM: AtomicBool = AtomicBool::new(false);
 
+/// Armed by a test: the next poll of a point with `addr` 13 breaks the
+/// transport; `FAILED` says it happened.
+static FAIL: AtomicBool = AtomicBool::new(false);
+static FAILED: AtomicBool = AtomicBool::new(false);
+
 /// Every point reads its `addr`; a poll with `addr` 5 takes 300 ms. An IP
 /// connection opens only with a password.
 struct Br;
@@ -121,6 +126,13 @@ impl Driver for Br {
         _dev: &Dev,
         plan: &Self::Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
+        if plan.iter().any(|(_, a)| *a == 13) && FAIL.swap(false, Ordering::SeqCst) {
+            FAILED.store(true, Ordering::SeqCst);
+            return plan
+                .iter()
+                .map(|(id, _)| (id.clone(), Err(DriverError::Transport("cut".into()))))
+                .collect();
+        }
         let ids: Vec<&str> = plan.iter().map(|(id, _)| id.as_str()).collect();
         t.0.lock().unwrap().push(format!("poll:{}", ids.join(",")));
         if plan.iter().any(|(_, a)| *a == 5) {
@@ -1244,5 +1256,108 @@ async fn stale_actions_answer_busy() {
         "{:?}",
         log(tag)
     );
+    h.stop().await;
+}
+
+/// Fix round 3 (ruling P21): a device stopped and started again shows
+/// `Stopped`, then `New`, then `Connected` once polled (the owner does not
+/// keep its cached state across the re-plans).
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_start_shows_connected_again() {
+    let h = H::start(tree(75)).await;
+    wait("connected", || {
+        state(&h, "c1/d1") == is_state(NodeState::Connected)
+    })
+    .await;
+    ok(&h, "c1/d1", "stop", map(&[])).await;
+    assert_eq!(state(&h, "c1/d1"), is_state(NodeState::Stopped));
+    ok(&h, "c1/d1", "start", map(&[])).await;
+    assert_eq!(state(&h, "c1/d1"), is_state(NodeState::New));
+    wait("connected again", || {
+        state(&h, "c1/d1") == is_state(NodeState::Connected)
+    })
+    .await;
+    h.stop().await;
+}
+
+/// Fix round 3: the owner's status loops run under the plan's read lock. A
+/// transport failure while a device is overwritten (the new one comes
+/// back stopped) never marks the new device stopped by its parent.
+/// Hundreds of devices make the failure's loop long enough to overlap.
+#[tokio::test(flavor = "multi_thread")]
+async fn overwrite_during_failure_stays_stopped() {
+    let mut t = tree(76);
+    if let Value::Map(top) = &mut t.0 {
+        let Some(Value::Map(conns)) = top.get_mut("connections") else {
+            panic!()
+        };
+        let Some(Value::Map(c1)) = conns.get_mut("c1") else {
+            panic!()
+        };
+        let Some(Value::Map(devs)) = c1.get_mut("devices") else {
+            panic!()
+        };
+        devs.insert(
+            "a".into(),
+            map(&[("points", map(&[("x", map(&[("addr", Value::UInt(13))]))]))]),
+        );
+        for i in 0..400 {
+            devs.insert(format!("m{i:03}"), map(&[]));
+        }
+        devs.insert("zz".into(), map(&[]));
+    }
+    let h = H::start(t).await;
+    wait("a polled", || h.ctx().last("c1/a/x").is_some()).await;
+    let zz = json!({"format": FORMAT, "driver": "br", "kind": "device", "name": "zz",
+        "params": {"unit": 3}, "children": []});
+    FAILED.store(false, Ordering::SeqCst);
+    FAIL.store(true, Ordering::SeqCst);
+    wait("transport cut", || FAILED.load(Ordering::SeqCst)).await;
+    ok(&h, "c1", "import", import_args(&zz, None, true)).await;
+    let until = tokio::time::Instant::now() + Duration::from_millis(400);
+    while tokio::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(state(&h, "c1/zz"), is_state(NodeState::Stopped));
+    }
+    h.stop().await;
+}
+
+/// Fix round 3: `stop` cuts the plan off first, then marks the points bad:
+/// no good value of the stopped device follows. 300 points polled every
+/// 10 ms keep a poll's results coming while `stop` marks them.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_marks_bad_and_stays_bad() {
+    let mut t = tree(77);
+    if let Value::Map(top) = &mut t.0 {
+        let Some(Value::Map(conns)) = top.get_mut("connections") else {
+            panic!()
+        };
+        let Some(Value::Map(c1)) = conns.get_mut("c1") else {
+            panic!()
+        };
+        let Some(Value::Map(devs)) = c1.get_mut("devices") else {
+            panic!()
+        };
+        let pts: Vec<(String, Value)> = (0..300)
+            .map(|i| (format!("q{i:03}"), map(&[("poll_s", Value::Float(0.01))])))
+            .collect();
+        let kv: Vec<(&str, Value)> = pts.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        devs.insert("big".into(), map(&[("points", map(&kv))]));
+    }
+    let h = H::start(t).await;
+    let all = |q: Quality| {
+        (0..300).all(|i| {
+            h.ctx()
+                .last(&format!("c1/big/q{i:03}"))
+                .is_some_and(|s| s.q == q)
+        })
+    };
+    for round in 0..20 {
+        wait("all good", || all(Quality::Good)).await;
+        ok(&h, "c1/big", "stop", map(&[])).await;
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(all(Quality::Bad), "round {round}: a good value after stop");
+        ok(&h, "c1/big", "start", map(&[])).await;
+    }
     h.stop().await;
 }
