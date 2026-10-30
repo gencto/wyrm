@@ -373,6 +373,10 @@ impl<'a> Reader<'a> {
         if context && lvt == 7 {
             return Ok(Tag::Close(number));
         }
+        // application tags: length 0–4 or extended (5); 6 and 7 do not exist
+        if !context && lvt > 5 {
+            return err(format!("application tag {number} with L/V/T {lvt}"));
+        }
         let len = if lvt == 5 {
             match self.byte()? {
                 254 => {
@@ -550,7 +554,8 @@ fn app_content(number: u8, len: usize, r: &mut Reader<'_>) -> Result<AppValue> {
             .map_err(|_| CodecError(format!("expected 4 octets, got {}", b.len())))
     };
     Ok(match number {
-        tag::NULL => AppValue::Null,
+        tag::NULL if len == 0 => AppValue::Null,
+        tag::NULL => return err(format!("NULL with {len} content octets")),
         tag::BOOLEAN => match len {
             0 => AppValue::Boolean(false),
             1 => AppValue::Boolean(true),
@@ -994,7 +999,8 @@ pub fn parse_apdu(b: &[u8]) -> Result<Apdu<'_>> {
                 data: &b[head..],
             }
         }
-        4 => Apdu::SegmentAck { invoke_id: at(2)? },
+        // [type|flags, original invoke id, sequence number, window size]
+        4 => Apdu::SegmentAck { invoke_id: at(1)? },
         5 => {
             let invoke_id = at(1)?;
             let service = at(2)?;
@@ -1832,9 +1838,20 @@ mod tests {
             &[0x82, 0x09, 0x00],
             &[0x82, 0x01],
             &[0x0E],
+            // NULL with a length: its content would be read as tags
+            &[0x01, 0x21],
+            // application tags with L/V/T 6 and 7 (no such length)
+            &[0x46, 0, 0, 0, 0, 0, 0],
+            &[0x27, 0, 0, 0, 0, 0, 0, 0],
+            &[0x16],
         ] {
             assert!(Reader::new(b).value().is_err(), "{b:02X?}");
         }
+        // Segment-ACK: [type, original invoke id, sequence number, window]
+        assert_eq!(
+            parse_apdu(&[0x40, 7, 3, 1]).unwrap().reply_invoke_id(),
+            Some(7)
+        );
         assert!(parse_apdu(&[0x50, 0x01]).is_err());
         assert!(parse_npdu(&[0x01, 0x20, 0x00]).is_err());
         assert!(parse_bvlc(&[0x81, 0x0A, 0x00, 0x09, 0x01]).is_err());
