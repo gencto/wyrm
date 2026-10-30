@@ -545,7 +545,9 @@ async fn silent_server_degrades_quality() {
 /// the points of the late chunk take the quality ladder on their own
 /// (`uncertain/stale`, then `bad/comm_fail`, last value kept), the points
 /// of the chunk that answered stay `good`, and the device stays connected.
-#[tokio::test(flavor = "multi_thread")]
+/// (Four workers: the simulator's slow read blocks one, and its ticker
+/// waits for the address space on another.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_timed_out_chunk_goes_stale_while_the_other_answers() {
     let d = dir();
     let s = spawn(&d.0, |_| {}).await;

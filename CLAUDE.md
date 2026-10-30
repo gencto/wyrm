@@ -46,7 +46,7 @@ links/probe             ✅ test link + runner: scenarios of actions, list callb
 links/scheduler         ✅ scheduler link (ADR 0022) as a portable App: embedded in every `wyrmd` at `downstream/scheduler` (`scheduler: {enabled, store_mb}`, id reserved, own key `link:scheduler` at write on `downstream`), packages `scheduler` (WASM) and `scheduler-process` (operator grants per target link); one wake heap + 30 s clock watchdog, ≤ 800 commands per event, node budget 9 500; targets (`read_back`/`feedback`/`ack`, write queue ≤ 50, retries, override until the next transition, restart records) are `config` actions; guide `docs/scheduler.md`, demo load `examples/demo/scheduler-load.sh`
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
-links/opcua             ✅ OPC UA client on async-opcua (RustCrypto, no OpenSSL): batched Read by MaxNodesPerRead, Write with the server's DataType (lossy refused), ping i=2259, `browse`/`get_endpoints`, PKI in `data_dir/opcua-pki` (generated app cert, pin / trust on first use); no subscriptions, Uncertain → bad (framework hooks); sim `wyrm-opcua-sim`; guide `docs/opcua.md`
+links/opcua             ✅ OPC UA client on async-opcua (RustCrypto, no OpenSSL): batched Read by MaxNodesPerRead, Write with the server's DataType (lossy refused), ping i=2259, `browse`/`get_endpoints` (config), PKI in `data_dir/opcua-pki` (generated app cert, pin / trust on first use); no subscriptions, Uncertain → bad (framework hooks); sim `wyrm-opcua-sim`; guide `docs/opcua.md`
 ```
 
 ## Current state
