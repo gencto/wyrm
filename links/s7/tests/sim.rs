@@ -546,6 +546,47 @@ async fn writes_and_read_back() {
     h.stop().await;
 }
 
+/// A STRING write is bounded by the PLC's own maximum-length byte, not the
+/// configured `[n]`: a text that would run past it is refused before any
+/// Write Var, and the data after the string stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_string_write_is_bounded_by_the_plc_max() {
+    let (addr, dev, _sim) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut p = dev.lock().unwrap();
+        let db = p.db(1, 1000);
+        db[40] = 10; // the PLC's STRING[10]
+        db[52..54].copy_from_slice(&0x1234u16.to_be_bytes()); // a setpoint after it
+    }
+    let points = map(&[(
+        "text",
+        pt("DB1.DBB40:STRING[20]", &[("writable", Value::Bool(true))]),
+    )]);
+    let h = H::start(tree(addr.port(), &[], &[("ping", "none".into())], points)).await;
+    wait("polled", || val(&h, "text").is_some()).await;
+    let before = dev.lock().unwrap().dbs[&1][40..60].to_vec();
+    let n = dev.lock().unwrap().writes().len();
+    let att = h
+        .set("c1/d1/text", "fifteen chars!!", Some(h.ptok(Perm::Write)))
+        .await;
+    assert_ne!(status(&att), Some(Status::Ok));
+    let msg = err_text(&att);
+    assert!(msg.contains("STRING[10]"), "{msg}");
+    {
+        let p = dev.lock().unwrap();
+        assert_eq!(p.writes().len(), n, "no Write Var sent");
+        assert_eq!(&p.dbs[&1][40..60], &before[..], "the data after it stays");
+    }
+    // a text that fits the PLC's maximum is written
+    let att = h
+        .set("c1/d1/text", "ten chars!", Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&att), Some(Status::Ok), "{}", err_text(&att));
+    assert_eq!(val(&h, "text"), Some(Value::from("ten chars!")));
+    assert_eq!(&dev.lock().unwrap().dbs[&1][52..54], &[0x12, 0x34]);
+    h.stop().await;
+}
+
 /// A value longer than one Write Var goes in parts; S7-1200/1500 without
 /// PUT/GET answer 0x8104 and the caller sees the hint.
 #[tokio::test(flavor = "multi_thread")]

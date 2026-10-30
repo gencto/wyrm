@@ -19,8 +19,9 @@
 //!   never fails its neighbours (it is read alone from then on).
 //! * writes: one Write Var per point (a BOOL with the bit transport size,
 //!   no read-modify-write of its byte; a STRING from its actual-length
-//!   byte, never its maximum); a value longer than one request is written
-//!   in parts. The framework reads the point back.
+//!   byte, never its maximum, and bounded by the maximum the PLC holds);
+//!   a value longer than one request is written in parts. The framework
+//!   reads the point back.
 //! * ping: SZL 0x0011 (module identification) or a 1-byte read of a
 //!   configured address; any answer, an error included, means alive.
 //! * every request carries a PDU reference; a late reply to a request that
@@ -630,10 +631,26 @@ fn connection_info(c: &Client) -> Value {
     ]))
 }
 
-/// Requests a write of `p` takes at the smallest PDU.
+/// Requests a write of `p` takes at the smallest PDU (a STRING's one more:
+/// the read of its maximum-length byte).
 fn write_requests(p: &Point) -> u64 {
     let per = usize::from(MIN_PDU) - proto::WRITE_FIXED;
-    p.ty.size().div_ceil(per as u32).max(1).into()
+    let parts: u64 = p.ty.size().div_ceil(per as u32).max(1).into();
+    parts + u64::from(matches!(p.ty, DType::String(_)))
+}
+
+/// The maximum-length byte the PLC holds for the STRING at `a`.
+async fn string_max(c: &mut Client, a: &Address) -> Result<u8, DriverError> {
+    let res = c.read(&[Item::bytes(a.area, a.db, a.start, 1)]).await?;
+    match res.into_iter().next() {
+        Some(Ok(data)) => data.first().copied().ok_or_else(|| {
+            DriverError::Point("short reply: 0 of 1 bytes (the STRING's maximum length)".into())
+        }),
+        Some(Err(rc)) => Err(DriverError::Point(proto::item_text(rc))),
+        None => Err(DriverError::Point(
+            "no reply item (the STRING's maximum length)".into(),
+        )),
+    }
 }
 
 pub struct S7Driver;
@@ -773,6 +790,17 @@ impl Driver for S7Driver {
             return c
                 .write(&Item::bit(a.area, a.db, a.start, a.bit), &bytes)
                 .await;
+        }
+        if let DType::String(_) = p.ty {
+            // the PLC does not stop a byte write at the string's end: bound
+            // the text by its own maximum-length byte, not the configured `n`
+            let max = string_max(c, &a).await?;
+            let len = bytes.len() - 1;
+            if len > usize::from(max) {
+                return Err(DriverError::Point(format!(
+                    "text of {len} characters does not fit the PLC's STRING[{max}]"
+                )));
+            }
         }
         // a STRING from its actual-length byte: the maximum stays the PLC's
         let start = a.start + u32::from(matches!(p.ty, DType::String(_)));
