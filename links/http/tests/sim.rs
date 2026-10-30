@@ -1029,13 +1029,15 @@ async fn filters_cannot_probe_a_secret() {
     // (two secrets, device path, raw body for a secret, filters, the filter
     // that names the true secret)
     type Raw = fn(&str) -> Option<String>;
+    type Exact = fn(&str) -> String;
+    type Case<'a> = ([&'a str; 2], &'a str, Raw, Vec<String>, Exact);
     let echo: Raw = |_| None;
     let pins: Raw = |p| {
         Some(format!(
             r#"{{"a": {{"pin": {p}}}, "b": {{"pin": "{p}"}}, "c": {{"x": 1}}}}"#
         ))
     };
-    let cases: [([&str; 2], &str, Raw, Vec<String>, fn(&str) -> String); 2] = [
+    let cases: [Case<'_>; 2] = [
         (
             ["tok-1111111", "tok-9999999"],
             "/echo",
