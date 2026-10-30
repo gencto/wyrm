@@ -40,7 +40,7 @@ wy/<site>/downstream/<link>/
 | `user_cert_pem` | `""` | PEM | The X.509 user certificate (`certificate`). |
 | `user_key_pem` | `""` | **secret**, PEM | Its RSA key. Sealed by the framework like every secret; the link gives it to the library in memory and never writes it to a file. |
 | `cert_pem` | `""` | PEM | The application instance certificate. Empty: the link makes a self-signed one (section 5). |
-| `key_pem` | `""` | **secret**, PEM | Its RSA key. With `cert_pem` or not at all. Written to a plain-text file while the connection is open (section 5). |
+| `key_pem` | `""` | **secret**, PEM | Its RSA key. With `cert_pem` or not at all. Written to a plain-text file while the connection opens (section 5). |
 | `server_cert_pem` | `""` | PEM | Pin: only this server certificate is trusted. |
 | `trust_on_first_use` | `false` | | Trust the first server certificate seen, then only that one. |
 | `application_uri` | `urn:wyrm:opcua:client` | a URI | The client's application URI (in the certificate it makes). |
@@ -135,7 +135,7 @@ The link's PKI is in its `data_dir`, in `opcua-pki/`:
 | Path | Content |
 |---|---|
 | `own/app-<hash>.der`, `private/app-<hash>.pem` | The generated application certificate (self-signed, RSA 2048, 10 years, SAN: `application_uri` and this host's names) and its key (mode 0600). Made on the first open of a connection without `cert_pem` when the link has a `data_dir` (also for policy `None`, which does not use it), then reused. One per `application_uri`. |
-| `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files, named by a hash of both: the library reads its certificate and key from files on every secure channel open and renewal. The key file is **plain text** (not sealed), mode 0600 in the 0700 `private/` inside the 0700 `data_dir`. The files exist only while a connection that uses them opens or has a session: they are removed when the last such session ends (also after an `edit` that changes `cert_pem`, a `remove`, or a failed open), and at link start the link removes any that a stopped process left. |
+| `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files, named by a hash of both: the library reads its certificate and key from files when it builds the client and the secure channel and for ActivateSession; it keeps the key in memory for channel renewals. The key file is **plain text** (not sealed), mode 0600 in the 0700 `private/` inside the 0700 `data_dir`. The files exist only while a connection that uses them opens (seconds): they are removed once the session is active or the open failed or was cut, and at link start the link removes any that a stopped process left. The sealed secret stays the only lasting copy. |
 | `servers/<url hash>-<trust>/trusted`, `…/rejected` | Server certificates per endpoint and trust mode. `<url hash>` is of the endpoint with a lower-case host, the port (4840 when absent) and the path (`/` when empty), so `opc.tcp://PLC1:4840` and `opc.tcp://plc1/` are one endpoint; `localhost` and `127.0.0.1` are two. `<trust>` is `pin-<hash>`, `tofu` or `strict`. |
 | `servers/<url hash>-tofu/tofu-ok` | Marks that a session was made with the certificate in `trusted/` (first use done). |
 

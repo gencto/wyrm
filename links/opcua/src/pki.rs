@@ -17,9 +17,11 @@
 //! normalises it.
 //!
 //! The `user-*` files exist only while a connection that names them opens
-//! or has a session ([`KeyLease`]); the library reads the key from its file
-//! on every secure channel open and renewal, so it cannot stay in memory
-//! only. [`sweep`] removes the ones a stopped process left.
+//! ([`KeyLease`]): async-opcua reads the key from its file when it builds
+//! the client and the secure channel and for ActivateSession, and keeps it
+//! in memory for channel renewals (its own reconnect is off), so the open
+//! drops the lease once the session is active. [`sweep`] removes the ones
+//! a stopped process left.
 //!
 //! First use counts only once a session was activated: then the store gets
 //! the marker file `tofu-ok`. Until it has it, `prepare` empties `trusted/`
@@ -49,9 +51,8 @@ const DAYS: u32 = 3650;
 static IN_USE: Mutex<BTreeMap<PathBuf, usize>> = Mutex::new(BTreeMap::new());
 
 /// One connection's use of the `user-*` files of a supplied `cert_pem` /
-/// `key_pem`. The files are removed when the last use ends (a session
-/// closed, an open failed or cut, an edit that changes the certificate, a
-/// removed connection).
+/// `key_pem`, for one open. The files are removed when the last use ends
+/// (a session activated, an open failed or cut).
 #[derive(Debug)]
 pub struct KeyLease {
     cert: PathBuf,

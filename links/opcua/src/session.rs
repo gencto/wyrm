@@ -71,9 +71,6 @@ pub struct Transport {
     types: HashMap<NodeId, (VariantScalarTypeId, bool)>,
     outcomes: Vec<Outcome>,
     note: Option<String>,
-    /// The use of a supplied certificate's files, while the session lives
-    /// (the library reads the key on channel renewals). Dropped last.
-    _lease: Option<pki::KeyLease>,
 }
 
 impl Drop for Transport {
@@ -476,8 +473,12 @@ impl Transport {
             Ok(Err(code)) => return Err(fail(code)),
             Err(_) => return Err(transport("session event loop stopped")),
         }
-        if let Some(prep) = &prep {
+        if let Some(mut prep) = prep {
             prep.opened();
+            // The library read the key file when it built the channel and
+            // for ActivateSession; renewals use the key in memory, and its
+            // own reconnect is off. The plain-text copy goes now.
+            prep.lease = None;
         }
         let nss = session
             .read_namespace_array()
@@ -503,7 +504,6 @@ impl Transport {
             types: HashMap::new(),
             outcomes: Vec::new(),
             note,
-            _lease: prep.and_then(|p| p.lease),
         })
     }
 

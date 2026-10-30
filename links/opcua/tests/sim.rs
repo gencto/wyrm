@@ -935,8 +935,24 @@ async fn channel_renewal_keeps_values() {
     let points = map(&[("double", pt(&line("Double"), &[]))]);
     let pin = s.certificate_pem();
     let conn = secured(&[("server_cert_pem", pin.as_str().into())]);
-    let h = start_in(tree(&s.url(), &conn, &[], points), &d.0.join("data")).await;
+    let data = d.0.join("data");
+    let h = start_in(tree(&s.url(), &conn, &[], points), &data).await;
     connected(&h).await;
+    // the supplied key's plain-text file is gone once the session is
+    // active: renewals use the key in memory
+    let user_files = || {
+        ["own", "private"]
+            .iter()
+            .flat_map(|sub| {
+                std::fs::read_dir(data.join("opcua-pki").join(sub))
+                    .into_iter()
+                    .flatten()
+            })
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("user-"))
+            .count()
+    };
+    wait("no key file during the session", || user_files() == 0).await;
     // values keep coming and the connection never leaves `connected`
     let mut last = None;
     let mut changes = 0;
