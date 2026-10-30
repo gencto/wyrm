@@ -70,7 +70,10 @@ Rules (an `add_*` or `edit` that breaks one is refused with
   unless `insecure_plaintext` is set. The connection then shows a warning on
   its `status` leaf (`attr.warning`), as with `insecure_skip_verify`.
 - `headers` may not set `Host`, `Content-Length`, `Transfer-Encoding`,
-  `Connection`, `Upgrade`, `TE`, `Trailer`, `Keep-Alive`, `Authorization`,
+  `Connection`, `Upgrade`, `TE`, `Trailer`, `Keep-Alive`, `Range`,
+  `If-Range`, `Accept-Encoding`, `Content-Encoding` (a partial or
+  compressed body could not be masked; every request sends
+  `Accept-Encoding: identity`), `Authorization`,
   `Proxy-Authorization`, `Cookie`, the API key header or the secret header,
   nor a header whose name holds `auth`, `token`, `key`, `secret`,
   `session`, `cookie`, `password`, `passwd` or `credential`: `headers` is
@@ -88,7 +91,8 @@ entered in `add_connection` or `edit` and kept sealed by the framework in
 the link's `data_dir`. They never show in `~meta`, `export`, errors or
 logs. An `edit` that leaves a secret empty keeps the stored one while
 `base_url`, `auth`, `api_key_in`, `api_key_name`, `secret_header_name`,
-`ca_pem`, `insecure_skip_verify` and `insecure_plaintext` stay the same; an
+`headers` (a header changes what the server sends back), `ca_pem`,
+`insecure_skip_verify` and `insecure_plaintext` stay the same; an
 edit that changes one of them drops the stored secrets unless it gives
 them again.
 
@@ -192,6 +196,7 @@ A point without `writable` refuses `~set`.
 | No reply within `timeout_ms` | device miss | First miss: points `uncertain/stale`; after 3 misses the device `failed` with `error`, points `bad/comm_fail`. |
 | Status outside `expect_status` (4xx, 5xx, …) | device miss | As above; `error` = `GET /api/v1/status: HTTP 503`, 401/403 `…: HTTP 401: authentication failed`. |
 | Body over `max_body_kib`, a reply that is not JSON, more than 3 redirects, a redirect to another host | device miss | As above, with the reason. |
+| A partial reply (HTTP 206) or an encoded one (`Content-Encoding` other than `identity`) | device miss | `…: partial reply (HTTP 206): not read`, `…: encoded reply (Content-Encoding): not read`: the masker cannot see into such a body, so it is never read; `try_request` hides it with its length. |
 | Selector finds nothing, several values without `aggregate`, wrong type, `null`, a number equal to a secret ("value hidden") | point | That point only: quality `bad` with its last value; the device stays `connected`. |
 
 Values are never invented: a failed point keeps its last value with a bad
@@ -238,7 +243,10 @@ The masking rules, the same for selectors and for what is shown:
   another element;
 - member names in what is shown (a `string` point of an object,
   `try_request`, `test_selector` values) are masked too, and two names
-  that mask alike are both shown (`***`, `***#2`);
+  that mask alike are both shown (`***`, `***#2`). An object of more than
+  10 000 members, or more than 10 000 renamed names in all, is not masked
+  name by name: the value is hidden ("value hidden: too many member names
+  to mask"), and so is a `try_request` body;
 - a `bool` shows no secret and is never masked.
 
 `try_request` on a body that is not JSON: after a BOM or an anti-XSSI

@@ -416,6 +416,8 @@ impl Client {
             .uri(uri)
             .header(hyper::header::HOST, p.origin.authority())
             .header(hyper::header::ACCEPT, "application/json")
+            // never a compressed body: the masker could not see into it
+            .header(hyper::header::ACCEPT_ENCODING, "identity")
             .header(
                 hyper::header::USER_AGENT,
                 concat!("wyrm-http/", env!("CARGO_PKG_VERSION")),

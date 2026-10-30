@@ -991,6 +991,12 @@ async fn secrets_are_never_shown() {
         st(&s).seen.len() > before + 2 && state(&h, "c1/d1").as_deref() == Some("connected")
     })
     .await;
+    // other headers without the token: dropped too (headers is a dest
+    // field: a header changes what the server sends back)
+    let mut other = conn(base(addr.port()), None);
+    other.push(("headers", "Accept-Language: en".into()));
+    let (r, _, _) = act(&h, "c1", "edit", map(&other), cfg).await;
+    assert_eq!(r, Some(Status::InvalidParameter), "token required again");
     // another base URL without the token: dropped (the add form wants it)
     let moved = Value::from(format!("http://localhost:{}/api", addr.port()));
     let (r, _, _) = act(&h, "c1", "edit", map(&conn(moved, None)), cfg).await;
@@ -1123,6 +1129,106 @@ async fn filters_cannot_probe_a_secret() {
             "answers depend on the secret: {filters:?}"
         );
     }
+}
+
+/// A body the masker cannot see into is never shown: every request asks
+/// for `Accept-Encoding: identity`; a reply with another
+/// `Content-Encoding`, or a partial one (206), fails the points and is
+/// hidden by `try_request` with its length. A body of 50 000 member names
+/// that mask alike is hidden at once, not masked for minutes.
+#[tokio::test(flavor = "multi_thread")]
+async fn bodies_the_masker_cannot_read_are_hidden() {
+    let token = "tok-7777777";
+    let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = st(&s);
+        t.auth = SimAuth::Bearer(token.into());
+        t.raw = Some(format!(r#"{{"m": 7, "t": "Bearer {token}"}}"#));
+        t.raw_headers = vec![("content-encoding".into(), "gzip".into())];
+    }
+    let h = H::start(tree(
+        base(addr.port()),
+        &[("auth", "bearer".into()), ("token", token.into())],
+        &[(
+            "d1",
+            dev(&[("path", "/raw".into())], map(&[("p", pt("$.m", &[]))])),
+        )],
+    ))
+    .await;
+    wait("encoded", || {
+        error(&h, "c1/d1").is_some_and(|e| e.contains("encoded"))
+    })
+    .await;
+    assert_ne!(qual(&h, "c1/d1/p"), Some(Quality::Good));
+    let accept = st(&s).seen[0].header("accept-encoding").map(str::to_owned);
+    assert_eq!(accept.as_deref(), Some("identity"));
+    let cfg = Perm::Config;
+    let check = |v: &Option<Value>, why: &str| {
+        let Value::Str(body) = field(v, "body") else {
+            panic!("body")
+        };
+        assert!(
+            body.contains("body hidden") && !body.contains(token),
+            "{why}: {body}"
+        );
+        assert_eq!(field(v, "bytes"), &Value::UInt(0), "{why}");
+        assert_eq!(field(v, "masked"), &Value::Bool(true), "{why}");
+        let Value::Map(headers) = field(v, "headers") else {
+            panic!("headers")
+        };
+        assert!(
+            !headers.contains_key("content-length"),
+            "{why}: {headers:?}"
+        );
+    };
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+    check(&v, "gzip");
+    // a partial reply (a new link: the device above is failed)
+    h.stop().await;
+    {
+        let mut t = st(&s);
+        t.raw_headers.clear();
+        t.mode = Mode::Status(206);
+    }
+    let h = H::start(tree(
+        base(addr.port()),
+        &[("auth", "bearer".into()), ("token", token.into())],
+        &[(
+            "d1",
+            dev(&[("path", "/raw".into())], map(&[("p", pt("$.m", &[]))])),
+        )],
+    ))
+    .await;
+    wait("partial", || {
+        error(&h, "c1/d1").is_some_and(|e| e.contains("partial"))
+    })
+    .await;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+    check(&v, "206");
+    // 50 000 names that mask alike (each holds the token behind a unicode
+    // escape, so each is hidden whole): hidden at once
+    let (b, u) = ('\\', 'u');
+    let names: serde_json::Map<String, serde_json::Value> = (0..50_000)
+        .map(|i| (format!("{b}{u}0074ok-7777777#{i}"), json!(i)))
+        .collect();
+    {
+        let mut t = st(&s);
+        t.mode = Mode::Normal;
+        t.raw = Some(serde_json::Value::Object(names).to_string());
+    }
+    let t0 = tokio::time::Instant::now();
+    let (r, v, e) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+    assert_eq!(r, Some(Status::Ok), "{e}");
+    assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    let Value::Str(body) = field(&v, "body") else {
+        panic!("body")
+    };
+    assert!(
+        body.contains("too many member names"),
+        "{}",
+        &body[..body.len().min(200)]
+    );
+    h.stop().await;
 }
 
 /// The secret header, echoed by the server, is masked in a point and in

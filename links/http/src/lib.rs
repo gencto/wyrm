@@ -158,7 +158,8 @@ pub struct ConnParams {
         editor = "textarea",
         display = "Headers",
         placeholder = "Accept-Language: en",
-        desc = "one 'Name: value' per line, sent with every request; not secret: no credentials"
+        desc = "one 'Name: value' per line, sent with every request; not secret: no credentials",
+        dest
     )]
     pub headers: String,
     #[param(
@@ -226,6 +227,11 @@ const FORBIDDEN_HEADERS: &[&str] = &[
     "te",
     "trailer",
     "keep-alive",
+    // content negotiation: a body the masker cannot see into
+    "range",
+    "if-range",
+    "accept-encoding",
+    "content-encoding",
     "authorization",
     "proxy-authorization",
     "cookie",
@@ -1319,54 +1325,95 @@ fn numeric_text(s: &str) -> bool {
     digits(int) && digits(frac)
 }
 
-/// Mask the values of `j` (and, with `keys`, its member names) as a user
-/// and a selector see them:
+/// Most members of one object whose names [`mask_json`] masks, and most
+/// member names it renames in one call: past them the whole is hidden (a
+/// hostile body of names that mask alike would cost time).
+const MAX_MASKED_MEMBERS: usize = 10_000;
+
+/// Mask the values of `j` (and, with `renamed`, its member names) as a
+/// user and a selector see them:
 ///
 /// * a number, or a numeric text, equal to a numeric secret, and a text
 ///   equal to a secret, become the string `***` (equality only, so
 ///   `51234.5` stays with the PIN `1234`);
 /// * any other text masks every secret in it ([`shown`]);
-/// * with `keys`, every member name as [`shown`]; two names that mask
-///   alike are both kept (`***#2`).
+/// * with `renamed` (the count of names changed so far), every member name
+///   as [`shown`]; two names that mask alike are both kept (`***#2`), the
+///   next suffix kept per name, so the cost stays linear.
 ///
-/// Depth is bounded by `serde_json`'s 128.
-fn mask_tree(prep: &Prepared, j: &mut Json, keys: bool) {
+/// `false` when an object has more than [`MAX_MASKED_MEMBERS`] members, or
+/// more names than that were renamed: the caller hides the whole. Depth is
+/// bounded by `serde_json`'s 128.
+fn mask_tree(prep: &Prepared, j: &mut Json, mut renamed: Option<&mut usize>) -> bool {
     if prep.masks.is_empty() {
-        return;
+        return true;
     }
     if matches!(j, Json::Number(_) | Json::String(_)) && secret_number(prep, j) {
         *j = Json::String(HIDDEN.to_owned());
-        return;
+        return true;
     }
     match j {
         Json::String(s) if !numeric_text(s) => {
             if let Cow::Owned(m) = shown(prep, s) {
                 *s = m;
             }
+            true
         }
-        Json::Array(a) => a.iter_mut().for_each(|v| mask_tree(prep, v, keys)),
-        Json::Object(o) if keys => {
-            let old = std::mem::take(o);
-            for (k, mut v) in old {
-                mask_tree(prep, &mut v, keys);
-                let k = shown(prep, &k).into_owned();
-                let mut key = k.clone();
-                let mut n = 2;
-                while o.contains_key(&key) {
-                    key = format!("{k}#{n}");
-                    n += 1;
+        Json::Array(a) => a
+            .iter_mut()
+            .all(|v| mask_tree(prep, v, renamed.as_deref_mut())),
+        Json::Object(o) => match renamed {
+            None => o.values_mut().all(|v| mask_tree(prep, v, None)),
+            Some(count) => {
+                if o.len() > MAX_MASKED_MEMBERS {
+                    return false;
                 }
-                o.insert(key, v);
+                let old = std::mem::take(o);
+                let mut next: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for (k, mut v) in old {
+                    if !mask_tree(prep, &mut v, Some(&mut *count)) {
+                        return false;
+                    }
+                    let masked = match shown(prep, &k) {
+                        Cow::Owned(s) => Some(s),
+                        Cow::Borrowed(_) => None,
+                    };
+                    let name = match masked {
+                        Some(s) => {
+                            *count += 1;
+                            if *count > MAX_MASKED_MEMBERS {
+                                return false;
+                            }
+                            s
+                        }
+                        None => k,
+                    };
+                    let key = if o.contains_key(&name) {
+                        let n = next.entry(name.clone()).or_insert(1);
+                        loop {
+                            *n += 1;
+                            let candidate = format!("{name}#{n}");
+                            if !o.contains_key(&candidate) {
+                                break candidate;
+                            }
+                        }
+                    } else {
+                        name
+                    };
+                    o.insert(key, v);
+                }
+                true
             }
-        }
-        Json::Object(o) => o.values_mut().for_each(|v| mask_tree(prep, v, keys)),
-        _ => {}
+        },
+        _ => true,
     }
 }
 
-/// Mask `j` for showing: values and member names ([`mask_tree`]).
-fn mask_json(prep: &Prepared, j: &mut Json) {
-    mask_tree(prep, j, true);
+/// Mask `j` for showing: values and member names ([`mask_tree`]); `false`
+/// when it has too many member names to mask (hide the whole).
+fn mask_json(prep: &Prepared, j: &mut Json) -> bool {
+    mask_tree(prep, j, Some(&mut 0))
 }
 
 /// The reply as a selector sees it: every value that holds a secret in its
@@ -1380,8 +1427,12 @@ fn mask_json(prep: &Prepared, j: &mut Json) {
 /// text equals or holds a secret, so a short secret can be guessed through
 /// an echoing server, and member names stay raw.
 fn selection_view(prep: &Prepared, j: &mut Json) {
-    mask_tree(prep, j, false);
+    // values only: no name is renamed, so no cap applies
+    mask_tree(prep, j, None);
 }
+
+/// Shown for a value or a body with more member names than are masked.
+const HIDDEN_NAMES: &str = "*** hidden: too many member names to mask";
 
 /// Select from the [`selection_view`]; `true` when a filter compared a
 /// masked value: its answer says nothing true about the reading (a level
@@ -1422,18 +1473,40 @@ fn shown_value(prep: &Prepared, conv: &Conv<'_>, found: &[&Json]) -> Result<Valu
             conv.eval(found)
         }
         ValueType::String => {
-            let masked: Vec<Json> = found
-                .iter()
-                .map(|j| {
-                    let mut c = (*j).clone();
-                    mask_json(prep, &mut c);
-                    c
-                })
-                .collect();
+            let mut masked = Vec::with_capacity(found.len());
+            for j in found {
+                let mut c = (*j).clone();
+                if !mask_json(prep, &mut c) {
+                    return Err(format!(
+                        "{}: value hidden: too many member names to mask",
+                        conv.path
+                    ));
+                }
+                masked.push(c);
+            }
             conv.eval(&masked.iter().collect::<Vec<_>>())
         }
         _ => conv.eval(found),
     }
+}
+
+/// Why a reply's body cannot be masked, so it is never read or shown: a
+/// partial reply (206; a `Range` header is refused, but a server may send
+/// one) or an encoded one (`Content-Encoding` other than `identity`; every
+/// request asks for `identity`).
+fn unreadable(reply: &client::Reply) -> Option<&'static str> {
+    if reply.status.as_u16() == 206 {
+        return Some("partial reply (HTTP 206)");
+    }
+    let encoded = reply
+        .headers
+        .get_all(hyper::header::CONTENT_ENCODING)
+        .iter()
+        .any(|v| {
+            !v.to_str()
+                .is_ok_and(|v| v.trim().eq_ignore_ascii_case("identity"))
+        });
+    encoded.then_some("encoded reply (Content-Encoding)")
 }
 
 /// `try_request`'s body when a text that is not JSON holds a secret.
@@ -1521,12 +1594,27 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     let parsed = serde_json::from_slice::<Json>(&reply.body).ok();
     let is_json = parsed.is_some();
     let parsed = parsed.map(|j| ("", j)).or_else(|| prefixed_json(&raw));
+    // An encoded or a partial body cannot be masked: hidden with its length.
+    let unread = unreadable(&reply);
     let (text, masked) = match parsed {
+        _ if unread.is_some() => (
+            format!(
+                "*** body hidden: {}: it cannot be masked",
+                unread.unwrap_or_default()
+            ),
+            true,
+        ),
         Some((prefix, json)) if !prep.masks.is_empty() => {
             let mut shown_json = json.clone();
-            mask_json(&prep, &mut shown_json);
-            let text = serde_json::to_string(&shown_json).unwrap_or_default();
-            (format!("{prefix}{text}"), shown_json != json)
+            if mask_json(&prep, &mut shown_json) {
+                let text = serde_json::to_string(&shown_json).unwrap_or_default();
+                (format!("{prefix}{text}"), shown_json != json)
+            } else {
+                (
+                    "*** body hidden: too many member names to mask".to_owned(),
+                    true,
+                )
+            }
         }
         // Not JSON: masked as text; hidden whole when it still holds a
         // secret once JSON-unescaped, or holds a number equal to a numeric
@@ -1540,12 +1628,16 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     };
     let (body, truncated) = cut(&text, SHOW_BODY);
     let body = body.to_owned();
-    if is_json {
+    if is_json && unread.is_none() {
         t.remember(dev.req.key(), &reply.body);
     }
     // A masked body shows the masked length: the raw one would give the
-    // length of an echoed secret.
-    let bytes = if masked { text.len() } else { reply.body.len() };
+    // length of an echoed secret. An unread body shows none.
+    let bytes = match (unread, masked) {
+        (Some(_), _) => 0,
+        (None, true) => text.len(),
+        (None, false) => reply.body.len(),
+    };
     // A masked body: the safe headers only, the others counted. The raw
     // length, a range or a hash of the raw body would give the length of a
     // secret or allow an offline guess.
@@ -1626,7 +1718,9 @@ fn test_selector(
         .take(SHOW_VALUES)
         .map(|j| {
             let mut c = (*j).clone();
-            mask_json(prep, &mut c);
+            if !mask_json(prep, &mut c) {
+                return Value::Str(HIDDEN_NAMES.to_owned());
+            }
             let text = serde_json::to_string(&c).unwrap_or_default();
             if text.len() <= SHOW_VALUE {
                 json_value(&c)
@@ -1724,6 +1818,11 @@ impl Driver for HttpDriver {
             Ok(r) => r,
             Err(f) => return all(poll_err(f)),
         };
+        if let Some(why) = unreadable(&reply) {
+            return all(DriverError::Device(format!(
+                "{what}: {why}: not read (the link asks for the whole, plain body)"
+            )));
+        }
         let code = reply.status.as_u16();
         if !expected(&plan.expect, code) {
             return all(DriverError::Device(status_err(&what, code)));
@@ -2085,6 +2184,45 @@ mod tests {
     }
 
     #[test]
+    fn many_names_that_mask_alike_are_linear_and_capped() {
+        let c = Conn::from_value(&m(&[
+            ("base_url", "http://127.0.0.1".into()),
+            ("auth", "basic".into()),
+            ("username", "u".into()),
+            ("password", "admin".into()),
+        ]))
+        .unwrap();
+        // every name holds the password behind a unicode escape (a
+        // backslash, then u0061): each one is hidden whole, so all of them
+        // mask to the same name
+        let (b, u) = ('\\', 'u');
+        let obj = |n: usize| {
+            Json::Object(
+                (0..n)
+                    .map(|i| (format!("{b}{u}0061dmin{i}"), json!(i)))
+                    .collect(),
+            )
+        };
+        let t = std::time::Instant::now();
+        let mut j = obj(9_000);
+        assert!(mask_json(&c.prep, &mut j), "under the cap");
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+        let Json::Object(o) = &j else { panic!() };
+        assert_eq!(o.len(), 9_000, "every name kept");
+        assert!(o.keys().all(|k| k.starts_with(HIDDEN)));
+        // past the cap: refused at once, the caller hides the whole
+        let t = std::time::Instant::now();
+        let mut j = obj(50_000);
+        assert!(!mask_json(&c.prep, &mut j), "over the cap");
+        let mut j = json!({"a": obj(6_000), "b": obj(6_000)});
+        assert!(
+            !mask_json(&c.prep, &mut j),
+            "renamed names in all over the cap"
+        );
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    }
+
+    #[test]
     fn masking_helpers() {
         let (b, u) = ('\\', 'u');
         let esc =
@@ -2177,7 +2315,7 @@ mod tests {
             json!({"a1234": "x***y", "s": "51234.5", "t": "***", "n": ["***", 12]})
         );
         let mut j = json!({"a1234": 51234.5, "b": 1234, "a***": 0});
-        mask_json(prep, &mut j);
+        assert!(mask_json(prep, &mut j));
         assert_eq!(j, json!({"a***": 0, "a***#2": 51234.5, "b": "***"}));
     }
 
@@ -2272,6 +2410,12 @@ mod tests {
             "Host: x",
             "no colon",
             "Bad Name: x",
+            // content negotiation: a body the masker cannot see into
+            "Range: bytes=0-9",
+            "If-Range: x",
+            "Accept-Encoding: gzip",
+            "TE: gzip",
+            "Content-Encoding: gzip",
         ] {
             assert!(h(bad).is_err(), "{bad}");
         }
