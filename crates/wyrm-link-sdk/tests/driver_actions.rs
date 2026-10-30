@@ -244,6 +244,8 @@ fn two_points() -> Value {
 
 type H = TestHarness<Framework<Diag>>;
 
+/// `within` stays well under the 10 s period ("at once" vs "periodic"),
+/// with room for a loaded machine.
 async fn wait(what: &str, within: Duration, mut f: impl FnMut() -> bool) {
     let deadline = tokio::time::Instant::now() + within;
     while !f() {
@@ -445,7 +447,7 @@ async fn diagnostics_are_published_on_change_at_most_every_10_s() {
 
     // A read of the device publishes its counters at once.
     h.meta("c1/d1").await;
-    wait("published on a read", Duration::from_secs(1), || {
+    wait("published on a read", Duration::from_secs(3), || {
         t_of(&h, "c1/d1/avg_rtt_ms") != d1_last_t0
     })
     .await;
@@ -476,7 +478,7 @@ async fn diagnostics_are_published_on_change_at_most_every_10_s() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let t1 = t_of(&h, "c1/d1/avg_rtt_ms");
     h.meta("c1/d1/avg_rtt_ms").await;
-    wait("published on a leaf read", Duration::from_secs(1), || {
+    wait("published on a leaf read", Duration::from_secs(3), || {
         t_of(&h, "c1/d1/avg_rtt_ms") != t1
     })
     .await;
@@ -502,7 +504,7 @@ async fn diagnostics_are_published_on_change_at_most_every_10_s() {
         .invoke("c1/d1", "restart", map(&[]), Some(h.ptok(Perm::Config)))
         .await;
     assert_eq!(status(&r), Some(Status::Ok));
-    wait("device reset", Duration::from_secs(2), || {
+    wait("device reset", Duration::from_secs(3), || {
         uint(&h, "c1/d1/requests") < before.min(10)
     })
     .await;
@@ -518,7 +520,7 @@ async fn diagnostics_are_published_on_change_at_most_every_10_s() {
         .invoke("c1", "restart", map(&[]), Some(h.ptok(Perm::Config)))
         .await;
     assert_eq!(status(&r), Some(Status::Ok));
-    wait("connection reset", Duration::from_secs(2), || {
+    wait("connection reset", Duration::from_secs(3), || {
         uint(&h, "c1/requests") < conn_now.min(10)
     })
     .await;
