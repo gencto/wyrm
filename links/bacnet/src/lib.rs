@@ -59,7 +59,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, ParamSpec};
@@ -1476,13 +1476,18 @@ impl Transport {
     /// just sent), every answer kept: one device may answer from several
     /// addresses, or something else may answer for it. With `until`, the
     /// first I-Am from that peer ends the wait (only its answer counts).
+    /// At most 8 addresses per instance and `cap` answers in all (I-Ams
+    /// are easy to forge); `true` beside the answers when some were not
+    /// kept for the cap.
     async fn collect_i_am(
         &mut self,
         range: Option<(u32, u32)>,
         deadline: Instant,
         until: Option<&Peer>,
-    ) -> Result<BTreeMap<u32, Vec<Heard>>, DriverError> {
+        cap: usize,
+    ) -> Result<(BTreeMap<u32, Vec<Heard>>, bool), DriverError> {
         let mut found: BTreeMap<u32, Vec<Heard>> = BTreeMap::new();
+        let (mut kept, mut cut) = (0usize, false);
         while let Some(inc) = self.recv_until(deadline).await? {
             let Incoming::IAm(h) = inc else { continue };
             let inst = h.iam.device.instance;
@@ -1490,15 +1495,25 @@ impl Transport {
                 continue;
             }
             let done = until.is_some_and(|p| *p == h.peer);
-            let seen = found.entry(inst).or_default();
-            if !seen.iter().any(|s| s.peer == h.peer) && seen.len() < 8 {
-                seen.push(h);
+            let known = found
+                .get(&inst)
+                .is_some_and(|seen| seen.iter().any(|s| s.peer == h.peer));
+            if !known {
+                if kept >= cap {
+                    cut = true;
+                } else {
+                    let seen = found.entry(inst).or_default();
+                    if seen.len() < 8 {
+                        seen.push(h);
+                        kept += 1;
+                    }
+                }
             }
             if done {
                 break;
             }
         }
-        Ok(found)
+        Ok((found, cut))
     }
 
     /// The device's address and limits: the configured address or Who-Is,
@@ -1524,8 +1539,9 @@ impl Transport {
                         let range = Some((dev.instance, dev.instance));
                         self.send_who_is(range, Some(&peer)).await?;
                         let deadline = Instant::now() + self.conn.timeout();
-                        self.collect_i_am(range, deadline, Some(&peer))
+                        self.collect_i_am(range, deadline, Some(&peer), ONE_DEVICE_ANSWERS)
                             .await?
+                            .0
                             .remove(&dev.instance)
                             .and_then(|hs| hs.into_iter().find(|h| h.peer == peer))
                             .map_or(DEFAULT_DEVICE_APDU, |h| h.iam.max_apdu)
@@ -1571,8 +1587,9 @@ impl Transport {
             self.send_who_is(range, None).await?;
             let deadline = Instant::now() + self.conn.timeout();
             let mut answers = self
-                .collect_i_am(range, deadline, None)
+                .collect_i_am(range, deadline, None, ONE_DEVICE_ANSWERS)
                 .await?
+                .0
                 .remove(&instance)
                 .unwrap_or_default();
             match answers.len() {
@@ -1891,6 +1908,11 @@ const LIST_BUDGET_MS: u64 = 160_000;
 /// Bound on `who_is`: its longest wait and a margin.
 const WHO_IS_MAX_WAIT_MS: u64 = 30_000;
 const WHO_IS_ACTION_MS: u32 = 35_000;
+/// Answers `who_is` keeps at most (an I-Am is easy to forge; the action's
+/// reply must stay bounded).
+const WHO_IS_ANSWERS_MAX: usize = 10_000;
+/// Answers kept when one instance is asked for (8 addresses at most).
+const ONE_DEVICE_ANSWERS: usize = 8;
 /// Bound on `read_property` and `relinquish`.
 const READ_ACTION_MS: u32 = 60_000;
 
@@ -2009,10 +2031,16 @@ async fn who_is_action(
     };
     t.send_who_is(range, None).await.map_err(action_err)?;
     let deadline = Instant::now() + Duration::from_millis(wait);
-    let found = t
-        .collect_i_am(range, deadline, None)
+    let (found, cut) = t
+        .collect_i_am(range, deadline, None, WHO_IS_ANSWERS_MAX)
         .await
         .map_err(action_err)?;
+    if cut {
+        warn!(
+            max = WHO_IS_ANSWERS_MAX,
+            "who_is: more answers than the list keeps; narrow low…high"
+        );
+    }
     Ok(Value::Array(
         found
             .into_values()
@@ -3154,6 +3182,32 @@ mod tests {
             drop(t);
         }
         assert_ne!(ids[0], ids[1], "{ids:?}");
+    }
+
+    /// A flood of I-Ams (any instance can be forged) is bounded: answers
+    /// past the cap are not kept, and the cut is reported.
+    #[tokio::test]
+    async fn who_is_answers_are_bounded() {
+        let raw = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let conn = test_conn(0, raw.local_addr().unwrap());
+        let mut t = Transport::open(&conn).await.unwrap();
+        let me = t.sock.local_addr().unwrap();
+        for i in 0..20 {
+            let mut n = Vec::new();
+            codec::npdu_header(&mut n, None, false);
+            n.extend(codec::i_am(&IAm {
+                device: ObjectId::new(ObjectId::DEVICE, i),
+                max_apdu: 1476,
+                segmentation: 3,
+                vendor_id: 7,
+            }));
+            let f = codec::bvlc_wrap(codec::bvlc::ORIGINAL_UNICAST, &n);
+            raw.send_to(&f, me).await.unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_millis(300);
+        let (found, cut) = t.collect_i_am(None, deadline, None, 5).await.unwrap();
+        assert_eq!(found.values().map(Vec::len).sum::<usize>(), 5);
+        assert!(cut);
     }
 
     /// A reply with the request's invoke id but another service is not

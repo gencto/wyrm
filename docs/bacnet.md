@@ -171,7 +171,9 @@ comes after its timeout is dropped and counted in `late_replies`.
   (level config) sends a global Who-Is (through the BBMD when one is set)
   and returns every I-Am in the window: `[{instance, address, network?,
   mac?, vendor_id, max_apdu, segmentation}]`. `low` and `high` go together;
-  `wait_ms` is 100–30000.
+  `wait_ms` is 100–30000. The list keeps at most 10 000 answers (8
+  addresses per instance); past that the list is cut and the link logs a
+  warning. Narrow `low`…`high` then.
 - **A device without an address** is bound by its own Who-Is: the link
   waits the whole window, exactly one address must answer, and that address
   must answer a read of the device's `object-identifier`. The binding stays
