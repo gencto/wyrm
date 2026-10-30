@@ -287,6 +287,7 @@ shows what the device holds.
 | read | the value read | `good` |
 | first poll of the device missed (timeout) | last value | `uncertain/stale` |
 | 3 polls missed | last value; the device `Failed` | `bad/comm_fail` |
+| one batch of the device timed out while its other batches answered | last value; the device stays `Connected` | `uncertain/stale`, after 3 such polls `bad/comm_fail` |
 | exception reply for the point's request, or a value that does not decode | last value | `bad/device_error` |
 | connection down | last value; devices `Stopped by Parent` | `bad/disconnected` |
 | slave: the tree's value does not fit the point after an edit | last value | `bad/config_error` |

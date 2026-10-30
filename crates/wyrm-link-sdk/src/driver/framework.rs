@@ -1717,6 +1717,9 @@ async fn ping_ticker(
 struct DevHealth {
     state: Option<NodeState>,
     misses: u32,
+    /// Misses in a row of single points (by path) whose result was
+    /// [`DriverError::Device`] while other points of the device answered.
+    point_misses: BTreeMap<String, u32>,
     /// The device's run token this entry is about ([`run_token`]).
     token: u64,
 }
@@ -1765,6 +1768,7 @@ impl<D: Driver> Owner<D> {
         self.health.entry(dev.to_owned()).or_insert(DevHealth {
             state: None,
             misses: 0,
+            point_misses: BTreeMap::new(),
             token,
         })
     }
@@ -1831,6 +1835,32 @@ impl<D: Driver> Owner<D> {
             )
             .await;
         }
+    }
+
+    /// The device answered, but not for these points (a batch timed out):
+    /// the same ladder as [`Owner::dev_miss`], per point, while the device
+    /// stays `Connected`.
+    async fn points_missed(&mut self, dev: &str, answered: Vec<String>, missed: Vec<String>) {
+        let limit = D::stale_misses().max(1);
+        let (mut stale, mut failed) = (Vec::new(), Vec::new());
+        {
+            let h = self.health(dev);
+            for p in answered {
+                h.point_misses.remove(&p);
+            }
+            for p in missed {
+                let n = h.point_misses.entry(p.clone()).or_insert(0);
+                *n += 1;
+                if *n == 1 {
+                    stale.push(p.clone());
+                }
+                if *n == limit {
+                    failed.push(p);
+                }
+            }
+        }
+        mark(&self.ctx, stale, Quality::Uncertain, QUAL_STALE).await;
+        mark(&self.ctx, failed, Quality::Bad, QUAL_COMM_FAIL).await;
     }
 
     /// Connection lost or not open: every device stopped by its parent.
@@ -1954,6 +1984,8 @@ impl<D: Driver> Owner<D> {
     ) -> std::result::Result<(), String> {
         let mut device_err = None;
         let mut any_ok = false;
+        let mut missed = Vec::new();
+        let mut answered = Vec::new();
         let devs = self.devs.clone();
         let run = devs.get(dev);
         let republish = run.and_then(|d| D::republish(&d.cfg));
@@ -1966,9 +1998,11 @@ impl<D: Driver> Owner<D> {
                 Ok(v) => {
                     any_ok = true;
                     put_point(&self.ctx, &path, v, Quality::Good, None, republish).await;
+                    answered.push(path);
                 }
                 Err(DriverError::Point(e)) => {
                     any_ok = true; // the device answered
+                    answered.push(path.clone());
                     debug!(point = %path, "point error: {e}");
                     let v = self.ctx.last(&path).map(|s| s.v).unwrap_or(Value::Null);
                     put_point(
@@ -1981,13 +2015,19 @@ impl<D: Driver> Owner<D> {
                     )
                     .await;
                 }
-                Err(DriverError::Device(e)) => device_err = Some(e),
+                Err(DriverError::Device(e)) => {
+                    device_err = Some(e);
+                    missed.push(path);
+                }
                 Err(DriverError::Transport(e)) => return Err(e),
             }
         }
         match device_err {
             Some(e) if !any_ok => self.dev_miss(dev, &e).await,
-            _ => self.dev_ok(dev).await,
+            _ => {
+                self.dev_ok(dev).await;
+                self.points_missed(dev, answered, missed).await;
+            }
         }
         Ok(())
     }
