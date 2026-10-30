@@ -911,13 +911,13 @@ impl Driver for S7Driver {
                 .timeout_ms(READ_ACTION_MS)
                 .result(ActionResult::Type(TypeCode::Map))
         };
-        let read = |display: &str| at(Perm::Config, display);
+        let commissioning = |display: &str| at(Perm::Config, display);
         match level {
             Level::Connection => vec![("connection_info", at(Perm::Read, "Connection Info"))],
             Level::Device => vec![
                 (
                     "read_szl",
-                    read("Read SZL")
+                    commissioning("Read SZL")
                         .param(
                             "id",
                             param("SZL ID", "0x0011: module identification", TypeCode::Number)
@@ -933,7 +933,7 @@ impl Driver for S7Driver {
                 ),
                 (
                     "read_address",
-                    read("Read Address")
+                    commissioning("Read Address")
                         .param(
                             "address",
                             param("Address", "DB1.DBW0, MW20, T5, …", TypeCode::String)
