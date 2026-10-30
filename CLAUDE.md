@@ -46,6 +46,7 @@ links/probe             ✅ test link + runner: scenarios of actions, list callb
 links/scheduler         ✅ scheduler link (ADR 0022) as a portable App: embedded in every `wyrmd` at `downstream/scheduler` (`scheduler: {enabled, store_mb}`, id reserved, own key `link:scheduler` at write on `downstream`), packages `scheduler` (WASM) and `scheduler-process` (operator grants per target link); one wake heap + 30 s clock watchdog, ≤ 800 commands per event, node budget 9 500; targets (`read_back`/`feedback`/`ack`, write queue ≤ 50, retries, override until the next transition, restart records) are `config` actions; guide `docs/scheduler.md`, demo load `examples/demo/scheduler-load.sh`
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
+links/http              ✅ HTTP/REST JSON poller on the driver framework: connection = base URL + auth (basic/bearer/API key, secrets) + TLS (ring) + rate limit, device = one request, point = JSONPath-subset selector (filters, `[*]` + aggregate), JSON write templates, `try_request`/`test_selector` (level config), echoed secrets masked in what is shown; sim `wyrm-http-sim`; guide `docs/http.md`
 ```
 
 ## Current state

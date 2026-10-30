@@ -6183,6 +6183,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-http"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "http-body-util",
+ "hyper 1.12.0",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-http",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-mock"
 version = "0.1.0"
 dependencies = [
@@ -6433,6 +6456,7 @@ dependencies = [
  "wyrm-gateway",
  "wyrm-gateway-client",
  "wyrm-link-agent",
+ "wyrm-link-http",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",
