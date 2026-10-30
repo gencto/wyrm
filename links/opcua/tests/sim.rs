@@ -518,6 +518,60 @@ async fn silent_server_degrades_quality() {
     h.stop().await;
 }
 
+/// One Read request (chunk) of a poll times out while the other answers:
+/// the points of the late chunk take the quality ladder on their own
+/// (`uncertain/stale`, then `bad/comm_fail`, last value kept), the points
+/// of the chunk that answered stay `good`, and the device stays connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timed_out_chunk_goes_stale_while_the_other_answers() {
+    let d = dir();
+    let s = spawn(&d.0, |_| {}).await;
+    // one node per Read request: two chunks, one of them with `Slow`
+    let points = map(&[
+        ("int32", pt(&line("Int32"), &[("poll_s", Value::Float(1.0))])),
+        ("slow", pt(&line("Slow"), &[("poll_s", Value::Float(1.0))])),
+    ]);
+    let h = H::start(tree(
+        &s.url(),
+        &[("request_timeout_ms", Value::UInt(300))],
+        &[
+            ("ping_s", Value::Float(3600.0)),
+            ("max_nodes_per_read", Value::UInt(1)),
+        ],
+        points,
+    ))
+    .await;
+    connected(&h).await;
+    let good = |h: &H, p: &str| val(h, p).is_some_and(|(_, q)| q == Quality::Good);
+    wait("both good", || good(&h, "c1/d1/int32") && good(&h, "c1/d1/slow")).await;
+    // the Read request that holds `Slow` answers after the request timeout
+    s.set_slow(Duration::from_millis(450));
+    let mut seen_uncertain = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let q = val(&h, "c1/d1/slow").map(|(_, q)| q);
+        seen_uncertain |= q == Some(Quality::Uncertain);
+        assert!(good(&h, "c1/d1/int32"), "the chunk that answered stays good");
+        assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+        if q == Some(Quality::Bad) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timeout: slow {:?}",
+            val(&h, "c1/d1/slow")
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(seen_uncertain, "uncertain/stale before bad");
+    // the last value read, never invented
+    assert_eq!(val(&h, "c1/d1/slow").unwrap().0, Value::Float(7.0));
+    s.set_slow(Duration::ZERO);
+    wait("good again", || good(&h, "c1/d1/slow")).await;
+    assert!(good(&h, "c1/d1/int32"));
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn server_down_fails_the_connection_then_reconnects() {
     let d = dir();

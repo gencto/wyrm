@@ -180,7 +180,8 @@ Rules:
 | The item's status is Good | the value, quality `good` |
 | The item's status is Uncertain or Bad (BadNodeIdUnknown, BadSensorFailure, UncertainLastUsableValue, …) | that point `bad/device_error`, its last value kept; other points and the device are not affected |
 | The namespace URI of a point is not on the server | that point `bad/device_error` |
-| A Read request times out (`request_timeout_ms`) | device miss: `uncertain/stale`, then after 3 misses the device `failed` and its points `bad/comm_fail` |
+| One Read request of a poll times out (`request_timeout_ms`) while another answers | the points of that request `uncertain/stale`, then after 3 misses in a row `bad/comm_fail`, last value kept; the device stays `connected` and its other points `good` |
+| Every Read request of a poll times out | device miss: `uncertain/stale`, then after 3 misses the device `failed` and its points `bad/comm_fail` |
 | The session or connection is lost (closed socket, BadSessionIdInvalid, BadSecureChannelClosed, …) | the connection `failed` with `error`, its devices `stopped_by_parent`, points `bad/disconnected`; the framework reopens with backoff (1 s … 60 s, ±20 %) |
 | A service fault for a whole Read (BadTooManyOperations, …) | those points `bad/device_error` |
 

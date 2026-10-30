@@ -20,6 +20,7 @@
 //! | `Locked` | Double | read-only on the server |
 //! | `Bad` | Double | every read answers BadSensorFailure |
 //! | `Uncertain` | Double | 5.0 with UncertainLastUsableValue |
+//! | `Slow` | Double | 7.0; a read waits [`Sim::set_slow`] first |
 //!
 //! Endpoints at `/`: None, Basic256Sha256 Sign and SignAndEncrypt, with
 //! anonymous, user [`USER`]/[`PASSWORD`] and (optionally) an X.509 user.
@@ -79,6 +80,8 @@ pub struct Sim {
     pub addr: SocketAddr,
     pub handle: ServerHandle,
     nm: Arc<SimpleNodeManager>,
+    /// How long a read of `Slow` waits (ms).
+    slow_ms: Arc<AtomicU64>,
     /// The index of [`NS`].
     pub ns: u16,
     pki_dir: PathBuf,
@@ -281,6 +284,9 @@ pub async fn spawn(opts: Options) -> std::io::Result<Sim> {
             var(&id("Uncertain"), "Uncertain")
                 .data_type(DataTypeId::Double)
                 .value(5.0f64),
+            var(&id("Slow"), "Slow")
+                .data_type(DataTypeId::Double)
+                .value(7.0f64),
         ];
         for v in vars {
             v.organized_by(folder.clone()).insert(&mut *a);
@@ -295,6 +301,19 @@ pub async fn spawn(opts: Options) -> std::io::Result<Sim> {
             ..Default::default()
         })
     });
+    let slow_ms = Arc::new(AtomicU64::new(0));
+    {
+        let slow_ms = slow_ms.clone();
+        // A blocking wait inside the server's read task: the Read request
+        // that holds `Slow` answers late, the others of the session do not.
+        nm.inner().add_read_callback(id("Slow"), move |_, _, _| {
+            let ms = slow_ms.load(Ordering::SeqCst);
+            if ms > 0 {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
+            Ok(DataValue::new_now(7.0f64))
+        });
+    }
     let ticker = {
         let nm = nm.clone();
         let subs = handle.subscriptions().clone();
@@ -312,6 +331,7 @@ pub async fn spawn(opts: Options) -> std::io::Result<Sim> {
         addr,
         handle,
         nm,
+        slow_ms,
         ns,
         pki_dir: opts.pki_dir,
         tasks: vec![run, ticker],
@@ -355,6 +375,13 @@ impl Sim {
             None,
             DataValue::new_now(v.into()),
         );
+    }
+
+    /// Make every read of `Slow` wait `d` before it answers (a slow
+    /// backend behind one node); `Duration::ZERO` answers at once.
+    pub fn set_slow(&self, d: Duration) {
+        let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+        self.slow_ms.store(ms, Ordering::SeqCst);
     }
 
     /// Remove variable `name` (failure mode: a node removed).

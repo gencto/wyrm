@@ -17,9 +17,12 @@
 //! Quality: only a `Good` status gives a value. `Uncertain` and `Bad` fail
 //! the point (`bad/device_error`, last value kept): the framework has no
 //! `uncertain` quality for a fresh value, and a non-Good status is never
-//! shown as `good`. A Read that times out is a device miss
-//! (`uncertain/stale`, then `bad/comm_fail`); a lost session fails the
-//! connection and the framework reopens it with its backoff.
+//! shown as `good`. A Read request that times out answers
+//! `DriverError::Device` for its points: when another request of the poll
+//! answered, only those points take the ladder (`uncertain/stale`, then
+//! `bad/comm_fail`); when none answered, it is a device miss. A lost
+//! session fails the connection and the framework reopens it with its
+//! backoff.
 //!
 //! Certificates live in the link's `data_dir` (see [`pki`]). The
 //! [`Opcua`] link puts that directory in scope while connection params
