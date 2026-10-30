@@ -16,7 +16,8 @@
 //!   `max_items` allow, a span longer than one reply is cut into several
 //!   items. An item's return code fails the points of that item only, and
 //!   a failed merged item is read again point by point, so one bad address
-//!   never fails its neighbours (it is read alone from then on).
+//!   never fails its neighbours (it is read alone from then on, when a
+//!   neighbour read OK alone).
 //! * writes: one Write Var per point (a BOOL with the bit transport size,
 //!   no read-modify-write of its byte; a STRING from its actual-length
 //!   byte, never its maximum, and bounded by the maximum the PLC holds);
@@ -355,8 +356,9 @@ pub struct Plan {
     locs: Vec<Loc>,
     max_gap: u32,
     max_items: usize,
-    /// Points whose merged read failed and that failed alone: never merged
-    /// again in this plan.
+    /// Points whose merged read failed and that failed alone while a
+    /// neighbour of the same span read OK alone: never merged again in
+    /// this plan.
     alone: Mutex<BTreeSet<usize>>,
     cache: Mutex<Option<Arc<Packed>>>,
     /// Requests of one poll at the smallest PDU, a read again point by
@@ -704,7 +706,9 @@ impl Driver for S7Driver {
             stop,
         } = read_spans(c, &packed.spans, &packed.reqs).await;
         let mut out = Vec::with_capacity(plan.points.len());
+        // points to read one by one, with the merged span each came from
         let mut again: Vec<usize> = Vec::new();
+        let mut from: Vec<usize> = Vec::new();
         for (si, s) in packed.spans.iter().enumerate() {
             match &errs[si] {
                 // a merged item failed by its return code: read its
@@ -713,6 +717,7 @@ impl Driver for S7Driver {
                     if by_item[si] && s.members.len() > 1 && stop.is_none() =>
                 {
                     again.extend(&s.members);
+                    from.extend(std::iter::repeat_n(si, s.members.len()));
                 }
                 Some(e) => {
                     for &i in &s.members {
@@ -751,14 +756,22 @@ impl Driver for S7Driver {
             by_item,
             ..
         } = read_spans(c, &singles, &reqs).await;
+        // merged spans of which at least one point read OK alone
+        let isolated: BTreeSet<usize> = (0..singles.len())
+            .filter(|&k| errs[k].is_none())
+            .map(|k| from[k])
+            .collect();
         let mut alone = Vec::new();
         for (si, s) in singles.iter().enumerate() {
             let i = s.members[0];
             let (id, p) = &plan.points[i];
             match &errs[si] {
                 Some(e) => {
-                    // it fails alone by its own return code
-                    if by_item[si] {
+                    // it fails alone by its own return code while a
+                    // neighbour of its span reads: read it alone from now
+                    // on. When all fail (the DB is gone for a while),
+                    // there is nothing to isolate and merging stays.
+                    if by_item[si] && isolated.contains(&from[si]) {
                         alone.push(i);
                     }
                     out.push((id.clone(), Err(e.clone())));
