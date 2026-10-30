@@ -51,6 +51,7 @@ down. In the broker's own process it runs only as WASM.
   a `dslink-java-modbus` tree. Its `Scaling` multiplies where DSA's
   divides: read the guide first,
   [`docs/modbus.md`](modbus.md).
+- **OPC UA client** (`links/opcua`, driver `opcua`, package `opcua`): nodes of OPC UA servers as points, with security and certificates. Guide: [`docs/opcua.md`](opcua.md).
 
 ## 3. The Install Link menu
 

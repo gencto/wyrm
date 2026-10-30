@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "links/opcua"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -99,6 +99,9 @@ rustls-native-certs = "0.8"
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
 rumqttd = { version = "0.20", default-features = false }
 wyrm-link-mqtt = { path = "links/mqtt" }
+wyrm-link-opcua = { path = "links/opcua" }
+# OPC UA client (links/opcua); RustCrypto, no OpenSSL. Server only for its simulator.
+async-opcua = { version = "0.19", default-features = false }
 wyrm-link-agent = { path = "links/agent" }
 # WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
 wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }

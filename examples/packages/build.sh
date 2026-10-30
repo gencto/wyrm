@@ -43,6 +43,7 @@ for crate in examples/links/responder examples/links/requester examples/links/bo
              links/probe links/modbus links/mqtt links/mock; do
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
+$WYR link pack --manifest-path "$ROOT/links/opcua/Cargo.toml" --out "$ZIPS"
 
 # one portable link, two packages: the component (kind = "wasm" in its
 # metadata) and the binary (--kind process, under another name)
