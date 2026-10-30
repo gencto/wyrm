@@ -143,14 +143,23 @@ fn parse_mac(s: &str) -> Result<Vec<u8>, String> {
         .chars()
         .filter(|c| !matches!(c, ':' | ' ' | '-'))
         .collect();
-    if !h.len().is_multiple_of(2) || h.len() > 14 {
+    // ASCII hex digits only, checked before any slicing: a multi-byte
+    // character would split a char boundary, and `from_str_radix` takes a
+    // sign
+    if !h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("mac: {s:?} is not hex"));
+    }
+    if h.is_empty() || !h.len().is_multiple_of(2) || h.len() > 14 {
         return Err(format!("mac: {s:?} is not 1…7 hex octets"));
     }
-    (0..h.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&h[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-        .map_err(|_| format!("mac: {s:?} is not hex"))
+    let digit = |b: u8| char::from(b).to_digit(16);
+    // the length is even: no remainder
+    let (pairs, _) = h.as_bytes().as_chunks::<2>();
+    pairs
+        .iter()
+        .map(|[hi, lo]| u8::try_from(digit(*hi)? * 16 + digit(*lo)?).ok())
+        .collect::<Option<Vec<u8>>>()
+        .ok_or_else(|| format!("mac: {s:?} is not hex"))
 }
 
 /// A BACnet device. Hand-written `Params`: the address, network and MAC
@@ -3046,6 +3055,42 @@ mod tests {
         assert_eq!(other.kind(), Kind::Dynamic);
         let meta = BacnetDriver::point_meta(&ai(&[("unit", "°C".into())]));
         assert_eq!(meta.ty, Some(TypeCode::Number));
+    }
+
+    /// Security: a MAC param is user input; anything but ASCII hex is an
+    /// error, never a panic (a multi-byte character used to split a char
+    /// boundary) and never a sign (`from_str_radix` takes `+`).
+    #[test]
+    fn mac_param_takes_ascii_hex_only() {
+        assert_eq!(parse_mac("0A"), Ok(vec![0x0A]));
+        assert_eq!(parse_mac("0a:1B-2c 3D"), Ok(vec![0x0A, 0x1B, 0x2C, 0x3D]));
+        assert_eq!(parse_mac("0102030405060A").map(|m| m.len()), Ok(7));
+        for bad in [
+            "é0",
+            "0é",
+            "aé",
+            "€",
+            "ab€c",
+            "😀😀",
+            "+1",
+            "+A",
+            "0+",
+            "-1-",
+            "",
+            "0",
+            "0G",
+            "0102030405060A0B",
+        ] {
+            assert!(parse_mac(bad).is_err(), "{bad:?}");
+        }
+        // through the device params too
+        let m = BTreeMap::from([
+            ("instance".to_owned(), Value::UInt(7)),
+            ("address".to_owned(), Value::from("10.0.0.1")),
+            ("network".to_owned(), Value::UInt(5)),
+            ("mac".to_owned(), Value::from("aé")),
+        ]);
+        assert!(Dev::from_value(&Value::Map(m)).is_err());
     }
 
     #[test]
