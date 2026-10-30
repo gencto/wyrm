@@ -597,10 +597,16 @@ async fn long_writes_in_parts_and_put_get_refused() {
         p.pdu_size = 100;
         p.db(1, 1000)[100] = 200;
     }
-    let points = map(&[(
-        "long",
-        pt("DB1.DBB100:STRING[200]", &[("writable", Value::Bool(true))]),
-    )]);
+    let points = map(&[
+        (
+            "long",
+            pt("DB1.DBB100:STRING[200]", &[("writable", Value::Bool(true))]),
+        ),
+        (
+            "short_db",
+            pt("DB5.DBB0:STRING[200]", &[("writable", Value::Bool(true))]),
+        ),
+    ]);
     let h = H::start(tree(addr.port(), &[], &[], points)).await;
     wait("polled", || val(&h, "long").is_some()).await;
     let text: String = (0..150)
@@ -617,7 +623,27 @@ async fn long_writes_in_parts_and_put_get_refused() {
         // 151 bytes at 72 per request
         assert_eq!(p.writes().len(), 3);
         assert_eq!(p.dbs[&1][100], 200, "max length stays");
+        let starts: Vec<u32> = p.writes().iter().map(|j| j.items[0].start).collect();
+        assert_eq!(starts, vec![245, 173, 101], "the length byte goes last");
     }
+    // a part that fails leaves the old length: DB5 has 120 bytes, the
+    // PLC's header says STRING[200], so the tail runs past the DB
+    {
+        let mut p = dev.lock().unwrap();
+        let db = p.db(5, 120);
+        db[0] = 200;
+        db[1] = 3;
+        db[2..5].copy_from_slice(b"abc");
+    }
+    let att = h
+        .set("c1/d1/short_db", text.as_str(), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_ne!(status(&att), Some(Status::Ok));
+    assert_eq!(
+        &dev.lock().unwrap().dbs[&5][0..5],
+        &[200, 3, b'a', b'b', b'c'],
+        "the old length and text stay"
+    );
     dev.lock().unwrap().deny_put_get = true;
     wait("refused", || q(&h, "long") == Some(Quality::Bad)).await;
     assert_eq!(

@@ -806,13 +806,21 @@ impl Driver for S7Driver {
         let start = a.start + u32::from(matches!(p.ty, DType::String(_)));
         let per = (usize::from(c.pdu()) - proto::WRITE_FIXED) & !1;
         let parts = bytes.len().div_ceil(per);
-        for (k, part) in bytes.chunks(per).enumerate() {
-            let item = Item::bytes(a.area, a.db, start + (k * per) as u32, part.len() as u16);
+        // the last part first: a STRING's actual-length byte goes last, so
+        // a part that fails leaves the old length (and the old text valid
+        // up to it), and the PLC program never sees the new length with
+        // old characters
+        for (done, (k, part)) in bytes.chunks(per).enumerate().rev().enumerate() {
+            let at = u32::try_from(k * per)
+                .map_err(|_| DriverError::Point("value too long".into()))?;
+            let len = u16::try_from(part.len())
+                .map_err(|_| DriverError::Point("value too long".into()))?;
+            let item = Item::bytes(a.area, a.db, start + at, len);
             if let Err(e) = c.write(&item, part).await {
-                if k == 0 {
+                if done == 0 {
                     return Err(e);
                 }
-                let m = format!("{e} (after {k} of {parts} parts were written)");
+                let m = format!("{e} (after {done} of {parts} parts were written)");
                 return Err(match e {
                     DriverError::Transport(_) => DriverError::Transport(m),
                     DriverError::Device(_) => DriverError::Device(m),
