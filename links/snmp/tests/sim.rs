@@ -720,6 +720,35 @@ async fn localhost_reaches_an_ipv4_agent() {
     h.stop().await;
 }
 
+/// A name with IPv4 and IPv6 addresses whose agent serves only IPv6: the
+/// link tries the IPv4 address first, then the IPv6 one. Skipped where
+/// `::1` cannot be bound or `localhost` has no IPv6 address.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ipv6_only_agent_is_reached_after_ipv4() {
+    let Ok((addr, _agent, _task)) = sim::spawn("[::1]:0").await else {
+        eprintln!("no IPv6 loopback: skipped");
+        return;
+    };
+    let resolved: Vec<std::net::SocketAddr> =
+        match tokio::net::lookup_host(("localhost", addr.port())).await {
+            Ok(a) => a.collect(),
+            Err(_) => Vec::new(),
+        };
+    if !resolved.iter().any(|a| a.is_ipv6()) || !resolved.iter().any(|a| a.is_ipv4()) {
+        eprintln!("localhost has not both an IPv4 and an IPv6 address: skipped");
+        return;
+    }
+    let points = map(&[("name", scalar(SYS_NAME, &[]))]);
+    let h = H::start(tree(
+        &v2c(addr.port(), &[("host", "localhost".into())]),
+        &[],
+        points,
+    ))
+    .await;
+    wait("good over IPv6", || qual(&h, "name") == Some(Quality::Good)).await;
+    h.stop().await;
+}
+
 /// A wrong community gets no answer (agents drop such requests).
 #[tokio::test(flavor = "multi_thread")]
 async fn wrong_community_is_silence() {

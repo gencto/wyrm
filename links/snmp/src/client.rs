@@ -42,6 +42,7 @@ pub const UNDECODABLE: &str = "undecodable_replies";
 pub const SYS_UPTIME: [u32; 9] = [1, 3, 6, 1, 2, 1, 1, 3, 0];
 
 /// v3 credentials and the keys localized for the agent's engine.
+#[derive(Clone)]
 pub struct V3 {
     pub user: Vec<u8>,
     pub auth: Auth,
@@ -50,6 +51,7 @@ pub struct V3 {
     pub priv_pass: Option<Zeroizing<Vec<u8>>>,
 }
 
+#[derive(Clone)]
 pub enum Security {
     V2c { community: Zeroizing<Vec<u8>> },
     V3(V3),

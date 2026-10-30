@@ -38,7 +38,7 @@ switches select a VLAN by community).
 
 | Param | Default | Bounds | Meaning |
 |---|---|---|---|
-| `host` | — (required) | | Agent host name or address. A name that resolves to several addresses uses the first IPv4 one (else the first); give an IPv6 address to reach an agent on IPv6. |
+| `host` | — (required) | | Agent host name or address. The addresses of a name are tried in turn, IPv4 first, then IPv6, while the bound of opening the connection (the lookup and two addresses) has room; the error lists each address tried. |
 | `port` | 161 | 1…65535 | Agent UDP port. |
 | `community` | — (required, secret) | | Community string. Entered in `add_snmp_v2c`/`edit`, kept sealed; never shown. |
 | `timeout_ms` | 1000 | 100…10000 | Bound on each request. |

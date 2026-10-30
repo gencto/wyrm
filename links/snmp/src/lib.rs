@@ -586,17 +586,36 @@ pub struct Transport {
     note: Option<String>,
 }
 
-/// The first IPv4 address, else the first one: `localhost` is `::1` first
-/// on some hosts, and many agents (net-snmp's default) listen on IPv4 only.
-fn prefer_ipv4(addrs: impl Iterator<Item = SocketAddr>) -> Option<SocketAddr> {
-    let mut first = None;
+/// The addresses to try, IPv4 first (`localhost` is `::1` first on some
+/// hosts, and many agents, net-snmp's default among them, listen on IPv4
+/// only), then the others, each once, in the resolver's order.
+fn ipv4_first(addrs: impl Iterator<Item = SocketAddr>) -> Vec<SocketAddr> {
+    let mut all: Vec<SocketAddr> = Vec::new();
     for a in addrs {
-        if a.is_ipv4() {
-            return Some(a);
+        if !all.contains(&a) {
+            all.push(a);
         }
-        first.get_or_insert(a);
     }
-    first
+    let (mut v4, v6): (Vec<_>, Vec<_>) = all.into_iter().partition(SocketAddr::is_ipv4);
+    v4.extend(v6);
+    v4
+}
+
+/// The text of a driver error (without its class).
+fn error_text(e: &DriverError) -> &str {
+    match e {
+        DriverError::Transport(m) | DriverError::Device(m) | DriverError::Point(m) => m,
+    }
+}
+
+/// Bound on opening one address: v2c the probe, v3 discovery, the probe
+/// and a time window resync, and the key localization.
+fn open_cost(conn: &Conn) -> Duration {
+    let per = conn.per_request();
+    match conn {
+        Conn::V2c(_) => per + Duration::from_secs(1),
+        Conn::V3(_) => per * 3 + Duration::from_millis(KEY_MS + 1000),
+    }
 }
 
 fn is_loopback(host: &str) -> bool {
@@ -929,15 +948,23 @@ impl Driver for SnmpDriver {
     type Transport = Transport;
     type Plan = Plan;
 
+    /// The host's addresses are tried in turn, IPv4 first, while the
+    /// bound of `open` ([`Driver::io_timeout`]) has room for one more try.
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
+        let started = Instant::now();
+        let deadline = started + Self::io_timeout(conn);
         let timeout = Duration::from_millis(conn.timeout_ms().into());
         let target = format!("{}:{}", conn.host(), conn.port());
         let addrs = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
             .await
             .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
             .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?;
-        let addr = prefer_ipv4(addrs)
-            .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
+        let addrs = ipv4_first(addrs);
+        if addrs.is_empty() {
+            return Err(DriverError::Transport(format!(
+                "resolve {target}: no address"
+            )));
+        }
         let loopback = is_loopback(conn.host());
         let (sec, note) = match conn {
             Conn::V2c(c) => {
@@ -971,7 +998,28 @@ impl Driver for SnmpDriver {
                 }),
             ),
         };
-        let s = Session::open(addr, timeout, conn.retries(), sec).await?;
+        let cost = open_cost(conn);
+        let mut errors = Vec::new();
+        let mut opened = None;
+        for (i, addr) in addrs.iter().enumerate() {
+            if i > 0 && Instant::now() + cost > deadline {
+                errors.push(format!("{addr}: not tried (no time left)"));
+                continue;
+            }
+            match Session::open(*addr, timeout, conn.retries(), sec.clone()).await {
+                Ok(s) => {
+                    opened = Some(s);
+                    break;
+                }
+                Err(e) => errors.push(format!("{addr}: {}", error_text(&e))),
+            }
+        }
+        let Some(s) = opened else {
+            return Err(DriverError::Transport(match errors.as_slice() {
+                [one] => one.clone(),
+                many => many.join("; "),
+            }));
+        };
         debug!(v3 = s.is_v3(), private = s.is_private(), "agent answered");
         Ok(Transport {
             s,
@@ -1198,16 +1246,12 @@ impl Driver for SnmpDriver {
         dev.ping.then(|| Duration::from_secs_f64(dev.ping_s))
     }
 
-    /// Bound on a ping and on `open` (the host name lookup, at most
-    /// `timeout_ms`; v3: discovery, the probe and a time window resync, and
-    /// the key localization).
+    /// Bound on `open`: the host name lookup (at most `timeout_ms`) and two
+    /// addresses ([`open_cost`] each: an IPv4 and an IPv6 one). It bounds a
+    /// ping too, which itself ends after `timeout_ms × (1 + retries)`.
     fn io_timeout(conn: &Conn) -> Duration {
-        let per = conn.per_request();
         let lookup = Duration::from_millis(conn.timeout_ms().into());
-        match conn {
-            Conn::V2c(_) => lookup + per + Duration::from_secs(1),
-            Conn::V3(_) => lookup + per * 3 + Duration::from_millis(KEY_MS + 1000),
-        }
+        lookup + open_cost(conn) * 2
     }
 
     /// `timeout_ms × (1 + retries) × requests + 1 s`, a request counted
@@ -1334,15 +1378,25 @@ mod tests {
     }
 
     #[test]
-    fn ipv4_first() {
+    fn addresses_ipv4_first() {
         let a = |s: &str| s.parse::<SocketAddr>().unwrap();
-        let both = [a("[::1]:161"), a("127.0.0.1:161")];
-        assert_eq!(prefer_ipv4(both.into_iter()), Some(a("127.0.0.1:161")));
+        let all = [
+            a("[::1]:161"),
+            a("127.0.0.1:161"),
+            a("[2001:db8::1]:161"),
+            a("127.0.0.1:161"),
+            a("192.0.2.1:161"),
+        ];
         assert_eq!(
-            prefer_ipv4([a("[::1]:161")].into_iter()),
-            Some(a("[::1]:161"))
+            ipv4_first(all.into_iter()),
+            [
+                a("127.0.0.1:161"),
+                a("192.0.2.1:161"),
+                a("[::1]:161"),
+                a("[2001:db8::1]:161")
+            ]
         );
-        assert_eq!(prefer_ipv4(std::iter::empty()), None);
+        assert!(ipv4_first(std::iter::empty()).is_empty());
     }
 
     /// A Counter32 sample older than `max(2 × poll_s, poll_s + 5 s)` may
