@@ -46,12 +46,17 @@
 //!   `import {json, name?, overwrite?}` of a connection at the root, a
 //!   device into a connection, a folder into a device or folder. An import
 //!   never takes secrets: they are entered again with `edit`.
+//! * Root imports ([`Driver::root_imports`]): the driver turns another
+//!   system's export into connection branches ([`Driver::convert`]); the
+//!   framework checks them all, then imports each like `import` at the root.
 
 use super::branch::{self, Node};
 use super::diag;
 use super::params::{all_secret_names, normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
-use super::{backoff, jitter, Driver, DriverError, Level, NodeState, Outcome, PointId, Target};
+use super::{
+    backoff, jitter, Converted, Driver, DriverError, Level, NodeState, Outcome, PointId, Target,
+};
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
 use crate::error::{LinkError, Result};
@@ -625,6 +630,26 @@ fn driver_actions<D: Driver>(level: Level, kind: &str) -> Vec<(&'static str, Act
         .collect()
 }
 
+/// [`Driver::root_imports`] without names of the framework; level `config`
+/// and the bound of `import` when the driver left them out.
+fn root_imports<D: Driver>() -> Vec<(&'static str, ActionMeta)> {
+    D::root_imports()
+        .into_iter()
+        .filter(|(name, _)| {
+            let ok = !framework_action(name);
+            if !ok {
+                warn!("root import {name:?} has the name of a framework action; not declared");
+            }
+            ok
+        })
+        .map(|(name, mut meta)| {
+            meta.level.get_or_insert(Perm::Config);
+            meta.timeout_ms.get_or_insert(branch::ACTION_MS);
+            (name, meta)
+        })
+        .collect()
+}
+
 /// The action that adds a folder ([`Driver::FOLDERS`]).
 const ADD_FOLDER: &str = "add_folder";
 
@@ -1086,6 +1111,9 @@ impl<D: Driver> Framework<D> {
             )
             .await?;
         self.ctx.declare_action("", "import", import_form()).await?;
+        for (name, meta) in root_imports::<D>() {
+            self.ctx.declare_action("", name, meta).await?;
+        }
         if let Some(name) = D::RESCAN {
             self.ctx
                 .declare_action(
@@ -2214,6 +2242,10 @@ impl<D: Driver> Link for Framework<D> {
             };
             return out.reply(reply).await;
         }
+        if parts.is_empty() && root_imports::<D>().iter().any(|(n, _)| *n == action) {
+            let reply = self.root_import(action, &args).await?;
+            return out.reply(reply).await;
+        }
         let changes =
             action.starts_with("add_") || matches!(action, "edit" | "remove" | "start" | "stop");
         self.invoke_action(&parts, action, args, out).await?;
@@ -2824,6 +2856,31 @@ fn keep_conn_secrets<P: Params>(
     *new = Slot::parse(Value::Map(m));
 }
 
+/// An imported connection `node` named `name` as it will load, checked like
+/// `add_*` (secrets left out, listed in `reenter`).
+fn new_conn<D: Driver>(node: &Node, name: &str, reenter: &mut Vec<String>) -> Result<ConnEntry<D>> {
+    let tree = conn_tree::<D>(node, name, reenter)?;
+    let entry = load_conn::<D>(name, &tree)?;
+    for (dn, d) in &entry.devices {
+        diag_reserved::<D>(dn)?;
+        check_new::<D>(d.points.keys(), &d.folders)?;
+    }
+    Ok(entry)
+}
+
+/// The keys of `n` (at `at`, its parent's key) and of every node below it.
+fn node_keys(n: &Node, at: &str, out: &mut Vec<Value>) {
+    let key = if at.is_empty() {
+        n.name.clone()
+    } else {
+        format!("{at}/{}", n.name)
+    };
+    out.push(Value::Str(key.clone()));
+    for c in &n.children {
+        node_keys(c, &key, out);
+    }
+}
+
 fn twice(at: &str, name: &str) -> LinkError {
     LinkError::invalid_parameter(format!("{at}/{name}: twice in the branch"))
 }
@@ -3065,6 +3122,52 @@ impl<D: Driver> Framework<D> {
         self.import_node(at, node, name, overwrite).await
     }
 
+    /// A root import ([`Driver::convert`]): every connection is checked
+    /// before the first is imported, so a refusal changes nothing.
+    async fn root_import(&mut self, action: &str, args: &Value) -> Result<Value> {
+        let Converted {
+            connections,
+            mut report,
+        } = D::convert(action, args)?;
+        let total: usize = connections.iter().map(Node::count).sum();
+        if total > branch::MAX_NODES {
+            return Err(LinkError::invalid_parameter(format!(
+                "{action}: {total} nodes, more than {}",
+                branch::MAX_NODES
+            )));
+        }
+        let mut nodes = Vec::with_capacity(connections.len());
+        let mut names = BTreeSet::new();
+        for n in connections {
+            // The checks of `import` text: levels, nesting and bounds.
+            let text = branch::to_text(D::NAME, &n)?;
+            let n = branch::parse(&text, D::NAME, D::FOLDERS, &[branch::Level::Connection])?;
+            valid_name(&n.name)?;
+            if self.conns.contains_key(&n.name) {
+                return Err(LinkError::invalid_parameter(format!(
+                    "{}: a connection of that name exists",
+                    n.name
+                )));
+            }
+            if !names.insert(n.name.clone()) {
+                return Err(twice(action, &n.name));
+            }
+            new_conn::<D>(&n, &n.name, &mut Vec::new())?;
+            nodes.push(n);
+        }
+        let (mut created, mut reenter) = (Vec::new(), Vec::new());
+        for n in nodes {
+            node_keys(&n, "", &mut created);
+            let reply = self.import_node(&At::Root, n, None, false).await?;
+            if let Some(Value::Array(r)) = map_of(&reply).remove("reenter") {
+                reenter.extend(r);
+            }
+        }
+        report.insert("created".into(), Value::Array(created));
+        report.insert("reenter".into(), Value::Array(reenter));
+        Ok(Value::Map(report))
+    }
+
     /// Import `node` (its kind already fits `at`) under `name` (default:
     /// its own). Everything is checked before anything changes; an
     /// imported connection or device starts stopped, like a copy. Replies
@@ -3084,12 +3187,7 @@ impl<D: Driver> Framework<D> {
         let mut reenter = Vec::new();
         match at {
             At::Root => {
-                let tree = conn_tree::<D>(&node, &name, &mut reenter)?;
-                let mut entry = load_conn::<D>(&name, &tree)?;
-                for (dn, d) in &entry.devices {
-                    diag_reserved::<D>(dn)?;
-                    check_new::<D>(d.points.keys(), &d.folders)?;
-                }
+                let mut entry = new_conn::<D>(&node, &name, &mut reenter)?;
                 if let Some(old) = self.conns.get(&name) {
                     if !overwrite {
                         return Err(exists_err(&name));

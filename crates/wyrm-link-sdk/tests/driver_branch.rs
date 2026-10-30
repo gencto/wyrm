@@ -10,9 +10,10 @@ use std::time::Duration;
 use wyrm_core::meta::{ParamMeta, Writable};
 use wyrm_core::status::StatusCode;
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
+use wyrm_link_sdk::driver::branch::{self, Level as BranchLevel};
 use wyrm_link_sdk::driver::branch::{FORMAT, MAX_BYTES, MAX_NODES, NOT_EXPORTED};
 use wyrm_link_sdk::driver::{
-    Driver, DriverError, Framework, Level, NodeState, PointId, Target, Tree,
+    Converted, Driver, DriverError, Framework, Level, NodeState, PointId, Target, Tree,
 };
 use wyrm_link_sdk::{LinkError, Params, TestHarness};
 
@@ -187,6 +188,56 @@ impl Driver for Br {
             ],
             Level::Connection => Vec::new(),
         }
+    }
+
+    /// `import_list {names}`: one IP connection per comma-separated name,
+    /// each with `d1/f1/p1`; the report says `{"names": <count>}`.
+    fn root_imports() -> Vec<(&'static str, ActionMeta)> {
+        vec![(
+            "import_list",
+            ActionMeta::new().param("names", ParamMeta::of(TypeCode::String).required(true)),
+        )]
+    }
+
+    fn convert(_action: &str, args: &Value) -> Result<Converted, LinkError> {
+        let names = match args {
+            Value::Map(m) => match m.get("names") {
+                Some(Value::Str(s)) => s.clone(),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        };
+        let node = |level, name: &str, params: Vec<(&str, Value)>, children| branch::Node {
+            level,
+            name: name.into(),
+            params: params.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+            enabled: true,
+            children,
+        };
+        let connections: Vec<branch::Node> = names
+            .split(',')
+            .map(|n| {
+                let p1 = node(
+                    BranchLevel::Point,
+                    "p1",
+                    vec![("addr", Value::UInt(4))],
+                    vec![],
+                );
+                let f1 = node(BranchLevel::Folder, "f1", vec![], vec![p1]);
+                let d1 = node(BranchLevel::Device, "d1", vec![], vec![f1]);
+                node(
+                    BranchLevel::Connection,
+                    n,
+                    vec![("kind", "ip".into()), ("host", "h9".into())],
+                    vec![d1],
+                )
+            })
+            .collect();
+        let report = [("names".to_owned(), Value::UInt(connections.len() as u64))].into();
+        Ok(Converted {
+            connections,
+            report,
+        })
     }
 
     async fn invoke(
@@ -1358,6 +1409,62 @@ async fn stop_marks_bad_and_stays_bad() {
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert!(all(Quality::Bad), "round {round}: a good value after stop");
         ok(&h, "c1/big", "start", map(&[])).await;
+    }
+    h.stop().await;
+}
+
+/// A root import (Task 7 entry): every connection is checked before the
+/// first is imported; each is imported like `import` (stopped, secrets in
+/// `reenter`), and the reply lists every new node beside the driver's report.
+#[tokio::test(flavor = "multi_thread")]
+async fn root_import_checks_all_then_imports_each() {
+    let h = H::start(tree(61)).await;
+    let (_, root) = h.meta("").await;
+    let acts = root.unwrap().actions.unwrap();
+    assert_eq!(acts["import_list"].level, Some(Perm::Config));
+    assert_eq!(acts["import_list"].timeout_ms, Some(branch::ACTION_MS));
+    let names = |n: &str| map(&[("names", n.into())]);
+    let r = h
+        .invoke("", "import_list", names("n1"), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(code(r[0].att.status), Some(Status::PermissionDenied));
+    assert!(!exists(&h, "n1").await);
+
+    let v = ok(&h, "", "import_list", names("n1,n2")).await.unwrap();
+    let Value::Map(m) = v else { panic!("{v:?}") };
+    assert_eq!(m["names"], Value::UInt(2), "the driver's report");
+    let keys = |ks: &[&str]| Value::Array(ks.iter().map(|k| Value::from(*k)).collect());
+    assert_eq!(
+        m["created"],
+        keys(&[
+            "n1",
+            "n1/d1",
+            "n1/d1/f1",
+            "n1/d1/f1/p1",
+            "n2",
+            "n2/d1",
+            "n2/d1/f1",
+            "n2/d1/f1/p1"
+        ])
+    );
+    assert_eq!(m["reenter"], keys(&["n1.password", "n2.password"]));
+    // Loaded without the secret: Failed with it named, and not running.
+    for c in ["n1", "n2"] {
+        assert!(exists(&h, &format!("{c}/d1/f1/p1")).await);
+        assert_eq!(state(&h, c), is_state(NodeState::Failed), "{c}");
+        assert!(actions(&h, c).await.contains(&"start".to_owned()), "{c}");
+    }
+
+    // One name taken (or twice, or invalid): refused, nothing imported.
+    for (list, needle) in [
+        ("n3,c1", "c1: a connection of that name exists"),
+        ("n3,n3", "twice"),
+        ("n3,bad name", "bad name"),
+    ] {
+        let o = run(&h, "", "import_list", names(list)).await;
+        assert_eq!(o.status, Some(Status::InvalidParameter), "{list}");
+        assert!(o.err.contains(needle), "{list}: {}", o.err);
+        assert!(!exists(&h, "n3").await, "{list}");
     }
     h.stop().await;
 }

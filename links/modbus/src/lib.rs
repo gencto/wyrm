@@ -52,6 +52,7 @@
 #![forbid(unsafe_code)]
 
 pub mod codec;
+pub mod dsa;
 #[cfg(feature = "sim")]
 pub mod sim;
 
@@ -70,7 +71,7 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
 use wyrm_link_sdk::driver::{
-    Driver, DriverError, Framework, Level, Outcome, ParamEnum, Params, PointId, Target,
+    Converted, Driver, DriverError, Framework, Level, Outcome, ParamEnum, Params, PointId, Target,
 };
 use wyrm_link_sdk::LinkError;
 use wyrm_link_sdk::{ParamEnum, Params};
@@ -1512,6 +1513,18 @@ impl Driver for ModbusDriver {
             (Target::Device { dev, .. }, "read_registers") => read_registers(t, dev, args).await,
             (Target::Device { dev, .. }, "read_device_id") => read_device_id(t, dev).await,
             (Target::Connection, "scan_units") => scan_units(t, conn, args).await,
+            _ => Err(LinkError::not_supported(format!("action {action}"))),
+        }
+    }
+
+    /// `import_dsa {json, name?}`: a dslink-java-modbus tree ([`dsa`]).
+    fn root_imports() -> Vec<(&'static str, ActionMeta)> {
+        vec![(dsa::ACTION, dsa::form())]
+    }
+
+    fn convert(action: &str, args: &Value) -> Result<Converted, LinkError> {
+        match action {
+            dsa::ACTION => dsa::convert_args(args),
             _ => Err(LinkError::not_supported(format!("action {action}"))),
         }
     }

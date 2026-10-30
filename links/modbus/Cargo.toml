@@ -28,14 +28,14 @@ tokio-modbus = { workspace = true, features = ["tcp", "rtu"] }
 tokio-serial = { version = "5.4", default-features = false }
 tracing.workspace = true
 thiserror.workspace = true
+# `import_dsa` reads a DSA `nodes.json` (a user file, not the wire codec).
+serde_json.workspace = true
 clap = { workspace = true, optional = true }
 
 [dev-dependencies]
 wyrm-link-modbus = { path = ".", features = ["sim"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
-# The stored-config fixture is JSON (tests only).
-serde_json.workspace = true
 
 [[bin]]
 name = "wyrm-link-modbus"

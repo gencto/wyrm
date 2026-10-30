@@ -3,8 +3,9 @@
 //! protocol I/O; [`Framework`] provides the tree, generated actions,
 //! validate-then-diff edits, typed states with parent→child cascade, the
 //! per-connection owner task, batched polling, read-back writes, the
-//! quality ladder, and (opt-in) driver actions, diagnostics counters and
-//! folders between a device and its points.
+//! quality ladder, and (opt-in) driver actions, diagnostics counters,
+//! folders between a device and its points, and root imports of another
+//! system's export.
 
 pub mod branch;
 mod diag;
@@ -16,6 +17,7 @@ pub use framework::{Framework, Tree};
 pub use params::{ParamEnum, ParamSpec, Params};
 
 use crate::error::LinkError;
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::time::Duration;
 use wyrm_core::{ActionMeta, NodeMeta, Value};
@@ -74,6 +76,18 @@ pub enum Level {
 pub enum Target<'a, D: Driver> {
     Connection,
     Device { id: &'a str, dev: &'a D::Dev },
+}
+
+/// What a root import ([`Driver::root_imports`]) built from another
+/// system's export: connection branches and the driver's report of what it
+/// could not map.
+#[derive(Debug, Clone, Default)]
+pub struct Converted {
+    /// Connections with everything below them, imported like `import` at
+    /// the root.
+    pub connections: Vec<branch::Node>,
+    /// Keys of the reply beside the framework's `created` and `reenter`.
+    pub report: BTreeMap<String, Value>,
 }
 
 /// A protocol driver. All I/O methods run on the connection's owner task,
@@ -201,6 +215,26 @@ pub trait Driver: Sized + Send + Sync + 'static {
     ) -> impl Future<Output = Result<Value, LinkError>> + Send {
         let e = LinkError::not_supported(format!("action {action}"));
         async move { Err(e) }
+    }
+
+    /// Root actions that import another system's export (Modbus:
+    /// `import_dsa`): `(name, meta)`. Level `config` when unset, bounded by
+    /// [`branch::ACTION_MS`] without `timeout_ms`. Names of framework actions
+    /// and `add_*` are refused.
+    fn root_imports() -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
+    /// Build the connections of a root import from `args` (checked against
+    /// the declared params). No I/O: it runs on the link task. The framework
+    /// checks every connection first (at most [`branch::MAX_NODES`] nodes in
+    /// all, names not taken, params valid like `add_*`), then imports each
+    /// like `import` at the root (saved before it is declared, started
+    /// stopped, secrets never taken) and replies with [`Converted::report`]
+    /// plus `created` (the key of every new node) and `reenter`. A refusal
+    /// changes nothing.
+    fn convert(action: &str, _args: &Value) -> Result<Converted, LinkError> {
+        Err(LinkError::not_supported(format!("action {action}")))
     }
 
     /// Diagnostics (ruling 12): connections and devices get the value
