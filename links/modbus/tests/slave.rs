@@ -1057,7 +1057,13 @@ async fn a_master_that_never_reads_is_dropped() {
     let port = free_port();
     let dev = map(&[
         ("unit", Value::UInt(1)),
-        ("points", map(&[("v", pt("holding", 0, "u16", &[]))])),
+        (
+            "points",
+            map(&[
+                ("v", pt("holding", 200, "u16", &[])),
+                ("s", pt("holding", 0, "char", &[("regs", Value::UInt(125))])),
+            ]),
+        ),
     ]);
     let conn = map(&[
         ("kind", "ip_slave".into()),
@@ -1071,38 +1077,57 @@ async fn a_master_that_never_reads_is_dropped() {
     })
     .await;
     assert_eq!(set(&h, "v", 9u64).await, Some(Status::Ok));
+    assert_eq!(set(&h, "s", "x".repeat(250)).await, Some(Status::Ok));
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     // A small receive window that this master never reads.
     let sock = tokio::net::TcpSocket::new_v4().unwrap();
     sock.set_recv_buffer_size(4096).unwrap();
     let stream = sock.connect(addr).await.unwrap();
     let (unread, mut tx) = stream.into_split();
-    // Requests for an address no point covers (exception 2, 9 bytes each):
-    // far more replies than any socket buffer holds.
+    // Reads of 125 registers (259-byte replies) without end: the replies
+    // outgrow every socket buffer, so the slave's write waits (and the
+    // master never goes idle while the slave keeps up).
     let flood = tokio::spawn(async move {
-        let mut frames = Vec::new();
-        for i in 0..60_000u16 {
-            frames.extend_from_slice(&i.to_be_bytes());
-            frames.extend_from_slice(&[0, 0, 0, 6, 1, 3, 0, 100, 0, 1]);
+        let mut i = 0u16;
+        loop {
+            let mut frames = Vec::new();
+            for _ in 0..1000 {
+                i = i.wrapping_add(1);
+                frames.extend_from_slice(&i.to_be_bytes());
+                frames.extend_from_slice(&[0, 0, 0, 6, 1, 3, 0, 0, 0, 125]);
+            }
+            if tx.write_all(&frames).await.is_err() {
+                return;
+            }
         }
-        tx.write_all(&frames).await
     });
-    // The slave's write of the replies waits; after the 1 s deadline the
-    // master is dropped.
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    flood.abort();
-    // Its place is free: 16 masters are served.
-    let mut masters = Vec::new();
-    for i in 0..16 {
-        let mut m = master(port, 1).await;
-        let r = tokio::time::timeout(Duration::from_secs(2), m.read_holding_registers(0, 1));
-        assert_eq!(
-            r.await.ok().and_then(Result::ok),
-            Some(Ok(vec![9])),
-            "master {i}"
+    // One second after its last complete request (its writes wait) the
+    // master is dropped: then 16 new masters are served at once (well
+    // inside their own idle time, so none of them frees a place).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let mut served = 0;
+        let mut masters = Vec::new();
+        for _ in 0..16 {
+            let mut m = master(port, 1).await;
+            let r =
+                tokio::time::timeout(Duration::from_millis(500), m.read_holding_registers(200, 1));
+            if r.await.ok().and_then(Result::ok) == Some(Ok(vec![9])) {
+                served += 1;
+            }
+            masters.push(m);
+        }
+        if served == 16 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{served} masters served at once: the never-reading one holds a place"
         );
-        masters.push(m);
+        drop(masters);
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
+    flood.abort();
     // And its socket was closed: past the replies it got, it reads the end.
     let drained = tokio::time::timeout(Duration::from_secs(10), async move {
         use tokio::io::AsyncReadExt;
