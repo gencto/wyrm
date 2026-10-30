@@ -158,9 +158,24 @@ pub struct ConnParams {
         editor = "textarea",
         display = "Headers",
         placeholder = "Accept-Language: en",
-        desc = "one 'Name: value' per line, sent with every request; no credentials"
+        desc = "one 'Name: value' per line, sent with every request; not secret: no credentials"
     )]
     pub headers: String,
+    #[param(
+        default = "",
+        display = "Secret Header Name",
+        placeholder = "X-Api-Secret",
+        desc = "one more credential header, sent with every request",
+        dest
+    )]
+    pub secret_header_name: String,
+    #[param(
+        default = "",
+        secret,
+        display = "Secret Header Value",
+        desc = "the value of secret_header_name"
+    )]
+    pub secret_header_value: String,
     #[param(
         default = 5.0,
         min = 0.1,
@@ -218,6 +233,24 @@ const FORBIDDEN_HEADERS: &[&str] = &[
 
 const MAX_HEADERS: usize = 32;
 
+/// Parts of header names that carry credentials: refused in the
+/// non-secret `headers` (shown in `~meta` and `export`, never masked).
+const CREDENTIAL_PARTS: &[&str] = &[
+    "auth",
+    "token",
+    "key",
+    "secret",
+    "session",
+    "cookie",
+    "password",
+    "passwd",
+    "credential",
+];
+
+fn credential_like(name: &HeaderName) -> bool {
+    CREDENTIAL_PARTS.iter().any(|p| name.as_str().contains(p))
+}
+
 impl Params for Conn {
     fn schema() -> Vec<ParamSpec> {
         ConnParams::schema()
@@ -259,7 +292,44 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
             "ca_pem, cert_pem and insecure_skip_verify only with https://",
         ));
     }
-    let creds = p.auth != Auth::None;
+    let key_header = match (p.auth, p.api_key_in) {
+        (Auth::ApiKey, KeyIn::Header) => Some(api_key_header(p.api_key_name.trim())?),
+        _ => None,
+    };
+    // Never echo the value in an error.
+    let secret_header = match p.secret_header_name.trim() {
+        "" if p.secret_header_value.is_empty() => None,
+        "" => {
+            return Err(bad(
+                "secret_header_name",
+                "required with secret_header_value",
+            ))
+        }
+        n => {
+            let name = HeaderName::from_bytes(n.as_bytes())
+                .map_err(|_| bad("secret_header_name", "not a header name"))?;
+            let auth_sets = key_header.as_ref() == Some(&name)
+                || (name == hyper::header::AUTHORIZATION
+                    && matches!(p.auth, Auth::Basic | Auth::Bearer));
+            if auth_sets
+                || (FORBIDDEN_HEADERS.contains(&name.as_str())
+                    && name != hyper::header::AUTHORIZATION)
+            {
+                return Err(bad("secret_header_name", format!("not {name}")));
+            }
+            if p.secret_header_value.is_empty() {
+                return Err(bad(
+                    "secret_header_value",
+                    "required with secret_header_name",
+                ));
+            }
+            Some((
+                name,
+                sensitive(p.secret_header_value.clone(), "secret_header_value")?,
+            ))
+        }
+    };
+    let creds = p.auth != Auth::None || secret_header.is_some();
     if creds && !origin.tls && !origin.is_loopback() && !p.insecure_plaintext {
         return Err(bad(
             "base_url",
@@ -269,10 +339,6 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
     }
     let mut headers = Vec::new();
     let mut lines = 0;
-    let key_header = match (p.auth, p.api_key_in) {
-        (Auth::ApiKey, KeyIn::Header) => Some(api_key_header(p.api_key_name.trim())?),
-        _ => None,
-    };
     if p.headers.len() > 8192 {
         return Err(bad("headers", "longer than 8 KiB"));
     }
@@ -297,6 +363,16 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
                     "line {}: {} is not allowed here (credentials go in auth)",
                     n + 1,
                     name
+                ),
+            ));
+        }
+        if credential_like(&name) || secret_header.as_ref().is_some_and(|(h, _)| *h == name) {
+            return Err(bad(
+                "headers",
+                format!(
+                    "line {}: {name} looks like a credential: headers are not secret \
+                     (use auth, or secret_header_name and secret_header_value)",
+                    n + 1
                 ),
             ));
         }
@@ -361,6 +437,10 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
                 }
             }
         }
+    }
+    if let Some((name, value)) = secret_header {
+        mask(&p.secret_header_value);
+        headers.push((name, value));
     }
     let tls = if origin.tls {
         Some(Arc::new(tls_config(p)?))
@@ -1988,6 +2068,51 @@ mod tests {
             ("auth", "api_key".into()),
             ("token", "k123".into()),
             ("headers", "x-api-key: other".into()),
+        ])
+        .is_err());
+        // credential-like names never in the non-secret headers
+        for bad in [
+            "X-API-Key: k",
+            "X-Auth-Token: t",
+            "X-Api-Secret: s",
+            "X-Session-Id: 1",
+            "X-CSRF-Token: c",
+            "X-Password: p",
+        ] {
+            let e = h(bad).err().map(|e| format!("{e:?}")).unwrap_or_default();
+            assert!(e.contains("secret_header"), "{bad}: {e}");
+        }
+        // one more credential header: a secret, masked, sensitive
+        let sh = |name: &str, value: &str, base: &str| {
+            conn(&[
+                url(base),
+                ("auth", "api_key".into()),
+                ("token", "key-1".into()),
+                ("secret_header_name", name.into()),
+                ("secret_header_value", value.into()),
+            ])
+        };
+        let c = sh("X-Api-Secret", "sec-777", "http://127.0.0.1").unwrap();
+        let (n, v) = c.prep.headers.last().unwrap();
+        assert_eq!((n.as_str(), v.is_sensitive()), ("x-api-secret", true));
+        assert!(c.prep.masks.contains(&"sec-777".to_owned()));
+        assert!(!format!("{c:?}").contains("sec-777"));
+        assert!(!Conn::public_map(&c).contains_key("secret_header_value"));
+        for (name, value, base) in [
+            ("X-Api-Secret", "", "http://127.0.0.1"),
+            ("Host", "x", "http://127.0.0.1"),
+            ("X-API-Key", "x", "http://127.0.0.1"),
+            ("Bad Name", "x", "http://127.0.0.1"),
+            ("X-Api-Secret", "sec-777", "http://192.0.2.1"),
+        ] {
+            let e = sh(name, value, base).unwrap_err();
+            assert!(!format!("{e:?}").contains("sec-777"), "{name}");
+        }
+        // a secret header alone counts as credentials (plaintext rule)
+        assert!(conn(&[
+            url("http://192.0.2.1"),
+            ("secret_header_name", "X-Sig".into()),
+            ("secret_header_value", "sig-1".into()),
         ])
         .is_err());
         // bounds

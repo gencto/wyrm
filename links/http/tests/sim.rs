@@ -470,6 +470,13 @@ async fn auth_kinds() {
                 ("token", "key-query".into()),
             ],
         ),
+        (
+            SimAuth::Header("x-api-secret".into(), "sec-header".into()),
+            vec![
+                ("secret_header_name", "X-Api-Secret".into()),
+                ("secret_header_value", "sec-header".into()),
+            ],
+        ),
     ];
     for (auth, conn) in cases {
         let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -990,6 +997,42 @@ async fn secrets_are_never_shown() {
     assert_eq!(r, Some(Status::InvalidParameter), "token required again");
     h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The secret header, echoed by the server, is masked in a point and in
+/// `try_request`, and never in `~meta` or `export`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secret_header_is_masked() {
+    let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    const SEC: &str = "sec-4242424";
+    st(&s).auth = SimAuth::Header("x-api-secret".into(), SEC.into());
+    let points = map(&[(
+        "h",
+        pt("$.headers['x-api-secret']", &[("type", "string".into())]),
+    )]);
+    let h = H::start(tree(
+        base(addr.port()),
+        &[
+            ("secret_header_name", "X-Api-Secret".into()),
+            ("secret_header_value", SEC.into()),
+        ],
+        &[("d1", dev(&[("path", "/echo".into())], points))],
+    ))
+    .await;
+    wait("masked", || good(&h, "c1/d1/h", "***".into())).await;
+    let cfg = Perm::Config;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+    let shown = format!("{v:?}");
+    assert!(!shown.contains(SEC) && shown.contains("***"), "{shown}");
+    let (_, m) = h.meta("c1").await;
+    assert!(!format!("{m:?}").contains(SEC), "~meta hides it");
+    let (_, v, _) = act(&h, "", "export", map(&[]), cfg).await;
+    let shown = format!("{v:?}");
+    assert!(
+        !shown.contains(SEC) && shown.contains("X-Api-Secret"),
+        "{shown}"
+    );
+    h.stop().await;
 }
 
 /// Bounds and rules of the params, through the generated actions; a bad
