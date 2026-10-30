@@ -240,12 +240,16 @@ fn digits(s: &str) -> Option<u32> {
 }
 
 impl Address {
-    /// Parse Siemens notation (case does not matter): `DB10.DBX4.3`,
+    /// Parse Siemens notation (case and spaces do not matter): `DB10.DBX4.3`,
     /// `DB10.DBB5`, `DB10.DBW6`, `DB10.DBD8`, `MW20`, `M1.0`, `MX1.0`, `IB0`,
     /// `E0.1`, `QX1.0`, `A1.0`, `T5`, `C3`, `Z3`, with an optional `:TYPE`
     /// (`DB10.DBD8:REAL`, `DB1.DBB0:STRING[16]`).
     pub fn parse(text: &str) -> Result<Address, String> {
-        let up = text.trim().to_ascii_uppercase();
+        let up: String = text
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace())
+            .collect::<String>()
+            .to_ascii_uppercase();
         let bad = |why: &str| format!("address {:?}: {why}", text.trim());
         if up.is_empty() {
             return Err(bad("empty"));
@@ -902,6 +906,10 @@ mod tests {
         assert_eq!((p("C3").area, p("Z3").area), (Area::Counter, Area::Counter));
         assert_eq!(p("DB1.DBB0:STRING[16]").suffix, Some(DType::String(16)));
         assert_eq!(p(" db1.dbb0 : string ").suffix, Some(DType::String(254)));
+        // spaces do not matter anywhere
+        assert_eq!(p("DB10. DBW 6"), p("DB10.DBW6"));
+        assert_eq!(p("M 1.0"), p("M1.0"));
+        assert_eq!(p("DB1.DBB0:STRING [16]"), p("DB1.DBB0:STRING[16]"));
         for s in [
             "DB10.DBX4.3",
             "DB1.DBD8:REAL",
