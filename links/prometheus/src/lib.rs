@@ -246,7 +246,9 @@ impl Params for Conn {
         if http::auth_header(&c.username, &c.password, &c.bearer_token).is_none()
             && (basic || bearer)
         {
-            return Err(bad("password", "not a valid header value"));
+            // Basic auth is base64 and always valid: the token is the one.
+            let field = if bearer { "bearer_token" } else { "password" };
+            return Err(bad(field, "not a valid header value"));
         }
         Ok(c)
     }
@@ -1069,6 +1071,24 @@ mod tests {
             m.insert((*k).to_owned(), v.clone());
         }
         Conn::from_map(&normalize(&Conn::schema(), &Value::Map(m)).unwrap()).unwrap()
+    }
+
+    /// A credential that is not a valid header value is reported against
+    /// the param that was set.
+    #[test]
+    fn bad_credentials_name_their_param() {
+        let url = Value::Str("http://127.0.0.1:9100/metrics".into());
+        let err = |kv: &[(&str, &str)]| {
+            let mut m = BTreeMap::from([("url".to_owned(), url.clone())]);
+            for (k, v) in kv {
+                m.insert((*k).to_owned(), Value::Str((*v).into()));
+            }
+            let m = normalize(&Conn::schema(), &Value::Map(m)).unwrap();
+            format!("{}", Conn::from_map(&m).err().expect("refused"))
+        };
+        let e = err(&[("bearer_token", "a\nb")]);
+        assert!(e.contains("bearer_token"), "{e}");
+        assert!(!e.contains("a\nb"), "{e}");
     }
 
     /// With `scrape_s: 1`, a second device group 0.6 s after the first
