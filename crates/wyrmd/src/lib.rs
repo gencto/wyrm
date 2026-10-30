@@ -702,9 +702,8 @@ impl EmbeddedHost for Drivers {
             "mock" => MockConfig::from_params(params).map(|_| ()),
             // Framework drivers keep invalid nodes as `Failed`; only the
             // tree shape is checked up front.
-            "mockdev" | "modbus" | "mqtt" | "snmp" | "wasm" => {
-                Tree::from_params(params).map(|_| ())
-            }
+            "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
+            "snmp" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`

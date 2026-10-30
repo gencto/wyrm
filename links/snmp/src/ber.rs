@@ -572,7 +572,7 @@ mod tests {
             x ^= x << 17;
             let n = (x % 64) as usize;
             let bytes: Vec<u8> = (0..n)
-                .map(|i| (x.rotate_left(i as u32 * 7) & 0xFF) as u8)
+                .map(|i| u8::try_from(x.rotate_left(i as u32 * 7) & 0xFF).unwrap_or(0))
                 .collect();
             let mut r = Reader::new(&bytes);
             while let Ok((tag, c)) = r.tlv() {
