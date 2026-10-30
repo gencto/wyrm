@@ -6601,3 +6601,516 @@ async fn dql_three_modes() {
     }
     env.stop().await;
 }
+
+// ---------- DQL measurements (ADR 0025 D4; `#[ignore]`: run them in release) ----------
+//
+//   cargo test --release -p wyrmd --test e2e dql_perf -- --ignored --nocapture --test-threads 1
+
+/// CPU seconds this process used (user + system), Linux `/proc/self/stat`.
+fn cpu_secs() -> f64 {
+    let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    // fields after the command (in parentheses): utime and stime are the 12th and 13th
+    let rest = s.rsplit_once(')').map(|(_, r)| r).unwrap_or("");
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let tick = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    (tick(11) + tick(12)) / 100.0
+}
+
+fn quantile(v: &[f64], q: f64) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    s[((s.len() - 1) as f64 * q).round() as usize]
+}
+
+/// One collection on DQL link `dql`: wall ms until every expected row has a value, the
+/// link's own `collect_ms`, `lists`, `depth`.
+async fn dql_collect(
+    c: &WyrmClient,
+    dql: &str,
+    id: &str,
+    text: &str,
+    want: usize,
+) -> (f64, u64, u64, u64) {
+    let t0 = std::time::Instant::now();
+    c.invoke_one(
+        dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from(id)),
+            ("text", Value::from(text)),
+            ("publish_ms", Value::UInt(1000)),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("add_query {id}: {e}"));
+    let q = format!("{dql}/{id}");
+    let full = loop {
+        let t = c
+            .invoke_one(&q, "get_table", args_map(&[("limit", Value::UInt(5000))]))
+            .await
+            .ok()
+            .flatten();
+        let n = match t {
+            Some(Value::Map(m)) => match m.get("rows") {
+                Some(Value::Array(r)) => r
+                    .iter()
+                    .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
+                    .count(),
+                _ => 0,
+            },
+            _ => 0,
+        };
+        if n >= want {
+            break t0.elapsed().as_secs_f64() * 1000.0;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(120),
+            "{id}: {n} of {want} rows"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    let attr = c
+        .meta(&q)
+        .await
+        .ok()
+        .and_then(|m| m.attr)
+        .unwrap_or_default();
+    let n = |k: &str| match attr.get(k) {
+        Some(Value::UInt(v)) => *v,
+        _ => 0,
+    };
+    let out = (full, n("collect_ms"), n("lists"), n("depth"));
+    c.invoke_one(&q, "remove", Value::Map(BTreeMap::new()))
+        .await
+        .expect("remove");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    out
+}
+
+/// Three collections of `text`; prints one row: median and max of the full time, the link's
+/// `collect_ms`, lists and depth.
+async fn dql_collect_row(c: &WyrmClient, dql: &str, label: &str, text: &str, want: usize) {
+    let mut full = Vec::new();
+    let mut last = (0, 0, 0);
+    for i in 0..3 {
+        let (f, cm, lists, depth) = dql_collect(c, dql, &format!("m{i}"), text, want).await;
+        full.push(f);
+        last = (cm, lists, depth);
+    }
+    eprintln!(
+        "| {label} | {want} | {} | {} | {} | {:.0} | {:.0} |",
+        last.2,
+        last.1,
+        last.0,
+        quantile(&full, 0.5),
+        quantile(&full, 1.0)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "measurement: run in release with --ignored --nocapture"]
+async fn dql_perf_local() {
+    let env = Env::start(
+        "dqlperf",
+        r#"links: {
+            d2: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 2, fanout: 2 } },
+            d4: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 4, fanout: 2 } },
+            d8: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 8, fanout: 2 } },
+            w10: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 10 } },
+            w100: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 100 } },
+            w900: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 900 } },
+            big: { driver: "mock", params: { points: 5000, rate_hz: 0, depth: 1, fanout: 50 } },
+        },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    for l in ["d2", "d4", "d8", "w10", "w100", "w900", "big"] {
+        eventually(&format!("{l} up"), 120, || async {
+            c.children(&format!("wy/{SITE}/downstream/{l}"))
+                .await
+                .ok()
+                .filter(|k| !k.is_empty())
+        })
+        .await;
+    }
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    eprintln!("\n| tree | rows | depth | lists | collect_ms (link) | table full p50 ms | max ms |");
+    eprintln!("|---|---|---|---|---|---|---|");
+    for (l, label) in [
+        ("d2", "fanout 2, depth 2"),
+        ("d4", "fanout 2, depth 4"),
+        ("d8", "fanout 2, depth 8"),
+        ("w10", "depth 1, fanout 10"),
+        ("w100", "depth 1, fanout 100"),
+        ("w900", "depth 1, fanout 900"),
+    ] {
+        let text = format!("list wy/{SITE}/downstream/{l}/** | where type == 'number' | subscribe");
+        dql_collect_row(&c, &dql, label, &text, 1000).await;
+    }
+    let text = format!(
+        "list wy/{SITE}/downstream/big/** | where type == 'number' | subscribe | option max_rows=5000"
+    );
+    dql_collect_row(&c, &dql, "5 000 points, fanout 50", &text, 5000).await;
+
+    // latency: a write on a point → the engine's table (get_table) → the published table
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("lat")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/d2/** | where type == 'number' | subscribe"
+                )),
+            ),
+            ("publish_ms", Value::UInt(100)),
+        ]),
+    )
+    .await
+    .expect("lat");
+    let p0 = format!("wy/{SITE}/downstream/d2/g0/g0/p0");
+    let mut table = c.subscribe(&format!("{dql}/lat/table")).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let has = |v: &Value, want: f64| {
+        matches!(v, Value::Array(rows) if rows.iter().any(|r| matches!(r, Value::Map(m)
+            if m.get("path") == Some(&Value::from(p0.as_str())) && m.get("value") == Some(&Value::Float(want)))))
+    };
+    let (mut engine_ms, mut pub_ms) = (Vec::new(), Vec::new());
+    for i in 0..20 {
+        let want = 1000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        c.set(&p0, Value::Float(want)).await.expect("set");
+        loop {
+            let t = c
+                .invoke_one(
+                    &format!("{dql}/lat"),
+                    "get_table",
+                    Value::Map(BTreeMap::new()),
+                )
+                .await
+                .ok()
+                .flatten();
+            if let Some(Value::Map(m)) = &t {
+                if m.get("rows").is_some_and(|r| has(r, want)) {
+                    engine_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        while let Some(ev) = tokio::time::timeout(Duration::from_secs(5), table.next())
+            .await
+            .expect("a table sample")
+        {
+            if let ValEvent::Sample { sample, .. } = ev {
+                if has(&sample.v, want) {
+                    pub_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    eprintln!(
+        "\nwrite → engine table: p50 {:.1} ms, p99 {:.1} ms; write → published table (publish_ms 100): p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&engine_ms, 0.5),
+        quantile(&engine_ms, 0.99),
+        quantile(&pub_ms, 0.5),
+        quantile(&pub_ms, 0.99)
+    );
+
+    // a sink: p0 → p4 (a sibling), a set of the source to the write of the target
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("sink")),
+            (
+                "text",
+                Value::from(format!("path {p0} | subscribe | set ../p4 = value")),
+            ),
+        ]),
+    )
+    .await
+    .expect("sink");
+    let p4 = format!("wy/{SITE}/downstream/d2/g0/g0/p4");
+    let mut dst = c.subscribe(&p4).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut sink_ms = Vec::new();
+    for i in 0..20 {
+        let want = 2000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        c.set(&p0, Value::Float(want)).await.expect("set");
+        while let Some(ev) = tokio::time::timeout(Duration::from_secs(5), dst.next())
+            .await
+            .expect("a sample of the target")
+        {
+            if matches!(ev, ValEvent::Sample { ref sample, .. } if sample.v == Value::Float(want)) {
+                sink_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    eprintln!(
+        "write of a source → sink write of its target: p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&sink_ms, 0.5),
+        quantile(&sink_ms, 0.99)
+    );
+
+    // idle: two queries ready, nothing changes → no message from the DQL link
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut all = c.subscribe(&format!("{dql}/**")).await.unwrap();
+    // the stored values come first
+    while tokio::time::timeout(Duration::from_millis(500), all.next())
+        .await
+        .is_ok()
+    {}
+    let t0 = std::time::Instant::now();
+    let mut n = 0;
+    while t0.elapsed() < Duration::from_secs(10) {
+        if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), all.next()).await {
+            n += 1;
+        }
+    }
+    eprintln!("idle, 2 queries ready, 10 s: {n} samples from the DQL link");
+    env.stop().await;
+
+    // CPU at 50k samples/s: the broker process (router, mock, DQL in one process) without and
+    // with a query that subscribes all 5 000 points
+    let env = Env::start(
+        "dqlcpu",
+        r#"links: { hot: { driver: "mock", params: { points: 5000, rate_hz: 10, depth: 1, fanout: 50 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    eventually("hot up", 120, || async {
+        c.children(&format!("wy/{SITE}/downstream/hot"))
+            .await
+            .ok()
+            .filter(|k| !k.is_empty())
+    })
+    .await;
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let busy = |secs: u64| async move {
+        let (c0, t0) = (cpu_secs(), std::time::Instant::now());
+        tokio::time::sleep(Duration::from_secs(secs)).await;
+        (cpu_secs() - c0) / t0.elapsed().as_secs_f64() * 100.0
+    };
+    let without = busy(10).await;
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("hot")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/hot/** | where type == 'number' | subscribe | option max_rows=5000"
+                )),
+            ),
+        ]),
+    )
+    .await
+    .expect("hot");
+    eventually("hot table full", 120, || async {
+        dql_attr(&env, &format!("{dql}/hot"), "rows")
+            .await
+            .filter(|r| *r == Value::UInt(5000))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let with = busy(10).await;
+    eprintln!(
+        "50k samples/s: broker process {without:.0} % of one core without a query, {with:.0} % with a query over all 5 000 points (DQL: {:.0} %), {} cores here",
+        with - without,
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)
+    );
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "measurement: run in release with --ignored --nocapture"]
+async fn dql_perf_chain() {
+    // the topology of `chain_of_three_brokers`, one tree `t` on every site
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let own = |seed: u8| {
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
+                .verifying_key()
+                .to_bytes(),
+        )
+    };
+    let (edge_admin, plant_admin) = (own(11), own(12));
+    let (c_dir, e_dir, p_dir) = (
+        temp_dir("dq-central"),
+        temp_dir("dq-edge"),
+        temp_dir("dq-plant"),
+    );
+    let (c_tcp, c_quic, e_tcp, e_quic, p_tcp) = (
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+    );
+    let tree =
+        r#"t: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 2, fanout: 10 } }"#;
+    let cfg = |text: String| Config::from_json5(&text).unwrap();
+    let central = cfg(format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}",
+                        downstream: [{{ site: "edge", via: ["plant"] }}] }},
+              links: {{ {tree} }} }}"#,
+        c_dir.display(),
+    ));
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
+    let edge = cfg(format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{edge_admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{e_quic}",
+                        upstream: [{up}],
+                        downstream: [{{ site: "plant" }}] }},
+              links: {{ {tree} }} }}"#,
+        e_dir.display(),
+    ));
+    let up = upstream_entry("edge", e_quic, &e_dir, "plant");
+    let plant = cfg(format!(
+        r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
+              admin_keys: ["{plant_admin}"],
+              peers: {{ upstream: [{up}] }},
+              links: {{ {tree} }} }}"#,
+        p_dir.display(),
+    ));
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let mut daemons = Vec::new();
+    for d in [central, edge, plant] {
+        daemons.push(open_daemon(d, exe.clone()).unwrap());
+    }
+    let (mut senders, mut tasks) = (Vec::new(), Vec::new());
+    for d in daemons {
+        let (tx, rx) = oneshot::channel::<()>();
+        senders.push(tx);
+        tasks.push(tokio::spawn(d.run_until(async {
+            let _ = rx.await;
+        })));
+    }
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{c_tcp}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "5000").unwrap();
+    let session = zenoh::open(zc).await.unwrap();
+    let c = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "central")))
+        .with_timeout(Duration::from_secs(30));
+    let to_plant = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "plant")))
+        .with_timeout(Duration::from_secs(10));
+    eventually("plant trusts central's keys", 60, || async {
+        (signer_sites(&to_plant, "plant", "write").await == ["central", "edge", "plant"])
+            .then_some(())
+    })
+    .await;
+    for s in ["central", "edge", "plant"] {
+        eventually(&format!("{s}/t seen from central"), 60, || async {
+            c.children(&format!("wy/{s}/downstream/t"))
+                .await
+                .ok()
+                .filter(|k| k.len() == 10)
+        })
+        .await;
+    }
+    let dql = "wy/central/downstream/dql";
+    // central's DQL rebuilt with the peers it reaches: wait for its first answer
+    eventually("central dql up", 60, || async { c.meta(dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    eprintln!("\n| tree (1 000 points, fanout 10, depth 2) | rows | depth | lists | collect_ms (link) | table full p50 ms | max ms |");
+    eprintln!("|---|---|---|---|---|---|---|");
+    for (s, hops) in [("central", "here"), ("edge", "1 hop"), ("plant", "2 hops")] {
+        let text = format!("list wy/{s}/downstream/t/** | where type == 'number' | subscribe");
+        dql_collect_row(&c, dql, &format!("{s} ({hops})"), &text, 1000).await;
+    }
+
+    // a write two hops down → central's engine table
+    c.invoke_one(
+        dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("far")),
+            (
+                "text",
+                Value::from("list wy/plant/downstream/t/** | where type == 'number' | subscribe"),
+            ),
+        ]),
+    )
+    .await
+    .expect("far");
+    let p0 = "wy/plant/downstream/t/g0/g0/p0";
+    eventually("far ready", 60, || async {
+        c.meta(&format!("{dql}/far"))
+            .await
+            .ok()
+            .and_then(|m| m.attr)
+            .filter(|a| a.get("status") == Some(&Value::from("ready")))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut ms = Vec::new();
+    for i in 0..20 {
+        let want = 3000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        to_plant
+            .set(p0, Value::Float(want))
+            .await
+            .expect("set on plant");
+        loop {
+            let t = c
+                .invoke_one(
+                    &format!("{dql}/far"),
+                    "get_table",
+                    args_map(&[("limit", Value::UInt(5000))]),
+                )
+                .await
+                .ok()
+                .flatten();
+            let seen = matches!(&t, Some(Value::Map(m)) if matches!(m.get("rows"), Some(Value::Array(rows))
+                if rows.iter().any(|r| matches!(r, Value::Map(r)
+                    if r.get("path") == Some(&Value::from(p0)) && r.get("value") == Some(&Value::Float(want))))));
+            if seen {
+                ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                break;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the write on plant never reached central's table"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    eprintln!(
+        "\nwrite on plant (2 hops down) → central's engine table: p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&ms, 0.5),
+        quantile(&ms, 0.99)
+    );
+    for tx in senders {
+        let _ = tx.send(());
+    }
+    for t in tasks {
+        let _ = t.await;
+    }
+}

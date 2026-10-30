@@ -13,3 +13,7 @@ publish = false
 wyrm-core.workspace = true
 wyrm-link-api.workspace = true
 cel.workspace = true
+
+[[bench]]
+name = "engine"
+harness = false
