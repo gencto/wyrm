@@ -563,9 +563,17 @@ impl Actor {
                 if !self.lists.contains_key(&id) {
                     return;
                 }
-                if self.queue.len() >= QUEUE {
-                    // the changes of this list would be lost: drop the queued ones and list
-                    // again, which starts with a fresh `Refreshed`
+                // A full queue keeps one event per list: a list with nothing queued is queued
+                // (lists are bounded by `max_lists`, as timers and replies are by theirs); one
+                // that already waits drops its queued changes and lists again, which starts
+                // with a fresh `Refreshed`. Relisting every list on a full queue instead would
+                // keep hundreds of lists answering at once relisting forever.
+                let waits = || {
+                    self.queue
+                        .iter()
+                        .any(|q| matches!(q.ev, Event::List(SubId(s), ..) if s == id))
+                };
+                if self.queue.len() >= QUEUE && waits() {
                     self.queue
                         .retain(|q| !matches!(q.ev, Event::List(SubId(s), ..) if s == id));
                     self.relist(id);
