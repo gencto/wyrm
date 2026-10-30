@@ -174,12 +174,13 @@ pub fn within(step: &Json) -> Duration {
 }
 
 /// Built-in scenarios, by name.
-pub const BUILTIN: [(&str, &str); 6] = [
+pub const BUILTIN: [(&str, &str); 7] = [
     ("history", include_str!("../scenarios/history.json")),
     ("storage", include_str!("../scenarios/storage.json")),
     ("tokens", include_str!("../scenarios/tokens.json")),
     ("dataflows", include_str!("../scenarios/dataflows.json")),
     ("scheduler", include_str!("../scenarios/scheduler.json")),
+    ("dql", include_str!("../scenarios/dql.json")),
     ("modbus", include_str!("../scenarios/modbus.json")),
 ];
 

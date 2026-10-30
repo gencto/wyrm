@@ -237,7 +237,7 @@ enum Cmd {
     /// password comes from WYR_GATEWAY_PASSWORD or stdin.
     Probe {
         /// Built-in scenarios (history, storage, tokens, dataflows,
-        /// scheduler, modbus); none: all of them.
+        /// scheduler, dql, modbus); none: all of them.
         names: Vec<String>,
         /// A scenario file (JSON) instead of built-ins.
         #[arg(long)]

@@ -6301,3 +6301,303 @@ async fn dql_embedded_queries_the_tree() {
     .await;
     env.stop().await;
 }
+
+/// What one mode of the DQL link shows in the scenario of `dql_three_modes`.
+#[derive(Debug, PartialEq)]
+struct DqlRun {
+    /// Rows of the query over the mock, each with a value.
+    rows: usize,
+    /// The sink wrote `2 × source` after a change of the source.
+    followed: bool,
+    /// After a stop and start: the stored query is back with its rows, and the sink wrote
+    /// nothing on start (D5). `None`: not restarted (the embedded link).
+    restart: Option<(usize, bool)>,
+}
+
+/// `attr.<a>` of a DQL query node.
+async fn dql_attr(env: &Env, node: &str, a: &str) -> Option<Value> {
+    client_now(env)
+        .await?
+        .meta(node)
+        .await
+        .ok()?
+        .attr?
+        .get(a)
+        .cloned()
+}
+
+/// On DQL link `id`: a query `pts` over the mock with values; a sink query `follow` that
+/// writes `2 × p<src>` to `p<dst>` on a change; with `restart`, `sys/links/<id>` stop and start.
+async fn dql_scenario(env: &Env, id: &str, src: usize, dst: usize, restart: bool) -> DqlRun {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    let c = slow_client(env).await;
+    let add = |qid: &str, text: String| {
+        let (c, root) = (c.clone(), root.clone());
+        let qid = qid.to_owned();
+        async move {
+            c.invoke_one(
+                &root,
+                "add_query",
+                args_map(&[
+                    ("id", Value::from(qid.as_str())),
+                    ("text", Value::from(text)),
+                    ("publish_ms", Value::UInt(100)),
+                ]),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{id}: add_query {qid}: {e}"));
+        }
+    };
+    let rows_with_values = |want: usize| {
+        let root = root.clone();
+        async move {
+            let c = client_now(env).await?;
+            let t = c
+                .invoke_one(
+                    &format!("{root}/pts"),
+                    "get_table",
+                    Value::Map(BTreeMap::new()),
+                )
+                .await
+                .ok()??;
+            let Value::Map(m) = t else { return None };
+            let Some(Value::Array(rows)) = m.get("rows") else {
+                return None;
+            };
+            let n = rows
+                .iter()
+                .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
+                .count();
+            (n == want).then_some(n)
+        }
+    };
+    add(
+        "pts",
+        format!("list wy/{SITE}/downstream/m | where type == 'number' | subscribe value"),
+    )
+    .await;
+    let rows = eventually(&format!("{id}: 9 rows with values"), 60, || {
+        rows_with_values(9)
+    })
+    .await;
+
+    add(
+        "follow",
+        format!(
+            "path {} | subscribe | set ../p{dst} = value * 2.0",
+            point(src)
+        ),
+    )
+    .await;
+    eventually(&format!("{id}: follow ready"), 60, || async {
+        dql_attr(env, &format!("{root}/follow"), "status")
+            .await
+            .filter(|s| *s == Value::from("ready"))
+    })
+    .await;
+    // the first value is the baseline: nothing goes out until it changes
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    c.set(&point(dst), Value::Float(0.0))
+        .await
+        .expect("reset dst");
+    c.set(&point(src), Value::Float(21.0))
+        .await
+        .expect("set src");
+    let followed = eventually(&format!("{id}: p{dst} = 2 × p{src}"), 30, || async {
+        last_sample(env, &point(dst))
+            .await
+            .filter(|s| s.v == Value::Float(42.0))
+            .map(|_| true)
+    })
+    .await;
+
+    let restart = if restart {
+        // a hand-written value the sink must not overwrite on start
+        c.set(&point(dst), Value::Float(7.0))
+            .await
+            .expect("hand-write dst");
+        let link = format!("wy/{SITE}/sys/links/{id}");
+        invoke_retry(env, &link, "stop", Value::Map(BTreeMap::new())).await;
+        invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
+        let rows = eventually(&format!("{id}: pts back after the restart"), 60, || {
+            rows_with_values(9)
+        })
+        .await;
+        eventually(&format!("{id}: follow back"), 60, || async {
+            dql_attr(env, &format!("{root}/follow"), "status")
+                .await
+                .filter(|s| *s == Value::from("ready"))
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let kept = last_sample(env, &point(dst))
+            .await
+            .is_some_and(|s| s.v == Value::Float(7.0));
+        Some((rows, kept))
+    } else {
+        None
+    };
+    DqlRun {
+        rows,
+        followed,
+        restart,
+    }
+}
+
+/// ADR 0025 run modes: the DQL link embedded in `wyrmd`, as a WASM package (`dw`) and as a
+/// process package (`dp`) answer the same scenario alike. A package carries no grants: until
+/// an operator grants it the mock, its queries over it are `ready` with a refused list.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_three_modes() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    let env = Env::start(
+        "dqlmodes",
+        r#"links: { m: { driver: "mock", params: { points: 9, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    eventually("mock up", 60, || async {
+        last_sample(&env, &format!("wy/{SITE}/downstream/m/p8")).await
+    })
+    .await;
+    eventually("dql up", 60, || async {
+        c.meta(&format!("wy/{SITE}/downstream/dql")).await.ok()
+    })
+    .await;
+    let grant = |id: &str| {
+        let env = &env;
+        let id = id.to_owned();
+        async move {
+            let watch = BrokerWatch::new(env).await;
+            slow_client(env)
+                .await
+                .invoke_one(
+                    &format!("wy/{SITE}/sys/links/{id}"),
+                    "grant",
+                    args_map(&[
+                        ("path", Value::from("wy/{site}/downstream/m")),
+                        ("level", Value::from("write")),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("grant {id}: {e}"));
+            watch
+                .rebuilt(&format!("the rebuild after the grant to {id}"))
+                .await;
+        }
+    };
+    // without a grant the list is refused: the query is ready, empty, and says why
+    let refused = |id: &str| {
+        let env = &env;
+        let root = format!("wy/{SITE}/downstream/{id}");
+        async move {
+            eventually(&format!("{root}: add_query ng"), 60, || async {
+                let r = client_now(env)
+                    .await?
+                    .with_timeout(Duration::from_secs(60))
+                    .invoke_one(
+                        &root,
+                        "add_query",
+                        args_map(&[
+                            ("id", Value::from("ng")),
+                            ("text", Value::from(format!("list wy/{SITE}/downstream/m"))),
+                        ]),
+                    )
+                    .await;
+                match r {
+                    Ok(_) => Some(()),
+                    Err(e) if e.to_string().contains("exists") => Some(()),
+                    Err(_) => None,
+                }
+            })
+            .await;
+            let err = eventually(&format!("{root}/ng: an error"), 60, || async {
+                match dql_attr(env, &format!("{root}/ng"), "error").await {
+                    Some(Value::Str(e)) => Some(e),
+                    _ => None,
+                }
+            })
+            .await;
+            assert!(err.contains("permission_denied"), "{root}/ng: {err}");
+            assert_eq!(
+                dql_attr(env, &format!("{root}/ng"), "rows").await,
+                Some(Value::UInt(0))
+            );
+            slow_client(env)
+                .await
+                .invoke_one(&format!("{root}/ng"), "remove", Value::Map(BTreeMap::new()))
+                .await
+                .expect("remove ng");
+        }
+    };
+
+    let mut runs = vec![("dql", 0, 1, false)];
+    let wasm = portable_component("wyrm-link-dql");
+    match &wasm {
+        Some(component) => {
+            let m = Manifest {
+                name: "dql".into(),
+                version: "1.0.0".into(),
+                description: "the DQL link as a component".into(),
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: Default::default(),
+                args: Vec::new(),
+                entry: Some("dql.wasm".into()),
+                requester: Vec::new(),
+                world: Some("app".into()),
+                capabilities: Some(Capabilities {
+                    store_mb: Some(4),
+                    ..Capabilities::default()
+                }),
+            };
+            let files = [PackFile {
+                path: "dql.wasm".into(),
+                data: component.clone(),
+                mode: 0o644,
+            }];
+            let (ok, msg) = install_zip(&c, "dw", package::pack(&m, &files).unwrap()).await;
+            assert!(ok, "install dw: {msg}");
+            refused("dw").await;
+            grant("dw").await;
+            runs.push(("dw", 2, 3, true));
+        }
+        None => eprintln!(
+            "SKIP dql_three_modes (WASM mode): target wasm32-unknown-unknown is not installed \
+             (rustup target add wasm32-unknown-unknown)"
+        ),
+    }
+    // the process package last: its install rebuilds the router
+    let zip = driver_package_with(
+        "dql-process",
+        "1.0.0",
+        "the DQL link as a process",
+        "dql",
+        Some(serde_json::json!({ "store_mb": 4 })),
+    );
+    let watch = BrokerWatch::new(&env).await;
+    let (ok, msg) = install_zip(&slow_client(&env).await, "dp", zip).await;
+    assert!(ok, "install dp: {msg}");
+    watch.rebuilt("the rebuild after the install of dp").await;
+    refused("dp").await;
+    grant("dp").await;
+    runs.push(("dp", 4, 5, true));
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["dp"].mode, wyrm_admin::Mode::Process);
+    if wasm.is_some() {
+        assert_eq!(reg.links["dw"].driver, "pkg:dql");
+        assert_eq!(reg.links["dw"].mode, wyrm_admin::Mode::Embedded);
+    }
+
+    for (id, src, dst, restart) in runs {
+        let run = dql_scenario(&env, id, src, dst, restart).await;
+        let want = DqlRun {
+            rows: 9,
+            followed: true,
+            restart: restart.then_some((9, true)),
+        };
+        assert_eq!(run, want, "mode of {id}");
+    }
+    env.stop().await;
+}
