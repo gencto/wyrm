@@ -741,7 +741,9 @@ async fn tls_with_ca_pem_and_skip_verify() {
     h.stop().await;
 }
 
-/// `try_request` and `test_selector` on a device at level read.
+/// `try_request` and `test_selector` on a device at level config: they
+/// send real requests (a POST device too), show reply headers and the
+/// whole reply, and share the rate limit with the polls.
 #[tokio::test(flavor = "multi_thread")]
 async fn commissioning_actions() {
     let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -753,9 +755,18 @@ async fn commissioning_actions() {
     .await;
     let (_, m) = h.meta("c1/d1").await;
     let acts = m.unwrap().actions.unwrap();
-    assert_eq!(acts["try_request"].level, Some(Perm::Read));
-    assert_eq!(acts["test_selector"].level, Some(Perm::Read));
-    let (s0, v, e) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+    assert_eq!(acts["try_request"].level, Some(Perm::Config));
+    assert_eq!(acts["test_selector"].level, Some(Perm::Config));
+    wait("polled", || st(&s).seen.len() == 1).await;
+    for a in ["try_request", "test_selector"] {
+        let args = map(&[("path", "$".into())]);
+        for perm in [Perm::Read, Perm::Write] {
+            let (r, _, _) = act(&h, "c1/d1", a, args.clone(), perm).await;
+            assert_eq!(r, Some(Status::PermissionDenied), "{a} at {perm:?}");
+        }
+    }
+    assert_eq!(st(&s).seen.len(), 1, "a refused try_request sends nothing");
+    let (s0, v, e) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
     assert_eq!(s0, Some(Status::Ok), "{e}");
     assert_eq!(field(&v, "status"), &Value::UInt(200));
     assert_eq!(field(&v, "truncated"), &Value::Bool(false));
@@ -775,25 +786,25 @@ async fn commissioning_actions() {
         ("type", "number".into()),
         ("aggregate", "sum".into()),
     ]);
-    let (s1, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Read).await;
+    let (s1, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Config).await;
     assert_eq!(s1, Some(Status::Ok));
     assert_eq!(field(&v, "count"), &Value::UInt(3));
     assert_eq!(field(&v, "value"), &Value::Float(7.0));
     let args = map(&[("path", "$.items[*].v".into()), ("type", "number".into())]);
-    let (_, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Config).await;
     assert!(matches!(field(&v, "error"), Value::Str(e) if e.contains("selects 3")));
     let (s2, _, _) = act(
         &h,
         "c1/d1",
         "test_selector",
         map(&[("path", "nope".into())]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s2, Some(Status::InvalidParameter));
     // a 401 is a reply too; its cookie is not shown
     st(&s).auth = SimAuth::Bearer("x".into());
-    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
     assert_eq!(field(&v, "status"), &Value::UInt(401));
     let Value::Map(headers) = field(&v, "headers") else {
         panic!("headers")
@@ -803,7 +814,7 @@ async fn commissioning_actions() {
     // a large body is cut at 64 KiB
     st(&s).auth = SimAuth::None;
     st(&s).mode = Mode::Huge(100 * 1024);
-    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
     assert_eq!(field(&v, "truncated"), &Value::Bool(true));
     assert_eq!(field(&v, "bytes"), &Value::UInt(100 * 1024));
     h.stop().await;
@@ -875,7 +886,7 @@ async fn secrets_are_never_shown() {
     assert!(!format!("{m:?}").contains(TOKEN), "~meta hides it");
     let (_, v, _) = act(&h, "", "export", map(&[]), cfg).await;
     assert!(!format!("{v:?}").contains(TOKEN), "export hides it");
-    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
     let shown = format!("{v:?}");
     assert!(
         !shown.contains(TOKEN) && shown.contains("Bearer ***"),
@@ -887,7 +898,7 @@ async fn secrets_are_never_shown() {
             ("type", "string".into()),
             ("aggregate", "first".into()),
         ]);
-        let (r, v, e) = act(&h, "c1/d1", "test_selector", args, Perm::Read).await;
+        let (r, v, e) = act(&h, "c1/d1", "test_selector", args, Perm::Config).await;
         assert_eq!(r, Some(Status::Ok), "{e}");
         let shown = format!("{v:?}");
         assert!(
@@ -1047,14 +1058,14 @@ async fn an_echoed_query_key_is_masked() {
     ))
     .await;
     wait("masked", || good(&h, "c1/d1/q", "a=1&apikey=***".into())).await;
-    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
     let shown = format!("{v:?}");
     assert!(
         !shown.contains(KEY) && shown.contains("apikey=***"),
         "{shown}"
     );
     let args = map(&[("path", "$.query".into())]);
-    let (_, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Read).await;
+    let (_, v, _) = act(&h, "c1/d1", "test_selector", args, Perm::Config).await;
     let shown = format!("{v:?}");
     assert!(
         !shown.contains(KEY) && shown.contains("apikey=***"),
@@ -1099,7 +1110,7 @@ async fn escaped_numeric_and_key_secrets_are_masked() {
             let p = format!("c1/d1/{n}");
             wait(&format!("{p} masked"), || good(&h, &p, (*want).into())).await;
         }
-        let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Read).await;
+        let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
         let shown = format!("{v:?}");
         assert!(!shown.contains(token) && shown.contains("***"), "{shown}");
         assert!(!shown.contains("\\u0031"), "shown as masked JSON: {shown}");
@@ -1108,7 +1119,7 @@ async fn escaped_numeric_and_key_secrets_are_masked() {
             "c1/d1",
             "test_selector",
             map(&[("path", "$".into())]),
-            Perm::Read,
+            Perm::Config,
         )
         .await;
         let shown = format!("{v:?}");

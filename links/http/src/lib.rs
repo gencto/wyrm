@@ -28,7 +28,7 @@
 //! Late replies: one request at a time per connection; a request that is
 //! cut drops its connection ([`client`]).
 //!
-//! Commissioning actions on a device (level read): `try_request` (the
+//! Commissioning actions on a device (level config): `try_request` (the
 //! device's request now → status, headers, body up to 64 KiB, secrets
 //! masked) and `test_selector {path, type?, aggregate?}` (a selector
 //! against the last JSON reply of the device's request, no I/O).
@@ -1592,7 +1592,7 @@ impl Driver for HttpDriver {
             (
                 "try_request",
                 ActionMeta::new()
-                    .level(Perm::Read)
+                    .level(Perm::Config)
                     .display("Try Request")
                     .timeout_ms(TRY_MS)
                     .result(ActionResult::Type(TypeCode::Map)),
@@ -1600,7 +1600,7 @@ impl Driver for HttpDriver {
             (
                 "test_selector",
                 ActionMeta::new()
-                    .level(Perm::Read)
+                    .level(Perm::Config)
                     .display("Test Selector")
                     .timeout_ms(5_000)
                     .result(ActionResult::Type(TypeCode::Map))
