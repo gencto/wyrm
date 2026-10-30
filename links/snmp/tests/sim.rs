@@ -704,6 +704,22 @@ async fn unreachable_agent_then_reconnect() {
     h.stop().await;
 }
 
+/// `localhost` resolves to `::1` first on some hosts (macOS); an agent on
+/// IPv4 only (net-snmp's default) is still reached.
+#[tokio::test(flavor = "multi_thread")]
+async fn localhost_reaches_an_ipv4_agent() {
+    let (addr, _agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[("name", scalar(SYS_NAME, &[]))]);
+    let h = H::start(tree(
+        &v2c(addr.port(), &[("host", "localhost".into())]),
+        &[],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    h.stop().await;
+}
+
 /// A wrong community gets no answer (agents drop such requests).
 #[tokio::test(flavor = "multi_thread")]
 async fn wrong_community_is_silence() {

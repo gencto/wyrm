@@ -586,6 +586,19 @@ pub struct Transport {
     note: Option<String>,
 }
 
+/// The first IPv4 address, else the first one: `localhost` is `::1` first
+/// on some hosts, and many agents (net-snmp's default) listen on IPv4 only.
+fn prefer_ipv4(addrs: impl Iterator<Item = SocketAddr>) -> Option<SocketAddr> {
+    let mut first = None;
+    for a in addrs {
+        if a.is_ipv4() {
+            return Some(a);
+        }
+        first.get_or_insert(a);
+    }
+    first
+}
+
 fn is_loopback(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost") || host.parse::<IpAddr>().is_ok_and(|a| a.is_loopback())
 }
@@ -919,11 +932,11 @@ impl Driver for SnmpDriver {
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
         let timeout = Duration::from_millis(conn.timeout_ms().into());
         let target = format!("{}:{}", conn.host(), conn.port());
-        let addr: SocketAddr = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
+        let addrs = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
             .await
             .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
-            .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
-            .next()
+            .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?;
+        let addr = prefer_ipv4(addrs)
             .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
         let loopback = is_loopback(conn.host());
         let (sec, note) = match conn {
@@ -1185,13 +1198,15 @@ impl Driver for SnmpDriver {
         dev.ping.then(|| Duration::from_secs_f64(dev.ping_s))
     }
 
-    /// Bound on a ping and on `open` (v3: discovery, the probe and a time
-    /// window resync, and the key localization).
+    /// Bound on a ping and on `open` (the host name lookup, at most
+    /// `timeout_ms`; v3: discovery, the probe and a time window resync, and
+    /// the key localization).
     fn io_timeout(conn: &Conn) -> Duration {
         let per = conn.per_request();
+        let lookup = Duration::from_millis(conn.timeout_ms().into());
         match conn {
-            Conn::V2c(_) => per + Duration::from_secs(1),
-            Conn::V3(_) => per * 3 + Duration::from_millis(KEY_MS + 1000),
+            Conn::V2c(_) => lookup + per + Duration::from_secs(1),
+            Conn::V3(_) => lookup + per * 3 + Duration::from_millis(KEY_MS + 1000),
         }
     }
 
@@ -1288,6 +1303,18 @@ mod tests {
 
     fn point(kv: &[(&str, Value)]) -> wyrm_link_sdk::Result<Point> {
         Point::from_value(&map(kv))
+    }
+
+    #[test]
+    fn ipv4_first() {
+        let a = |s: &str| s.parse::<SocketAddr>().unwrap();
+        let both = [a("[::1]:161"), a("127.0.0.1:161")];
+        assert_eq!(prefer_ipv4(both.into_iter()), Some(a("127.0.0.1:161")));
+        assert_eq!(
+            prefer_ipv4([a("[::1]:161")].into_iter()),
+            Some(a("[::1]:161"))
+        );
+        assert_eq!(prefer_ipv4(std::iter::empty()), None);
     }
 
     /// A Counter32 sample older than `max(2 × poll_s, poll_s + 5 s)` may
