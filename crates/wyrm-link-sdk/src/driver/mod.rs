@@ -205,7 +205,9 @@ pub trait Driver: Sized + Send + Sync + 'static {
         None
     }
 
-    /// Missed polls before `uncertain/stale` becomes `bad/comm_fail`.
+    /// Missed polls before `uncertain/stale` becomes `bad/comm_fail`; also
+    /// the poll periods in a row a poll may wait to run (behind an action)
+    /// before its points go `uncertain/stale`.
     fn stale_misses() -> u32 {
         3
     }
@@ -229,7 +231,11 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// [`Driver::io_timeout`], and never past the SDK's bound on the call,
     /// `LinkConfig::driver_timeout` without `timeout_ms`: set it for an
     /// action that may take longer). Names of framework actions and `add_*`
-    /// are refused.
+    /// are refused. One driver action per connection is queued or running
+    /// at a time: while it is, another action of the connection (any
+    /// caller, any level) and a `~set` to one of its points answer `busy`
+    /// at once, so actions delay the connection's polls by one action at
+    /// most and never hold the link task.
     fn actions(_level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         Vec::new()
     }
@@ -302,8 +308,15 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// what the server serves, without a read-back, and the framework
     /// publishes [`Driver::take_changed`]. Requests of the remote side come
     /// through [`Driver::remote`] and [`Driver::apply_remote`] on the owner
-    /// task, so they and the tree's sets are applied in one order. Driver actions of such a connection
-    /// and its devices are [`Driver::server_actions`].
+    /// task, so they and the tree's sets are applied in one order. Driver
+    /// actions of such a connection and its devices are
+    /// [`Driver::server_actions`].
+    ///
+    /// **A server's [`Driver::write`] must not do I/O** (no device, no
+    /// socket): it only changes what the server serves. The framework calls
+    /// it under the plan's read lock right after [`Driver::serve`], where a
+    /// re-plan (and so the link task) waits for it; a write that waits on
+    /// I/O there would hold the link for points × [`Driver::write_timeout`].
     fn is_server(_conn: &Self::Conn) -> bool {
         false
     }
@@ -316,7 +329,8 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// each point new to the server or whose params or device params
     /// changed (after open: every point), so values come from the tree.
     /// Returns the devices the server refuses, with why: they show
-    /// `Failed` with that error, the others `Connected`.
+    /// `Failed` with that error, the others `Connected`. Neither this nor
+    /// the writes after it may do I/O (see [`Driver::is_server`]).
     fn serve(_t: &mut Self::Transport, _devs: &[Served<'_, Self>]) -> Vec<(String, String)> {
         Vec::new()
     }

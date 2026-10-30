@@ -1482,3 +1482,69 @@ async fn root_import_checks_all_then_imports_each() {
     assert!(!exists(&h, "m0").await);
     h.stop().await;
 }
+
+/// Final review M5: a copy or import whose save fails changes nothing in
+/// memory (the tree never runs ahead of the disk): a retry once the disk
+/// works again does not answer "exists", and a root import that would
+/// overwrite a running connection leaves it running.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_save_changes_nothing() {
+    let tag = 78;
+    let dir = temp_dir("savefail");
+    let h = start_stored(tree(tag), &dir).await;
+    wait("c1 polled", || {
+        h.ctx()
+            .last("c1/d1/f1/f2/p2")
+            .is_some_and(|s| s.q == Quality::Good)
+    })
+    .await;
+    let before = root_export(&h).await;
+    let (c1, d1, f1) = (
+        export(&h, "c1").await,
+        export(&h, "c1/d1").await,
+        export(&h, "c1/d1/f1").await,
+    );
+    // The data_dir is gone: every save fails (on its temp file).
+    std::fs::remove_dir_all(&dir).unwrap();
+    let failed = |o: &Out, what: &str| {
+        assert_eq!(o.status, Some(Status::InternalError), "{what}: {}", o.err);
+        assert!(o.err.contains("not saved"), "{what}: {}", o.err);
+    };
+    for (path, name) in [
+        ("c1", "c9"),
+        ("c1/d1", "d9"),
+        ("c1/d1/f1", "f9"),
+        ("c1/d1/p0", "p9"),
+    ] {
+        failed(&run(&h, path, "copy", named(name)).await, path);
+    }
+    failed(
+        &run(&h, "", "import", import_args(&c1, None, true)).await,
+        "root overwrite",
+    );
+    failed(
+        &run(&h, "c1", "import", import_args(&d1, None, true)).await,
+        "device overwrite",
+    );
+    failed(
+        &run(&h, "c1/d1", "import", import_args(&f1, None, true)).await,
+        "folder overwrite",
+    );
+    assert_eq!(root_export(&h).await, before, "nothing changed in memory");
+    for p in ["c9", "c1/d9", "c1/d1/f9", "c1/d1/p9"] {
+        assert!(!exists(&h, p).await, "{p} not declared");
+    }
+    // The old run of c1 goes on.
+    assert_eq!(state(&h, "c1"), is_state(NodeState::Connected));
+    let polls = || log(tag).iter().filter(|e| e.starts_with("poll")).count();
+    let n = polls();
+    wait("c1 still polls", || polls() > n + 3).await;
+
+    // The disk works again: the same copy is made, not "exists".
+    std::fs::create_dir_all(&dir).unwrap();
+    ok(&h, "c1", "copy", named("c9")).await;
+    ok(&h, "c1/d1/p0", "copy", named("p9")).await;
+    assert!(exists(&h, "c9").await && exists(&h, "c1/d1/p9").await);
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -246,9 +246,14 @@ shows what the device holds.
   (the device does not know its connection's kind), then shows `Failed`
   with `broadcast (unit 0) is not supported on RTU`; a write answers the
   same.
-- A write that waited behind a long action (`scan_units`) until its
-  caller stopped waiting is dropped and answers `timeout`: equipment is
-  never written late.
+- **A set during a driver action of the same connection** (`scan_units`,
+  `read_registers`, `read_device_id`) answers `busy` at once: send it
+  again after the action. It never waits for the action, so it never
+  holds the sets, actions and edits of the link's other connections, and
+  it is never written late.
+- A write that waited behind a long poll until its caller stopped
+  waiting is dropped and answers `timeout`: equipment is never written
+  late.
 - A write to a device that does not answer, with a long `timeout_ms` and
   `retries`, and its read-back can take longer than a client waits (10 s
   by default). The client then gets `timeout`; the point still shows what
@@ -294,10 +299,15 @@ shows what the device holds.
 | first poll of the device missed (timeout) | last value | `uncertain/stale` |
 | 3 polls missed | last value; the device `Failed` | `bad/comm_fail` |
 | one batch of the device timed out while its other batches answered | last value; the device stays `Connected` | `uncertain/stale`, after 3 such polls `bad/comm_fail` |
+| the poll could not run for 3 poll periods (it waits behind a driver action, a long write series or another device's polls that time out) | last value | `uncertain/stale`; `good` again at its next read |
+| polls miss while pings answer (a probe register that answers, a span the device drops) | last value; the device `Connected` | `bad/comm_fail` after 3 missed polls; it stays bad until a poll answers |
 | exception reply for the point's request, or a value that does not decode | last value | `bad/device_error` |
 | connection down | last value; devices `Stopped by Parent` | `bad/disconnected` |
 | slave: the tree's value does not fit the point after an edit | last value | `bad/config_error` |
 | the next good read | the value read | `good` |
+
+No miss lifts a quality: a point already `bad` stays `bad` until it is
+read, even when its device answers for its other points again.
 
 **There is no "zero on failed poll"** (DSA writes 0, false or "" when a
 poll fails). A made-up value at good quality cannot be told from a real
@@ -367,6 +377,10 @@ beside the source.
   again with `edit` (an import never takes secrets from the text).
   Overwrite keeps a stored secret while the node's destination fields stay
   the same.
+- A copy or import whose save fails (a full disk) changes nothing: it
+  answers `internal_error` ("not saved for a restart, nothing changed"),
+  and a node it would overwrite keeps running. Run it again once the disk
+  works.
 - An imported connection or device starts stopped. A folder imported into
   a running device is polled at once (folders have no stop).
 - Bounds: 4 MiB of text, 5000 nodes, 60 s per call. The text is checked
@@ -433,7 +447,8 @@ the report).
   exists): remove it, or give `name` for a one-connection file.
 - **A failure while saving** (a full disk) after some connections were
   imported leaves those connections imported; the error does not list
-  them. Look at the tree before you run the import again.
+  them. The connection whose save failed is not imported. Look at the
+  tree before you run the import again.
 
 ## 12. Diagnostics and commissioning
 
@@ -462,7 +477,11 @@ Each connection and each device has the value leaves `requests`, `errors`,
   request at a time. `read_registers` and `read_device_id` send each
   request once at the connection's `timeout_ms`; the action is bounded by
   12 s. A device that does not support FC43 answers `not_supported`.
-  An action that finds the connection's queue full answers `busy`.
+- **One action at a time per connection.** Another action of the same
+  connection, from any caller, answers `busy` at once while one is
+  queued or running; so does a set (section 6). So actions delay the
+  polls of the connection by one action at most, even when a `read`
+  caller sends them without a pause.
 - `scan_units` sends one read of holding register 0 per unit. Any reply,
   an exception too, counts as an answer, except a gateway's "target did
   not respond" or "path unavailable". A transport error stops the scan
@@ -471,8 +490,9 @@ Each connection and each device has the value leaves `requests`, `errors`,
   range or use a shorter `timeout_ms`.
 - **A scan pauses the polling of its connection** for its whole run:
   about 62 s for 247 silent units at the defaults (up to 165 s). Point
-  values stay `good` but are not refreshed, and they do not go stale.
-  Writes wait too (section 6).
+  values are not refreshed: after 3 poll periods they go
+  `uncertain/stale` (section 8), and `good` again at the first poll after
+  the scan. Sets answer `busy` meanwhile (section 6).
 - **A scan shows in the diagnostics:** a full scan of a silent range adds
   about one timeout and one reopen per silent unit (about 245 for the
   default range). That is the scan, not a failing bus.

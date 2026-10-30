@@ -130,6 +130,21 @@ async fn non_loopback_listen_is_flagged() {
     assert_eq!(open, 1, "{logged:?}");
     assert_eq!(logged.len(), 1 + usize::from(has_v6), "{logged:?}");
 
+    // Final review M4: "Rescan For Serial Ports" declares every connection
+    // again; the warning stays on the running slave's `status`.
+    let r = h
+        .invoke("", "rescan", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(
+        r[0].att.status,
+        Some(wyrm_core::status::StatusCode::Known(Status::Ok))
+    );
+    let Some(Value::Str(note)) = warning(&h, "open").await else {
+        panic!("no warning on open/status after a rescan");
+    };
+    assert!(note.contains("not loopback"), "{note}");
+    assert_eq!(warning(&h, "lo").await, None, "loopback: still no warning");
+
     // back to loopback: the warning goes
     let edit = map(&[
         ("listen_host", "127.0.0.1".into()),

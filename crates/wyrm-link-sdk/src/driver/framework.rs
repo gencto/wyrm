@@ -69,7 +69,7 @@ use crate::error::{LinkError, Result};
 use crate::link::{Link, ReplySink};
 use crate::params::FromParams;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -422,8 +422,16 @@ struct Group<D: Driver> {
     period: Duration,
     ids: Vec<PointId>,
     plan: Arc<D::Plan>,
-    inflight: Arc<AtomicBool>,
+    /// Its poll request: [`POLL_IDLE`], [`POLL_QUEUED`] or [`POLL_RUNNING`].
+    inflight: Arc<AtomicU8>,
 }
+
+/// No poll of the group is queued or running.
+const POLL_IDLE: u8 = 0;
+/// A poll of the group waits in the owner's queue.
+const POLL_QUEUED: u8 = 1;
+/// The owner took the poll and runs it.
+const POLL_RUNNING: u8 = 2;
 
 /// What the owner task needs about one device.
 struct DevRun<D: Driver> {
@@ -463,8 +471,9 @@ enum Req {
         group: usize,
         /// The plan generation the ticker was started for.
         gen: u64,
-        /// The group's flag: cleared once the poll ran or was dropped.
-        inflight: Arc<AtomicBool>,
+        /// The group's state: [`POLL_RUNNING`] once the owner takes the
+        /// poll, [`POLL_IDLE`] once it ran or was dropped.
+        inflight: Arc<AtomicU8>,
     },
     Ping {
         dev: String,
@@ -496,15 +505,53 @@ enum Req {
         bound: Option<Duration>,
         /// When the caller stops waiting: the action never runs past it.
         deadline: tokio::time::Instant,
-        reply: oneshot::Sender<Result<Value>>,
+        reply: ActionReply,
     },
     /// A server connection was re-planned: hand the new plan to the server
     /// ([`Driver::serve`]).
     Serve,
 }
 
+/// The answer to a driver action. It frees the connection's action slot
+/// ([`ConnRun::acting`]) just before it answers, or when it is dropped
+/// unanswered (the request was dropped, the owner ended): one driver
+/// action queued or running per connection (final review I1).
+struct ActionReply {
+    tx: Option<oneshot::Sender<Result<Value>>>,
+    slot: Arc<AtomicBool>,
+}
+
+impl ActionReply {
+    fn send(mut self, r: Result<Value>) -> std::result::Result<(), Result<Value>> {
+        self.slot.store(false, Ordering::Release);
+        match self.tx.take() {
+            Some(tx) => tx.send(r),
+            None => Err(r),
+        }
+    }
+}
+
+impl Drop for ActionReply {
+    fn drop(&mut self) {
+        // Only when unanswered: once answered, the slot may already hold
+        // the caller's next action.
+        if self.tx.is_some() {
+            self.slot.store(false, Ordering::Release);
+        }
+    }
+}
+
+/// The shown [`Driver::status_note`] of a running connection, kept for a
+/// new declaration of its `status` leaf (`rescan`).
+type NoteSlot = Arc<tokio::sync::Mutex<Option<String>>>;
+
 struct ConnRun<D: Driver> {
     tx: mpsc::Sender<Req>,
+    /// A driver action of the connection is queued or running: another
+    /// action and a set answer `busy` at once (final review I1, I2).
+    acting: Arc<AtomicBool>,
+    /// The note its owner shows on the `status` leaf.
+    note: NoteSlot,
     /// The plan the owner serves ([`View`]) and its generation.
     view: SharedView<D>,
     gen: u64,
@@ -539,6 +586,14 @@ fn status_meta() -> NodeMeta {
     NodeMeta::leaf(TypeCode::Enum)
         .is("wy:df-status")
         .enum_values(NodeState::LABELS)
+}
+
+/// The `status` leaf with a [`Driver::status_note`] as `attr.warning`.
+fn status_with(note: Option<&str>) -> NodeMeta {
+    match note {
+        Some(n) => status_meta().attr("warning", n),
+        None => status_meta(),
+    }
 }
 
 /// Publish the state; declare the `error` leaf while there is an error and
@@ -620,6 +675,24 @@ async fn mark(ctx: &LinkCtx, paths: impl IntoIterator<Item = String>, q: Quality
     }
 }
 
+/// `uncertain/stale` for those of `paths` whose last sample is good (value
+/// kept): a point never goes up in quality without an answer (final review
+/// M1), so a `bad` point stays `bad`.
+async fn mark_stale(ctx: &LinkCtx, paths: impl IntoIterator<Item = String>) {
+    for p in paths {
+        if let Some(s) = ctx.last(&p) {
+            if s.q == Quality::Good {
+                let stale = Sample {
+                    v: s.v,
+                    q: Quality::Uncertain,
+                    t: now_us(),
+                };
+                let _ = ctx.update_sample(&p, stale, Some(QUAL_STALE)).await;
+            }
+        }
+    }
+}
+
 /// Actions of the framework; a driver action may not use these names.
 const FRAMEWORK_ACTIONS: [&str; 9] = [
     "edit", "remove", "restart", "start", "stop", "export", "rescan", "copy", "import",
@@ -629,10 +702,14 @@ fn framework_action(name: &str) -> bool {
     name.starts_with("add_") || FRAMEWORK_ACTIONS.contains(&name)
 }
 
-/// The names a new device, folder or point of `D` may not take (besides
-/// those starting with `add_`): the `status` and `error` leaves, the
-/// diagnostics leaves and the framework's action names. For a driver that
-/// names imported nodes (a root import).
+/// The names a driver that names imported nodes (a root import) should
+/// keep clear of, besides those starting with `add_`: the `status` and
+/// `error` leaves, the diagnostics leaves and the framework's action names.
+/// The add path refuses fewer (final review M7): `status` and `error`
+/// everywhere, the diagnostics leaves for devices, points and folders, and
+/// the action names (and `add_*`) for folders only. No key would clash
+/// (actions live under `~act/`); the list is the widest set, so a name
+/// taken from it fits any level.
 pub fn reserved_names<D: Driver>() -> Vec<&'static str> {
     let mut v = vec![STATUS, ERROR];
     if D::DIAGNOSTICS {
@@ -937,9 +1014,21 @@ impl<D: Driver> Framework<D> {
         let mut meta = NodeMeta::folder().is("wy:df-connection");
         meta.cfg = Some(shown.clone());
         self.ctx.declare_node(name, meta).await?;
-        self.ctx
-            .declare_node(&status_path(name), status_meta())
-            .await?;
+        match &c.run {
+            // The note its owner shows stays (final review M4); the lock
+            // keeps the owner from changing it meanwhile.
+            Some(run) => {
+                let note = run.note.lock().await;
+                self.ctx
+                    .declare_node(&status_path(name), status_with(note.as_deref()))
+                    .await?;
+            }
+            None => {
+                self.ctx
+                    .declare_node(&status_path(name), status_meta())
+                    .await?;
+            }
+        }
         for (id, k) in adds::<D::Dev>("device") {
             let display = add_display("device", &k);
             self.ctx
@@ -1265,7 +1354,7 @@ impl<D: Driver> Framework<D> {
                     period,
                     ids: members.iter().map(|(n, _)| n.clone()).collect(),
                     plan: Arc::new(D::plan(cfg, &members)),
-                    inflight: Arc::new(AtomicBool::new(false)),
+                    inflight: Arc::new(AtomicU8::new(POLL_IDLE)),
                 })
                 .collect();
             out.insert(
@@ -1288,6 +1377,7 @@ impl<D: Driver> Framework<D> {
         &self,
         devs: &DevMap<D>,
         tx: &mpsc::Sender<Req>,
+        view: &SharedView<D>,
         gen: u64,
         server: bool,
     ) -> (Vec<JoinHandle<()>>, watch::Sender<bool>) {
@@ -1306,14 +1396,24 @@ impl<D: Driver> Framework<D> {
                         }
                     }
                 }
+                let paths = g
+                    .ids
+                    .iter()
+                    .filter_map(|id| run.paths.get(id).cloned())
+                    .collect();
                 tickers.push(tokio::spawn(
-                    poll_ticker(
-                        tx.clone(),
-                        dev.clone(),
-                        gi,
-                        gen,
-                        g.period,
-                        g.inflight.clone(),
+                    poll_ticker::<D>(
+                        Ticker {
+                            ctx: self.ctx.clone(),
+                            view: view.clone(),
+                            tx: tx.clone(),
+                            dev: dev.clone(),
+                            group: gi,
+                            gen,
+                            period: g.period,
+                            inflight: g.inflight.clone(),
+                            paths,
+                        },
                         pubs,
                         self.poll_unsubscribed,
                         rx.clone(),
@@ -1369,6 +1469,8 @@ impl<D: Driver> Framework<D> {
                     }
                 }
                 let (tx, rx) = mpsc::channel(256);
+                let acting = Arc::new(AtomicBool::new(false));
+                let note = NoteSlot::default();
                 let (stop, stop_rx) = watch::channel(false);
                 let book = diag::new_book(c.devices.keys());
                 let flusher = D::DIAGNOSTICS.then(|| {
@@ -1397,14 +1499,17 @@ impl<D: Driver> Framework<D> {
                         cfg,
                         view.clone(),
                         book.clone(),
+                        note.clone(),
                         rx,
                         stop_rx,
                     )
                     .in_current_span(),
                 );
-                let (tickers, tick_stop) = self.start_tickers(&devs, &tx, 0, server).await;
+                let (tickers, tick_stop) = self.start_tickers(&devs, &tx, &view, 0, server).await;
                 self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
                     tx,
+                    acting,
+                    note,
                     view,
                     gen: 0,
                     stop,
@@ -1462,7 +1567,10 @@ impl<D: Driver> Framework<D> {
     }
 
     /// Send a driver action to the owner and answer `out` from a task of
-    /// its own: the link task does not wait for the action.
+    /// its own: the link task does not wait for the action. One action per
+    /// connection is queued or running at a time; another answers `busy`
+    /// at once, so actions (of any caller, even at level `read`) delay the
+    /// connection's polls by one action at most (final review I1).
     async fn run_action(
         &self,
         conn: &str,
@@ -1477,12 +1585,24 @@ impl<D: Driver> Framework<D> {
             .get(conn)
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
-        let (reply, rx) = oneshot::channel();
+        if run.acting.swap(true, Ordering::AcqRel) {
+            return Err(LinkError::new(
+                Status::Busy,
+                "an action runs on this connection: try again",
+            ));
+        }
+        let (tx, rx) = oneshot::channel();
+        // Frees the slot once answered, or dropped unanswered.
+        let reply = ActionReply {
+            tx: Some(tx),
+            slot: run.acting.clone(),
+        };
         let bound = timeout_ms.map(|ms| Duration::from_millis(ms.into()));
         // The SDK's bound on this call, counted from the request.
         let deadline = out.since() + bound.unwrap_or_else(|| self.ctx.driver_timeout());
-        // Never wait for room: a full queue (a long action holds the owner)
-        // answers `busy` and does not stall the link task (P12).
+        // Never wait for room: a full queue answers `busy` and does not
+        // stall the link task (P12). A refused request drops its reply,
+        // which frees the slot.
         run.tx
             .try_send(Req::Invoke {
                 dev,
@@ -1538,11 +1658,15 @@ impl<D: Driver> Framework<D> {
             v.since = tokio::time::Instant::now();
             v.gen
         };
-        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx, gen, server).await;
+        let (tickers, tick_stop) = self
+            .start_tickers(&devs, &run.tx, &run.view, gen, server)
+            .await;
         if server {
             // Nothing else wakes the owner of a server: it hands the new
-            // plan to the server at once (a new point is served now).
-            let _ = run.tx.send(Req::Serve).await;
+            // plan to the server at once (a new point is served now). Never
+            // wait for room: a full queue wakes it anyway, and it serves
+            // the new plan before its next request.
+            let _ = run.tx.try_send(Req::Serve);
         }
         self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
             tickers,
@@ -1632,28 +1756,70 @@ async fn stop_run<D: Driver>(run: ConnRun<D>) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn poll_ticker(
+/// What a poll ticker serves: one poll group of a device.
+struct Ticker<D: Driver> {
+    ctx: LinkCtx,
+    view: SharedView<D>,
     tx: mpsc::Sender<Req>,
     dev: String,
     group: usize,
+    /// The plan generation the ticker was started for.
     gen: u64,
     period: Duration,
-    inflight: Arc<AtomicBool>,
+    inflight: Arc<AtomicU8>,
+    /// The node keys of the group's points.
+    paths: Vec<String>,
+}
+
+impl<D: Driver> Ticker<D> {
+    /// One more period in which the group's poll could not run (it waits
+    /// in the queue behind an action or a long write series, or the queue
+    /// is full): after [`Driver::stale_misses`] in a row the group's good
+    /// points go `uncertain/stale` (final review M3). A poll that runs
+    /// counts its own outcome instead ([`Owner::dev_miss`]).
+    async fn waited(&self, waits: &mut u32) {
+        *waits = waits.saturating_add(1);
+        if *waits != D::stale_misses().max(1) {
+            return;
+        }
+        // Only while the plan is current: nothing of an old plan publishes
+        // after a re-plan (P19).
+        let current = self.view.read().await;
+        if current.gen == self.gen {
+            mark_stale(&self.ctx, self.paths.iter().cloned()).await;
+        }
+    }
+}
+
+async fn poll_ticker<D: Driver>(
+    t: Ticker<D>,
     pubs: Vec<PointPublisher>,
     poll_unsubscribed: bool,
     mut stop: watch::Receiver<bool>,
 ) {
-    let mut iv = tokio::time::interval(period);
+    let mut iv = tokio::time::interval(t.period);
     iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Periods in a row in which the group's poll could not run.
+    let mut waits = 0u32;
+    // The last tick queued a poll.
+    let mut queued = false;
     loop {
         tokio::select! {
             _ = iv.tick() => {}
             _ = stop.changed() => return,
         }
         // No pile-up: a slow device skips ticks instead of queueing them.
-        if inflight.load(Ordering::Acquire) {
-            continue;
+        match t.inflight.load(Ordering::Acquire) {
+            POLL_RUNNING => {
+                waits = 0;
+                continue;
+            }
+            POLL_QUEUED => {
+                t.waited(&mut waits).await;
+                continue;
+            }
+            _ if queued => waits = 0,
+            _ => {}
         }
         if !poll_unsubscribed {
             let mut any = false;
@@ -1664,20 +1830,23 @@ async fn poll_ticker(
                 }
             }
             if !any {
+                // Not polled on purpose: no miss.
+                (waits, queued) = (0, false);
                 continue;
             }
         }
-        inflight.store(true, Ordering::Release);
-        if tx
-            .try_send(Req::Poll {
-                dev: dev.clone(),
-                group,
-                gen,
-                inflight: inflight.clone(),
+        t.inflight.store(POLL_QUEUED, Ordering::Release);
+        queued =
+            t.tx.try_send(Req::Poll {
+                dev: t.dev.clone(),
+                group: t.group,
+                gen: t.gen,
+                inflight: t.inflight.clone(),
             })
-            .is_err()
-        {
-            inflight.store(false, Ordering::Release);
+            .is_ok();
+        if !queued {
+            t.inflight.store(POLL_IDLE, Ordering::Release);
+            t.waited(&mut waits).await;
         }
     }
 }
@@ -1716,7 +1885,13 @@ async fn ping_ticker(
 /// Per-device bookkeeping inside the owner.
 struct DevHealth {
     state: Option<NodeState>,
+    /// Misses in a row (polls and pings): the quality ladder.
     misses: u32,
+    /// Of those, the polls without an answer since the last poll that
+    /// answered: an answered ping forgives only the others (final review
+    /// M2), so a device whose polls time out but whose pings answer stays
+    /// `bad/comm_fail`.
+    poll_misses: u32,
     /// Misses in a row of single points (by path) whose result was
     /// [`DriverError::Device`] while other points of the device answered.
     point_misses: BTreeMap<String, u32>,
@@ -1738,8 +1913,8 @@ struct Owner<D: Driver> {
     /// The plan the server was last handed ([`Driver::serve`]) and its
     /// generation; `None` on a transport just opened.
     served: Option<(u64, Arc<DevMap<D>>)>,
-    /// The `status` leaf shows a [`Driver::status_note`].
-    noted: bool,
+    /// The [`Driver::status_note`] its `status` leaf shows.
+    note: NoteSlot,
 }
 
 impl<D: Driver> Owner<D> {
@@ -1768,6 +1943,7 @@ impl<D: Driver> Owner<D> {
         self.health.entry(dev.to_owned()).or_insert(DevHealth {
             state: None,
             misses: 0,
+            poll_misses: 0,
             point_misses: BTreeMap::new(),
             token,
         })
@@ -1803,27 +1979,36 @@ impl<D: Driver> Owner<D> {
         set_status(&self.ctx, &format!("{}/{dev}", self.conn), s, err).await;
     }
 
+    /// The device answered a poll (or a server serves it).
     async fn dev_ok(&mut self, dev: &str) {
-        self.health(dev).misses = 0;
+        let h = self.health(dev);
+        (h.misses, h.poll_misses) = (0, 0);
         self.dev_state(dev, NodeState::Connected, None).await;
     }
 
-    /// Quality ladder: first miss → `uncertain/stale`; `stale_misses` → device
-    /// `Failed`, points `bad/comm_fail`.
-    async fn dev_miss(&mut self, dev: &str, why: &str) {
+    /// The device answered a ping: `Connected`, but the misses its polls
+    /// earned stay (final review M2). Its points keep their quality until a
+    /// poll answers: the ladder neither starts again nor goes back.
+    async fn ping_ok(&mut self, dev: &str) {
+        let h = self.health(dev);
+        h.misses = h.poll_misses;
+        self.dev_state(dev, NodeState::Connected, None).await;
+    }
+
+    /// Quality ladder: first miss → `uncertain/stale` (good points only);
+    /// `stale_misses` → device `Failed`, points `bad/comm_fail`. `poll`: a
+    /// poll's miss, not a ping's.
+    async fn dev_miss(&mut self, dev: &str, why: &str, poll: bool) {
         let misses = {
             let h = self.health(dev);
             h.misses += 1;
+            if poll {
+                h.poll_misses += 1;
+            }
             h.misses
         };
         if misses == 1 {
-            mark(
-                &self.ctx,
-                self.dev_points(dev),
-                Quality::Uncertain,
-                QUAL_STALE,
-            )
-            .await;
+            mark_stale(&self.ctx, self.dev_points(dev)).await;
         }
         if misses == D::stale_misses().max(1) {
             self.dev_state(dev, NodeState::Failed, Some(why)).await;
@@ -1843,13 +2028,28 @@ impl<D: Driver> Owner<D> {
     async fn points_missed(&mut self, dev: &str, answered: Vec<String>, missed: Vec<String>) {
         let limit = D::stale_misses().max(1);
         let (mut stale, mut failed) = (Vec::new(), Vec::new());
+        // A point already `bad` (the device failed, a point error) starts
+        // at the limit: no answer never lifts it (M1).
+        let missed: Vec<(String, bool)> = missed
+            .into_iter()
+            .map(|p| {
+                let bad = self.ctx.last(&p).is_some_and(|s| s.q == Quality::Bad);
+                (p, bad)
+            })
+            .collect();
         {
             let h = self.health(dev);
             for p in answered {
                 h.point_misses.remove(&p);
             }
-            for p in missed {
-                let n = h.point_misses.entry(p.clone()).or_insert(0);
+            for (p, bad) in missed {
+                let n = h
+                    .point_misses
+                    .entry(p.clone())
+                    .or_insert(if bad { limit } else { 0 });
+                if *n >= limit {
+                    continue;
+                }
                 *n += 1;
                 if *n == 1 {
                     stale.push(p.clone());
@@ -1859,7 +2059,7 @@ impl<D: Driver> Owner<D> {
                 }
             }
         }
-        mark(&self.ctx, stale, Quality::Uncertain, QUAL_STALE).await;
+        mark_stale(&self.ctx, stale).await;
         mark(&self.ctx, failed, Quality::Bad, QUAL_COMM_FAIL).await;
     }
 
@@ -1867,7 +2067,8 @@ impl<D: Driver> Owner<D> {
     async fn cascade_down(&mut self) {
         let devs: Vec<String> = self.devs.keys().cloned().collect();
         for d in devs {
-            self.health(&d).misses = 0;
+            let h = self.health(&d);
+            (h.misses, h.poll_misses) = (0, 0);
             self.dev_state(&d, NodeState::StoppedByParent, None).await;
             mark(
                 &self.ctx,
@@ -1976,16 +2177,18 @@ impl<D: Driver> Owner<D> {
 
     /// Show [`Driver::status_note`] of the open connection (`None`: clear a
     /// note shown before) as `attr.warning` of its `status` leaf.
+    /// The note is kept in [`NoteSlot`], so a new declaration of the
+    /// connection (`rescan`) shows it too (final review M4).
     async fn note(&mut self, note: Option<&str>) {
-        if note.is_none() && !self.noted {
+        let mut shown = self.note.lock().await;
+        if note.is_none() && shown.is_none() {
             return;
         }
-        let meta = match note {
-            Some(n) => status_meta().attr("warning", n),
-            None => status_meta(),
-        };
-        let _ = self.ctx.declare_node(&status_path(&self.conn), meta).await;
-        self.noted = note.is_some();
+        let _ = self
+            .ctx
+            .declare_node(&status_path(&self.conn), status_with(note))
+            .await;
+        *shown = note.map(str::to_owned);
     }
 
     async fn publish_results(
@@ -2034,7 +2237,7 @@ impl<D: Driver> Owner<D> {
             }
         }
         match device_err {
-            Some(e) if !any_ok => self.dev_miss(dev, &e).await,
+            Some(e) if !any_ok => self.dev_miss(dev, &e, true).await,
             _ => {
                 self.dev_ok(dev).await;
                 self.points_missed(dev, answered, missed).await;
@@ -2046,12 +2249,14 @@ impl<D: Driver> Owner<D> {
 
 /// The connection owner: opens the transport, serves requests in order,
 /// reconnects with capped, jittered backoff.
+#[allow(clippy::too_many_arguments)]
 async fn owner<D: Driver>(
     ctx: LinkCtx,
     conn: String,
     cfg: D::Conn,
     view: SharedView<D>,
     book: diag::SharedBook,
+    note: NoteSlot,
     mut rx: mpsc::Receiver<Req>,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -2070,7 +2275,7 @@ async fn owner<D: Driver>(
         book,
         server: D::is_server(&cfg),
         served: None,
-        noted: false,
+        note,
     };
     let mut attempt = 0u32;
     loop {
@@ -2142,7 +2347,10 @@ async fn owner<D: Driver>(
                     Some(Req::Invoke { reply, .. }) => {
                         let _ = reply.send(Err(LinkError::new(Status::Disconnected, failure.clone())));
                     }
-                    Some(Req::Poll { inflight, .. } | Req::Ping { inflight, .. }) => {
+                    Some(Req::Poll { inflight, .. }) => {
+                        inflight.store(POLL_IDLE, Ordering::Release);
+                    }
+                    Some(Req::Ping { inflight, .. }) => {
                         inflight.store(false, Ordering::Release);
                     }
                     // Served on the next open.
@@ -2242,12 +2450,13 @@ async fn serve<D: Driver>(
                     .flatten()
                     .and_then(|d| d.groups.get(group).map(|g| (d, g)));
                 let Some((d, g)) = planned else {
-                    inflight.store(false, Ordering::Release);
+                    inflight.store(POLL_IDLE, Ordering::Release);
                     continue;
                 };
+                inflight.store(POLL_RUNNING, Ordering::Release);
                 let bound = D::poll_timeout(cfg, &g.plan);
                 let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &g.plan)).await;
-                inflight.store(false, Ordering::Release);
+                inflight.store(POLL_IDLE, Ordering::Release);
                 o.record(t, Some(&dev), r.is_err());
                 let current = view.read().await;
                 if current.gen != gen {
@@ -2260,7 +2469,7 @@ async fn serve<D: Driver>(
                     continue;
                 }
                 match r {
-                    Err(_) => o.dev_miss(&dev, "poll timed out").await,
+                    Err(_) => o.dev_miss(&dev, "poll timed out", true).await,
                     Ok(results) => {
                         if let Err(e) = o.publish_results(&dev, results).await {
                             return Some(e);
@@ -2286,9 +2495,9 @@ async fn serve<D: Driver>(
                     continue;
                 }
                 match r {
-                    Err(_) => o.dev_miss(&dev, "ping timed out").await,
-                    Ok(Ok(())) | Ok(Err(DriverError::Point(_))) => o.dev_ok(&dev).await,
-                    Ok(Err(DriverError::Device(e))) => o.dev_miss(&dev, &e).await,
+                    Err(_) => o.dev_miss(&dev, "ping timed out", false).await,
+                    Ok(Ok(())) | Ok(Err(DriverError::Point(_))) => o.ping_ok(&dev).await,
+                    Ok(Err(DriverError::Device(e))) => o.dev_miss(&dev, &e, false).await,
                     Ok(Err(DriverError::Transport(_))) => {}
                 }
                 drop(current);
@@ -2499,11 +2708,22 @@ impl<D: Driver> Link for Framework<D> {
             .get(conn.as_str())
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
+        // The set runs on the link task: it never waits behind a driver
+        // action (up to its `timeout_ms`, minutes for a scan), which would
+        // hold every other connection's sets, actions and edits. Nothing is
+        // lost: such a write would miss its deadline and be dropped (P13).
+        if run.acting.load(Ordering::Acquire) {
+            return Err(LinkError::new(
+                Status::Busy,
+                "an action runs on this connection: not written, try again",
+            ));
+        }
         // The SDK bounds this call from now (`LinkConfig::driver_timeout`).
         let deadline = tokio::time::Instant::now() + self.ctx.driver_timeout();
         let (reply, rx) = oneshot::channel();
+        // Never wait for room in the queue (final review I1).
         run.tx
-            .send(Req::Write {
+            .try_send(Req::Write {
                 dev: dev.clone(),
                 point: point.clone(),
                 value,
@@ -2511,8 +2731,15 @@ impl<D: Driver> Link for Framework<D> {
                 deadline,
                 reply,
             })
-            .await
-            .map_err(|_| LinkError::new(Status::Disconnected, "connection stopped"))?;
+            .map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => LinkError::new(
+                    Status::Busy,
+                    "connection busy: too many requests queued, not written",
+                ),
+                mpsc::error::TrySendError::Closed(_) => {
+                    LinkError::new(Status::Disconnected, "connection stopped")
+                }
+            })?;
         rx.await
             .map_err(|_| LinkError::new(Status::Disconnected, "connection stopped"))?
     }
@@ -2569,6 +2796,21 @@ impl<D: Driver> Framework<D> {
             p.save(&self.full_tree()).map_err(|e| {
                 LinkError::internal(format!("applied, but not saved for a restart: {e}"))
             })?;
+        }
+        Ok(())
+    }
+
+    /// Save a change made in memory and not yet declared (a copy, an
+    /// import); when the save fails, `undo` puts the tree back, so memory
+    /// never runs ahead of the disk (final review M5).
+    fn save_or_undo(&mut self, undo: impl FnOnce(&mut Self)) -> Result<()> {
+        if let Some(p) = &self.persist {
+            if let Err(e) = p.save(&self.full_tree()) {
+                undo(self);
+                return Err(LinkError::internal(format!(
+                    "not saved for a restart, nothing changed: {e}"
+                )));
+            }
         }
         Ok(())
     }
@@ -3271,7 +3513,9 @@ impl<D: Driver> Framework<D> {
                     run: None,
                 };
                 self.conns.insert(name.clone(), entry);
-                self.save()?;
+                self.save_or_undo(|fw| {
+                    fw.conns.remove(&name);
+                })?;
                 self.declare_conn_tree(&name).await?;
                 self.bring_up(&name).await;
             }
@@ -3289,7 +3533,11 @@ impl<D: Driver> Framework<D> {
                 let mut entry = src.clone();
                 entry.enabled = false;
                 c.devices.insert(name.clone(), entry);
-                self.save()?;
+                self.save_or_undo(|fw| {
+                    if let Some(c) = fw.conns.get_mut(conn.as_str()) {
+                        c.devices.remove(&name);
+                    }
+                })?;
                 self.declare_branch(conn, &name).await?;
                 set_status(
                     &self.ctx,
@@ -3343,7 +3591,17 @@ impl<D: Driver> Framework<D> {
                 d.folders.extend(subs.iter().cloned());
                 let ids: Vec<String> = new_points.iter().map(|(n, _)| n.clone()).collect();
                 d.points.extend(new_points);
-                self.save()?;
+                // The folders and ids are new: the undo removes them.
+                self.save_or_undo(|fw| {
+                    if let Ok(d) = fw.dev_mut(conn, dev) {
+                        for f in &subs {
+                            d.folders.remove(f);
+                        }
+                        for id in &ids {
+                            d.points.remove(id);
+                        }
+                    }
+                })?;
                 for f in &subs {
                     self.declare_folder(conn, dev, f).await?;
                 }
@@ -3374,7 +3632,11 @@ impl<D: Driver> Framework<D> {
                     )));
                 }
                 d.points.insert(name.clone(), entry);
-                self.save()?;
+                self.save_or_undo(|fw| {
+                    if let Ok(d) = fw.dev_mut(conn, dev) {
+                        d.points.remove(&name);
+                    }
+                })?;
                 self.declare_point(conn, dev, &name).await?;
                 self.replan(conn).await;
             }
@@ -3504,8 +3766,16 @@ impl<D: Driver> Framework<D> {
                     d.note_reenter(&format!("{name}/{dn}"), &reenter);
                 }
                 // The tree changes in one step and is saved; the nodes follow.
-                let old = self.conns.insert(name.clone(), entry);
-                self.save()?;
+                // A failed save puts the old connection back, its run too.
+                let mut old = self.conns.insert(name.clone(), entry);
+                self.save_or_undo(|fw| match old.take() {
+                    Some(o) => {
+                        fw.conns.insert(name.clone(), o);
+                    }
+                    None => {
+                        fw.conns.remove(&name);
+                    }
+                })?;
                 if let Some(mut old) = old {
                     if let Some(run) = old.run.take() {
                         stop_run(run).await;
@@ -3529,8 +3799,15 @@ impl<D: Driver> Framework<D> {
                 entry.enabled = false;
                 entry.note_reenter(&path, &reenter);
                 // The tree changes in one step and is saved; the nodes follow.
-                self.conn_mut(conn)?.devices.insert(name.clone(), entry);
-                self.save()?;
+                let mut prev = self.conn_mut(conn)?.devices.insert(name.clone(), entry);
+                self.save_or_undo(|fw| {
+                    if let Some(c) = fw.conns.get_mut(conn.as_str()) {
+                        match prev.take() {
+                            Some(p) => c.devices.insert(name.clone(), p),
+                            None => c.devices.remove(&name),
+                        };
+                    }
+                })?;
                 if old {
                     if let Some(run) = self.conns.get(conn.as_str()).and_then(|c| c.run.as_ref()) {
                         diag::remove_dev(&run.book, &name);
@@ -3604,9 +3881,15 @@ impl<D: Driver> Framework<D> {
                 }
                 // The tree changes in one step and is saved; the nodes follow.
                 let d = self.dev_mut(conn, dev)?;
-                d.points = points;
-                d.folders = folders;
-                self.save()?;
+                let mut before = Some((
+                    std::mem::replace(&mut d.points, points),
+                    std::mem::replace(&mut d.folders, folders),
+                ));
+                self.save_or_undo(|fw| {
+                    if let (Ok(d), Some((p, f))) = (fw.dev_mut(conn, dev), before.take()) {
+                        (d.points, d.folders) = (p, f);
+                    }
+                })?;
                 if old {
                     // The old points' plan ends before their nodes go: no
                     // value read with old params lands on a new node.

@@ -1875,11 +1875,12 @@ async fn scan_units_finds_answering_units() {
     h.stop().await;
 }
 
-/// P12: while a scan holds the owner, actions queue up to the owner
-/// queue's depth (256); the rest are answered `busy` at once, and the link
-/// keeps answering.
+/// P12 and final review I1: while a scan holds the owner, every other
+/// action of the connection (even of a `read` caller) answers `busy` at
+/// once, the link keeps answering, and the connection takes actions again
+/// once the scan ended.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_full_owner_queue_answers_busy() {
+async fn actions_during_a_scan_answer_busy_at_once() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
     dev.lock().unwrap().answer_units = Some([1].into());
     // Off: the per-caller rate limit would answer first.
@@ -1906,40 +1907,43 @@ async fn a_full_owner_queue_answers_busy() {
         })
     };
     wait("scan running", || dev.lock().unwrap().dropped > 0).await;
+    let started = std::time::Instant::now();
     let mut reads = tokio::task::JoinSet::new();
-    for _ in 0..300 {
+    for _ in 0..100 {
         let h = h.clone();
         reads.spawn(async move {
             let args = map(&[("table", "holding".into()), ("addr", Value::UInt(0))]);
             act(&h, "c1/d1", "read_registers", args, Perm::Read).await
         });
-        // Let the link task take each one (its own queue is 256 deep too).
-        tokio::task::yield_now().await;
     }
-    let (mut ok, mut busy, mut sdk_busy) = (0, 0, 0);
+    let mut busy = 0;
     while let Some(r) = reads.join_next().await {
         let (s, _, m) = r.unwrap();
         match s {
-            Some(Status::Ok) => ok += 1,
-            Some(Status::Busy) if m.contains("connection busy") => busy += 1,
+            Some(Status::Busy) if m.contains("an action runs") => busy += 1,
             // The SDK's own queue on a loaded machine: not the owner's.
-            Some(Status::Busy) if m.contains("driver queue full") => sdk_busy += 1,
+            Some(Status::Busy) if m.contains("driver queue full") => {}
             other => panic!("{other:?}: {m}"),
         }
     }
-    assert!(busy > 0, "no busy answer ({sdk_busy} from the SDK queue)");
-    assert!(ok >= 100, "{ok} reads answered");
+    let took = started.elapsed();
+    assert!(busy > 0, "no busy answer");
+    assert!(took < Duration::from_secs(2), "answered after {took:?}");
+    assert!(!scan.is_finished(), "answered while the scan ran");
     let (s, v, m) = scan.await.unwrap();
     assert_eq!(s, Some(Status::Ok), "{m}");
     assert_eq!(v, Some(Value::Array(vec![])));
+    let args = map(&[("table", "holding".into()), ("addr", Value::UInt(0))]);
+    let (s, _, m) = act(&h, "c1/d1", "read_registers", args, Perm::Read).await;
+    assert_eq!(s, Some(Status::Ok), "after the scan: {m}");
     std::sync::Arc::try_unwrap(h).ok().unwrap().stop().await;
 }
 
-/// P13: a write queued behind a long action whose caller already got
-/// `timeout` is dropped: the device never sees it, the point keeps its
-/// value.
+/// P13 and final review I2: a set while a long action holds the owner
+/// answers `busy` at once and is never written later: the device never
+/// sees it, the point keeps its value.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_write_whose_caller_gave_up_is_dropped() {
+async fn a_set_during_a_scan_is_never_written() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
     {
         let mut t = dev.lock().unwrap();
@@ -1968,10 +1972,16 @@ async fn a_write_whose_caller_gave_up_is_dropped() {
         })
     };
     wait("scan running", || dev.lock().unwrap().dropped > 0).await;
+    let t = std::time::Instant::now();
     let att = h
         .set("c1/d1/sp", Value::UInt(42), Some(h.ptok(Perm::Write)))
         .await;
-    assert_eq!(status(&att), Some(Status::Timeout), "{att:?}");
+    assert_eq!(status(&att), Some(Status::Busy), "{att:?}");
+    assert!(
+        t.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        t.elapsed()
+    );
     let (s, _, m) = scan.await.unwrap();
     assert_eq!(s, Some(Status::Ok), "{m}");
     // polls run again; the write never went out
