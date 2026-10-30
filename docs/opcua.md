@@ -146,9 +146,12 @@ it is in the connection's `error` leaf when a secured open fails. The
 advice in `error` comes from the server certificate of GetEndpoints and
 the link's trust store, so it stays the same on every retry:
 
-- The link does not trust the server certificate: `… the server
+- The link does not trust the server certificate (and, with
+  `trust_on_first_use`, it is not a first use any more): `… the server
   certificate (thumbprint 9C02…) is not trusted: pin it (server_cert_pem)
-  or set trust_on_first_use`.
+  or set trust_on_first_use`. Before the first session with
+  `trust_on_first_use`, the link would trust the server, so a refusal
+  gets the advice for the client certificate (the last item).
 - The link trusts it, but a host name, application URI or validity check
   failed (BadCertificateHostNameInvalid, …): both thumbprints.
 - Otherwise the server refused this client, for example: `connect to
@@ -176,12 +179,16 @@ Trust on first use:
   attempt does not pin a certificate that never validates.
 - To reset it (the server got a new certificate), delete the directory
   `<data_dir>/opcua-pki/servers/<url hash>-tofu/` while the link runs or
-  is stopped; the next open is a first use again. Or set a pin.
+  is stopped; the next open is a first use again. Or set a pin. A failed
+  secured open logs the store's path at `info` (`store=…`).
 - The first answer at the endpoint is trusted without a check of who
-  sent it. With a `username` or `certificate` identity, the first use
-  sends that identity to whoever answers first (a man in the middle on
-  the first connect gets the password). Pin the server certificate for a
-  connection with a user identity on a network you do not control.
+  sent it. Until a session was made, every attempt is a first use: also
+  every retry while the server still refuses this client during
+  commissioning. With a `username` or `certificate` identity, each such
+  attempt sends that identity to whoever answers (a man in the middle at
+  any time before the first session gets the password). Pin the server
+  certificate for a connection with a user identity on a network you do
+  not control.
 
 Rules:
 

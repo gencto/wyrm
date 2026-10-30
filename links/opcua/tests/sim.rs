@@ -764,6 +764,43 @@ async fn secured_channel_trust_pin_and_first_use() {
     h.stop().await;
 }
 
+/// Trust on first use against a server that does not trust this client
+/// yet (the usual first commissioning step): before the first session the
+/// link would trust the server, so the advice names the client's
+/// certificate, on every retry; once the server trusts it, it connects.
+#[tokio::test(flavor = "multi_thread")]
+async fn first_use_with_a_server_that_refuses_the_client() {
+    let d = dir();
+    let s = spawn(&d.0, |o| o.strict_clients = true).await;
+    let data = d.0.join("data");
+    let (cert, _) = client_cert();
+    let client_thumb = opcua::crypto::X509::from_pem(cert.as_bytes())
+        .unwrap()
+        .thumbprint()
+        .as_hex_string();
+    let conn = secured(&[("trust_on_first_use", Value::Bool(true))]);
+    let points = map(&[("int32", pt(&line("Int32"), &[]))]);
+    let h = start_in(tree(&s.url(), &conn, &[], points), &data).await;
+    let advice = |h: &H| {
+        let e = error(h, "c1");
+        e.contains("trust its application certificate") && e.contains(&client_thumb)
+    };
+    wait("refused by the server", || !error(&h, "c1").is_empty()).await;
+    assert!(advice(&h), "{}", error(&h, "c1"));
+    for _ in 0..2 {
+        wait("a new attempt", || error(&h, "c1").is_empty()).await;
+        wait("refused again", || !error(&h, "c1").is_empty()).await;
+    }
+    assert!(advice(&h), "after retries: {}", error(&h, "c1"));
+    s.trust_rejected_clients();
+    connected(&h).await;
+    wait("good", || {
+        val(&h, "c1/d1/int32").is_some_and(|(_, q)| q == Quality::Good)
+    })
+    .await;
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn generated_certificate_is_shown_when_the_server_refuses_it() {
     let d = dir();

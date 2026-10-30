@@ -278,9 +278,10 @@ fn open_error(
         endpoint = %conn.p.endpoint,
         server = %server_thumb,
         client = %prep.thumbprint,
+        store = %prep.store.display(),
         "opc ua secured open failed: {name}"
     );
-    if !prep.trusts(cert) {
+    if !prep.accepts(cert) {
         msg.push_str(&format!(
             "; the server certificate (thumbprint {server_thumb}) is not trusted: pin it \
              (server_cert_pem) or set trust_on_first_use"

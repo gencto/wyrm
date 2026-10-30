@@ -126,6 +126,19 @@ impl Prepared {
             && !self.store.join("rejected").join(&name).is_file()
     }
 
+    /// The library would take `cert`: it is trusted, or this is a first use
+    /// (`trust_unknown`) and the certificate is not in `rejected/`. Before
+    /// the first session a server that refuses this client stops the open
+    /// before the library stores its certificate, so `trusts` alone would
+    /// blame the server certificate.
+    pub fn accepts(&self, cert: &X509) -> bool {
+        let rejected = self
+            .store
+            .join("rejected")
+            .join(CertificateStore::cert_file_name(cert));
+        self.trusts(cert) || (self.trust_unknown && !rejected.is_file())
+    }
+
     /// A session was activated: a first-use store keeps what it trusts.
     pub fn opened(&self) {
         if self.trust_unknown {
