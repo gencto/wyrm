@@ -140,6 +140,10 @@ values.
   still too big is a point error. An error status with an index (`genErr`)
   fails that point and reads the others again.
 * `noSuchObject`, `noSuchInstance` and `endOfMibView` fail that point only.
+* A request without an answer (after its retries) fails the points it asked
+  for, and the poll goes on with the next request: an agent whose handler for
+  one OID hangs does not stop the other points. Two requests in a row without
+  an answer stop the poll; every point not read yet misses with them.
 
 Every request has a new request id (v3: and msgID). Only an answer with one of
 the ids of that request is taken; an answer that comes after its timeout is
@@ -167,7 +171,8 @@ the write. Only INTEGER, OCTET STRING and Gauge32 are written.
 | What happens | Result |
 |---|---|
 | `noSuchObject` / `noSuchInstance` / `endOfMibView`, a conversion that does not fit, a value whose encoding does not fit its type, an error status for one varbind | That point `bad`; the device stays connected. |
-| No answer within `timeout_ms × (1 + retries)` | A device miss: points `uncertain/stale`, after 3 misses `bad/comm_fail` and the device `failed`. |
+| No answer within `timeout_ms × (1 + retries)` to any request of a poll | A device miss: points `uncertain/stale`, after 3 misses `bad/comm_fail` and the device `failed`. |
+| No answer to one request while others of the poll are answered | The points of that request `uncertain/stale`, after 3 polls in a row `bad/comm_fail`; the device stays connected. |
 | `authorizationError` on a poll or ping | The device `failed`: "authorizationError: the agent's access control (VACM) refuses this request; check the community, user or context". |
 | v3 report `usmStatsWrongDigests`, `usmStatsUnknownUserNames`, `usmStatsUnsupportedSecLevels`, `usmStatsDecryptionErrors` | When the connection opens: the connection `failed` with the reason (e.g. "the agent refused the authentication digest (usmStatsWrongDigests): check auth_protocol and auth_passphrase"); later: the device fails with it. |
 | v3 report `usmStatsNotInTimeWindows` (authenticated) | The agent restarted or its clock moved: the link takes the agent's boots/time (forward only) and sends again once. |

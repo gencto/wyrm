@@ -1039,24 +1039,44 @@ impl Driver for SnmpDriver {
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
         let scope = dev.scope();
         let mut reads: Vec<(&Member, Read)> = Vec::new();
+        // A request without an answer fails its own members (an agent whose
+        // handler for one OID hangs) and the next requests are still sent.
+        // Two in a row without an answer, or a broken transport, stop the
+        // poll: the rest fails with that error.
+        let mut unanswered: Vec<(&Member, DriverError)> = Vec::new();
         let mut failed: Option<DriverError> = None;
+        let mut missed = 0u8;
         for batch in &plan.batches {
             let oids: Vec<Oid> = batch.iter().map(|m| m.oid.clone()).collect();
             match get_batch(&mut t.s, scope, &oids).await {
-                Ok(r) => reads.extend(batch.iter().zip(r)),
+                Ok(r) => {
+                    missed = 0;
+                    reads.extend(batch.iter().zip(r));
+                }
                 Err(e) => {
-                    failed = Some(e);
-                    break;
+                    missed += 1;
+                    if missed >= 2 || !matches!(e, DriverError::Device(_)) {
+                        failed = Some(e);
+                        break;
+                    }
+                    unanswered.extend(batch.iter().map(|m| (m, e.clone())));
                 }
             }
         }
         if failed.is_none() {
             for col in &plan.columns {
                 match get_column(&mut t.s, scope, col, plan.max_repetitions, plan.max_pages).await {
-                    Ok(r) => reads.extend(col.members.iter().zip(r)),
+                    Ok(r) => {
+                        missed = 0;
+                        reads.extend(col.members.iter().zip(r));
+                    }
                     Err(e) => {
-                        failed = Some(e);
-                        break;
+                        missed += 1;
+                        if missed >= 2 || !matches!(e, DriverError::Device(_)) {
+                            failed = Some(e);
+                            break;
+                        }
+                        unanswered.extend(col.members.iter().map(|m| (m, e.clone())));
                     }
                 }
             }
@@ -1085,6 +1105,11 @@ impl Driver for SnmpDriver {
             seen.insert(m.id.as_str());
             if let Some(v) = value_of(rates, m, r, now) {
                 out.push((m.id.clone(), v));
+            }
+        }
+        for (m, e) in unanswered {
+            if m.id != UPTIME_ID && seen.insert(m.id.as_str()) {
+                out.push((m.id.clone(), Err(e)));
             }
         }
         if let Some(e) = failed {

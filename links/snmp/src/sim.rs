@@ -93,6 +93,9 @@ pub struct Agent {
     pub max_varbinds: Option<usize>,
     /// Answer a GET that asks for this OID with `genErr` at its index.
     pub gen_err: Option<Oid>,
+    /// Answer nothing to a request that asks for this OID (a vendor MIB
+    /// handler that hangs).
+    pub hang: Option<Oid>,
     /// Requests received (all, dropped ones too).
     pub requests: u64,
     /// GET requests and their sizes (varbinds), GETBULK as negative counts.
@@ -230,6 +233,7 @@ impl Agent {
             auth_error: false,
             max_varbinds: None,
             gen_err: None,
+            hang: None,
             requests: 0,
             gets: Vec::new(),
             bad_community: 0,
@@ -482,6 +486,13 @@ impl Agent {
         resp
     }
 
+    /// Whether `req` asks for the OID that hangs.
+    fn hangs(&self, req: &Pdu) -> bool {
+        self.hang
+            .as_ref()
+            .is_some_and(|h| req.varbinds.iter().any(|(o, _)| o == h))
+    }
+
     /// The reply datagram to `datagram`, if any.
     fn handle(&mut self, datagram: &[u8]) -> Option<Vec<u8>> {
         self.requests += 1;
@@ -502,6 +513,9 @@ impl Agent {
                     return None;
                 }
                 let community = community.to_vec();
+                if self.hangs(&pdu) {
+                    return None;
+                }
                 let resp = self.answer(&pdu);
                 Some(msg::encode_community(&community, &resp))
             }
@@ -596,6 +610,9 @@ impl Agent {
                 }
             }
         };
+        if self.hangs(&scoped.pdu) {
+            return None;
+        }
         let forge = self.forge.clone();
         if let Some((_, marker)) = &forge {
             self.mark_with = Some(marker.clone());

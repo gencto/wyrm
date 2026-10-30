@@ -371,6 +371,59 @@ async fn a_malformed_value_fails_its_point_only() {
     h.stop().await;
 }
 
+/// An agent that never answers a request for one OID (a hung MIB handler)
+/// while it answers the others: that point goes `uncertain/stale`, then
+/// `bad/comm_fail`; the points of the other requests stay good, and the
+/// device stays connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_without_an_answer_fails_its_points_only() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[
+        ("p1", scalar(&t(1), &[])),
+        ("p2", scalar(&t(2), &[])),
+        ("p3", scalar(&t(3), &[])),
+    ]);
+    let h = H::start(tree(
+        &v2c(addr.port(), &[]),
+        &[
+            ("max_varbinds", Value::UInt(1)),
+            ("ping", Value::Bool(false)),
+        ],
+        points,
+    ))
+    .await;
+    wait("good", || {
+        ["p1", "p2", "p3"]
+            .iter()
+            .all(|p| qual(&h, p) == Some(Quality::Good))
+    })
+    .await;
+    let p2 = samples(&h, "c1/d1/p2").await;
+    let p3 = samples(&h, "c1/d1/p3").await;
+    for hung in [t(1), t(2)] {
+        agent.lock().unwrap().hang = Some(Oid::parse(&hung).unwrap());
+        let p = if hung == t(1) { "p1" } else { "p2" };
+        wait("hung point bad", || qual(&h, p) == Some(Quality::Bad)).await;
+        assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+        agent.lock().unwrap().hang = None;
+        wait("hung point good again", || {
+            qual(&h, p) == Some(Quality::Good)
+        })
+        .await;
+        if hung == t(1) {
+            assert!(
+                p2.lock().unwrap().iter().all(|s| s.q == Quality::Good),
+                "p2 stayed good"
+            );
+        }
+        assert!(
+            p3.lock().unwrap().iter().all(|s| s.q == Quality::Good),
+            "p3 stayed good"
+        );
+    }
+    h.stop().await;
+}
+
 /// SET is a request/response; the value comes from the read-back.
 #[tokio::test(flavor = "multi_thread")]
 async fn writes_and_read_back() {
