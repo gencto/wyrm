@@ -232,12 +232,14 @@ pub struct SerialConn {
 /// A Modbus TCP slave: masters connect to `listen_host:listen_port` (every
 /// address the host name resolves to).
 /// Another address than loopback is allowed (logged at warn and shown on
-/// the connection's `status`): Modbus has no authentication.
+/// the connection's `status`): Modbus has no authentication. At most 16
+/// masters are served at once; another is closed as soon as it connects.
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct IpSlaveConn {
     #[param(default = "127.0.0.1", display = "Listen Host", dest)]
     pub listen_host: String,
-    #[param(default = 502, display = "Listen Port", dest)]
+    /// Not 0: a port the system picks is one no master can know.
+    #[param(default = 502, min = 1, display = "Listen Port", dest)]
     pub listen_port: u16,
 }
 

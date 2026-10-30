@@ -46,8 +46,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_modbus::server::Service;
@@ -66,6 +67,11 @@ const ANSWER: Duration = Duration::from_secs(1);
 /// How long a listener waits for its port: one closed just before (a
 /// restart or an edit of the connection) frees it a moment later.
 const BIND_WAIT: Duration = Duration::from_millis(1500);
+
+/// TCP masters an `ip_slave` serves at once (on all its addresses): the
+/// queue bounds requests, this bounds sockets. Another master is closed as
+/// soon as it connects.
+const MAX_MASTERS: usize = 16;
 
 /// Bits one FC15 request writes (FC16: [`codec::MAX_WRITE_REGISTERS`]).
 const MAX_WRITE_BITS: u16 = 1968;
@@ -91,6 +97,9 @@ enum Msg {
 struct Front {
     tx: mpsc::Sender<Msg>,
     rtu: bool,
+    /// A TCP master's place among [`MAX_MASTERS`], held while its
+    /// connection is served (the service lives as long as it).
+    _place: Option<Arc<OwnedSemaphorePermit>>,
 }
 
 impl Service for Front {
@@ -252,12 +261,14 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
             let front = Front {
                 tx: tx.clone(),
                 rtu: false,
+                _place: None,
             };
+            let masters = Arc::new(Semaphore::new(MAX_MASTERS));
             let task = tokio::spawn(async move {
                 // Dropped (the task aborted): every listener's task ends.
                 let mut set = tokio::task::JoinSet::new();
                 for l in listeners {
-                    set.spawn(serve_tcp(l, front.clone(), tx.clone()));
+                    set.spawn(serve_tcp(l, front.clone(), masters.clone(), tx.clone()));
                 }
                 while set.join_next().await.is_some() {}
             });
@@ -315,11 +326,30 @@ async fn bind(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
     }
 }
 
-async fn serve_tcp(listener: tokio::net::TcpListener, front: Front, down: mpsc::Sender<Msg>) {
-    use tokio_modbus::server::tcp::{accept_tcp_connection, Server};
-    let on_connected = |stream, addr: SocketAddr| {
+/// Serve the masters of one listener; `masters` holds the places of the
+/// whole connection ([`MAX_MASTERS`]).
+async fn serve_tcp(
+    listener: tokio::net::TcpListener,
+    front: Front,
+    masters: Arc<Semaphore>,
+    down: mpsc::Sender<Msg>,
+) {
+    use tokio_modbus::server::tcp::Server;
+    let on_connected = |stream: tokio::net::TcpStream, addr: SocketAddr| {
         let front = front.clone();
-        async move { accept_tcp_connection(stream, addr, move |_| Ok(Some(front.clone()))) }
+        let masters = masters.clone();
+        async move {
+            let Ok(place) = masters.try_acquire_owned() else {
+                // Dropping the stream closes it; the listener goes on.
+                debug!(%addr, "master refused: {MAX_MASTERS} masters connected");
+                return Ok(None);
+            };
+            let front = Front {
+                _place: Some(Arc::new(place)),
+                ..front
+            };
+            Ok(Some((front, stream)))
+        }
     };
     let why = match Server::new(listener)
         .serve(&on_connected, |e| debug!("slave connection: {e}"))
@@ -373,6 +403,7 @@ impl Slave {
         let front = Front {
             tx: tx.clone(),
             rtu: true,
+            _place: None,
         };
         let task = tokio::spawn(serve_rtu(stream, front, tx));
         Slave::new(rx, task, true, None)

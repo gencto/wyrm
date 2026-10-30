@@ -110,7 +110,7 @@ edit changes nothing.
 | Key | Label | Default | Bounds | Notes |
 |---|---|---|---|---|
 | `listen_host` | Listen Host | `127.0.0.1` | | `ip_slave`: every address the name resolves to (section 13) |
-| `listen_port` | Listen Port | 502 | 0…65535 | `ip_slave`; 502 needs privileges on Linux |
+| `listen_port` | Listen Port | 502 | 1…65535 | `ip_slave`; 502 needs privileges on Linux; 0 is refused (the system would pick a port no master can know) |
 | `serial_port`, `baud_rate`, `data_bits`, `stop_bits`, `parity` | | as the serial connection | | `serial_slave` |
 
 ### Device
@@ -558,6 +558,10 @@ served coils, discrete inputs, input or holding registers of its unit
   the link logs a warning at `warn` when the listener opens and shows it
   as `attr.warning` on the connection's `status` leaf. Open the port only
   to the network of the masters (firewall, VLAN).
+- **At most 16 masters** are served at once by one `ip_slave` (on all
+  its addresses together). A 17th master is closed as soon as it
+  connects; it is served once another master disconnects. The request
+  queue (64) bounds requests, this bounds sockets.
 - `ip_slave` listens on every address the host name resolves to
   (`localhost`: `::1` and `127.0.0.1`). An address the host lacks, or an
   address family it lacks (IPv6 turned off), is left out; no address left

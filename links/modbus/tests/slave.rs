@@ -935,3 +935,56 @@ async fn a_reopened_server_shows_config_error_on_an_already_bad_point() {
     assert_eq!(last().v, Value::UInt(50_000), "the old value kept");
     h.stop().await;
 }
+
+/// Final review M9: an `ip_slave` serves at most 16 masters at once; the
+/// 17th is closed at once (it reads end of stream), and once a master
+/// leaves, a new one is served.
+#[tokio::test(flavor = "multi_thread")]
+async fn at_most_16_masters_are_served() {
+    use tokio::io::AsyncReadExt;
+    let (h, port) = start(map(&[("v", pt("holding", 0, "u16", &[]))])).await;
+    assert_eq!(set(&h, "v", 5u64).await, Some(Status::Ok));
+    let mut masters = Vec::new();
+    for i in 0..16 {
+        let mut m = master(port, 1).await;
+        let r = tokio::time::timeout(Duration::from_secs(2), m.read_holding_registers(0, 1));
+        assert_eq!(
+            r.await.ok().and_then(Result::ok),
+            Some(Ok(vec![5])),
+            "master {i}"
+        );
+        masters.push(m);
+    }
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut extra = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let mut buf = [0u8; 8];
+    let r = tokio::time::timeout(Duration::from_secs(2), extra.read(&mut buf)).await;
+    assert!(
+        matches!(r, Ok(Ok(0)) | Ok(Err(_))),
+        "the 17th master is closed: {r:?}"
+    );
+    // One leaves: a new master is served.
+    let mut gone = masters.pop().unwrap();
+    let _ = gone.disconnect().await;
+    drop(gone);
+    assert_eq!(read_when_up(port, 0, 1).await, vec![5]);
+    h.stop().await;
+}
+
+/// Final review M10: `listen_port` 0 (a port no master can know) is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn listen_port_0_is_refused() {
+    let (h, _) = start(map(&[])).await;
+    let args = map(&[("name", "s2".into()), ("listen_port", Value::UInt(0))]);
+    assert_eq!(
+        act(&h, "", "add_ip_slave", args).await,
+        Some(Status::InvalidParameter)
+    );
+    let edit = map(&[("listen_port", Value::UInt(0))]);
+    assert_eq!(
+        act(&h, "s1", "edit", edit).await,
+        Some(Status::InvalidParameter)
+    );
+    assert_eq!(state(&h, "s1").as_deref(), Some("connected"));
+    h.stop().await;
+}
