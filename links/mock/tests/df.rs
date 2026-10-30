@@ -592,3 +592,27 @@ async fn dsa_node_shape() {
     .await;
     h.stop().await;
 }
+
+/// Folders are opt-in (`Driver::FOLDERS`, ruling 10): `mockdev` has none, so
+/// its devices declare no `add_folder`, an invoke of it is refused, and the
+/// export has no `folders` key.
+#[tokio::test(flavor = "multi_thread")]
+async fn driver_without_folders_has_no_add_folder() {
+    let h = H::start(tree(standard(), true)).await;
+    let (_, meta) = h.meta("c1/d1").await;
+    let actions = meta.expect("c1/d1").actions.unwrap_or_default();
+    assert!(actions.contains_key("add_point"));
+    assert!(!actions.contains_key("add_folder"), "{:?}", actions.keys());
+    let a = act(&h, "c1/d1", "add_folder", map(&[("name", "f1".into())])).await;
+    assert_ne!(status(&a), Some(Status::Ok));
+    let (_, meta) = h.meta("c1/d1/f1").await;
+    assert!(meta.is_none());
+    let ex = h
+        .invoke("", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await
+        .remove(0)
+        .value()
+        .unwrap();
+    assert!(!format!("{ex:?}").contains("folders"), "{ex:?}");
+    h.stop().await;
+}

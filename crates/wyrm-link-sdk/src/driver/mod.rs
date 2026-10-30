@@ -3,7 +3,8 @@
 //! protocol I/O; [`Framework`] provides the tree, generated actions,
 //! validate-then-diff edits, typed states with parent→child cascade, the
 //! per-connection owner task, batched polling, read-back writes, the
-//! quality ladder, and (opt-in) driver actions and diagnostics counters.
+//! quality ladder, and (opt-in) driver actions, diagnostics counters and
+//! folders between a device and its points.
 
 mod diag;
 pub mod framework;
@@ -210,6 +211,14 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// Driver-specific counters (leaf names) beside the standard ones,
     /// counted by [`Outcome::Count`].
     const DIAG_EXTRA: &'static [&'static str] = &[];
+
+    /// Folders (ruling 10): an organisational level between a device and its
+    /// points, nested at most [`framework::MAX_FOLDER_DEPTH`] deep, with a
+    /// name and nothing else (`add_folder`, `remove` with its contents; no
+    /// rename). A point's key gains the folder path, its id stays unique on
+    /// the device, so writes and plans do not see folders. Off by default; a
+    /// driver that opts in may not have a device param named `folders`.
+    const FOLDERS: bool = false;
 
     /// The outcomes of the requests sent since the last call (drained). The
     /// framework calls it after every ping, poll, write and action and

@@ -525,6 +525,125 @@ fn stored_config_still_loads() {
     assert_eq!(decoded, 24);
 }
 
+/// Review Focus 1 with folders (ruling 10): a framework tree in the shape
+/// stored before folders (`<conn>/<dev>/<point>`, no `folders` key), made of
+/// the Task 1 fixture's stored params, loads as it did: every point at
+/// `<conn>/<dev>/<point>`, valid, polling the same values; devices now offer
+/// `add_folder`; the export still has no `folders` key.
+#[tokio::test(flavor = "multi_thread")]
+async fn stored_config_without_folders_loads() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/config-2026-10-29.json"))
+            .expect("fixture is JSON");
+    let entries = |k: &str| doc[k].as_array().expect(k).clone();
+    let stored = |e: &serde_json::Value| match from_json(&e["to_map"]) {
+        Value::Map(m) => m,
+        _ => panic!("to_map is not a map"),
+    };
+    let point_names: Vec<String> = entries("points")
+        .iter()
+        .map(|e| e["name"].as_str().expect("name").to_owned())
+        .collect();
+    let all_points = Value::Map(
+        entries("points")
+            .iter()
+            .map(|e| {
+                (
+                    e["name"].as_str().unwrap().to_owned(),
+                    Value::Map(stored(e)),
+                )
+            })
+            .collect(),
+    );
+    let (addr, simdev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = simdev.lock().unwrap();
+        t.holding[100] = 41394;
+        t.coils[3] = true;
+    }
+    let mut conns = Map::new();
+    // The fixture's connections, stopped (their hosts and ports do not
+    // exist here), each with the fixture's devices and points.
+    for e in entries("connections") {
+        let mut c = stored(&e);
+        c.insert("kind".into(), Value::from(e["kind"].as_str().unwrap()));
+        c.insert("enabled".into(), Value::Bool(false));
+        let devs: Map = entries("devices")
+            .iter()
+            .map(|d| {
+                let mut dm = stored(d);
+                dm.insert("points".into(), all_points.clone());
+                (d["name"].as_str().unwrap().to_owned(), Value::Map(dm))
+            })
+            .collect();
+        c.insert("devices".into(), Value::Map(devs));
+        conns.insert(e["name"].as_str().unwrap().to_owned(), Value::Map(c));
+    }
+    // One running connection to the simulator with the minimal device.
+    let minimal = entries("devices")
+        .into_iter()
+        .find(|d| d["name"] == "dev_minimal")
+        .expect("dev_minimal");
+    let mut dm = stored(&minimal);
+    dm.insert("points".into(), all_points.clone());
+    conns.insert(
+        "sim".into(),
+        map(&[
+            ("kind", "ip_connection".into()),
+            ("host", "127.0.0.1".into()),
+            ("port", Value::UInt(addr.port().into())),
+            ("timeout_ms", Value::UInt(200)),
+            ("devices", map(&[("dev_minimal", Value::Map(dm))])),
+        ]),
+    );
+    let h = H::start(Tree(map(&[("connections", Value::Map(conns))]))).await;
+    let devs = ["dev_full", "dev_minimal"];
+    for c in ["ip_full", "ip_minimal", "serial_full", "serial_minimal"] {
+        for d in devs {
+            for p in &point_names {
+                let path = format!("{c}/{d}/{p}");
+                let (_, meta) = h.meta(&path).await;
+                assert!(meta.is_some(), "{path} declared");
+            }
+        }
+    }
+    let at = |p: &str| format!("sim/dev_minimal/{p}");
+    for p in &point_names {
+        let (_, meta) = h.meta(&at(p)).await;
+        assert!(meta.is_some(), "{p} declared");
+    }
+    wait("stored points polled", || {
+        ["holding_u16", "holding_u16_bswap", "coil_binary"]
+            .iter()
+            .all(|p| h.ctx().last(&at(p)).is_some_and(|s| s.q == Quality::Good))
+    })
+    .await;
+    let v = |p: &str| h.ctx().last(&at(p)).map(|s| s.v);
+    assert_eq!(v("holding_u16"), Some(Value::UInt(41394)));
+    assert_eq!(v("holding_u16_bswap"), Some(Value::UInt(45729)));
+    assert_eq!(v("coil_binary"), Some(Value::Bool(true)));
+    // No point failed its config.
+    for p in &point_names {
+        let s = h.ctx().last(&at(p));
+        assert!(
+            !s.as_ref()
+                .is_some_and(|s| matches!(&s.v, Value::Str(_)) && s.q == Quality::Bad),
+            "{p}: {s:?}"
+        );
+    }
+    let (_, meta) = h.meta("sim/dev_minimal").await;
+    let actions = meta.unwrap().actions.unwrap_or_default();
+    assert!(actions.contains_key("add_folder"), "{:?}", actions.keys());
+    let ex = h
+        .invoke("", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await
+        .remove(0)
+        .value()
+        .unwrap();
+    assert!(!format!("{ex:?}").contains("folders"), "{ex:?}");
+    h.stop().await;
+}
+
 fn point(kv: &[(&str, Value)]) -> wyrm_link_sdk::Result<Point> {
     Point::from_value(&map(kv))
 }

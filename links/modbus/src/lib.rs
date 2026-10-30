@@ -1519,6 +1519,9 @@ impl Driver for ModbusDriver {
     const DIAGNOSTICS: bool = true;
     const DIAG_EXTRA: &'static [&'static str] = &[REOPENS];
 
+    /// Folders below a device, as DSA's (ruling 10).
+    const FOLDERS: bool = true;
+
     fn take_outcomes(t: &mut Transport) -> Vec<Outcome> {
         std::mem::take(&mut t.outcomes)
     }

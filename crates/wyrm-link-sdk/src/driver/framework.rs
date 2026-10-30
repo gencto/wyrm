@@ -1,6 +1,10 @@
 //! [`Framework`]: a [`Link`] that runs any [`Driver`].
 //!
-//! Tree: `<conn>/<dev>/<point>`, shaped like the DSA driver framework.
+//! Tree: `<conn>/<dev>/<point>`, shaped like the DSA driver framework;
+//! with [`Driver::FOLDERS`], `<conn>/<dev>/<f1>/…/<point>` (folders at most
+//! [`MAX_FOLDER_DEPTH`] deep, names only: `add_folder` and `remove`). A
+//! point's id stays unique on its device, so polls, plans and writes go by
+//! `(device, id)` and never see folders.
 //! Connections and devices have a `status` enum leaf (Unknown, Connecting,
 //! Connected, Failed, Stopped, Stopped by Parent; spec 03 gives containers
 //! no `~val`) and an `error` leaf that exists only while there is an error.
@@ -43,7 +47,7 @@ use crate::ctx::{now_us, LinkCtx, PointPublisher};
 use crate::error::{LinkError, Result};
 use crate::link::{Link, ReplySink};
 use crate::params::FromParams;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,6 +57,9 @@ use tracing::Instrument;
 use tracing::{debug, warn};
 use wyrm_core::meta::{ActionResult, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
+
+/// How deep folders nest below a device ([`Driver::FOLDERS`]).
+pub const MAX_FOLDER_DEPTH: usize = 4;
 
 pub const QUAL_STALE: &str = "uncertain/stale";
 pub const QUAL_COMM_FAIL: &str = "bad/comm_fail";
@@ -68,8 +75,11 @@ pub const ERROR: &str = "error";
 
 /// Bootstrap tree (`~def.params`):
 /// `{poll_unsubscribed?, connections: {<c>: {..Conn, kind?, enabled?, devices:
-/// {<d>: {..Dev, kind?, enabled?, points: {<p>: {..Point, kind?}}}}}}}`.
+/// {<d>: {..Dev, kind?, enabled?, points: {<p>: {..Point, kind?}}, folders?:
+/// {<f>: {points, folders?}}}}}}}`.
 /// `kind` names the node kind on levels with several (default: the first).
+/// `folders` only with [`Driver::FOLDERS`]; a tree is written without the
+/// key where a level has no folders (as before folders).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree(pub Value);
 
@@ -180,10 +190,77 @@ impl<P: Params> Slot<P> {
     }
 }
 
+/// A folder's path below its device (empty: the device itself).
+type Folder = Vec<String>;
+
+/// `folder` with `name` below it.
+fn child(folder: &[String], name: &str) -> Folder {
+    let mut f = folder.to_vec();
+    f.push(name.to_owned());
+    f
+}
+
+/// The key of `folder` below `base`.
+fn below(base: &str, folder: &[String]) -> String {
+    if folder.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base}/{}", folder.join("/"))
+    }
+}
+
+/// A point and the folder it is in.
+struct PointEntry<P: Params> {
+    slot: Slot<P>,
+    folder: Folder,
+}
+
 struct DevEntry<D: Driver> {
     slot: Slot<D::Dev>,
     enabled: bool,
-    points: BTreeMap<String, Slot<D::Point>>,
+    /// Every point of the device by id (unique across its folders).
+    points: BTreeMap<String, PointEntry<D::Point>>,
+    /// Every folder (a parent sorts before its children).
+    folders: BTreeSet<Folder>,
+}
+
+impl<D: Driver> DevEntry<D> {
+    /// The key of point `id` below the device: `<f1>/…/<id>`.
+    fn rel(&self, id: &str) -> String {
+        match self.points.get(id) {
+            Some(p) => child(&p.folder, id).join("/"),
+            None => id.to_owned(),
+        }
+    }
+
+    /// `folder` has a child (point or folder) named `name`.
+    fn taken(&self, folder: &[String], name: &str) -> bool {
+        self.points.get(name).is_some_and(|p| p.folder == folder)
+            || self.folders.contains(&child(folder, name))
+    }
+
+    /// `{points, folders?}` of `folder`, each point as `show` gives it;
+    /// `folders` only where there are some.
+    fn branch(&self, folder: &[String], show: &impl Fn(&Slot<D::Point>) -> Map) -> Map {
+        let pts: Map = self
+            .points
+            .iter()
+            .filter(|(_, p)| p.folder == folder)
+            .map(|(n, p)| (n.clone(), Value::Map(show(&p.slot))))
+            .collect();
+        let subs: Map = self
+            .folders
+            .iter()
+            .filter(|f| f.len() == folder.len() + 1 && f.starts_with(folder))
+            .map(|f| (f[folder.len()].clone(), Value::Map(self.branch(f, show))))
+            .collect();
+        let mut m = Map::new();
+        m.insert("points".into(), Value::Map(pts));
+        if !subs.is_empty() {
+            m.insert("folders".into(), Value::Map(subs));
+        }
+        m
+    }
 }
 
 struct ConnEntry<D: Driver> {
@@ -205,6 +282,8 @@ struct Group<D: Driver> {
 struct DevRun<D: Driver> {
     cfg: D::Dev,
     points: BTreeMap<PointId, D::Point>,
+    /// The node key of each point (folders included).
+    paths: BTreeMap<PointId, String>,
     groups: Vec<Group<D>>,
 }
 
@@ -383,11 +462,25 @@ fn driver_actions<D: Driver>(level: Level, kind: &str) -> Vec<(&'static str, Act
         .collect()
 }
 
-/// Names a new device or point may not take: the diagnostics leaves.
+/// The action that adds a folder ([`Driver::FOLDERS`]).
+const ADD_FOLDER: &str = "add_folder";
+
+/// Names a new device, folder or point may not take: the diagnostics leaves.
 fn diag_reserved<D: Driver>(name: &str) -> Result<()> {
     if D::DIAGNOSTICS && diag::names::<D>().contains(&name) {
         return Err(LinkError::invalid_parameter(format!(
             "{name:?} is reserved (diagnostics)"
+        )));
+    }
+    Ok(())
+}
+
+/// A new folder's name: no diagnostics leaf, no action name of the framework.
+fn folder_name<D: Driver>(name: &str) -> Result<()> {
+    diag_reserved::<D>(name)?;
+    if framework_action(name) {
+        return Err(LinkError::invalid_parameter(format!(
+            "{name:?} is reserved (action name)"
         )));
     }
     Ok(())
@@ -549,7 +642,7 @@ impl<D: Driver> Framework<D> {
     fn point_paths(conn: &str, dev: &str, d: &DevEntry<D>) -> Vec<String> {
         d.points
             .keys()
-            .map(|p| format!("{conn}/{dev}/{p}"))
+            .map(|p| format!("{conn}/{dev}/{}", d.rel(p)))
             .collect()
     }
 
@@ -615,12 +708,7 @@ impl<D: Driver> Framework<D> {
         self.ctx
             .declare_node(&status_path(&base), status_meta())
             .await?;
-        for (id, k) in adds::<D::Point>("point") {
-            let display = add_display("point", &k);
-            self.ctx
-                .declare_action(&base, &id, add_form::<D>(&k.schema, display))
-                .await?;
-        }
+        self.declare_adds_below(&base, &[]).await?;
         self.declare_common(&base, &d.slot.schema(), &shown).await?;
         self.ctx
             .declare_action(&base, "restart", plain("Restart"))
@@ -628,14 +716,64 @@ impl<D: Driver> Framework<D> {
         for (id, meta) in driver_actions::<D>(Level::Device, &d.slot.kind) {
             self.ctx.declare_action(&base, id, meta).await?;
         }
-        self.declare_diag(&base, |n| d.points.contains_key(n))
-            .await?;
+        self.declare_diag(&base, |n| d.taken(&[], n)).await?;
         self.declare_run_toggle(&base, d.enabled).await
     }
 
+    /// The add actions of a device or folder: one per point kind, and
+    /// `add_folder` while folders may nest deeper.
+    async fn declare_adds_below(&self, base: &str, folder: &[String]) -> Result<()> {
+        for (id, k) in adds::<D::Point>("point") {
+            let display = add_display("point", &k);
+            self.ctx
+                .declare_action(base, &id, add_form::<D>(&k.schema, display))
+                .await?;
+        }
+        if D::FOLDERS && folder.len() < MAX_FOLDER_DEPTH {
+            let form = ActionMeta::new()
+                .level(Perm::Config)
+                .param(
+                    "name",
+                    wyrm_core::meta::ParamMeta::of(TypeCode::String)
+                        .required(true)
+                        .display("Name"),
+                )
+                .display("Add Folder")
+                .group(GROUP_NEW);
+            self.ctx.declare_action(base, ADD_FOLDER, form).await?;
+        }
+        Ok(())
+    }
+
+    /// A folder: the add actions and `remove` (no `edit`: no rename).
+    async fn declare_folder(&self, conn: &str, dev: &str, folder: &[String]) -> Result<()> {
+        let path = below(&format!("{conn}/{dev}"), folder);
+        self.ctx
+            .declare_node(&path, NodeMeta::folder().is("wy:df-folder"))
+            .await?;
+        self.declare_adds_below(&path, folder).await?;
+        self.ctx
+            .declare_action(&path, "remove", plain("Remove").group(GROUP_EDIT))
+            .await
+    }
+
+    /// A device with its folders (parents first) and points.
+    async fn declare_branch(&self, conn: &str, dev: &str) -> Result<()> {
+        self.declare_dev(conn, dev).await?;
+        let d = &self.conns[conn].devices[dev];
+        for f in &d.folders {
+            self.declare_folder(conn, dev, f).await?;
+        }
+        for pn in d.points.keys() {
+            self.declare_point(conn, dev, pn).await?;
+        }
+        Ok(())
+    }
+
     async fn declare_point(&self, conn: &str, dev: &str, pt: &str) -> Result<()> {
-        let p = &self.conns[conn].devices[dev].points[pt];
-        let path = format!("{conn}/{dev}/{pt}");
+        let d = &self.conns[conn].devices[dev];
+        let p = &d.points[pt].slot;
+        let path = format!("{conn}/{dev}/{}", d.rel(pt));
         let mut meta = match &p.cfg {
             Some(cfg) => D::point_meta(cfg),
             None => NodeMeta::leaf(TypeCode::Dynamic),
@@ -717,18 +855,39 @@ impl<D: Driver> Framework<D> {
         Ok(())
     }
 
-    /// The node kind an add action creates on the level below `depth`.
-    fn add_kind(depth: usize, action: &str) -> Option<&'static str> {
+    /// The node kind an add action creates below `at`.
+    fn add_kind(at: &At<'_>, action: &str) -> Option<&'static str> {
         let find = |list: Vec<(String, Kind)>| {
             list.into_iter()
                 .find(|(id, _)| id == action)
                 .map(|(_, k)| k.id)
         };
-        match depth {
-            0 => find(adds::<D::Conn>("connection")),
-            1 => find(adds::<D::Dev>("device")),
-            2 => find(adds::<D::Point>("point")),
-            _ => None,
+        match at {
+            At::Root => find(adds::<D::Conn>("connection")),
+            At::Conn(_) => find(adds::<D::Dev>("device")),
+            At::Dev(..) | At::Folder(..) => find(adds::<D::Point>("point")),
+            At::Point(..) => None,
+        }
+    }
+
+    /// The node `parts` names. Below a device: a folder, or a point whose
+    /// folder matches (a point at another folder's path is not found).
+    fn resolve<'a>(&self, parts: &'a [String]) -> Result<At<'a>> {
+        let (conn, dev, rest) = match parts {
+            [] => return Ok(At::Root),
+            [c] => return Ok(At::Conn(c)),
+            [c, d] => return Ok(At::Dev(c, d)),
+            [c, d, rest @ ..] => (c, d, rest),
+        };
+        let entry = self.conns.get(conn).and_then(|c| c.devices.get(dev));
+        if entry.is_some_and(|e| e.folders.contains(rest)) {
+            return Ok(At::Folder(conn, dev, rest.to_vec()));
+        }
+        let (id, folder) = rest.split_last().expect("not empty");
+        match entry.and_then(|e| e.points.get(id)) {
+            Some(p) if p.folder == folder => Ok(At::Point(conn, dev, id)),
+            None if folder.is_empty() => Ok(At::Point(conn, dev, id)),
+            _ => Err(LinkError::not_found(parts.join("/"))),
         }
     }
 
@@ -737,11 +896,8 @@ impl<D: Driver> Framework<D> {
         self.declare_root().await?;
         for (cn, c) in &self.conns {
             self.declare_conn(cn).await?;
-            for (dn, d) in &c.devices {
-                self.declare_dev(cn, dn).await?;
-                for pn in d.points.keys() {
-                    self.declare_point(cn, dn, pn).await?;
-                }
+            for dn in c.devices.keys() {
+                self.declare_branch(cn, dn).await?;
             }
         }
         let mut found = Map::new();
@@ -772,7 +928,11 @@ impl<D: Driver> Framework<D> {
             let points: BTreeMap<PointId, D::Point> = d
                 .points
                 .iter()
-                .filter_map(|(n, p)| p.cfg.clone().map(|c| (n.clone(), c)))
+                .filter_map(|(n, p)| p.slot.cfg.clone().map(|c| (n.clone(), c)))
+                .collect();
+            let paths = points
+                .keys()
+                .map(|n| (n.clone(), format!("{conn}/{name}/{}", d.rel(n))))
                 .collect();
             let mut by_period: BTreeMap<Duration, Vec<(PointId, D::Point)>> = BTreeMap::new();
             for (n, c) in &points {
@@ -795,6 +955,7 @@ impl<D: Driver> Framework<D> {
                 DevRun {
                     cfg: cfg.clone(),
                     points,
+                    paths,
                     groups,
                 },
             );
@@ -805,7 +966,6 @@ impl<D: Driver> Framework<D> {
     /// Start tickers for `devs`.
     async fn start_tickers(
         &self,
-        conn: &str,
         devs: &DevMap<D>,
         tx: &mpsc::Sender<Req<D>>,
     ) -> (Vec<JoinHandle<()>>, watch::Sender<bool>) {
@@ -815,8 +975,8 @@ impl<D: Driver> Framework<D> {
             for (gi, g) in run.groups.iter().enumerate() {
                 let mut pubs = Vec::new();
                 if !self.poll_unsubscribed {
-                    for id in &g.ids {
-                        if let Ok(p) = self.ctx.publisher(&format!("{conn}/{dev}/{id}")).await {
+                    for path in g.ids.iter().filter_map(|id| run.paths.get(id)) {
+                        if let Ok(p) = self.ctx.publisher(path).await {
                             pubs.push(p);
                         }
                     }
@@ -910,7 +1070,7 @@ impl<D: Driver> Framework<D> {
                     )
                     .in_current_span(),
                 );
-                let (tickers, tick_stop) = self.start_tickers(name, &devs, &tx).await;
+                let (tickers, tick_stop) = self.start_tickers(&devs, &tx).await;
                 self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
                     tx,
                     stop,
@@ -1051,7 +1211,7 @@ impl<D: Driver> Framework<D> {
             let _ = tokio::time::timeout(Duration::from_secs(1), t).await;
         }
         let _ = run.tx.send(Req::Reconfigure(devs.clone())).await;
-        let (tickers, tick_stop) = self.start_tickers(conn, &devs, &run.tx).await;
+        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx).await;
         self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
             tickers,
             tick_stop,
@@ -1068,12 +1228,7 @@ impl<D: Driver> Framework<D> {
             for (dn, d) in &c.devices {
                 let mut dm = d.slot.shown();
                 dm.insert("enabled".into(), Value::Bool(d.enabled));
-                let pts: Map = d
-                    .points
-                    .iter()
-                    .map(|(pn, p)| (pn.clone(), Value::Map(p.shown())))
-                    .collect();
-                dm.insert("points".into(), Value::Map(pts));
+                dm.extend(d.branch(&[], &Slot::shown));
                 devs.insert(dn.clone(), Value::Map(dm));
             }
             cm.insert("devices".into(), Value::Map(devs));
@@ -1098,12 +1253,7 @@ impl<D: Driver> Framework<D> {
             for (dn, d) in &c.devices {
                 let mut dm = d.slot.stored();
                 dm.insert("enabled".into(), Value::Bool(d.enabled));
-                let pts: Map = d
-                    .points
-                    .iter()
-                    .map(|(pn, p)| (pn.clone(), Value::Map(p.stored())))
-                    .collect();
-                dm.insert("points".into(), Value::Map(pts));
+                dm.extend(d.branch(&[], &Slot::stored));
                 devs.insert(dn.clone(), Value::Map(dm));
             }
             cm.insert("devices".into(), Value::Map(devs));
@@ -1222,12 +1372,7 @@ impl<D: Driver> Owner<D> {
     fn dev_points(&self, dev: &str) -> Vec<String> {
         self.devs
             .get(dev)
-            .map(|d| {
-                d.points
-                    .keys()
-                    .map(|p| format!("{}/{dev}/{p}", self.conn))
-                    .collect()
-            })
+            .map(|d| d.paths.values().cloned().collect())
             .unwrap_or_default()
     }
 
@@ -1297,9 +1442,14 @@ impl<D: Driver> Owner<D> {
     ) -> std::result::Result<(), String> {
         let mut device_err = None;
         let mut any_ok = false;
-        let republish = self.devs.get(dev).and_then(|d| D::republish(&d.cfg));
+        let devs = self.devs.clone();
+        let run = devs.get(dev);
+        let republish = run.and_then(|d| D::republish(&d.cfg));
         for (id, r) in results {
-            let path = format!("{}/{dev}/{id}", self.conn);
+            let path = match run.and_then(|d| d.paths.get(&id)) {
+                Some(p) => p.clone(),
+                None => format!("{}/{dev}/{id}", self.conn),
+            };
             match r {
                 Ok(v) => {
                     any_ok = true;
@@ -1606,20 +1756,22 @@ impl<D: Driver> Link for Framework<D> {
                 valid_name(&dn)?;
                 let mut dm = map_of(&dv);
                 let denabled = is_enabled(&mut dm);
-                let pts_raw = take(&mut dm, "points")
-                    .map(|v| map_of(&v))
-                    .unwrap_or_default();
                 let mut points = BTreeMap::new();
-                for (pn, pv) in pts_raw {
-                    valid_name(&pn)?;
-                    points.insert(pn, Slot::parse(pv));
-                }
+                let mut folders = BTreeSet::new();
+                load_branch::<D>(
+                    &format!("{cn}/{dn}"),
+                    &[],
+                    &mut dm,
+                    &mut points,
+                    &mut folders,
+                )?;
                 devices.insert(
                     dn,
                     DevEntry {
                         slot: Slot::parse(Value::Map(dm)),
                         enabled: denabled,
                         points,
+                        folders,
                     },
                 );
             }
@@ -1637,13 +1789,8 @@ impl<D: Driver> Link for Framework<D> {
         let names: Vec<String> = fw.conns.keys().cloned().collect();
         for cn in &names {
             fw.declare_conn(cn).await?;
-            let devs: Vec<String> = fw.conns[cn].devices.keys().cloned().collect();
-            for dn in &devs {
-                fw.declare_dev(cn, dn).await?;
-                let pts: Vec<String> = fw.conns[cn].devices[dn].points.keys().cloned().collect();
-                for pn in &pts {
-                    fw.declare_point(cn, dn, pn).await?;
-                }
+            for dn in fw.conns[cn].devices.keys() {
+                fw.declare_branch(cn, dn).await?;
             }
         }
         for cn in &names {
@@ -1653,13 +1800,13 @@ impl<D: Driver> Link for Framework<D> {
     }
 
     async fn on_set(&mut self, path: &str, value: Value, _who: &Caller) -> Result<()> {
-        let parts: Vec<&str> = path.split('/').collect();
-        let [conn, dev, point] = parts.as_slice() else {
+        let parts: Vec<String> = path.split('/').map(str::to_owned).collect();
+        let At::Point(conn, dev, point) = self.resolve(&parts)? else {
             return Err(LinkError::not_supported("only points take values"));
         };
         let run = self
             .conns
-            .get(*conn)
+            .get(conn.as_str())
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
         // The SDK bounds this call from now (`LinkConfig::driver_timeout`).
@@ -1667,8 +1814,8 @@ impl<D: Driver> Link for Framework<D> {
         let (reply, rx) = oneshot::channel();
         run.tx
             .send(Req::Write {
-                dev: (*dev).to_owned(),
-                point: (*point).to_owned(),
+                dev: dev.clone(),
+                point: point.clone(),
                 value,
                 deadline,
                 reply,
@@ -1713,12 +1860,77 @@ impl<D: Driver> Link for Framework<D> {
     }
 }
 
+/// The node an action or a set names.
+enum At<'a> {
+    Root,
+    Conn(&'a String),
+    Dev(&'a String, &'a String),
+    Folder(&'a String, &'a String, Folder),
+    Point(&'a String, &'a String, &'a String),
+}
+
+/// Load `{points, folders?}` of `folder` from `m` (the device map, or a
+/// folder's), taking those keys out: the points into `points` (an id twice
+/// on a device is an error), folders only with [`Driver::FOLDERS`].
+fn load_branch<D: Driver>(
+    dev: &str,
+    folder: &[String],
+    m: &mut Map,
+    points: &mut BTreeMap<String, PointEntry<D::Point>>,
+    folders: &mut BTreeSet<Folder>,
+) -> Result<()> {
+    let at = below(dev, folder);
+    let pts = take(m, "points").map(|v| map_of(&v)).unwrap_or_default();
+    for (pn, pv) in pts {
+        valid_name(&pn)?;
+        if let Some(p) = points.get(&pn) {
+            return Err(LinkError::invalid_parameter(format!(
+                "{at}: point id {pn:?} is used twice on the device (also at {})",
+                below(dev, &p.folder)
+            )));
+        }
+        let entry = PointEntry {
+            slot: Slot::parse(pv),
+            folder: folder.to_vec(),
+        };
+        points.insert(pn, entry);
+    }
+    if !D::FOLDERS {
+        return Ok(());
+    }
+    let subs = take(m, "folders").map(|v| map_of(&v)).unwrap_or_default();
+    for (fname, fv) in subs {
+        valid_name(&fname)?;
+        let f = child(folder, &fname);
+        if f.len() > MAX_FOLDER_DEPTH {
+            return Err(LinkError::invalid_parameter(format!(
+                "{at}/{fname}: folders nest at most {MAX_FOLDER_DEPTH} deep"
+            )));
+        }
+        if points.get(&fname).is_some_and(|p| p.folder == folder) {
+            return Err(LinkError::invalid_parameter(format!(
+                "{at}/{fname}: a point and a folder of that name"
+            )));
+        }
+        folders.insert(f.clone());
+        let mut fm = map_of(&fv);
+        load_branch::<D>(dev, &f, &mut fm, points, folders)?;
+        if let Some(k) = fm.keys().next() {
+            return Err(LinkError::invalid_parameter(format!(
+                "{at}/{fname}.{k}: unknown field (a folder has points and folders)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl<D: Driver> Framework<D> {
-    /// `add_*`: a connection (depth 0), device (1) or point (2) of `kind`.
-    async fn add_child(&mut self, parts: &[String], kind: &str, args: &Value) -> Result<()> {
+    /// `add_*`: a connection (below the root), device (below a connection)
+    /// or point (below a device or folder) of `kind`.
+    async fn add_child(&mut self, at: &At<'_>, kind: &str, args: &Value) -> Result<()> {
         let (name, params) = split_name(args)?;
-        match parts {
-            [] => {
+        match at {
+            At::Root => {
                 if self.conns.contains_key(&name) {
                     return Err(LinkError::invalid_parameter(format!("{name} exists")));
                 }
@@ -1735,7 +1947,7 @@ impl<D: Driver> Framework<D> {
                 self.declare_conn(&name).await?;
                 self.bring_up(&name).await;
             }
-            [conn] => {
+            At::Conn(conn) => {
                 diag_reserved::<D>(&name)?;
                 let cfg = D::Dev::from_kind_value(kind, &params)?;
                 let c = self.conn_mut(conn)?;
@@ -1748,6 +1960,7 @@ impl<D: Driver> Framework<D> {
                         slot: Slot::valid(cfg),
                         enabled: true,
                         points: BTreeMap::new(),
+                        folders: BTreeSet::new(),
                     },
                 );
                 self.declare_dev(conn, &name).await?;
@@ -1755,24 +1968,75 @@ impl<D: Driver> Framework<D> {
                 self.reset_diag(conn, &name);
                 self.replan(conn).await;
             }
-            [conn, dev] => {
+            At::Dev(conn, dev) | At::Folder(conn, dev, _) => {
+                let folder = match at {
+                    At::Folder(_, _, f) => f.clone(),
+                    _ => Folder::new(),
+                };
                 diag_reserved::<D>(&name)?;
                 let cfg = D::Point::from_kind_value(kind, &params)?;
                 let d = self
                     .conn_mut(conn)?
                     .devices
-                    .get_mut(dev)
-                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
-                if d.points.contains_key(&name) {
-                    return Err(LinkError::invalid_parameter(format!("{name} exists")));
+                    .get_mut(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
+                if let Some(p) = d.points.get(&name) {
+                    // Ids are unique on the device: plans and writes go by id.
+                    return Err(LinkError::invalid_parameter(if p.folder == folder {
+                        format!("{name} exists")
+                    } else {
+                        format!("{name} exists on this device (at {})", d.rel(&name))
+                    }));
                 }
-                d.points.insert(name.clone(), Slot::valid(cfg));
+                if d.taken(&folder, &name) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{name} exists (a folder)"
+                    )));
+                }
+                let entry = PointEntry {
+                    slot: Slot::valid(cfg),
+                    folder,
+                };
+                d.points.insert(name.clone(), entry);
                 self.declare_point(conn, dev, &name).await?;
                 self.replan(conn).await;
             }
-            _ => return Err(LinkError::not_supported("add below a point")),
+            At::Point(..) => return Err(LinkError::not_supported("add below a point")),
         }
         Ok(())
+    }
+
+    /// `add_folder {name}` below a device or folder.
+    async fn add_folder(
+        &mut self,
+        conn: &str,
+        dev: &str,
+        folder: Folder,
+        args: &Value,
+    ) -> Result<()> {
+        let (name, rest) = split_name(args)?;
+        if let Some(k) = map_of(&rest).keys().next() {
+            return Err(LinkError::invalid_parameter(format!(
+                "{k}: unknown field (a folder has a name only)"
+            )));
+        }
+        folder_name::<D>(&name)?;
+        if folder.len() >= MAX_FOLDER_DEPTH {
+            return Err(LinkError::invalid_parameter(format!(
+                "folders nest at most {MAX_FOLDER_DEPTH} deep"
+            )));
+        }
+        let d = self
+            .conn_mut(conn)?
+            .devices
+            .get_mut(dev)
+            .ok_or_else(|| LinkError::not_found(dev.to_owned()))?;
+        if d.taken(&folder, &name) {
+            return Err(LinkError::invalid_parameter(format!("{name} exists")));
+        }
+        let f = child(&folder, &name);
+        d.folders.insert(f.clone());
+        self.declare_folder(conn, dev, &f).await
     }
 
     async fn invoke_action(
@@ -1788,16 +2052,25 @@ impl<D: Driver> Framework<D> {
                 .run_action(&conn, dev, timeout_ms, action, args, out)
                 .await;
         }
-        match (parts, action) {
-            ([], "export") => return out.reply(self.export()).await,
-            ([], "rescan") if D::RESCAN.is_some() => return out.reply(self.rescan().await?).await,
+        let at = self.resolve(parts)?;
+        match (&at, action) {
+            (At::Root, "export") => return out.reply(self.export()).await,
+            (At::Root, "rescan") if D::RESCAN.is_some() => {
+                return out.reply(self.rescan().await?).await
+            }
+            (At::Dev(conn, dev), ADD_FOLDER) if D::FOLDERS => {
+                self.add_folder(conn, dev, Folder::new(), &args).await?;
+            }
+            (At::Folder(conn, dev, f), ADD_FOLDER) => {
+                self.add_folder(conn, dev, f.clone(), &args).await?;
+            }
             _ if action.starts_with("add_") => {
-                let Some(kind) = Self::add_kind(parts.len(), action) else {
+                let Some(kind) = Self::add_kind(&at, action) else {
                     return Err(LinkError::not_supported(format!("{path}/~act/{action}")));
                 };
-                self.add_child(parts, kind, &args).await?;
+                self.add_child(&at, kind, &args).await?;
             }
-            ([conn], "edit") => {
+            (At::Conn(conn), "edit") => {
                 // Validate first; a rejected edit changes nothing.
                 let slot = &self.conn_mut(conn)?.slot;
                 let (old, kind, schema) = (slot.raw.clone(), slot.kind.clone(), slot.schema());
@@ -1811,19 +2084,19 @@ impl<D: Driver> Framework<D> {
                 self.declare_conn(conn).await?;
                 self.bring_up(conn).await;
             }
-            ([conn, dev], "edit") => {
+            (At::Dev(conn, dev), "edit") => {
                 let (old, kind, schema) = self
                     .conn_mut(conn)?
                     .devices
-                    .get(dev)
+                    .get(dev.as_str())
                     .map(|d| (d.slot.raw.clone(), d.slot.kind.clone(), d.slot.schema()))
-                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
                 let cfg = D::Dev::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let d = self
                     .conn_mut(conn)?
                     .devices
-                    .get_mut(dev)
-                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
+                    .get_mut(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
                 if d.slot.cfg.as_ref() == Some(&cfg) {
                     return Ok(());
                 }
@@ -1831,65 +2104,84 @@ impl<D: Driver> Framework<D> {
                 self.declare_dev(conn, dev).await?;
                 self.replan(conn).await;
             }
-            ([conn, dev, pt], "edit") => {
+            (At::Point(conn, dev, pt), "edit") => {
                 let (old, kind, schema) = self
                     .conn_mut(conn)?
                     .devices
-                    .get(dev)
-                    .and_then(|d| d.points.get(pt))
-                    .map(|p| (p.raw.clone(), p.kind.clone(), p.schema()))
-                    .ok_or_else(|| LinkError::not_found(pt.clone()))?;
+                    .get(dev.as_str())
+                    .and_then(|d| d.points.get(pt.as_str()))
+                    .map(|p| (p.slot.raw.clone(), p.slot.kind.clone(), p.slot.schema()))
+                    .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
                 let cfg = D::Point::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let p = self
                     .conn_mut(conn)?
                     .devices
-                    .get_mut(dev)
-                    .and_then(|d| d.points.get_mut(pt))
-                    .ok_or_else(|| LinkError::not_found(pt.clone()))?;
-                if p.cfg.as_ref() == Some(&cfg) {
+                    .get_mut(dev.as_str())
+                    .and_then(|d| d.points.get_mut(pt.as_str()))
+                    .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
+                if p.slot.cfg.as_ref() == Some(&cfg) {
                     return Ok(());
                 }
-                *p = Slot::valid(cfg);
+                p.slot = Slot::valid(cfg);
                 self.declare_point(conn, dev, pt).await?;
                 self.replan(conn).await;
             }
-            ([conn], "remove") => {
+            (At::Conn(conn), "remove") => {
                 self.conn_mut(conn)?;
                 self.tear_down(conn).await;
-                self.conns.remove(conn);
+                self.conns.remove(conn.as_str());
                 self.ctx.remove_node(conn).await?;
             }
-            ([conn, dev], "remove") => {
+            (At::Dev(conn, dev), "remove") => {
                 self.conn_mut(conn)?
                     .devices
-                    .remove(dev)
-                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
+                    .remove(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
                 self.ctx.remove_node(&format!("{conn}/{dev}")).await?;
                 if let Some(run) = self.conns.get(conn.as_str()).and_then(|c| c.run.as_ref()) {
                     diag::remove_dev(&run.book, dev);
                 }
                 self.replan(conn).await;
             }
-            ([conn, dev, pt], "remove") => {
-                self.conn_mut(conn)?
+            (At::Folder(conn, dev, folder), "remove") => {
+                // The folder with everything in it; polling stops with the
+                // new plan, the saved tree follows (`on_invoke`).
+                let d = self
+                    .conn_mut(conn)?
                     .devices
-                    .get_mut(dev)
-                    .and_then(|d| d.points.remove(pt))
-                    .ok_or_else(|| LinkError::not_found(pt.clone()))?;
-                self.ctx.remove_node(&format!("{conn}/{dev}/{pt}")).await?;
+                    .get_mut(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
+                d.folders.retain(|f| !f.starts_with(folder));
+                d.points.retain(|_, p| !p.folder.starts_with(folder));
+                self.ctx
+                    .remove_node(&below(&format!("{conn}/{dev}"), folder))
+                    .await?;
                 self.replan(conn).await;
             }
-            ([conn], "restart") => {
+            (At::Point(conn, dev, pt), "remove") => {
+                let d = self
+                    .conn_mut(conn)?
+                    .devices
+                    .get_mut(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
+                let rel = d.rel(pt);
+                d.points
+                    .remove(pt.as_str())
+                    .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
+                self.ctx.remove_node(&format!("{conn}/{dev}/{rel}")).await?;
+                self.replan(conn).await;
+            }
+            (At::Conn(conn), "restart") => {
                 self.conn_mut(conn)?;
                 self.tear_down(conn).await;
                 self.bring_up(conn).await;
             }
-            ([conn, dev], "restart") => {
+            (At::Dev(conn, dev), "restart") => {
                 self.conn_mut(conn)?;
                 self.reset_diag(conn, dev);
                 self.replan(conn).await;
             }
-            ([conn], a @ ("start" | "stop")) => {
+            (At::Conn(conn), a @ ("start" | "stop")) => {
                 let on = a == "start";
                 if self.conn_mut(conn)?.enabled == on {
                     return Ok(());
@@ -1899,13 +2191,13 @@ impl<D: Driver> Framework<D> {
                 self.declare_run_toggle(conn, on).await?;
                 self.bring_up(conn).await;
             }
-            ([conn, dev], a @ ("start" | "stop")) => {
+            (At::Dev(conn, dev), a @ ("start" | "stop")) => {
                 let on = a == "start";
                 let d = self
                     .conn_mut(conn)?
                     .devices
-                    .get_mut(dev)
-                    .ok_or_else(|| LinkError::not_found(dev.clone()))?;
+                    .get_mut(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
                 if d.enabled == on {
                     return Ok(());
                 }
