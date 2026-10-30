@@ -695,6 +695,59 @@ async fn long_writes_in_parts_and_put_get_refused() {
     h.stop().await;
 }
 
+/// One request of a poll times out while the PLC answers the other: the
+/// points of that request go `uncertain/stale` (the link reports the
+/// timeout as a device error, and the framework takes the ladder per
+/// point), the others stay `good`, and the device stays `connected`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timed_out_request_marks_its_points_stale() {
+    let (addr, dev, _sim) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut p = dev.lock().unwrap();
+        let db = p.db(1, 1000);
+        db[0..2].copy_from_slice(&1u16.to_be_bytes());
+        db[100..102].copy_from_slice(&2u16.to_be_bytes());
+    }
+    // one poll group, one item per request: two requests per poll
+    let points = map(&[
+        ("a", pt("DB1.DBW0", &[("poll_s", Value::Float(0.1))])),
+        ("b", pt("DB1.DBW100", &[("poll_s", Value::Float(0.1))])),
+    ]);
+    let h = H::start(tree(
+        addr.port(),
+        &[],
+        &[("ping", "none".into()), ("max_items", Value::UInt(1))],
+        points,
+    ))
+    .await;
+    wait("good", || {
+        q(&h, "a") == Some(Quality::Good) && q(&h, "b") == Some(Quality::Good)
+    })
+    .await;
+    let seen_a = samples(&h, "c1/d1/a").await;
+    let seen_b = samples(&h, "c1/d1/b").await;
+    {
+        let mut p = dev.lock().unwrap();
+        p.delay_at = Some(100);
+        p.delay_once = Some(Duration::from_millis(350));
+    }
+    wait("b stale", || {
+        seen_b
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.q == Quality::Uncertain)
+    })
+    .await;
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+    wait("b good again", || q(&h, "b") == Some(Quality::Good)).await;
+    assert!(
+        seen_a.lock().unwrap().iter().all(|s| s.q == Quality::Good),
+        "a answered all along"
+    );
+    h.stop().await;
+}
+
 /// A silent PLC: `uncertain/stale` first, then `bad/comm_fail`.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_silent_plc_goes_stale_then_bad() {
