@@ -1125,6 +1125,65 @@ async fn an_agent_without_the_time_check_still_opens() {
     h.stop().await;
 }
 
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// `engine_id` pins the agent's engine (as net-snmp `-e`): discovery of
+/// another one fails the connection, a report that names another one does
+/// not start a rediscovery, and a malformed value is refused at add time.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_engine_id_refuses_any_other() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let with = |id: String| {
+        let mut c = v3(addr.port(), "sha256user", "sha256", "aes128");
+        c.push(("engine_id", id.into()));
+        c
+    };
+    let points = || map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    // the agent's own id, in net-snmp's 0x form
+    let h = H::start(tree(
+        &with(format!("0x{}", hex(sim::ENGINE_ID))),
+        &[("ping", Value::Bool(false))],
+        points(),
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let status = samples(&h, "c1/status").await;
+    agent.lock().unwrap().forge = Some((Forge::OtherEngineReport, SnmpValue::Null));
+    wait("device failed", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("engine_id"))
+    })
+    .await;
+    assert!(status.lock().unwrap().is_empty(), "no rediscovery");
+    agent.lock().unwrap().forge = None;
+    h.stop().await;
+    // another id
+    let h = H::start(tree(&with(hex(sim::OTHER_ENGINE_ID)), &[], points())).await;
+    wait("connection refused", || {
+        state(&h, "c1").as_deref() == Some("failed")
+            && error(&h, "c1").is_some_and(|e| e.contains("engine_id"))
+    })
+    .await;
+    h.stop().await;
+    // malformed values
+    let h = H::start(tree(&[], &[], map(&[]))).await;
+    for bad in ["zz00112233", "80001", "80:00:11", &"ab".repeat(33)] {
+        let args = map(&[
+            ("name", "c9".into()),
+            ("host", "127.0.0.1".into()),
+            ("user", "sha256user".into()),
+            ("auth_passphrase", "sha256user-pass".into()),
+            ("priv_passphrase", "sha256user-pass".into()),
+            ("engine_id", bad.into()),
+        ]);
+        let (s, _) = act(&h, "", "add_snmp_v3", args, Perm::Config).await;
+        assert_eq!(s, Some(Status::InvalidParameter), "{bad}");
+    }
+    h.stop().await;
+}
+
 /// An agent that lost its boots counter (boots went down) is refused: the
 /// link keeps the agent's clock, so its answers are outside the time
 /// window. Reset Engine Clock (config, v3 connections only) forgets it and

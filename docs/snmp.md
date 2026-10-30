@@ -54,6 +54,7 @@ switches select a VLAN by community).
 | `auth_passphrase` | — (required, secret) | ≥ 8 characters | Authentication passphrase. |
 | `priv_protocol` | `aes128` | `aes128`, `none` | AES-128-CFB (RFC 3826), or `none` for authNoPriv. |
 | `priv_passphrase` | `""` (secret) | ≥ 8 characters with `aes128` | Privacy passphrase. |
+| `engine_id` | `""` | 5…32 octets in hex (`0x8000…`, `80:00:…` or plain) | Optional: the agent's `snmpEngineID`, as net-snmp `-e`. When set, a discovered engine id that is another fails the connection, and a report naming another engine never starts a rediscovery. |
 | `timeout_ms`, `retries` | 1000, 1 | as above | |
 
 The engine id is discovered when the connection opens (RFC 3414 §4) and the
@@ -229,6 +230,12 @@ connection. The device ping is the same GET in the device's view; any answer,
   sets the engine id, never the clock. The values of a response to a request
   sent before the clock is known are never taken (it may be a replay): only
   its boots and time, and the request is sent again.
+* Discovery is not authenticated: an on-path attacker can redirect the
+  requests to another agent that has the same user and passphrases (common
+  across a fleet) and relay them; every check then passes, and that device's
+  values show as this one's. Set `engine_id` (the agent's `snmpEngineID`,
+  e.g. from `snmpget -v3 … 1.3.6.1.6.3.10.2.1.1.0`) to refuse any other
+  engine. A replaced device then needs its new id in `engine_id`.
 * The clock is kept across reconnects, so a forced reconnect (a forged ICMP
   error or report) does not open a window for replays. **Reset Engine Clock**
   (connection action, `config`, v3) forgets it; run it only when the agent

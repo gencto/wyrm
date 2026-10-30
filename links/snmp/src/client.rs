@@ -49,6 +49,9 @@ pub struct V3 {
     pub auth_pass: Zeroizing<Vec<u8>>,
     /// AES-128 privacy passphrase; `None` = authNoPriv.
     pub priv_pass: Option<Zeroizing<Vec<u8>>>,
+    /// The agent's engine id, pinned (param `engine_id`): discovery of
+    /// another one fails.
+    pub engine_id: Option<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -700,6 +703,13 @@ impl Session {
                     kind.message()
                 )))
             }
+            // Another engine id while it is pinned: never another engine.
+            ReportKind::UnknownEngineId if matches!(&self.sec, Security::V3(v) if v.engine_id.is_some()) => {
+                Fail::Error(DriverError::Device(format!(
+                    "{}, but engine_id pins the engine: not discovering another one",
+                    kind.message()
+                )))
+            }
             // Another engine id: a reopen discovers it again, at a bounded
             // rate (the report is not authenticated).
             ReportKind::UnknownEngineId => match rediscovery_allowed(self.addr) {
@@ -775,6 +785,19 @@ impl Session {
             match found {
                 Some(id) => {
                     self.outcomes.push(Outcome::Reply(sent.elapsed()));
+                    if let Security::V3(V3 {
+                        engine_id: Some(want),
+                        ..
+                    }) = &self.sec
+                    {
+                        if *want != id {
+                            return Err(DriverError::Transport(format!(
+                                "the agent's engine id is {}, not the configured engine_id {}",
+                                hex(&id),
+                                hex(want)
+                            )));
+                        }
+                    }
                     return self.localize(id);
                 }
                 None => {
@@ -817,6 +840,10 @@ impl Session {
         });
         Ok(())
     }
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 fn transport(what: &str) -> DriverError {
@@ -928,6 +955,7 @@ mod tests {
                 auth: Auth::Sha256,
                 auth_pass: Zeroizing::new(KEY_PASS.to_vec()),
                 priv_pass: None,
+                engine_id: None,
             }),
             engine: Some(Engine {
                 id: ENGINE.to_vec(),

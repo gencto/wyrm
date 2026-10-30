@@ -169,8 +169,44 @@ pub struct V3Conn {
     auth_passphrase: String,
     pub priv_protocol: PrivProtocol,
     priv_passphrase: String,
+    /// The agent's engine id pinned, as lowercase hex; empty = any (the
+    /// discovered one).
+    pub engine_id: String,
     pub timeout_ms: u32,
     pub retries: u8,
+}
+
+/// An `snmpEngineID` in hex (`0x8000…`, `80:00:…` or plain), 5 to 32
+/// octets (RFC 3411): its octets.
+pub fn parse_engine_id(s: &str) -> Result<Vec<u8>, String> {
+    let t = s.trim();
+    let t = t
+        .strip_prefix("0x")
+        .or_else(|| t.strip_prefix("0X"))
+        .unwrap_or(t);
+    let digits: Vec<u8> = t
+        .bytes()
+        .filter(|b| !matches!(b, b':' | b' ' | b'-'))
+        .collect();
+    if digits.len() % 2 != 0 || !digits.iter().all(u8::is_ascii_hexdigit) {
+        return Err("hex octets, e.g. 0x80001f8880…".into());
+    }
+    let octets: Vec<u8> = digits
+        .chunks(2)
+        .map(|p| {
+            let hi = char::from(p[0]).to_digit(16).unwrap_or(0);
+            let lo = char::from(p[1]).to_digit(16).unwrap_or(0);
+            u8::try_from(hi * 16 + lo).unwrap_or(0)
+        })
+        .collect();
+    if !(5..=32).contains(&octets.len()) {
+        return Err(format!("{} octets; an engine id has 5 to 32", octets.len()));
+    }
+    Ok(octets)
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 impl Params for V3Conn {
@@ -208,6 +244,14 @@ impl Params for V3Conn {
                 .default("")
                 .desc("at least 8 characters; required with aes128")
                 .display("Privacy Passphrase"),
+            ParamSpec::new("engine_id", TypeCode::String)
+                .default("")
+                .desc(
+                    "optional: the agent's snmpEngineID in hex (as net-snmp -e); \
+                     any other engine is refused",
+                )
+                .display("Engine ID")
+                .dest(),
             ParamSpec::new("timeout_ms", TypeCode::Number)
                 .default(1000u64)
                 .bounds(100.0, 10_000.0)
@@ -228,9 +272,18 @@ impl Params for V3Conn {
             auth_passphrase: field::string(m, "auth_passphrase")?,
             priv_protocol: field::enumv(m, "priv_protocol")?,
             priv_passphrase: field::string(m, "priv_passphrase")?,
+            engine_id: field::string(m, "engine_id")?,
             timeout_ms: field::int(m, "timeout_ms")?,
             retries: field::int(m, "retries")?,
         };
+        let mut c = c;
+        if !c.engine_id.trim().is_empty() {
+            let id = parse_engine_id(&c.engine_id)
+                .map_err(|e| LinkError::invalid_parameter(format!("engine_id: {e}")))?;
+            c.engine_id = hex(&id);
+        } else {
+            c.engine_id = String::new();
+        }
         if c.user.is_empty() || c.user.len() > 32 {
             return Err(LinkError::invalid_parameter("user: 1 to 32 characters"));
         }
@@ -270,6 +323,7 @@ impl Params for V3Conn {
                 "priv_passphrase".into(),
                 Value::Str(self.priv_passphrase.clone()),
             ),
+            ("engine_id".into(), Value::Str(self.engine_id.clone())),
             ("timeout_ms".into(), Value::UInt(self.timeout_ms.into())),
             ("retries".into(), Value::UInt(self.retries.into())),
         ])
@@ -992,6 +1046,9 @@ impl Driver for SnmpDriver {
                     auth_pass: Zeroizing::new(c.auth_passphrase.as_bytes().to_vec()),
                     priv_pass: (c.priv_protocol == PrivProtocol::Aes128)
                         .then(|| Zeroizing::new(c.priv_passphrase.as_bytes().to_vec())),
+                    engine_id: (!c.engine_id.is_empty())
+                        .then(|| parse_engine_id(&c.engine_id).ok())
+                        .flatten(),
                 }),
                 (!loopback && c.priv_protocol == PrivProtocol::None).then(|| {
                     "priv_protocol none: values travel unencrypted (authNoPriv)".to_owned()
