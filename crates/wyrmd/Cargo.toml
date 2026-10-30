@@ -20,6 +20,7 @@ zeroize.workspace = true
 wyrm-link-mock.workspace = true
 wyrm-link-wasm.workspace = true
 wyrm-link-modbus.workspace = true
+wyrm-link-s7.workspace = true
 wyrm-link-agent.workspace = true
 wyrm-link-mqtt.workspace = true
 wyrm-link-http.workspace = true

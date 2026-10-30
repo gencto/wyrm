@@ -6297,6 +6297,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-s7"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-s7",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-scheduler"
 version = "0.1.0"
 dependencies = [
@@ -6490,6 +6502,7 @@ dependencies = [
  "wyrm-link-mqtt",
  "wyrm-link-portable",
  "wyrm-link-probe",
+ "wyrm-link-s7",
  "wyrm-link-scheduler",
  "wyrm-link-sdk",
  "wyrm-link-snmp",
