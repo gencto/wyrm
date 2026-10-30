@@ -36,6 +36,11 @@
 //! write likewise by its requests, and a failed write is read back. `republish_s` on a
 //! device publishes unchanged values again (a heartbeat). Modbus ASCII and
 //! UDP are not supported.
+//!
+//! Diagnostics (framework, ruling 12): every request sent (a retry too) is
+//! counted for its device and connection as answered, an exception, a
+//! timeout or an I/O or protocol error, with its round trip; `reopens`
+//! counts the reopens after an unanswered request.
 
 #![forbid(unsafe_code)]
 
@@ -56,7 +61,7 @@ use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
-use wyrm_link_sdk::driver::{Driver, DriverError, Framework, ParamEnum, Params, PointId};
+use wyrm_link_sdk::driver::{Driver, DriverError, Framework, Outcome, ParamEnum, Params, PointId};
 use wyrm_link_sdk::LinkError;
 use wyrm_link_sdk::{ParamEnum, Params};
 
@@ -482,8 +487,10 @@ pub struct Transport {
     /// When the unanswered request went out (the serial guard waits out
     /// the rest of its window).
     sent: Option<tokio::time::Instant>,
-    /// Reopens after an unanswered request (diagnostics: Task 3).
+    /// Reopens after an unanswered request (also counted in `outcomes`).
     reopens: u64,
+    /// Outcomes of the requests since the framework last took them.
+    outcomes: Vec<Outcome>,
     /// Units that answered FC22 with `IllegalFunction`.
     no_fc22: HashSet<u8>,
 }
@@ -525,6 +532,9 @@ fn unexpected(r: &Response) -> DriverError {
         r.function_code().value()
     ))
 }
+
+/// Diagnostics counter of transport reopens (ruling P1).
+const REOPENS: &str = "reopens";
 
 /// Why a unit-0 device on RTU sends nothing.
 const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
@@ -655,6 +665,7 @@ impl Transport {
         self.unanswered = false;
         self.sent = None;
         self.reopens += 1;
+        self.outcomes.push(Outcome::Count(REOPENS));
         debug!(
             reopens = self.reopens,
             "transport reopened after an unanswered request"
@@ -673,8 +684,16 @@ impl Transport {
                 self.reopen().await?;
             }
             self.unanswered = true;
-            self.sent = Some(tokio::time::Instant::now());
-            match tokio::time::timeout(self.timeout, self.ctx.call(req.clone())).await {
+            let sent = tokio::time::Instant::now();
+            self.sent = Some(sent);
+            let r = tokio::time::timeout(self.timeout, self.ctx.call(req.clone())).await;
+            self.outcomes.push(match &r {
+                Err(_) => Outcome::Timeout,
+                Ok(Ok(Ok(_))) => Outcome::Reply(sent.elapsed()),
+                Ok(Ok(Err(_))) => Outcome::Exception(sent.elapsed()),
+                Ok(Err(_)) => Outcome::Error,
+            });
+            match r {
                 Err(_) if retry < self.retries => {
                     retry += 1;
                     debug!(retry, "request timed out; sending it again");
@@ -812,6 +831,7 @@ impl Driver for ModbusDriver {
             unanswered: false,
             sent: None,
             reopens: 0,
+            outcomes: Vec::new(),
             no_fc22: HashSet::new(),
         })
     }
@@ -1027,6 +1047,13 @@ impl Driver for ModbusDriver {
     }
 
     const RESCAN: Option<&'static str> = Some("Rescan For Serial Ports");
+
+    const DIAGNOSTICS: bool = true;
+    const DIAG_EXTRA: &'static [&'static str] = &[REOPENS];
+
+    fn take_outcomes(t: &mut Transport) -> Vec<Outcome> {
+        std::mem::take(&mut t.outcomes)
+    }
 }
 
 #[cfg(test)]

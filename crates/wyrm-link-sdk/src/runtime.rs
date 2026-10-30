@@ -746,6 +746,7 @@ impl<C: Send + 'static> Shared<C> {
                     Err(e) => (Vec::new(), err_att(&e)),
                 };
                 reply_here(&q, payload, att, false).await;
+                self.ctx.note_read(&path);
             }
             SUFFIX_VAL => {
                 if self.answer_val {
@@ -755,6 +756,7 @@ impl<C: Send + 'static> Shared<C> {
                         reply(&q, &key, p, None, false).await;
                     }
                 }
+                self.ctx.note_read(&path);
             }
             SUFFIX_SET => {
                 let sh = self.clone();

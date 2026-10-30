@@ -1309,3 +1309,73 @@ async fn a_slow_series_write_is_not_cut() {
     assert_eq!(dev.lock().unwrap().count(16), 0);
     h.stop().await;
 }
+
+/// Ruling 12 and P1: every request is counted for its device and
+/// connection (a retry too), by outcome, with its round trip; `reopens`
+/// counts the reopens after a timeout. Values come at once on a read.
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostics_count_requests_and_reopens() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[70] = 5;
+        t.drop_next = Some((1, 70, 1));
+    }
+    // One poll (60 s), no ping: a timeout and its retry at 70, then an
+    // exception at 2000 (beyond the simulator's registers).
+    let once = [("poll_s", Value::Float(60.0))];
+    let points = map(&[
+        ("v", pt("holding", 70, "u16", &once)),
+        ("bad", pt("holding", 2000, "u16", &once)),
+    ]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("retries", Value::UInt(1))],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    wait("polled", || {
+        val(&h, "v") == Some(Value::UInt(5))
+            && h.ctx()
+                .last("c1/d1/bad")
+                .is_some_and(|s| s.q == Quality::Bad)
+    })
+    .await;
+    let n = |p: &str| h.ctx().last(p).map(|s| s.v);
+    for node in ["c1/d1", "c1"] {
+        h.meta(node).await;
+        wait("published on a read", || {
+            n(&format!("{node}/requests")) == Some(Value::UInt(3))
+        })
+        .await;
+        // a flush publishes the leaves in order; `avg_rtt_ms` comes last
+        wait(
+            "all leaves",
+            || matches!(n(&format!("{node}/avg_rtt_ms")), Some(Value::Float(f)) if f > 0.0),
+        )
+        .await;
+        for (leaf, want) in [
+            ("timeouts", 1),
+            ("exceptions", 1),
+            ("errors", 0),
+            ("reopens", 1),
+        ] {
+            assert_eq!(
+                n(&format!("{node}/{leaf}")),
+                Some(Value::UInt(want)),
+                "{node}/{leaf}"
+            );
+        }
+        let Some(Value::Float(last)) = n(&format!("{node}/last_rtt_ms")) else {
+            panic!("{node}/last_rtt_ms");
+        };
+        assert!(last > 0.0 && last < 200.0, "{node}: last_rtt_ms {last}");
+    }
+    assert_eq!(
+        dev.lock().unwrap().connections,
+        2,
+        "reopens = connections - 1"
+    );
+    h.stop().await;
+}

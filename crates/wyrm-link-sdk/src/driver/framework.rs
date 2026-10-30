@@ -27,10 +27,17 @@
 //!   when unchanged once its last sample is [`Driver::republish`] old.
 //!   After a write the point is read back; after a failed one only when
 //!   [`Driver::read_back_on_error`] says so.
+//! * Driver actions ([`Driver::actions`]) are declared on connections and
+//!   devices and run on the owner task ([`Driver::invoke`]), between polls;
+//!   the link task does not wait for them.
+//! * With [`Driver::DIAGNOSTICS`], connections and devices get diagnostics
+//!   value leaves (see `diag`), counted from [`Driver::take_outcomes`] after
+//!   every operation; an operation cut by its bound counts one timeout.
 
+use super::diag;
 use super::params::{normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
-use super::{backoff, jitter, Driver, DriverError, NodeState, PointId};
+use super::{backoff, jitter, Driver, DriverError, Level, NodeState, Outcome, PointId, Target};
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
 use crate::error::{LinkError, Result};
@@ -218,6 +225,17 @@ enum Req<D: Driver> {
         reply: oneshot::Sender<Result<()>>,
     },
     Reconfigure(Arc<DevMap<D>>),
+    /// A driver action on the connection (`dev: None`) or a device.
+    Invoke {
+        dev: Option<String>,
+        action: String,
+        args: Value,
+        /// The action's `timeout_ms`; `None` = [`Driver::io_timeout`].
+        bound: Option<Duration>,
+        /// When the caller stops waiting: the action never runs past it.
+        deadline: tokio::time::Instant,
+        reply: oneshot::Sender<Result<Value>>,
+    },
 }
 
 struct ConnRun<D: Driver> {
@@ -226,6 +244,10 @@ struct ConnRun<D: Driver> {
     owner: JoinHandle<()>,
     tickers: Vec<JoinHandle<()>>,
     tick_stop: watch::Sender<bool>,
+    /// Diagnostics of this run (empty at every (re)start).
+    book: diag::SharedBook,
+    /// The diagnostics flusher and its nudges ([`Driver::DIAGNOSTICS`]).
+    flusher: Option<(JoinHandle<()>, diag::Nudge)>,
 }
 
 pub struct Framework<D: Driver> {
@@ -328,6 +350,44 @@ async fn mark(ctx: &LinkCtx, paths: impl IntoIterator<Item = String>, q: Quality
             }
         }
     }
+}
+
+/// Actions of the framework; a driver action may not use these names.
+const FRAMEWORK_ACTIONS: [&str; 7] = [
+    "edit", "remove", "restart", "start", "stop", "export", "rescan",
+];
+
+fn framework_action(name: &str) -> bool {
+    name.starts_with("add_") || FRAMEWORK_ACTIONS.contains(&name)
+}
+
+/// [`Driver::actions`] without names of the framework; level `config` when
+/// the driver left it out.
+fn driver_actions<D: Driver>(level: Level, kind: &str) -> Vec<(&'static str, ActionMeta)> {
+    D::actions(level, kind)
+        .into_iter()
+        .filter(|(name, _)| {
+            let ok = !framework_action(name);
+            if !ok {
+                warn!("driver action {name:?} has the name of a framework action; not declared");
+            }
+            ok
+        })
+        .map(|(name, mut meta)| {
+            meta.level.get_or_insert(Perm::Config);
+            (name, meta)
+        })
+        .collect()
+}
+
+/// Names a new device or point may not take: the diagnostics leaves.
+fn diag_reserved<D: Driver>(name: &str) -> Result<()> {
+    if D::DIAGNOSTICS && diag::names::<D>().contains(&name) {
+        return Err(LinkError::invalid_parameter(format!(
+            "{name:?} is reserved (diagnostics)"
+        )));
+    }
+    Ok(())
 }
 
 fn valid_name(name: &str) -> Result<()> {
@@ -516,7 +576,30 @@ impl<D: Driver> Framework<D> {
         self.ctx
             .declare_action(name, "restart", plain("Restart"))
             .await?;
+        for (id, meta) in driver_actions::<D>(Level::Connection, &c.slot.kind) {
+            self.ctx.declare_action(name, id, meta).await?;
+        }
+        self.declare_diag(name, |n| c.devices.contains_key(n))
+            .await?;
         self.declare_run_toggle(name, c.enabled).await
+    }
+
+    /// The diagnostics leaves of a connection or device, except where a
+    /// stored child already has the name (it keeps its node).
+    async fn declare_diag(&self, base: &str, taken: impl Fn(&str) -> bool) -> Result<()> {
+        if !D::DIAGNOSTICS {
+            return Ok(());
+        }
+        for name in diag::names::<D>() {
+            if taken(name) {
+                warn!(node = %base, "child {name:?} hides the diagnostics leaf of that name");
+                continue;
+            }
+            self.ctx
+                .declare_node(&format!("{base}/{name}"), diag::leaf_meta(name))
+                .await?;
+        }
+        Ok(())
     }
 
     async fn declare_dev(&self, conn: &str, dev: &str) -> Result<()> {
@@ -538,6 +621,11 @@ impl<D: Driver> Framework<D> {
         self.declare_common(&base, &d.slot.schema(), &shown).await?;
         self.ctx
             .declare_action(&base, "restart", plain("Restart"))
+            .await?;
+        for (id, meta) in driver_actions::<D>(Level::Device, &d.slot.kind) {
+            self.ctx.declare_action(&base, id, meta).await?;
+        }
+        self.declare_diag(&base, |n| d.points.contains_key(n))
             .await?;
         self.declare_run_toggle(&base, d.enabled).await
     }
@@ -792,12 +880,28 @@ impl<D: Driver> Framework<D> {
                 }
                 let (tx, rx) = mpsc::channel(256);
                 let (stop, stop_rx) = watch::channel(false);
+                let book = diag::new_book(c.devices.keys());
+                let flusher = D::DIAGNOSTICS.then(|| {
+                    let (nudge, nudges) = mpsc::channel(16);
+                    let task = tokio::spawn(
+                        diag::flusher::<D>(
+                            self.ctx.clone(),
+                            name.to_owned(),
+                            book.clone(),
+                            nudges,
+                            stop_rx.clone(),
+                        )
+                        .in_current_span(),
+                    );
+                    (task, nudge)
+                });
                 let owner = tokio::spawn(
                     owner::<D>(
                         self.ctx.clone(),
                         name.to_owned(),
                         cfg,
                         devs.clone(),
+                        book.clone(),
                         rx,
                         stop_rx,
                     )
@@ -810,6 +914,8 @@ impl<D: Driver> Framework<D> {
                     owner,
                     tickers,
                     tick_stop,
+                    book,
+                    flusher,
                 });
             }
         }
@@ -832,6 +938,95 @@ impl<D: Driver> Framework<D> {
         {
             owner.abort();
         }
+        if let Some((mut task, _)) = run.flusher {
+            if tokio::time::timeout(Duration::from_secs(1), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+            }
+        }
+    }
+
+    /// A device's diagnostics from zero, published at once.
+    fn reset_diag(&self, conn: &str, dev: &str) {
+        let Some(run) = self.conns.get(conn).and_then(|c| c.run.as_ref()) else {
+            return;
+        };
+        diag::reset_dev(&run.book, dev);
+        if let Some((_, nudge)) = &run.flusher {
+            let _ = nudge.try_send(Some(dev.to_owned()));
+        }
+    }
+
+    /// The driver action `action` on the node at `parts`, if it has one:
+    /// `(conn, device, timeout_ms)`.
+    fn find_action(
+        &self,
+        parts: &[String],
+        action: &str,
+    ) -> Option<(String, Option<String>, Option<u32>)> {
+        let (conn, dev, level, kind) = match parts {
+            [c] => (c, None, Level::Connection, &self.conns.get(c)?.slot.kind),
+            [c, d] => (
+                c,
+                Some(d.clone()),
+                Level::Device,
+                &self.conns.get(c)?.devices.get(d)?.slot.kind,
+            ),
+            _ => return None,
+        };
+        driver_actions::<D>(level, kind)
+            .into_iter()
+            .find(|(n, _)| *n == action)
+            .map(|(_, m)| (conn.clone(), dev, m.timeout_ms))
+    }
+
+    /// Send a driver action to the owner and answer `out` from a task of
+    /// its own: the link task does not wait for the action.
+    async fn run_action(
+        &self,
+        conn: &str,
+        dev: Option<String>,
+        timeout_ms: Option<u32>,
+        action: &str,
+        args: Value,
+        out: ReplySink,
+    ) -> Result<()> {
+        let run = self
+            .conns
+            .get(conn)
+            .and_then(|c| c.run.as_ref())
+            .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
+        let (reply, rx) = oneshot::channel();
+        let bound = timeout_ms.map(|ms| Duration::from_millis(ms.into()));
+        // The SDK's bound on this call, counted from the request.
+        let deadline = out.since() + bound.unwrap_or_else(|| self.ctx.driver_timeout());
+        run.tx
+            .send(Req::Invoke {
+                dev,
+                action: action.to_owned(),
+                args,
+                bound,
+                deadline,
+                reply,
+            })
+            .await
+            .map_err(|_| LinkError::new(Status::Disconnected, "connection stopped"))?;
+        tokio::spawn(
+            async move {
+                let _ = match rx.await {
+                    Ok(Ok(v)) => out.reply(v).await,
+                    Ok(Err(e)) => out.error(e).await,
+                    Err(_) => {
+                        out.error(LinkError::new(Status::Disconnected, "connection stopped"))
+                            .await
+                    }
+                };
+            }
+            .in_current_span(),
+        );
+        Ok(())
     }
 
     /// Device/point change: new plan for the owner, new tickers, no reconnect.
@@ -995,9 +1190,24 @@ struct Owner<D: Driver> {
     conn: String,
     devs: Arc<DevMap<D>>,
     health: BTreeMap<String, DevHealth>,
+    book: diag::SharedBook,
 }
 
 impl<D: Driver> Owner<D> {
+    /// Count the requests of the operation that just ran for `dev` (or the
+    /// connection); `cut` = its bound cut it, which counts one timeout (the
+    /// request on the wire never got its outcome).
+    fn record(&self, t: &mut D::Transport, dev: Option<&str>, cut: bool) {
+        if !D::DIAGNOSTICS {
+            return;
+        }
+        let mut out = D::take_outcomes(t);
+        if cut {
+            out.push(Outcome::Timeout);
+        }
+        diag::record::<D>(&self.book, dev, &out);
+    }
+
     fn dev_points(&self, dev: &str) -> Vec<String> {
         self.devs
             .get(dev)
@@ -1117,6 +1327,7 @@ async fn owner<D: Driver>(
     conn: String,
     cfg: D::Conn,
     devs: Arc<DevMap<D>>,
+    book: diag::SharedBook,
     mut rx: mpsc::Receiver<Req<D>>,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -1126,6 +1337,7 @@ async fn owner<D: Driver>(
         conn,
         devs,
         health: BTreeMap::new(),
+        book,
     };
     let mut attempt = 0u32;
     loop {
@@ -1137,6 +1349,7 @@ async fn owner<D: Driver>(
         let failure = match opened {
             Ok(Ok(mut t)) => {
                 attempt = 0;
+                o.record(&mut t, None, false);
                 set_status(&o.ctx, &o.conn, NodeState::Connected, None).await;
                 let devs: Vec<String> = o.devs.keys().cloned().collect();
                 for d in devs {
@@ -1164,6 +1377,9 @@ async fn owner<D: Driver>(
                 r = rx.recv() => match r {
                     None => return,
                     Some(Req::Write { reply, .. }) => {
+                        let _ = reply.send(Err(LinkError::new(Status::Disconnected, failure.clone())));
+                    }
+                    Some(Req::Invoke { reply, .. }) => {
                         let _ = reply.send(Err(LinkError::new(Status::Disconnected, failure.clone())));
                     }
                     Some(Req::Reconfigure(m)) => o.devs = m,
@@ -1206,6 +1422,7 @@ async fn serve<D: Driver>(
                 let bound = D::poll_timeout(cfg, &g.plan);
                 let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &g.plan)).await;
                 g.inflight.store(false, Ordering::Release);
+                o.record(t, Some(&dev), r.is_err());
                 match r {
                     Err(_) => o.dev_miss(&dev, "poll timed out").await,
                     Ok(results) => {
@@ -1218,7 +1435,9 @@ async fn serve<D: Driver>(
             Req::Ping { dev } => {
                 let devs = o.devs.clone();
                 let Some(d) = devs.get(&dev) else { continue };
-                match tokio::time::timeout(timeout, D::ping(t, &d.cfg)).await {
+                let r = tokio::time::timeout(timeout, D::ping(t, &d.cfg)).await;
+                o.record(t, Some(&dev), r.is_err());
+                match r {
                     Err(_) => o.dev_miss(&dev, "ping timed out").await,
                     Ok(Ok(())) | Ok(Err(DriverError::Point(_))) => o.dev_ok(&dev).await,
                     Ok(Err(DriverError::Device(e))) => o.dev_miss(&dev, &e).await,
@@ -1240,9 +1459,9 @@ async fn serve<D: Driver>(
                     continue;
                 };
                 let bound = D::write_timeout(cfg, p);
-                let r = match tokio::time::timeout(bound, D::write(t, &d.cfg, &point, p, &value))
-                    .await
-                {
+                let r = tokio::time::timeout(bound, D::write(t, &d.cfg, &point, p, &value)).await;
+                o.record(t, Some(&dev), r.is_err());
+                let r = match r {
                     Err(_) => Err(DriverError::Device("write timed out".into())),
                     Ok(r) => r,
                 };
@@ -1261,9 +1480,9 @@ async fn serve<D: Driver>(
                 if outcome.is_ok() || D::read_back_on_error(&d.cfg) {
                     let plan = D::plan(&d.cfg, &[(point.clone(), p.clone())]);
                     let bound = D::poll_timeout(cfg, &plan);
-                    if let Ok(results) =
-                        tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await
-                    {
+                    let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await;
+                    o.record(t, Some(&dev), r.is_err());
+                    if let Ok(results) = r {
                         if let Err(e) = o.publish_results(&dev, results).await {
                             let _ = reply.send(outcome);
                             return Some(e);
@@ -1271,6 +1490,56 @@ async fn serve<D: Driver>(
                     }
                 }
                 let _ = reply.send(outcome);
+            }
+            Req::Invoke {
+                dev,
+                action,
+                args,
+                bound,
+                deadline,
+                reply,
+            } => {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if left.is_zero() {
+                    // The caller gave up while the action waited its turn.
+                    let _ = reply.send(Err(LinkError::timeout("action not started in time")));
+                    continue;
+                }
+                let devs = o.devs.clone();
+                let target = match &dev {
+                    None => Target::Connection,
+                    Some(id) => match devs.get(id) {
+                        Some(d) => Target::Device { id, dev: &d.cfg },
+                        None => {
+                            let e = LinkError::new(
+                                Status::Disconnected,
+                                format!("device {id} is not running"),
+                            );
+                            let _ = reply.send(Err(e));
+                            continue;
+                        }
+                    },
+                };
+                let bound = bound.unwrap_or(timeout).min(left);
+                let r =
+                    tokio::time::timeout(bound, D::invoke(t, cfg, target, &action, &args)).await;
+                o.record(t, dev.as_deref(), r.is_err());
+                match r {
+                    Err(_) => {
+                        let _ = reply.send(Err(LinkError::timeout(format!(
+                            "action {action} timed out"
+                        ))));
+                    }
+                    // The transport broke: reconnect.
+                    Ok(Err(e)) if e.status == Status::Disconnected => {
+                        let why = e.message.clone();
+                        let _ = reply.send(Err(e));
+                        return Some(why);
+                    }
+                    Ok(r) => {
+                        let _ = reply.send(r);
+                    }
+                }
             }
         }
     }
@@ -1445,6 +1714,7 @@ impl<D: Driver> Framework<D> {
                 self.bring_up(&name).await;
             }
             [conn] => {
+                diag_reserved::<D>(&name)?;
                 let cfg = D::Dev::from_kind_value(kind, &params)?;
                 let c = self.conn_mut(conn)?;
                 if c.devices.contains_key(&name) {
@@ -1460,9 +1730,11 @@ impl<D: Driver> Framework<D> {
                 );
                 self.declare_dev(conn, &name).await?;
                 set_status(&self.ctx, &format!("{conn}/{name}"), NodeState::New, None).await;
+                self.reset_diag(conn, &name);
                 self.replan(conn).await;
             }
             [conn, dev] => {
+                diag_reserved::<D>(&name)?;
                 let cfg = D::Point::from_kind_value(kind, &params)?;
                 let d = self
                     .conn_mut(conn)?
@@ -1489,6 +1761,11 @@ impl<D: Driver> Framework<D> {
         out: ReplySink,
     ) -> Result<()> {
         let path = parts.join("/");
+        if let Some((conn, dev, timeout_ms)) = self.find_action(parts, action) {
+            return self
+                .run_action(&conn, dev, timeout_ms, action, args, out)
+                .await;
+        }
         match (parts, action) {
             ([], "export") => return out.reply(self.export()).await,
             ([], "rescan") if D::RESCAN.is_some() => return out.reply(self.rescan().await?).await,
@@ -1566,6 +1843,9 @@ impl<D: Driver> Framework<D> {
                     .remove(dev)
                     .ok_or_else(|| LinkError::not_found(dev.clone()))?;
                 self.ctx.remove_node(&format!("{conn}/{dev}")).await?;
+                if let Some(run) = self.conns.get(conn.as_str()).and_then(|c| c.run.as_ref()) {
+                    diag::remove_dev(&run.book, dev);
+                }
                 self.replan(conn).await;
             }
             ([conn, dev, pt], "remove") => {
@@ -1582,8 +1862,9 @@ impl<D: Driver> Framework<D> {
                 self.tear_down(conn).await;
                 self.bring_up(conn).await;
             }
-            ([conn, _dev], "restart") => {
+            ([conn, dev], "restart") => {
                 self.conn_mut(conn)?;
+                self.reset_diag(conn, dev);
                 self.replan(conn).await;
             }
             ([conn], a @ ("start" | "stop")) => {
@@ -1611,6 +1892,7 @@ impl<D: Driver> Framework<D> {
                 self.declare_run_toggle(&base, on).await?;
                 if on {
                     set_status(&self.ctx, &base, NodeState::New, None).await;
+                    self.reset_diag(conn, dev);
                 } else {
                     set_status(&self.ctx, &base, NodeState::Stopped, None).await;
                     let paths = Self::point_paths(

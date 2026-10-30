@@ -2,9 +2,10 @@
 //! of the raw layer. A driver declares three typed parameter kinds and the
 //! protocol I/O; [`Framework`] provides the tree, generated actions,
 //! validate-then-diff edits, typed states with parent→child cascade, the
-//! per-connection owner task, batched polling, read-back writes and the
-//! quality ladder.
+//! per-connection owner task, batched polling, read-back writes, the
+//! quality ladder, and (opt-in) driver actions and diagnostics counters.
 
+mod diag;
 pub mod framework;
 pub mod params;
 pub mod persist;
@@ -12,9 +13,10 @@ pub mod persist;
 pub use framework::{Framework, Tree};
 pub use params::{ParamEnum, ParamSpec, Params};
 
+use crate::error::LinkError;
 use std::future::Future;
 use std::time::Duration;
-use wyrm_core::{NodeMeta, Value};
+use wyrm_core::{ActionMeta, NodeMeta, Value};
 
 /// Point name within its device.
 pub type PointId = String;
@@ -38,6 +40,38 @@ impl std::fmt::Display for DriverError {
             DriverError::Point(m) => write!(f, "point: {m}"),
         }
     }
+}
+
+/// What became of one request on the wire, reported by a driver for the
+/// diagnostics of its connection and device (ruling 12, [`Driver::take_outcomes`]).
+/// `requests` counts every request; `exceptions`, `timeouts` and `errors`
+/// are disjoint classes of the failed ones (so `requests` = answered +
+/// exceptions + timeouts + errors). A retry is a request of its own.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Outcome {
+    /// A normal reply after `rtt`.
+    Reply(Duration),
+    /// An exception reply after `rtt`: the device answered, the request failed.
+    Exception(Duration),
+    /// No reply within the request's timeout.
+    Timeout,
+    /// An I/O or protocol error (neither a timeout nor an exception).
+    Error,
+    /// A driver event counted in one of [`Driver::DIAG_EXTRA`] (not a request).
+    Count(&'static str),
+}
+
+/// The level of a node that carries driver actions ([`Driver::actions`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    Connection,
+    Device,
+}
+
+/// The node a driver action runs on ([`Driver::invoke`]).
+pub enum Target<'a, D: Driver> {
+    Connection,
+    Device { id: &'a str, dev: &'a D::Dev },
 }
 
 /// A protocol driver. All I/O methods run on the connection's owner task,
@@ -138,6 +172,51 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// [`Driver::choices`] again and refreshes the forms (DSA: "Rescan For
     /// Serial Ports"). `None` = no such action.
     const RESCAN: Option<&'static str> = None;
+
+    /// Driver actions of a connection or device node of `kind` (the node
+    /// kind id, `""` on a single-kind level): `(name, meta)`. The meta sets
+    /// the level (ADR 0004: reads `read`, value writes `write`, changes of
+    /// the tree or config `config`; `config` when unset), the params and
+    /// optionally `timeout_ms`, which bounds the call (default:
+    /// [`Driver::io_timeout`], and never past the SDK's bound on the call,
+    /// `LinkConfig::driver_timeout` without `timeout_ms`: set it for an
+    /// action that may take longer). Names of framework actions and `add_*`
+    /// are refused.
+    fn actions(_level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
+    /// Run a driver action on the connection's owner task, between polls
+    /// (never during one). `args` passed the SDK's check against the
+    /// declared params. An error with status `disconnected` means the
+    /// transport broke: the framework reconnects.
+    fn invoke(
+        _t: &mut Self::Transport,
+        _conn: &Self::Conn,
+        _target: Target<'_, Self>,
+        action: &str,
+        _args: &Value,
+    ) -> impl Future<Output = Result<Value, LinkError>> + Send {
+        let e = LinkError::not_supported(format!("action {action}"));
+        async move { Err(e) }
+    }
+
+    /// Diagnostics (ruling 12): connections and devices get the value
+    /// leaves `requests`, `errors`, `timeouts`, `exceptions`, then
+    /// [`Driver::DIAG_EXTRA`], then `last_rtt_ms` and `avg_rtt_ms`, fed by
+    /// [`Driver::take_outcomes`]. Off by default.
+    const DIAGNOSTICS: bool = false;
+
+    /// Driver-specific counters (leaf names) beside the standard ones,
+    /// counted by [`Outcome::Count`].
+    const DIAG_EXTRA: &'static [&'static str] = &[];
+
+    /// The outcomes of the requests sent since the last call (drained). The
+    /// framework calls it after every ping, poll, write and action and
+    /// counts them for that device and its connection.
+    fn take_outcomes(_t: &mut Self::Transport) -> Vec<Outcome> {
+        Vec::new()
+    }
 }
 
 /// Typed node state (ADR 0004), published in the branch's `status` leaf.

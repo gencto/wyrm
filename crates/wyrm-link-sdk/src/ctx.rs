@@ -42,6 +42,8 @@ pub(crate) struct Inner {
     pub data_dir: Option<PathBuf>,
     pub grants: Vec<(String, wyrm_core::Perm)>,
     pub driver_timeout: std::time::Duration,
+    /// Paths whose `~meta` or `~val` a requester read ([`LinkCtx::reads`]).
+    reads: tokio::sync::broadcast::Sender<String>,
 }
 
 /// What the host hands to a new [`LinkCtx`] besides its address.
@@ -92,7 +94,22 @@ impl LinkCtx {
             data_dir: host.data_dir,
             grants: host.grants,
             driver_timeout: host.driver_timeout,
+            reads: tokio::sync::broadcast::channel(64).0,
         }))
+    }
+
+    /// Paths of this link whose `~meta` or `~val` a requester read, as they
+    /// come (lossy: a slow receiver gets `Lagged`). For a driver that
+    /// publishes something at once when it is looked at.
+    pub fn reads(&self) -> tokio::sync::broadcast::Receiver<String> {
+        self.0.reads.subscribe()
+    }
+
+    /// Tell [`LinkCtx::reads`] receivers, if any, that `path` was read.
+    pub(crate) fn note_read(&self, path: &str) {
+        if self.0.reads.receiver_count() > 0 {
+            let _ = self.0.reads.send(path.to_owned());
+        }
     }
 
     pub fn site(&self) -> &str {
