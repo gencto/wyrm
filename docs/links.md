@@ -29,6 +29,7 @@ down. In the broker's own process it runs only as WASM.
   framework), `modbus`, `mqtt`, `agent`, `wasm`, `app` (a portable link on a
   WASM component, section 9) and `portable-echo` (the example portable link,
   native). Install them with *from Driver*.
+- **`s7`** (built in): Siemens S7-300/400/1200/1500 PLCs over S7comm (ISO-on-TCP); guide: [`docs/s7.md`](s7.md).
 - **Link SDK** (`crates/wyrm-link-sdk`): the raw link layer, the driver
   framework (Connection → Device → Point with `Add`/`Edit`/`Remove` actions)
   and `process::run` for a link that runs as its own binary.

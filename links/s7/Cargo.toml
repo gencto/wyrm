@@ -1,0 +1,43 @@
+[package]
+name = "wyrm-link-s7"
+description = "WYRM Siemens S7 connector (S7comm over ISO-on-TCP) on the driver framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process S7 PLC simulator for tests and demos.
+sim = []
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-s7-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-s7"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net", "io-util"] }
+tracing.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-s7 = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "s7"
+description = "Siemens S7-300/400/1200/1500 PLCs over S7comm (ISO-on-TCP): batched Read Var, Write Var with read-back"
+bin = "wyrm-link-s7"
+features = ["process"]

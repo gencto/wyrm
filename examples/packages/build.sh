@@ -40,7 +40,7 @@ mkdir -p "$ZIPS"
 WYR=$ROOT/target/release/wyr
 
 for crate in examples/links/responder examples/links/requester examples/links/both \
-             links/probe links/modbus links/mqtt links/mock; do
+             links/probe links/modbus links/mqtt links/mock links/s7; do
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
 
