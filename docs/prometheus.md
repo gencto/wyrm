@@ -177,8 +177,10 @@ time of a point is the time the link publishes it.
 ## 5. Scrapes, errors and quality
 
 Every point is evaluated once per second on the last good scrape. The
-connection scrapes again when that scrape is `scrape_s` old. Polls of
-several devices in the same second share one attempt. A value is
+connection scrapes again when that scrape is `scrape_s` old (a poll up to
+0.5 s early, at most a quarter of `scrape_s`, takes the next scrape: two
+scrapes are never closer than that). Polls of several devices in the same
+second share one attempt. A value is
 published only when it changes.
 
 | What happens | Class | Effect |
@@ -192,7 +194,9 @@ published only when it changes.
 | a line of the exposition that does not parse or is over a line bound (section 9) | none | the line is skipped and counted in `parse_errors` |
 
 A failed scrape is not kept: the next second tries again, so each failed
-attempt is one miss. After 3 misses the link tries once per `scrape_s`.
+attempt is one miss. After 3 misses the link tries again only `scrape_s`
+after the end of the last attempt (polls and List Series alike), however
+long `timeout_ms` is.
 Opening the connection is a first scrape: a 401, a 404 or a timeout there
 fails the connection with that reason.
 

@@ -520,22 +520,32 @@ impl Transport {
     /// attempt serves each group once (one miss per group per attempt, and
     /// one attempt per round of polls, however long it took); a group that
     /// already got it tries again, after the ladder reached `bad/comm_fail`
-    /// only once per `scrape_s`.
+    /// only `scrape_s` after the end of the last attempt.
+    ///
+    /// The slack (half a tick, at most a quarter of `scrape_s`) lets a poll
+    /// a little early reuse a scrape; two scrapes are at least
+    /// `scrape_s − slack` apart.
     async fn ensure(&mut self, plan: Option<u64>) -> Result<(), DriverError> {
-        let half = EVAL_TICK / 2;
-        if let Some((at, _, r)) = &self.attempt {
-            let age = Instant::now().saturating_duration_since(*at);
-            let fresh = age + half < self.scrape_every;
+        let slack = (EVAL_TICK / 2).min(self.scrape_every / 4);
+        if let Some((start, end, r)) = &self.attempt {
+            let now = Instant::now();
             match r {
-                Ok(()) if fresh || age < half => return Ok(()),
-                Ok(()) => {}
+                Ok(()) => {
+                    let age = now.saturating_duration_since(*start);
+                    if age + slack < self.scrape_every {
+                        return Ok(());
+                    }
+                }
                 Err(e) => {
+                    // From the end: a timeout near `scrape_s` must not eat
+                    // the pause between two failed attempts.
+                    let age = now.saturating_duration_since(*end);
                     let first = match plan {
                         Some(id) => self.served.insert(id),
-                        None => age < half,
+                        None => age < slack,
                     };
                     let slow = matches!(e, DriverError::Device(_))
-                        && fresh
+                        && age + slack < self.scrape_every
                         && self.fails >= stale_misses();
                     if first || slow {
                         return r.clone();
@@ -1050,8 +1060,71 @@ mod tests {
     use wyrm_link_sdk::driver::params::normalize;
 
     fn conn(url: String) -> Conn {
-        let v = Value::Map(BTreeMap::from([("url".to_owned(), Value::Str(url))]));
-        Conn::from_map(&normalize(&Conn::schema(), &v).unwrap()).unwrap()
+        conn_with(url, &[])
+    }
+
+    fn conn_with(url: String, extra: &[(&str, Value)]) -> Conn {
+        let mut m = BTreeMap::from([("url".to_owned(), Value::Str(url))]);
+        for (k, v) in extra {
+            m.insert((*k).to_owned(), v.clone());
+        }
+        Conn::from_map(&normalize(&Conn::schema(), &Value::Map(m)).unwrap()).unwrap()
+    }
+
+    /// With `scrape_s: 1`, a second device group 0.6 s after the first
+    /// reuses its scrape: two scrapes are at least 0.75 s apart.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn short_interval_is_not_scraped_twice() {
+        let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        let requests = || e.lock().unwrap().requests;
+        let c = conn_with(
+            format!("http://{addr}/metrics"),
+            &[("scrape_s", Value::Float(1.0))],
+        );
+        let mut t = Transport::new(&c).unwrap();
+        t.ensure(Some(1)).await.unwrap();
+        assert_eq!(requests(), 1);
+        tokio::time::sleep(Duration::from_millis(620)).await;
+        t.ensure(Some(2)).await.unwrap();
+        assert_eq!(requests(), 1, "0.62 s after a scrape at scrape_s 1");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        t.ensure(Some(1)).await.unwrap();
+        assert_eq!(requests(), 2, "1 s after it");
+    }
+
+    /// A failing endpoint with a timeout near `scrape_s`: once the ladder
+    /// is at `bad/comm_fail`, polls and `list_series` wait `scrape_s` from
+    /// the end of the last attempt, not from its start.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn long_timeouts_keep_the_retry_pause() {
+        let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        e.lock().unwrap().fail = sim::Fail::Silent;
+        let requests = || e.lock().unwrap().requests;
+        let c = conn_with(
+            format!("http://{addr}/metrics"),
+            &[
+                ("scrape_s", Value::Float(2.0)),
+                ("timeout_ms", Value::UInt(1600)),
+            ],
+        );
+        let mut t = Transport::new(&c).unwrap();
+        for n in 1..=stale_misses() {
+            assert!(matches!(
+                t.ensure(Some(1)).await,
+                Err(DriverError::Device(_))
+            ));
+            assert_eq!(requests(), u64::from(n));
+        }
+        // bad/comm_fail now: the stored failure, no new attempt
+        let started = Instant::now();
+        assert!(matches!(t.ensure(None).await, Err(DriverError::Device(_))));
+        assert!(matches!(
+            t.ensure(Some(1)).await,
+            Err(DriverError::Device(_))
+        ));
+        assert!(matches!(t.ensure(None).await, Err(DriverError::Device(_))));
+        assert_eq!(requests(), u64::from(stale_misses()));
+        assert!(started.elapsed() < Duration::from_millis(500));
     }
 
     fn snap(seq: u64, secs: u64, body: &str) -> Snapshot {
