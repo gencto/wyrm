@@ -130,9 +130,16 @@ impl Origin {
     }
 }
 
+/// `s` without an ASCII `prefix` (any case). Compares bytes, so a
+/// multi-byte character where the prefix ends never panics.
 fn strip_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    (s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix))
-        .then(|| &s[prefix.len()..])
+    let p = prefix.as_bytes();
+    if s.as_bytes().get(..p.len())?.eq_ignore_ascii_case(p) {
+        // On a char boundary: the matched prefix is ASCII.
+        s.get(p.len()..)
+    } else {
+        None
+    }
 }
 
 /// A path (or path and query) as sent: visible ASCII without `#`, `\`,
@@ -388,7 +395,14 @@ impl Client {
     ) -> Result<hyper::Request<Full<Bytes>>, Fail> {
         let p = &self.prep;
         let mut uri = pq.to_owned();
-        if let Some((name, value)) = &p.query_key {
+        // A redirect's `Location` may carry the key already.
+        let carried = p.query_key.as_ref().is_some_and(|(name, value)| {
+            uri.split_once('?').is_some_and(|(_, q)| {
+                q.split('&')
+                    .any(|kv| kv.split_once('=') == Some((name.as_str(), value.as_str())))
+            })
+        });
+        if let Some((name, value)) = p.query_key.as_ref().filter(|_| !carried) {
             uri.push(if uri.contains('?') { '&' } else { '?' });
             uri.push_str(name);
             uri.push('=');
@@ -572,37 +586,37 @@ impl Client {
     /// same scheme, host and port.
     fn resolve(&self, current: &str, loc: &str) -> Result<String, String> {
         let o = &self.prep.origin;
-        let path =
-            if loc.starts_with("http://") || loc.starts_with("https://") || loc.starts_with("//") {
-                let full = if loc.starts_with("//") {
-                    format!("{}:{loc}", if o.tls { "https" } else { "http" })
-                } else {
-                    loc.to_owned()
-                };
-                let (scheme_tls, rest) = match strip_ci(&full, "https://") {
-                    Some(r) => (true, r),
-                    None => (false, strip_ci(&full, "http://").unwrap_or(&full)),
-                };
-                let (auth, path) = match rest.find(['/', '?']) {
-                    Some(i) => (&rest[..i], &rest[i..]),
-                    None => (rest, "/"),
-                };
-                let there = Origin::parse(&format!(
-                    "{}://{auth}",
-                    if scheme_tls { "https" } else { "http" }
-                ))
-                .map_err(|_| "another host".to_owned())?;
-                if there.tls != o.tls || there.host != o.host || there.port != o.port {
-                    return Err("another host".into());
-                }
-                path.to_owned()
-            } else if loc.starts_with('/') {
-                loc.to_owned()
+        let absolute = strip_ci(loc, "http://").is_some() || strip_ci(loc, "https://").is_some();
+        let path = if absolute || loc.starts_with("//") {
+            let full = if loc.starts_with("//") {
+                format!("{}:{loc}", if o.tls { "https" } else { "http" })
             } else {
-                // Relative to the current path's directory.
-                let dir = path_only(current).rsplit_once('/').map_or("", |(d, _)| d);
-                format!("{dir}/{loc}")
+                loc.to_owned()
             };
+            let (scheme_tls, rest) = match strip_ci(&full, "https://") {
+                Some(r) => (true, r),
+                None => (false, strip_ci(&full, "http://").unwrap_or(&full)),
+            };
+            let (auth, path) = match rest.find(['/', '?']) {
+                Some(i) => (&rest[..i], &rest[i..]),
+                None => (rest, "/"),
+            };
+            let there = Origin::parse(&format!(
+                "{}://{auth}",
+                if scheme_tls { "https" } else { "http" }
+            ))
+            .map_err(|_| "another host".to_owned())?;
+            if there.tls != o.tls || there.host != o.host || there.port != o.port {
+                return Err("another host".into());
+            }
+            path.to_owned()
+        } else if loc.starts_with('/') {
+            loc.to_owned()
+        } else {
+            // Relative to the current path's directory.
+            let dir = path_only(current).rsplit_once('/').map_or("", |(d, _)| d);
+            format!("{dir}/{loc}")
+        };
         let path = path.split('#').next().unwrap_or_default().to_owned();
         check_chars(&path)?;
         Ok(path)
@@ -643,6 +657,10 @@ mod tests {
             "http://ho st/",
             "http://host/a b",
             "http://[::1/",
+            // a multi-byte character where the scheme ends: refused, no panic
+            "http://über.local/api",
+            "https://ü.local",
+            "httpü://x",
         ] {
             assert!(Origin::parse(bad).is_err(), "{bad}");
         }
@@ -696,5 +714,8 @@ mod tests {
         assert!(c.resolve("/a", "http://host:8081/api/z").is_err());
         assert!(c.resolve("/a", "http://host/api/z").is_err());
         assert!(c.resolve("/a", "/a b").is_err());
+        // the scheme in any case: still the origin check, not a relative path
+        assert_eq!(c.resolve("/api/a", "HTTP://host:8080/z").unwrap(), "/z");
+        assert!(c.resolve("/api/a", "HTTP://other:8080/z").is_err());
     }
 }

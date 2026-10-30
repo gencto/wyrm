@@ -946,6 +946,11 @@ async fn params_bounds_and_bad_nodes() {
         (vec![("timeout_ms", Value::UInt(50))], "timeout_ms"),
         (vec![("rate_limit", Value::Float(5000.0))], "rate_limit"),
         (vec![("base_url", "ftp://x".into())], "base_url"),
+        // a multi-byte host character: refused, the link keeps running
+        (
+            vec![("base_url", "http://über.local/api".into())],
+            "base_url",
+        ),
         (vec![("headers", "Cookie: a=1".into())], "headers"),
     ] {
         let mut kv = vec![("name", Value::from("cx")), ("base_url", base(addr.port()))];
