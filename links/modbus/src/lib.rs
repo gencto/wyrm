@@ -831,6 +831,24 @@ const READ_ACTION_MS: u32 = 12_000;
 /// (its `timeout_ms` + 5 s).
 const SCAN_ACTION_MS: u32 = 170_000;
 
+/// What a scan may use, from its own start: the action's bound counts
+/// from the request, so this leaves room for the wait in the owner's queue.
+const SCAN_BUDGET_MS: u32 = SCAN_ACTION_MS - 5_000;
+
+/// Whether the next probe could end past the scan's budget: its timeout,
+/// and the reopen (bounded by the connection timeout) that follows an
+/// unanswered request. The up-front estimate allows 50 ms for a reopen on
+/// IP; a slow reconnect is caught here.
+fn scan_out_of_time(elapsed: Duration, per_unit: Duration, reopen: Option<Duration>) -> bool {
+    elapsed + per_unit + reopen.unwrap_or_default() > Duration::from_millis(SCAN_BUDGET_MS.into())
+}
+
+/// `[1, 7]`.
+fn unit_list(units: &[u8]) -> String {
+    let ids: Vec<String> = units.iter().map(u8::to_string).collect();
+    format!("[{}]", ids.join(", "))
+}
+
 /// `scan_units` per-unit timeout: default, min, max (ms).
 const SCAN_UNIT_MS: (u32, u32, u32) = (200, 20, 1000);
 
@@ -1090,8 +1108,10 @@ async fn read_device_id(t: &mut Transport, dev: &Device) -> Result<Value, LinkEr
 /// one probe read (holding register 0) per unit, sent once with its own
 /// timeout; any reply but a gateway's "target did not respond" counts, a
 /// timeout skips the unit, a transport error stops the scan
-/// (`disconnected`). Unit 0 is skipped on RTU (broadcast). → the answering
-/// units. Holds the connection's owner for the whole scan: its polls wait.
+/// (`disconnected`), and so does the scan's time running out (`timeout`);
+/// both errors name the units found so far. Unit 0 is skipped on RTU
+/// (broadcast). → the answering units. Holds the connection's owner for
+/// the whole scan: its polls wait.
 async fn scan_units(
     t: &mut Transport,
     conn: &Conn,
@@ -1119,7 +1139,7 @@ async fn scan_units(
         Conn::Ip(_) => 50,
     };
     let worst = (to - from + 1).saturating_mul(per_unit.saturating_add(reopen));
-    let budget = u64::from(SCAN_ACTION_MS) - 1000;
+    let budget = u64::from(SCAN_BUDGET_MS);
     if worst > budget {
         return Err(LinkError::invalid_parameter(format!(
             "a scan of {} units at {per_unit} ms may take {} s, more than the {} s an action \
@@ -1131,31 +1151,46 @@ async fn scan_units(
     }
     let timeout = Duration::from_millis(per_unit);
     let unit_id = |u| u8::try_from(u).map_err(|_| LinkError::invalid_parameter("unit id"));
-    let mut found = Vec::new();
+    let started = tokio::time::Instant::now();
+    let mut found: Vec<u8> = Vec::new();
     for unit in unit_id(from)?..=unit_id(to)? {
         if !t.select(unit) {
             continue;
+        }
+        let reopen = t.unanswered.then_some(t.timeout);
+        if scan_out_of_time(started.elapsed(), timeout, reopen) {
+            return Err(LinkError::timeout(format!(
+                "scan stopped before unit {unit} after {} s, at its time limit; answering \
+                 before it: {}; scan again from {unit}",
+                started.elapsed().as_secs(),
+                unit_list(&found)
+            )));
         }
         match t
             .call_with(Request::ReadHoldingRegisters(0, 1), timeout, 0)
             .await
         {
-            Ok(Ok(_)) => found.push(Value::UInt(unit.into())),
+            Ok(Ok(_)) => found.push(unit),
             // A gateway answers for a silent unit behind it.
             Ok(Err(ExceptionCode::GatewayTargetDevice | ExceptionCode::GatewayPathUnavailable)) => {
             }
-            Ok(Err(_)) => found.push(Value::UInt(unit.into())),
+            Ok(Err(_)) => found.push(unit),
             Err(DriverError::Transport(e)) => {
                 return Err(LinkError::new(
                     Status::Disconnected,
-                    format!("scan stopped at unit {unit}: {e}; answering before it: {found:?}"),
+                    format!(
+                        "scan stopped at unit {unit}: {e}; answering before it: {}",
+                        unit_list(&found)
+                    ),
                 ));
             }
             // No reply in time.
             Err(_) => {}
         }
     }
-    Ok(Value::Array(found))
+    Ok(Value::Array(
+        found.into_iter().map(|u| Value::UInt(u.into())).collect(),
+    ))
 }
 
 pub struct ModbusDriver;
@@ -1543,6 +1578,34 @@ mod serial_tests {
         ] {
             assert!(!serial_path_ok(bad), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::{scan_out_of_time, unit_list, SCAN_ACTION_MS, SCAN_BUDGET_MS};
+    use std::time::Duration;
+
+    /// The scan stops itself before the framework's bound cuts it: a probe
+    /// that, with a reopen after a silent unit, could end past the budget is
+    /// not sent.
+    #[test]
+    fn a_scan_stops_before_its_bound() {
+        let ms = Duration::from_millis;
+        let budget = ms(SCAN_BUDGET_MS.into());
+        const { assert!(SCAN_BUDGET_MS < SCAN_ACTION_MS) };
+        assert!(!scan_out_of_time(ms(0), ms(200), None));
+        assert!(!scan_out_of_time(budget - ms(200), ms(200), None));
+        assert!(scan_out_of_time(budget - ms(199), ms(200), None));
+        // a slow reconnect: the connection timeout counts too
+        assert!(!scan_out_of_time(
+            budget - ms(1200),
+            ms(200),
+            Some(ms(1000))
+        ));
+        assert!(scan_out_of_time(budget - ms(1199), ms(200), Some(ms(1000))));
+        assert_eq!(unit_list(&[1, 7]), "[1, 7]");
+        assert_eq!(unit_list(&[]), "[]");
     }
 }
 

@@ -222,6 +222,9 @@ enum Req<D: Driver> {
         dev: String,
         point: String,
         value: Value,
+        /// When the caller stops waiting (the SDK's bound on the set): a
+        /// write still queued then is dropped, never sent late (P13).
+        deadline: tokio::time::Instant,
         reply: oneshot::Sender<Result<()>>,
     },
     Reconfigure(Arc<DevMap<D>>),
@@ -1456,8 +1459,16 @@ async fn serve<D: Driver>(
                 dev,
                 point,
                 value,
+                deadline,
                 reply,
             } => {
+                if reply.is_closed() || tokio::time::Instant::now() >= deadline {
+                    // The caller already got `timeout`: a late write would
+                    // change the device behind its back (P13).
+                    debug!(%dev, %point, "write dropped: its caller stopped waiting");
+                    let _ = reply.send(Err(LinkError::timeout("write not started in time")));
+                    continue;
+                }
                 let devs = o.devs.clone();
                 let target = devs
                     .get(&dev)
@@ -1651,12 +1662,15 @@ impl<D: Driver> Link for Framework<D> {
             .get(*conn)
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
+        // The SDK bounds this call from now (`LinkConfig::driver_timeout`).
+        let deadline = tokio::time::Instant::now() + self.ctx.driver_timeout();
         let (reply, rx) = oneshot::channel();
         run.tx
             .send(Req::Write {
                 dev: (*dev).to_owned(),
                 point: (*point).to_owned(),
                 value,
+                deadline,
                 reply,
             })
             .await

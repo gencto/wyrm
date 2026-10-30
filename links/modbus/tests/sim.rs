@@ -1780,3 +1780,57 @@ async fn a_full_owner_queue_answers_busy() {
     assert_eq!(v, Some(Value::Array(vec![])));
     std::sync::Arc::try_unwrap(h).ok().unwrap().stop().await;
 }
+
+/// P13: a write queued behind a long action whose caller already got
+/// `timeout` is dropped: the device never sees it, the point keeps its
+/// value.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_whose_caller_gave_up_is_dropped() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[5] = 11;
+        t.answer_units = Some([1].into());
+    }
+    let points = writable_u16(5);
+    // A short SDK bound on a set: the caller stops waiting after 1 s.
+    let h = H::start_with(
+        conn_tree(addr.port(), &[], &[("ping", "none".into())], points),
+        |c| c.driver_timeout = Duration::from_secs(1),
+    )
+    .await;
+    wait("polled", || val(&h, "sp") == Some(Value::UInt(11))).await;
+    let h = std::sync::Arc::new(h);
+    // about 2.5 s of silent units hold the owner
+    let scan = {
+        let h = h.clone();
+        tokio::spawn(async move {
+            let args = map(&[
+                ("from", Value::UInt(2)),
+                ("to", Value::UInt(21)),
+                ("timeout_ms", Value::UInt(100)),
+            ]);
+            act(&h, "c1", "scan_units", args, Perm::Config).await
+        })
+    };
+    wait("scan running", || dev.lock().unwrap().dropped > 0).await;
+    let att = h
+        .set("c1/d1/sp", Value::UInt(42), Some(h.ptok(Perm::Write)))
+        .await;
+    assert_eq!(status(&att), Some(Status::Timeout), "{att:?}");
+    let (s, _, m) = scan.await.unwrap();
+    assert_eq!(s, Some(Status::Ok), "{m}");
+    // polls run again; the write never went out
+    let polls = dev.lock().unwrap().count(3);
+    wait("polled after the scan", || {
+        dev.lock().unwrap().count(3) > polls + 3
+    })
+    .await;
+    {
+        let t = dev.lock().unwrap();
+        assert_eq!(t.count(6) + t.count(16), 0, "the device saw a write");
+        assert_eq!(t.holding[5], 11);
+    }
+    assert_eq!(val(&h, "sp"), Some(Value::UInt(11)));
+    std::sync::Arc::try_unwrap(h).ok().unwrap().stop().await;
+}
