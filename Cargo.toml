@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "links/http", "links/snmp", "links/s7"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "links/http", "links/snmp", "links/s7", "links/bacnet"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -106,6 +106,7 @@ wyrm-link-snmp = { path = "links/snmp" }
 sha1 = { version = "0.10", default-features = false }
 aes = { version = "0.8", default-features = false }
 cfb-mode = { version = "0.8", default-features = false }
+wyrm-link-bacnet = { path = "links/bacnet" }
 wyrm-link-agent = { path = "links/agent" }
 # WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
 wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }

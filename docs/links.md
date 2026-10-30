@@ -55,6 +55,7 @@ down. In the broker's own process it runs only as WASM.
   [`docs/modbus.md`](modbus.md).
 - **HTTP** (`links/http`, driver `http`): JSON REST APIs polled on the
   driver framework. Guide: [`docs/http.md`](http.md).
+- **BACnet** (`links/bacnet`): BACnet/IP devices (driver `bacnet`, package `bacnet`). Guide: [`docs/bacnet.md`](bacnet.md).
 
 ## 3. The Install Link menu
 

@@ -25,6 +25,7 @@ wyrm-link-agent.workspace = true
 wyrm-link-mqtt.workspace = true
 wyrm-link-http.workspace = true
 wyrm-link-snmp.workspace = true
+wyrm-link-bacnet.workspace = true
 wyrm-link-portable.workspace = true
 # the portable example app (ADR 0023): driver `portable-echo`
 wyrm-example-portable.workspace = true
