@@ -817,18 +817,19 @@ async fn v3_refusals_are_clear() {
 /// msgID) is never taken: its marker values are never published, it is
 /// counted in `rejected_replies` (not as a late reply), the point goes
 /// stale, and it comes back when the agent answers rightly. Returns the
-/// device's error while the forged responses came.
-async fn a_forged_v3_reply_is_never_taken(forge: Forge) -> Option<String> {
+/// device's error while the forged responses came. The user is
+/// `sha256user` (authPriv), or `authonly` (authNoPriv) with `no_priv`.
+async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
     let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
     // an agent that has run a while (a time 1000 s back is still > 0)
     agent.lock().unwrap().clock_offset = 10_000;
     let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
-    let h = H::start(tree(
-        &v3(addr.port(), "sha256user", "sha256", "aes128"),
-        &[("ping", Value::Bool(false))],
-        points,
-    ))
-    .await;
+    let conn = if no_priv {
+        v3(addr.port(), "authonly", "sha256", "none")
+    } else {
+        v3(addr.port(), "sha256user", "sha256", "aes128")
+    };
+    let h = H::start(tree(&conn, &[("ping", Value::Bool(false))], points)).await;
     wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
     let seen = samples(&h, "c1/d1/name").await;
     let late = diag(&h, "late_replies").await;
@@ -859,12 +860,78 @@ async fn a_forged_v3_reply_is_never_taken(forge: Forge) -> Option<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stale_v3_reply_is_never_taken() {
     for forge in [Forge::StaleBoots, Forge::StaleTime] {
-        let e = a_forged_v3_reply_is_never_taken(forge).await;
+        let e = forged_reply(forge, false).await;
         assert!(
             e.as_deref().is_some_and(|e| e.contains("time window")),
             "{forge:?}: {e:?}"
         );
     }
+}
+
+/// A response whose MAC does not verify.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_v3_reply_with_a_bad_mac_is_never_taken() {
+    forged_reply(Forge::CorruptMac, false).await;
+}
+
+/// A response without `FLAG_AUTH` (no MAC, not encrypted): a downgrade,
+/// to an authNoPriv and to an authPriv request.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unauthenticated_v3_reply_is_never_taken() {
+    forged_reply(Forge::NoAuth, true).await;
+    forged_reply(Forge::NoAuth, false).await;
+}
+
+/// An authenticated but unencrypted response to an authPriv request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_v3_reply_without_privacy_to_an_authpriv_request_is_never_taken() {
+    forged_reply(Forge::NoPriv, false).await;
+}
+
+/// A response from another authoritative engine id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_v3_reply_from_another_engine_is_never_taken() {
+    forged_reply(Forge::WrongEngine, false).await;
+}
+
+/// A v3 reply after its timeout (an old msgID) is dropped, counted as late
+/// and its values are never published.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_v3_reply_is_never_taken() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    let seen = samples(&h, "c1/d1/name").await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let rejected = diag(&h, "rejected_replies").await;
+    let marker = SnmpValue::OctetString(b"LATE".to_vec());
+    // the v3 timeout is 500 ms
+    agent.lock().unwrap().late_next = Some((Duration::from_millis(800), marker));
+    wait_diag(&h, "late_replies", 1).await;
+    wait("good after", || {
+        let s = seen.lock().unwrap();
+        s.last().is_some_and(|s| s.q == Quality::Good)
+    })
+    .await;
+    assert!(
+        !seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.v == Value::from("LATE")),
+        "the late value was published"
+    );
+    assert_eq!(
+        diag(&h, "rejected_replies").await,
+        rejected,
+        "late, not rejected"
+    );
+    h.stop().await;
 }
 
 /// An unauthenticated `usmStatsUnknownEngineIDs` report for the engine id
