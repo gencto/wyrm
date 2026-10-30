@@ -199,30 +199,45 @@ quality.
 
 **Echoed secrets.** Some servers echo the request (its headers or its
 query) in the reply. The connection's secrets are `password`, `token`,
-`secret_header_value`, the basic credentials in base64 and the
-percent-encoded query key. Points select from the reply as received, so
-a reading or a member name that only contains a secret's characters is
-read as it is (`51234.5` with the PIN `1234`, `$.adminState` with the
-password `admin`). Masking applies to what a user is shown:
+`secret_header_value` (and, when it is a scheme and a token such as
+`Bearer abc…`, the token alone), the basic credentials in base64 and the
+percent-encoded query key.
 
-- a `string` point's value, `try_request`'s body and headers, and the
-  values of `test_selector`: every secret in a text (longest first) is
-  shown as `***`. The JSON is parsed first, so a JSON escape (`\/`, a
-  unicode escape) cannot hide a secret; member names are masked too, and
-  two names that mask alike are both shown (`***`, `***#2`);
-- a text that still holds a secret once JSON-unescaped (a body that is not
-  JSON, such as one with an anti-XSSI prefix, or JSON inside a string) is
-  hidden whole: `*** hidden: it holds a connection secret`;
-- numbers: a secret that is a plain decimal number (a PIN, a numeric key)
-  is matched against numbers by value, with its leading zeros stripped,
-  and only by equality, never by substring: the PIN `0123` hides the
-  number `123` (and the text `"0123"`), but not `1234` or `51234.5`. The
-  values 0 to 9 are too common and are never matched as numbers (the PIN
-  `0000` leaves the reading `0` alone; the text `"0000"` is still
-  hidden). A `number` point that would show one fails with "value hidden:
-  it holds a connection secret" (quality `bad`); a `count` is not hidden;
-  in a `string` point or an action reply the number shows as `"***"`;
+Selectors run on a view of the reply in which every **value** that holds
+a secret is masked; **member names stay raw**. So a filter (`<`, `>`,
+`==`, `!=`) compares `***` or `Bearer ***`, never the secret, and a count,
+"nothing found" or "selects N values" cannot depend on it: nobody can read
+a secret back one comparison at a time. `$.adminState` with the password
+`admin` still selects, and `51234.5` with the PIN `1234` stays a number.
+The masking rules, the same for selectors and for what is shown:
+
+- a text: every secret in it (longest first) is shown as `***`. The JSON
+  is parsed first, so a JSON escape (`\/`, a unicode escape) cannot hide a
+  secret. A text that still holds a secret once JSON-unescaped (JSON inside
+  a string) is hidden whole: `*** hidden: it holds a connection secret`;
+- numbers, and numeric texts (`"230.1"`): a secret that is a plain
+  decimal number (a PIN, a numeric key) is matched by value, with its
+  leading zeros stripped, and only by equality, never by substring: the
+  PIN `0123` hides the number `123` (and the text `"0123"`), but not
+  `1234` or `51234.5`. The values 0 to 9 are too common and are never
+  matched as numbers (the PIN `0000` leaves the reading `0` alone; the
+  text `"0000"` is still hidden). A matched number shows as `"***"`;
+- a `number` point whose match is masked fails with "value hidden: it
+  holds a connection secret" (quality `bad`). This also happens to a
+  reading that equals a numeric secret by chance, as long as it holds that
+  value: with the PIN `0100`, a level of `100` goes `bad` each time it is
+  100 (an explicit error, never a wrong value). A `count` is not hidden;
+- member names in what is shown (a `string` point of an object,
+  `try_request`, `test_selector` values) are masked too, and two names
+  that mask alike are both shown (`***`, `***#2`);
 - a `bool` shows no secret and is never masked.
+
+`try_request` on a body that is not JSON: after a BOM or an anti-XSSI
+prefix (`)]}'`) the JSON is masked as above; otherwise the text is masked,
+and the body is hidden whole (`*** body hidden: it holds a connection
+secret`) when it still holds a secret once JSON-unescaped, or when a
+number in it equals a numeric secret. A masked reply reports
+`masked: true` and the masked length in `bytes`.
 
 Secrets shorter than 3 characters are not masked. Errors name the method
 and the path; they never hold the query (an API key may be in it),
@@ -249,21 +264,22 @@ connection's rate limit with the polls, so they are commissioning tools,
 not reading.
 
 - **Try Request** (`try_request`): sends the device's request now and
-  returns `{status, headers, body, truncated, bytes}`: any status, the body
-  up to 64 KiB as text. `Set-Cookie`, `Authorization` and every header
-  named like one the connection sends with a credential are left out; the
-  other headers and the body are masked as in section 6 (on a connection
-  with secrets a JSON reply is shown as its masked, compact JSON). A JSON
-  reply is also kept for `test_selector`.
+  returns `{status, headers, body, truncated, masked, bytes}`: any status,
+  the body up to 64 KiB as text. `Set-Cookie`, `Authorization` and every
+  header named like one the connection sends with a credential are left
+  out; the other headers and the body are masked as in section 6 (on a
+  connection with secrets a JSON reply is shown as its masked, compact
+  JSON). `bytes` is the reply's length, or the masked text's length when
+  `masked`. A JSON reply is also kept for `test_selector`.
 - **Test Selector** (`test_selector {path, type?, aggregate?}`): runs a
   selector against the last JSON reply of the device's request (a poll's
-  or `try_request`'s), without I/O. The selector sees the reply as
-  received; what it returns is masked. Returns `{count, values, truncated}`
-  (the first 20 matches; a match whose JSON text is longer than 2 KiB is
-  shown as that text, cut) and, with `type`, `value` (a string cut at
-  8 KiB) or `error` as a point would show it (unscaled). Replies are kept
-  up to 1 MiB each and 4 MiB per connection (the last 16 requests); a
-  longer reply answers `not_available` "… is not kept".
+  or `try_request`'s), without I/O, on the same masked view as the points
+  (section 6). Returns `{count, values, truncated}` (the first 20 matches;
+  a match whose JSON text is longer than 2 KiB is shown as that text, cut)
+  and, with `type`, `value` (a string cut at 8 KiB) or `error` as a point
+  would show it (unscaled). Replies are kept up to 1 MiB each and 4 MiB per
+  connection (the last 16 requests); a longer reply answers
+  `not_available` "… is not kept".
 
 Diagnostics leaves on the connection and each device (framework, ruling
 12): `requests`, `errors`, `timeouts`, `exceptions` (replies with a status
@@ -348,8 +364,15 @@ the tree with the `add_*` actions. As a package (ADR 0021):
 - Selector subset only (section 3).
 - **Masking is by text** (section 6): a string shown that holds a secret
   is masked even when the match is by chance (`administrator` with the
-  password `admin` shows `***istrator`). Secrets shorter than 3 characters
-  are not masked.
+  password `admin` shows `***istrator`, and a filter on it compares
+  `***istrator`). Secrets shorter than 3 characters are not masked.
+- **A reading equal to a numeric secret** fails "value hidden" while it
+  holds that value (the PIN `0100` and a level of `100`): the point flaps
+  `bad`. Choose a PIN that is not a likely reading, or keep the echo
+  endpoint apart from the readings.
+- **Other encodings of a secret** are not masked: a query key re-encoded by
+  the server (`%2f` in lower case, `+` for a space) or HTML entities in an
+  error page.
 - **System CAs** (`ca_pem` empty) are loaded once per process, at the first
   `https://` connection; CAs the host adds later need a restart. The first
   load reads the host's store (files, or the macOS keychain) on the thread
