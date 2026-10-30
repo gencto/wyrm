@@ -916,15 +916,21 @@ fn encode_point(p: &Point, v: &Value) -> Result<AppValue, DriverError> {
         }
         Ok(r)
     };
-    Ok(match k {
-        Kind::Real => {
-            let x = num()?;
-            if !x.is_finite() || x.abs() > f64::from(f32::MAX) {
-                return Err(point_err(format!("{x} does not fit a REAL")));
-            }
-            AppValue::Real(x as f32)
+    let real = |x: f64| -> Result<AppValue, DriverError> {
+        if !x.is_finite() || x.abs() > f64::from(f32::MAX) {
+            return Err(point_err(format!("{x} does not fit a REAL")));
         }
-        Kind::Double => AppValue::Double(num()?),
+        Ok(AppValue::Real(x as f32))
+    };
+    Ok(match k {
+        Kind::Real => real(num()?)?,
+        Kind::Double => {
+            let x = num()?;
+            if !x.is_finite() {
+                return Err(point_err(format!("{x} does not fit a DOUBLE")));
+            }
+            AppValue::Double(x)
+        }
         Kind::Unsigned => AppValue::Unsigned(whole(num()?, 0.0, f64::from(u32::MAX))? as u64),
         Kind::Enumerated => AppValue::Enumerated(whole(num()?, 0.0, f64::from(u32::MAX))? as u32),
         Kind::Signed => {
@@ -956,7 +962,7 @@ fn encode_point(p: &Point, v: &Value) -> Result<AppValue, DriverError> {
             Value::Bool(b) => AppValue::Boolean(*b),
             Value::UInt(u) => AppValue::Unsigned(*u),
             Value::Int(i) => AppValue::Signed(*i),
-            Value::Float(f) => AppValue::Real(*f as f32),
+            Value::Float(f) => real(*f)?,
             Value::Str(s) => AppValue::CharString(s.clone()),
             _ => return Err(point_err("this value type cannot be written")),
         },
@@ -2778,6 +2784,40 @@ mod tests {
                     .sum();
                 assert!(3 + worst <= usize::from(limit), "{limit} {r:?}");
             }
+        }
+    }
+
+    /// A float written to a dynamic point is a REAL with REAL's range; a
+    /// DOUBLE takes no NaN or infinity. Nothing out of range is sent.
+    #[test]
+    fn writes_refuse_values_out_of_range() {
+        let sched = point(&[
+            ("object_type", "schedule".into()),
+            ("instance", Value::UInt(1)),
+            ("writable", Value::Bool(true)),
+        ])
+        .unwrap();
+        assert_eq!(sched.kind(), Kind::Dynamic);
+        assert_eq!(
+            encode_point(&sched, &Value::Float(1.5)),
+            Ok(AppValue::Real(1.5))
+        );
+        for bad in [1e300, -1e39, f64::NAN, f64::INFINITY] {
+            assert!(encode_point(&sched, &Value::Float(bad)).is_err(), "{bad}");
+        }
+        let lav = point(&[
+            ("object_type", "large_analog_value".into()),
+            ("instance", Value::UInt(1)),
+            ("writable", Value::Bool(true)),
+        ])
+        .unwrap();
+        assert_eq!(lav.kind(), Kind::Double);
+        assert_eq!(
+            encode_point(&lav, &Value::Float(1e300)),
+            Ok(AppValue::Double(1e300))
+        );
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(encode_point(&lav, &Value::Float(bad)).is_err(), "{bad}");
         }
     }
 

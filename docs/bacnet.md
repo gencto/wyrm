@@ -125,9 +125,10 @@ bool point, a REAL for a number). Other conversions:
 - `~set` on a point with `writable = true` sends WriteProperty with the
   point's `priority`. A SimpleACK is success; the framework then reads the
   point back. The link never updates `~val` itself.
-- A REAL write checks the range of a 32-bit float; UNSIGNED, ENUMERATED and
-  SIGNED round and check their range. A value out of range is refused
-  before it is sent.
+- A REAL write checks the range of a 32-bit float (a float written to a
+  dynamic point is a REAL too); a DOUBLE refuses NaN and infinity;
+  UNSIGNED, ENUMERATED and SIGNED round and check their range. A value out
+  of range is refused before it is sent.
 - An Error, Reject or Abort reply fails the write with its text (for
   example `write: property: write-access-denied`).
 - A point that is not writable refuses the write; nothing is sent.
