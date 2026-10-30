@@ -26,12 +26,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn, Instrument};
-use wyrm_client::{ClientError, SigningTokens, ValEvent, WyrmClient};
+use wyrm_client::{ClientError, ListEvent, SigningTokens, ValEvent, WyrmClient};
 use wyrm_core::ptok::Grant;
 use wyrm_core::status::StatusCode;
-use wyrm_core::{keyspace, Quality, Status, Value};
+use wyrm_core::{keyspace, NodeMeta, Quality, Status, Value};
 use wyrm_link_api::buffer::{BufferHost, Command, Counts, Limits};
-use wyrm_link_api::{AppError, Level, ReqId, SubId, TimerId, Who};
+use wyrm_link_api::{AppError, Level, ListChange, ReqId, SubId, TimerId, Who};
 use wyrm_link_sdk::driver::persist::STORE_KEY;
 use wyrm_link_sdk::{Caller, Link, LinkCtx, LinkError, ReplySink};
 
@@ -85,6 +85,7 @@ enum Internal {
     Timer(u64),
     Value(u64, String, wyrm_core::Sample),
     Reply(u64, Result<Value, AppError>),
+    List(u64, String, ListChange),
 }
 
 /// `Start` and `Event` carry a sequence number: the store remembers the last one whose writes it
@@ -313,6 +314,8 @@ struct Actor {
     inflight: Option<InFlight>,
     timers: HashMap<u64, AbortHandle>,
     subs: HashMap<u64, AbortHandle>,
+    /// Lists (ADR 0025): the task and the listed key, to list again after an overflow.
+    lists: HashMap<u64, (AbortHandle, String, bool)>,
     reqs: HashMap<u64, AbortHandle>,
     paths: Paths,
     max_nodes: usize,
@@ -444,6 +447,7 @@ impl Actor {
         Counts {
             timers: self.timers.len(),
             subs: self.subs.len(),
+            lists: self.lists.len(),
             inflight: self.reqs.len(),
         }
     }
@@ -545,11 +549,9 @@ impl Actor {
                     return;
                 }
                 if self.queue.len() >= QUEUE {
-                    let queued = self
-                        .queue
-                        .iter_mut()
-                        .rev()
-                        .find(|p| matches!(&p.ev, Event::Value(SubId(s), ..) if *s == id));
+                    let queued = self.queue.iter_mut().rev().find(
+                        |p| matches!(&p.ev, Event::Value(SubId(s), k, _) if *s == id && *k == key),
+                    );
                     if let Some(p) = queued {
                         p.ev = Event::Value(SubId(id), key, sample);
                         return;
@@ -557,6 +559,87 @@ impl Actor {
                 }
                 self.push(Event::Value(SubId(id), key, sample));
             }
+            Internal::List(id, key, change) => {
+                if !self.lists.contains_key(&id) {
+                    return;
+                }
+                if self.queue.len() >= QUEUE {
+                    // the changes of this list would be lost: drop the queued ones and list
+                    // again, which starts with a fresh `Refreshed`
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::List(SubId(s), ..) if s == id));
+                    self.relist(id);
+                    return;
+                }
+                self.push(Event::List(SubId(id), key, change));
+            }
+        }
+    }
+
+    /// Start the list task `id` on `key` (again).
+    fn spawn_list(&mut self, id: u64, key: String, full: bool) {
+        let (client, tx) = (self.client.clone(), self.internal.clone());
+        let k = key.clone();
+        // `full`: each child's whole `~meta` in place of its `view=list` summary
+        let meta_of = move |client: WyrmClient, key: String, name: String, summary: NodeMeta| async move {
+            if full {
+                client
+                    .meta(&format!("{key}/{name}"))
+                    .await
+                    .unwrap_or(summary)
+            } else {
+                summary
+            }
+        };
+        let t = tokio::spawn(async move {
+            let mut s = match client.list(&k).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(key = %k, "list: {e}");
+                    return;
+                }
+            };
+            while let Some(ev) = s.next().await {
+                let change = match ev {
+                    ListEvent::Refreshed(c) => {
+                        let mut out = Vec::with_capacity(c.len());
+                        for c in c {
+                            let m =
+                                meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                            out.push((c.name, m));
+                        }
+                        ListChange::Refreshed(out)
+                    }
+                    ListEvent::Added(c) => {
+                        let m = meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                        ListChange::Added(c.name, m)
+                    }
+                    ListEvent::Changed(c) => {
+                        let m = meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                        ListChange::Changed(c.name, m)
+                    }
+                    ListEvent::Removed(n) | ListEvent::Disconnected(Some(n)) => {
+                        ListChange::Removed(n)
+                    }
+                    ListEvent::Disconnected(None) => ListChange::Disconnected,
+                    // a dynamic child is back: its summary comes with it
+                    ListEvent::Connected(n) => {
+                        let meta = client.meta(&format!("{k}/{n}")).await.unwrap_or_default();
+                        ListChange::Added(n, meta)
+                    }
+                };
+                if tx.send(Internal::List(id, k.clone(), change)).is_err() {
+                    return;
+                }
+            }
+        });
+        self.lists.insert(id, (t.abort_handle(), key, full));
+    }
+
+    fn relist(&mut self, id: u64) {
+        if let Some((h, key, full)) = self.lists.remove(&id) {
+            h.abort();
+            self.spawn_list(id, key, full);
         }
     }
 
@@ -717,6 +800,7 @@ impl Actor {
             .drain()
             .chain(self.subs.drain())
             .chain(self.reqs.drain())
+            .chain(self.lists.drain().map(|(id, (h, ..))| (id, h)))
         {
             h.abort();
         }
@@ -919,10 +1003,16 @@ impl Actor {
                     });
                     self.subs.insert(id, t.abort_handle());
                 }
+                Command::List(SubId(id), key, full) => self.spawn_list(id, key, full),
                 Command::Unsubscribe(SubId(id)) => {
                     if let Some(h) = self.subs.remove(&id) {
                         h.abort();
                     }
+                    if let Some((h, ..)) = self.lists.remove(&id) {
+                        h.abort();
+                    }
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::List(SubId(s), ..) if s == id));
                     self.queue
                         .retain(|q| !matches!(q.ev, Event::Value(SubId(s), ..) if s == id));
                 }
@@ -1200,6 +1290,7 @@ where
             inflight: None,
             timers: HashMap::new(),
             subs: HashMap::new(),
+            lists: HashMap::new(),
             reqs: HashMap::new(),
             paths: Paths::default(),
             max_nodes: limits.max_nodes,

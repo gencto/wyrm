@@ -55,7 +55,11 @@ pub enum Command {
     CancelTimer(TimerId),
     StorePut(String, Vec<u8>),
     StoreDelete(String),
+    /// A node key, or `<prefix>/**` for a subtree.
     Subscribe(SubId, String),
+    /// A reactive list of a node's children (ADR 0025); `true`: each child's whole `~meta`.
+    List(SubId, String, bool),
+    /// Ends a subscription or a list.
     Unsubscribe(SubId),
     Set(ReqId, String, Value),
     Invoke(ReqId, String, String, Value),
@@ -98,6 +102,8 @@ pub struct Limits {
     pub max_nodes: usize,
     pub max_timers: usize,
     pub max_subs: usize,
+    /// Lists at once ([`Host::list`]).
+    pub max_lists: usize,
     pub max_inflight: usize,
     pub max_commands: usize,
     /// Quota of the store, counted in [`store_cost`].
@@ -113,6 +119,7 @@ impl Default for Limits {
             max_nodes: 10_000,
             max_timers: 1_000,
             max_subs: 1_000,
+            max_lists: 2_000,
             max_inflight: 100,
             max_commands: 1_000,
             store_bytes: 1024 * 1024,
@@ -127,6 +134,7 @@ impl Default for Limits {
 pub struct Counts {
     pub timers: usize,
     pub subs: usize,
+    pub lists: usize,
     pub inflight: usize,
 }
 
@@ -142,6 +150,7 @@ pub struct BufferHost {
     failed: Option<AppError>,
     added_timers: HashSet<u64>,
     added_subs: HashSet<u64>,
+    added_lists: HashSet<u64>,
     added_inflight: usize,
     /// Pending store writes: `Some` = put, `None` = delete.
     pending: HashMap<String, Option<Vec<u8>>>,
@@ -167,6 +176,7 @@ impl BufferHost {
             failed: None,
             added_timers: HashSet::new(),
             added_subs: HashSet::new(),
+            added_lists: HashSet::new(),
             added_inflight: 0,
             pending: HashMap::new(),
         }
@@ -179,6 +189,7 @@ impl BufferHost {
         let failed = self.failed.take();
         self.added_timers.clear();
         self.added_subs.clear();
+        self.added_lists.clear();
         self.added_inflight = 0;
         self.pending.clear();
         match failed {
@@ -397,7 +408,8 @@ impl Host for BufferHost {
     }
 
     fn subscribe(&mut self, key: &str) -> Result<SubId, AppError> {
-        self.check_key(key, Perm::Read)?;
+        // one final `/**`: a subtree (ADR 0025); the prefix is checked as a node key
+        self.check_key(key.strip_suffix("/**").unwrap_or(key), Perm::Read)?;
         if self.counts.subs + self.added_subs.len() >= self.limits.max_subs {
             return Err(exhausted("too many subscriptions"));
         }
@@ -411,7 +423,21 @@ impl Host for BufferHost {
 
     fn unsubscribe(&mut self, sub: SubId) {
         self.added_subs.remove(&sub.0);
+        self.added_lists.remove(&sub.0);
         self.push(Command::Unsubscribe(sub));
+    }
+
+    fn list(&mut self, key: &str, full: bool) -> Result<SubId, AppError> {
+        self.check_key(key, Perm::Read)?;
+        if self.counts.lists + self.added_lists.len() >= self.limits.max_lists {
+            return Err(exhausted("too many lists"));
+        }
+        self.room()?;
+        let id = self.id();
+        self.added_lists.insert(id);
+        self.cmds
+            .push(Command::List(SubId(id), key.to_owned(), full));
+        Ok(SubId(id))
     }
 
     fn set(&mut self, key: &str, value: Value) -> Result<ReqId, AppError> {
@@ -844,7 +870,7 @@ mod tests {
                 "wy/s/../other/p",
                 "wy/s//p",
                 "wy/s/a/*/p",
-                "wy/s/a/**",
+                "wy/s/a/**/p",
                 "wy/s/a/~set",
                 "wy/s/a/$x",
                 "wy/s/",
@@ -868,5 +894,53 @@ mod tests {
             assert!(h.set("wy/s/downstream/plc/p1", Value::Int(1)).is_ok());
             assert_eq!(h.finish().unwrap().len(), 1);
         }
+    }
+
+    #[test]
+    fn a_subtree_subscription_and_lists() {
+        let limits = Limits {
+            max_lists: 1,
+            ..Limits::default()
+        };
+        let mut h = host(0, true, limits);
+        // `/**` only for subscribe, only at the end, on a node key
+        assert!(h.subscribe("wy/s/downstream/plc/**").is_ok());
+        for bad in ["wy/s/**/x", "wy/s/a/**/**", "wy/s/*/**"] {
+            assert_eq!(
+                h.subscribe(bad).unwrap_err().status,
+                Status::InvalidParameter,
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            h.set("wy/s/downstream/plc/**", Value::Int(1))
+                .unwrap_err()
+                .status,
+            Status::InvalidParameter
+        );
+        assert_eq!(
+            h.list("wy/s/downstream/**", false).unwrap_err().status,
+            Status::InvalidParameter
+        );
+        assert_eq!(
+            h.list("wy/x/downstream", false).unwrap_err().status,
+            Status::PermissionDenied
+        );
+        let l = h.list("wy/s/downstream", false).unwrap();
+        assert!(exhausted(&h.list("wy/s/downstream/plc", true).unwrap_err()));
+        h.unsubscribe(l);
+        assert!(h.list("wy/s/downstream/plc", true).is_ok());
+        let cmds = h.finish().unwrap();
+        assert!(matches!(&cmds[0], Command::Subscribe(_, k) if k == "wy/s/downstream/plc/**"));
+        assert!(
+            matches!(&cmds[1], Command::List(id, k, false) if *id == l && k == "wy/s/downstream")
+        );
+        assert!(matches!(&cmds[3], Command::List(_, k, true) if k == "wy/s/downstream/plc"));
+        // the runtime's counts bound lists across events
+        h.set_counts(Counts {
+            lists: 1,
+            ..Counts::default()
+        });
+        assert!(exhausted(&h.list("wy/s/downstream", false).unwrap_err()));
     }
 }

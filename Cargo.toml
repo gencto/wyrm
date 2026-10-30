@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "crates/wyrm-dql", "links/dql"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -27,6 +27,10 @@ wyrm-link-portable = { path = "crates/wyrm-link-portable" }
 wyrm-link-guest = { path = "crates/wyrm-link-guest" }
 wyrm-schedule = { path = "crates/wyrm-schedule" }
 wyrm-link-scheduler = { path = "links/scheduler" }
+wyrm-dql = { path = "crates/wyrm-dql" }
+wyrm-link-dql = { path = "links/dql" }
+# CEL (Common Expression Language) for DQL expressions and predicates (ADR 0025 D1); builds for wasm32.
+cel = { version = "=0.15.0", default-features = false, features = ["regex"] }
 # Civil date-times and the bundled tz database; no OS clock or zone (wasm32 builds).
 jiff = { version = "0.2.38", default-features = false }
 # Guest bindings of `wyrm:app/app` (ADR 0023): sync exports only, no async runtime.

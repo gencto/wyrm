@@ -1,0 +1,12 @@
+[package]
+name = "wyrm-link-dql"
+description = "DQL link (ADR 0025): standing queries over the tree as a portable App (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

@@ -89,6 +89,10 @@ impl<A: App + Send + 'static> Engine for NativeEngine<A> {
                 app.on_reply(host, req, result);
                 Ok(None)
             }
+            Event::List(sub, key, change) => {
+                app.on_list(host, sub, &key, change);
+                Ok(None)
+            }
             Event::Stop => {
                 app.stop(host);
                 Ok(None)

@@ -187,6 +187,7 @@ impl SimHost {
         Counts {
             timers: self.timers.len(),
             subs: self.subs.len(),
+            lists: 0,
             inflight: self.sets.len(),
         }
     }
