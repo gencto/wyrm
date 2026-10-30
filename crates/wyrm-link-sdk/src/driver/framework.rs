@@ -2097,7 +2097,8 @@ fn transport_error(results: &[(PointId, Result<Value, DriverError>)]) -> Option<
 }
 
 /// What the owner serves next: one of its requests, or (a server) a
-/// request of the remote side, already applied.
+/// request of the remote side that [`Driver::remote`] took and that
+/// [`Driver::apply_remote`] answers next.
 enum Next {
     Req(Req),
     /// [`Driver::remote`] took a request.

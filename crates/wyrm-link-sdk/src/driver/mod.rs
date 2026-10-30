@@ -326,15 +326,25 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// owner waits for its own requests beside it): await only the receipt.
     /// A `Transport` error (the server stopped) makes the framework reopen.
     /// Never called on a connection that is not a server.
+    ///
+    /// Contract: after each `Ok(())` the framework calls
+    /// [`Driver::apply_remote`] exactly once before it calls `remote` again,
+    /// so a driver keeps at most one request taken. A driver that overrides
+    /// `remote` must override `apply_remote` too: the default
+    /// `apply_remote` answers nothing (the request would be dropped).
     fn remote(_t: &mut Self::Transport) -> impl Future<Output = Result<(), DriverError>> + Send {
         std::future::pending()
     }
 
     /// Answer the request [`Driver::remote`] took, under the plan's read
     /// lock once the server has the plan in force; the values it changed go
-    /// to [`Driver::take_changed`]. A request received before `since` (when
-    /// the plan in force began) was asked of an older plan: answer busy and
-    /// apply nothing, as a tree set planned before a re-plan is.
+    /// to [`Driver::take_changed`], and [`Remote::done`] carries the answer
+    /// (run after the publish).
+    ///
+    /// Contract (the framework passes `since`, the driver enforces it): a
+    /// request received before `since` (when the plan in force began) was
+    /// asked of an older plan; the driver must answer it busy and apply
+    /// nothing, as a tree set planned before a re-plan is.
     fn apply_remote(_t: &mut Self::Transport, _since: tokio::time::Instant) -> Remote {
         Remote {
             dev: None,

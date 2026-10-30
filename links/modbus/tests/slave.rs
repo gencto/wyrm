@@ -694,3 +694,146 @@ async fn localhost_listens_on_every_address() {
     }
     h.stop().await;
 }
+
+fn bit(addr: u64, bit: u64) -> Value {
+    pt("holding", addr, "binary", &[("bit", Value::UInt(bit))])
+}
+
+/// Ruling P28: bits of one register are known one by one. Setting one bit
+/// point publishes nothing for its siblings or for a word view of the
+/// register, and a master read answers 0x04 until every bit its points read
+/// is known; bits no point reads may stay unknown.
+#[tokio::test(flavor = "multi_thread")]
+async fn bit_points_share_a_register_without_invented_bits() {
+    let points = map(&[
+        ("b0", bit(5, 0)),
+        ("b1", bit(5, 1)),
+        ("f", bit(6, 2)),
+        ("w", pt("holding", 6, "u16", &[])),
+    ]);
+    let (h, port) = start(points).await;
+    let mut m = master(port, 1).await;
+    assert_eq!(set(&h, "b0", true).await, Some(Status::Ok));
+    assert_eq!(val(&h, "b0"), Some(Value::Bool(true)));
+    assert_eq!(val(&h, "b1"), None, "a sibling bit is not invented");
+    assert_eq!(
+        m.read_holding_registers(5, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure),
+        "b1 unknown"
+    );
+    assert_eq!(set(&h, "b1", false).await, Some(Status::Ok));
+    // bits 2..15 are read by no point: they may stay unknown (served 0)
+    assert_eq!(
+        m.read_holding_registers(5, 1).await.unwrap(),
+        Ok(vec![0b01])
+    );
+    // a word view stays unset until all its bits are known
+    assert_eq!(set(&h, "f", true).await, Some(Status::Ok));
+    assert_eq!(val(&h, "w"), None, "one bit is not a word");
+    assert_eq!(
+        m.read_holding_registers(6, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure)
+    );
+    assert_eq!(set(&h, "w", 0x00F0u64).await, Some(Status::Ok));
+    assert_eq!(
+        m.read_holding_registers(6, 1).await.unwrap(),
+        Ok(vec![0x00F0])
+    );
+    assert_eq!(val(&h, "f"), Some(Value::Bool(false)), "bit 2 of 0x00F0");
+    h.stop().await;
+}
+
+/// Ruling P28: a new bit point at the address of a removed one does not
+/// take over its bit, while the kept sibling keeps its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_bit_point_does_not_inherit_a_removed_bit() {
+    let points = map(&[("c0", bit(7, 0)), ("c1", bit(7, 1))]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "c0", true).await, Some(Status::Ok));
+    assert_eq!(set(&h, "c1", true).await, Some(Status::Ok));
+    assert_eq!(
+        act(&h, "s1/d1/c1", "remove", map(&[])).await,
+        Some(Status::Ok)
+    );
+    let c2 = map(&[
+        ("name", "c2".into()),
+        ("table", "holding".into()),
+        ("addr", Value::UInt(7)),
+        ("dtype", "binary".into()),
+        ("bit", Value::UInt(1)),
+    ]);
+    assert_eq!(act(&h, "s1/d1", "add_point", c2).await, Some(Status::Ok));
+    let mut m = master(port, 1).await;
+    assert_eq!(
+        m.read_holding_registers(7, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure),
+        "c2's bit is unknown"
+    );
+    assert_eq!(h.ctx().last("s1/d1/c2"), None);
+    assert_eq!(val(&h, "c0"), Some(Value::Bool(true)));
+    h.stop().await;
+}
+
+/// N4: a tree set whose words an overlapping view of another type cannot
+/// decode (invalid BCD) or would make not finite (Inf) is refused, and
+/// nothing changes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tree_set_that_breaks_an_overlapping_view_is_refused() {
+    let points = map(&[
+        ("bcd", pt("holding", 50, "bcd16", &[])),
+        ("raw", pt("holding", 50, "u16", &[])),
+        ("temp", pt("holding", 60, "f32", &[])),
+        ("hi14", bit(60, 14)),
+    ]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "bcd", 12u64).await, Some(Status::Ok));
+    assert_eq!(val(&h, "raw"), Some(Value::UInt(0x12)));
+    assert_eq!(
+        set(&h, "raw", 0x00FAu64).await,
+        Some(Status::InvalidParameter),
+        "0x00FA is no BCD"
+    );
+    assert_eq!(set(&h, "temp", 1.0).await, Some(Status::Ok));
+    // 1.0 = 0x3F80 0x0000; bit 14 of the high word makes 0x7F80: Inf
+    assert_eq!(set(&h, "hi14", true).await, Some(Status::InvalidParameter));
+    let mut m = master(port, 1).await;
+    assert_eq!(
+        m.read_holding_registers(50, 1).await.unwrap(),
+        Ok(vec![0x12])
+    );
+    assert_eq!(
+        m.read_holding_registers(60, 2).await.unwrap(),
+        Ok(vec![0x3F80, 0])
+    );
+    assert_eq!(val(&h, "raw"), Some(Value::UInt(0x12)));
+    assert_eq!(val(&h, "temp"), Some(Value::Float(1.0)));
+    assert_eq!(val(&h, "hi14"), Some(Value::Bool(false)));
+    h.stop().await;
+}
+
+/// N2: an address in use (not merely missing on this host) fails the
+/// connection with that error, instead of listening on the others only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_port_in_use_fails_the_connection() {
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = taken.local_addr().unwrap().port();
+    let dev = map(&[
+        ("unit", Value::UInt(1)),
+        ("points", map(&[("a", pt("holding", 1, "u16", &[]))])),
+    ]);
+    let conn = map(&[
+        ("kind", "ip_slave".into()),
+        ("listen_host", "localhost".into()),
+        ("listen_port", Value::UInt(port.into())),
+        ("devices", map(&[("d1", dev)])),
+    ]);
+    let h = H::start(Tree(map(&[("connections", map(&[("s1", conn)]))]))).await;
+    wait("failed", || state(&h, "s1").as_deref() == Some("failed")).await;
+    let err = h.ctx().last("s1/error").map(|s| s.v);
+    let Some(Value::Str(err)) = err else {
+        panic!("no error: {err:?}");
+    };
+    assert!(err.contains("127.0.0.1"), "{err}");
+    drop(taken);
+    h.stop().await;
+}
