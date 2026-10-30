@@ -552,6 +552,16 @@ impl Conv {
                 .or_else(|| node.text(COMM_PORT_MANUAL))
                 .unwrap_or_default();
             params.insert("serial_port".into(), Value::Str(port));
+            // DSA loads a serial connection only with all of these
+            // (`ModbusLink.java:391-393`); ours has defaults.
+            for (attr, default) in [(BAUD, "9600"), (DATA_BITS, "8"), (STOP_BITS, "1")] {
+                if !node.has(attr) {
+                    self.drop(dsa_name, attr, format!("missing: {default} set"));
+                }
+            }
+            if !node.has(PARITY) {
+                self.drop(dsa_name, PARITY, "missing: none set");
+            }
             for (attr, ours) in [(BAUD, "baud_rate"), (DATA_BITS, "data_bits")] {
                 if let Some(j) = node.get(attr) {
                     let Some(x) = integer(j).and_then(|x| u64::try_from(x).ok()) else {

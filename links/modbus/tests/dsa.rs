@@ -564,6 +564,32 @@ fn report_lists_every_drop() {
     assert_eq!(f64_of(param(node(&c, "C/D"), "republish_s")), 3600.0);
     assert_eq!(param(node(&c, "C/D/W"), "writable"), &Value::Bool(false));
     assert!(find(&c, "C/U").is_none() && find(&c, "C/D/M").is_none());
+
+    // A serial connection without the attributes DSA needs to load it
+    // (`ModbusLink.java:391-393`): our defaults, each reported.
+    let mut j = fixture();
+    let line = j["Line 2 RS485"].as_object_mut().unwrap();
+    for k in ["@baud rate", "@data bits", "@stop bits", "@parity"] {
+        line.remove(k);
+    }
+    let c = conv(&j);
+    let serial = node(&c, "Line_2_RS485");
+    assert_eq!(param(serial, "parity"), &Value::from("none"));
+    assert!(!serial.params.contains_key("baud_rate"), "the default");
+    let line: Vec<(String, String)> = dropped(&c)
+        .into_iter()
+        .filter(|(p, _)| p == "Line 2 RS485")
+        .collect();
+    assert_eq!(
+        line,
+        owned(&[
+            ("Line 2 RS485", "baud rate"),
+            ("Line 2 RS485", "data bits"),
+            ("Line 2 RS485", "max write register count"),
+            ("Line 2 RS485", "parity"),
+            ("Line 2 RS485", "stop bits"),
+        ])
+    );
 }
 
 /// The export of one DSA connection (`ModbusConnection.java:342-353`: the
