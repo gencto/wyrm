@@ -57,6 +57,7 @@ down. In the broker's own process it runs only as WASM.
   driver framework. Guide: [`docs/http.md`](http.md).
 - **BACnet** (`links/bacnet`): BACnet/IP devices (driver `bacnet`, package `bacnet`). Guide: [`docs/bacnet.md`](bacnet.md).
 - **OPC UA client** (`links/opcua`, driver `opcua`, package `opcua`): nodes of OPC UA servers as points, with security and certificates. Guide: [`docs/opcua.md`](opcua.md).
+- **Prometheus** (`links/prometheus`, driver and package `prometheus`): scrapes Prometheus / OpenMetrics endpoints and turns series selectors into points. Guide: [`docs/prometheus.md`](prometheus.md).
 
 ## 3. The Install Link menu
 

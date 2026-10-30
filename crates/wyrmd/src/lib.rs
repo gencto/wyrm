@@ -31,6 +31,7 @@ use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_portable::{Portable, PortableConfig};
 use wyrm_link_s7::S7;
+use wyrm_link_prometheus::Prometheus;
 use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
@@ -687,6 +688,7 @@ where
 /// `s7` embedded or as `wyrmd link s7`.
 /// `bacnet` (BACnet/IP client, `links/bacnet`) embedded or as `wyrmd link bacnet`.
 /// `opcua` (OPC UA client, `links/opcua`) embedded or as a process.
+/// `prometheus` (scrape connector), embedded or as `wyrmd link prometheus`.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -701,6 +703,7 @@ impl EmbeddedHost for Drivers {
             S7::NAME,
             wyrm_link_bacnet::Bacnet::NAME,
             wyrm_link_opcua::Opcua::NAME,
+            Prometheus::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
             wyrm_link_wasm::App::NAME,
@@ -719,6 +722,7 @@ impl EmbeddedHost for Drivers {
             "s7" => Tree::from_params(params).map(|_| ()),
             "bacnet" => Tree::from_params(params).map(|_| ()),
             "opcua" => Tree::from_params(params).map(|_| ()),
+            "prometheus" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
@@ -779,6 +783,7 @@ impl EmbeddedHost for Drivers {
                 "s7" => start_boxed::<S7>(session, cfg, params).await,
                 "bacnet" => start_boxed::<wyrm_link_bacnet::Bacnet>(session, cfg, params).await,
                 "opcua" => start_boxed::<wyrm_link_opcua::Opcua>(session, cfg, params).await,
+                "prometheus" => start_boxed::<Prometheus>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 // a portable link on a WASM component (ADR 0023)
                 "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
@@ -837,6 +842,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "s7" => wyrm_link_sdk::process::run::<S7>().await?,
         "bacnet" => wyrm_link_sdk::process::run::<wyrm_link_bacnet::Bacnet>().await?,
         "opcua" => wyrm_link_sdk::process::run::<wyrm_link_opcua::Opcua>().await?,
+        "prometheus" => wyrm_link_sdk::process::run::<Prometheus>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
         // the scheduler as a process link (ADR 0022 run modes)
