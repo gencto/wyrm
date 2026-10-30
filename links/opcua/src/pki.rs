@@ -229,13 +229,47 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
 
 /// The store of a connection without security and without a `data_dir`: no
 /// key or certificate is written, only the empty trust directories the
-/// library wants.
+/// library wants. One directory per process, made new (mode 0700) under the
+/// temp directory with a name no other user can take first.
 pub fn plain_store() -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join("wyrm-opcua-none");
+    static DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+    let mut dir = DIR.lock().unwrap_or_else(|p| p.into_inner());
+    let d = match dir.as_ref().filter(|d| d.is_dir()) {
+        Some(d) => d.clone(),
+        None => {
+            let d = new_private_dir(&std::env::temp_dir(), "wyrm-opcua-none")?;
+            *dir = Some(d.clone());
+            d
+        }
+    };
     for sub in ["trusted", "rejected"] {
-        fs::create_dir_all(dir.join(sub)).map_err(|e| format!("pki directory: {e}"))?;
+        fs::create_dir_all(d.join(sub)).map_err(|e| format!("pki directory: {e}"))?;
     }
-    Ok(dir)
+    Ok(d)
+}
+
+/// A new directory `<parent>/<prefix>-<pid>-<nanos>-<n>`, created (not
+/// found) by this process, mode 0700.
+fn new_private_dir(parent: &Path, prefix: &str) -> Result<PathBuf, String> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    for n in 0..100u32 {
+        let d = parent.join(format!("{prefix}-{}-{nanos}-{n}", std::process::id()));
+        let mut b = fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            b.mode(0o700);
+        }
+        match b.create(&d) {
+            Ok(()) => return Ok(d),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("pki directory: {e}")),
+        }
+    }
+    Err("pki directory: no free name in the temp directory".into())
 }
 
 fn clear_dir(dir: &Path) -> Result<(), String> {
@@ -516,6 +550,29 @@ mod tests {
             pem("CERTIFICATE", &x509.to_der().unwrap()),
             pem("PRIVATE KEY", pkey.to_der().unwrap().as_bytes()),
         )
+    }
+
+    /// Without a data_dir: a directory of this process, not a fixed name
+    /// another user could make first.
+    #[test]
+    fn plain_store_is_private_to_the_process() {
+        let a = plain_store().unwrap();
+        assert_eq!(plain_store().unwrap(), a, "one per process");
+        assert!(a.join("trusted").is_dir() && a.join("rejected").is_dir());
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with(&format!("wyrm-opcua-none-{}-", std::process::id())),
+            "{name}"
+        );
+        #[cfg(unix)]
+        assert_eq!(mode(&a), 0o700);
+        // a name taken by someone else is never used
+        let parent = tmp("taken");
+        fs::create_dir_all(&parent).unwrap();
+        let d = new_private_dir(&parent, "x").unwrap();
+        let e = new_private_dir(&parent, "x").unwrap();
+        assert_ne!(d, e);
+        let _ = fs::remove_dir_all(&parent);
     }
 
     #[test]
