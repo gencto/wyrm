@@ -330,6 +330,19 @@ impl Selector {
 
     /// Every value the selector finds in `root`, in document order.
     pub fn select<'a>(&self, root: &'a Json) -> Vec<&'a Json> {
+        self.select_masked(root, &|_| false).0
+    }
+
+    /// [`Selector::select`], and whether a filter compared (`==`, `<`, …)
+    /// a value for which `masked` is true: that answer says nothing true
+    /// about the value (a masked secret), so the caller fails the result
+    /// instead of showing a count or a match that may be wrong.
+    pub fn select_masked<'a>(
+        &self,
+        root: &'a Json,
+        masked: &dyn Fn(&Json) -> bool,
+    ) -> (Vec<&'a Json>, bool) {
+        let mut hidden = false;
         let mut cur = vec![root];
         for seg in &self.segs {
             let mut next = Vec::new();
@@ -341,7 +354,11 @@ impl Selector {
                     Seg::Filter(f) => {
                         let mut all = Vec::new();
                         children(v, &mut all);
-                        next.extend(all.into_iter().filter(|c| f.test(c)));
+                        for c in all {
+                            if f.test(c, masked, &mut hidden) {
+                                next.push(c);
+                            }
+                        }
                     }
                 }
             }
@@ -350,7 +367,7 @@ impl Selector {
                 break;
             }
         }
-        cur
+        (cur, hidden)
     }
 }
 
@@ -370,7 +387,9 @@ fn children<'a>(v: &'a Json, out: &mut Vec<&'a Json>) {
 }
 
 impl Filter {
-    fn test(&self, v: &Json) -> bool {
+    /// Whether `v` passes; `hidden` is set when a comparison met a value
+    /// for which `masked` is true.
+    fn test(&self, v: &Json, masked: &dyn Fn(&Json) -> bool, hidden: &mut bool) -> bool {
         let mut cur = Some(v);
         for s in &self.path {
             cur = cur.and_then(|c| match s {
@@ -385,6 +404,9 @@ impl Filter {
             // RFC 9535: an absent value is unequal to every literal.
             return *op == Op::Ne;
         };
+        if masked(got) {
+            *hidden = true;
+        }
         match op {
             Op::Eq => same(got, lit),
             Op::Ne => !same(got, lit),
@@ -421,6 +443,22 @@ fn same(a: &Json, b: &Json) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_filter_on_a_masked_value_is_reported() {
+        let d = json!({"items": [{"id": "***", "v": 1}, {"id": 7, "v": 2}], "m": "***"});
+        let masked = |j: &Json| j == &json!("***");
+        let flag = |s: &str| Selector::parse(s).unwrap().select_masked(&d, &masked).1;
+        assert!(flag(r#"$.items[?(@.id == 7)]"#), "compared a masked id");
+        assert!(flag(r#"$.items[?(@.id > "a")].v"#));
+        assert!(!flag("$.items[?(@.v > 1)]"), "no masked value compared");
+        assert!(!flag("$.items[?(@.id)]"), "existence compares nothing");
+        assert!(!flag("$.m"), "selected, not compared");
+        let (found, hidden) = Selector::parse("$.items[?(@.v > 1)].id")
+            .unwrap()
+            .select_masked(&d, &masked);
+        assert_eq!((found, hidden), (vec![&json!(7)], false));
+    }
 
     fn doc() -> Json {
         json!({

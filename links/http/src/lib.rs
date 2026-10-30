@@ -1365,6 +1365,24 @@ fn selection_view(prep: &Prepared, j: &mut Json) {
     mask_tree(prep, j, false);
 }
 
+/// Select from the [`selection_view`]; `true` when a filter compared a
+/// masked value: its answer says nothing true about the reading (a level
+/// equal to the PIN is `***` there), so the point fails ("value hidden")
+/// rather than show a count one too low or another element.
+fn select_view<'a>(prep: &Prepared, sel: &Selector, json: &'a Json) -> (Vec<&'a Json>, bool) {
+    if prep.masks.is_empty() {
+        return (sel.select(json), false);
+    }
+    sel.select_masked(
+        json,
+        &|j| matches!(j, Json::String(s) if s.contains(HIDDEN)),
+    )
+}
+
+fn filter_hidden(path: &str) -> String {
+    format!("{path}: value hidden: a filter compared a value that holds a connection secret")
+}
+
 /// The value of a point (or of `test_selector`) from the matches in the
 /// [`selection_view`], as a user sees it: a number point whose match was
 /// masked fails ("value hidden"); a string point masks the member names of
@@ -1562,7 +1580,7 @@ fn test_selector(
     // member names are masked as shown.
     let prep = &t.client.prep;
     selection_view(prep, &mut json);
-    let found = sel.select(&json);
+    let (found, compared) = select_view(prep, &sel, &json);
     let mut truncated = found.len() > SHOW_VALUES;
     let values = found
         .iter()
@@ -1587,7 +1605,9 @@ fn test_selector(
         ),
         ("values".into(), Value::Array(values)),
     ]);
-    if let Some(vtype) = vtype {
+    if compared {
+        out.insert("error".into(), Value::Str(filter_hidden(&path)));
+    } else if let Some(vtype) = vtype {
         let conv = Conv {
             path: &path,
             vtype,
@@ -1680,8 +1700,12 @@ impl Driver for HttpDriver {
             .points
             .iter()
             .map(|(id, p)| {
-                let found = p.sel.select(&json);
-                let v = shown_value(&prep, &p.conv(), &found);
+                let (found, compared) = select_view(&prep, &p.sel, &json);
+                let v = if compared {
+                    Err(filter_hidden(&p.params.path))
+                } else {
+                    shown_value(&prep, &p.conv(), &found)
+                };
                 (id.clone(), v.map_err(DriverError::Point))
             })
             .collect();

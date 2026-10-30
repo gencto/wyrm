@@ -1030,11 +1030,13 @@ async fn filters_cannot_probe_a_secret() {
     // that names the true secret)
     type Raw = fn(&str) -> Option<String>;
     type Exact = fn(&str) -> String;
-    type Case<'a> = ([&'a str; 2], &'a str, Raw, Vec<String>, Exact);
+    // and a point without aggregate whose raw answer depends on the
+    // secret: "nothing found", one value, or "selects 2 values"
+    type Case<'a> = ([&'a str; 2], &'a str, Raw, Vec<String>, Exact, &'a str);
     let echo: Raw = |_| None;
     let pins: Raw = |p| {
         Some(format!(
-            r#"{{"a": {{"pin": {p}}}, "b": {{"pin": "{p}"}}, "c": {{"x": 1}}}}"#
+            r#"{{"a": {{"pin": {p}}}, "b": {{"pin": "{p}"}}, "c": {{"x": 1}}, "d": {{"pin": 60000000}}}}"#
         ))
     };
     let cases: [Case<'_>; 2] = [
@@ -1044,12 +1046,18 @@ async fn filters_cannot_probe_a_secret() {
             echo,
             token_filters,
             |t| format!(r#"$[?(@.authorization == "Bearer {t}")]"#),
+            r#"$[?(@.authorization > "Bearer tok-5")].accept"#,
         ),
-        (["11111111", "99999999"], "/raw", pins, pin_filters, |p| {
-            format!("$[?(@.pin == {p})]")
-        }),
+        (
+            ["11111111", "99999999"],
+            "/raw",
+            pins,
+            pin_filters,
+            |p| format!("$[?(@.pin == {p})]"),
+            "$[?(@.pin > 50000000)].pin",
+        ),
     ];
-    for (secrets, path, raw, filters, exact) in cases {
+    for (secrets, path, raw, filters, exact, one) in cases {
         let mut seen = Vec::new();
         for secret in secrets {
             let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -1058,31 +1066,34 @@ async fn filters_cannot_probe_a_secret() {
                 t.auth = SimAuth::Bearer(secret.into());
                 t.raw = raw(secret);
             }
-            let names: Vec<String> = (0..filters.len()).map(|i| format!("f{i}")).collect();
+            let mut names: Vec<String> = (0..filters.len()).map(|i| format!("f{i}")).collect();
+            names.push("one".to_owned());
             let mut pts: Vec<(&str, Value)> = filters
                 .iter()
                 .zip(&names)
                 .map(|(f, n)| (n.as_str(), pt(f, &[("aggregate", "count".into())])))
                 .collect();
-            // aggregate none: "nothing found" or a value
-            let one = format!("{}.x", filters[1]);
-            pts.push(("one", pt(&one, &[("type", "string".into())])));
+            pts.push(("one", pt(one, &[("type", "string".into())])));
             let h = H::start(tree(
                 base(addr.port()),
                 &[("auth", "bearer".into()), ("token", secret.into())],
                 &[("d1", dev(&[("path", path.into())], map(&pts)))],
             ))
             .await;
+            // a count or a value over a filter that met a masked value is
+            // "value hidden" (bad), never an answer that may be wrong
+            wait("two polls", || st(&s).seen.len() >= 2).await;
             for n in &names {
                 let p = format!("c1/d1/{n}");
-                wait(&p, || qual(&h, &p) == Some(Quality::Good)).await;
+                wait(&p, || qual(&h, &p).is_some()).await;
             }
-            wait("one", || qual(&h, "c1/d1/one").is_some()).await;
             let mut answers: Vec<String> = names
                 .iter()
-                .map(|n| format!("{:?}", val(&h, &format!("c1/d1/{n}"))))
+                .map(|n| {
+                    let p = format!("c1/d1/{n}");
+                    format!("{n}: {:?} {:?}", qual(&h, &p), val(&h, &p))
+                })
                 .collect();
-            answers.push(format!("{:?}", qual(&h, "c1/d1/one")));
             let cfg = Perm::Config;
             let (r, _, e) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
             assert_eq!(r, Some(Status::Ok), "{e}");
@@ -1483,8 +1494,30 @@ async fn unrelated_values_stay_intact() {
         (
             "1234",
             r#"{"power": 51234.5, "big": 12345, "pin": 1234, "pin_s": " 1234 ",
-                "label": "x1234y", "n": [1234, 5]}"#,
+                "label": "x1234y", "n": [1234, 5],
+                "rows": [{"id": 1234, "v": 1}, {"id": 7, "v": 2}]}"#,
             vec![
+                // a filter that compares a reading equal to the PIN: "value
+                // hidden", never a count one too low (re-review R2)
+                (
+                    "rows",
+                    num("$.rows[?(@.id > 1)].v", &[("aggregate", "count".into())]),
+                    None,
+                ),
+                (
+                    "row",
+                    num(
+                        "$.rows[?(@.id == 1234)].v",
+                        &[("aggregate", "first".into())],
+                    ),
+                    None,
+                ),
+                // no masked value compared: a count as usual
+                (
+                    "rows_v",
+                    num("$.rows[?(@.v > 1)].v", &[("aggregate", "count".into())]),
+                    Some(Value::Float(1.0)),
+                ),
                 ("power", num("$.power", &[]), Some(Value::Float(51234.5))),
                 ("big", num("$.big", &[]), Some(Value::Float(12345.0))),
                 ("label", string("$.label"), Some("x***y".into())),
@@ -1572,6 +1605,11 @@ async fn unrelated_values_stay_intact() {
             let e = format!("{:?}", field(&v, "error"));
             assert!(e.contains("value hidden"), "{e}");
             assert!(!format!("{v:?}").contains("1234"), "{v:?}");
+            // a filter that compared the masked id: an error, not a count
+            let args = sel("$.rows[?(@.id > 1)].v", None);
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+            let e = format!("{:?}", field(&v, "error"));
+            assert!(e.contains("a filter compared"), "{e}");
         } else if password == "0123" {
             assert!(body.contains("\\\"pin\\\":\\\"***\\\""), "{body}");
             assert!(body.contains("1234") && body.contains("51234.5"), "{body}");
