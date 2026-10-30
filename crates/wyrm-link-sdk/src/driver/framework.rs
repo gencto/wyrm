@@ -15,7 +15,7 @@
 //! * One owner task per connection holds the transport and serves `Poll`,
 //!   `Ping`, `Write` and `Invoke` requests in order, each against the
 //!   current plan generation: a request planned before a re-plan is dropped
-//!   (a write answers `busy`), never run on what replaced it.
+//!   (a write or action answers `busy`), never run on what replaced it.
 //! * One ticker per `(device, poll period)` group; a tick is skipped while
 //!   the previous poll of that group is in flight. Points are polled all the
 //!   time (owner decision, ADR 0004 amendment); with `poll_unsubscribed:
@@ -454,6 +454,9 @@ enum Req {
         dev: Option<String>,
         action: String,
         args: Value,
+        /// The plan generation when the call came: after a re-plan the
+        /// action answers `busy`, never runs on what replaced its node.
+        gen: u64,
         /// The action's `timeout_ms`; `None` = [`Driver::io_timeout`].
         bound: Option<Duration>,
         /// When the caller stops waiting: the action never runs past it.
@@ -1386,6 +1389,7 @@ impl<D: Driver> Framework<D> {
                 dev,
                 action: action.to_owned(),
                 args,
+                gen: run.gen,
                 bound,
                 deadline,
                 reply,
@@ -2003,6 +2007,7 @@ async fn serve<D: Driver>(
                 dev,
                 action,
                 args,
+                gen,
                 bound,
                 deadline,
                 reply,
@@ -2011,6 +2016,16 @@ async fn serve<D: Driver>(
                 if left.is_zero() {
                     // The caller gave up while the action waited its turn.
                     let _ = reply.send(Err(LinkError::timeout("action not started in time")));
+                    continue;
+                }
+                if gen != o.gen {
+                    // Asked of the plan before a re-plan (an edit, an
+                    // overwrite): never run it on what replaced it (P19).
+                    debug!(%action, "action dropped: the plan changed");
+                    let _ = reply.send(Err(LinkError::new(
+                        Status::Busy,
+                        "the connection was reconfigured: not run, try again",
+                    )));
                     continue;
                 }
                 let devs = o.devs.clone();

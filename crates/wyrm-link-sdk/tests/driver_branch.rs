@@ -156,27 +156,40 @@ impl Driver for Br {
         (dev.ping_ms > 0).then(|| Duration::from_millis(dev.ping_ms.into()))
     }
 
-    /// `hold {ms}` on a device: keeps the owner task busy that long.
+    /// `hold {ms}` on a device: keeps the owner task busy that long;
+    /// `touch`: logs `touch:<unit>` (it reached the device).
     fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         match level {
-            Level::Device => vec![(
-                "hold",
-                ActionMeta::new()
-                    .level(Perm::Config)
-                    .timeout_ms(5000)
-                    .param("ms", ParamMeta::of(TypeCode::Number).required(true)),
-            )],
+            Level::Device => vec![
+                (
+                    "hold",
+                    ActionMeta::new()
+                        .level(Perm::Config)
+                        .timeout_ms(5000)
+                        .param("ms", ParamMeta::of(TypeCode::Number).required(true)),
+                ),
+                (
+                    "touch",
+                    ActionMeta::new().level(Perm::Config).timeout_ms(5000),
+                ),
+            ],
             Level::Connection => Vec::new(),
         }
     }
 
     async fn invoke(
-        _t: &mut Transport,
+        t: &mut Transport,
         _conn: &Conn,
-        _target: Target<'_, Self>,
-        _action: &str,
+        target: Target<'_, Self>,
+        action: &str,
         args: &Value,
     ) -> Result<Value, LinkError> {
+        if action == "touch" {
+            if let Target::Device { dev, .. } = target {
+                t.0.lock().unwrap().push(format!("touch:{}", dev.unit));
+            }
+            return Ok(Value::Null);
+        }
         let ms = match args {
             Value::Map(m) => m.get("ms").and_then(Value::as_f64).unwrap_or(0.0),
             _ => 0.0,
@@ -1189,5 +1202,47 @@ async fn pings_do_not_pile_up() {
     // owner, then one per 10 ms.
     let n = pings(from);
     assert!(n < 30, "{n} pings after the hold");
+    h.stop().await;
+}
+
+/// Fix round 2: a driver action queued before a re-plan answers `busy` and
+/// never reaches the device that replaced its target. `touch` waits behind
+/// `hold`; meanwhile `d1` is overwritten (unit 9) and started.
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_actions_answer_busy() {
+    let tag = 74;
+    let h = H::start(tree(tag)).await;
+    wait("p0 polled", || h.ctx().last("c1/d1/p0").is_some()).await;
+    let d1 = json!({"format": FORMAT, "driver": "br", "kind": "device", "name": "d1",
+        "params": {"unit": 9}, "children": []});
+    let cfg = || Some(h.ptok(Perm::Config));
+    let hold = h.invoke("c1/d1", "hold", map(&[("ms", Value::UInt(1500))]), cfg());
+    let touch = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        h.invoke("c1/d1", "touch", map(&[]), cfg()).await
+    };
+    let change = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        ok(&h, "c1", "import", import_args(&d1, None, true)).await;
+        ok(&h, "c1/d1", "start", map(&[])).await;
+    };
+    let (held, touched, _) = tokio::join!(hold, touch, change);
+    assert_eq!(
+        code(held[0].att.status),
+        Some(Status::Ok),
+        "{:?}",
+        held[0].att.err
+    );
+    assert_eq!(
+        code(touched[0].att.status),
+        Some(Status::Busy),
+        "{:?}",
+        touched[0].att.err
+    );
+    assert!(
+        !log(tag).iter().any(|l| l.starts_with("touch")),
+        "{:?}",
+        log(tag)
+    );
     h.stop().await;
 }
