@@ -47,12 +47,14 @@ rates on one device send two requests.
 | `token` | `""` | secret | The token for `bearer`; the key for `api_key`. |
 | `api_key_in` | `header` | `header`, `query` | Where `api_key` puts the key. |
 | `api_key_name` | `X-API-Key` | — | The header or query parameter name of the key. |
-| `ca_pem` | `""` | — | https: trust only these CA certificates (PEM). Empty = the host's CA certificates (`rustls-native-certs`). |
+| `ca_pem` | `""` | — | https: trust only these CA certificates (PEM). Empty = the host's CA certificates (`rustls-native-certs`, loaded once; section 9). |
 | `cert_pem` | `""` | — | https: the client certificate chain for mTLS (PEM). |
 | `key_pem` | `""` | secret | The private key of `cert_pem` (PEM). |
 | `insecure_skip_verify` | `false` | — | https: accept any server certificate. The handshake signatures are still checked. |
 | `insecure_plaintext` | `false` | — | Allow credentials over `http://` to a host that is not loopback. |
-| `headers` | `""` | 32 lines, 8 KiB | Default headers, one `Name: value` per line, sent with every request. |
+| `headers` | `""` | 32 lines, 8 KiB | Default headers, one `Name: value` per line, sent with every request. Not secret: no credentials. |
+| `secret_header_name` | `""` | — | One more credential header (for an API that needs two), sent with every request. |
+| `secret_header_value` | `""` | secret | Its value. |
 | `rate_limit` | 5 | 0.1…1000 | Requests per second on this connection (all its devices and actions). |
 | `max_body_kib` | 4096 | 1…65536 | A longer reply is a device error. |
 
@@ -69,16 +71,26 @@ Rules (an `add_*` or `edit` that breaks one is refused with
   its `status` leaf (`attr.warning`), as with `insecure_skip_verify`.
 - `headers` may not set `Host`, `Content-Length`, `Transfer-Encoding`,
   `Connection`, `Upgrade`, `TE`, `Trailer`, `Keep-Alive`, `Authorization`,
-  `Proxy-Authorization`, `Cookie`, or the API key header. Credentials
-  belong in the secret params.
+  `Proxy-Authorization`, `Cookie`, the API key header or the secret header,
+  nor a header whose name holds `auth`, `token`, `key`, `secret`,
+  `session`, `cookie`, `password`, `passwd` or `credential`: `headers` is
+  not secret (it shows in `~meta` and `export`, and it is not masked).
+  Credentials belong in `auth`, or in `secret_header_name` and
+  `secret_header_value`.
+- `secret_header_name` needs `secret_header_value`, and it may not be a
+  framing header, the API key header, or `Authorization` with `basic` or
+  `bearer`. A secret header counts as credentials for the plaintext rule.
+- The device `query` and a point's `write_path` are not secret either:
+  never put a key in them (use `api_key_in: query`).
 
-**Secrets.** `password`, `token` and `key_pem` are entered in
-`add_connection` or `edit` and kept sealed by the framework in the link's
-`data_dir`. They never show in `~meta`, `export`, errors or logs. An `edit`
-that leaves a secret empty keeps the stored one while `base_url`, `auth`,
-`api_key_in`, `api_key_name`, `ca_pem`, `insecure_skip_verify` and
-`insecure_plaintext` stay the same; an edit that changes one of them drops the stored secrets unless it
-gives them again.
+**Secrets.** `password`, `token`, `secret_header_value` and `key_pem` are
+entered in `add_connection` or `edit` and kept sealed by the framework in
+the link's `data_dir`. They never show in `~meta`, `export`, errors or
+logs. An `edit` that leaves a secret empty keeps the stored one while
+`base_url`, `auth`, `api_key_in`, `api_key_name`, `secret_header_name`,
+`ca_pem`, `insecure_skip_verify` and `insecure_plaintext` stay the same; an
+edit that changes one of them drops the stored secrets unless it gives
+them again.
 
 ### Device (`add_device`)
 
@@ -180,26 +192,44 @@ A point without `writable` refuses `~set`.
 | No reply within `timeout_ms` | device miss | First miss: points `uncertain/stale`; after 3 misses the device `failed` with `error`, points `bad/comm_fail`. |
 | Status outside `expect_status` (4xx, 5xx, …) | device miss | As above; `error` = `GET /api/v1/status: HTTP 503`, 401/403 `…: HTTP 401: authentication failed`. |
 | Body over `max_body_kib`, a reply that is not JSON, more than 3 redirects, a redirect to another host | device miss | As above, with the reason. |
-| Selector finds nothing, several values without `aggregate`, wrong type, `null` | point | That point only: quality `bad` with its last value; the device stays `connected`. |
+| Selector finds nothing, several values without `aggregate`, wrong type, `null`, a number equal to a secret ("value hidden") | point | That point only: quality `bad` with its last value; the device stays `connected`. |
 
 Values are never invented: a failed point keeps its last value with a bad
 quality.
 
 **Echoed secrets.** Some servers echo the request (its headers or its
-query) in the reply. Before any value is taken from a JSON reply, it is
-parsed, and every string, member name and number in it that holds one of
-the connection's secrets (`password`, `token`, the basic credentials in
-base64, the percent-encoded query key) is masked as `***` (a number becomes
-the string with the mask). The mask runs on the parsed text, so a JSON
-escape (`\/`, `\u0031`) cannot hide a secret. Polled points,
-`try_request` (which shows a JSON reply as its masked JSON, and any other
-body as its masked text) and the reply kept for `test_selector` all see
-only the masked reply. Secrets shorter than 3 characters are not masked. Errors name the method and the path; they never hold the query
-(an API key may be in it), headers or bodies.
+query) in the reply. The connection's secrets are `password`, `token`,
+`secret_header_value`, the basic credentials in base64 and the
+percent-encoded query key. Points select from the reply as received, so
+a reading or a member name that only contains a secret's characters is
+read as it is (`51234.5` with the PIN `1234`, `$.adminState` with the
+password `admin`). Masking applies to what a user is shown:
+
+- a `string` point's value, `try_request`'s body and headers, and the
+  values of `test_selector`: every secret in a text (longest first) is
+  shown as `***`. The JSON is parsed first, so a JSON escape (`\/`, a
+  unicode escape) cannot hide a secret; member names are masked too, and
+  two names that mask alike are both shown (`***`, `***#2`);
+- a text that still holds a secret once JSON-unescaped (a body that is not
+  JSON, such as one with an anti-XSSI prefix, or JSON inside a string) is
+  hidden whole: `*** hidden: it holds a connection secret`;
+- numbers: only a number equal as a whole value to a secret that is a
+  plain decimal number (a PIN, a numeric key; also as numeric text) is
+  hidden. A `number` point that would show one fails with "value hidden:
+  it holds a connection secret" (quality `bad`); a `count` is not hidden;
+  in a `string` point or an action reply the number shows as `"***"`;
+- a `bool` shows no secret and is never masked.
+
+Secrets shorter than 3 characters are not masked. Errors name the method
+and the path; they never hold the query (an API key may be in it),
+headers, bodies or selected values.
 
 **Redirects**: 301, 302, 303, 307, 308, at most 3 per request, to the same
-scheme, host and port only. 303, and 301/302 after a POST, continue as GET
-without a body.
+scheme, host and port only (the scheme in any case). On a poll, 303, and
+301/302 after a POST, continue as GET without a body. A write never
+follows 301 or 302 (the write fails: "redirected (HTTP 301); write not
+applied"; put the target in `write_path`), takes 303 as applied without
+following it, and follows 307 and 308 with its method and body.
 
 **Connections**: one keep-alive HTTP/1.1 connection per link connection,
 one request on it at a time. A connection the server closed while idle is
@@ -209,19 +239,27 @@ closed socket and is never taken for a later request.
 
 ## 7. Actions and diagnostics
 
-On each device (level `read`):
+On each device, at level `config`: they send real requests (also on a
+`post` device), show reply headers and the whole reply, and share the
+connection's rate limit with the polls, so they are commissioning tools,
+not reading.
 
 - **Try Request** (`try_request`): sends the device's request now and
   returns `{status, headers, body, truncated, bytes}`: any status, the body
-  up to 64 KiB as text. `Set-Cookie` and `Authorization` headers are left
-  out, and the link's secrets are masked as `***` (on a connection with
-  secrets a JSON reply is shown as its masked, compact JSON; section 6). The reply is also kept
-  for `test_selector`.
+  up to 64 KiB as text. `Set-Cookie`, `Authorization` and every header
+  named like one the connection sends with a credential are left out; the
+  other headers and the body are masked as in section 6 (on a connection
+  with secrets a JSON reply is shown as its masked, compact JSON). A JSON
+  reply is also kept for `test_selector`.
 - **Test Selector** (`test_selector {path, type?, aggregate?}`): runs a
   selector against the last JSON reply of the device's request (a poll's
-  or `try_request`'s), without I/O. Returns `{count, values}` (the first 20
-  matches) and, with `type`, `value` or `error` as a point would show it
-  (unscaled).
+  or `try_request`'s), without I/O. The selector sees the reply as
+  received; what it returns is masked. Returns `{count, values, truncated}`
+  (the first 20 matches; a match whose JSON text is longer than 2 KiB is
+  shown as that text, cut) and, with `type`, `value` (a string cut at
+  8 KiB) or `error` as a point would show it (unscaled). Replies are kept
+  up to 1 MiB each and 4 MiB per connection (the last 16 requests); a
+  longer reply answers `not_available` "… is not kept".
 
 Diagnostics leaves on the connection and each device (framework, ruling
 12): `requests`, `errors`, `timeouts`, `exceptions` (replies with a status
@@ -237,6 +275,7 @@ The simulator `wyrm-http-sim` (`src/sim.rs`, feature `sim`) serves:
 | `POST /api/query` | `{"got": <the request body>, "data": …}` |
 | `GET /api/echo` | the request's headers and query |
 | `GET /api/resource`, `PUT`/`POST`/`PATCH /api/resource` | a writable object (`setpoint`, `mode`, `enabled`, `label`); a write merges a JSON object, anything else is 400 |
+| `PUT`/`POST`/`PATCH /api/moved`, `/api/found`, `/api/temp`, `/api/done` | writes redirected with 301, 302, 307 (nothing applied); `done` merges, then 303 |
 | `GET /redirect/<n>`, `GET /offsite` | redirect chains, a redirect to another host |
 
 Tests also use its failure modes: a fixed status (401, 500, …), silence,
@@ -303,3 +342,13 @@ the tree with the `add_*` actions. As a package (ADR 0021):
 - Device requests are GET or POST; the body has no placeholders.
 - Numbers are floats (`f64`).
 - Selector subset only (section 3).
+- **Masking is by text** (section 6): a string shown that holds a secret
+  is masked even when the match is by chance (`administrator` with the
+  password `admin` shows `***istrator`). Secrets shorter than 3 characters
+  are not masked.
+- **System CAs** (`ca_pem` empty) are loaded once per process, at the first
+  `https://` connection; CAs the host adds later need a restart. The first
+  load reads the host's store (files, or the macOS keychain) on the thread
+  that parses the connection. `SSL_CERT_FILE` and `SSL_CERT_DIR` work in an
+  embedded link; a process link gets a cleared environment, so there they
+  do not apply: give `ca_pem`.
