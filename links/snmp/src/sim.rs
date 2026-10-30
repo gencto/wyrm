@@ -27,6 +27,9 @@ pub const SYS_CONTACT: [u32; 9] = [1, 3, 6, 1, 2, 1, 1, 4, 0];
 /// The engine id of every simulated agent (RFC 3411 format, text).
 pub const ENGINE_ID: &[u8] = b"\x80\x00\xfd\xe7\x04wyrm-sim";
 
+/// Another engine id (forged messages).
+pub const OTHER_ENGINE_ID: &[u8] = b"\x80\x00\xfd\xe7\x04other-engine";
+
 /// RFC 3414: a message more than 150 s off the agent's clock is refused.
 const TIME_WINDOW: u32 = 150;
 
@@ -40,7 +43,9 @@ pub enum Forge {
     NoAuth,
     /// Authenticated but not encrypted, to an authPriv request.
     NoPriv,
-    /// Another `msgAuthoritativeEngineID` (MAC right for it).
+    /// Another `msgAuthoritativeEngineID`; the MAC is made with the key
+    /// of the real engine, so it verifies: only the engine id check drops
+    /// it.
     WrongEngine,
     /// `msgAuthoritativeEngineBoots` one lower (a replayed old message;
     /// MAC and encryption right for it).
@@ -51,6 +56,9 @@ pub enum Forge {
     /// An unauthenticated `usmStatsUnknownEngineIDs` report that names the
     /// agent's own engine id, instead of the response.
     UnknownEngine,
+    /// An unauthenticated `usmStatsUnknownEngineIDs` report that names
+    /// another engine id, instead of the response.
+    OtherEngineReport,
 }
 
 /// A v3 user and its localized keys.
@@ -87,6 +95,13 @@ pub struct Agent {
     pub clock_offset: u32,
     /// Replace every value of the answers by this (set per request).
     mark_with: Option<SnmpValue>,
+    /// Before each v3 answer, send a replayed old response to the same
+    /// msgID (1000 s old, MAC and encryption right), values this marker.
+    pub replay_first: Option<SnmpValue>,
+    /// Datagrams to send before the reply (replays).
+    pre: Vec<Vec<u8>>,
+    /// Authenticated `notInTimeWindow` reports sent.
+    pub time_reports: u64,
     /// Answer every request with `authorizationError`.
     pub auth_error: bool,
     /// Answer a GET of more varbinds with `tooBig`; truncate a GETBULK.
@@ -233,6 +248,9 @@ impl Agent {
             forge: None,
             clock_offset: 0,
             mark_with: None,
+            replay_first: None,
+            pre: Vec::new(),
+            time_reports: 0,
             auth_error: false,
             max_varbinds: None,
             gen_err: None,
@@ -528,6 +546,20 @@ impl Agent {
     }
 
     fn report(&mut self, msg_id: i32, kind: ReportKind, user: Option<&User>) -> Vec<u8> {
+        self.report_as(msg_id, kind, user, ENGINE_ID)
+    }
+
+    /// A report with `engine_id` as the authoritative engine.
+    fn report_as(
+        &mut self,
+        msg_id: i32,
+        kind: ReportKind,
+        user: Option<&User>,
+        engine_id: &[u8],
+    ) -> Vec<u8> {
+        if kind == ReportKind::NotInTimeWindow && user.is_some() {
+            self.time_reports += 1;
+        }
         let pdu = Pdu {
             ty: msg::REPORT,
             request_id: msg_id,
@@ -545,7 +577,7 @@ impl Agent {
         // RFC 3414 3.2 7b: notInTimeWindow goes out authenticated.
         let auth = user.filter(|_| kind == ReportKind::NotInTimeWindow);
         let usm = UsmOut {
-            engine_id: ENGINE_ID,
+            engine_id,
             boots,
             time,
             user: user.map_or(&[][..], |u| u.name.as_bytes()),
@@ -563,8 +595,17 @@ impl Agent {
 
     fn handle_v3(&mut self, datagram: &[u8], m: msg::V3In<'_>) -> Option<Vec<u8>> {
         let id = m.msg_id;
-        if matches!(self.forge, Some((Forge::UnknownEngine, _))) && !m.usm.engine_id.is_empty() {
-            return Some(self.report(id, ReportKind::UnknownEngineId, None));
+        if !m.usm.engine_id.is_empty() {
+            match self.forge {
+                Some((Forge::UnknownEngine, _)) => {
+                    return Some(self.report(id, ReportKind::UnknownEngineId, None));
+                }
+                Some((Forge::OtherEngineReport, _)) => {
+                    let r = self.report_as(id, ReportKind::UnknownEngineId, None, OTHER_ENGINE_ID);
+                    return Some(r);
+                }
+                _ => {}
+            }
         }
         if m.usm.engine_id.is_empty() || m.usm.engine_id != ENGINE_ID {
             return Some(self.report(id, ReportKind::UnknownEngineId, None));
@@ -588,16 +629,6 @@ impl Agent {
         if !user.auth.verify(&user.auth_key, &zeroed, m.usm.auth) {
             return Some(self.report(id, ReportKind::WrongDigest, None));
         }
-        let now = self.engine_time();
-        if m.usm.boots != self.boots || m.usm.time.abs_diff(now) > TIME_WINDOW {
-            let user = User {
-                name: user.name.clone(),
-                auth: user.auth,
-                auth_key: user.auth_key.clone(),
-                priv_key: None,
-            };
-            return Some(self.report(id, ReportKind::NotInTimeWindow, Some(&user)));
-        }
         let scoped = match m.data {
             ScopedData::Plain(s) => s,
             ScopedData::Encrypted(c) => {
@@ -614,6 +645,23 @@ impl Agent {
                 }
             }
         };
+        // An on-path replay of an old recorded response, sent before the
+        // agent's own answer (the msgID is in clear text).
+        if let Some(marker) = self.replay_first.clone() {
+            let old = self.respond(ui, id, &scoped, Some((Forge::StaleTime, marker)));
+            self.pre.push(old);
+        }
+        let now = self.engine_time();
+        if m.usm.boots != self.boots || m.usm.time.abs_diff(now) > TIME_WINDOW {
+            let user = &self.users[ui];
+            let user = User {
+                name: user.name.clone(),
+                auth: user.auth,
+                auth_key: user.auth_key.clone(),
+                priv_key: None,
+            };
+            return Some(self.report(id, ReportKind::NotInTimeWindow, Some(&user)));
+        }
         if self.hangs(&scoped.pdu) {
             return None;
         }
@@ -623,6 +671,19 @@ impl Agent {
             }
         }
         let forge = self.forge.clone();
+        Some(self.respond(ui, id, &scoped, forge))
+    }
+
+    /// The response of user `ui` to the request `scoped` with msgID `id`,
+    /// forged as `forge` (its values replaced by the marker).
+    fn respond(
+        &mut self,
+        ui: usize,
+        id: i32,
+        scoped: &ScopedPdu,
+        forge: Option<(Forge, SnmpValue)>,
+    ) -> Vec<u8> {
+        let marked = self.mark_with.clone();
         if let Some((_, marker)) = &forge {
             self.mark_with = Some(marker.clone());
         }
@@ -632,6 +693,7 @@ impl Agent {
             pdu: self.answer(&scoped.pdu),
         }
         .encode();
+        self.mark_with = marked;
         let forge = forge.map(|(f, _)| f);
         let user = &self.users[ui];
         let (auth, auth_key) = (user.auth, user.auth_key.clone());
@@ -647,7 +709,7 @@ impl Agent {
             _ => {}
         }
         let engine_id: &[u8] = if forge == Some(Forge::WrongEngine) {
-            b"\x80\x00\xfd\xe7\x04other-engine"
+            OTHER_ENGINE_ID
         } else {
             ENGINE_ID
         };
@@ -683,7 +745,7 @@ impl Agent {
             }
             out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
         }
-        Some(out.bytes)
+        out.bytes
     }
 }
 
@@ -701,7 +763,7 @@ pub async fn spawn_with(
                 // An ICMP error from an earlier reply: keep serving.
                 continue;
             };
-            let (reply, late) = {
+            let (pre, reply, late) = {
                 let mut a = agent.lock().unwrap_or_else(|p| p.into_inner());
                 // A late reply's values are the marker (it must never be
                 // published).
@@ -709,8 +771,11 @@ pub async fn spawn_with(
                 a.mark_with = late.as_ref().map(|(_, m)| m.clone());
                 let reply = a.handle(&buf[..n]);
                 a.mark_with = None;
-                (reply, late.map(|(d, _)| d))
+                (std::mem::take(&mut a.pre), reply, late.map(|(d, _)| d))
             };
+            for d in pre {
+                let _ = sock.send_to(&d, peer).await;
+            }
             let Some(reply) = reply else {
                 continue;
             };

@@ -1003,6 +1003,174 @@ async fn a_late_v3_reply_is_never_taken() {
     h.stop().await;
 }
 
+/// Run `agent` on `port` again (after a task abort the port may take a
+/// moment to be free).
+async fn respawn(port: u16, agent: sim::Shared) -> tokio::task::JoinHandle<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        match sim::spawn_with(&format!("127.0.0.1:{port}"), agent.clone()).await {
+            Ok((_, task)) => return task,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "rebind: {e}");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    }
+}
+
+/// An on-path attacker replays recorded old responses (valid MAC, the
+/// request's msgID, 1000 s old) before every answer of the agent, and
+/// forces a reconnect (the agent's port is unreachable for a moment). The
+/// link keeps the agent's clock across the reconnect, so the probe of the
+/// new connection needs no resync, and no replayed value is ever
+/// published.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replay_after_a_forced_reconnect_is_refused() {
+    let (addr, agent, task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    agent.lock().unwrap().clock_offset = 10_000;
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let seen = samples(&h, "c1/d1/name").await;
+    let marker = SnmpValue::OctetString(b"REPLAYED".to_vec());
+    agent.lock().unwrap().replay_first = Some(marker);
+    wait_diag(&h, "rejected_replies", 1).await;
+    let resyncs = agent.lock().unwrap().time_reports;
+    // a forced reconnect
+    task.abort();
+    wait("connection down", || {
+        state(&h, "c1").as_deref() != Some("connected")
+    })
+    .await;
+    let _task = respawn(addr.port(), agent.clone()).await;
+    wait("connected again", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    wait("good again", || {
+        let s = seen.lock().unwrap();
+        s.last()
+            .is_some_and(|s| s.q == Quality::Good && s.v == Value::from("sim"))
+    })
+    .await;
+    // several polls with replays first
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        !seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.v == Value::from("REPLAYED")),
+        "a replayed value was published"
+    );
+    assert_eq!(
+        agent.lock().unwrap().time_reports,
+        resyncs,
+        "the clock survived the reconnect: no resync"
+    );
+    h.stop().await;
+}
+
+/// An agent that lost its boots counter (boots went down) is refused: the
+/// link keeps the agent's clock, so its answers are outside the time
+/// window. Reset Engine Clock (config, v3 connections only) forgets it and
+/// the agent's own clock is learned again.
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_engine_clock_after_the_agent_lost_its_boots() {
+    let (addr, agent, task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    agent.lock().unwrap().boots = 7;
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let (_, m) = h.meta("c1").await;
+    let acts = m.unwrap().actions.unwrap();
+    assert_eq!(acts["reset_engine_clock"].level, Some(Perm::Config));
+    {
+        let mut a = agent.lock().unwrap();
+        a.restart();
+        a.boots = 2;
+    }
+    wait("device refused", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("Reset Engine Clock"))
+    })
+    .await;
+    // a reconnect does not forget it: the connection opens, the device
+    // stays refused
+    task.abort();
+    wait("connection down", || {
+        state(&h, "c1").as_deref() != Some("connected")
+    })
+    .await;
+    let _task = respawn(addr.port(), agent.clone()).await;
+    wait("connected again", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_ne!(qual(&h, "name"), Some(Quality::Good), "still refused");
+    let (s, _) = act(&h, "c1", "reset_engine_clock", map(&[]), Perm::Write).await;
+    assert_eq!(s, Some(Status::PermissionDenied));
+    let (s, _) = act(&h, "c1", "reset_engine_clock", map(&[]), Perm::Config).await;
+    assert_eq!(s, Some(Status::Ok));
+    wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
+    h.stop().await;
+    // v2c has no engine clock: no action
+    let h = H::start(tree(&v2c(addr.port(), &[]), &[], map(&[]))).await;
+    wait("v2c connected", || {
+        state(&h, "c1").as_deref() == Some("connected")
+    })
+    .await;
+    let (_, m) = h.meta("c1").await;
+    let acts = m.unwrap().actions.unwrap_or_default();
+    assert!(!acts.contains_key("reset_engine_clock"));
+    h.stop().await;
+}
+
+/// An unauthenticated `usmStatsUnknownEngineIDs` report that names another
+/// engine id reopens the connection (a replaced device), but not again
+/// soon after: then the device fails and the connection stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn rediscovery_is_rate_limited() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let status = samples(&h, "c1/status").await;
+    agent.lock().unwrap().forge = Some((Forge::OtherEngineReport, SnmpValue::Null));
+    wait("reopened", || !status.lock().unwrap().is_empty()).await;
+    agent.lock().unwrap().forge = None;
+    wait("good again", || {
+        state(&h, "c1").as_deref() == Some("connected") && qual(&h, "name") == Some(Quality::Good)
+    })
+    .await;
+    let n = status.lock().unwrap().len();
+    agent.lock().unwrap().forge = Some((Forge::OtherEngineReport, SnmpValue::Null));
+    wait("device failed", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("not discovering it again"))
+    })
+    .await;
+    assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
+    assert_eq!(status.lock().unwrap().len(), n, "no second reopen");
+    h.stop().await;
+}
+
 /// An unauthenticated `usmStatsUnknownEngineIDs` report for the engine id
 /// the link has is not a reason to reopen (anyone on the path can send
 /// one): the device fails with it, the connection stays connected.

@@ -20,6 +20,7 @@ downstream/<link>/
     status, error     the framework's state leaves
     requests, errors, timeouts, exceptions, late_replies, rejected_replies,
     undecodable_replies, last_rtt_ms, avg_rtt_ms
+    ▸ Reset Engine Clock  (snmp_v3 only, config; §7)
     <device>          Add Device   (one view of the agent: a v3 context or a v2c community)
       status, error, diagnostics as above
       ▸ Walk
@@ -56,10 +57,12 @@ switches select a VLAN by community).
 | `timeout_ms`, `retries` | 1000, 1 | as above | |
 
 The engine id is discovered when the connection opens (RFC 3414 §4) and the
-keys are localized for it. The agent's boots and time come from its first
-authenticated answer (an authenticated `usmStatsNotInTimeWindows` report to
-the first request), not from the unauthenticated discovery report.
-noAuthNoPriv is not offered.
+keys are localized for it. The agent's boots and time come from authenticated
+messages only, never from the unauthenticated discovery report. The link keeps
+them across reconnects (per agent address, engine id and user, for as long as
+the link runs); the first time, they come from an authenticated
+`usmStatsNotInTimeWindows` report to the first request. noAuthNoPriv is not
+offered.
 
 `host`, `port`, `user`, the protocols and `context` are the destination of the
 secrets: an `edit` that changes one of them drops the stored secrets unless it
@@ -163,8 +166,8 @@ id) up to `retries` times. Two more counters show datagrams the link drops:
 
 | Counter | Counts |
 |---|---|
-| `late_replies` | Answers to an earlier request (their id is not one of this request's). |
-| `rejected_replies` | v3 answers to this request that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, or it is outside the time window (§7). |
+| `late_replies` | Answers to an earlier request (their id is not one of this request's). A late v3 answer is authenticated first, and its boots and time move the link's notion of the agent's clock forward. |
+| `rejected_replies` | v3 answers that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, it is outside the time window (§7), or it is a response to a request sent before the clock was known. |
 | `undecodable_replies` | Datagrams that are not an SNMP message the link reads (framing, header or PDU malformed). |
 
 ## 5. Writes
@@ -188,8 +191,8 @@ the write. Only INTEGER, OCTET STRING and Gauge32 are written.
 | v3 report `usmStatsWrongDigests`, `usmStatsUnknownUserNames`, `usmStatsUnsupportedSecLevels`, `usmStatsDecryptionErrors` | When the connection opens: the connection `failed` with the reason (e.g. "the agent refused the authentication digest (usmStatsWrongDigests): check auth_protocol and auth_passphrase"); later: the device fails with it. |
 | v3 report `snmpUnknownContexts` | The device's `context` is not one the agent has: the device fails with "the agent does not know this context (snmpUnknownContexts): check the device's context". Another report names its OID in the error. |
 | v3 report `usmStatsNotInTimeWindows` (authenticated) | The agent restarted or its clock moved: the link takes the agent's boots/time (forward only) and sends again once. |
-| v3 answer outside the time window (lower boots, or more than 150 s behind) | Dropped (`rejected_replies`): a replay. When no answer is taken the device misses with "the agent's answers are outside the time window …". An agent whose boots counter went down is refused until the connection is restarted (RFC 3414). |
-| v3 report `usmStatsUnknownEngineIDs` with another engine id | The engine id changed (a replaced device): the connection reopens and discovers it again. |
+| v3 answer outside the time window (lower boots, or more than 150 s behind) | Dropped (`rejected_replies`): a replay. When no answer is taken the device misses with "the agent's answers are outside the time window …". An agent whose boots counter went down is refused (RFC 3414) until **Reset Engine Clock** runs on the connection; a connection that opens with only such answers stays connected, says so in `attr.warning` of its `status`, and its devices fail. |
+| v3 report `usmStatsUnknownEngineIDs` with another engine id | The engine id changed (a replaced device): the connection reopens and discovers it again. The report is not authenticated, so this happens at most once per 30 s per agent (the wait doubles up to 15 min while such reports keep coming); within the wait the device fails with "… not discovering it again for N s". |
 | v3 report `usmStatsUnknownEngineIDs` with the engine id the link has | Not authenticated and not true (a forged or broken report): the device fails with it; the connection stays. |
 | ICMP port unreachable (nothing listens on the port) | The connection drops; it reopens with backoff and stays `failed` with `error` while nothing answers; its devices are `stopped_by_parent`. |
 | No answer when the connection opens | The connection `failed` ("no answer from the agent …"). |
@@ -220,8 +223,19 @@ connection. The device ping is the same GET in the device's view; any answer,
   and it is in the time window (RFC 3414 §3.2 7b): lower boots, or a time more
   than 150 s behind the link's notion of the agent's clock, is a replayed old
   message and is dropped. The clock moves forward only, and only on
-  authenticated messages; the unauthenticated discovery report sets the engine
-  id, never the clock.
+  authenticated messages, late ones included (RFC 3412 §7.2: authentication
+  and timeliness come before the msgID); the unauthenticated discovery report
+  sets the engine id, never the clock. A response to a request sent before the
+  clock is known is never taken (the agent answers such a request with a
+  report).
+* The clock is kept across reconnects, so a forced reconnect (a forged ICMP
+  error or report) does not open a window for replays. **Reset Engine Clock**
+  (connection action, `config`, v3) forgets it; run it only when the agent
+  really lost its boots counter (it was reinstalled or reset). A connection
+  restart does not forget it: to the link a restart is one more open, like
+  any reconnect, and a reconnect can be forced from the network. The kept
+  clock is in the link's memory: restarting the link process (or `wyrmd` for
+  an embedded link) forgets it too.
 * **Walk** is a `config` action: it reads any subtree of the agent with the
   link's credentials (interface, ARP, vendor tables beyond the configured
   points) and costs the agent up to hundreds of requests, so a `read` or

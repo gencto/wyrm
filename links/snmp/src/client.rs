@@ -11,7 +11,9 @@
 //! request again (new id) up to `retries` times. No datagram is ever
 //! logged: a v2c datagram holds the community.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
@@ -53,6 +55,11 @@ pub enum Security {
     V3(V3),
 }
 
+/// The device error when every answer was outside the time window.
+pub const STALE: &str = "the agent's answers are outside the time window (RFC 3414: its \
+     engine boots or time went back, or they are replayed); if the agent lost its boots \
+     counter, run Reset Engine Clock on the connection";
+
 /// RFC 3414 §3.2 7b: an authenticated message more than this many seconds
 /// behind the agent's clock as we know it is outside the time window.
 const TIME_WINDOW: u32 = 150;
@@ -60,15 +67,93 @@ const TIME_WINDOW: u32 = 150;
 /// RFC 3414: at this `snmpEngineBoots` the agent's engine is locked out.
 const MAX_BOOTS: u32 = 0x7FFF_FFFF;
 
+/// Whose clock: the agent's address, its engine id and our user (RFC 3414
+/// keeps the remote engine's boots and time in the LCD, not per session).
+type ClockKey = (SocketAddr, Vec<u8>, Vec<u8>);
+
+/// A learned clock: boots, `latestReceivedEngineTime`, and when.
+#[derive(Debug, Clone, Copy)]
+struct Clock {
+    boots: u32,
+    time: u32,
+    at: Instant,
+}
+
+/// Clocks learned from authenticated messages, kept across reconnects:
+/// a forced reconnect does not start the clock again at 0/0.
+static CLOCKS: LazyLock<Mutex<HashMap<ClockKey, Clock>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Bound on [`CLOCKS`] (more clears it).
+const MAX_CLOCKS: usize = 4096;
+
+fn clock_load(key: &ClockKey) -> Option<Clock> {
+    let m = CLOCKS.lock().unwrap_or_else(|p| p.into_inner());
+    m.get(key).copied()
+}
+
+fn clock_save(key: &ClockKey, c: Clock) {
+    let mut m = CLOCKS.lock().unwrap_or_else(|p| p.into_inner());
+    if m.len() >= MAX_CLOCKS && !m.contains_key(key) {
+        m.clear();
+    }
+    m.insert(key.clone(), c);
+}
+
+fn clock_forget(key: &ClockKey) {
+    let mut m = CLOCKS.lock().unwrap_or_else(|p| p.into_inner());
+    m.remove(key);
+}
+
+/// The first wait between two rediscoveries of one agent's engine (on an
+/// unauthenticated report that names another engine id); it doubles up to
+/// [`REDISCOVER_MAX`] while they keep coming.
+const REDISCOVER_MIN: Duration = Duration::from_secs(30);
+const REDISCOVER_MAX: Duration = Duration::from_secs(900);
+
+/// Per agent address: the last rediscovery and the wait before the next.
+static REDISCOVERY: LazyLock<Mutex<HashMap<SocketAddr, (Instant, Duration)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Whether the engine of `addr` may be discovered again now; else how long
+/// to wait.
+fn rediscovery_allowed(addr: SocketAddr) -> Result<(), Duration> {
+    let mut m = REDISCOVERY.lock().unwrap_or_else(|p| p.into_inner());
+    if m.len() >= MAX_CLOCKS && !m.contains_key(&addr) {
+        m.clear();
+    }
+    let now = Instant::now();
+    match m.get_mut(&addr) {
+        Some((last, gap)) if now < *last + *gap => Err(*last + *gap - now),
+        Some((last, gap)) => {
+            *gap = if now > *last + *gap * 2 {
+                REDISCOVER_MIN
+            } else {
+                (*gap * 2).min(REDISCOVER_MAX)
+            };
+            *last = now;
+            Ok(())
+        }
+        None => {
+            m.insert(addr, (now, REDISCOVER_MIN));
+            Ok(())
+        }
+    }
+}
+
 /// The agent's engine as discovered, and our keys for it.
 struct Engine {
     id: Vec<u8>,
+    /// Where the clock is kept across sessions.
+    key: ClockKey,
     /// `snmpEngineBoots` and `latestReceivedEngineTime` of the agent, from
     /// authenticated messages only (0/0 until the first one).
     boots: u32,
     time: u32,
     /// When `time` was learned.
     at: Instant,
+    /// The clock is known (learned, or kept from an earlier session).
+    seeded: bool,
     auth_key: Zeroizing<Vec<u8>>,
     priv_key: Option<Zeroizing<[u8; 16]>>,
 }
@@ -89,6 +174,15 @@ impl Engine {
             self.boots = boots;
             self.time = time;
             self.at = Instant::now();
+            self.seeded = true;
+            clock_save(
+                &self.key,
+                Clock {
+                    boots,
+                    time,
+                    at: self.at,
+                },
+            );
         }
         let (b, t) = self.now();
         !(b == MAX_BOOTS || boots < b || (boots == b && time.saturating_add(TIME_WINDOW) < t))
@@ -105,6 +199,7 @@ pub struct Scope<'a> {
 
 pub struct Session {
     sock: UdpSocket,
+    addr: SocketAddr,
     pub timeout: Duration,
     pub retries: u8,
     next_id: u32,
@@ -114,6 +209,9 @@ pub struct Session {
     /// An authenticated answer to the request waited for was outside the
     /// time window.
     stale: bool,
+    /// The connection opened, but the agent's answers were all outside the
+    /// time window of the clock kept for it (Reset Engine Clock).
+    clock_refused: bool,
     outcomes: Vec<Outcome>,
     buf: Vec<u8>,
 }
@@ -173,6 +271,7 @@ impl Session {
         let seed = random_u64();
         let mut s = Session {
             sock,
+            addr,
             timeout,
             retries,
             next_id: u32::try_from(seed >> 33).unwrap_or(1),
@@ -180,6 +279,7 @@ impl Session {
             sec,
             engine: None,
             stale: false,
+            clock_refused: false,
             outcomes: Vec::new(),
             buf: vec![0u8; msg::MAX_MESSAGE + 64],
         };
@@ -198,8 +298,37 @@ impl Session {
             .await;
         match r {
             Ok(_) => Ok(s),
+            // The agent answers, but only outside the time window of the
+            // clock kept for it (its boots went down, or every answer was
+            // a replay): open, so that Reset Engine Clock can run; the
+            // devices fail with the reason.
+            Err(DriverError::Device(_)) if s.stale => {
+                s.clock_refused = true;
+                Ok(s)
+            }
             Err(e) => Err(as_transport(e)),
         }
+    }
+
+    /// The connection opened with every answer outside the time window.
+    pub fn clock_refused(&self) -> bool {
+        self.clock_refused
+    }
+
+    /// Forget the agent's clock (here and kept for later sessions): the
+    /// next request learns it again from the agent's authenticated
+    /// `notInTimeWindow` report. `false` on v2c (no clock).
+    pub fn reset_clock(&mut self) -> bool {
+        let Some(e) = &mut self.engine else {
+            return false;
+        };
+        clock_forget(&e.key);
+        e.boots = 0;
+        e.time = 0;
+        e.at = Instant::now();
+        e.seeded = false;
+        self.clock_refused = false;
+        true
     }
 
     pub fn take_outcomes(&mut self) -> Vec<Outcome> {
@@ -295,12 +424,7 @@ impl Session {
                 Ok(None) => {
                     self.outcomes.push(Outcome::Timeout);
                     if attempt >= self.retries && self.stale {
-                        return Err(DriverError::Device(
-                            "the agent's answers are outside the time window (RFC 3414: \
-                             its engine boots or time went back, or they are replayed); \
-                             restart the connection if the agent lost its boots counter"
-                                .into(),
-                        ));
+                        return Err(DriverError::Device(STALE.into()));
                     }
                     if attempt >= self.retries {
                         return Err(DriverError::Device(format!(
@@ -447,13 +571,16 @@ impl Session {
                 Ok(Got::Pdu(pdu))
             }
             (Message::V3(m), Security::V3(v3)) => {
-                if !ids.contains(&m.msg_id) {
-                    return Ok(Got::Late);
-                }
+                let mine = ids.contains(&m.msg_id);
                 let Some(e) = &self.engine else {
-                    return Ok(Got::Rejected);
+                    return Ok(if mine { Got::Rejected } else { Got::Late });
                 };
                 let authentic = m.flags & msg::FLAG_AUTH != 0;
+                let seeded = e.seeded;
+                // RFC 3412 §7.2: the security model first (authentication,
+                // then timeliness, RFC 3414 §3.2 7), for a late message too,
+                // so that a genuine late answer still moves the clock
+                // forward; the msgID after.
                 if authentic {
                     if m.usm.engine_id != e.id.as_slice() {
                         return Ok(Got::Rejected);
@@ -467,12 +594,19 @@ impl Session {
                     if !v3.auth.verify(&e.auth_key, &zeroed, m.usm.auth) {
                         return Ok(Got::Rejected);
                     }
-                    // RFC 3414 §3.2 step 7b, before anything else is read.
+                    // Step 7b, before anything else is read. A clock not
+                    // known yet is set only by an authenticated
+                    // notInTimeWindow report to this request (below).
                     let (boots, time) = (m.usm.boots, m.usm.time);
-                    if !self.engine.as_mut().is_some_and(|e| e.timely(boots, time)) {
-                        self.stale = true;
+                    if seeded && !self.engine.as_mut().is_some_and(|e| e.timely(boots, time)) {
+                        if mine {
+                            self.stale = true;
+                        }
                         return Ok(Got::Rejected);
                     }
+                }
+                if !mine {
+                    return Ok(Got::Late);
                 }
                 let Some(e) = &self.engine else {
                     return Ok(Got::Rejected);
@@ -506,6 +640,12 @@ impl Session {
                         if !ids.contains(&pdu.request_id) {
                             return Ok(Got::Rejected);
                         }
+                        // The agent answers a request sent before the clock
+                        // was known (0/0) with a notInTimeWindow report,
+                        // never with a response: this one is a replay.
+                        if !seeded {
+                            return Ok(Got::Rejected);
+                        }
                         Ok(Got::Pdu(pdu))
                     }
                     msg::REPORT => {
@@ -517,6 +657,12 @@ impl Session {
                                 "{} ({named})",
                                 kind.message()
                             ))));
+                        }
+                        if kind == ReportKind::NotInTimeWindow && authentic && !seeded {
+                            let (boots, time) = (m.usm.boots, m.usm.time);
+                            if let Some(e) = self.engine.as_mut() {
+                                e.timely(boots, time);
+                            }
                         }
                         Err(self.report(kind, authentic, m.usm.engine_id))
                     }
@@ -545,11 +691,20 @@ impl Session {
                     kind.message()
                 )))
             }
-            // Another engine id: a reopen discovers it again.
-            ReportKind::UnknownEngineId => Fail::Error(DriverError::Transport(format!(
-                "{}; discovering it again",
-                kind.message()
-            ))),
+            // Another engine id: a reopen discovers it again, at a bounded
+            // rate (the report is not authenticated).
+            ReportKind::UnknownEngineId => match rediscovery_allowed(self.addr) {
+                Ok(()) => Fail::Error(DriverError::Transport(format!(
+                    "{}; discovering it again",
+                    kind.message()
+                ))),
+                Err(wait) => Fail::Error(DriverError::Device(format!(
+                    "{}; not discovering it again for {} s (it was just discovered; \
+                     a broken or forged report?)",
+                    kind.message(),
+                    wait.as_secs().max(1)
+                ))),
+            },
             _ => Fail::Error(DriverError::Device(kind.message().into())),
         }
     }
@@ -557,9 +712,10 @@ impl Session {
     /// RFC 3414 §4: a request without user or engine id is answered with a
     /// report that names the engine. Then the keys are localized for that
     /// engine. The boots and time of that report are not authenticated and
-    /// are not taken: the clock starts at 0/0, so the first request gets an
-    /// authenticated `notInTimeWindow` report, which sets it (the second
-    /// step of RFC 3414 §4).
+    /// are not taken: the clock is the one kept from an earlier session
+    /// with this agent, engine and user, else it starts at 0/0, so the
+    /// first request gets an authenticated `notInTimeWindow` report, which
+    /// sets it (the second step of RFC 3414 §4).
     async fn discover(&mut self) -> Result<(), DriverError> {
         let mut attempt = 0u8;
         let mut ids = Vec::new();
@@ -638,11 +794,15 @@ impl Session {
             None => None,
         };
         debug!(engine_id_len = id.len(), "engine discovered");
+        let key = (self.addr, id.clone(), v3.user.clone());
+        let kept = clock_load(&key);
         self.engine = Some(Engine {
             id,
-            boots: 0,
-            time: 0,
-            at: Instant::now(),
+            key,
+            boots: kept.map_or(0, |c| c.boots),
+            time: kept.map_or(0, |c| c.time),
+            at: kept.map_or_else(Instant::now, |c| c.at),
+            seeded: kept.is_some(),
             auth_key,
             priv_key,
         });
@@ -679,9 +839,15 @@ mod tests {
     fn engine(boots: u32, time: u32) -> Engine {
         Engine {
             id: vec![1],
+            key: (
+                "192.0.2.1:161".parse().unwrap(),
+                vec![1],
+                b"timeliness".to_vec(),
+            ),
             boots,
             time,
             at: Instant::now(),
+            seeded: false,
             auth_key: Zeroizing::new(Vec::new()),
             priv_key: None,
         }
@@ -707,5 +873,157 @@ mod tests {
         assert!(e.timely(4, 1), "a restart moves it forward");
         assert_eq!((e.boots, e.time), (4, 1));
         assert!(!e.timely(MAX_BOOTS, 1), "locked out");
+    }
+
+    /// A clock moved forward is kept for the next session of the same
+    /// agent, engine and user; forgetting it starts again at 0/0.
+    #[test]
+    fn the_clock_is_kept_across_sessions() {
+        let key: ClockKey = ("192.0.2.9:161".parse().unwrap(), vec![9], b"kept".to_vec());
+        assert!(clock_load(&key).is_none());
+        let mut e = engine(0, 0);
+        e.key = key.clone();
+        assert!(e.timely(5, 777));
+        let c = clock_load(&key).expect("kept");
+        assert_eq!((c.boots, c.time), (5, 777));
+        assert!(!e.timely(5, 100), "stale");
+        assert_eq!(
+            clock_load(&key).map(|c| c.time),
+            Some(777),
+            "not moved back"
+        );
+        let other = ("192.0.2.9:161".parse().unwrap(), vec![9], b"other".to_vec());
+        assert!(clock_load(&other).is_none(), "per user");
+        clock_forget(&key);
+        assert!(clock_load(&key).is_none());
+    }
+
+    const KEY_PASS: &[u8] = b"accept-pass";
+    const ENGINE: &[u8] = &[0x80, 0, 1, 2];
+
+    /// A v3 authNoPriv session with the engine known (`seeded`) at boots 3,
+    /// time 1000.
+    async fn session(seeded: bool) -> Session {
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = sock.local_addr().unwrap();
+        let (boots, time) = if seeded { (3, 1000) } else { (0, 0) };
+        Session {
+            sock,
+            addr,
+            timeout: Duration::from_millis(100),
+            retries: 0,
+            next_id: 1,
+            salt: 0,
+            sec: Security::V3(V3 {
+                user: b"u".to_vec(),
+                auth: Auth::Sha256,
+                auth_pass: Zeroizing::new(KEY_PASS.to_vec()),
+                priv_pass: None,
+            }),
+            engine: Some(Engine {
+                id: ENGINE.to_vec(),
+                key: (addr, ENGINE.to_vec(), b"u".to_vec()),
+                boots,
+                time,
+                at: Instant::now(),
+                seeded,
+                auth_key: Auth::Sha256.localized_key(KEY_PASS, ENGINE),
+                priv_key: None,
+            }),
+            stale: false,
+            clock_refused: false,
+            outcomes: Vec::new(),
+            buf: Vec::new(),
+        }
+    }
+
+    /// An authenticated message from the agent's engine.
+    fn signed(msg_id: i32, boots: u32, time: u32, pdu: Pdu) -> Vec<u8> {
+        let scoped = ScopedPdu {
+            engine_id: ENGINE.to_vec(),
+            context: Vec::new(),
+            pdu,
+        }
+        .encode();
+        let usm = UsmOut {
+            engine_id: ENGINE,
+            boots,
+            time,
+            user: b"u",
+            auth_len: Auth::Sha256.mac_len(),
+            priv_params: &[],
+        };
+        let mut out = msg::encode_v3(msg_id, msg::FLAG_AUTH, &usm, &scoped);
+        let key = Auth::Sha256.localized_key(KEY_PASS, ENGINE);
+        let mac = Auth::Sha256.sign(&key, &out.bytes);
+        out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
+        out.bytes
+    }
+
+    fn report(id: i32, kind: ReportKind) -> Pdu {
+        Pdu {
+            ty: msg::REPORT,
+            request_id: id,
+            error_status: 0,
+            error_index: 0,
+            varbinds: vec![(kind.oid(), SnmpValue::Counter32(1))],
+        }
+    }
+
+    /// RFC 3412 §7.2: a late message is authenticated and its clock taken
+    /// (forward only) before its msgID is matched, so a genuine late
+    /// report heals a clock set back by a replay.
+    #[tokio::test]
+    async fn a_late_authentic_message_moves_the_clock_forward() {
+        let mut s = session(true).await;
+        let late = signed(41, 4, 20, report(41, ReportKind::NotInTimeWindow));
+        assert!(matches!(s.accept(&late, &[99]), Ok(Got::Late)));
+        let e = s.engine.as_ref().unwrap();
+        assert_eq!((e.boots, e.time), (4, 20));
+        // a late forged one (bad MAC) is rejected and moves nothing
+        let mut forged = signed(42, 9, 1, report(42, ReportKind::NotInTimeWindow));
+        let n = forged.len();
+        forged[n - 1] ^= 1;
+        assert!(matches!(s.accept(&forged, &[99]), Ok(Got::Rejected)));
+        assert_eq!(s.engine.as_ref().unwrap().boots, 4);
+    }
+
+    /// Before the clock is known (0/0) a response is never taken: the
+    /// agent answers such a request with a notInTimeWindow report, which
+    /// sets the clock.
+    #[tokio::test]
+    async fn a_response_before_the_clock_is_known_is_a_replay() {
+        let mut s = session(false).await;
+        let resp = Pdu {
+            ty: msg::RESPONSE,
+            request_id: 7,
+            error_status: 0,
+            error_index: 0,
+            varbinds: Vec::new(),
+        };
+        assert!(matches!(
+            s.accept(&signed(7, 3, 500, resp), &[7]),
+            Ok(Got::Rejected)
+        ));
+        assert!(!s.engine.as_ref().unwrap().seeded);
+        let r = signed(7, 3, 900, report(7, ReportKind::NotInTimeWindow));
+        assert!(matches!(s.accept(&r, &[7]), Err(Fail::Again)));
+        let e = s.engine.as_ref().unwrap();
+        assert!(e.seeded);
+        assert_eq!((e.boots, e.time), (3, 900));
+        // a late report while the clock is not known does not set it
+        let mut s = session(false).await;
+        let r = signed(8, 3, 900, report(8, ReportKind::NotInTimeWindow));
+        assert!(matches!(s.accept(&r, &[7]), Ok(Got::Late)));
+        assert!(!s.engine.as_ref().unwrap().seeded);
+    }
+
+    /// One rediscovery, then none within the wait; the wait doubles.
+    #[test]
+    fn rediscovery_is_rate_limited() {
+        let a: SocketAddr = "192.0.2.10:161".parse().unwrap();
+        assert!(rediscovery_allowed(a).is_ok());
+        let wait = rediscovery_allowed(a).unwrap_err();
+        assert!(wait <= REDISCOVER_MIN && wait > REDISCOVER_MIN - Duration::from_secs(5));
     }
 }

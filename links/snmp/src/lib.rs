@@ -1230,7 +1230,24 @@ impl Driver for SnmpDriver {
     /// Device action `walk` at level config: it reads any subtree with the
     /// link's credentials, beyond the configured points, and costs the
     /// agent up to hundreds of requests (commissioning is a config task).
-    fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
+    ///
+    /// Connection action `reset_engine_clock` (v3, level config): forget
+    /// the agent's clock that the link keeps across reconnects, after the
+    /// agent lost its boots counter. A connection restart cannot do it: to
+    /// the driver it is one more `open`, like any reconnect, and a reconnect
+    /// can be forced from the network.
+    fn actions(level: Level, kind: &str) -> Vec<(&'static str, ActionMeta)> {
+        if level == Level::Connection {
+            if kind != "snmp_v3" {
+                return Vec::new();
+            }
+            return vec![(
+                "reset_engine_clock",
+                ActionMeta::new()
+                    .level(Perm::Config)
+                    .display("Reset Engine Clock"),
+            )];
+        }
         if level != Level::Device {
             return Vec::new();
         }
@@ -1272,6 +1289,14 @@ impl Driver for SnmpDriver {
         };
         match (target, action) {
             (Target::Device { dev, .. }, "walk") => walk(&mut t.s, dev, args).await,
+            (Target::Connection, "reset_engine_clock") => {
+                if t.s.reset_clock() {
+                    debug!("engine clock reset");
+                    Ok(Value::Null)
+                } else {
+                    Err(LinkError::not_supported("SNMPv2c has no engine clock"))
+                }
+            }
             _ => Err(LinkError::not_supported(format!("action {action}"))),
         }
     }
@@ -1285,6 +1310,9 @@ impl Driver for SnmpDriver {
     }
 
     fn status_note(t: &Transport) -> Option<String> {
+        if t.s.clock_refused() {
+            return Some(client::STALE.to_owned());
+        }
         t.note.clone()
     }
 }
