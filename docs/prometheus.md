@@ -283,10 +283,13 @@ What Prometheus has that this link does not do:
 - An HTTP redirect (3xx) is a device miss; the link does not follow it.
 - **Memory.** One scrape holds its body (at most `max_body_mib`) and then
   the parsed exposition. The link estimates the memory of the parsed
-  exposition while it parses and stops at 16 × `max_body_mib` (a
-  connection error). A typical exposition takes 3 to 6 times its size, so
-  the default 8 MiB gives about 50 MiB at most in practice and 128 MiB in
-  the worst case. Keep `max_body_mib` low on small boards. The last scrape
+  exposition while it parses (the bytes of names, labels and values plus
+  a fixed size per label, sample and map entry) and stops at 16 ×
+  `max_body_mib` (a connection error). A typical exposition takes 3 to 6
+  times its size by this estimate, so the default 8 MiB gives about 50 MiB
+  in practice and an estimate of 128 MiB at most. The real heap is
+  somewhat more: the estimate leaves out allocator rounding and spare
+  capacity of growing vectors. Keep `max_body_mib` low on small boards. The last scrape
   is dropped before the next one arrives, so two never live at once.
 - **Line bounds.** A line over 1 MiB, a sample with more than 128 labels,
   a metric or label name over 1 KiB and a label value over 16 KiB are
