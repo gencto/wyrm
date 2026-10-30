@@ -5,8 +5,8 @@
 //! ```text
 //! own/app-<uri hash>.der        generated application certificate
 //! private/app-<uri hash>.pem    its key (0600)
-//! own/user-<pem hash>.der       a certificate given as `cert_pem`
-//! private/user-<pem hash>.pem   its key (`key_pem`, 0600, plain text)
+//! own/user-<pair hash>.der      a certificate given as `cert_pem`
+//! private/user-<pair hash>.pem  its key (`key_pem`, 0600, plain text)
 //! servers/<url hash>-<trust>/   trusted/ and rejected/ for one endpoint
 //! ```
 //!
@@ -362,14 +362,36 @@ pub fn pem(label: &str, der: &[u8]) -> String {
     out
 }
 
+/// `key` is the private key of `cert`'s public key: a signature with it
+/// verifies with the certificate.
+pub fn key_matches(cert: &X509, key: &PrivateKey) -> bool {
+    use opcua::crypto::KeySize;
+    const PROBE: &[u8] = b"wyrm-opcua: does this key belong to this certificate";
+    let Ok(public) = cert.public_key() else {
+        return false;
+    };
+    let mut sig = vec![0u8; key.size()];
+    let Ok(n) = key.sign_sha256(PROBE, &mut sig) else {
+        return false;
+    };
+    public
+        .verify_sha256(PROBE, &sig[..n.min(sig.len())])
+        .unwrap_or(false)
+}
+
 /// `cert_pem`/`key_pem` as the files the library reads, for one use. The
-/// key's content never enters an error.
+/// files are named by both (two connections with one certificate and two
+/// key texts never share a key file), and a key that is not the
+/// certificate's is refused. The key's content never enters an error.
 fn own_from_pem(root: &Path, cert_pem: &str, key_pem: &str) -> Result<KeyLease, String> {
     let cert = X509::from_pem(cert_pem.as_bytes())
         .map_err(|_| "cert_pem: not a PEM certificate".to_owned())?;
-    PrivateKey::from_pem(key_pem.as_bytes())
+    let key = PrivateKey::from_pem(key_pem.as_bytes())
         .map_err(|_| "key_pem: not a PEM RSA private key".to_owned())?;
-    let h = hash16(&[cert_pem]);
+    if !key_matches(&cert, &key) {
+        return Err("key_pem does not belong to cert_pem (another public key)".to_owned());
+    }
+    let h = hash16(&[cert_pem, key_pem]);
     let cert_path = root.join("own").join(format!("user-{h}.der"));
     let key_path = root.join("private").join(format!("user-{h}.pem"));
     let der = cert.to_der().map_err(|e| format!("cert_pem: {e}"))?;
@@ -550,6 +572,40 @@ mod tests {
             pem("CERTIFICATE", &x509.to_der().unwrap()),
             pem("PRIVATE KEY", pkey.to_der().unwrap().as_bytes()),
         )
+    }
+
+    /// A key that is not the certificate's is refused; the files are named
+    /// by certificate and key, so two connections never share one key file
+    /// for different keys.
+    #[test]
+    fn supplied_key_must_belong_to_the_certificate() {
+        let root = tmp("pair");
+        let (cert_a, key_a) = test_keypair();
+        let (_, key_b) = test_keypair();
+        let e = own_from_pem(&root, &cert_a, &key_b).unwrap_err();
+        assert!(e.contains("does not belong"), "{e}");
+        assert!(!e.contains("PRIVATE KEY"), "{e}");
+        assert!(
+            !root.join("private").exists()
+                || fs::read_dir(root.join("private")).unwrap().next().is_none()
+        );
+        let cert = X509::from_pem(cert_a.as_bytes()).unwrap();
+        assert!(key_matches(
+            &cert,
+            &PrivateKey::from_pem(key_a.as_bytes()).unwrap()
+        ));
+        assert!(!key_matches(
+            &cert,
+            &PrivateKey::from_pem(key_b.as_bytes()).unwrap()
+        ));
+        let lease = own_from_pem(&root, &cert_a, &key_a).unwrap();
+        let h = hash16(&[&cert_a, &key_a]);
+        assert_eq!(
+            lease.key,
+            root.join("private").join(format!("user-{h}.pem"))
+        );
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// Without a data_dir: a directory of this process, not a fixed name

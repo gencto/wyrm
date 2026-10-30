@@ -135,7 +135,7 @@ The link's PKI is in its `data_dir`, in `opcua-pki/`:
 | Path | Content |
 |---|---|
 | `own/app-<hash>.der`, `private/app-<hash>.pem` | The generated application certificate (self-signed, RSA 2048, 10 years, SAN: `application_uri` and this host's names) and its key (mode 0600). Made on the first open of a connection without `cert_pem` when the link has a `data_dir` (also for policy `None`, which does not use it), then reused. One per `application_uri`. |
-| `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files: the library reads its certificate and key from files on every secure channel open and renewal. The key file is **plain text** (not sealed), mode 0600 in the 0700 `private/` inside the 0700 `data_dir`. The files exist only while a connection that uses them opens or has a session: they are removed when the last such session ends (also after an `edit` that changes `cert_pem`, a `remove`, or a failed open), and at link start the link removes any that a stopped process left. |
+| `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files, named by a hash of both: the library reads its certificate and key from files on every secure channel open and renewal. The key file is **plain text** (not sealed), mode 0600 in the 0700 `private/` inside the 0700 `data_dir`. The files exist only while a connection that uses them opens or has a session: they are removed when the last such session ends (also after an `edit` that changes `cert_pem`, a `remove`, or a failed open), and at link start the link removes any that a stopped process left. |
 | `servers/<url hash>-<trust>/trusted`, `…/rejected` | Server certificates per endpoint and trust mode. `<url hash>` is of the endpoint with a lower-case host, the port (4840 when absent) and the path (`/` when empty), so `opc.tcp://PLC1:4840` and `opc.tcp://plc1/` are one endpoint; `localhost` and `127.0.0.1` are two. `<trust>` is `pin-<hash>`, `tofu` or `strict`. |
 | `servers/<url hash>-tofu/tofu-ok` | Marks that a session was made with the certificate in `trusted/` (first use done). |
 
@@ -194,6 +194,21 @@ Rules:
   the password on a channel without security: that policy comes from
   GetEndpoints, before any checked channel, so a man in the middle could
   name its own certificate.
+- On a `sign` channel (signed, not encrypted) to another host, the user
+  token policy protects the identity. Before ActivateSession the link
+  refuses a token policy with security policy None (a password in clear
+  text, an X.509 token without a signature) or a deprecated or unknown
+  one; it takes an empty one (the channel's policy encrypts the password,
+  OPC UA Part 4, 7.41) and Basic256Sha256, Aes128_Sha256_RsaOaep,
+  Aes256_Sha256_RsaPss. The token policy comes from GetEndpoints (the
+  library offers no hook between CreateSession and ActivateSession), so
+  whatever a man in the middle writes there ends in a refusal or in a
+  password encrypted with a strong policy to the server certificate that
+  CreateSession checked. `sign_and_encrypt` has no such limit: the channel
+  encrypts the token.
+- `key_pem` must be the key of `cert_pem`, and `user_key_pem` the key of
+  `user_cert_pem` (a test signature must verify with the certificate);
+  `add_connection`/`edit` refuse another key.
 - `endpoint` is parsed with the URL parser the library connects with, and
   a URL with user info (`opc.tcp://a@b/`), a query or a fragment is
   refused, so the host the link checks (loopback rules above) is the host

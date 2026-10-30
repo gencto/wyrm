@@ -213,10 +213,13 @@ impl Params for Conn {
                         "identity certificate needs user_cert_pem and user_key_pem",
                     ));
                 }
-                opcua::crypto::X509::from_pem(p.user_cert_pem.as_bytes())
+                let cert = opcua::crypto::X509::from_pem(p.user_cert_pem.as_bytes())
                     .map_err(|_| bad("user_cert_pem", "not a PEM certificate"))?;
-                opcua::crypto::PrivateKey::from_pem(p.user_key_pem.as_bytes())
+                let key = opcua::crypto::PrivateKey::from_pem(p.user_key_pem.as_bytes())
                     .map_err(|_| bad("user_key_pem", "not a PEM RSA private key"))?;
+                if !pki::key_matches(&cert, &key) {
+                    return Err(bad("user_key_pem", "does not belong to user_cert_pem"));
+                }
             }
         }
         session::identity_allowed(p.identity, p.security_mode, &p.endpoint)
@@ -225,10 +228,13 @@ impl Params for Conn {
             return Err(bad("cert_pem", "cert_pem and key_pem go together"));
         }
         if !p.cert_pem.is_empty() {
-            opcua::crypto::X509::from_pem(p.cert_pem.as_bytes())
+            let cert = opcua::crypto::X509::from_pem(p.cert_pem.as_bytes())
                 .map_err(|_| bad("cert_pem", "not a PEM certificate"))?;
-            opcua::crypto::PrivateKey::from_pem(p.key_pem.as_bytes())
+            let key = opcua::crypto::PrivateKey::from_pem(p.key_pem.as_bytes())
                 .map_err(|_| bad("key_pem", "not a PEM RSA private key"))?;
+            if !pki::key_matches(&cert, &key) {
+                return Err(bad("key_pem", "does not belong to cert_pem"));
+            }
         }
         if !p.server_cert_pem.is_empty() {
             opcua::crypto::X509::from_pem(p.server_cert_pem.as_bytes())
@@ -681,6 +687,53 @@ mod tests {
             .public_map()
             .values()
             .any(|v| *v == Value::from("pw-secret")));
+    }
+
+    /// A key that is not its certificate's is refused at param time, for
+    /// the application certificate and for the X.509 user identity.
+    #[test]
+    fn keys_must_belong_to_their_certificates() {
+        let gen = || {
+            let (x, k) = opcua::crypto::X509::cert_and_pkey(&opcua::crypto::X509Data {
+                key_size: 2048,
+                common_name: "t".into(),
+                organization: String::new(),
+                organizational_unit: String::new(),
+                country: String::new(),
+                state: String::new(),
+                alt_host_names: opcua::crypto::X509Data::alt_host_names(
+                    "urn:t", None, false, false, false,
+                ),
+                certificate_duration_days: 1,
+            })
+            .unwrap();
+            (
+                pki::pem("CERTIFICATE", &x.to_der().unwrap()),
+                pki::pem("PRIVATE KEY", k.to_der().unwrap().as_bytes()),
+            )
+        };
+        let (cert_a, key_a) = gen();
+        let (_, key_b) = gen();
+        let app = |key: &str| {
+            Conn::from_value(&map(&[
+                ("endpoint", "opc.tcp://127.0.0.1:1/".into()),
+                ("cert_pem", cert_a.as_str().into()),
+                ("key_pem", key.into()),
+            ]))
+        };
+        assert!(app(&key_a).is_ok());
+        let e = app(&key_b).unwrap_err();
+        assert!(e.message.contains("does not belong"), "{}", e.message);
+        let user = |key: &str| {
+            Conn::from_value(&map(&[
+                ("endpoint", "opc.tcp://127.0.0.1:1/".into()),
+                ("identity", "certificate".into()),
+                ("user_cert_pem", cert_a.as_str().into()),
+                ("user_key_pem", key.into()),
+            ]))
+        };
+        assert!(user(&key_a).is_ok());
+        assert!(user(&key_b).is_err());
     }
 
     #[tokio::test]
