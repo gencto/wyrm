@@ -51,6 +51,7 @@ down. In the broker's own process it runs only as WASM.
   a `dslink-java-modbus` tree. Its `Scaling` multiplies where DSA's
   divides: read the guide first,
   [`docs/modbus.md`](modbus.md).
+- **BACnet** (`links/bacnet`): BACnet/IP devices (driver `bacnet`, package `bacnet`). Guide: [`docs/bacnet.md`](bacnet.md).
 
 ## 3. The Install Link menu
 

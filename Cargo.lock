@@ -6172,6 +6172,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-bacnet"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-bacnet",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-guest"
 version = "0.1.0"
 dependencies = [
@@ -6433,6 +6445,7 @@ dependencies = [
  "wyrm-gateway",
  "wyrm-gateway-client",
  "wyrm-link-agent",
+ "wyrm-link-bacnet",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",

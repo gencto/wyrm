@@ -1,0 +1,43 @@
+[package]
+name = "wyrm-link-bacnet"
+description = "WYRM BACnet/IP client on the driver framework (ADR 0004)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process BACnet/IP device simulator for tests and demos.
+sim = []
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-bacnet-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-bacnet"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-bacnet = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "bacnet"
+description = "BACnet/IP devices: Who-Is discovery, ReadPropertyMultiple batched reads, WriteProperty with priorities"
+bin = "wyrm-link-bacnet"
+features = ["process"]
