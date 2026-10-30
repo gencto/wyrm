@@ -23,7 +23,8 @@ required-features = ["bin"]
 wyrm-core.workspace = true
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
-tokio-modbus = { workspace = true, features = ["tcp", "rtu"] }
+# Slave mode (ADR 0024) serves Modbus TCP and RTU.
+tokio-modbus = { workspace = true, features = ["tcp", "rtu", "tcp-server", "rtu-server"] }
 # Serial RTU; no libudev (port listing reads sysfs on Linux).
 tokio-serial = { version = "5.4", default-features = false }
 tracing.workspace = true
@@ -36,6 +37,9 @@ clap = { workspace = true, optional = true }
 wyrm-link-modbus = { path = ".", features = ["sim"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+# A master against the slave kinds; a log capture for the warning test.
+tokio-modbus = { workspace = true, features = ["tcp", "rtu"] }
+tracing-subscriber.workspace = true
 
 [[bin]]
 name = "wyrm-link-modbus"

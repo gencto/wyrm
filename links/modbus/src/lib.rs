@@ -48,6 +48,16 @@
 //! regular objects), both at level read; connection `scan_units` (one
 //! probe read per unit id, config level). A scan holds the owner for its
 //! whole run, so the connection's polls wait until it ends.
+//!
+//! Slave (server) mode ([`slave`], ruling 15, ADR 0024): `Add IP Slave`
+//! ([`IpSlaveConn`]: Modbus TCP on `listen_host:listen_port`, loopback by
+//! default) and `Add Serial Slave` ([`SerialSlaveConn`]: RTU on a serial
+//! port) serve their devices (unit ids) to masters. A point's value comes
+//! from the tree (`~set`, level write) and is what masters read; a master
+//! may write a point with `writable_by_master` (coil and holding), which
+//! publishes the new value. `poll_s` and the device's ping and batching
+//! params do nothing there, `writable_by_master` nothing on a master
+//! connection; the commissioning actions are not offered on slaves.
 
 #![forbid(unsafe_code)]
 
@@ -55,6 +65,7 @@ pub mod codec;
 pub mod dsa;
 #[cfg(feature = "sim")]
 pub mod sim;
+pub mod slave;
 
 use codec::{DType, Span};
 use std::collections::{BTreeMap, HashSet};
@@ -71,7 +82,8 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
 use wyrm_link_sdk::driver::{
-    Converted, Driver, DriverError, Framework, Level, Outcome, ParamEnum, Params, PointId, Target,
+    Changed, Converted, Driver, DriverError, Framework, Level, Outcome, ParamEnum, Params, PointId,
+    Remote, Served, Target,
 };
 use wyrm_link_sdk::LinkError;
 use wyrm_link_sdk::{ParamEnum, Params};
@@ -99,7 +111,7 @@ pub enum Ping {
     None,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ParamEnum)]
 pub enum Table {
     Coil,
     Discrete,
@@ -136,13 +148,22 @@ pub enum Conn {
     Ip(IpConn),
     #[param(name = "serial_connection", display = "Serial Connection")]
     Serial(SerialConn),
+    #[param(name = "ip_slave", display = "IP Slave")]
+    IpSlave(IpSlaveConn),
+    #[param(name = "serial_slave", display = "Serial Slave")]
+    SerialSlave(SerialSlaveConn),
 }
+
+/// Bound on opening a slave's listener or serial port (`timeout_ms` of the
+/// master kinds).
+const SLAVE_OPEN_MS: u32 = 1000;
 
 impl Conn {
     fn timeout_ms(&self) -> u32 {
         match self {
             Conn::Ip(c) => c.timeout_ms,
             Conn::Serial(c) => c.timeout_ms,
+            Conn::IpSlave(_) | Conn::SerialSlave(_) => SLAVE_OPEN_MS,
         }
     }
 
@@ -150,6 +171,7 @@ impl Conn {
         match self {
             Conn::Ip(c) => c.write_mode,
             Conn::Serial(c) => c.write_mode,
+            Conn::IpSlave(_) | Conn::SerialSlave(_) => WriteMode::Auto,
         }
     }
 
@@ -157,7 +179,12 @@ impl Conn {
         match self {
             Conn::Ip(c) => c.retries,
             Conn::Serial(c) => c.retries,
+            Conn::IpSlave(_) | Conn::SerialSlave(_) => 0,
         }
+    }
+
+    fn is_slave(&self) -> bool {
+        matches!(self, Conn::IpSlave(_) | Conn::SerialSlave(_))
     }
 }
 
@@ -199,6 +226,32 @@ pub struct SerialConn {
     /// a good value on RS485.
     #[param(default = 0, min = 0, max = 5, display = "Retries")]
     pub retries: u8,
+}
+
+/// A Modbus TCP slave: masters connect to `listen_host:listen_port`.
+/// Another address than loopback is allowed (logged at warn and shown on
+/// the connection's `status`): Modbus has no authentication.
+#[derive(Debug, Clone, PartialEq, Params)]
+pub struct IpSlaveConn {
+    #[param(default = "127.0.0.1", display = "Listen Host", dest)]
+    pub listen_host: String,
+    #[param(default = 502, display = "Listen Port", dest)]
+    pub listen_port: u16,
+}
+
+/// A Modbus RTU slave on a serial port.
+#[derive(Debug, Clone, PartialEq, Params)]
+pub struct SerialSlaveConn {
+    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0", dest)]
+    pub serial_port: String,
+    #[param(default = 9600, min = 300, max = 4000000, display = "Baud Rate")]
+    pub baud_rate: u32,
+    #[param(default = 8, min = 5, max = 8, display = "Data Bits")]
+    pub data_bits: u8,
+    #[param(default = 1, min = 1, max = 2, display = "Stop Bits")]
+    pub stop_bits: u8,
+    #[param(enum, default = "none", display = "Parity")]
+    pub parity: Parity,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -247,6 +300,9 @@ pub struct Point {
     pub offset: f64,
     pub writable: bool,
     pub unit: String,
+    /// Under a slave connection: a master may write the point (coil and
+    /// holding only). Ignored under a master connection.
+    pub writable_by_master: bool,
 }
 
 static DTYPE_NAMES: LazyLock<&'static [&'static str]> = LazyLock::new(|| {
@@ -319,6 +375,10 @@ impl Params for Point {
             ParamSpec::new("unit", TypeCode::String)
                 .default("")
                 .display("Unit"),
+            ParamSpec::new("writable_by_master", TypeCode::Bool)
+                .default(false)
+                .desc("slave connections: a master may write it (coil and holding)")
+                .display("Writable by Master"),
         ]
     }
 
@@ -348,6 +408,7 @@ impl Params for Point {
             offset: field::f64(m, "offset")?,
             writable: field::bool(m, "writable")?,
             unit: field::string(m, "unit")?,
+            writable_by_master: field::bool(m, "writable_by_master")?,
         };
         if p.table.is_bits() && p.dtype != DType::Binary {
             return Err(LinkError::invalid_parameter(
@@ -357,6 +418,11 @@ impl Params for Point {
         if p.writable && !matches!(p.table, Table::Coil | Table::Holding) {
             return Err(LinkError::invalid_parameter(
                 "writable: only coil and holding points can be written",
+            ));
+        }
+        if p.writable_by_master && !matches!(p.table, Table::Coil | Table::Holding) {
+            return Err(LinkError::invalid_parameter(
+                "writable_by_master: a master writes coil and holding points only",
             ));
         }
         if p.scale == 0.0 {
@@ -380,6 +446,10 @@ impl Params for Point {
             ("offset".into(), Value::Float(self.offset)),
             ("writable".into(), Value::Bool(self.writable)),
             ("unit".into(), Value::Str(self.unit.clone())),
+            (
+                "writable_by_master".into(),
+                Value::Bool(self.writable_by_master),
+            ),
         ])
     }
 }
@@ -452,32 +522,39 @@ pub(crate) fn serial_path_ok(p: &str) -> bool {
     }
 }
 
-fn serial_builder(c: &SerialConn) -> tokio_serial::SerialPortBuilder {
+/// A serial port's settings (master and slave kinds).
+pub(crate) fn serial_builder(
+    path: &str,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: Parity,
+) -> tokio_serial::SerialPortBuilder {
     use tokio_serial::{DataBits, StopBits};
-    let data_bits = match c.data_bits {
+    let data_bits = match data_bits {
         5 => DataBits::Five,
         6 => DataBits::Six,
         7 => DataBits::Seven,
         _ => DataBits::Eight,
     };
-    let stop_bits = if c.stop_bits == 2 {
+    let stop_bits = if stop_bits == 2 {
         StopBits::Two
     } else {
         StopBits::One
     };
-    let parity = match c.parity {
+    let parity = match parity {
         Parity::None => tokio_serial::Parity::None,
         Parity::Odd => tokio_serial::Parity::Odd,
         Parity::Even => tokio_serial::Parity::Even,
     };
-    tokio_serial::new(&c.serial_port, c.baud_rate)
+    tokio_serial::new(path, baud_rate)
         .data_bits(data_bits)
         .stop_bits(stop_bits)
         .parity(parity)
-        .timeout(Duration::from_millis(c.timeout_ms.into()))
 }
 
-pub struct Transport {
+/// The transport of a master connection.
+pub struct Master {
     ctx: Context,
     /// Kept to reopen the transport (ruling 7).
     conn: Conn,
@@ -632,7 +709,15 @@ async fn connect(
                     c.serial_port
                 )));
             }
-            let stream = tokio_serial::SerialStream::open(&serial_builder(c))
+            let builder = serial_builder(
+                &c.serial_port,
+                c.baud_rate,
+                c.data_bits,
+                c.stop_bits,
+                c.parity,
+            )
+            .timeout(Duration::from_millis(c.timeout_ms.into()));
+            let stream = tokio_serial::SerialStream::open(&builder)
                 .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
             if let Some(guard) = guard {
                 settle(&stream, guard)
@@ -641,10 +726,13 @@ async fn connect(
             }
             rtu::attach_slave(stream, Slave(1))
         }
+        Conn::IpSlave(_) | Conn::SerialSlave(_) => {
+            return Err(DriverError::Transport("not a master connection".into()))
+        }
     })
 }
 
-impl Transport {
+impl Master {
     /// Address `unit`; `false` = it is the RTU broadcast address, which
     /// `tokio-modbus` cannot send (it always waits for a reply).
     fn select(&mut self, unit: u8) -> bool {
@@ -667,7 +755,7 @@ impl Transport {
                     .unwrap_or_default();
                 Some(serial_guard(c, rest))
             }
-            Conn::Ip(_) => None,
+            Conn::Ip(_) | Conn::IpSlave(_) | Conn::SerialSlave(_) => None,
         };
         self.ctx = connect(&self.conn, self.timeout, guard).await?;
         self.ctx.set_slave(Slave(self.unit));
@@ -690,7 +778,7 @@ impl Transport {
         self.call_with(req, self.timeout, self.retries).await
     }
 
-    /// [`Transport::call`] with its own bound and retries (the actions);
+    /// [`Master::call`] with its own bound and retries (the actions);
     /// the connection's stay as they are, even when the call is cut.
     async fn call_with(
         &mut self,
@@ -953,7 +1041,7 @@ fn exception_err(e: ExceptionCode) -> LinkError {
 /// the `value` decoded from the first words (unscaled; `error` instead when
 /// they do not decode).
 async fn read_registers(
-    t: &mut Transport,
+    t: &mut Master,
     dev: &Device,
     args: &BTreeMap<String, Value>,
 ) -> Result<Value, LinkError> {
@@ -1037,7 +1125,7 @@ async fn read_registers(
 /// `more follows` (at most [`MAX_ID_REQUESTS`] requests; a next object id
 /// that does not advance ends it). The device's conformity level.
 async fn read_id_category(
-    t: &mut Transport,
+    t: &mut Master,
     code: ReadCode,
     start: u8,
     objects: &mut BTreeMap<u8, String>,
@@ -1074,7 +1162,7 @@ async fn read_id_category(
 /// ones when the device's conformity level has them → `{vendor_name,
 /// product_code, revision, vendor_url, …}` (strings; an object without a
 /// name of its own as `object_<id>`).
-async fn read_device_id(t: &mut Transport, dev: &Device) -> Result<Value, LinkError> {
+async fn read_device_id(t: &mut Master, dev: &Device) -> Result<Value, LinkError> {
     if !t.select(dev.unit) {
         return Err(LinkError::invalid_parameter(NO_RTU_BROADCAST));
     }
@@ -1114,7 +1202,7 @@ async fn read_device_id(t: &mut Transport, dev: &Device) -> Result<Value, LinkEr
 /// (broadcast). → the answering units. Holds the connection's owner for
 /// the whole scan: its polls wait.
 async fn scan_units(
-    t: &mut Transport,
+    t: &mut Master,
     conn: &Conn,
     args: &BTreeMap<String, Value>,
 ) -> Result<Value, LinkError> {
@@ -1137,7 +1225,7 @@ async fn scan_units(
         Conn::Serial(c) => {
             u64::try_from(serial_guard(c, Duration::ZERO).as_millis()).unwrap_or(u64::MAX)
         }
-        Conn::Ip(_) => 50,
+        Conn::Ip(_) | Conn::IpSlave(_) | Conn::SerialSlave(_) => 50,
     };
     let worst = (to - from + 1).saturating_mul(per_unit.saturating_add(reopen));
     let budget = u64::from(SCAN_BUDGET_MS);
@@ -1194,6 +1282,12 @@ async fn scan_units(
     ))
 }
 
+/// An open connection: a master's client or a running slave.
+pub enum Transport {
+    Master(Master),
+    Slave(slave::Slave),
+}
+
 pub struct ModbusDriver;
 
 impl Driver for ModbusDriver {
@@ -1206,13 +1300,16 @@ impl Driver for ModbusDriver {
     type Plan = Plan;
 
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
+        if conn.is_slave() {
+            return slave::open(conn).await.map(Transport::Slave);
+        }
         let timeout = Duration::from_millis(conn.timeout_ms().into());
         let ctx = connect(conn, timeout, None).await?;
         let rtu = match conn {
             Conn::Ip(c) => c.transport == IpTransport::RtuOverTcp,
-            Conn::Serial(_) => true,
+            Conn::Serial(_) | Conn::IpSlave(_) | Conn::SerialSlave(_) => true,
         };
-        Ok(Transport {
+        Ok(Transport::Master(Master {
             ctx,
             conn: conn.clone(),
             timeout,
@@ -1225,10 +1322,14 @@ impl Driver for ModbusDriver {
             reopens: 0,
             outcomes: Vec::new(),
             no_fc22: HashSet::new(),
-        })
+        }))
     }
 
     async fn ping(t: &mut Transport, dev: &Device) -> Result<(), DriverError> {
+        // A slave is never pinged (a server kind).
+        let Transport::Master(t) = t else {
+            return Ok(());
+        };
         if !t.select(dev.unit) {
             return Err(DriverError::Device(NO_RTU_BROADCAST.into()));
         }
@@ -1277,6 +1378,10 @@ impl Driver for ModbusDriver {
         dev: &Device,
         plan: &Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
+        let t = match t {
+            Transport::Master(m) => m,
+            Transport::Slave(s) => return s.values(dev, plan),
+        };
         if !t.select(dev.unit) {
             let refused = DriverError::Device(NO_RTU_BROADCAST.into());
             return plan
@@ -1325,6 +1430,11 @@ impl Driver for ModbusDriver {
         p: &Point,
         v: &Value,
     ) -> Result<(), DriverError> {
+        let t = match t {
+            Transport::Master(m) => m,
+            // The value set is the value served.
+            Transport::Slave(s) => return s.set(dev.unit, p, v),
+        };
         if !t.select(dev.unit) {
             return Err(DriverError::Point(NO_RTU_BROADCAST.into()));
         }
@@ -1504,6 +1614,9 @@ impl Driver for ModbusDriver {
         action: &str,
         args: &Value,
     ) -> Result<Value, LinkError> {
+        let Transport::Master(t) = t else {
+            return Err(LinkError::not_supported(format!("action {action}")));
+        };
         let empty = BTreeMap::new();
         let args = match args {
             Value::Map(m) => m,
@@ -1536,7 +1649,42 @@ impl Driver for ModbusDriver {
     const FOLDERS: bool = true;
 
     fn take_outcomes(t: &mut Transport) -> Vec<Outcome> {
-        std::mem::take(&mut t.outcomes)
+        match t {
+            Transport::Master(m) => std::mem::take(&mut m.outcomes),
+            Transport::Slave(s) => s.take_outcomes(),
+        }
+    }
+
+    /// `ip_slave` and `serial_slave` ([`slave`]).
+    fn is_server(conn: &Conn) -> bool {
+        conn.is_slave()
+    }
+
+    fn serve(t: &mut Transport, devs: &[Served<'_, Self>]) {
+        if let Transport::Slave(s) = t {
+            s.serve(devs);
+        }
+    }
+
+    async fn remote(t: &mut Transport) -> Result<Remote, DriverError> {
+        match t {
+            Transport::Slave(s) => s.remote().await,
+            Transport::Master(_) => std::future::pending().await,
+        }
+    }
+
+    fn take_changed(t: &mut Transport) -> Vec<Changed> {
+        match t {
+            Transport::Slave(s) => s.take_changed(),
+            Transport::Master(_) => Vec::new(),
+        }
+    }
+
+    fn status_note(t: &Transport) -> Option<String> {
+        match t {
+            Transport::Slave(s) => s.note(),
+            Transport::Master(_) => None,
+        }
     }
 }
 
@@ -1641,7 +1789,7 @@ mod guard_tests {
         m.insert("serial_port".into(), "/dev/ttyUSB0".into());
         match Conn::from_kind_value("serial_connection", &Value::Map(m)).unwrap() {
             Conn::Serial(c) => c,
-            Conn::Ip(_) => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
