@@ -129,7 +129,7 @@ The link's PKI is in its `data_dir`, in `opcua-pki/`:
 
 | Path | Content |
 |---|---|
-| `own/app-<hash>.der`, `private/app-<hash>.pem` | The generated application certificate (self-signed, RSA 2048, 10 years, SAN: `application_uri` and this host's names) and its key (mode 0600). Made on the first secured open, then reused. One per `application_uri`. |
+| `own/app-<hash>.der`, `private/app-<hash>.pem` | The generated application certificate (self-signed, RSA 2048, 10 years, SAN: `application_uri` and this host's names) and its key (mode 0600). Made on the first open of a connection without `cert_pem` when the link has a `data_dir` (also for policy `None`, which does not use it), then reused. One per `application_uri`. |
 | `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files (the library reads its certificate and key from files on every connect). The key file has mode 0600. |
 | `servers/<url hash>-<trust>/trusted`, `…/rejected` | Server certificates per endpoint and trust mode. |
 
@@ -271,5 +271,12 @@ in front of the server that goes silent, slow or drops connections.
   library (a pin or trust on first use trusts one certificate).
 - The application certificate is not renewed before it expires (10 years).
 - The `rsa` crate (0.9) under `async-opcua` has a known timing side channel
-  in RSA decryption (RUSTSEC-2023-0071, no fixed release yet). It concerns
-  RSA decryption with a key an attacker can time over many attempts.
+  in RSA decryption (the "Marvin" advisory, no fixed 0.9 release). It
+  concerns RSA decryption with a key an attacker can time over many
+  attempts.
+- `poll_timeout` (the bound on one poll) counts Read requests from the
+  device's `max_nodes_per_read`. A server with a smaller `MaxNodesPerRead`
+  needs more requests than that bound counts, so a slow server may show
+  device misses; lower `max_nodes_per_read` to the server's limit. (The
+  framework's `poll_timeout` gets no transport, so it cannot know the
+  server's limit.)
