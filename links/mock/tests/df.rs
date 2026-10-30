@@ -616,3 +616,50 @@ async fn driver_without_folders_has_no_add_folder() {
     assert!(!format!("{ex:?}").contains("folders"), "{ex:?}");
     h.stop().await;
 }
+
+/// Copy, export and import (ruling 11) come with every driver: on
+/// `mockdev` (no folders) a device copies and exports, a connection
+/// imports it, and a device has no `import` (it would take folders).
+#[tokio::test(flavor = "multi_thread")]
+async fn branches_without_folders() {
+    let h = H::start(tree(standard(), true)).await;
+    let (_, meta) = h.meta("c1/d1").await;
+    let actions = meta.expect("c1/d1").actions.unwrap_or_default();
+    assert!(actions.contains_key("copy") && actions.contains_key("export"));
+    assert!(!actions.contains_key("import"), "{:?}", actions.keys());
+
+    let named = |n: &str| map(&[("name", n.into())]);
+    let a = act(&h, "c1/d1/n", "copy", named("n2")).await;
+    assert_eq!(status(&a), Some(Status::Ok), "{:?}", a.err);
+    wait("the copied counter polled", || {
+        h.ctx()
+            .last("c1/d1/n2")
+            .is_some_and(|s| s.q == Quality::Good)
+    })
+    .await;
+
+    let r = h
+        .invoke("c1/d1", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await
+        .remove(0);
+    assert_eq!(status(&r.att), Some(Status::Ok), "{:?}", r.att.err);
+    let Some(Value::Map(m)) = r.value() else {
+        panic!("{:?}", r.value())
+    };
+    let json = m["json"].clone();
+    let a = act(
+        &h,
+        "c1",
+        "import",
+        map(&[("json", json.clone()), ("name", "d2".into())]),
+    )
+    .await;
+    assert_eq!(status(&a), Some(Status::Ok), "{:?}", a.err);
+    for p in ["c1/d2", "c1/d2/n", "c1/d2/n2", "c1/d2/w", "c1/d2/x"] {
+        assert!(h.meta(p).await.1.is_some(), "{p} imported");
+    }
+    assert_eq!(state(&h, "c1/d2").as_deref(), Some("stopped"));
+    let a = act(&h, "c1/d1", "import", map(&[("json", json)])).await;
+    assert_ne!(status(&a), Some(Status::Ok));
+    h.stop().await;
+}

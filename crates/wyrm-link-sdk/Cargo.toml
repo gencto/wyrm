@@ -18,7 +18,7 @@ advanced = ["dep:zenoh-ext"]
 process = ["tokio/signal", "tokio/rt-multi-thread", "zenoh/transport_tls", "zenoh/transport_tcp", "dep:tracing-subscriber"]
 # Link packages (ADR 0021): manifest, repository index, zip writer; for the
 # broker and `wyr`, not for links.
-package = ["dep:serde", "dep:serde_json", "dep:zip", "dep:hex"]
+package = ["dep:serde", "dep:zip", "dep:hex"]
 
 [dependencies]
 wyrm-core.workspace = true
@@ -31,11 +31,12 @@ thiserror.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
 sha2.workspace = true
+# Branch export/import text (ruling 11), like the storage export (ADR 0017).
+serde_json.workspace = true
 ring.workspace = true
 zenoh-ext = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }

@@ -200,7 +200,18 @@ async fn add_folder_nests_points() {
     assert!(!exists(&h, "c1/d1/p").await);
     let mut folder = actions(&h, "c1/d1/f1").await;
     folder.sort();
-    assert_eq!(folder, ["add_folder", "add_point", "remove"]);
+    // Ruling 11 adds `copy`, `export` and `import`; still no `edit`.
+    assert_eq!(
+        folder,
+        [
+            "add_folder",
+            "add_point",
+            "copy",
+            "export",
+            "import",
+            "remove"
+        ]
+    );
 
     // One plan per device and period, folders or not.
     let from = log(tag).len();

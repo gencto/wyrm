@@ -6,6 +6,7 @@
 //! quality ladder, and (opt-in) driver actions, diagnostics counters and
 //! folders between a device and its points.
 
+pub mod branch;
 mod diag;
 pub mod framework;
 pub mod params;

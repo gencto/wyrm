@@ -641,6 +641,41 @@ async fn stored_config_without_folders_loads() {
         .value()
         .unwrap();
     assert!(!format!("{ex:?}").contains("folders"), "{ex:?}");
+
+    // Ruling 11: every stored connection (both kinds, every point type)
+    // exports and imports again with the same params and children.
+    let export = |path: String| {
+        let h = &h;
+        async move {
+            let r = h
+                .invoke(&path, "export", map(&[]), Some(h.ptok(Perm::Config)))
+                .await
+                .remove(0);
+            let Some(Value::Map(m)) = r.value() else {
+                panic!("{path}: {:?}", r.att.err)
+            };
+            let Some(Value::Str(text)) = m.get("json") else {
+                panic!("{m:?}")
+            };
+            serde_json::from_str::<serde_json::Value>(text).unwrap()
+        }
+    };
+    for c in ["ip_full", "ip_minimal", "serial_full", "serial_minimal"] {
+        let src = export(c.to_owned()).await;
+        let copy = format!("{c}_copy");
+        let args = map(&[
+            ("json", Value::Str(src.to_string())),
+            ("name", Value::Str(copy.clone())),
+        ]);
+        let r = h
+            .invoke("", "import", args, Some(h.ptok(Perm::Config)))
+            .await
+            .remove(0);
+        assert!(r.att.err.is_none(), "{c}: {:?}", r.att.err);
+        let dst = export(copy).await;
+        assert_eq!(dst["params"], src["params"], "{c}");
+        assert_eq!(dst["children"], src["children"], "{c}");
+    }
     h.stop().await;
 }
 

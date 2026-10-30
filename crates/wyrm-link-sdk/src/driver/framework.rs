@@ -37,9 +37,17 @@
 //! * With [`Driver::DIAGNOSTICS`], connections and devices get diagnostics
 //!   value leaves (see `diag`), counted from [`Driver::take_outcomes`] after
 //!   every operation; an operation cut by its bound counts one timeout.
+//! * Branches (ruling 11, format in `branch`): `copy {name}` on connections,
+//!   devices, folders and points (beside the source; a copied connection or
+//!   device starts stopped; the sealed secrets go with it, as the
+//!   destination is the same); `export` of a connection, device or folder;
+//!   `import {json, name?, overwrite?}` of a connection at the root, a
+//!   device into a connection, a folder into a device or folder. An import
+//!   never takes secrets: they are entered again with `edit`.
 
+use super::branch::{self, Node};
 use super::diag;
-use super::params::{normalize, Kind, ParamSpec, Params};
+use super::params::{all_secret_names, normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
 use super::{backoff, jitter, Driver, DriverError, Level, NodeState, Outcome, PointId, Target};
 use crate::auth::Caller;
@@ -55,7 +63,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, warn};
-use wyrm_core::meta::{ActionResult, GROUP_EDIT, GROUP_NEW};
+use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
 /// How deep folders nest below a device ([`Driver::FOLDERS`]).
@@ -188,6 +196,48 @@ impl<P: Params> Slot<P> {
         }
         m
     }
+
+    /// The params of a branch export: as shown, and each secret that has a
+    /// value as [`branch::NOT_EXPORTED`].
+    fn exported(&self) -> Map {
+        let mut m = self.shown();
+        let raw = map_of(&self.raw);
+        let secret = match &self.cfg {
+            Some(_) => self
+                .schema()
+                .into_iter()
+                .filter(|s| s.secret)
+                .map(|s| s.name)
+                .collect(),
+            None => all_secret_names::<P>(),
+        };
+        for name in secret {
+            if raw.get(name).is_some_and(|v| !blank(v)) {
+                m.insert(name.into(), Value::Str(branch::NOT_EXPORTED.into()));
+            }
+        }
+        m
+    }
+
+    /// An imported node whose required secret was left out does not load:
+    /// say how to fix it.
+    fn note_reenter(&mut self, at: &str, reenter: &[String]) {
+        let missing = reenter
+            .iter()
+            .any(|r| r.rsplit_once('.').is_some_and(|(node, _)| node == at));
+        if let (Some(e), true) = (&mut self.error, missing) {
+            e.push_str(" (secrets are not imported: enter them again with edit)");
+        }
+    }
+}
+
+/// An empty value (no secret given).
+fn blank(v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::Str(s) => s.is_empty(),
+        _ => false,
+    }
 }
 
 /// A folder's path below its device (empty: the device itself).
@@ -210,6 +260,7 @@ fn below(base: &str, folder: &[String]) -> String {
 }
 
 /// A point and the folder it is in.
+#[derive(Clone)]
 struct PointEntry<P: Params> {
     slot: Slot<P>,
     folder: Folder,
@@ -222,6 +273,17 @@ struct DevEntry<D: Driver> {
     points: BTreeMap<String, PointEntry<D::Point>>,
     /// Every folder (a parent sorts before its children).
     folders: BTreeSet<Folder>,
+}
+
+impl<D: Driver> Clone for DevEntry<D> {
+    fn clone(&self) -> Self {
+        Self {
+            slot: self.slot.clone(),
+            enabled: self.enabled,
+            points: self.points.clone(),
+            folders: self.folders.clone(),
+        }
+    }
 }
 
 impl<D: Driver> DevEntry<D> {
@@ -261,6 +323,49 @@ impl<D: Driver> DevEntry<D> {
         }
         m
     }
+
+    /// The device, its folders and points.
+    fn count(&self) -> usize {
+        1 + self.folders.len() + self.points.len()
+    }
+
+    /// The device as a branch node.
+    fn node(&self, name: &str) -> Node {
+        Node {
+            level: branch::Level::Device,
+            name: name.to_owned(),
+            params: self.slot.exported(),
+            enabled: self.enabled,
+            children: self.children(&[]),
+        }
+    }
+
+    /// The branch nodes of `folder`'s children: folders, then points.
+    fn children(&self, folder: &[String]) -> Vec<Node> {
+        let subs = self
+            .folders
+            .iter()
+            .filter(|f| f.len() == folder.len() + 1 && f.starts_with(folder))
+            .map(|f| Node {
+                level: branch::Level::Folder,
+                name: f[folder.len()].clone(),
+                params: Map::new(),
+                enabled: true,
+                children: self.children(f),
+            });
+        let pts = self
+            .points
+            .iter()
+            .filter(|(_, p)| p.folder == folder)
+            .map(|(n, p)| Node {
+                level: branch::Level::Point,
+                name: n.clone(),
+                params: p.slot.exported(),
+                enabled: true,
+                children: Vec::new(),
+            });
+        subs.chain(pts).collect()
+    }
 }
 
 struct ConnEntry<D: Driver> {
@@ -268,6 +373,19 @@ struct ConnEntry<D: Driver> {
     enabled: bool,
     devices: BTreeMap<String, DevEntry<D>>,
     run: Option<ConnRun<D>>,
+}
+
+impl<D: Driver> ConnEntry<D> {
+    /// The connection as a branch node.
+    fn node(&self, name: &str) -> Node {
+        Node {
+            level: branch::Level::Connection,
+            name: name.to_owned(),
+            params: self.slot.exported(),
+            enabled: self.enabled,
+            children: self.devices.iter().map(|(n, d)| d.node(n)).collect(),
+        }
+    }
 }
 
 /// One poll group of a device.
@@ -435,8 +553,8 @@ async fn mark(ctx: &LinkCtx, paths: impl IntoIterator<Item = String>, q: Quality
 }
 
 /// Actions of the framework; a driver action may not use these names.
-const FRAMEWORK_ACTIONS: [&str; 7] = [
-    "edit", "remove", "restart", "start", "stop", "export", "rescan",
+const FRAMEWORK_ACTIONS: [&str; 9] = [
+    "edit", "remove", "restart", "start", "stop", "export", "rescan", "copy", "import",
 ];
 
 fn framework_action(name: &str) -> bool {
@@ -618,6 +736,55 @@ fn add_form<D: Driver>(schema: &[ParamSpec], display: String) -> ActionMeta {
         .group(GROUP_NEW)
 }
 
+/// `copy {name}`: the node with everything below it, beside it.
+fn copy_form() -> ActionMeta {
+    ActionMeta::new()
+        .level(Perm::Config)
+        .param(
+            "name",
+            ParamMeta::of(TypeCode::String)
+                .required(true)
+                .display("Name"),
+        )
+        .display("Copy")
+        .group(GROUP_EDIT)
+        .timeout_ms(branch::ACTION_MS)
+        .result(ActionResult::Type(TypeCode::Map))
+}
+
+/// `export` of a branch: `{json}`.
+fn export_form() -> ActionMeta {
+    plain("Export").result(ActionResult::Type(TypeCode::Map))
+}
+
+/// `import {json, name?, overwrite?}`: `{name, reenter}`.
+fn import_form() -> ActionMeta {
+    let mut overwrite = ParamMeta::of(TypeCode::Bool)
+        .required(false)
+        .display("Overwrite")
+        .description("Replace a node of that name");
+    overwrite.default = Some(Value::Bool(false));
+    plain("Import")
+        .param(
+            "json",
+            ParamMeta::of(TypeCode::String)
+                .required(true)
+                .display("JSON")
+                .editor(EDITOR_TEXTAREA)
+                .description("A branch from Export (secrets are entered again with Edit)"),
+        )
+        .param(
+            "name",
+            ParamMeta::of(TypeCode::String)
+                .required(false)
+                .display("Name")
+                .description("Default: the exported name"),
+        )
+        .param("overwrite", overwrite)
+        .timeout_ms(branch::ACTION_MS)
+        .result(ActionResult::Type(TypeCode::Map))
+}
+
 /// Split `{name, ..params}` action args.
 fn split_name(args: &Value) -> Result<(String, Value)> {
     let mut m = map_of(args);
@@ -672,6 +839,12 @@ impl<D: Driver> Framework<D> {
         self.ctx
             .declare_action(name, "restart", plain("Restart"))
             .await?;
+        self.ctx
+            .declare_action(name, "export", export_form())
+            .await?;
+        self.ctx
+            .declare_action(name, "import", import_form())
+            .await?;
         for (id, meta) in driver_actions::<D>(Level::Connection, &c.slot.kind) {
             self.ctx.declare_action(name, id, meta).await?;
         }
@@ -713,6 +886,14 @@ impl<D: Driver> Framework<D> {
         self.ctx
             .declare_action(&base, "restart", plain("Restart"))
             .await?;
+        self.ctx
+            .declare_action(&base, "export", export_form())
+            .await?;
+        if D::FOLDERS {
+            self.ctx
+                .declare_action(&base, "import", import_form())
+                .await?;
+        }
         for (id, meta) in driver_actions::<D>(Level::Device, &d.slot.kind) {
             self.ctx.declare_action(&base, id, meta).await?;
         }
@@ -745,7 +926,8 @@ impl<D: Driver> Framework<D> {
         Ok(())
     }
 
-    /// A folder: the add actions and `remove` (no `edit`: no rename).
+    /// A folder: the add actions, `remove` (no `edit`: no rename), `copy`,
+    /// `export` and `import`.
     async fn declare_folder(&self, conn: &str, dev: &str, folder: &[String]) -> Result<()> {
         let path = below(&format!("{conn}/{dev}"), folder);
         self.ctx
@@ -754,7 +936,23 @@ impl<D: Driver> Framework<D> {
         self.declare_adds_below(&path, folder).await?;
         self.ctx
             .declare_action(&path, "remove", plain("Remove").group(GROUP_EDIT))
+            .await?;
+        self.ctx.declare_action(&path, "copy", copy_form()).await?;
+        self.ctx
+            .declare_action(&path, "export", export_form())
+            .await?;
+        self.ctx
+            .declare_action(&path, "import", import_form())
             .await
+    }
+
+    /// A connection with its devices.
+    async fn declare_conn_tree(&self, name: &str) -> Result<()> {
+        self.declare_conn(name).await?;
+        for dn in self.conns[name].devices.keys() {
+            self.declare_branch(name, dn).await?;
+        }
+        Ok(())
     }
 
     /// A device with its folders (parents first) and points.
@@ -801,7 +999,8 @@ impl<D: Driver> Framework<D> {
         Ok(())
     }
 
-    /// `edit` (the node's own form, pre-filled) and `remove`, group `edit`.
+    /// `edit` (the node's own form, pre-filled), `remove` and `copy`,
+    /// group `edit`.
     async fn declare_common(&self, path: &str, schema: &[ParamSpec], shown: &Map) -> Result<()> {
         let edit = form::<D>(schema, Some(shown))
             .display("Edit")
@@ -809,7 +1008,8 @@ impl<D: Driver> Framework<D> {
         self.ctx.declare_action(path, "edit", edit).await?;
         self.ctx
             .declare_action(path, "remove", plain("Remove").group(GROUP_EDIT))
-            .await
+            .await?;
+        self.ctx.declare_action(path, "copy", copy_form()).await
     }
 
     /// DSA shows only the action that applies: `stop` while the node runs,
@@ -824,8 +1024,8 @@ impl<D: Driver> Framework<D> {
         self.ctx.declare_action(path, on, plain(&title(on))).await
     }
 
-    /// Root actions: one `add_*` per connection kind, `export`, and
-    /// `rescan` when the driver has one.
+    /// Root actions: one `add_*` per connection kind, `export` (the whole
+    /// tree), `import` (a connection), and `rescan` when the driver has one.
     async fn declare_root(&self) -> Result<()> {
         for (id, k) in adds::<D::Conn>("connection") {
             let display = add_display("connection", &k);
@@ -840,6 +1040,7 @@ impl<D: Driver> Framework<D> {
                 plain("Export").result(ActionResult::Type(TypeCode::Map)),
             )
             .await?;
+        self.ctx.declare_action("", "import", import_form()).await?;
         if let Some(name) = D::RESCAN {
             self.ctx
                 .declare_action(
@@ -894,11 +1095,8 @@ impl<D: Driver> Framework<D> {
     /// `rescan`: forms again with fresh choices; replies `{param: [found]}`.
     async fn rescan(&self) -> Result<Value> {
         self.declare_root().await?;
-        for (cn, c) in &self.conns {
-            self.declare_conn(cn).await?;
-            for dn in c.devices.keys() {
-                self.declare_branch(cn, dn).await?;
-            }
+        for cn in self.conns.keys() {
+            self.declare_conn_tree(cn).await?;
         }
         let mut found = Map::new();
         let schemas = D::Conn::kinds()
@@ -1745,53 +1943,13 @@ impl<D: Driver> Link for Framework<D> {
             persist,
         };
         for (cn, cv) in conns_raw {
-            valid_name(&cn)?;
-            let mut cm = map_of(&cv);
-            let enabled = is_enabled(&mut cm);
-            let devs_raw = take(&mut cm, "devices")
-                .map(|v| map_of(&v))
-                .unwrap_or_default();
-            let mut devices = BTreeMap::new();
-            for (dn, dv) in devs_raw {
-                valid_name(&dn)?;
-                let mut dm = map_of(&dv);
-                let denabled = is_enabled(&mut dm);
-                let mut points = BTreeMap::new();
-                let mut folders = BTreeSet::new();
-                load_branch::<D>(
-                    &format!("{cn}/{dn}"),
-                    &[],
-                    &mut dm,
-                    &mut points,
-                    &mut folders,
-                )?;
-                devices.insert(
-                    dn,
-                    DevEntry {
-                        slot: Slot::parse(Value::Map(dm)),
-                        enabled: denabled,
-                        points,
-                        folders,
-                    },
-                );
-            }
-            fw.conns.insert(
-                cn,
-                ConnEntry {
-                    slot: Slot::parse(Value::Map(cm)),
-                    enabled,
-                    devices,
-                    run: None,
-                },
-            );
+            let entry = load_conn::<D>(&cn, &cv)?;
+            fw.conns.insert(cn, entry);
         }
         fw.declare_root().await?;
         let names: Vec<String> = fw.conns.keys().cloned().collect();
         for cn in &names {
-            fw.declare_conn(cn).await?;
-            for dn in fw.conns[cn].devices.keys() {
-                fw.declare_branch(cn, dn).await?;
-            }
+            fw.declare_conn_tree(cn).await?;
         }
         for cn in &names {
             fw.bring_up(cn).await;
@@ -1839,15 +1997,22 @@ impl<D: Driver> Link for Framework<D> {
         } else {
             path.split('/').map(str::to_owned).collect()
         };
+        if matches!(action, "copy" | "import") {
+            // The reply ends the call: it goes out once the tree is saved.
+            let at = self.resolve(&parts)?;
+            let reply = if action == "copy" {
+                self.copy(&at, &args).await?
+            } else {
+                self.import(&at, &args).await?
+            };
+            self.save()?;
+            return out.reply(reply).await;
+        }
         let changes =
             action.starts_with("add_") || matches!(action, "edit" | "remove" | "start" | "stop");
         self.invoke_action(&parts, action, args, out).await?;
         if changes {
-            if let Some(p) = &self.persist {
-                p.save(&self.full_tree()).map_err(|e| {
-                    LinkError::internal(format!("applied, but not saved for a restart: {e}"))
-                })?;
-            }
+            self.save()?;
         }
         Ok(())
     }
@@ -1860,6 +2025,18 @@ impl<D: Driver> Link for Framework<D> {
     }
 }
 
+impl<D: Driver> Framework<D> {
+    /// Keep the tree for a restart (with a `data_dir`).
+    fn save(&self) -> Result<()> {
+        if let Some(p) = &self.persist {
+            p.save(&self.full_tree()).map_err(|e| {
+                LinkError::internal(format!("applied, but not saved for a restart: {e}"))
+            })?;
+        }
+        Ok(())
+    }
+}
+
 /// The node an action or a set names.
 enum At<'a> {
     Root,
@@ -1867,6 +2044,49 @@ enum At<'a> {
     Dev(&'a String, &'a String),
     Folder(&'a String, &'a String, Folder),
     Point(&'a String, &'a String, &'a String),
+}
+
+/// A connection of the tree (`{..Conn, kind?, enabled?, devices?}`).
+fn load_conn<D: Driver>(cn: &str, cv: &Value) -> Result<ConnEntry<D>> {
+    valid_name(cn)?;
+    let mut cm = map_of(cv);
+    let enabled = is_enabled(&mut cm);
+    let devs_raw = take(&mut cm, "devices")
+        .map(|v| map_of(&v))
+        .unwrap_or_default();
+    let mut devices = BTreeMap::new();
+    for (dn, dv) in devs_raw {
+        let entry = load_dev::<D>(cn, &dn, &dv)?;
+        devices.insert(dn, entry);
+    }
+    Ok(ConnEntry {
+        slot: Slot::parse(Value::Map(cm)),
+        enabled,
+        devices,
+        run: None,
+    })
+}
+
+/// A device of the tree (`{..Dev, kind?, enabled?, points, folders?}`).
+fn load_dev<D: Driver>(cn: &str, dn: &str, dv: &Value) -> Result<DevEntry<D>> {
+    valid_name(dn)?;
+    let mut dm = map_of(dv);
+    let enabled = is_enabled(&mut dm);
+    let mut points = BTreeMap::new();
+    let mut folders = BTreeSet::new();
+    load_branch::<D>(
+        &format!("{cn}/{dn}"),
+        &[],
+        &mut dm,
+        &mut points,
+        &mut folders,
+    )?;
+    Ok(DevEntry {
+        slot: Slot::parse(Value::Map(dm)),
+        enabled,
+        points,
+        folders,
+    })
 }
 
 /// Load `{points, folders?}` of `folder` from `m` (the device map, or a
@@ -2055,6 +2275,9 @@ impl<D: Driver> Framework<D> {
         let at = self.resolve(parts)?;
         match (&at, action) {
             (At::Root, "export") => return out.reply(self.export()).await,
+            (At::Conn(..) | At::Dev(..) | At::Folder(..), "export") => {
+                return out.reply(self.export_branch(&at)?).await
+            }
             (At::Root, "rescan") if D::RESCAN.is_some() => {
                 return out.reply(self.rescan().await?).await
             }
@@ -2221,5 +2444,542 @@ impl<D: Driver> Framework<D> {
             _ => return Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         }
         Ok(())
+    }
+}
+
+/// `{name}` and nothing else (a `copy`).
+fn copy_name(args: &Value) -> Result<String> {
+    let (name, rest) = split_name(args)?;
+    if let Some(k) = map_of(&rest).keys().next() {
+        return Err(LinkError::invalid_parameter(format!(
+            "{k}: unknown field (copy takes a name)"
+        )));
+    }
+    Ok(name)
+}
+
+/// `path` with its prefix `from` replaced by `to`.
+fn rebase(path: &[String], from: &[String], to: &[String]) -> Folder {
+    let mut f = to.to_vec();
+    f.extend_from_slice(&path[from.len()..]);
+    f
+}
+
+/// `<id>_<n>` with the smallest `n` ≥ 2 that `taken` does not refuse.
+fn fresh_id(id: &str, taken: impl Fn(&str) -> bool) -> String {
+    (2u64..)
+        .map(|n| format!("{id}_{n}"))
+        .find(|c| !taken(c))
+        .expect("a free id")
+}
+
+/// A stand-in for a secret left out of an import, so that every other
+/// param is still checked like `add_*` would.
+fn stand_in(s: &ParamSpec) -> Value {
+    match s.ty {
+        TypeCode::Number => Value::Float(match (s.min, s.max) {
+            (Some(lo), _) => lo,
+            (None, Some(hi)) if hi < 0.0 => hi,
+            _ => 0.0,
+        }),
+        TypeCode::Bool => Value::Bool(false),
+        TypeCode::Enum => Value::Str(s.enum_values.first().copied().unwrap_or("").into()),
+        _ => Value::Str("x".into()),
+    }
+}
+
+/// An imported node's params at `at`, validated like `add_*`, without
+/// secrets: every secret the text names, and every required one, is listed
+/// in `reenter` as `<at>.<param>` (it is entered again with `edit`).
+fn import_params<P: Params>(at: &str, params: &Map, reenter: &mut Vec<String>) -> Result<Value> {
+    let bad = |e: LinkError| LinkError::invalid_parameter(format!("{at}: {}", e.message));
+    let mut m = params.clone();
+    let kind = match multi_kind::<P>().then(|| m.remove("kind")).flatten() {
+        None => String::new(),
+        Some(Value::Str(k)) => k,
+        Some(_) => {
+            return Err(LinkError::invalid_parameter(format!(
+                "{at}: kind: expected a name"
+            )))
+        }
+    };
+    let resolved = if kind.is_empty() {
+        P::kinds().first().map(|k| k.id).unwrap_or("").to_owned()
+    } else {
+        kind
+    };
+    let schema = P::kind_schema(&resolved).map_err(bad)?;
+    let mut check = m.clone();
+    for s in schema.iter().filter(|s| s.secret) {
+        let given = m.remove(s.name).is_some();
+        check.remove(s.name);
+        if given || s.default.is_none() {
+            reenter.push(format!("{at}.{}", s.name));
+        }
+        if s.default.is_none() {
+            check.insert(s.name.to_owned(), stand_in(s));
+        }
+    }
+    P::from_kind_value(&resolved, &Value::Map(check)).map_err(bad)?;
+    if multi_kind::<P>() {
+        m.insert("kind".into(), Value::Str(resolved));
+    }
+    Ok(Value::Map(m))
+}
+
+/// A connection node as a tree map (`load_conn`).
+fn conn_tree<D: Driver>(n: &Node, at: &str, reenter: &mut Vec<String>) -> Result<Value> {
+    let mut m = map_of(&import_params::<D::Conn>(at, &n.params, reenter)?);
+    m.insert("enabled".into(), Value::Bool(n.enabled));
+    let mut devs = Map::new();
+    for c in &n.children {
+        let t = dev_tree::<D>(c, &format!("{at}/{}", c.name), reenter)?;
+        if devs.insert(c.name.clone(), t).is_some() {
+            return Err(twice(at, &c.name));
+        }
+    }
+    m.insert("devices".into(), Value::Map(devs));
+    Ok(Value::Map(m))
+}
+
+/// A device node as a tree map (`load_dev`).
+fn dev_tree<D: Driver>(n: &Node, at: &str, reenter: &mut Vec<String>) -> Result<Value> {
+    let mut m = map_of(&import_params::<D::Dev>(at, &n.params, reenter)?);
+    m.insert("enabled".into(), Value::Bool(n.enabled));
+    m.extend(folder_tree::<D>(n, at, reenter)?);
+    Ok(Value::Map(m))
+}
+
+/// The children of a device or folder node as `{points, folders?}`
+/// (`load_branch`).
+fn folder_tree<D: Driver>(n: &Node, at: &str, reenter: &mut Vec<String>) -> Result<Map> {
+    let (mut points, mut folders) = (Map::new(), Map::new());
+    for c in &n.children {
+        let here = format!("{at}/{}", c.name);
+        let (into, t) = match c.level {
+            branch::Level::Point => (
+                &mut points,
+                import_params::<D::Point>(&here, &c.params, reenter)?,
+            ),
+            _ => (
+                &mut folders,
+                Value::Map(folder_tree::<D>(c, &here, reenter)?),
+            ),
+        };
+        if into.insert(c.name.clone(), t).is_some() {
+            return Err(twice(at, &c.name));
+        }
+    }
+    let mut m = Map::new();
+    m.insert("points".into(), Value::Map(points));
+    if !folders.is_empty() {
+        m.insert("folders".into(), Value::Map(folders));
+    }
+    Ok(m)
+}
+
+fn twice(at: &str, name: &str) -> LinkError {
+    LinkError::invalid_parameter(format!("{at}/{name}: twice in the branch"))
+}
+
+fn exists_err(name: &str) -> LinkError {
+    LinkError::invalid_parameter(format!("{name} exists (overwrite: true replaces it)"))
+}
+
+/// The names that `add_*` refuses but loading keeps (a stored tree with
+/// them still loads): new points and devices may not take a diagnostics
+/// leaf name, new folders no action name either.
+fn check_new<'a, D: Driver>(
+    points: impl IntoIterator<Item = &'a String>,
+    folders: impl IntoIterator<Item = &'a Folder>,
+) -> Result<()> {
+    for p in points {
+        diag_reserved::<D>(p)?;
+    }
+    for f in folders {
+        if let Some(last) = f.last() {
+            folder_name::<D>(last)?;
+        }
+    }
+    Ok(())
+}
+
+impl<D: Driver> Framework<D> {
+    fn dev_mut(&mut self, conn: &str, dev: &str) -> Result<&mut DevEntry<D>> {
+        self.conn_mut(conn)?
+            .devices
+            .get_mut(dev)
+            .ok_or_else(|| LinkError::not_found(format!("{conn}/{dev}")))
+    }
+
+    /// `export` of a connection, device or folder: `{json}`.
+    fn export_branch(&self, at: &At<'_>) -> Result<Value> {
+        let not_found = |p: String| LinkError::not_found(p);
+        let dev = |c: &str, d: &str| {
+            self.conns
+                .get(c)
+                .and_then(|e| e.devices.get(d))
+                .ok_or_else(|| not_found(format!("{c}/{d}")))
+        };
+        let node = match at {
+            At::Conn(c) => self
+                .conns
+                .get(c.as_str())
+                .ok_or_else(|| not_found((*c).clone()))?
+                .node(c),
+            At::Dev(c, d) => dev(c, d)?.node(d),
+            At::Folder(c, d, f) => Node {
+                level: branch::Level::Folder,
+                name: f.last().cloned().unwrap_or_default(),
+                params: Map::new(),
+                enabled: true,
+                children: dev(c, d)?.children(f),
+            },
+            At::Root | At::Point(..) => return Err(LinkError::not_supported("export")),
+        };
+        let mut m = Map::new();
+        m.insert("json".into(), Value::Str(branch::to_text(D::NAME, &node)?));
+        Ok(Value::Map(m))
+    }
+
+    /// `copy {name}`: a deep copy beside the node, under a new id. A copied
+    /// connection or device starts stopped (it would poll the same
+    /// equipment). The copy keeps the sealed secrets: same link, same
+    /// destination (an `edit` of the destination drops them, `keep_secrets`).
+    /// A folder's points get fresh ids (`<id>_<n>`: ids are unique on the
+    /// device); the reply says which: `{name, renamed?: {old: new}}`.
+    async fn copy(&mut self, at: &At<'_>, args: &Value) -> Result<Value> {
+        let name = copy_name(args)?;
+        let mut reply = Map::new();
+        match at {
+            At::Root => return Err(LinkError::not_supported("copy of the root")),
+            At::Conn(conn) => {
+                let src = self
+                    .conns
+                    .get(conn.as_str())
+                    .ok_or_else(|| LinkError::not_found((*conn).clone()))?;
+                if self.conns.contains_key(&name) {
+                    return Err(LinkError::invalid_parameter(format!("{name} exists")));
+                }
+                branch::check_copy(1 + src.devices.values().map(DevEntry::count).sum::<usize>())?;
+                let entry = ConnEntry {
+                    slot: src.slot.clone(),
+                    enabled: false,
+                    devices: src.devices.clone(),
+                    run: None,
+                };
+                self.conns.insert(name.clone(), entry);
+                self.declare_conn_tree(&name).await?;
+                self.bring_up(&name).await;
+            }
+            At::Dev(conn, dev) => {
+                diag_reserved::<D>(&name)?;
+                let c = self.conn_mut(conn)?;
+                let src = c
+                    .devices
+                    .get(dev.as_str())
+                    .ok_or_else(|| LinkError::not_found(format!("{conn}/{dev}")))?;
+                if c.devices.contains_key(&name) {
+                    return Err(LinkError::invalid_parameter(format!("{name} exists")));
+                }
+                branch::check_copy(src.count())?;
+                let mut entry = src.clone();
+                entry.enabled = false;
+                c.devices.insert(name.clone(), entry);
+                self.declare_branch(conn, &name).await?;
+                set_status(
+                    &self.ctx,
+                    &format!("{conn}/{name}"),
+                    NodeState::Stopped,
+                    None,
+                )
+                .await;
+                self.reset_diag(conn, &name);
+            }
+            At::Folder(conn, dev, folder) => {
+                folder_name::<D>(&name)?;
+                let parent = &folder[..folder.len() - 1];
+                let d = self.dev_mut(conn, dev)?;
+                if d.taken(parent, &name) {
+                    return Err(LinkError::invalid_parameter(format!("{name} exists")));
+                }
+                let base = child(parent, &name);
+                let inside = d.points.values().filter(|p| p.folder.starts_with(folder));
+                branch::check_copy(
+                    inside.count() + d.folders.iter().filter(|f| f.starts_with(folder)).count(),
+                )?;
+                let subs: Vec<Folder> = d
+                    .folders
+                    .iter()
+                    .filter(|f| f.starts_with(folder))
+                    .map(|f| rebase(f, folder, &base))
+                    .collect();
+                let mut renamed = Map::new();
+                let mut new_points = Vec::new();
+                let mut used: BTreeSet<String> = d.points.keys().cloned().collect();
+                for (id, p) in d
+                    .points
+                    .iter()
+                    .filter(|(_, p)| p.folder.starts_with(folder))
+                {
+                    let f = rebase(&p.folder, folder, &base);
+                    let new_id = fresh_id(id, |c| {
+                        used.contains(c)
+                            || subs.contains(&child(&f, c))
+                            || diag_reserved::<D>(c).is_err()
+                    });
+                    used.insert(new_id.clone());
+                    renamed.insert(id.clone(), Value::Str(new_id.clone()));
+                    let entry = PointEntry {
+                        slot: p.slot.clone(),
+                        folder: f,
+                    };
+                    new_points.push((new_id, entry));
+                }
+                d.folders.extend(subs.iter().cloned());
+                let ids: Vec<String> = new_points.iter().map(|(n, _)| n.clone()).collect();
+                d.points.extend(new_points);
+                for f in &subs {
+                    self.declare_folder(conn, dev, f).await?;
+                }
+                for id in &ids {
+                    self.declare_point(conn, dev, id).await?;
+                }
+                self.replan(conn).await;
+                reply.insert("renamed".into(), Value::Map(renamed));
+            }
+            At::Point(conn, dev, pt) => {
+                diag_reserved::<D>(&name)?;
+                let d = self.dev_mut(conn, dev)?;
+                let src = d
+                    .points
+                    .get(pt.as_str())
+                    .ok_or_else(|| LinkError::not_found(format!("{conn}/{dev}/{pt}")))?;
+                let entry = src.clone();
+                if d.points.contains_key(&name) {
+                    // Ids are unique on the device: plans and writes go by id.
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{name} exists on this device (at {})",
+                        d.rel(&name)
+                    )));
+                }
+                if d.taken(&entry.folder, &name) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{name} exists (a folder)"
+                    )));
+                }
+                d.points.insert(name.clone(), entry);
+                self.declare_point(conn, dev, &name).await?;
+                self.replan(conn).await;
+            }
+        }
+        reply.insert("name".into(), Value::Str(name));
+        Ok(Value::Map(reply))
+    }
+
+    /// `import {json, name?, overwrite?}`: a connection at the root, a
+    /// device into a connection, a folder into a device or folder.
+    async fn import(&mut self, at: &At<'_>, args: &Value) -> Result<Value> {
+        let m = map_of(args);
+        if let Some(k) = m
+            .keys()
+            .find(|k| !matches!(k.as_str(), "json" | "name" | "overwrite"))
+        {
+            return Err(LinkError::invalid_parameter(format!("{k}: unknown field")));
+        }
+        let Some(Value::Str(text)) = m.get("json") else {
+            return Err(LinkError::invalid_parameter("json: required"));
+        };
+        let name = match m.get("name") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(s)) if s.is_empty() => None,
+            Some(Value::Str(s)) => Some(s.clone()),
+            Some(_) => return Err(LinkError::invalid_parameter("name: expected a string")),
+        };
+        let overwrite = match m.get("overwrite") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => {
+                return Err(LinkError::invalid_parameter(
+                    "overwrite: expected true or false",
+                ))
+            }
+        };
+        let top = match at {
+            At::Root => branch::Level::Connection,
+            At::Conn(_) => branch::Level::Device,
+            At::Dev(..) | At::Folder(..) if D::FOLDERS => branch::Level::Folder,
+            _ => return Err(LinkError::not_supported("import here")),
+        };
+        let node = branch::parse(text, D::NAME, D::FOLDERS, &[top])?;
+        self.import_node(at, node, name, overwrite).await
+    }
+
+    /// Import `node` (its kind already fits `at`) under `name` (default:
+    /// its own). Everything is checked before anything changes; an
+    /// imported connection or device starts stopped, like a copy. Replies
+    /// `{name, reenter: ["<node>.<secret>"]}`.
+    async fn import_node(
+        &mut self,
+        at: &At<'_>,
+        mut node: Node,
+        name: Option<String>,
+        overwrite: bool,
+    ) -> Result<Value> {
+        if let Some(n) = name {
+            node.name = n;
+        }
+        let name = node.name.clone();
+        valid_name(&name)?;
+        let mut reenter = Vec::new();
+        match at {
+            At::Root => {
+                let tree = conn_tree::<D>(&node, &name, &mut reenter)?;
+                let mut entry = load_conn::<D>(&name, &tree)?;
+                for (dn, d) in &entry.devices {
+                    diag_reserved::<D>(dn)?;
+                    check_new::<D>(d.points.keys(), &d.folders)?;
+                }
+                if self.conns.contains_key(&name) && !overwrite {
+                    return Err(exists_err(&name));
+                }
+                entry.enabled = false;
+                entry.slot.note_reenter(&name, &reenter);
+                for (dn, d) in entry.devices.iter_mut() {
+                    d.note_reenter(&format!("{name}/{dn}"), &reenter);
+                }
+                if self.conns.contains_key(&name) {
+                    self.tear_down(&name).await;
+                    self.conns.remove(&name);
+                    self.ctx.remove_node(&name).await?;
+                }
+                self.conns.insert(name.clone(), entry);
+                self.declare_conn_tree(&name).await?;
+                self.bring_up(&name).await;
+            }
+            At::Conn(conn) => {
+                self.conn_mut(conn)?;
+                let path = format!("{conn}/{name}");
+                diag_reserved::<D>(&name)?;
+                let tree = dev_tree::<D>(&node, &path, &mut reenter)?;
+                let mut entry = load_dev::<D>(conn, &name, &tree)?;
+                check_new::<D>(entry.points.keys(), &entry.folders)?;
+                let old = self.conn_mut(conn)?.devices.contains_key(&name);
+                if old && !overwrite {
+                    return Err(exists_err(&name));
+                }
+                entry.enabled = false;
+                entry.note_reenter(&path, &reenter);
+                if old {
+                    self.conn_mut(conn)?.devices.remove(&name);
+                    self.ctx.remove_node(&path).await?;
+                    if let Some(run) = self.conns.get(conn.as_str()).and_then(|c| c.run.as_ref()) {
+                        diag::remove_dev(&run.book, &name);
+                    }
+                }
+                self.conn_mut(conn)?.devices.insert(name.clone(), entry);
+                self.declare_branch(conn, &name).await?;
+                set_status(&self.ctx, &path, NodeState::Stopped, None).await;
+                self.reset_diag(conn, &name);
+                self.replan(conn).await;
+            }
+            At::Dev(conn, dev) | At::Folder(conn, dev, _) => {
+                let parent = match at {
+                    At::Folder(_, _, f) => f.clone(),
+                    _ => Folder::new(),
+                };
+                folder_name::<D>(&name)?;
+                let base = child(&parent, &name);
+                if base.len() > MAX_FOLDER_DEPTH {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{name}: folders nest at most {MAX_FOLDER_DEPTH} deep"
+                    )));
+                }
+                let devpath = format!("{conn}/{dev}");
+                let d = self.dev_mut(conn, dev)?;
+                if d.points.get(&name).is_some_and(|p| p.folder == parent) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{name} exists (a point)"
+                    )));
+                }
+                let old = d.folders.contains(&base);
+                if old && !overwrite {
+                    return Err(exists_err(&name));
+                }
+                // The device as it will be: without the folder it replaces,
+                // with the imported one (`load_branch` refuses an id twice).
+                let mut points: BTreeMap<String, PointEntry<D::Point>> = d
+                    .points
+                    .iter()
+                    .filter(|(_, p)| !p.folder.starts_with(&base))
+                    .map(|(n, p)| (n.clone(), p.clone()))
+                    .collect();
+                let mut folders: BTreeSet<Folder> = d
+                    .folders
+                    .iter()
+                    .filter(|f| !f.starts_with(&base))
+                    .cloned()
+                    .collect();
+                let kept: BTreeSet<String> = points.keys().cloned().collect();
+                let at_base = below(&devpath, &base);
+                let mut fm = folder_tree::<D>(&node, &at_base, &mut reenter)?;
+                folders.insert(base.clone());
+                load_branch::<D>(&devpath, &base, &mut fm, &mut points, &mut folders)?;
+                let new_ids: Vec<String> = points
+                    .keys()
+                    .filter(|id| !kept.contains(*id))
+                    .cloned()
+                    .collect();
+                let new_folders: Vec<Folder> = folders
+                    .iter()
+                    .filter(|f| f.starts_with(&base))
+                    .cloned()
+                    .collect();
+                check_new::<D>(&new_ids, &new_folders)?;
+                for id in &new_ids {
+                    let p = points.get_mut(id).expect("loaded");
+                    let at = format!("{devpath}/{}", child(&p.folder, id).join("/"));
+                    p.slot.note_reenter(&at, &reenter);
+                }
+                if old {
+                    self.ctx.remove_node(&at_base).await?;
+                }
+                let d = self.dev_mut(conn, dev)?;
+                d.points = points;
+                d.folders = folders;
+                for f in &new_folders {
+                    self.declare_folder(conn, dev, f).await?;
+                }
+                for id in &new_ids {
+                    self.declare_point(conn, dev, id).await?;
+                }
+                self.replan(conn).await;
+            }
+            At::Point(..) => return Err(LinkError::not_supported("import into a point")),
+        }
+        let mut m = Map::new();
+        m.insert("name".into(), Value::Str(name));
+        m.insert(
+            "reenter".into(),
+            Value::Array(reenter.into_iter().map(Value::Str).collect()),
+        );
+        Ok(Value::Map(m))
+    }
+}
+
+impl<D: Driver> DevEntry<D> {
+    /// [`Slot::note_reenter`] for the device and its points (`at`: its key).
+    fn note_reenter(&mut self, at: &str, reenter: &[String]) {
+        self.slot.note_reenter(at, reenter);
+        let rels: Vec<(String, String)> = self
+            .points
+            .keys()
+            .map(|id| (id.clone(), self.rel(id)))
+            .collect();
+        for (id, rel) in rels {
+            if let Some(p) = self.points.get_mut(&id) {
+                p.slot.note_reenter(&format!("{at}/{rel}"), reenter);
+            }
+        }
     }
 }
