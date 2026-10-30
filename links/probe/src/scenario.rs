@@ -17,7 +17,8 @@
 //! * `sub` pattern: a `subscribe` stream;
 //! * `invoke` key, `action`, `args`; `set` key, `value`: `expect` `"ok"`
 //!   (default) or `"error"` with an optional `error` substring; `save_as`
-//!   keeps a text result as a variable;
+//!   keeps a text result as a variable (with `field`, that text field of a
+//!   map result, as `export`'s `json`);
 //! * `added` / `changed` / `removed` parent, `name` (`"*"`: any; `save_as`
 //!   keeps the name): a callback on a watched parent after the last action,
 //!   within `within_ms` (default 5000);
@@ -27,7 +28,8 @@
 //!   `lacks_child`, `type`; `children` key with `contains`, `lacks`;
 //! * `sleep_ms`;
 //! * `require` key: the scenario applies only where that node exists; when
-//!   it does not, every later step is skipped and nothing fails.
+//!   it does not (not found, or no connected link owns it), every later
+//!   step is skipped and nothing fails.
 //!
 //! A step that still names a variable nobody saved (a cleanup after the
 //! step that saves it failed) is skipped.
@@ -171,12 +173,13 @@ pub fn within(step: &Json) -> Duration {
 }
 
 /// Built-in scenarios, by name.
-pub const BUILTIN: [(&str, &str); 5] = [
+pub const BUILTIN: [(&str, &str); 6] = [
     ("history", include_str!("../scenarios/history.json")),
     ("storage", include_str!("../scenarios/storage.json")),
     ("tokens", include_str!("../scenarios/tokens.json")),
     ("dataflows", include_str!("../scenarios/dataflows.json")),
     ("scheduler", include_str!("../scenarios/scheduler.json")),
+    ("modbus", include_str!("../scenarios/modbus.json")),
 ];
 
 pub fn builtin(name: &str) -> Option<&'static str> {

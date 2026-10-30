@@ -45,6 +45,12 @@ down. In the broker's own process it runs only as WASM.
   `wy/<site>/downstream/scheduler`; it is also a portable link in the
   packages `scheduler` (WASM) and `scheduler-process`. Guide:
   [`docs/scheduler.md`](scheduler.md).
+- **Modbus** (`links/modbus`, built-in driver `modbus`, package `modbus`):
+  a master of Modbus TCP, RTU over TCP and serial RTU devices, and a slave
+  that serves the tree's values to masters (ADR 0024); `import_dsa` takes
+  a `dslink-java-modbus` tree. Its `Scaling` multiplies where DSA's
+  divides: read the guide first,
+  [`docs/modbus.md`](modbus.md).
 
 ## 3. The Install Link menu
 

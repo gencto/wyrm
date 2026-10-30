@@ -129,6 +129,22 @@ fn short(v: &Value) -> String {
     }
 }
 
+/// What `save_as` keeps of a result: a text as it is, any other value in
+/// short; with `field`, that text field of a map result (whole: `export`'s
+/// `json` for a later `import`).
+fn kept_text(v: &Value, field: Option<&str>) -> Result<String, String> {
+    match (field, v) {
+        (None, Value::Str(s)) => Ok(s.clone()),
+        (None, other) => Ok(short(other)),
+        (Some(f), Value::Map(m)) => match m.get(f) {
+            Some(Value::Str(s)) => Ok(s.clone()),
+            Some(_) => Err(format!("field {f} of the result is not a text")),
+            None => Err(format!("no field {f} in the result")),
+        },
+        (Some(f), _) => Err(format!("field {f}: the result is not a map")),
+    }
+}
+
 async fn open(conn: &Conn, op: &str, key: &str) -> Result<Feed, String> {
     let mut s = conn.stream(op, key).await.map_err(|e| e.to_string())?;
     let log: Log = Arc::new(Mutex::new(Vec::new()));
@@ -256,6 +272,16 @@ pub async fn run(conn: &Conn, sc: &Scenario, mut vars: BTreeMap<String, String>)
                     not_here = true;
                     Ok((None, "absent: the scenario does not apply here".into()))
                 }
+                // No link owns the key (its liveliness is gone, spec 05): a
+                // link this site does not run, or one that is down.
+                Err(e) if e.is(wyrm_core::Status::Disconnected) => {
+                    not_here = true;
+                    Ok((
+                        None,
+                        "absent (its link is not connected): the scenario does not apply here"
+                            .into(),
+                    ))
+                }
                 Err(e) => Err(e.to_string()),
             },
             "watch" if watches.contains_key(&target) => Ok((None, "already watched".into())),
@@ -304,16 +330,13 @@ pub async fn run(conn: &Conn, sc: &Scenario, mut vars: BTreeMap<String, String>)
                 };
                 let want_error = text(&step, "expect") == Some("error");
                 match (res, want_error) {
-                    (Ok(v), false) => {
-                        if let (Some(name), Some(v)) = (text(&step, "save_as"), &v) {
-                            let s = match v {
-                                Value::Str(s) => s.clone(),
-                                other => short(other),
-                            };
+                    (Ok(v), false) => match (text(&step, "save_as"), &v) {
+                        (Some(name), Some(v)) => kept_text(v, text(&step, "field")).map(|s| {
                             vars.insert(name.to_owned(), s);
-                        }
-                        Ok((None, v.as_ref().map(short).unwrap_or_default()))
-                    }
+                            (None, short(v))
+                        }),
+                        _ => Ok((None, v.as_ref().map(short).unwrap_or_default())),
+                    },
                     (Ok(_), true) => Err("succeeded, an error was expected".into()),
                     (Err(e), true) => match text(&step, "error") {
                         Some(want) if !e.to_string().contains(want) => {
@@ -468,5 +491,27 @@ pub async fn run(conn: &Conn, sc: &Scenario, mut vars: BTreeMap<String, String>)
         name: sc.name.clone(),
         rows,
         ms: started.elapsed().as_millis() as u64,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::kept_text;
+    use std::collections::BTreeMap;
+    use wyrm_core::Value;
+
+    #[test]
+    fn save_as_keeps_a_text_or_a_field_of_a_map() {
+        let long = "x".repeat(500);
+        assert_eq!(kept_text(&Value::from("abc"), None), Ok("abc".into()));
+        assert_eq!(kept_text(&Value::UInt(7), None), Ok("UInt(7)".into()));
+        let m = Value::Map(BTreeMap::from([
+            ("json".to_owned(), Value::Str(long.clone())),
+            ("n".to_owned(), Value::UInt(1)),
+        ]));
+        assert_eq!(kept_text(&m, Some("json")), Ok(long), "whole, not cut");
+        assert!(kept_text(&m, Some("n")).is_err());
+        assert!(kept_text(&m, Some("other")).is_err());
+        assert!(kept_text(&Value::from("abc"), Some("json")).is_err());
     }
 }
