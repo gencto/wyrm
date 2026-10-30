@@ -44,6 +44,7 @@ for crate in examples/links/responder examples/links/requester examples/links/bo
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
 $WYR link pack --manifest-path "$ROOT/links/http/Cargo.toml" --out "$ZIPS"
+$WYR link pack --manifest-path "$ROOT/links/snmp/Cargo.toml" --out "$ZIPS"
 
 # one portable link, two packages: the component (kind = "wasm" in its
 # metadata) and the binary (--kind process, under another name)

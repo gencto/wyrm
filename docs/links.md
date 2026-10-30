@@ -29,6 +29,7 @@ down. In the broker's own process it runs only as WASM.
   framework), `modbus`, `mqtt`, `agent`, `wasm`, `app` (a portable link on a
   WASM component, section 9) and `portable-echo` (the example portable link,
   native). Install them with *from Driver*.
+- **`snmp`** (built in, from Driver): SNMP v2c/v3 poller; guide [snmp.md](snmp.md).
 - **Link SDK** (`crates/wyrm-link-sdk`): the raw link layer, the driver
   framework (Connection → Device → Point with `Add`/`Edit`/`Remove` actions)
   and `process::run` for a link that runs as its own binary.

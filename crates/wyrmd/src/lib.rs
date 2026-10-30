@@ -33,6 +33,7 @@ use wyrm_link_portable::{Portable, PortableConfig};
 use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
+use wyrm_link_snmp::Snmp;
 use wyrm_link_wasm::ComponentWorld;
 use wyrm_link_wasm::Wasm;
 use wyrm_storage::{Storage, StorageStart};
@@ -681,6 +682,7 @@ where
 /// `mock`, `mockdev`, `modbus`, `mqtt`, `agent` and `portable-echo` (the portable example app,
 /// ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
 /// `http` (`links/http`), embedded or as `wyrmd link http`.
+/// `snmp` (SNMP v2c/v3), embedded or as `wyrmd link snmp`.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -691,6 +693,7 @@ impl EmbeddedHost for Drivers {
             Modbus::NAME,
             Mqtt::NAME,
             Http::NAME,
+            Snmp::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
             wyrm_link_wasm::App::NAME,
@@ -705,6 +708,7 @@ impl EmbeddedHost for Drivers {
             // tree shape is checked up front.
             "mockdev" | "modbus" | "mqtt" | "wasm" => Tree::from_params(params).map(|_| ()),
             "http" => Tree::from_params(params).map(|_| ()),
+            "snmp" => Tree::from_params(params).map(|_| ()),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
@@ -761,6 +765,7 @@ impl EmbeddedHost for Drivers {
                 "modbus" => start_boxed::<Modbus>(session, cfg, params).await,
                 "mqtt" => start_boxed::<Mqtt>(session, cfg, params).await,
                 "http" => start_boxed::<Http>(session, cfg, params).await,
+                "snmp" => start_boxed::<Snmp>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 // a portable link on a WASM component (ADR 0023)
                 "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
@@ -815,6 +820,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "modbus" => wyrm_link_sdk::process::run::<Modbus>().await?,
         "mqtt" => wyrm_link_sdk::process::run::<Mqtt>().await?,
         "http" => wyrm_link_sdk::process::run::<Http>().await?,
+        "snmp" => wyrm_link_sdk::process::run::<Snmp>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
         // the scheduler as a process link (ADR 0022 run modes)

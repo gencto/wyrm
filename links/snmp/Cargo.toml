@@ -1,0 +1,51 @@
+[package]
+name = "wyrm-link-snmp"
+description = "WYRM SNMP v2c/v3 poller on the driver framework (ADR 0004)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process SNMP agent for tests and demos.
+sim = []
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-snmp-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-snmp"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+zeroize.workspace = true
+getrandom.workspace = true
+# SNMPv3 USM (RFC 3414, 3826, 7860): RustCrypto, MIT OR Apache-2.0.
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+aes.workspace = true
+cfb-mode.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-snmp = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "snmp"
+description = "SNMP v2c and v3 (USM: SHA-1/SHA-256, AES-128) agents: batched GET, GETBULK table columns, SET, walk"
+bin = "wyrm-link-snmp"
+features = ["process"]
