@@ -21,12 +21,79 @@ const SEED: [u8; 32] = [9; 32];
 static GATEWAY_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const SITE: &str = "e2e";
 
+/// A loopback port for a broker listener (`tcp/`, `tls/` or `quic/`): free
+/// for TCP and UDP, never handed out twice in this process.
+///
+/// Not "bind port 0 and let it go": Linux hands out `bind(0)` ports at random
+/// from a pool of about 7 000, so a released port comes back to another test
+/// of this process within seconds. Both brokers then listen on it, the
+/// second one fails to start ("address in use"), and its test cannot connect
+/// (CI on 195b971 and 62a0a4c). The window is open from here until the
+/// broker binds, and again while a rebuild has its listeners closed.
+///
+/// The ports come from below the ephemeral ranges (Linux from 32768, macOS
+/// from 49152), which the kernel never assigns on its own, so no `bind(0)`
+/// or outgoing socket takes one. A lock file per port keeps e2e processes
+/// run side by side apart; the lock goes with the process.
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    use std::sync::atomic::{AtomicU32, Ordering};
+    const FIRST: u32 = 20_000;
+    const COUNT: u32 = 12_000;
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    static LOCKS: std::sync::Mutex<Vec<std::fs::File>> = std::sync::Mutex::new(Vec::new());
+    let dir = std::env::temp_dir().join("wyrmd-e2e-ports");
+    std::fs::create_dir_all(&dir).unwrap();
+    // processes start at different places, so they rarely meet a lock
+    let start = std::process::id().wrapping_mul(7_919) % COUNT;
+    for _ in 0..COUNT {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let port = (FIRST + (start + n) % COUNT) as u16;
+        let Ok(lock) = std::fs::File::create(dir.join(port.to_string())) else {
+            continue;
+        };
+        if lock.try_lock().is_err() {
+            continue;
+        }
+        let free = std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+            && std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok();
+        if free {
+            LOCKS.lock().unwrap().push(lock);
+            return port;
+        }
+    }
+    panic!("no free port in {FIRST}..{}", FIRST + COUNT);
+}
+
+/// What two tests on one port did on CI: the second broker cannot open its
+/// listener, and the daemon ends with that error (Zenoh tries a listener
+/// once and gives up).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_listener_port_in_use_ends_the_daemon() {
+    let port = free_port();
+    let _held = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let cfg = Config::from_json5(&format!(
+        r#"{{ site: "busy", data_dir: "{}", listen: ["tcp/127.0.0.1:{port}"] }}"#,
+        temp_dir("busy").display()
+    ))
+    .unwrap();
+    let d = open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let r = tokio::time::timeout(Duration::from_secs(30), d.run_until(std::future::pending()))
+        .await
+        .expect("the daemon ends by itself");
+    let e = r.expect_err("a port in use is an error").to_string();
+    assert!(e.contains(&port.to_string()), "{e}");
+}
+
+#[test]
+fn ports_are_unique_and_never_kernel_assigned() {
+    let ports: Vec<u16> = (0..200).map(|_| free_port()).collect();
+    let unique: std::collections::BTreeSet<_> = ports.iter().collect();
+    assert_eq!(unique.len(), ports.len(), "a port handed out twice");
+    // below Linux's default ephemeral range (and macOS's)
+    assert!(
+        ports.iter().all(|p| (20_000..32_000).contains(p)),
+        "{ports:?}"
+    );
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -96,7 +163,7 @@ impl Env {
         let task = tokio::spawn(daemon.run_until(async {
             let _ = rx.await;
         }));
-        let env = Self {
+        let mut env = Self {
             port,
             tls,
             ctl,
@@ -104,12 +171,23 @@ impl Env {
             stop: Some(stop),
             task,
         };
-        // wait for both listeners (on a slow CI the tls one comes later)
-        for _ in 0..200 {
+        // Wait for both listeners (on a slow CI the tls one comes later). A
+        // broker that cannot open one ends at once: say why, instead of a
+        // connect error later.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
             let up = |p| std::net::TcpStream::connect(("127.0.0.1", p)).is_ok();
             if up(port) && up(tls) {
                 break;
             }
+            if env.task.is_finished() {
+                let r = (&mut env.task).await;
+                panic!("wyrmd ended before its listeners opened: {r:?}");
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "wyrmd listeners tcp {port} and tls {tls} not up in 30 s"
+            );
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
         env
@@ -156,7 +234,7 @@ impl Env {
             .to_string(),
         )
         .unwrap();
-        // a listener that has just opened may still refuse the handshake
+        // the listeners are closed while an ACL change rebuilds the router
         for _ in 0..10 {
             if let Ok(s) = zenoh::open(zc.clone()).await {
                 return s;
@@ -4423,12 +4501,20 @@ fn spawn_daemon(
 ) {
     let d = open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let (tx, rx) = oneshot::channel::<()>();
-    (
-        tx,
-        tokio::spawn(d.run_until(async {
-            let _ = rx.await;
-        })),
-    )
+    let task = tokio::spawn(async move {
+        let r = d
+            .run_until(async {
+                let _ = rx.await;
+            })
+            .await;
+        // A test that fails to connect shows why the broker is gone (for
+        // example a listener port in use) next to its own panic.
+        if let Err(e) = &r {
+            eprintln!("wyrmd ended with an error: {e}");
+        }
+        r
+    });
+    (tx, task)
 }
 
 /// Plain client session to a loopback `tcp/` listener.
