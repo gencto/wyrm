@@ -678,8 +678,9 @@ where
     )))
 }
 
-/// `mock`, `mockdev`, `modbus`, `mqtt`, `http`, `agent` and `portable-echo` (the portable
-/// example app, ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
+/// `mock`, `mockdev`, `modbus`, `mqtt`, `agent` and `portable-echo` (the portable example app,
+/// ADR 0023), embedded or as `wyrmd link <driver>`; `wasm` and `app` embedded.
+/// `http` (`links/http`), embedded or as `wyrmd link http`.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {

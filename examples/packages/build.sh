@@ -40,9 +40,10 @@ mkdir -p "$ZIPS"
 WYR=$ROOT/target/release/wyr
 
 for crate in examples/links/responder examples/links/requester examples/links/both \
-             links/probe links/modbus links/mqtt links/mock links/http; do
+             links/probe links/modbus links/mqtt links/mock; do
   $WYR link pack --manifest-path "$ROOT/$crate/Cargo.toml" --out "$ZIPS"
 done
+$WYR link pack --manifest-path "$ROOT/links/http/Cargo.toml" --out "$ZIPS"
 
 # one portable link, two packages: the component (kind = "wasm" in its
 # metadata) and the binary (--kind process, under another name)
