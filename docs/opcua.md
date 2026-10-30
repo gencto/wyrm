@@ -257,8 +257,10 @@ It serves, in namespace `urn:wyrm:opcua-sim:data`, folder `Line1` under
 Objects: `Double` (counts up every 100 ms), `Int32` (42), `Boolean`,
 `String`, `Array` (Double[]), `Time`, `Bytes`, writable `Setpoint`
 (Double), `Small` (Int16), `Text` and `Flags` (Int32[]), `Locked`
-(read-only on the server), `Bad` (BadSensorFailure) and `Uncertain`
-(UncertainLastUsableValue). Endpoints at `/`: None, Basic256Sha256 Sign and
+(read-only on the server), `Bad` (BadSensorFailure), `Uncertain`
+(UncertainLastUsableValue), `Slow` (7.0; tests make its reads wait) and
+writable `Matrix` (ValueRank 2). `Line1` also has a second reference to
+`Int32`. Endpoints at `/`: None, Basic256Sha256 Sign and
 SignAndEncrypt; users anonymous and `operator` / `sim-password`. Its
 certificate is made in `--pki` (default `opcua-sim-pki`) on the first start.
 `--strict-clients` makes it refuse client certificates it does not know.
