@@ -317,9 +317,7 @@ async fn a_small_pdu_splits_requests() {
         val(&h, "long").is_some() && val(&h, "b11").is_some()
     })
     .await;
-    let want: String = (0..150)
-        .map(|i| char::from(b'A' + i % 26))
-        .collect();
+    let want: String = (0..150).map(|i| char::from(b'A' + i % 26)).collect();
     assert_eq!(val(&h, "long"), Some(Value::Str(want)));
     for k in 0..12 {
         assert_eq!(val(&h, &format!("b{k}")), Some(Value::UInt(k)), "b{k}");
@@ -646,9 +644,7 @@ async fn long_writes_in_parts_and_put_get_refused() {
     ]);
     let h = H::start(tree(addr.port(), &[], &[], points)).await;
     wait("polled", || val(&h, "long").is_some()).await;
-    let text: String = (0..150)
-        .map(|i| char::from(b'a' + i % 26))
-        .collect();
+    let text: String = (0..150).map(|i| char::from(b'a' + i % 26)).collect();
     let att = h
         .set("c1/d1/long", text.as_str(), Some(h.ptok(Perm::Write)))
         .await;

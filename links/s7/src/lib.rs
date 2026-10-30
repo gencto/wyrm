@@ -834,8 +834,8 @@ impl Driver for S7Driver {
         // up to it), and the PLC program never sees the new length with
         // old characters
         for (done, (k, part)) in bytes.chunks(per).enumerate().rev().enumerate() {
-            let at = u32::try_from(k * per)
-                .map_err(|_| DriverError::Point("value too long".into()))?;
+            let at =
+                u32::try_from(k * per).map_err(|_| DriverError::Point("value too long".into()))?;
             let len = u16::try_from(part.len())
                 .map_err(|_| DriverError::Point("value too long".into()))?;
             let item = Item::bytes(a.area, a.db, start + at, len);
@@ -986,7 +986,10 @@ mod tests {
 
     fn point(address: &str) -> (PointId, Point) {
         let m = BTreeMap::from([("address".to_owned(), Value::from(address))]);
-        (address.to_owned(), Point::from_value(&Value::Map(m)).unwrap())
+        (
+            address.to_owned(),
+            Point::from_value(&Value::Map(m)).unwrap(),
+        )
     }
 
     /// The poll's bound counts the requests of a read again point by point

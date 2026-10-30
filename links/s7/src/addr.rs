@@ -663,14 +663,9 @@ pub fn encode(t: DType, v: &Value, c: &Conv) -> Result<Vec<u8>, ConvError> {
                 out.push(u8::try_from(u32::from(ch)).map_err(|_| ConvError::NotLatin1)?);
             }
             let len = out.len() - 1;
-            out[0] = u8::try_from(len)
-                .ok()
-                .filter(|l| *l <= n)
-                .ok_or_else(|| {
-                    ConvError::Invalid(format!(
-                        "text of {len} characters does not fit STRING[{n}]"
-                    ))
-                })?;
+            out[0] = u8::try_from(len).ok().filter(|l| *l <= n).ok_or_else(|| {
+                ConvError::Invalid(format!("text of {len} characters does not fit STRING[{n}]"))
+            })?;
             out
         }
         DType::DateAndTime => {
