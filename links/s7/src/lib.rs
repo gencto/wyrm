@@ -374,8 +374,17 @@ impl Plan {
     fn new(dev: &Dev, points: &[(PointId, Point)]) -> Plan {
         let locs: Vec<Loc> = points.iter().map(|(_, p)| p.loc()).collect();
         let max_items = usize::from(dev.p.max_items);
-        let spans = plan::merge(&locs, dev.p.max_gap, |_| false);
-        let worst_requests = plan::pack(&spans, MIN_PDU, max_items).len() + points.len();
+        // the first pass merged, or with points read alone (at most every
+        // point alone); then the points of failed merged items again, one
+        // by one (at most all of them)
+        let merged = plan::pack(
+            &plan::merge(&locs, dev.p.max_gap, |_| false),
+            MIN_PDU,
+            max_items,
+        )
+        .len();
+        let singles = plan::pack(&plan::merge(&locs, 0, |_| true), MIN_PDU, max_items).len();
+        let worst_requests = merged.max(singles) + singles;
         Plan {
             points: points.to_vec(),
             locs,
@@ -963,5 +972,31 @@ impl Driver for S7Driver {
 
     fn take_outcomes(c: &mut Client) -> Vec<Outcome> {
         c.take_outcomes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(address: &str) -> (PointId, Point) {
+        let m = BTreeMap::from([("address".to_owned(), Value::from(address))]);
+        (address.to_owned(), Point::from_value(&Value::Map(m)).unwrap())
+    }
+
+    /// The poll's bound counts the requests of a read again point by point
+    /// at the smallest PDU, not one per point: a STRING[254] takes 4 there
+    /// (78 data bytes per reply item, one item per reply).
+    #[test]
+    fn the_poll_bound_counts_long_strings_read_again() {
+        let dev = Dev::from_value(&Value::Map(BTreeMap::new())).unwrap();
+        let points = [
+            point("DB1.DBB0:STRING[254]"),
+            point("DB1.DBB256:STRING[254]"),
+        ];
+        let plan = Plan::new(&dev, &points);
+        // the first pass: merged, 512 bytes in 7 requests, or (points read
+        // alone) 4 + 4; then again alone: 4 + 4
+        assert_eq!(plan.worst_requests, 8 + 8);
     }
 }
