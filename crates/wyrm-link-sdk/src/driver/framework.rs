@@ -512,18 +512,27 @@ enum Req {
     Serve,
 }
 
+/// The connection's action slot ([`ConnRun::acting`]): free.
+const SLOT_FREE: u8 = 0;
+/// A `read` action holds the slot (one bounded request, ruling P32): a set
+/// still queues behind it.
+const SLOT_READ: u8 = 1;
+/// A `write` or `config` action holds the slot (a scan may take minutes):
+/// a set answers `busy`.
+const SLOT_HOLD: u8 = 2;
+
 /// The answer to a driver action. It frees the connection's action slot
 /// ([`ConnRun::acting`]) just before it answers, or when it is dropped
 /// unanswered (the request was dropped, the owner ended): one driver
 /// action queued or running per connection (final review I1).
 struct ActionReply {
     tx: Option<oneshot::Sender<Result<Value>>>,
-    slot: Arc<AtomicBool>,
+    slot: Arc<AtomicU8>,
 }
 
 impl ActionReply {
     fn send(mut self, r: Result<Value>) -> std::result::Result<(), Result<Value>> {
-        self.slot.store(false, Ordering::Release);
+        self.slot.store(SLOT_FREE, Ordering::Release);
         match self.tx.take() {
             Some(tx) => tx.send(r),
             None => Err(r),
@@ -536,9 +545,18 @@ impl Drop for ActionReply {
         // Only when unanswered: once answered, the slot may already hold
         // the caller's next action.
         if self.tx.is_some() {
-            self.slot.store(false, Ordering::Release);
+            self.slot.store(SLOT_FREE, Ordering::Release);
         }
     }
+}
+
+/// A driver action found on a node ([`Framework::find_action`]).
+struct FoundAction {
+    conn: String,
+    dev: Option<String>,
+    timeout_ms: Option<u32>,
+    /// What it holds the action slot as: [`SLOT_READ`] or [`SLOT_HOLD`].
+    slot: u8,
 }
 
 /// The shown [`Driver::status_note`] of a running connection, kept for a
@@ -547,9 +565,11 @@ type NoteSlot = Arc<tokio::sync::Mutex<Option<String>>>;
 
 struct ConnRun<D: Driver> {
     tx: mpsc::Sender<Req>,
-    /// A driver action of the connection is queued or running: another
-    /// action and a set answer `busy` at once (final review I1, I2).
-    acting: Arc<AtomicBool>,
+    /// The action slot: [`SLOT_FREE`], or the level of the driver action
+    /// queued or running ([`SLOT_READ`], [`SLOT_HOLD`]). Another action
+    /// answers `busy` at once (final review I1); a set does while a
+    /// [`SLOT_HOLD`] action holds it (I2, P32).
+    acting: Arc<AtomicU8>,
     /// The note its owner shows on the `status` leaf.
     note: NoteSlot,
     /// The plan the owner serves ([`View`]) and its generation.
@@ -1469,7 +1489,7 @@ impl<D: Driver> Framework<D> {
                     }
                 }
                 let (tx, rx) = mpsc::channel(256);
-                let acting = Arc::new(AtomicBool::new(false));
+                let acting = Arc::new(AtomicU8::new(SLOT_FREE));
                 let note = NoteSlot::default();
                 let (stop, stop_rx) = watch::channel(false);
                 let book = diag::new_book(c.devices.keys());
@@ -1542,13 +1562,8 @@ impl<D: Driver> Framework<D> {
         }
     }
 
-    /// The driver action `action` on the node at `parts`, if it has one:
-    /// `(conn, device, timeout_ms)`.
-    fn find_action(
-        &self,
-        parts: &[String],
-        action: &str,
-    ) -> Option<(String, Option<String>, Option<u32>)> {
+    /// The driver action `action` on the node at `parts`, if it has one.
+    fn find_action(&self, parts: &[String], action: &str) -> Option<FoundAction> {
         let server = self.conns.get(parts.first()?)?.server();
         let (conn, dev, level, kind) = match parts {
             [c] => (c, None, Level::Connection, &self.conns.get(c)?.slot.kind),
@@ -1563,7 +1578,16 @@ impl<D: Driver> Framework<D> {
         driver_actions::<D>(server, level, kind)
             .into_iter()
             .find(|(n, _)| *n == action)
-            .map(|(_, m)| (conn.clone(), dev, m.timeout_ms))
+            .map(|(_, m)| FoundAction {
+                conn: conn.clone(),
+                dev,
+                timeout_ms: m.timeout_ms,
+                slot: if m.level.is_some_and(|l| l > Perm::Read) {
+                    SLOT_HOLD
+                } else {
+                    SLOT_READ
+                },
+            })
     }
 
     /// Send a driver action to the owner and answer `out` from a task of
@@ -1573,19 +1597,30 @@ impl<D: Driver> Framework<D> {
     /// connection's polls by one action at most (final review I1).
     async fn run_action(
         &self,
-        conn: &str,
-        dev: Option<String>,
-        timeout_ms: Option<u32>,
+        found: FoundAction,
         action: &str,
         args: Value,
         out: ReplySink,
     ) -> Result<()> {
+        let FoundAction {
+            conn,
+            dev,
+            timeout_ms,
+            slot,
+        } = found;
         let run = self
             .conns
-            .get(conn)
+            .get(&conn)
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
-        if run.acting.swap(true, Ordering::AcqRel) {
+        // A set waiting for the owner runs before the next action: both come
+        // through the link task, which waits for the set's answer, so no
+        // action can take the slot meanwhile (fairness, P32).
+        if run
+            .acting
+            .compare_exchange(SLOT_FREE, slot, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return Err(LinkError::new(
                 Status::Busy,
                 "an action runs on this connection: try again",
@@ -2708,11 +2743,14 @@ impl<D: Driver> Link for Framework<D> {
             .get(conn.as_str())
             .and_then(|c| c.run.as_ref())
             .ok_or_else(|| LinkError::new(Status::Disconnected, "connection not running"))?;
-        // The set runs on the link task: it never waits behind a driver
-        // action (up to its `timeout_ms`, minutes for a scan), which would
-        // hold every other connection's sets, actions and edits. Nothing is
-        // lost: such a write would miss its deadline and be dropped (P13).
-        if run.acting.load(Ordering::Acquire) {
+        // The set runs on the link task: it never waits behind a `write` or
+        // `config` driver action (up to its `timeout_ms`, minutes for a
+        // scan), which would hold every other connection's sets, actions
+        // and edits. Nothing is lost: such a write would miss its deadline
+        // and be dropped (P13). A `read` action is one bounded request
+        // (P32): the set queues behind it, so `read` callers cannot lock
+        // writers out.
+        if run.acting.load(Ordering::Acquire) == SLOT_HOLD {
             return Err(LinkError::new(
                 Status::Busy,
                 "an action runs on this connection: not written, try again",
@@ -3048,10 +3086,8 @@ impl<D: Driver> Framework<D> {
         out: ReplySink,
     ) -> Result<()> {
         let path = parts.join("/");
-        if let Some((conn, dev, timeout_ms)) = self.find_action(parts, action) {
-            return self
-                .run_action(&conn, dev, timeout_ms, action, args, out)
-                .await;
+        if let Some(found) = self.find_action(parts, action) {
+            return self.run_action(found, action, args, out).await;
         }
         let at = self.resolve(parts)?;
         match (&at, action) {

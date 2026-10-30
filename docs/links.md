@@ -117,8 +117,10 @@ A link from a package starts with an empty tree if its driver is a
 framework driver: add connections, devices and points with its *Add* actions.
 The framework keeps that tree in the link's data directory. A connection runs
 one driver action (a scan, a register read) at a time: while it is queued or
-runs, another action and a set on that connection answer `busy` at once; send
-them again after it. Sets on the link's other connections are not delayed.
+runs, another action on that connection answers `busy` at once. A set on that
+connection answers `busy` during an action at level `write` or `config` (a
+scan) and waits for one at level `read`. Send a `busy` call again after the
+action. Sets on the link's other connections are not delayed.
 
 ## 5. Upgrade, reinstall, remove
 

@@ -233,9 +233,12 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// action that may take longer). Names of framework actions and `add_*`
     /// are refused. One driver action per connection is queued or running
     /// at a time: while it is, another action of the connection (any
-    /// caller, any level) and a `~set` to one of its points answer `busy`
-    /// at once, so actions delay the connection's polls by one action at
-    /// most and never hold the link task.
+    /// caller, any level) answers `busy` at once, so actions delay the
+    /// connection's polls by one action at most. A `~set` to one of its
+    /// points answers `busy` at once while a `write` or `config` action
+    /// holds it, and queues behind a `read` action (ruling P32: a `read`
+    /// action is one bounded request, so `read` callers cannot lock
+    /// writers out); keep `read` actions short.
     fn actions(_level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         Vec::new()
     }

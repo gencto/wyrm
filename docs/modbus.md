@@ -246,11 +246,13 @@ shows what the device holds.
   (the device does not know its connection's kind), then shows `Failed`
   with `broadcast (unit 0) is not supported on RTU`; a write answers the
   same.
-- **A set during a driver action of the same connection** (`scan_units`,
-  `read_registers`, `read_device_id`) answers `busy` at once: send it
-  again after the action. It never waits for the action, so it never
-  holds the sets, actions and edits of the link's other connections, and
-  it is never written late.
+- **A set during `scan_units` on the same connection** answers `busy` at
+  once: send it again after the scan. It never waits for the scan, so it
+  never holds the sets, actions and edits of the link's other
+  connections, and it is never written late. During `read_registers` or
+  `read_device_id` (level `read`, one bounded request each) a set waits
+  for that one action and then runs: `read` callers cannot lock writers
+  out.
 - A write that waited behind a long poll until its caller stopped
   waiting is dropped and answers `timeout`: equipment is never written
   late.
@@ -479,7 +481,8 @@ Each connection and each device has the value leaves `requests`, `errors`,
   12 s. A device that does not support FC43 answers `not_supported`.
 - **One action at a time per connection.** Another action of the same
   connection, from any caller, answers `busy` at once while one is
-  queued or running; so does a set (section 6). So actions delay the
+  queued or running; a set does during `scan_units` and waits during a
+  read action (section 6). So actions delay the
   polls of the connection by one action at most, even when a `read`
   caller sends them without a pause.
 - `scan_units` sends one read of holding register 0 per unit. Any reply,

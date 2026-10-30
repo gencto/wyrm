@@ -1,7 +1,8 @@
-//! A connection held by a driver action (final review I1, I2, M3): one
-//! action at a time per connection, a set during it answers `busy` at once
-//! and never holds the link task, polls go on between actions, and points
-//! whose poll could not run go `uncertain/stale`.
+//! A connection held by a driver action (final review I1, I2, M3; ruling
+//! P32): one action at a time per connection, a set during a `config`
+//! action answers `busy` at once and never holds the link task, a set
+//! during a `read` action queues behind it, polls go on between actions,
+//! and points whose poll could not run go `uncertain/stale`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -45,8 +46,8 @@ struct Dev {}
 struct Point {}
 
 /// Polls answer after `poll_ms` (at once by default) with a counter (so
-/// every poll publishes); writes answer at once; the device action
-/// `wait {ms}` sleeps `ms`.
+/// every poll publishes); writes answer at once; the device actions
+/// `wait {ms}` (level `read`) and `hold {ms}` (level `config`) sleep `ms`.
 struct Slow;
 
 impl Driver for Slow {
@@ -117,13 +118,21 @@ impl Driver for Slow {
     fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         match level {
             Level::Connection => vec![],
-            Level::Device => vec![(
-                "wait",
-                ActionMeta::new()
-                    .level(Perm::Read)
-                    .param("ms", ParamMeta::of(TypeCode::Number).required(true))
-                    .timeout_ms(10_000),
-            )],
+            Level::Device => ["wait", "hold"]
+                .into_iter()
+                .map(|name| {
+                    let level = if name == "wait" {
+                        Perm::Read
+                    } else {
+                        Perm::Config
+                    };
+                    let meta = ActionMeta::new()
+                        .level(level)
+                        .param("ms", ParamMeta::of(TypeCode::Number).required(true))
+                        .timeout_ms(10_000);
+                    (name, meta)
+                })
+                .collect(),
         }
     }
 
@@ -189,13 +198,23 @@ fn status_of(code: Option<StatusCode>) -> Option<Status> {
     }
 }
 
+/// The `read` action `wait {ms}` on `conn/d1`.
 async fn act(h: &H, conn: &str, ms: u64) -> Option<Status> {
+    run(h, conn, "wait", ms, Perm::Read).await
+}
+
+/// The `config` action `hold {ms}` on `conn/d1`.
+async fn hold(h: &H, conn: &str, ms: u64) -> Option<Status> {
+    run(h, conn, "hold", ms, Perm::Config).await
+}
+
+async fn run(h: &H, conn: &str, action: &str, ms: u64, p: Perm) -> Option<Status> {
     let r = h
         .invoke(
             &format!("{conn}/d1"),
-            "wait",
+            action,
             map(&[("ms", Value::UInt(ms))]),
-            Some(h.ptok(Perm::Read)),
+            Some(h.ptok(p)),
         )
         .await;
     status_of(r.first()?.att.status)
@@ -258,15 +277,15 @@ async fn a_flood_of_actions_does_not_stop_polling() {
     .await;
 }
 
-/// I2: a set to a connection while its action runs answers `busy` at
-/// once (the write would be dropped by P13 anyway); so does a second
-/// action. Once the action ended, both work again.
+/// I2: a set to a connection while its `config` action runs answers
+/// `busy` at once (the write would be dropped by P13 anyway); so does a
+/// second action. Once the action ended, both work again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_set_during_a_long_action_answers_busy_at_once() {
     let tag = 20;
     let h = started(tag).await;
     let s = seen(tag);
-    let (long, (during, second)) = tokio::join!(act(&h, "c1", 3000), async {
+    let (long, (during, second)) = tokio::join!(hold(&h, "c1", 3000), async {
         wait("acting", || s.acting.load(Ordering::SeqCst)).await;
         (set(&h, "c1/d1/p").await, act(&h, "c1", 10).await)
     });
@@ -289,7 +308,7 @@ async fn a_set_to_another_connection_is_not_delayed() {
     let h = started(tag).await;
     let s = seen(tag);
     let (_, _, other) = tokio::join!(
-        act(&h, "c1", 3000),
+        hold(&h, "c1", 3000),
         async {
             wait("acting", || s.acting.load(Ordering::SeqCst)).await;
             set(&h, "c1/d1/p").await
@@ -354,4 +373,40 @@ async fn a_write_past_its_deadline_is_never_sent() {
     assert_eq!(set(&h, "c1/d1/p").await.0, Some(Status::Ok));
     assert_eq!(s.writes.load(Ordering::SeqCst), 1);
     h.stop().await;
+}
+
+/// Ruling P32: a `read` caller that runs `read` actions back to back
+/// cannot make a `write` caller's set answer `busy`: the set queues behind
+/// the one action that runs, and runs before the next action starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_actions_in_a_loop_cannot_lock_out_a_set() {
+    let tag = 60;
+    // Off: the per-caller rate limit would answer the flood first.
+    let h = H::start_with(tree(tag), |c| c.rate_limit = None).await;
+    let s = seen(tag);
+    wait("polling", || s.polls.load(Ordering::SeqCst) > 2).await;
+    let h = Arc::new(h);
+    let end = Instant::now() + Duration::from_secs(3);
+    let mut flood = Vec::new();
+    for _ in 0..8 {
+        let h = h.clone();
+        flood.push(tokio::spawn(async move {
+            while Instant::now() < end {
+                act(&h, "c1", 200).await;
+            }
+        }));
+    }
+    wait("acting", || s.acting.load(Ordering::SeqCst)).await;
+    let mut answers = Vec::new();
+    for _ in 0..5 {
+        answers.push(set(&h, "c1/d1/p").await);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for f in flood {
+        f.await.unwrap();
+    }
+    for (st, took) in &answers {
+        assert_eq!(*st, Some(Status::Ok), "after {took:?}: {answers:?}");
+    }
+    assert_eq!(s.writes.load(Ordering::SeqCst), 5);
 }
