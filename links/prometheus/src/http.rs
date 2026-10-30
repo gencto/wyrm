@@ -18,7 +18,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use std::io::Read;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -176,19 +176,19 @@ pub fn tls_config(
         b.dangerous()
             .with_custom_certificate_verifier(Arc::new(AnyCert(provider)))
     } else {
-        let mut roots = rustls::RootCertStore::empty();
-        if ca_pem.trim().is_empty() {
-            let found = rustls_native_certs::load_native_certs();
-            roots.add_parsable_certificates(found.certs);
+        let roots = if ca_pem.trim().is_empty() {
+            system_roots()?
         } else {
+            let mut roots = rustls::RootCertStore::empty();
             for cert in CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
                 let cert = cert.map_err(|e| format!("ca_pem: {e}"))?;
                 roots.add(cert).map_err(|e| format!("ca_pem: {e}"))?;
             }
-        }
-        if roots.is_empty() {
-            return Err("ca_pem: no CA certificates".into());
-        }
+            if roots.is_empty() {
+                return Err("ca_pem: no CA certificates".into());
+            }
+            Arc::new(roots)
+        };
         b.with_root_certificates(roots)
     };
     let mut cfg = if cert_pem.trim().is_empty() {
@@ -207,6 +207,40 @@ pub fn tls_config(
     };
     cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
     Ok(cfg)
+}
+
+/// The system's root certificates, loaded once per process (blocking file
+/// I/O, or Security.framework calls on macOS): not again on every
+/// reconnect. A failure is not kept, so a later call tries again.
+fn system_roots() -> Result<Arc<rustls::RootCertStore>, String> {
+    static ROOTS: OnceLock<Arc<rustls::RootCertStore>> = OnceLock::new();
+    if let Some(r) = ROOTS.get() {
+        return Ok(r.clone());
+    }
+    let found = rustls_native_certs::load_native_certs();
+    let errors: Vec<String> = found.errors.iter().map(|e| e.to_string()).collect();
+    let roots = roots_from(found.certs, &errors)?;
+    Ok(ROOTS.get_or_init(|| Arc::new(roots)).clone())
+}
+
+/// The root store of the certificates found, or why there is none.
+fn roots_from(
+    certs: Vec<CertificateDer<'static>>,
+    errors: &[String],
+) -> Result<rustls::RootCertStore, String> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add_parsable_certificates(certs);
+    if roots.is_empty() {
+        let why = if errors.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", errors.join("; "))
+        };
+        return Err(format!(
+            "no system root certificates found{why}: set ca_pem"
+        ));
+    }
+    Ok(roots)
 }
 
 /// `insecure_skip_verify`: any server certificate, signatures still checked.
@@ -549,6 +583,18 @@ mod tests {
         assert!(parse_headers("cookie: a=b").is_err());
         assert!(parse_headers("no colon").is_err());
         assert!(parse_headers("bad name: x").is_err());
+    }
+
+    #[test]
+    fn no_system_roots() {
+        let e = roots_from(Vec::new(), &["open /etc/ssl/certs: not found".into()])
+            .err()
+            .unwrap();
+        assert!(e.starts_with("no system root certificates found"), "{e}");
+        assert!(e.contains("not found") && e.ends_with("set ca_pem"), "{e}");
+        assert!(!e.starts_with("ca_pem"), "{e}");
+        let e = roots_from(Vec::new(), &[]).err().unwrap();
+        assert_eq!(e, "no system root certificates found: set ca_pem");
     }
 
     #[test]
