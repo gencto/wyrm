@@ -149,7 +149,7 @@ bool point, a REAL for a number). Other conversions:
 | Error PDU for one property (inside an RPM-ACK, or a ReadProperty) | That point is `bad`, with the class and code text, for example `object: unknown-object`. |
 | Error or Reject for a whole RPM of several properties | Each property is read again with ReadProperty, so one bad point does not fail the others. |
 | Reject `unrecognized-service` (or Error `services`) for RPM | The device is read with ReadProperty from then on. |
-| Abort `segmentation-not-supported`, `buffer-overflow` or `apdu-too-long` for an RPM | The request is split in two; the device's limit on properties per request is kept. A single property that does not fit is a point error. |
+| Abort `segmentation-not-supported`, `buffer-overflow` or `apdu-too-long` for an RPM | The request is split in two; the limit on properties per request is kept for that poll group only (until the connection reopens), so a group of long strings does not slow the others. A single property that does not fit is a point error. |
 | No reply after `apdu_retries` | A device miss: points `uncertain/stale`, after 3 misses `bad/comm_fail` and the device `failed`. A poll stops at its first timeout. The last value stays. |
 | One RPM of a poll has no reply, the others do | Only the points of the requests without a reply (and those after it: the poll stops) go `uncertain/stale`, then `bad/comm_fail` after 3 polls in a row; the device stays `connected`. A point whose `status-flags` request has no reply is treated the same. |
 | The socket does not bind, the BBMD refuses or does not answer | The connection is `failed` with the reason in `error`; its devices are `stopped_by_parent`. The framework reopens it with backoff. |

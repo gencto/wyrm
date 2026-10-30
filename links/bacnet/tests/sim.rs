@@ -527,6 +527,71 @@ async fn batches_fit_the_max_apdu() {
     h.stop().await;
 }
 
+/// A poll group of long strings that aborts and splits does not lower the
+/// properties per request of the device's other groups (the learned cap
+/// is per plan).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_split_of_one_group_does_not_cap_the_others() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();
+    {
+        let mut s = dev.lock().unwrap();
+        s.max_apdu = 480;
+        s.add_analog_inputs(40);
+        // names far longer than the plan's estimate (70 octets)
+        for i in 100..108 {
+            s.objects.get_mut(&ObjectId::new(0, i)).unwrap().props.insert(
+                wyrm_link_bacnet::codec::prop::OBJECT_NAME,
+                vec![AppValue::CharString("n".repeat(200))],
+            );
+        }
+    }
+    let no_flags = ("check_status", Value::Bool(false));
+    let mut pts: Vec<(String, Value)> = (100..140)
+        .map(|i| {
+            let p = pt(
+                "analog_input",
+                i,
+                &[no_flags.clone(), ("poll_s", Value::Float(0.06))],
+            );
+            (format!("ai{i}"), p)
+        })
+        .collect();
+    pts.extend((100..108).map(|i| {
+        let p = pt(
+            "analog_input",
+            i,
+            &[no_flags.clone(), ("property", "object_name".into())],
+        );
+        (format!("name{i}"), p)
+    }));
+    let h = H::start(tree(
+        addr,
+        &[],
+        &[("ping_s", Value::Float(0.0))],
+        Value::Map(pts.into_iter().collect()),
+    ))
+    .await;
+    wait("all read", || {
+        (100..140).all(|i| qual(&h, &format!("ai{i}")) == Some(Quality::Good))
+            && (100..108).all(|i| qual(&h, &format!("name{i}")) == Some(Quality::Good))
+    })
+    .await;
+    h.meta("c1/d1").await;
+    wait(
+        "splits counted",
+        || matches!(h.ctx().last("c1/d1/rpm_splits").map(|s| s.v), Some(Value::UInt(n)) if n > 0),
+    )
+    .await;
+    dev.lock().unwrap().rpm_sizes.clear();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let recent: Vec<usize> = dev.lock().unwrap().rpm_sizes.iter().copied().collect();
+    assert!(
+        recent.iter().any(|n| *n > 8),
+        "the REAL group keeps its batch size: {recent:?}"
+    );
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn silent_device_goes_stale_then_bad() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();

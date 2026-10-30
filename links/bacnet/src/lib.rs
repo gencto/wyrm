@@ -459,7 +459,9 @@ impl Kind {
         match self {
             Kind::Real | Kind::Unsigned | Kind::Signed | Kind::Enumerated => 5,
             Kind::Double => 10,
-            Kind::Boolean | Kind::BinaryPv => 1,
+            Kind::Boolean => 1,
+            // an ENUMERATED 0/1
+            Kind::BinaryPv => 2,
             Kind::Relinquished => 5,
             Kind::StatusFlags => 3,
             Kind::BitString => 8,
@@ -1002,7 +1004,10 @@ struct DevState {
     /// RPM is not supported: ReadProperty only.
     rpm_off: bool,
     /// Properties per RPM the device took at most (learned from aborts).
-    max_items: Option<usize>,
+    /// Per read list (a poll plan, an action's reads; by [`reads_key`]),
+    /// so one group of long strings does not cap the others. Bounded by
+    /// [`CAPS_MAX`].
+    max_items: HashMap<u64, usize>,
     /// Unicast Who-Is for max APDU sent on this transport.
     asked: bool,
 }
@@ -1695,7 +1700,11 @@ impl Transport {
         let late = |d: Option<Instant>| d.is_some_and(|d| Instant::now() >= d);
         let time_up = DriverError::Device("stopped at the action's time limit".into());
         if t.use_rpm {
-            let cap = self.devs.get(&t.key).and_then(|s| s.max_items);
+            let key = reads_key(items);
+            let cap = self
+                .devs
+                .get(&t.key)
+                .and_then(|s| s.max_items.get(&key).copied());
             let mut queue: VecDeque<std::ops::Range<usize>> =
                 chunks(items, t.limit, cap).into_iter().collect();
             while let Some(r) = queue.pop_front() {
@@ -1728,7 +1737,11 @@ impl Transport {
                         debug!(device = t.key.instance, items = r.len(), "{m}; splitting");
                         self.outcomes.push(Outcome::Count(SPLITS));
                         if let Some(st) = self.devs.get_mut(&t.key) {
-                            st.max_items = Some(st.max_items.map_or(half, |c| c.min(half)).max(1));
+                            if st.max_items.len() >= CAPS_MAX && !st.max_items.contains_key(&key) {
+                                st.max_items.clear();
+                            }
+                            let c = st.max_items.entry(key).or_insert(half);
+                            *c = (*c).min(half).max(1);
                         }
                         queue.push_front(r.start + half..r.end);
                         queue.push_front(r.start..r.start + half);
@@ -1780,6 +1793,20 @@ impl Transport {
     }
 }
 
+/// Read lists per device whose learned RPM cap is kept.
+const CAPS_MAX: usize = 64;
+
+/// The identity of a read list (its objects and properties) for the
+/// learned RPM cap.
+fn reads_key(items: &[ReadItem]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for i in items {
+        (i.obj, i.prop).hash(&mut h);
+    }
+    h.finish()
+}
+
 /// RPM read specs of `items`: adjacent items of one object share a spec.
 fn rpm_specs(items: &[ReadItem]) -> Vec<(ObjectId, Vec<PropRef>)> {
     let mut specs: Vec<(ObjectId, Vec<PropRef>)> = Vec::new();
@@ -1815,14 +1842,16 @@ fn chunks(items: &[ReadItem], limit: u16, cap: Option<usize>) -> Vec<std::ops::R
         let obj_cost = if new_obj { 5 + 2 } else { 0 };
         let index = it.prop.index.map_or(0, ctx_len);
         let prop = ctx_len(it.prop.id);
+        // the result: [4]{value} (2 + the value), or [5]{class, code} (6)
+        let result = (2 + it.est).max(6);
         let item_req = obj_cost + prop + index;
-        let item_rep = obj_cost + prop + index + 2 + it.est;
+        let item_rep = obj_cost + prop + index + result;
         let full = cap.is_some_and(|c| i - start >= c);
         if i > start && (full || req + item_req > limit || rep + item_rep > limit) {
             out.push(start..i);
             start = i;
             req = 4 + 7 + prop + index;
-            rep = 3 + 7 + prop + index + 2 + it.est;
+            rep = 3 + 7 + prop + index + result;
         } else {
             req += item_req;
             rep += item_rep;
@@ -2664,6 +2693,26 @@ mod tests {
         let big = vec![item(2, 1, 77, 2000), item(2, 1, 85, 5)];
         assert_eq!(chunks(&big, 480, None), vec![0..1, 1..2]);
         assert!(chunks(&[], 480, None).is_empty());
+    }
+
+    /// The reply estimate holds when every result is an error `[5]{class,
+    /// code}` (6 octets), and a binary present-value is an ENUMERATED (2).
+    #[test]
+    fn chunks_fit_error_results_too() {
+        assert_eq!(Kind::BinaryPv.reply_octets(), 2);
+        // binary present-values of 200 objects; any of them may be an error
+        let items: Vec<ReadItem> = (0..200)
+            .map(|i| item(3, i, 85, Kind::BinaryPv.reply_octets()))
+            .collect();
+        for limit in [128u16, 206, 480] {
+            for r in chunks(&items, limit, None) {
+                let worst: usize = items[r.clone()]
+                    .iter()
+                    .map(|it| 7 + ctx_len(it.prop.id) + 6)
+                    .sum();
+                assert!(3 + worst <= usize::from(limit), "{limit} {r:?}");
+            }
+        }
     }
 
     /// The value answered but its `status-flags` (in a later request) did
