@@ -386,7 +386,7 @@ impl Params for Point {
 
 /// Only serial device paths may be opened: a `config` user must not make
 /// the link open another device file (some have side effects on open).
-fn serial_path_ok(p: &str) -> bool {
+pub(crate) fn serial_path_ok(p: &str) -> bool {
     if p.contains("..") || p.contains('\0') {
         return false;
     }

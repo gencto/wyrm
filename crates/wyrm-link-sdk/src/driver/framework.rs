@@ -56,6 +56,7 @@ use super::params::{all_secret_names, normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
 use super::{
     backoff, jitter, Converted, Driver, DriverError, Level, NodeState, Outcome, PointId, Target,
+    REPORT_KEYS,
 };
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
@@ -609,6 +610,19 @@ const FRAMEWORK_ACTIONS: [&str; 9] = [
 
 fn framework_action(name: &str) -> bool {
     name.starts_with("add_") || FRAMEWORK_ACTIONS.contains(&name)
+}
+
+/// The names a new device, folder or point of `D` may not take (besides
+/// those starting with `add_`): the `status` and `error` leaves, the
+/// diagnostics leaves and the framework's action names. For a driver that
+/// names imported nodes (a root import).
+pub fn reserved_names<D: Driver>() -> Vec<&'static str> {
+    let mut v = vec![STATUS, ERROR];
+    if D::DIAGNOSTICS {
+        v.extend(diag::names::<D>());
+    }
+    v.extend(FRAMEWORK_ACTIONS);
+    v
 }
 
 /// [`Driver::actions`] without names of the framework; level `config` when
@@ -3129,6 +3143,11 @@ impl<D: Driver> Framework<D> {
             connections,
             mut report,
         } = D::convert(action, args)?;
+        if let Some(k) = REPORT_KEYS.iter().find(|k| report.contains_key(**k)) {
+            return Err(LinkError::internal(format!(
+                "{action}: the driver's report uses {k:?}, a key of the framework"
+            )));
+        }
         let total: usize = connections.iter().map(Node::count).sum();
         if total > branch::MAX_NODES {
             return Err(LinkError::invalid_parameter(format!(

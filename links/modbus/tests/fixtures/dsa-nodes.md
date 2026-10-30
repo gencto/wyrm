@@ -24,9 +24,10 @@ the bytecode of `dslink-0.20.1.jar` of the same SDK
 - actions are created with `setSerializable(false)`, so they are not in the
   file; the status leaves are (they are plain value children).
 
-The importer also accepts attributes without `@` (a plain key holding a
-number, string or boolean; a child is always an object) and numbers written as
-strings (as `Util.getIntValue` / `getDoubleValue` do, `Util.java:155-177`).
+The importer reads attributes as `@<key>` only, and accepts numbers written
+as strings (as `Util.getIntValue` / `getDoubleValue` do, `Util.java:155-177`).
+The byte orders of the SWAP types are those of modbus4j 3.0.5
+`NumericLocator.bytesToValueRealOffset`.
 
 ## Connections
 

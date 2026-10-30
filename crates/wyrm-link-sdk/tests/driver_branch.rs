@@ -191,7 +191,8 @@ impl Driver for Br {
     }
 
     /// `import_list {names}`: one IP connection per comma-separated name,
-    /// each with `d1/f1/p1`; the report says `{"names": <count>}`.
+    /// each with `d1/f1/p1`; the report says `{"names": <count>}` (and
+    /// `created`, a key of the framework, when the list starts with `!`).
     fn root_imports() -> Vec<(&'static str, ActionMeta)> {
         vec![(
             "import_list",
@@ -233,7 +234,11 @@ impl Driver for Br {
                 )
             })
             .collect();
-        let report = [("names".to_owned(), Value::UInt(connections.len() as u64))].into();
+        let mut report: std::collections::BTreeMap<String, Value> =
+            [("names".to_owned(), Value::UInt(connections.len() as u64))].into();
+        if names.starts_with('!') {
+            report.insert("created".into(), Value::Null);
+        }
         Ok(Converted {
             connections,
             report,
@@ -1460,11 +1465,20 @@ async fn root_import_checks_all_then_imports_each() {
         ("n3,c1", "c1: a connection of that name exists"),
         ("n3,n3", "twice"),
         ("n3,bad name", "bad name"),
+        ("!n3", "a key of the framework"),
     ] {
         let o = run(&h, "", "import_list", names(list)).await;
-        assert_eq!(o.status, Some(Status::InvalidParameter), "{list}");
+        assert_ne!(o.status, Some(Status::Ok), "{list}");
         assert!(o.err.contains(needle), "{list}: {}", o.err);
         assert!(!exists(&h, "n3").await, "{list}");
     }
+
+    // More than MAX_NODES over all connections (4 nodes each): refused
+    // before the first is imported.
+    let many: Vec<String> = (0..=MAX_NODES / 4).map(|i| format!("m{i}")).collect();
+    let o = run(&h, "", "import_list", names(&many.join(","))).await;
+    assert_eq!(o.status, Some(Status::InvalidParameter));
+    assert!(o.err.contains(&MAX_NODES.to_string()), "{}", o.err);
+    assert!(!exists(&h, "m0").await);
     h.stop().await;
 }

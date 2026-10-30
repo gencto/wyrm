@@ -86,9 +86,13 @@ pub struct Converted {
     /// Connections with everything below them, imported like `import` at
     /// the root.
     pub connections: Vec<branch::Node>,
-    /// Keys of the reply beside the framework's `created` and `reenter`.
+    /// Keys of the reply beside the framework's `created` and `reenter`
+    /// ([`REPORT_KEYS`]), which it may not use.
     pub report: BTreeMap<String, Value>,
 }
+
+/// The keys the framework adds to the reply of a root import.
+pub const REPORT_KEYS: [&str; 2] = ["created", "reenter"];
 
 /// A protocol driver. All I/O methods run on the connection's owner task,
 /// one at a time, each bounded by [`Driver::io_timeout`].

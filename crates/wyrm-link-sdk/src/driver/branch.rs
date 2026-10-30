@@ -139,7 +139,7 @@ impl Node {
 fn too_large() -> LinkError {
     LinkError::new(
         wyrm_core::Status::OutOfRange,
-        format!("export: the branch is larger than {MAX_BYTES} bytes or {MAX_NODES} nodes"),
+        format!("branch: larger than {MAX_BYTES} bytes or {MAX_NODES} nodes"),
     )
 }
 
@@ -165,7 +165,7 @@ pub fn to_text(driver: &str, node: &Node) -> Result<String> {
     m.insert("driver".into(), Json::String(driver.into()));
     m.extend(node.to_json());
     let text = serde_json::to_string(&Json::Object(m))
-        .map_err(|e| LinkError::internal(format!("export: {e}")))?;
+        .map_err(|e| LinkError::internal(format!("branch: {e}")))?;
     if text.len() > MAX_BYTES {
         return Err(too_large());
     }

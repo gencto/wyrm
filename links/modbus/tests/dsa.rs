@@ -8,7 +8,7 @@ use std::time::Duration;
 use wyrm_core::{Perm, Status, Value};
 use wyrm_link_modbus::{dsa, sim, Modbus};
 use wyrm_link_sdk::driver::branch::{Level, Node};
-use wyrm_link_sdk::driver::{Converted, Tree};
+use wyrm_link_sdk::driver::{Converted, NodeState, Tree};
 use wyrm_link_sdk::TestHarness;
 
 type H = TestHarness<Modbus>;
@@ -412,43 +412,78 @@ fn poll_interval_moves_to_points() {
     assert_eq!(dropped(&c), owned(&[("C/D", "polling interval")]));
 }
 
-/// Ruling 14: Modbus UDP and ASCII are not supported; such a connection is
-/// imported (as TCP, as RTU) disabled, with the reason in `disabled`.
-#[test]
-fn transport_udp_or_ascii_reported() {
+/// Ruling 14: Modbus UDP and ASCII are not supported. Such a connection is
+/// not imported (it would run as TCP or RTU after `start`): `dropped` names
+/// the transport, and the link has no such node.
+#[tokio::test(flavor = "multi_thread")]
+async fn transport_udp_or_ascii_reported() {
     let c = conv(&fixture());
     assert_eq!(entries(&c, "disabled"), vec![]);
     let mut j = fixture();
     j["Plant TCP"]["@transport type"] = json!("UDP");
     j["Line 2 RS485"]["@transport type"] = json!("ASCII");
     let c = conv(&j);
-    let ip = node(&c, "Plant_TCP");
-    assert!(!ip.enabled);
-    assert_eq!(param(ip, "kind"), &Value::from("ip_connection"));
-    assert_eq!(param(ip, "transport"), &Value::from("tcp"));
-    let serial = node(&c, "Line_2_RS485");
-    assert!(!serial.enabled);
-    assert_eq!(param(serial, "kind"), &Value::from("serial_connection"));
-    let disabled: BTreeMap<String, String> = entries(&c, "disabled")
-        .iter()
-        .map(|m| (s(m, "path"), s(m, "reason")))
-        .collect();
-    assert_eq!(disabled.len(), 2, "{disabled:?}");
-    assert!(disabled["Plant_TCP"].contains("UDP"));
-    assert!(disabled["Line_2_RS485"].contains("ASCII"));
+    assert!(c.connections.is_empty(), "{:?}", c.connections);
+    assert_eq!(entries(&c, "disabled"), vec![]);
+    assert!(reason(&c, "Plant TCP", "transport type").contains("UDP"));
+    assert!(reason(&c, "Line 2 RS485", "transport type").contains("ASCII"));
+    let h = H::start(Tree(Value::Null)).await;
+    let reply = import(&h, &j).await;
+    assert_eq!(reply["created"], Value::Array(vec![]));
+    for c in ["Plant_TCP", "Line_2_RS485"] {
+        assert!(h.meta(c).await.1.is_none(), "{c}");
+        let mut r = h
+            .invoke(c, "start", map(&[]), Some(h.ptok(Perm::Config)))
+            .await;
+        assert_ne!(status(&r.remove(0).att), Some(Status::Ok), "{c}: start");
+    }
+    h.stop().await;
 }
 
-/// Parity MARK/SPACE (ruling 14) and unit 0 on RTU (P3) do not work as
-/// imported either: disabled with the reason.
+/// Parity MARK/SPACE (ruling 14) and 1.5 stop bits cannot be set here:
+/// the connection is not imported.
 #[test]
-fn parity_mark_and_rtu_unit_0_are_disabled() {
+fn parity_mark_or_space_and_odd_stop_bits_dropped() {
+    for (attr, v) in [
+        ("@parity", json!("MARK")),
+        ("@parity", json!("SPACE")),
+        ("@stop bits", json!(3)),
+    ] {
+        let mut j = fixture();
+        j["Line 2 RS485"][attr] = v;
+        let c = conv(&j);
+        assert!(find(&c, "Line_2_RS485").is_none(), "{attr}");
+        assert!(find(&c, "Plant_TCP").is_some());
+        let field = attr.trim_start_matches('@');
+        assert!(reason(&c, "Line 2 RS485", field).contains("not imported"));
+    }
+}
+
+/// A serial port that is not a serial device path on this host (a Windows
+/// `COM3` here) is imported stopped, under `disabled` (`edit` sets it).
+#[test]
+#[cfg(not(windows))]
+fn foreign_serial_port_is_disabled() {
     let mut j = fixture();
-    j["Line 2 RS485"]["@parity"] = json!("MARK");
-    j["Line 2 RS485"]["VFD 7"]["@slave id"] = json!(0);
+    j["Line 2 RS485"]["@comm port id"] = json!("COM3");
     let c = conv(&j);
     let serial = node(&c, "Line_2_RS485");
     assert!(!serial.enabled);
-    assert_eq!(param(serial, "parity"), &Value::from("none"));
+    assert_eq!(param(serial, "serial_port"), &Value::from("COM3"));
+    let d = entries(&c, "disabled");
+    assert_eq!(d.len(), 1, "{d:?}");
+    assert_eq!(s(&d[0], "path"), "Line_2_RS485");
+    assert!(s(&d[0], "reason").contains("serial_port"));
+}
+
+/// Unit 0 on RTU (P3) is broadcast, which is not supported: the device is
+/// imported disabled; on Modbus TCP 0 is an ordinary unit (ruling 2).
+#[test]
+fn rtu_unit_0_is_disabled() {
+    let mut j = fixture();
+    j["Line 2 RS485"]["VFD 7"]["@slave id"] = json!(0);
+    let c = conv(&j);
+    assert!(node(&c, "Line_2_RS485").enabled);
     let vfd = node(&c, "Line_2_RS485/VFD_7");
     assert!(!vfd.enabled);
     assert_eq!(param(vfd, "unit"), &Value::UInt(0));
@@ -456,11 +491,82 @@ fn parity_mark_and_rtu_unit_0_are_disabled() {
         .iter()
         .map(|m| s(m, "path"))
         .collect();
-    assert_eq!(paths, ["Line_2_RS485", "Line_2_RS485/VFD_7"]);
-    // Unit 0 on Modbus TCP is an ordinary unit (ruling 2).
+    assert_eq!(paths, ["Line_2_RS485/VFD_7"]);
     let mut j = fixture();
     j["Plant TCP"]["Meter 1"]["@slave id"] = json!(0);
     assert!(node(&conv(&j), "Plant_TCP/Meter_1").enabled);
+}
+
+/// The disabled unit-0 device stays stopped when its connection starts;
+/// a sibling device is brought up with the connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn rtu_unit_0_stays_stopped_after_start() {
+    let mut j = fixture();
+    let line = &mut j["Line 2 RS485"];
+    line["VFD 7"]["@slave id"] = json!(0);
+    line["VFD 8"] = line["VFD 7"].clone();
+    line["VFD 8"]["@slave id"] = json!(8);
+    let h = H::start(Tree(Value::Null)).await;
+    import(&h, &j).await;
+    let mut r = h
+        .invoke(
+            "Line_2_RS485",
+            "start",
+            map(&[]),
+            Some(h.ptok(Perm::Config)),
+        )
+        .await;
+    assert_eq!(status(&r.remove(0).att), Some(Status::Ok));
+    let state = |h: &H, p: &str| match h.ctx().last(&format!("{p}/status")).map(|s| s.v) {
+        Some(Value::UInt(i)) => NodeState::NAMES.get(i as usize).copied(),
+        _ => None,
+    };
+    // No serial port here: the connection fails to open, the enabled
+    // device follows it, the disabled one stays stopped.
+    wait("VFD_8 left stopped", || {
+        state(&h, "Line_2_RS485/VFD_8").is_some_and(|s| s != "stopped")
+    })
+    .await;
+    assert_eq!(state(&h, "Line_2_RS485/VFD_7"), Some("stopped"));
+    let (_, meta) = h.meta("Line_2_RS485/VFD_7").await;
+    let acts = meta.unwrap().actions.unwrap();
+    assert!(acts.contains_key("start") && !acts.contains_key("stop"));
+    h.stop().await;
+}
+
+/// `use batch polling` false reads each point alone (`max_regs = 1`): a
+/// 2-word and a 4-word point still read whole, one request each.
+#[tokio::test(flavor = "multi_thread")]
+async fn non_batch_device_reads_wide_points() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[0..2].copy_from_slice(&[0x0001, 0x1170]); // u32 70 000
+        t.holding[10..14].copy_from_slice(&[0, 0, 0x0001, 0x86A0]); // u64 100 000
+    }
+    let mut j = one_device(json!({
+        "Wide": dsa_point(json!({"@data type": "UINT32", "@number of registers": 2})),
+        "Wider": dsa_point(json!({"@data type": "UINT64", "@offset": 10, "@number of registers": 4})),
+    }));
+    j["C"]["@host"] = json!("127.0.0.1");
+    j["C"]["@port"] = json!(addr.port());
+    j["C"]["D"]["@use batch polling"] = json!(false);
+    j["C"]["D"]["@polling interval"] = json!(100);
+    let d = node(&conv(&j), "C/D").clone();
+    assert_eq!(param(&d, "max_regs"), &Value::UInt(1));
+    let h = H::start(Tree(Value::Null)).await;
+    import(&h, &j).await;
+    let mut r = h
+        .invoke("C", "start", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r.remove(0).att), Some(Status::Ok));
+    let val = |h: &H, p: &str| h.ctx().last(&format!("C/D/{p}")).map(|s| s.v);
+    wait("both values", || {
+        val(&h, "Wide") == Some(Value::UInt(70_000))
+            && val(&h, "Wider") == Some(Value::UInt(100_000))
+    })
+    .await;
+    h.stop().await;
 }
 
 /// Ruling 14: "zero on failed poll" is not done (honest quality instead);
@@ -521,6 +627,7 @@ fn report_lists_every_drop() {
         "W": dsa_point(json!({"@type": "INPUT", "@writable": true})),
         "M": dsa_point(json!({})),
         "X": {"$is": "node", "$type": "number"},
+        "R": dsa_point(json!({"@data type": "UINT32", "@offset": 65535})),
         "Device Status": {"$is": "node", "$type": "string", "?value": "Ready"},
     }));
     j["C"]["D"]["M"].as_object_mut().unwrap().remove("@scaling");
@@ -549,6 +656,7 @@ fn report_lists_every_drop() {
             ("C/D", "suppress non-cov update duration"),
             ("C/D", "zero on failed poll"),
             ("C/D/M", "scaling"),
+            ("C/D/R", "offset"),
             ("C/D/W", "writable"),
             ("C/D/X", "restoreType"),
             ("C/U", "slave id"),
@@ -635,8 +743,22 @@ fn legacy_ip_devices_share_a_connection() {
             "P": dsa_point(json!({})),
         })
     };
-    let j = json!({"A": dev(1, "h1"), "B": dev(2, "h1"), "Z": dev(3, "h2")});
+    let mut j = json!({"A": dev(1, "h1"), "B": dev(2, "h1"), "Z": dev(3, "h2")});
+    // B's own connection attributes are not used (A's connection), and Z
+    // lacks one DSA needs (`ModbusLink.java:421-423`): both reported.
+    j["B"]["@Timeout"] = json!(900);
+    j["Z"].as_object_mut().unwrap().remove("@retries");
     let c = conv(&j);
+    assert_eq!(
+        dropped(&c),
+        owned(&[
+            ("A", "max write register count"),
+            ("B", "Timeout"),
+            ("Z", "max write register count"),
+            ("Z", "retries"),
+        ])
+    );
+    assert_eq!(param(node(&c, "Z"), "retries"), &Value::UInt(2));
     let names: Vec<&str> = c.connections.iter().map(|n| n.name.as_str()).collect();
     assert_eq!(names, ["A", "Z"]);
     let a = node(&c, "A");
@@ -645,4 +767,48 @@ fn legacy_ip_devices_share_a_connection() {
     assert_eq!(param(a, "write_mode"), &Value::from("multiple"));
     assert_eq!(param(node(&c, "A/B"), "unit"), &Value::UInt(2));
     assert!(find(&c, "A/A/P").is_some() && find(&c, "Z/Z/P").is_some());
+}
+
+/// Every name the framework keeps (`reserved_names`) is renamed, and the
+/// renamed nodes import through the link.
+#[tokio::test(flavor = "multi_thread")]
+async fn reserved_names_are_renamed() {
+    use wyrm_link_modbus::ModbusDriver;
+    use wyrm_link_sdk::driver::framework::reserved_names;
+    let names = reserved_names::<ModbusDriver>();
+    assert!(names.contains(&"reopens") && names.contains(&"import"));
+    let mut devs = serde_json::Map::new();
+    for (i, n) in names.iter().enumerate() {
+        let mut d = json!({
+            "$is": "node",
+            "@restoreType": "folder",
+            "@slave id": 1,
+            "@polling interval": 1000,
+            "f": {"$is": "node", "@restoreType": "folder"},
+        });
+        d[*n] = dsa_point(json!({"@offset": i}));
+        d["f"][*n] = json!({"$is": "node", "@restoreType": "folder", "p": dsa_point(json!({}))});
+        devs.insert((*n).to_owned(), d);
+    }
+    let mut c = json!({
+        "$is": "node",
+        "@restoreType": "conn",
+        "@transport type": "TCP",
+        "@host": "h",
+        "@port": 502,
+    });
+    for (k, v) in devs {
+        c[k] = v;
+    }
+    let j = json!({ "C": c });
+    let conv_ = conv(&j);
+    assert_eq!(dropped(&conv_), vec![]);
+    for n in &names {
+        assert!(find(&conv_, &format!("C/{n}_2/{n}_2")).is_some(), "{n}");
+        assert!(find(&conv_, &format!("C/{n}_2/f/{n}_2")).is_some(), "{n}");
+    }
+    let h = H::start(Tree(Value::Null)).await;
+    import(&h, &j).await;
+    assert!(h.meta("C/reopens_2/f/reopens_2").await.1.is_some());
+    h.stop().await;
 }

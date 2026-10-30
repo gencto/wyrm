@@ -6,8 +6,8 @@
 //!
 //! The file is what the DSA Java SDK serializer writes: the link's children
 //! by name (`%XX`-encoded), each an object with `$…` configs, `@…`
-//! attributes and its children. Attributes are also read without `@`, and
-//! numbers also as strings (`Util.getIntValue`). The input is the whole file
+//! attributes and its children. Numbers are also read as strings, as
+//! `Util.getIntValue` / `getDoubleValue` do. The input is the whole file
 //! or one connection's DSA export (the node without its name: `name`
 //! required). Sources of each attribute: `tests/fixtures/dsa-nodes.md`.
 //!
@@ -24,13 +24,21 @@
 //! * Per connection in DSA, per device here: `max read register count` →
 //!   `max_regs`, `max read bit count` → `max_bits`; `use batch polling`
 //!   false → both 1 (each point read alone).
-//! * Not working as imported (`disabled`, node enabled false): UDP (as TCP)
-//!   and ASCII (as RTU) transports and parity MARK/SPACE (as none), ruling
-//!   14; 1.5 stop bits (as 1); unit 0 on a serial connection (P3).
+//! * Not imported (`dropped`, with its devices): a connection we cannot
+//!   run as DSA did — UDP and ASCII transports and parity MARK/SPACE
+//!   (ruling 14), 1.5 stop bits — so a `start` never runs it on another
+//!   framing.
+//! * Imported stopped (`disabled`, node enabled false): a serial connection
+//!   whose port is not a serial device path on this host (`COM3` on Linux:
+//!   it would only fail; set `serial_port` with `edit`), and a device with
+//!   unit 0 on a serial connection (P3).
 //! * Not carried (`dropped`): `zero on failed poll` set (ruling 14: quality
 //!   says it), `discard data delay` above 0, `max write register count` (we
 //!   write up to 123 registers in one request), values outside our bounds
-//!   (clamped), nodes DSA itself does not load, local slaves.
+//!   (clamped), attributes DSA needs to load a connection but the file
+//!   lacks (our default set), connection attributes of a second two-tier
+//!   device on the same host and port that differ from the first one's,
+//!   nodes DSA itself does not load, local slaves.
 //! * Ignored as runtime state or copies: `$is`, `$type`, `?value`,
 //!   `$writable`, the `Connection Status` / `Device Status` leaves, and the
 //!   connection's attributes that a serial device repeats.
@@ -40,13 +48,13 @@
 //!   Folders deeper than [`MAX_FOLDER_DEPTH`] go into the deepest one.
 
 use crate::codec::DType;
-use crate::{Conn, Device, Point};
+use crate::{serial_path_ok, Conn, Device, ModbusDriver, Point};
 use serde_json::{Map as JsonMap, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA};
 use wyrm_core::{ActionMeta, Perm, TypeCode, Value};
 use wyrm_link_sdk::driver::branch::{self, Level, Node};
-use wyrm_link_sdk::driver::framework::MAX_FOLDER_DEPTH;
+use wyrm_link_sdk::driver::framework::{reserved_names, MAX_FOLDER_DEPTH};
 use wyrm_link_sdk::driver::{Converted, Params};
 use wyrm_link_sdk::LinkError;
 
@@ -90,29 +98,76 @@ const WRITABLE: &str = "writable";
 /// Status leaves (`ModbusConnection.java:67`, `SlaveFolder.java:68`).
 const STATUS_LEAVES: [&str; 2] = ["Connection Status", "Device Status"];
 
-/// Names our tree keeps for itself: the status and diagnostics leaves of
-/// connections and devices, and the framework's action names (a folder may
-/// not take one). `folders_kept` imports each through the link.
-const RESERVED: &[&str] = &[
-    "status",
-    "error",
-    "requests",
-    "errors",
-    "timeouts",
-    "exceptions",
-    "reopens",
-    "last_rtt_ms",
-    "avg_rtt_ms",
-    "edit",
-    "remove",
-    "restart",
-    "start",
-    "stop",
-    "export",
-    "rescan",
-    "copy",
-    "import",
+/// What a serial connection needs to load in DSA (`ModbusLink.java:391-393`)
+/// besides transport and port, with what we set instead. The write mode is
+/// always set by the restore (`ModbusLink.java:364-372`).
+const SERIAL_NEEDS: &[(&str, &str)] = &[
+    (BAUD, "9600 set"),
+    (DATA_BITS, "8 set"),
+    (STOP_BITS, "1 set"),
+    (PARITY, "none set"),
+    (TIMEOUT, "500 ms set"),
+    (RETRIES, "2 set"),
+    (MAX_BITS, "2000 set"),
+    (MAX_REGS, "125 set"),
+    (MAX_WRITE, "no equivalent"),
+    (DISCARD, "0 set"),
 ];
+
+/// What a two-tier IP device needs to load in DSA (`ModbusLink.java:421-423`)
+/// besides host, port, slave id and polling interval.
+const LEGACY_NEEDS: &[(&str, &str)] = &[
+    (TRANSPORT, "TCP set"),
+    (TIMEOUT, "500 ms set"),
+    (RETRIES, "2 set"),
+    (MAX_BITS, "2000 set"),
+    (MAX_REGS, "125 set"),
+    (MAX_WRITE, "no equivalent"),
+    (DISCARD, "0 set"),
+];
+
+/// The connection attributes a two-tier IP device carries
+/// (`ModbusLink.java:582-599`).
+const CONN_ATTRS: [&str; 8] = [
+    TRANSPORT,
+    TIMEOUT,
+    RETRIES,
+    MAX_BITS,
+    MAX_REGS,
+    MAX_WRITE,
+    DISCARD,
+    MULTI_WRITE,
+];
+
+/// Our param → the DSA attribute, to name the field of a refused node.
+const DSA_FIELD: &[(&str, &str)] = &[
+    ("host", HOST),
+    ("port", PORT),
+    ("serial_port", COMM_PORT),
+    ("baud_rate", BAUD),
+    ("data_bits", DATA_BITS),
+    ("stop_bits", STOP_BITS),
+    ("parity", PARITY),
+    ("timeout_ms", TIMEOUT),
+    ("retries", RETRIES),
+    ("unit", SLAVE_ID),
+    ("max_regs", MAX_REGS),
+    ("max_bits", MAX_BITS),
+    ("republish_s", SUPPRESS),
+    ("contiguous_only", CONTIGUOUS),
+    ("table", TYPE),
+    ("addr", OFFSET),
+    ("dtype", DATA_TYPE),
+    ("bit", BIT),
+    ("regs", REGS),
+    ("poll_s", INTERVAL),
+    ("scale", SCALING),
+    ("offset", SCALING_OFFSET),
+    ("writable", WRITABLE),
+];
+
+/// A node's params.
+type ParamMap = BTreeMap<String, Value>;
 
 /// `import_dsa {json, name?}` → `{created, dropped, disabled, renamed,
 /// reenter}`.
@@ -207,13 +262,7 @@ pub fn convert(text: &str, name: Option<&str>) -> Result<Converted, LinkError> {
             conns.push(n);
         }
     }
-    let nodes: usize = conns.iter().map(Node::count).sum();
-    if nodes > branch::MAX_NODES {
-        return Err(LinkError::invalid_parameter(format!(
-            "json: {nodes} nodes, more than {}",
-            branch::MAX_NODES
-        )));
-    }
+    // The framework bounds the nodes of all connections (`MAX_NODES`).
     Ok(Converted {
         connections: conns,
         report: cv.report(),
@@ -225,12 +274,9 @@ pub fn convert(text: &str, name: Option<&str>) -> Result<Converted, LinkError> {
 struct Dsa<'a>(&'a JsonMap<String, Json>);
 
 impl<'a> Dsa<'a> {
-    /// Attribute `name`: `@name`, or a plain key that is not a child.
+    /// Attribute `name` (`@name`).
     fn get(self, name: &str) -> Option<&'a Json> {
-        self.0
-            .get(&format!("@{name}"))
-            .or_else(|| self.0.get(name).filter(|v| !v.is_object()))
-            .filter(|v| !v.is_null())
+        self.0.get(&format!("@{name}")).filter(|v| !v.is_null())
     }
 
     fn has(self, name: &str) -> bool {
@@ -400,7 +446,8 @@ impl Conv {
     /// reserved names and those `taken` says are; a change goes in `renamed`.
     fn name(&mut self, name: &str, path: &str, at: &str, taken: impl Fn(&str) -> bool) -> String {
         let base = sanitize(name);
-        let free = |n: &str| !RESERVED.contains(&n) && !taken(n);
+        let reserved = reserved_names::<ModbusDriver>();
+        let free = |n: &str| !reserved.contains(&n) && !taken(n);
         let id = if free(&base) {
             base
         } else {
@@ -521,153 +568,21 @@ impl Conv {
             Top::Legacy(devs) => (devs[0].1, devs.clone()),
         };
         let serial = matches!(top, Top::Serial(_));
-        let mut enabled = true;
-        let mut params = BTreeMap::new();
-        let transport = node
-            .text(TRANSPORT)
-            .map(|t| t.to_ascii_uppercase())
-            .unwrap_or_else(|| {
-                let t = if serial { "RTU" } else { "TCP" };
-                self.drop(dsa_name, TRANSPORT, format!("missing: {t} set"));
-                t.to_owned()
-            });
-        let kind = if serial {
-            match transport.as_str() {
-                "RTU" => {}
-                "ASCII" => {
-                    enabled = false;
-                    self.disable(
-                        id,
-                        "transport ASCII: Modbus ASCII is not supported (ruling 14); imported as RTU",
-                    );
-                }
-                other => {
-                    self.drop(dsa_name, TRANSPORT, format!("unknown transport {other:?}"));
-                    return None;
-                }
-            }
-            let port = node
-                .text(COMM_PORT)
-                .filter(|p| !p.trim().is_empty())
-                .or_else(|| node.text(COMM_PORT_MANUAL))
-                .unwrap_or_default();
-            params.insert("serial_port".into(), Value::Str(port));
-            // DSA loads a serial connection only with all of these
-            // (`ModbusLink.java:391-393`); ours has defaults.
-            for (attr, default) in [(BAUD, "9600"), (DATA_BITS, "8"), (STOP_BITS, "1")] {
-                if !node.has(attr) {
-                    self.drop(dsa_name, attr, format!("missing: {default} set"));
-                }
-            }
-            if !node.has(PARITY) {
-                self.drop(dsa_name, PARITY, "missing: none set");
-            }
-            for (attr, ours) in [(BAUD, "baud_rate"), (DATA_BITS, "data_bits")] {
-                if let Some(j) = node.get(attr) {
-                    let Some(x) = integer(j).and_then(|x| u64::try_from(x).ok()) else {
-                        self.drop(dsa_name, attr, format!("not an integer: {j}"));
-                        return None;
-                    };
-                    params.insert(ours.into(), Value::UInt(x));
-                }
-            }
-            // jssc: 1, 2, or 3 for 1.5 stop bits.
-            let stop = match node.get(STOP_BITS).map(integer) {
-                None | Some(Some(1)) => 1,
-                Some(Some(2)) => 2,
-                Some(_) => {
-                    enabled = false;
-                    self.disable(
-                        id,
-                        "stop bits: only 1 and 2 are supported (DSA 3 = 1.5); imported as 1",
-                    );
-                    1
-                }
-            };
-            params.insert("stop_bits".into(), Value::UInt(stop));
-            // `ParityType.parseParity`: anything else is NONE.
-            let parity = node.text(PARITY).unwrap_or_default().to_ascii_uppercase();
-            let ours = match parity.as_str() {
-                "ODD" => "odd",
-                "EVEN" => "even",
-                "MARK" | "SPACE" => {
-                    enabled = false;
-                    self.disable(
-                        id,
-                        format!("parity {parity}: not supported (ruling 14); imported as none"),
-                    );
-                    "none"
-                }
-                _ => "none",
-            };
-            params.insert("parity".into(), Value::from(ours));
-            "serial_connection"
+        let (kind, mut params, enabled) = if serial {
+            // `ModbusLink.java:391-393`
+            self.missing(node, dsa_name, SERIAL_NEEDS);
+            self.serial_params(node, dsa_name, id)?
         } else {
-            match transport.as_str() {
-                "TCP" => {}
-                "UDP" => {
-                    enabled = false;
-                    self.disable(
-                        id,
-                        "transport UDP: Modbus UDP is not supported (ruling 14); imported as TCP",
-                    );
-                }
-                other => {
-                    self.drop(dsa_name, TRANSPORT, format!("unknown transport {other:?}"));
-                    return None;
-                }
+            if let Top::Legacy(devs) = &top {
+                // `ModbusLink.java:421-423`
+                self.missing(node, dsa_name, LEGACY_NEEDS);
+                self.legacy_conflicts(devs);
             }
-            params.insert("transport".into(), Value::from("tcp"));
-            params.insert(
-                "host".into(),
-                Value::Str(node.text(HOST).unwrap_or_default()),
-            );
-            let port = node.get(PORT).and_then(integer);
-            let Some(port) = port.and_then(|p| u64::try_from(p).ok()) else {
-                self.drop(dsa_name, PORT, "not a port number");
-                return None;
-            };
-            params.insert("port".into(), Value::UInt(port));
-            "ip_connection"
+            self.ip_params(node, dsa_name)?
         };
-        // Defaults as DSA restores them (`ModbusLink.java:353-358`, `:200-207`).
-        let timeout = self.int_in(node, dsa_name, TIMEOUT, 100, 10_000, 500);
-        params.insert("timeout_ms".into(), Value::UInt(timeout));
-        let retries = self.int_in(node, dsa_name, RETRIES, 0, 5, 2);
-        params.insert("retries".into(), Value::UInt(retries));
-        let mode = match node.text(MULTI_WRITE) {
-            Some(m) if m.eq_ignore_ascii_case("Always") => "multiple",
-            Some(m) if m.eq_ignore_ascii_case("Never") => "single",
-            Some(m) if m.eq_ignore_ascii_case("As Appropriate") => "auto",
-            Some(m) => {
-                self.drop(
-                    dsa_name,
-                    MULTI_WRITE,
-                    format!("unknown {m:?}: auto set (As Appropriate)"),
-                );
-                "auto"
-            }
-            // `ModbusLink.java:364-372`
-            None if node.get(MULTI_WRITE_ONLY).and_then(boolean) == Some(true) => "multiple",
-            None => "auto",
-        };
-        params.insert("write_mode".into(), Value::from(mode));
-        let max_bits = self.int_in(node, dsa_name, MAX_BITS, 1, 2000, 2000);
-        let max_regs = self.int_in(node, dsa_name, MAX_REGS, 1, 125, 125);
-        if let Some(j) = node.get(MAX_WRITE) {
-            self.drop(
-                dsa_name,
-                MAX_WRITE,
-                format!("{j}: no equivalent; a write carries up to 123 registers in one request"),
-            );
-        }
-        match node.get(DISCARD) {
-            Some(j) if integer(j) == Some(0) => {}
-            Some(j) => self.drop(dsa_name, DISCARD, format!("{j}: no equivalent")),
-            None => {}
-        }
+        let (max_regs, max_bits) = self.common_params(node, dsa_name, &mut params);
         if let Err(e) = Conn::from_kind_value(kind, &Value::Map(params.clone())) {
-            self.drop(dsa_name, "", format!("not imported: {}", e.message));
+            self.invalid(dsa_name, &e);
             return None;
         }
         params.insert("kind".into(), Value::from(kind));
@@ -708,6 +623,218 @@ impl Conv {
             enabled,
             children,
         })
+    }
+
+    /// Each of `needs` that `n` lacks: DSA does not load such a
+    /// connection; ours takes the default named beside it.
+    fn missing(&mut self, n: Dsa, path: &str, needs: &[(&str, &str)]) {
+        for (attr, default) in needs {
+            if !n.has(attr) {
+                self.drop(
+                    path,
+                    attr,
+                    format!("missing (DSA does not load the connection): {default}"),
+                );
+            }
+        }
+    }
+
+    /// Two-tier devices after the first on one host and port share its
+    /// connection: their own connection attributes are not used.
+    fn legacy_conflicts(&mut self, devs: &[(String, Dsa)]) {
+        let Some(((first, f), rest)) = devs.split_first() else {
+            return;
+        };
+        for (name, d) in rest {
+            for attr in CONN_ATTRS {
+                if d.get(attr) != f.get(attr) {
+                    self.drop(
+                        name,
+                        attr,
+                        format!("differs from {first:?}, whose connection it shares: not used"),
+                    );
+                }
+            }
+        }
+    }
+
+    /// The transport of `n`, upper case (reported when missing).
+    fn transport(&mut self, n: Dsa, path: &str, default: &str) -> String {
+        n.text(TRANSPORT)
+            .map(|t| t.to_ascii_uppercase())
+            .unwrap_or_else(|| {
+                self.drop(path, TRANSPORT, format!("missing: {default} set"));
+                default.to_owned()
+            })
+    }
+
+    /// An IP connection's own params (`IpConnection.java:191-195`).
+    fn ip_params(&mut self, n: Dsa, path: &str) -> Option<(&'static str, ParamMap, bool)> {
+        match self.transport(n, path, "TCP").as_str() {
+            "TCP" => {}
+            "UDP" => {
+                self.drop(
+                    path,
+                    TRANSPORT,
+                    "UDP: Modbus UDP is not supported (ruling 14); connection not imported",
+                );
+                return None;
+            }
+            other => {
+                self.drop(path, TRANSPORT, format!("unknown transport {other:?}"));
+                return None;
+            }
+        }
+        let Some(port) = n
+            .get(PORT)
+            .and_then(integer)
+            .and_then(|p| u64::try_from(p).ok())
+        else {
+            self.drop(path, PORT, "not a port number");
+            return None;
+        };
+        let params = BTreeMap::from([
+            ("transport".into(), Value::from("tcp")),
+            ("host".into(), Value::Str(n.text(HOST).unwrap_or_default())),
+            ("port".into(), Value::UInt(port)),
+        ]);
+        Some(("ip_connection", params, true))
+    }
+
+    /// A serial connection's own params (`SerialConn.java:267-273`); the
+    /// connection at `key` is imported stopped when its port is not a
+    /// serial device path here.
+    fn serial_params(
+        &mut self,
+        n: Dsa,
+        path: &str,
+        key: &str,
+    ) -> Option<(&'static str, ParamMap, bool)> {
+        match self.transport(n, path, "RTU").as_str() {
+            "RTU" => {}
+            "ASCII" => {
+                self.drop(
+                    path,
+                    TRANSPORT,
+                    "ASCII: Modbus ASCII is not supported (ruling 14); connection not imported",
+                );
+                return None;
+            }
+            other => {
+                self.drop(path, TRANSPORT, format!("unknown transport {other:?}"));
+                return None;
+            }
+        }
+        let mut params = ParamMap::new();
+        let port = n
+            .text(COMM_PORT)
+            .filter(|p| !p.trim().is_empty())
+            .or_else(|| n.text(COMM_PORT_MANUAL))
+            .unwrap_or_default();
+        let mut enabled = true;
+        if !serial_path_ok(&port) {
+            enabled = false;
+            self.disable(
+                key,
+                format!(
+                    "serial port {port:?} is not a serial device path on this host: \
+                     set serial_port with edit"
+                ),
+            );
+        }
+        params.insert("serial_port".into(), Value::Str(port));
+        for (attr, ours) in [(BAUD, "baud_rate"), (DATA_BITS, "data_bits")] {
+            if let Some(j) = n.get(attr) {
+                let Some(x) = integer(j).and_then(|x| u64::try_from(x).ok()) else {
+                    self.drop(path, attr, format!("not an integer: {j}"));
+                    return None;
+                };
+                params.insert(ours.into(), Value::UInt(x));
+            }
+        }
+        // jssc: 1, 2, or 3 for 1.5 stop bits.
+        let stop = match n.get(STOP_BITS).map(integer) {
+            None | Some(Some(1)) => 1,
+            Some(Some(2)) => 2,
+            Some(_) => {
+                self.drop(
+                    path,
+                    STOP_BITS,
+                    "only 1 and 2 are supported (DSA 3 = 1.5); connection not imported",
+                );
+                return None;
+            }
+        };
+        params.insert("stop_bits".into(), Value::UInt(stop));
+        // `ParityType.parseParity`: anything else is NONE.
+        let parity = n.text(PARITY).unwrap_or_default().to_ascii_uppercase();
+        let ours = match parity.as_str() {
+            "ODD" => "odd",
+            "EVEN" => "even",
+            "MARK" | "SPACE" => {
+                self.drop(
+                    path,
+                    PARITY,
+                    format!("{parity}: not supported (ruling 14); connection not imported"),
+                );
+                return None;
+            }
+            _ => "none",
+        };
+        params.insert("parity".into(), Value::from(ours));
+        Some(("serial_connection", params, enabled))
+    }
+
+    /// The params both connection kinds have, into `params`; returns the
+    /// devices' `(max_regs, max_bits)`. Defaults as DSA restores them
+    /// (`ModbusLink.java:353-358`, `:200-207`).
+    fn common_params(&mut self, n: Dsa, path: &str, params: &mut ParamMap) -> (u64, u64) {
+        let timeout = self.int_in(n, path, TIMEOUT, 100, 10_000, 500);
+        params.insert("timeout_ms".into(), Value::UInt(timeout));
+        let retries = self.int_in(n, path, RETRIES, 0, 5, 2);
+        params.insert("retries".into(), Value::UInt(retries));
+        let mode = match n.text(MULTI_WRITE) {
+            Some(m) if m.eq_ignore_ascii_case("Always") => "multiple",
+            Some(m) if m.eq_ignore_ascii_case("Never") => "single",
+            Some(m) if m.eq_ignore_ascii_case("As Appropriate") => "auto",
+            Some(m) => {
+                self.drop(
+                    path,
+                    MULTI_WRITE,
+                    format!("unknown {m:?}: auto set (As Appropriate)"),
+                );
+                "auto"
+            }
+            // `ModbusLink.java:364-372`
+            None if n.get(MULTI_WRITE_ONLY).and_then(boolean) == Some(true) => "multiple",
+            None => "auto",
+        };
+        params.insert("write_mode".into(), Value::from(mode));
+        let max_bits = self.int_in(n, path, MAX_BITS, 1, 2000, 2000);
+        let max_regs = self.int_in(n, path, MAX_REGS, 1, 125, 125);
+        if let Some(j) = n.get(MAX_WRITE) {
+            self.drop(
+                path,
+                MAX_WRITE,
+                format!("{j}: no equivalent; a write carries up to 123 registers in one request"),
+            );
+        }
+        match n.get(DISCARD) {
+            Some(j) if integer(j) == Some(0) => {}
+            Some(j) => self.drop(path, DISCARD, format!("{j}: no equivalent")),
+            None => {}
+        }
+        (max_regs, max_bits)
+    }
+
+    /// A node our params refuse: dropped, the field named as in DSA.
+    fn invalid(&mut self, path: &str, e: &LinkError) {
+        let ours = e.message.split_once(':').map_or("", |(f, _)| f.trim());
+        let field = DSA_FIELD
+            .iter()
+            .find(|(o, _)| *o == ours)
+            .map_or(RESTORE_TYPE, |(_, d)| *d);
+        self.drop(path, field, format!("not imported: {}", e.message));
     }
 
     /// A device at DSA `path`, our `key` (`conn/id`).
@@ -779,7 +906,7 @@ impl Conv {
             ("republish_s".into(), Value::Float(republish)),
         ]);
         if let Err(e) = Device::from_value(&Value::Map(params.clone())) {
-            self.drop(path, "", format!("not imported: {}", e.message));
+            self.invalid(path, &e);
             return None;
         }
         let mut enabled = true;
@@ -984,7 +1111,7 @@ impl Conv {
             ("writable".into(), Value::Bool(writable)),
         ]);
         if let Err(e) = Point::from_value(&Value::Map(params.clone())) {
-            self.drop(path, "", format!("not imported: {}", e.message));
+            self.invalid(path, &e);
             return None;
         }
         Some(params)
@@ -1004,9 +1131,11 @@ struct Parent<'a> {
 
 /// A DSA data type (`DataType.java:4-31`, case-insensitive) on a bit table
 /// or a register as ours, with our `bit`; a refusal names the DSA attribute.
-/// modbus4j (`DataType.java:60-112`): a 16-bit SWAP swaps the two bytes, a
-/// 32/64-bit SWAP the words, SWAPSWAP both (DCBA); M10K is read as a 32-bit
-/// int of `hi, lo` (`SlaveNode.java:265-267,282-300`).
+/// Byte orders from modbus4j 3.0.5 `NumericLocator.bytesToValueRealOffset`
+/// (the codes: `DataType.java:60-112`): a 16-bit SWAP swaps the two bytes,
+/// a 32-bit SWAP the two words, a 64-bit SWAP reverses the four words,
+/// SWAPSWAP swaps words and bytes (DCBA); M10K has no modbus4j code and is
+/// read as a 32-bit int of `hi, lo` (`SlaveNode.java:265-267,282-300`).
 fn dtype(name: &str, bits: bool, bit: i64) -> Result<(DType, u64), (&'static str, String)> {
     use DType::*;
     let upper = name.to_ascii_uppercase();
