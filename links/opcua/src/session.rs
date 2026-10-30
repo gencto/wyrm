@@ -468,7 +468,16 @@ impl Transport {
 
     /// One Read request; counts its outcome.
     async fn read(&mut self, ids: &[ReadValueId]) -> Result<Vec<DataValue>, DriverError> {
-        self.check_alive()?;
+        self.read_coded(ids).await.map_err(|(e, _)| e)
+    }
+
+    /// [`Transport::read`], with the service fault's code when the server
+    /// answered with one.
+    async fn read_coded(
+        &mut self,
+        ids: &[ReadValueId],
+    ) -> Result<Vec<DataValue>, (DriverError, Option<StatusCode>)> {
+        self.check_alive().map_err(|e| (e, None))?;
         let t0 = Instant::now();
         let r = self
             .session
@@ -481,20 +490,32 @@ impl Transport {
             }
             Ok(v) => {
                 self.outcomes.push(Outcome::Error);
-                Err(DriverError::Device(format!(
-                    "read: {} results for {} nodes",
-                    v.len(),
-                    ids.len()
-                )))
+                Err((
+                    DriverError::Device(format!(
+                        "read: {} results for {} nodes",
+                        v.len(),
+                        ids.len()
+                    )),
+                    None,
+                ))
             }
             Err(e) => {
-                let err = conv::service_error(e.status(), "read");
+                let code = e.status();
+                let mut err = conv::service_error(code, "read");
+                if code.sub_code() == SubStatusCode::BadTooManyOperations {
+                    if let DriverError::Point(m) = &mut err {
+                        m.push_str(&format!(
+                            " ({} nodes in one Read; lower the device's max_nodes_per_read)",
+                            ids.len()
+                        ));
+                    }
+                }
                 self.outcomes.push(match err {
                     DriverError::Device(_) => Outcome::Timeout,
                     DriverError::Point(_) => Outcome::Exception(t0.elapsed()),
                     DriverError::Transport(_) => Outcome::Error,
                 });
-                Err(self.check_alive().err().unwrap_or(err))
+                Err((self.check_alive().err().unwrap_or(err), Some(code)))
             }
         }
     }
@@ -524,20 +545,35 @@ impl Transport {
                 Err(e) => out.push((id.clone(), Err(DriverError::Point(e)))),
             }
         }
-        let chunk = self.chunk(dev);
-        let mut chunks = todo.chunks(chunk);
-        while let Some(batch) = chunks.next() {
+        let mut queue: VecDeque<&[(&PointId, &Point, NodeId)]> =
+            todo.chunks(self.chunk(dev)).collect();
+        while let Some(batch) = queue.pop_front() {
             let ids: Vec<ReadValueId> = batch
                 .iter()
                 .map(|(_, _, n)| ReadValueId::from(n.clone()))
                 .collect();
-            match self.read(&ids).await {
+            match self.read_coded(&ids).await {
                 Ok(values) => {
                     for ((id, p, _), dv) in batch.iter().zip(values) {
                         out.push(((*id).clone(), point_value(p, dv)));
                     }
                 }
-                Err(e) => {
+                // A server that enforces a lower limit than it publishes
+                // (or publishes none): halve the requests for this session
+                // and read the batch again in halves.
+                Err((_, Some(code)))
+                    if code.sub_code() == SubStatusCode::BadTooManyOperations
+                        && batch.len() > 1 =>
+                {
+                    let half = batch.len() / 2;
+                    debug!(nodes = batch.len(), "BadTooManyOperations: {half} per Read");
+                    self.max_read = half;
+                    set_server_limit(&self.url, half);
+                    for part in batch.chunks(half).rev() {
+                        queue.push_front(part);
+                    }
+                }
+                Err((e, _)) => {
                     let broken = matches!(e, DriverError::Transport(_));
                     out.extend(
                         batch
@@ -546,7 +582,7 @@ impl Transport {
                     );
                     if broken {
                         // The session is gone: the rest fails with it.
-                        for rest in chunks.by_ref() {
+                        for rest in queue.drain(..) {
                             out.extend(
                                 rest.iter()
                                     .map(|(id, _, _)| ((*id).clone(), Err(e.clone()))),

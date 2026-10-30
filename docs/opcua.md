@@ -215,7 +215,8 @@ Rules:
 | One Read request of a poll times out (`request_timeout_ms`) while another answers | the points of that request `uncertain/stale`, then after 3 misses in a row `bad/comm_fail`, last value kept; the device stays `connected` and its other points `good` |
 | Every Read request of a poll times out | device miss: `uncertain/stale`, then after 3 misses the device `failed` and its points `bad/comm_fail` |
 | The session or connection is lost (closed socket, BadSessionIdInvalid, BadSecureChannelClosed, …) | the connection `failed` with `error`, its devices `stopped_by_parent`, points `bad/disconnected`; the framework reopens with backoff (1 s … 60 s, ±20 %) |
-| A service fault for a whole Read (BadTooManyOperations, …) | those points `bad/device_error` |
+| A whole Read answers BadTooManyOperations (the server enforces a lower limit than it publishes, or publishes none) | the link halves the nodes per Read for this session and reads that batch again in halves; a single node that still gets it fails `bad/device_error` with the remedy in the text (lower `max_nodes_per_read`) |
+| Another service fault for a whole Read | those points `bad/device_error` |
 
 **Uncertain** values: the framework has no `uncertain` quality for a fresh
 value from a driver, so an Uncertain status fails the point like a Bad one.
