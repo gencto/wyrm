@@ -4,7 +4,10 @@
 //! Every request carries a fresh request id (and, on v3, the same msgID);
 //! only a reply with one of the ids sent for that request is taken, so a
 //! reply that comes after its timeout is dropped and counted
-//! (`late_replies`), never taken for a later request. A timeout sends the
+//! (`late_replies`), never taken for a later request. A v3 reply that does
+//! not authenticate, or is not as secure as the request, is dropped and
+//! counted (`rejected_replies`); a datagram that is not an SNMP message is
+//! dropped and counted (`undecodable_replies`). A timeout sends the
 //! request again (new id) up to `retries` times. No datagram is ever
 //! logged: a v2c datagram holds the community.
 
@@ -20,10 +23,18 @@ use crate::ber::{Oid, SnmpValue};
 use crate::msg::{self, Message, Pdu, ScopedData, ScopedPdu, UsmOut};
 use crate::usm::{self, Auth, ReportKind};
 
-/// Diagnostics counter of replies dropped because their id was not the
-/// one of the request waited for (late replies), or that did not
-/// authenticate.
+/// Diagnostics counter of replies dropped because their id was not one of
+/// the request waited for (late replies).
 pub const LATE: &str = "late_replies";
+
+/// Diagnostics counter of v3 replies to the request that were dropped: the
+/// MAC did not verify, the engine id was another, the security level was
+/// lower than the request's.
+pub const REJECTED: &str = "rejected_replies";
+
+/// Diagnostics counter of datagrams that were not an SNMP message this
+/// link reads (framing, header or PDU malformed).
+pub const UNDECODABLE: &str = "undecodable_replies";
 
 /// `sysUpTime.0`: the ping and the probe of `open`.
 pub const SYS_UPTIME: [u32; 9] = [1, 3, 6, 1, 2, 1, 1, 3, 0];
@@ -91,6 +102,17 @@ fn random_u64() -> u64 {
         return u64::try_from(n & u128::from(u64::MAX)).unwrap_or(0) ^ 0x9E37_79B9_7F4A_7C15;
     }
     u64::from_be_bytes(b)
+}
+
+/// What a received datagram is for the request waited for.
+enum Got {
+    Pdu(Pdu),
+    /// Another request's (late).
+    Late,
+    /// For this request, but not authentic or not as secure.
+    Rejected,
+    /// Not a message this link reads.
+    Undecodable,
 }
 
 /// A failed request as the framework sees it.
@@ -286,13 +308,20 @@ impl Session {
                 Ok(Ok(n)) => n,
             };
             let datagram = self.buf[..n].to_vec();
-            match self.accept(&datagram, ids) {
-                Ok(Some(p)) => return Ok(Some(p)),
-                Ok(None) => {
+            match self.accept(&datagram, ids)? {
+                Got::Pdu(p) => return Ok(Some(p)),
+                Got::Late => {
                     self.outcomes.push(Outcome::Count(LATE));
                     debug!("dropped a reply that is not for this request");
                 }
-                Err(e) => return Err(e),
+                Got::Rejected => {
+                    self.outcomes.push(Outcome::Count(REJECTED));
+                    debug!("dropped a reply that did not authenticate");
+                }
+                Got::Undecodable => {
+                    self.outcomes.push(Outcome::Count(UNDECODABLE));
+                    debug!("dropped a datagram that is not an SNMP message");
+                }
             }
         }
     }
@@ -357,11 +386,11 @@ impl Session {
         }
     }
 
-    /// The PDU of `datagram` if it answers one of `ids`; `Ok(None)` drops
-    /// it (another request's, or not authentic).
-    fn accept(&mut self, datagram: &[u8], ids: &[i32]) -> Result<Option<Pdu>, Fail> {
+    /// The PDU of `datagram` if it answers one of `ids`, else why it is
+    /// dropped.
+    fn accept(&mut self, datagram: &[u8], ids: &[i32]) -> Result<Got, Fail> {
         let Ok(m) = msg::decode(datagram) else {
-            return Ok(None);
+            return Ok(Got::Undecodable);
         };
         match (m, &self.sec) {
             (
@@ -372,50 +401,51 @@ impl Session {
                 },
                 Security::V2c { .. },
             ) => {
-                if version != msg::VERSION_2C
-                    || pdu.ty != msg::RESPONSE
-                    || !ids.contains(&pdu.request_id)
-                {
-                    return Ok(None);
+                if version != msg::VERSION_2C || pdu.ty != msg::RESPONSE {
+                    return Ok(Got::Undecodable);
                 }
-                Ok(Some(pdu))
+                if !ids.contains(&pdu.request_id) {
+                    return Ok(Got::Late);
+                }
+                Ok(Got::Pdu(pdu))
             }
             (Message::V3(m), Security::V3(v3)) => {
                 if !ids.contains(&m.msg_id) {
-                    return Ok(None);
+                    return Ok(Got::Late);
                 }
                 let Some(e) = &self.engine else {
-                    return Ok(None);
+                    return Ok(Got::Rejected);
                 };
                 let authentic = m.flags & msg::FLAG_AUTH != 0;
                 if authentic {
                     if m.usm.engine_id != e.id.as_slice() {
-                        return Ok(None);
+                        return Ok(Got::Rejected);
                     }
                     let mut zeroed = datagram.to_vec();
                     let at = m.usm.auth_at;
                     let Some(slot) = zeroed.get_mut(at..at + m.usm.auth.len()) else {
-                        return Ok(None);
+                        return Ok(Got::Rejected);
                     };
                     slot.fill(0);
                     if !v3.auth.verify(&e.auth_key, &zeroed, m.usm.auth) {
-                        return Ok(None);
+                        return Ok(Got::Rejected);
                     }
                 }
                 let scoped = match m.data {
                     ScopedData::Plain(s) => s,
                     ScopedData::Encrypted(c) => {
                         let (Some(k), true) = (&e.priv_key, authentic) else {
-                            return Ok(None);
+                            return Ok(Got::Rejected);
                         };
                         let Ok(salt) = <[u8; 8]>::try_from(m.usm.priv_params) else {
-                            return Ok(None);
+                            return Ok(Got::Rejected);
                         };
                         let mut plain = c.to_vec();
                         usm::decrypt(k, m.usm.boots, m.usm.time, &salt, &mut plain);
                         match ScopedPdu::decode(&plain) {
                             Ok(s) => s,
-                            Err(_) => return Ok(None),
+                            // A wrong key or IV decrypts to garbage.
+                            Err(_) => return Ok(Got::Rejected),
                         }
                     }
                 };
@@ -425,10 +455,10 @@ impl Session {
                         // A response must be as secure as the request.
                         let private = m.flags & msg::FLAG_PRIV != 0;
                         if !authentic || private != e.priv_key.is_some() {
-                            return Ok(None);
+                            return Ok(Got::Rejected);
                         }
                         if !ids.contains(&pdu.request_id) {
-                            return Ok(None);
+                            return Ok(Got::Rejected);
                         }
                         let (boots, time) = (m.usm.boots, m.usm.time);
                         if let Some(e) = &mut self.engine {
@@ -436,7 +466,7 @@ impl Session {
                             e.time = time;
                             e.at = Instant::now();
                         }
-                        Ok(Some(pdu))
+                        Ok(Got::Pdu(pdu))
                     }
                     msg::REPORT => {
                         let kind = pdu
@@ -445,10 +475,10 @@ impl Session {
                             .map_or(ReportKind::Other, |(o, _)| ReportKind::of(o));
                         Err(self.report(kind, authentic, m.usm.boots, m.usm.time))
                     }
-                    _ => Ok(None),
+                    _ => Ok(Got::Undecodable),
                 }
             }
-            _ => Ok(None),
+            _ => Ok(Got::Undecodable),
         }
     }
 
@@ -520,7 +550,8 @@ impl Session {
                     {
                         break Some((m.usm.engine_id.to_vec(), m.usm.boots, m.usm.time));
                     }
-                    _ => self.outcomes.push(Outcome::Count(LATE)),
+                    Ok(_) => self.outcomes.push(Outcome::Count(LATE)),
+                    Err(_) => self.outcomes.push(Outcome::Count(UNDECODABLE)),
                 }
             };
             match found {

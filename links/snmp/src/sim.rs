@@ -178,6 +178,13 @@ impl Agent {
             false,
         );
         obj(&mut mib, &t(8), text("set me"), true);
+        // An INTEGER of no octets (a broken agent's encoding).
+        obj(
+            &mut mib,
+            &t(9),
+            SnmpValue::Malformed(crate::ber::INTEGER),
+            false,
+        );
         let mut a = Agent {
             mib,
             communities: vec!["public".into()],

@@ -121,7 +121,10 @@ impl Pdu {
             let mut vb = list.sequence("varbind")?;
             let oid = ber::decode_oid(vb.expect(ber::OBJECT_ID, "varbind name")?)?;
             let (tag, c) = vb.tlv()?;
-            varbinds.push((oid, ber::decode_value(tag, c)?));
+            // The framing is strict; a value that does not fit its type
+            // fails only its own varbind (its point).
+            let v = ber::decode_value(tag, c).unwrap_or(SnmpValue::Malformed(tag));
+            varbinds.push((oid, v));
         }
         Ok(Pdu {
             ty,
@@ -428,6 +431,62 @@ mod tests {
             ber::tlv(&mut out, 4, &vec![0; n]);
             assert_eq!(out.len() - n, header_len(n), "{n}");
         }
+    }
+
+    /// A 5-octet INTEGER and a Counter32 above 2^32 among good varbinds:
+    /// those two are `Malformed`, the others keep their values.
+    #[test]
+    fn a_malformed_value_is_one_varbind() {
+        let good = |oid: &str, v: SnmpValue| {
+            let mut vb = Vec::new();
+            ber::put_oid(&mut vb, &Oid::parse(oid).unwrap());
+            ber::put_value(&mut vb, &v);
+            vb
+        };
+        let raw = |oid: &str, value: &[u8]| {
+            let mut vb = Vec::new();
+            ber::put_oid(&mut vb, &Oid::parse(oid).unwrap());
+            vb.extend_from_slice(value);
+            vb
+        };
+        let vbs = [
+            good("1.3.6.1.2.1.1.5.0", SnmpValue::OctetString(b"x".to_vec())),
+            raw(
+                "1.3.6.1.2.1.1.7.0",
+                &[0x02, 0x05, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
+            ),
+            raw("1.3.6.1.2.1.2.2.1.10.1", &[0x41, 0x05, 0x01, 0, 0, 0, 0]),
+            good("1.3.6.1.2.1.1.3.0", SnmpValue::TimeTicks(7)),
+        ];
+        let mut list = Vec::new();
+        for vb in &vbs {
+            ber::tlv(&mut list, ber::SEQUENCE, vb);
+        }
+        let mut c = Vec::new();
+        ber::put_int(&mut c, ber::INTEGER, 5);
+        ber::put_int(&mut c, ber::INTEGER, 0);
+        ber::put_int(&mut c, ber::INTEGER, 0);
+        ber::tlv(&mut c, ber::SEQUENCE, &list);
+        let p = Pdu::decode(RESPONSE, &c).unwrap();
+        let values: Vec<SnmpValue> = p.varbinds.into_iter().map(|(_, v)| v).collect();
+        assert_eq!(
+            values,
+            [
+                SnmpValue::OctetString(b"x".to_vec()),
+                SnmpValue::Malformed(ber::INTEGER),
+                SnmpValue::Malformed(ber::COUNTER32),
+                SnmpValue::TimeTicks(7),
+            ]
+        );
+        // the framing stays strict: a varbind without a name
+        let mut c2 = Vec::new();
+        ber::put_int(&mut c2, ber::INTEGER, 5);
+        ber::put_int(&mut c2, ber::INTEGER, 0);
+        ber::put_int(&mut c2, ber::INTEGER, 0);
+        let mut l2 = Vec::new();
+        ber::tlv(&mut l2, ber::SEQUENCE, &[0x02, 0x01, 0x00]);
+        ber::tlv(&mut c2, ber::SEQUENCE, &l2);
+        assert!(Pdu::decode(RESPONSE, &c2).is_err());
     }
 
     #[test]

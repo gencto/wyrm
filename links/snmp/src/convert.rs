@@ -5,7 +5,7 @@ use wyrm_core::{TypeCode, Value};
 use wyrm_link_sdk::driver::ParamEnum;
 use wyrm_link_sdk::ParamEnum;
 
-use crate::ber::SnmpValue;
+use crate::ber::{self, SnmpValue};
 
 /// How a varbind becomes the point's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ParamEnum)]
@@ -105,7 +105,22 @@ pub fn exception(v: &SnmpValue) -> Option<&'static str> {
         SnmpValue::NoSuchObject => Some("noSuchObject: the agent has no such object"),
         SnmpValue::NoSuchInstance => Some("noSuchInstance: the agent has no such instance"),
         SnmpValue::EndOfMibView => Some("endOfMibView: past the end of the agent's MIB view"),
+        SnmpValue::Malformed(tag) => Some(malformed(*tag)),
         _ => None,
+    }
+}
+
+/// The point error of a value whose encoding does not fit its type.
+fn malformed(tag: u8) -> &'static str {
+    match tag {
+        ber::INTEGER => "malformed INTEGER encoding from the agent",
+        ber::OBJECT_ID => "malformed OBJECT IDENTIFIER encoding from the agent",
+        ber::IP_ADDRESS => "malformed IpAddress encoding from the agent",
+        ber::COUNTER32 => "malformed Counter32 encoding from the agent",
+        ber::GAUGE32 => "malformed Gauge32 encoding from the agent",
+        ber::TIMETICKS => "malformed TimeTicks encoding from the agent",
+        ber::COUNTER64 => "malformed Counter64 encoding from the agent",
+        _ => "malformed value encoding from the agent",
     }
 }
 
@@ -166,7 +181,8 @@ fn text(v: &SnmpValue) -> Option<String> {
         | SnmpValue::NoSuchObject
         | SnmpValue::NoSuchInstance
         | SnmpValue::EndOfMibView
-        | SnmpValue::Unsupported(_) => return None,
+        | SnmpValue::Unsupported(_)
+        | SnmpValue::Malformed(_) => return None,
     })
 }
 
@@ -321,6 +337,11 @@ mod tests {
         );
         assert!(c(Conv::Auto, SnmpValue::Null).is_err());
         assert!(c(Conv::Auto, SnmpValue::Unsupported(0x47)).is_err());
+        for conv in [Conv::Auto, Conv::String, Conv::Gauge] {
+            let e = c(conv, SnmpValue::Malformed(ber::INTEGER)).unwrap_err();
+            assert_eq!(e, "malformed INTEGER encoding from the agent");
+        }
+        assert!(exception(&SnmpValue::Malformed(ber::COUNTER32)).is_some());
         assert_eq!(
             c(Conv::Counter32, SnmpValue::Counter32(9)),
             Ok(Value::UInt(9))

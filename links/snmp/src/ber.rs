@@ -141,6 +141,10 @@ pub enum SnmpValue {
     EndOfMibView,
     /// A type this link does not know (NsapAddress, UInteger32, …): its tag.
     Unsupported(u8),
+    /// A known type whose content does not fit it (a 5-octet INTEGER, a
+    /// Counter32 above 2^32, an empty INTEGER): its tag. One such varbind
+    /// fails its point only, never the whole answer.
+    Malformed(u8),
 }
 
 impl SnmpValue {
@@ -161,6 +165,7 @@ impl SnmpValue {
             SnmpValue::NoSuchInstance => "no_such_instance",
             SnmpValue::EndOfMibView => "end_of_mib_view",
             SnmpValue::Unsupported(_) => "unsupported",
+            SnmpValue::Malformed(_) => "malformed",
         }
     }
 
@@ -276,7 +281,9 @@ pub fn put_value(out: &mut Vec<u8>, v: &SnmpValue) {
         SnmpValue::NoSuchObject => tlv(out, NO_SUCH_OBJECT, &[]),
         SnmpValue::NoSuchInstance => tlv(out, NO_SUCH_INSTANCE, &[]),
         SnmpValue::EndOfMibView => tlv(out, END_OF_MIB_VIEW, &[]),
-        SnmpValue::Unsupported(tag) => tlv(out, *tag, &[]),
+        // Empty content: never valid for the known types (tests and the
+        // simulator use it to send a malformed value).
+        SnmpValue::Unsupported(tag) | SnmpValue::Malformed(tag) => tlv(out, *tag, &[]),
     }
 }
 

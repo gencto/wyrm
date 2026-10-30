@@ -18,7 +18,8 @@ process), or as the package `snmp` (`wyr link pack`, binary
 downstream/<link>/
   <connection>        Add SNMP v2c | Add SNMP v3  (one agent address)
     status, error     the framework's state leaves
-    requests, errors, timeouts, exceptions, late_replies, last_rtt_ms, avg_rtt_ms
+    requests, errors, timeouts, exceptions, late_replies, rejected_replies,
+    undecodable_replies, last_rtt_ms, avg_rtt_ms
     <device>          Add Device   (one view of the agent: a v3 context or a v2c community)
       status, error, diagnostics as above
       ▸ Walk
@@ -118,7 +119,11 @@ rate starts again without a value. The time base is the link's clock between
 the two answers. `scale = 8` turns octets per second into bits per second.
 
 A varbind of the wrong type for its conversion is a point error (`conv mac:
-cannot convert a counter32`), never a made-up value.
+cannot convert a counter32`), never a made-up value. A varbind whose value
+does not fit its own type (an INTEGER of 5 octets or of none, a Counter32
+above 2³², a known agent bug) is a point error too ("malformed INTEGER
+encoding from the agent"); the other varbinds of that answer keep their
+values.
 
 ## 4. Reads
 
@@ -136,7 +141,13 @@ cannot convert a counter32`), never a made-up value.
 Every request has a new request id (v3: and msgID). Only an answer with one of
 the ids of that request is taken; an answer that comes after its timeout is
 dropped and counted in `late_replies`. A timeout sends the request again (a new
-id) up to `retries` times.
+id) up to `retries` times. Two more counters show datagrams the link drops:
+
+| Counter | Counts |
+|---|---|
+| `late_replies` | Answers to an earlier request (their id is not one of this request's). |
+| `rejected_replies` | v3 answers to this request that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, or it is outside the time window (§7). |
+| `undecodable_replies` | Datagrams that are not an SNMP message the link reads (framing, header or PDU malformed). |
 
 ## 5. Writes
 
@@ -152,7 +163,7 @@ the write. Only INTEGER, OCTET STRING and Gauge32 are written.
 
 | What happens | Result |
 |---|---|
-| `noSuchObject` / `noSuchInstance` / `endOfMibView`, a conversion that does not fit, an error status for one varbind | That point `bad`; the device stays connected. |
+| `noSuchObject` / `noSuchInstance` / `endOfMibView`, a conversion that does not fit, a value whose encoding does not fit its type, an error status for one varbind | That point `bad`; the device stays connected. |
 | No answer within `timeout_ms × (1 + retries)` | A device miss: points `uncertain/stale`, after 3 misses `bad/comm_fail` and the device `failed`. |
 | `authorizationError` on a poll or ping | The device `failed`: "authorizationError: the agent's access control (VACM) refuses this request; check the community, user or context". |
 | v3 report `usmStatsWrongDigests`, `usmStatsUnknownUserNames`, `usmStatsUnsupportedSecLevels`, `usmStatsDecryptionErrors` | When the connection opens: the connection `failed` with the reason (e.g. "the agent refused the authentication digest (usmStatsWrongDigests): check auth_protocol and auth_passphrase"); later: the device fails with it. |

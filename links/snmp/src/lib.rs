@@ -1229,7 +1229,8 @@ impl Driver for SnmpDriver {
     }
 
     const DIAGNOSTICS: bool = true;
-    const DIAG_EXTRA: &'static [&'static str] = &[client::LATE];
+    const DIAG_EXTRA: &'static [&'static str] =
+        &[client::LATE, client::REJECTED, client::UNDECODABLE];
 
     fn take_outcomes(t: &mut Transport) -> Vec<Outcome> {
         t.s.take_outcomes()

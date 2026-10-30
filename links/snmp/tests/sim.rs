@@ -320,6 +320,56 @@ async fn point_errors_are_isolated() {
     h.stop().await;
 }
 
+/// A diagnostics counter of `c1` (published when `~meta` is read).
+async fn diag(h: &H, name: &str) -> u64 {
+    h.meta("c1").await;
+    match h.ctx().last(&format!("c1/{name}")).map(|s| s.v) {
+        Some(Value::UInt(x)) => x,
+        _ => 0,
+    }
+}
+
+/// Wait until the diagnostics counter `name` of `c1` is at least `n`.
+async fn wait_diag(h: &H, name: &str, n: u64) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while diag(h, name).await < n {
+        assert!(tokio::time::Instant::now() < deadline, "{name} >= {n}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// One varbind whose value does not fit its type (an INTEGER of no
+/// octets) fails that point only: the other points of the same GET keep
+/// their values, the device stays connected, and nothing is counted as a
+/// late or undecodable reply.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_malformed_value_fails_its_point_only() {
+    let (addr, _agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[
+        ("a", scalar(SYS_NAME, &[])),
+        ("broken", scalar(&t(9), &[])),
+        ("c", scalar(&t(2), &[])),
+    ]);
+    let h = H::start(tree(&v2c(addr.port(), &[]), &[], points)).await;
+    wait("good values", || {
+        val(&h, "a") == Some(Value::from("sim")) && val(&h, "c") == Some(Value::UInt(650))
+    })
+    .await;
+    wait("broken is bad", || qual(&h, "broken") == Some(Quality::Bad)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for p in ["a", "c"] {
+        assert_eq!(qual(&h, p), Some(Quality::Good), "{p}");
+    }
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+    assert_eq!(diag(&h, "late_replies").await, 0, "no late reply");
+    assert_eq!(
+        diag(&h, "undecodable_replies").await,
+        0,
+        "nothing undecodable"
+    );
+    h.stop().await;
+}
+
 /// SET is a request/response; the value comes from the read-back.
 #[tokio::test(flavor = "multi_thread")]
 async fn writes_and_read_back() {
