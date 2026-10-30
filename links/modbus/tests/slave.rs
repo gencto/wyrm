@@ -98,6 +98,26 @@ async fn master(port: u16, unit: u8) -> Context {
         .expect("master connects")
 }
 
+/// `n` holding registers from `addr` as a new master reads them once the
+/// slave answers (a reopened listener may take a moment to bind).
+async fn read_when_up(port: u16, addr: u16, n: u16) -> Vec<u16> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let addr_ = SocketAddr::from(([127, 0, 0, 1], port));
+        if let Ok(mut m) = tcp::connect_slave(addr_, Slave(1)).await {
+            let r = tokio::time::timeout(Duration::from_secs(1), m.read_holding_registers(addr, n));
+            if let Ok(Ok(Ok(w))) = r.await {
+                return w;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timeout: slave answers"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 async fn set(h: &H, point: &str, v: impl Into<Value>) -> Option<Status> {
     status(
         &h.set(&format!("s1/d1/{point}"), v, Some(h.ptok(Perm::Write)))
@@ -453,16 +473,76 @@ async fn slave_values_survive_a_replan_and_a_restart() {
         Some(Status::Ok)
     );
     assert_eq!(act(&h, "s1", "restart", map(&[])).await, Some(Status::Ok));
-    wait("listening again", || {
-        state(&h, "s1").as_deref() == Some("connected")
-            && state(&h, "s1/d1").as_deref() == Some("connected")
-    })
-    .await;
+    assert_eq!(read_when_up(port, 1, 2).await, vec![7, 8]);
+    assert_eq!(val(&h, "a"), Some(Value::UInt(7)));
+    h.stop().await;
+}
+
+/// A device stopped and started serves the tree's value again (not 0), and
+/// a point edited to another scale serves the tree's value re-encoded.
+#[tokio::test(flavor = "multi_thread")]
+async fn slave_values_survive_a_device_stop_and_an_edit() {
+    let points = map(&[("a", pt("holding", 1, "u16", &[]))]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "a", 7u64).await, Some(Status::Ok));
+    assert_eq!(act(&h, "s1/d1", "stop", map(&[])).await, Some(Status::Ok));
     let mut m = master(port, 1).await;
     assert_eq!(
-        m.read_holding_registers(1, 2).await.unwrap(),
-        Ok(vec![7, 8])
+        m.read_holding_registers(1, 1).await.unwrap(),
+        Err(ExceptionCode::GatewayTargetDevice),
+        "a stopped device is not served"
     );
+    assert_eq!(act(&h, "s1/d1", "start", map(&[])).await, Some(Status::Ok));
+    wait("device served again", || {
+        state(&h, "s1/d1").as_deref() == Some("connected")
+    })
+    .await;
+    assert_eq!(m.read_holding_registers(1, 1).await.unwrap(), Ok(vec![7]));
     assert_eq!(val(&h, "a"), Some(Value::UInt(7)));
+
+    let edit = map(&[
+        ("table", "holding".into()),
+        ("addr", Value::UInt(1)),
+        ("dtype", "u16".into()),
+        ("scale", Value::Float(0.5)),
+    ]);
+    assert_eq!(act(&h, "s1/d1/a", "edit", edit).await, Some(Status::Ok));
+    // raw = 7 / 0.5; the edit's re-plan reaches the server at once
+    assert_eq!(m.read_holding_registers(1, 1).await.unwrap(), Ok(vec![14]));
+    assert_eq!(val(&h, "a"), Some(Value::Float(7.0)));
+    h.stop().await;
+}
+
+/// A slave connection copies, exports and imports like any connection; the
+/// copy and the import start stopped, so neither takes the port.
+#[tokio::test(flavor = "multi_thread")]
+async fn slave_copy_export_import() {
+    let points = map(&[("a", pt("holding", 1, "u16", &[]))]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "a", 7u64).await, Some(Status::Ok));
+    let copy = map(&[("name", "s2".into())]);
+    assert_eq!(act(&h, "s1", "copy", copy).await, Some(Status::Ok));
+    let mut r = h
+        .invoke("s1", "export", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    let json = match r.remove(0).value() {
+        Some(Value::Map(m)) => m["json"].clone(),
+        other => panic!("export: {other:?}"),
+    };
+    let import = map(&[("json", json), ("name", "s3".into())]);
+    assert_eq!(act(&h, "", "import", import).await, Some(Status::Ok));
+    for c in ["s2", "s3"] {
+        wait("stopped", || state(&h, c).as_deref() == Some("stopped")).await;
+        let (_, meta) = h.meta(c).await;
+        assert_eq!(
+            meta.unwrap().cfg.unwrap()["kind"],
+            Value::from("ip_slave"),
+            "{c}"
+        );
+        let (_, p) = h.meta(&format!("{c}/d1/a")).await;
+        assert_eq!(p.unwrap().writable, Some(Writable::Write), "{c}");
+    }
+    // s1 still serves its port alone
+    assert_eq!(read_when_up(port, 1, 1).await, vec![7]);
     h.stop().await;
 }

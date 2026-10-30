@@ -1727,8 +1727,9 @@ struct Owner<D: Driver> {
     book: diag::SharedBook,
     /// A server connection ([`Driver::is_server`]).
     server: bool,
-    /// The plan generation the server was last handed ([`Driver::serve`]).
-    served: Option<u64>,
+    /// The plan the server was last handed ([`Driver::serve`]) and its
+    /// generation; `None` on a transport just opened.
+    served: Option<(u64, Arc<DevMap<D>>)>,
     /// The `status` leaf shows a [`Driver::status_note`].
     noted: bool,
 }
@@ -1854,28 +1855,47 @@ impl<D: Driver> Owner<D> {
         }
     }
 
+    /// The plan was handed to the server.
+    fn plan_served(&self) -> bool {
+        self.served
+            .as_ref()
+            .is_some_and(|(gen, _)| *gen == self.gen)
+    }
+
     /// A server connection: hand the current plan to the server, publish
-    /// what it serves, and show every device `Connected`. After open
-    /// (`seed`), each point's last value in the tree is written first, so a
-    /// reopened server serves what it served before. Under the plan's read
-    /// lock; each write bounded by `bound`.
-    async fn serve_plan(&mut self, t: &mut D::Transport, seed: bool, bound: Duration) {
+    /// what it serves, and show every device `Connected`. Each point that
+    /// is new to the server, or whose params or device params changed, gets
+    /// its last value in the tree written first (after open: every point),
+    /// so values come from the tree: a reopened server, a device started
+    /// again, a point edited to another scale serve the tree's value. A
+    /// point that stays as it was keeps what it serves (a master may have
+    /// written it). Under the plan's read lock; each write bounded by
+    /// `bound`.
+    async fn serve_plan(&mut self, t: &mut D::Transport, bound: Duration) {
         let devs = self.devs.clone();
-        if seed {
-            for d in devs.values() {
-                for (id, p) in &d.points {
-                    let Some(last) = d.paths.get(id).and_then(|path| self.ctx.last(path)) else {
-                        continue;
-                    };
-                    let w = tokio::time::timeout(bound, D::write(t, &d.cfg, id, p, &last.v));
-                    if let Ok(Err(e)) = w.await {
-                        debug!(%id, "last value not served again: {e}");
-                    }
+        let before = self.served.take().map(|(_, d)| d);
+        let same = |name: &str, d: &DevRun<D>, id: &str, p: &D::Point| {
+            before
+                .as_ref()
+                .and_then(|b| b.get(name))
+                .is_some_and(|old| old.cfg == d.cfg && old.points.get(id) == Some(p))
+        };
+        for (name, d) in devs.iter() {
+            for (id, p) in &d.points {
+                if same(name, d, id, p) {
+                    continue;
+                }
+                let Some(last) = d.paths.get(id).and_then(|path| self.ctx.last(path)) else {
+                    continue;
+                };
+                let w = tokio::time::timeout(bound, D::write(t, &d.cfg, id, p, &last.v));
+                if let Ok(Err(e)) = w.await {
+                    debug!(%id, "last value not served again: {e}");
                 }
             }
-            // `serve` gives every value served below.
-            let _ = D::take_changed(t);
         }
+        // `serve` gives every value served below.
+        let _ = D::take_changed(t);
         let served: Vec<Served<'_, D>> = devs
             .iter()
             .map(|(name, d)| Served {
@@ -1885,7 +1905,7 @@ impl<D: Driver> Owner<D> {
             })
             .collect();
         D::serve(t, &served);
-        self.served = Some(self.gen);
+        self.served = Some((self.gen, devs.clone()));
         self.publish_changed(t).await;
         for d in devs.keys() {
             self.dev_ok(d).await;
@@ -2004,7 +2024,9 @@ async fn owner<D: Driver>(
                     let v = view.read().await;
                     o.adopt(&v);
                     if o.server {
-                        o.serve_plan(&mut t, true, timeout).await;
+                        // A new server: every value from the tree.
+                        o.served = None;
+                        o.serve_plan(&mut t, timeout).await;
                     } else {
                         let devs: Vec<String> = o.devs.keys().cloned().collect();
                         for d in devs {
@@ -2098,10 +2120,10 @@ async fn serve<D: Driver>(
         // Results are published under the plan's read lock, and only while
         // it is still the plan of the request (P19).
         let view = o.view.clone();
-        if server && o.served != Some(o.gen) {
+        if server && !o.plan_served() {
             let current = view.read().await;
             if current.gen == o.gen {
-                o.serve_plan(t, false, timeout).await;
+                o.serve_plan(t, timeout).await;
             }
             drop(current);
         }

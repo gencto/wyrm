@@ -47,6 +47,10 @@ const QUEUE: usize = 64;
 /// answered busy (TCP) or not at all (RTU).
 const ANSWER: Duration = Duration::from_secs(1);
 
+/// How long a listener waits for its port: one closed just before (a
+/// restart or an edit of the connection) frees it a moment later.
+const BIND_WAIT: Duration = Duration::from_millis(1500);
+
 /// Bits one FC15 request writes (FC16: [`codec::MAX_WRITE_REGISTERS`]).
 const MAX_WRITE_BITS: u16 = 1968;
 
@@ -154,9 +158,7 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
                 .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
                 .next()
                 .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
-            let listener = tokio::net::TcpListener::bind(addr)
-                .await
-                .map_err(|e| DriverError::Transport(format!("listen on {target}: {e}")))?;
+            let listener = bind(addr, &target).await?;
             let local = listener
                 .local_addr()
                 .map_err(|e| DriverError::Transport(format!("listen on {target}: {e}")))?;
@@ -195,6 +197,20 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
         }
         Conn::Ip(_) | Conn::Serial(_) => {
             Err(DriverError::Transport("not a slave connection".to_owned()))
+        }
+    }
+}
+
+/// Bind `addr`, waiting up to [`BIND_WAIT`] while the port is in use.
+async fn bind(addr: SocketAddr, target: &str) -> Result<tokio::net::TcpListener, DriverError> {
+    let deadline = Instant::now() + BIND_WAIT;
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => return Err(DriverError::Transport(format!("listen on {target}: {e}"))),
         }
     }
 }

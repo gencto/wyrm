@@ -5,6 +5,9 @@
 use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::Duration;
+use tokio_modbus::client::tcp;
+use tokio_modbus::prelude::Reader;
+use tokio_modbus::{ExceptionCode, Slave};
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::Layer;
 use wyrm_core::{Perm, Status, Value};
@@ -123,9 +126,24 @@ async fn non_loopback_listen_is_flagged() {
         r[0].att.status,
         Some(wyrm_core::status::StatusCode::Known(Status::Ok))
     );
-    // the new owner opens on its own task: give it time to show a note
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    wait("listening on loopback", || connected(&h, "open")).await;
+    // The new listener answers (no device: exception 0x0B), so its owner
+    // has opened and shown a note if it had one.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], wide));
+        if let Ok(mut m) = tcp::connect_slave(addr, Slave(1)).await {
+            let r = tokio::time::timeout(Duration::from_secs(1), m.read_holding_registers(0, 1));
+            if let Ok(Ok(Err(ExceptionCode::GatewayTargetDevice))) = r.await {
+                break;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timeout: listening on loopback"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(connected(&h, "open"));
     assert_eq!(warning(&h, "open").await, None);
     h.stop().await;
 }

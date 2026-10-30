@@ -307,9 +307,10 @@ pub trait Driver: Sized + Send + Sync + 'static {
 
     /// A server connection's devices and points as planned, after open and
     /// after every re-plan, on the owner task (never during a request). The
-    /// values it serves for them go to [`Driver::take_changed`]. After open
-    /// the framework first writes each point's last value in the tree
-    /// ([`Driver::write`]), so a reopened server serves what it served.
+    /// values it serves for them go to [`Driver::take_changed`]. Before it,
+    /// the framework writes ([`Driver::write`]) the tree's last value of
+    /// each point new to the server or whose params or device params
+    /// changed (after open: every point), so values come from the tree.
     fn serve(_t: &mut Self::Transport, _devs: &[Served<'_, Self>]) {}
 
     /// Wait for the next request of a server connection's remote side and
