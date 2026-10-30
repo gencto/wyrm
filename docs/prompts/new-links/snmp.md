@@ -9,7 +9,7 @@
 - Plan: batch scalar points into GET requests of at most `max_varbinds` (default 20) per PDU; use GETBULK for table columns.
 - Writes: SET for points marked writable (INTEGER, OCTET STRING, Gauge32 only), read-back as usual.
 - Ping: GET `sysUpTime.0` (1.3.6.1.2.1.1.3.0); a `noSuchObject` reply still means alive.
-- Actions (driver actions, if the framework offers a hook by then; else a root action is out of scope): `walk {oid, max = 500}` on a device returning `[{oid, type, value}]` for commissioning.
+- Actions: `walk {oid, max = 500}` on a device returning `[{oid, type, value}]` for commissioning.
 - Error mapping: `noSuchObject`/`noSuchInstance`/`endOfMibView` → point error; `authorizationError`/USM report PDUs → device error with a clear message; timeout → device miss.
 
 **Not in scope**: traps/informs receiver (note it in the guide as a follow-up), MIB file parsing (OIDs are numeric; the guide lists common OIDs: IF-MIB ifHCInOctets/ifHCOutOctets/ifOperStatus, HOST-RESOURCES-MIB, UPS-MIB).
