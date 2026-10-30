@@ -1169,6 +1169,17 @@ const SHOW_VALUE: usize = 2 * 1024;
 /// `test_selector`: a converted string `value` longer than this is cut.
 const SHOW_TEXT: usize = 8 * 1024;
 
+/// Headers that describe the raw body: not shown by `try_request` when it
+/// masked the body.
+const BODY_HEADERS: &[&str] = &[
+    "content-length",
+    "etag",
+    "digest",
+    "content-md5",
+    "repr-digest",
+    "content-digest",
+];
+
 /// Headers never shown by `try_request`.
 const HIDDEN_HEADERS: &[&str] = &["set-cookie", "set-cookie2", "authorization"];
 
@@ -1439,11 +1450,17 @@ fn prefixed_json(text: &str) -> Option<(&str, Json)> {
 
 /// A number in a text that is not JSON (NDJSON, JSONP, a form) equal to a
 /// numeric secret.
+/// Both as a number with a sign and an exponent (`1.2e21`) and as each
+/// run of digits alone (`code123`, `id-123`, `123-`).
 fn holds_secret_number(prep: &Prepared, s: &str) -> bool {
-    !prep.numbers.is_empty()
-        && s.split(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')))
+    let hit = |sep: &dyn Fn(char) -> bool| {
+        s.split(sep)
             .filter_map(|t| t.parse::<f64>().ok())
             .any(|x| prep.numbers.contains(&x))
+    };
+    !prep.numbers.is_empty()
+        && (hit(&|c| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')))
+            || hit(&|c| !(c.is_ascii_digit() || c == '.')))
 }
 
 /// `s` cut to at most `n` bytes at a char boundary; `true` when cut.
@@ -1480,7 +1497,7 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
             })
             .or_insert_with(|| v.into_owned());
     }
-    let headers = headers
+    let mut headers: BTreeMap<String, Value> = headers
         .into_iter()
         .map(|(k, v)| (k, Value::Str(shown(&prep, &v).into_owned())))
         .collect();
@@ -1519,6 +1536,11 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     // A masked body shows the masked length: the raw one would give the
     // length of an echoed secret.
     let bytes = if masked { text.len() } else { reply.body.len() };
+    if masked {
+        // the raw length, or a hash of the raw body (ETag, Digest), would
+        // give the length of a secret or allow an offline guess
+        headers.retain(|k, _| !BODY_HEADERS.contains(&k.as_str()));
+    }
     Ok(Value::Map(BTreeMap::from([
         ("status".into(), Value::UInt(reply.status.as_u16().into())),
         ("headers".into(), Value::Map(headers)),

@@ -1438,6 +1438,10 @@ async fn bodies_that_are_not_json_are_masked() {
             Some("n=1234 m=51234.5"),
             "51234.5",
         ),
+        // digits after a letter or a sign are a number too (re-review R6)
+        ("0123", "code123", None, "body hidden"),
+        ("0123", "id-123", None, "body hidden"),
+        ("0123", "pin:123-", None, "body hidden"),
         (token, "plain ab/c1-tok text", Some("plain *** text"), "***"),
         (token, "no secret here", Some("no secret here"), "here"),
         (
@@ -1479,6 +1483,12 @@ async fn bodies_that_are_not_json_are_masked() {
         assert_eq!(field(&v, "masked"), &Value::Bool(masked), "{raw}");
         let len = if masked { body.len() } else { raw.len() };
         assert_eq!(field(&v, "bytes"), &Value::UInt(len as u64), "{raw}");
+        // nor do the headers that give the raw length or a hash of it
+        // (re-review R5)
+        let Value::Map(headers) = field(&v, "headers") else {
+            panic!("headers")
+        };
+        assert_eq!(headers.contains_key("content-length"), !masked, "{raw}");
         h.stop().await;
     }
 }
