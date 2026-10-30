@@ -55,6 +55,7 @@ impl Services for Sim {
     fn tcp_close(&mut self, _c: ConnId) {}
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Ev {
     List(u64, String, ListChange),
     Value(u64, String, Sample),

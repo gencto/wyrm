@@ -6188,7 +6188,7 @@ async fn dql_rows(c: &WyrmClient, q: &str) -> Option<BTreeMap<String, BTreeMap<S
         .invoke_one(
             &format!("wy/{SITE}/downstream/dql/{q}"),
             "get_table",
-            Value::Null,
+            Value::Map(BTreeMap::new()),
         )
         .await
         .ok()??;
@@ -6260,11 +6260,12 @@ async fn dql_embedded_queries_the_tree() {
             .filter(|r| r[&point(2)]["value"] == Value::Float(7.5))
     })
     .await;
-    let table = eventually("table published", 30, || async {
-        last_sample(&env, &format!("{dql}/pts/table")).await
+    eventually("the table published as a value", 30, || async {
+        last_sample(&env, &format!("{dql}/pts/table"))
+            .await
+            .filter(|t| matches!(&t.v, Value::Array(a) if a.len() == 5))
     })
     .await;
-    assert!(matches!(table.v, Value::Array(a) if a.len() == 5));
 
     // a sink: p1 follows p0 doubled, only after a change of p0 (D5)
     c.invoke_one(

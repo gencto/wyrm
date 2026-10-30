@@ -140,7 +140,8 @@ Collecting a table can take time: one `list` round trip per level the pattern re
 - **B6 — counters:** the link root belongs to the host (ADR 0023), so the DQL counters are values under `stats/` (`stats` is a reserved query id).
 - **B7 — node ownership:** the embedded DQL link does not trust its own key (as the scheduler, R21), so no query writes the DQL link's own nodes.
 - **B8 — a fixed `sublist`:** as `list`, a pattern without a wildcard lists that node's children (`sublist ./temp` = the children of `temp`).
-- **B9 — not yet:** a probe scenario on the demo, the three-mode e2e with a WASM package and benchmarks on the reference board (the engine and the link are tested on `SimHost`; `wyrm-wasm-host` tests load both world versions).
+- **B9 — not yet:** a probe scenario on the demo, the three-mode e2e of the DQL link with its WASM and process packages, and benchmarks on the reference board. Tested: the engine and the link on `SimHost`, both world versions in `wyrm-wasm-host`, and e2e `dql_embedded_queries_the_tree` (the embedded link through a real router: a live table, its publication, a `set` sink only after a change); `scheduler_three_modes` and `one_app_three_modes` pass with guests built on 0.2.0.
+- **B10 — the grant a request carries:** a `ptok` carries the first configured grant that covers its key, so a `read` grant on `downstream` listed before the `write` one sent sink writes at `read` (found by the e2e). The portable runtime now orders the link's grants by level, highest first.
 
 ## Owner decisions (2026-10-30)
 - **D1 — standards, fewer own solutions:** CEL for expressions and predicates (`cel-interpreter`), Zenoh key expressions for paths, RE2-style regex in CEL; DSA DQL pipeline syntax kept; no own expression language, no `rhai` here (not a standard).

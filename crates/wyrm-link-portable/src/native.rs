@@ -90,7 +90,7 @@ impl<A: App + Send + 'static> Engine for NativeEngine<A> {
                 Ok(None)
             }
             Event::List(sub, key, change) => {
-                app.on_list(host, sub, &key, change);
+                app.on_list(host, sub, &key, *change);
                 Ok(None)
             }
             Event::Stop => {

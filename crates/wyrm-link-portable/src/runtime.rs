@@ -85,7 +85,7 @@ enum Internal {
     Timer(u64),
     Value(u64, String, wyrm_core::Sample),
     Reply(u64, Result<Value, AppError>),
-    List(u64, String, ListChange),
+    List(u64, String, Box<ListChange>),
 }
 
 /// `Start` and `Event` carry a sequence number: the store remembers the last one whose writes it
@@ -628,7 +628,10 @@ impl Actor {
                         ListChange::Added(n, meta)
                     }
                 };
-                if tx.send(Internal::List(id, k.clone(), change)).is_err() {
+                if tx
+                    .send(Internal::List(id, k.clone(), Box::new(change)))
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -1176,7 +1179,9 @@ fn client_of(ctx: &LinkCtx) -> WyrmClient {
     let client = WyrmClient::new(ctx.client().clone());
     match ctx.requester_key() {
         Some(key) => {
-            let grants = ctx
+            // a token carries the first grant that covers its key: the highest level first, so
+            // a `read` grant on a root never shadows a `write` one on the same root
+            let mut grants: Vec<Grant> = ctx
                 .grants()
                 .iter()
                 .map(|(p, perm)| Grant {
@@ -1184,6 +1189,7 @@ fn client_of(ctx: &LinkCtx) -> WyrmClient {
                     p: *perm,
                 })
                 .collect();
+            grants.sort_by_key(|g| std::cmp::Reverse(g.p));
             client.with_tokens(Arc::new(
                 SigningTokens::new(key, ctx.site())
                     .subject(format!("link:{}", ctx.link()))

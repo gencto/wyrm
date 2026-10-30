@@ -871,11 +871,13 @@ pub struct Broker {
 /// reads (ADR 0007, 0018; D4), `write` on this site's `downstream` for its sinks. Never `sys`.
 fn dql_grants(site: &str, peers: &wyrm_admin::acl::Peers) -> Vec<(String, wyrm_core::Perm)> {
     use wyrm_core::Perm;
-    let mut g: Vec<(String, Perm)> = ["downstream", "dataflows", "storage", "upstream"]
-        .iter()
-        .map(|s| (format!("wy/{site}/{s}"), Perm::Read))
-        .collect();
-    g.push((format!("wy/{site}/downstream"), Perm::Write));
+    // write first: a request token carries the first grant that covers its key
+    let mut g = vec![(format!("wy/{site}/downstream"), Perm::Write)];
+    g.extend(
+        ["dataflows", "storage", "upstream"]
+            .iter()
+            .map(|s| (format!("wy/{site}/{s}"), Perm::Read)),
+    );
     let mut others: Vec<String> = peers.reachable();
     others.sort();
     others.dedup();

@@ -15,7 +15,7 @@ use wyrm_link_api::ListChange;
 use crate::{fmt_value, Error};
 
 enum Msg {
-    List(Handle, ListChange),
+    List(Handle, Box<ListChange>),
     Failed(Handle, String),
     Value(String, Sample),
     Reply(u64, bool),
@@ -69,7 +69,7 @@ impl Runner {
                             if full {
                                 ch = full_meta(&c, &key, ch).await;
                             }
-                            if tx.send(Msg::List(h, ch)).is_err() {
+                            if tx.send(Msg::List(h, Box::new(ch))).is_err() {
                                 return;
                             }
                         }
@@ -229,7 +229,7 @@ pub async fn run(
                 let now = now_us();
                 let mut out = Vec::new();
                 match m {
-                    Msg::List(h, ch) => e.on_list(h, ch, now, &mut out),
+                    Msg::List(h, ch) => e.on_list(h, *ch, now, &mut out),
                     Msg::Failed(h, err) => e.failed(h, &err, now),
                     Msg::Value(k, s) => e.on_value(&k, s, now, &mut out),
                     Msg::Reply(call, ok) => e.on_reply(call, ok, now, &mut out),

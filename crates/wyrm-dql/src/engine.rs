@@ -140,6 +140,9 @@ struct Cand {
     roots: BTreeSet<u64>,
 }
 
+/// A row's columns in order.
+type Cols = Vec<(String, Value)>;
+
 /// A sink call a row asks for.
 #[derive(Debug, Clone, PartialEq)]
 struct SinkReq {
@@ -665,11 +668,7 @@ impl Engine {
     }
 
     /// The row's columns, or `None` when a `where` drops it; and the sink calls it asks for.
-    fn evaluate(
-        &mut self,
-        seg: usize,
-        key: &str,
-    ) -> (Option<Vec<(String, Value)>>, Vec<(usize, SinkReq)>) {
+    fn evaluate(&mut self, seg: usize, key: &str) -> (Option<Cols>, Vec<(usize, SinkReq)>) {
         let Some(cand) = self.cands[seg].get(key) else {
             return (None, Vec::new());
         };

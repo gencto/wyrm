@@ -26,7 +26,7 @@ pub enum Event {
     Value(SubId, String, Sample),
     Reply(ReqId, Result<Value, AppError>),
     /// List, listed node key, change (ADR 0025).
-    List(SubId, String, ListChange),
+    List(SubId, String, Box<ListChange>),
     Stop,
 }
 
