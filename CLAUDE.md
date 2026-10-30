@@ -50,6 +50,7 @@ links/scheduler         ✅ scheduler link (ADR 0022) as a portable App: embedde
 tools/wyrm-mcp          MCP server over wyrm-client (ADR 0005)
 links/agent             AI agent connector with approval workflow (ADR 0005)
 links/http              ✅ HTTP/REST JSON poller on the driver framework: connection = base URL + auth (basic/bearer/API key, secrets) + TLS (ring) + rate limit, device = one request, point = JSONPath-subset selector (filters, `[*]` + aggregate), JSON write templates, `try_request`/`test_selector` (level config), echoed secrets masked in what is shown; sim `wyrm-http-sim`; guide `docs/http.md`
+links/opcua             ✅ OPC UA client on async-opcua (RustCrypto, no OpenSSL): batched Read by MaxNodesPerRead, Write with the server's DataType (lossy refused), ping i=2259, `browse`/`get_endpoints` (config), PKI in `data_dir/opcua-pki` (generated app cert, pin / trust on first use); no subscriptions, Uncertain → bad (framework hooks); sim `wyrm-opcua-sim`; guide `docs/opcua.md`
 ```
 
 ## Current state

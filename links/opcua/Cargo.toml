@@ -1,0 +1,52 @@
+[package]
+name = "wyrm-link-opcua"
+description = "WYRM OPC UA client connector on async-opcua"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process OPC UA server simulator for tests and demos (async-opcua server).
+sim = ["async-opcua/server", "tokio/net", "tokio/io-util"]
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-opcua-sim"
+required-features = ["bin"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "fs"] }
+# OPC UA client; its crypto is RustCrypto (rsa, aes, sha2), no OpenSSL.
+async-opcua = { workspace = true, features = ["client"] }
+tracing.workspace = true
+sha2.workspace = true
+hex.workspace = true
+futures-util.workspace = true
+# Endpoint URLs, parsed as the library parses them (no second host parser).
+url.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-opcua = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# `RUST_LOG=wyrm_link_opcua=debug` in a test run.
+tracing-subscriber.workspace = true
+
+[[bin]]
+name = "wyrm-link-opcua"
+required-features = ["process"]
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "opcua"
+description = "OPC UA client: batched reads, writes with the server's data type, browse, get_endpoints"
+bin = "wyrm-link-opcua"
+features = ["process"]
