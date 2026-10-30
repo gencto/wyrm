@@ -3,7 +3,10 @@
 //! One device object and a few objects: analog-input 1 (the demo binary
 //! changes it), analog-value 1 (commandable, writable with priorities),
 //! binary-input 1, binary-value 1 (commandable), multi-state-value 1
-//! (commandable), integer-value 1 and large-analog-value 1. It answers
+//! (commandable), integer-value 1 (writable), large-analog-value 1
+//! (writable DOUBLE), calendar 1 (BOOLEAN), characterstring-value 1
+//! (writable), a writable `out-of-service` on analog-value 1 and a BIT
+//! STRING in vendor property 1000 of analog-input 1. It answers
 //! Who-Is (I-Am unicast to the asker), ReadProperty, ReadPropertyMultiple
 //! and WriteProperty, and can be a BBMD for one foreign device (I-Am back
 //! as a Forwarded-NPDU) or sit behind a router (`routed`: requests must
@@ -157,6 +160,13 @@ pub mod objects {
         ty: 46,
         instance: 1,
     };
+    pub const CAL1: ObjectId = ObjectId { ty: 6, instance: 1 };
+    pub const CSV1: ObjectId = ObjectId {
+        ty: 40,
+        instance: 1,
+    };
+    /// A vendor property of analog-input 1 holding a BIT STRING.
+    pub const BITS_PROPERTY: u32 = 1000;
 }
 
 const LOG_MAX: usize = 1000;
@@ -169,16 +179,17 @@ impl Sim {
         dev.props
             .insert(prop::SYSTEM_STATUS, vec![AppValue::Enumerated(0)]);
         objects.insert(ObjectId::new(ObjectId::DEVICE, instance), dev);
-        objects.insert(
-            AI1,
-            Object::new("Zone Temp", AI1.ty, 1).io(AppValue::Real(21.5), Some(62)),
+        let mut ai = Object::new("Zone Temp", AI1.ty, 1).io(AppValue::Real(21.5), Some(62));
+        ai.props.insert(
+            BITS_PROPERTY,
+            vec![AppValue::BitString(vec![true, false, true])],
         );
-        objects.insert(
-            AV1,
-            Object::new("Setpoint", AV1.ty, 1)
-                .io(AppValue::Real(20.0), Some(62))
-                .commandable(AppValue::Real(20.0)),
-        );
+        objects.insert(AI1, ai);
+        let mut av = Object::new("Setpoint", AV1.ty, 1)
+            .io(AppValue::Real(20.0), Some(62))
+            .commandable(AppValue::Real(20.0));
+        av.writable.insert(prop::OUT_OF_SERVICE);
+        objects.insert(AV1, av);
         objects.insert(
             BI1,
             Object::new("Fan Status", BI1.ty, 1).io(AppValue::Enumerated(1), None),
@@ -198,10 +209,17 @@ impl Sim {
         let mut iv = Object::new("Counter", IV1.ty, 1).io(AppValue::Signed(-5), None);
         iv.writable.insert(prop::PRESENT_VALUE);
         objects.insert(IV1, iv);
-        objects.insert(
-            LAV1,
-            Object::new("Energy", LAV1.ty, 1).io(AppValue::Double(123_456_789.25), Some(19)),
-        );
+        let mut lav =
+            Object::new("Energy", LAV1.ty, 1).io(AppValue::Double(123_456_789.25), Some(19));
+        lav.writable.insert(prop::PRESENT_VALUE);
+        objects.insert(LAV1, lav);
+        let mut cal = Object::new("Holidays", CAL1.ty, 1);
+        cal.props
+            .insert(prop::PRESENT_VALUE, vec![AppValue::Boolean(false)]);
+        objects.insert(CAL1, cal);
+        let mut csv = Object::new("Message", CSV1.ty, 1).io(AppValue::CharString("hello".into()), None);
+        csv.writable.insert(prop::PRESENT_VALUE);
+        objects.insert(CSV1, csv);
         Self {
             instance,
             objects,

@@ -213,7 +213,9 @@ Error too, means the device is alive.
 `src/sim.rs` (feature `sim`) is a BACnet/IP device on its own UDP port:
 device object, analog-input 1, analog-value 1 (commandable), binary-input
 1, binary-value 1 (commandable), multi-state-value 1 (commandable),
-integer-value 1 and large-analog-value 1. It answers Who-Is (unicast I-Am),
+integer-value 1, large-analog-value 1 (DOUBLE), calendar 1 (BOOLEAN),
+characterstring-value 1, a writable `out-of-service` on analog-value 1 and
+a BIT STRING in vendor property 1000 of analog-input 1. It answers Who-Is (unicast I-Am),
 ReadProperty, ReadPropertyMultiple and WriteProperty with priorities, can be
 a BBMD for one foreign device, or sit behind a router. Failure modes:
 silence, dropped requests, slow replies, Reject, RPM not supported, an Error

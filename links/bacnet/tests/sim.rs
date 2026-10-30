@@ -378,6 +378,95 @@ async fn writes_with_priority_read_back_and_relinquish() {
     h.stop().await;
 }
 
+/// Every application tag through the simulator: an explicit `dtype` of
+/// each, read, written (where the tag can be) and read back by the
+/// framework.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_data_type_reads_writes_and_reads_back() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();
+    let w = |dtype: &str| {
+        vec![
+            ("dtype", Value::from(dtype)),
+            ("writable", Value::Bool(true)),
+            ("check_status", Value::Bool(false)),
+        ]
+    };
+    let mut oos = w("boolean");
+    oos.push(("property", "out_of_service".into()));
+    let points = map(&[
+        ("real", pt("analog_value", 1, &w("real"))),
+        ("double", pt("large_analog_value", 1, &w("double"))),
+        ("unsigned", pt("multi_state_value", 1, &w("unsigned"))),
+        ("signed", pt("integer_value", 1, &w("signed"))),
+        ("enum", pt("binary_value", 1, &w("enumerated"))),
+        ("bool", pt("analog_value", 1, &oos)),
+        ("text", pt("characterstring_value", 1, &w("character_string"))),
+        ("cal", pt("calendar", 1, &[])),
+        (
+            "bits",
+            pt(
+                "analog_input",
+                1,
+                &[
+                    ("property", "other".into()),
+                    ("property_id", Value::UInt(objects::BITS_PROPERTY.into())),
+                    ("dtype", "bit_string".into()),
+                ],
+            ),
+        ),
+    ]);
+    let h = H::start(tree(addr, &[], &[], points)).await;
+    let all = [
+        "real", "double", "unsigned", "signed", "enum", "bool", "text", "cal", "bits",
+    ];
+    wait("all read", || {
+        all.iter().all(|p| qual(&h, p) == Some(Quality::Good))
+    })
+    .await;
+    assert_eq!(val(&h, "real"), Some(Value::Float(20.0)));
+    assert_eq!(val(&h, "double"), Some(Value::Float(123_456_789.25)));
+    assert_eq!(val(&h, "unsigned"), Some(Value::UInt(1)));
+    assert_eq!(val(&h, "signed"), Some(Value::Int(-5)));
+    assert_eq!(val(&h, "enum"), Some(Value::UInt(0)));
+    assert_eq!(val(&h, "bool"), Some(Value::Bool(false)));
+    assert_eq!(val(&h, "text"), Some(Value::from("hello")));
+    assert_eq!(val(&h, "cal"), Some(Value::Bool(false)));
+    assert_eq!(
+        val(&h, "bits"),
+        Some(Value::Array(vec![
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true)
+        ]))
+    );
+    let (_, m) = h.meta("c1/d1/bits").await;
+    assert_eq!(m.unwrap().ty, Some(TypeCode::Array));
+    let (_, m) = h.meta("c1/d1/text").await;
+    assert_eq!(m.unwrap().ty, Some(TypeCode::String));
+    let tok = || Some(h.ptok(Perm::Write));
+    let cases: [(&str, Value, AppValue); 7] = [
+        ("real", Value::Float(12.25), AppValue::Real(12.25)),
+        ("double", Value::Float(1.5e10), AppValue::Double(1.5e10)),
+        ("unsigned", Value::UInt(2), AppValue::Unsigned(2)),
+        ("signed", Value::Int(-7), AppValue::Signed(-7)),
+        ("enum", Value::UInt(1), AppValue::Enumerated(1)),
+        ("bool", Value::Bool(true), AppValue::Boolean(true)),
+        ("text", Value::from("wyrm"), AppValue::CharString("wyrm".into())),
+    ];
+    for (p, v, sent) in cases {
+        let att = h.set(&format!("c1/d1/{p}"), v.clone(), tok()).await;
+        assert_eq!(status(&att), Some(Status::Ok), "{p}: {:?}", att.err);
+        assert_eq!(dev.lock().unwrap().writes.last().unwrap().2, sent, "{p}");
+        assert_eq!(val(&h, p), Some(v), "{p} read back");
+    }
+    // a bit string is read only: refused, nothing sent
+    let n = dev.lock().unwrap().writes.len();
+    let att = h.set("c1/d1/bits", Value::Array(vec![]), tok()).await;
+    assert_ne!(status(&att), Some(Status::Ok));
+    assert_eq!(dev.lock().unwrap().writes.len(), n);
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn point_errors_are_isolated() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();
@@ -879,7 +968,7 @@ async fn list_objects_whole_and_index_by_index() {
     let (st, v, msg) = act(&h, "c1/d1", "list_objects", map(&[]), Perm::Config).await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
     let v = v.unwrap();
-    assert_eq!(field(&v, "count"), &Value::UInt(8));
+    assert_eq!(field(&v, "count"), &Value::UInt(10));
     assert_eq!(field(&v, "truncated"), &Value::Bool(false));
     let Value::Array(objs) = field(&v, "objects") else {
         panic!()
@@ -914,7 +1003,7 @@ async fn list_objects_whole_and_index_by_index() {
     .await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
     let v = v.unwrap();
-    assert_eq!(field(&v, "count"), &Value::UInt(158));
+    assert_eq!(field(&v, "count"), &Value::UInt(160));
     assert_eq!(field(&v, "truncated"), &Value::Bool(true));
     let Value::Array(objs) = field(&v, "objects") else {
         panic!()
