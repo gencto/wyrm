@@ -822,4 +822,37 @@ mod tests {
         assert!(is_loopback("opc.tcp://[::1]:4840/"));
         assert!(!is_loopback("opc.tcp://plc1:4840/"));
     }
+
+    #[test]
+    fn passwords_in_clear() {
+        use opcua::types::UserTokenPolicy;
+        let ep = |mode: MessageSecurityMode, token_policy: &str| EndpointDescription {
+            security_mode: mode,
+            user_identity_tokens: Some(vec![UserTokenPolicy {
+                token_type: UserTokenType::UserName,
+                security_policy_uri: token_policy.into(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        assert!(password_in_clear(&ep(MessageSecurityMode::None, "")));
+        assert!(password_in_clear(&ep(
+            MessageSecurityMode::None,
+            SecurityPolicy::None.to_uri()
+        )));
+        assert!(!password_in_clear(&ep(
+            MessageSecurityMode::None,
+            SecurityPolicy::Basic256Sha256.to_uri()
+        )));
+        assert!(!password_in_clear(&ep(
+            MessageSecurityMode::SignAndEncrypt,
+            ""
+        )));
+        // no user name policy at all: nothing would encrypt it
+        let none = EndpointDescription {
+            security_mode: MessageSecurityMode::None,
+            ..Default::default()
+        };
+        assert!(password_in_clear(&none));
+    }
 }
