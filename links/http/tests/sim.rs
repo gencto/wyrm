@@ -387,6 +387,59 @@ async fn writes_and_read_back() {
     h.stop().await;
 }
 
+/// A write that is redirected: 301 and 302 fail ("write not applied"),
+/// whatever the method, since a client may send it on as a GET without a
+/// body; 307 is followed with the method and the body; 303 (the write is
+/// applied, see the result) is a success.
+#[tokio::test(flavor = "multi_thread")]
+async fn redirected_writes() {
+    let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let w = |to: &str, method: &str| {
+        pt(
+            "$.mode",
+            &[
+                ("type", "string".into()),
+                ("writable", true.into()),
+                ("write_method", method.into()),
+                ("write_path", to.into()),
+                ("write_body", "{\"mode\": {{value}}}".into()),
+                ("poll_s", Value::Float(30.0)),
+            ],
+        )
+    };
+    let points = map(&[
+        ("moved", w("/moved", "post")),
+        ("found", w("/found", "put")),
+        ("temp", w("/temp", "post")),
+        ("done", w("/done", "patch")),
+    ]);
+    let h = H::start(tree(
+        base(addr.port()),
+        &[],
+        &[("d1", dev(&[("path", "/resource".into())], points))],
+    ))
+    .await;
+    wait("read", || good(&h, "c1/d1/moved", "auto".into())).await;
+    let tok = || Some(h.ptok(Perm::Write));
+    for p in ["moved", "found"] {
+        let att = h.set(&format!("c1/d1/{p}"), "lost", tok()).await;
+        assert_eq!(status(&att), Some(Status::InvalidParameter), "{p}");
+        let e = format!("{:?}", att.err);
+        assert!(e.contains("write not applied"), "{p}: {e}");
+        assert_eq!(st(&s).resource["mode"], json!("auto"), "{p}");
+    }
+    let att = h.set("c1/d1/temp", "t", tok()).await;
+    assert_eq!(status(&att), Some(Status::Ok));
+    assert_eq!(st(&s).resource["mode"], json!("t"));
+    let sent = st(&s).seen.iter().filter(|r| r.method == "POST").count();
+    assert_eq!(sent, 3, "307: POST /temp, POST /resource; 301: POST /moved");
+    let att = h.set("c1/d1/done", "d", tok()).await;
+    assert_eq!(status(&att), Some(Status::Ok));
+    assert_eq!(st(&s).resource["mode"], json!("d"));
+    wait("read back", || good(&h, "c1/d1/done", "d".into())).await;
+    h.stop().await;
+}
+
 /// Basic, bearer, and an API key in a header or a query parameter; a
 /// wrong one is "authentication failed" on the device, never with the key.
 #[tokio::test(flavor = "multi_thread")]

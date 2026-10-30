@@ -548,6 +548,18 @@ impl Client {
     /// A request with up to [`MAX_REDIRECTS`] redirects to the same
     /// origin. Any final status is a reply.
     pub async fn request(&mut self, r: &Req) -> Result<Reply, Fail> {
+        self.send(r, false).await
+    }
+
+    /// A write: as [`Client::request`], but a 301 or 302 fails (a client
+    /// may send it on as a GET without the body: the write would not be
+    /// applied), a 303 is the reply (applied; see the result, not
+    /// followed), and 307/308 are followed with the method and the body.
+    pub async fn write(&mut self, r: &Req) -> Result<Reply, Fail> {
+        self.send(r, true).await
+    }
+
+    async fn send(&mut self, r: &Req, write: bool) -> Result<Reply, Fail> {
         let mut method = r.method.clone();
         let mut target = format!("{}{}", self.prep.origin.prefix, r.target);
         if target.is_empty() {
@@ -561,6 +573,18 @@ impl Client {
                 return Ok(reply);
             }
             let what = format!("{method} {}", path_only(&target));
+            if write {
+                match s {
+                    303 => return Ok(reply),
+                    301 | 302 => {
+                        return Err(Fail::Bad(format!(
+                            "{what}: redirected (HTTP {s}); write not applied \
+                             (set write_path to the target)"
+                        )))
+                    }
+                    _ => {}
+                }
+            }
             let Some(loc) = reply
                 .headers
                 .get(hyper::header::LOCATION)

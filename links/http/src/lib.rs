@@ -1531,8 +1531,8 @@ impl Driver for HttpDriver {
             target,
             body: Some(Bytes::from(body)),
         };
-        match t.client.request(&req).await {
-            Ok(r) if r.status.is_success() => Ok(()),
+        match t.client.write(&req).await {
+            Ok(r) if r.status.is_success() || r.status == hyper::StatusCode::SEE_OTHER => Ok(()),
             Ok(r) => Err(DriverError::Point(status_err(
                 &t.client.what(&req),
                 r.status.as_u16(),

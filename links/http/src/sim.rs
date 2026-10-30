@@ -9,6 +9,9 @@
 //! * `GET /api/raw` → [`State::raw`] byte for byte;
 //! * `GET /api/resource` → [`State::resource`]; `PUT`/`POST`/`PATCH` with
 //!   a JSON object merges it in (a writable resource; `400` otherwise);
+//! * `PUT`/`POST`/`PATCH` `/api/moved`, `/api/found`, `/api/temp` →
+//!   `301`, `302`, `307` to `/api/resource` (nothing applied);
+//!   `/api/done` merges like `/api/resource`, then `303` to it;
 //! * `GET /redirect/<n>` → `302` to `/redirect/<n-1>`, `/redirect/0` →
 //!   `302` to `/api/data`; `GET /offsite` → `302` to another host;
 //! * anything else → `404`.
@@ -193,7 +196,11 @@ fn reply(status: u16, body: Json) -> Resp {
 }
 
 fn redirect(to: &str) -> Resp {
-    let mut r = reply(302, json!({}));
+    redirect_with(302, to)
+}
+
+fn redirect_with(code: u16, to: &str) -> Resp {
+    let mut r = reply(code, json!({}));
     if let Ok(v) = hyper::header::HeaderValue::from_str(to) {
         r.headers_mut().insert(hyper::header::LOCATION, v);
     }
@@ -335,6 +342,20 @@ async fn answer(st: &Shared, seen: &Seen, mode: Mode) -> Resp {
                 .is_ok_and(|patch| merge(&mut s.resource, patch));
             if merged {
                 reply(200, s.resource.clone())
+            } else {
+                reply(400, json!({"error": "expected a JSON object"}))
+            }
+        }
+        // writes redirected: 301/302/307 to the resource, applied nowhere;
+        // 303 after the write is applied (post/redirect/get)
+        ("PUT" | "POST" | "PATCH", "/api/moved") => redirect_with(301, "/api/resource"),
+        ("PUT" | "POST" | "PATCH", "/api/found") => redirect_with(302, "/api/resource"),
+        ("PUT" | "POST" | "PATCH", "/api/temp") => redirect_with(307, "/api/resource"),
+        ("PUT" | "POST" | "PATCH", "/api/done") => {
+            let merged = serde_json::from_str::<Json>(&seen.body)
+                .is_ok_and(|patch| merge(&mut s.resource, patch));
+            if merged {
+                redirect_with(303, "/api/resource")
             } else {
                 reply(400, json!({"error": "expected a JSON object"}))
             }
