@@ -1116,3 +1116,207 @@ async fn escaped_numeric_and_key_secrets_are_masked() {
         h.stop().await;
     }
 }
+
+/// `test_selector` replies stay bounded (each value cut at 2 KiB of JSON
+/// text, a string value at 8 KiB); a reply over 1 MiB is not kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_selector_is_bounded() {
+    let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let big = "x".repeat(200 * 1024);
+    st(&s).raw = Some(format!(r#"{{"s": "{big}", "n": 1}}"#));
+    let h = H::start(tree(
+        base(addr.port()),
+        &[],
+        &[(
+            "d1",
+            dev(&[("path", "/raw".into())], map(&[("p", pt("$.n", &[]))])),
+        )],
+    ))
+    .await;
+    wait("polled", || good(&h, "c1/d1/p", Value::Float(1.0))).await;
+    let cfg = Perm::Config;
+    let args = map(&[("path", "$".into()), ("type", "string".into())]);
+    let (r, v, e) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+    assert_eq!(r, Some(Status::Ok), "{e}");
+    assert_eq!(field(&v, "truncated"), &Value::Bool(true));
+    let Value::Array(vs) = field(&v, "values") else {
+        panic!("values")
+    };
+    assert!(matches!(&vs[0], Value::Str(t) if t.len() < 3 * 1024 && t.ends_with('…')));
+    assert!(matches!(field(&v, "value"), Value::Str(t) if t.len() < 9 * 1024));
+    let args = map(&[("path", "$.n".into())]);
+    let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+    assert_eq!(field(&v, "truncated"), &Value::Bool(false));
+    // over 1 MiB: polled, but not kept for test_selector
+    st(&s).raw = Some(format!(r#"{{"s": "{}", "n": 2}}"#, "y".repeat(1536 * 1024)));
+    wait("polled again", || good(&h, "c1/d1/p", Value::Float(2.0))).await;
+    let args = map(&[("path", "$.n".into())]);
+    let (r, _, e) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+    assert_eq!(r, Some(Status::NotAvailable));
+    assert!(e.contains("not kept"), "{e}");
+    h.stop().await;
+}
+
+/// `try_request` on a body that is not JSON: a plain echo is masked; an
+/// echo in a JSON escape (an anti-XSSI prefix makes serde refuse the body)
+/// hides the body whole. A long numeric secret echoed as a JSON number (an
+/// f64 once parsed) is still hidden.
+#[tokio::test(flavor = "multi_thread")]
+async fn bodies_that_are_not_json_are_masked() {
+    let token = "ab/c1-tok";
+    let cases = [
+        (
+            token,
+            r#")]}'{"t": "Bearer ab\/c1-tok"}"#,
+            None,
+            "body hidden",
+        ),
+        (token, "plain ab/c1-tok text", Some("plain *** text"), "***"),
+        (token, "no secret here", Some("no secret here"), "here"),
+        (
+            "1234567890123456789012",
+            r#"{"n": 1234567890123456789012, "m": 7}"#,
+            Some(r#"{"m":7,"n":"***"}"#),
+            "***",
+        ),
+    ];
+    for (token, raw, want, has) in cases {
+        let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        st(&s).raw = Some(raw.to_owned());
+        let h = H::start(tree(
+            base(addr.port()),
+            &[("auth", "bearer".into()), ("token", token.into())],
+            &[(
+                "d1",
+                dev(
+                    &[("path", "/raw".into())],
+                    map(&[("p", pt("$.m", &[("poll_s", Value::Float(60.0))]))]),
+                ),
+            )],
+        ))
+        .await;
+        let (r, v, e) = act(&h, "c1/d1", "try_request", map(&[]), Perm::Config).await;
+        assert_eq!(r, Some(Status::Ok), "{e}");
+        let Value::Str(body) = field(&v, "body") else {
+            panic!("body")
+        };
+        assert!(!body.contains(token) && !body.contains("c1-tok"), "{body}");
+        assert!(!body.contains("23456789012345"), "{body}");
+        assert!(body.contains(has), "{body}");
+        if let Some(w) = want {
+            assert_eq!(body, w);
+        }
+        h.stop().await;
+    }
+}
+
+/// A secret hides only the values that hold it: a reading, a string or a
+/// member name that only contains its characters stays as it is (review
+/// finding 2). A number point equal to the secret fails explicitly.
+#[tokio::test(flavor = "multi_thread")]
+async fn unrelated_values_stay_intact() {
+    let num = |path: &str, extra: &[(&str, Value)]| pt(path, extra);
+    let string = |path: &str| pt(path, &[("type", "string".into())]);
+    let cases = [
+        (
+            "1234",
+            r#"{"power": 51234.5, "big": 12345, "pin": 1234, "pin_s": " 1234 ",
+                "label": "x1234y", "n": [1234, 5]}"#,
+            vec![
+                ("power", num("$.power", &[]), Some(Value::Float(51234.5))),
+                ("big", num("$.big", &[]), Some(Value::Float(12345.0))),
+                ("label", string("$.label"), Some("x***y".into())),
+                (
+                    "cnt",
+                    num("$.n[*]", &[("aggregate", "count".into())]),
+                    Some(Value::Float(2.0)),
+                ),
+                ("pin", num("$.pin", &[]), None),
+                ("pin_s", num("$.pin_s", &[]), None),
+                ("sum", num("$.n[*]", &[("aggregate", "sum".into())]), None),
+            ],
+        ),
+        (
+            "admin",
+            r#"{"adminState": "up", "role": "administrator",
+                "k": {"admin-x": 1, "***-x": 2}}"#,
+            vec![
+                ("st", string("$.adminState"), Some("up".into())),
+                ("role", string("$.role"), Some("***istrator".into())),
+            ],
+        ),
+    ];
+    for (password, raw, points) in cases {
+        let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        {
+            let mut t = st(&s);
+            t.raw = Some(raw.to_owned());
+            t.auth = SimAuth::Basic("u".into(), password.into());
+        }
+        let pts: Vec<(&str, Value)> = points.iter().map(|(n, p, _)| (*n, p.clone())).collect();
+        let h = H::start(tree(
+            base(addr.port()),
+            &[
+                ("auth", "basic".into()),
+                ("username", "u".into()),
+                ("password", password.into()),
+            ],
+            &[("d1", dev(&[("path", "/raw".into())], map(&pts)))],
+        ))
+        .await;
+        for (n, _, want) in &points {
+            let p = format!("c1/d1/{n}");
+            match want {
+                Some(v) => wait(&p, || good(&h, &p, v.clone())).await,
+                None => {
+                    wait(&p, || qual(&h, &p) == Some(Quality::Bad)).await;
+                    assert_eq!(val(&h, &p), Some(Value::Null), "{p}: no value shown");
+                }
+            }
+        }
+        assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+        let sel = |path: &str, ty: Option<&str>| {
+            let mut kv = vec![("path", Value::from(path))];
+            if let Some(t) = ty {
+                kv.push(("type", t.into()));
+            }
+            map(&kv)
+        };
+        let cfg = Perm::Config;
+        let (_, v, _) = act(&h, "c1/d1", "try_request", map(&[]), cfg).await;
+        let body = format!("{:?}", field(&v, "body"));
+        if password == "1234" {
+            assert!(body.contains("51234.5") && body.contains("12345"), "{body}");
+            assert!(!body.contains("5***"), "{body}");
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", sel("$.power", None), cfg).await;
+            assert_eq!(
+                field(&v, "values"),
+                &Value::Array(vec![Value::Float(51234.5)])
+            );
+            let args = sel("$.pin", Some("number"));
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+            let e = format!("{:?}", field(&v, "error"));
+            assert!(e.contains("value hidden"), "{e}");
+            assert!(!format!("{v:?}").contains("1234"), "{v:?}");
+        } else {
+            assert!(
+                body.contains("***State") && !body.contains("admin"),
+                "{body}"
+            );
+            let args = sel("$.adminState", None);
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", args, cfg).await;
+            assert_eq!(field(&v, "values"), &Value::Array(vec!["up".into()]));
+            // two members that mask alike are both shown
+            let (_, v, _) = act(&h, "c1/d1", "test_selector", sel("$.k", None), cfg).await;
+            let Value::Array(vs) = field(&v, "values") else {
+                panic!("values")
+            };
+            let Some(Value::Map(k)) = vs.first() else {
+                panic!("{vs:?}")
+            };
+            assert_eq!(k.len(), 2, "{k:?}");
+            assert!(!format!("{k:?}").contains("admin"), "{k:?}");
+        }
+        h.stop().await;
+    }
+}

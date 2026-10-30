@@ -47,6 +47,7 @@ use hyper::header::{HeaderName, HeaderValue};
 use hyper::Method;
 use select::Selector;
 use serde_json::Value as Json;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -366,6 +367,11 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
     } else {
         None
     };
+    // Longest first: a password inside its own base64 never leaves part of
+    // the base64 readable.
+    masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    masks.dedup();
+    let numbers = masks.iter().filter_map(|m| numeric(m)).collect();
     let note = if origin.tls && p.insecure_skip_verify {
         Some("the server certificate is not checked (insecure_skip_verify)".to_owned())
     } else if creds && !origin.tls && !origin.is_loopback() {
@@ -384,6 +390,7 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
             .unwrap_or(usize::MAX)
             .saturating_mul(1024),
         masks,
+        numbers,
         note,
     })
 }
@@ -971,24 +978,46 @@ fn json_value(j: &Json) -> Value {
 
 /// Last JSON replies kept for `test_selector` (by request).
 const MAX_BODIES: usize = 16;
+/// A reply longer than this is not kept for `test_selector`.
+const KEEP_BODY: usize = 1024 * 1024;
+/// Bound on the bytes of all replies kept on a connection.
+const KEEP_TOTAL: usize = 4 * 1024 * 1024;
+
+/// The last JSON reply to a request, as received (masking applies to what
+/// `test_selector` shows), or only its size when it is over [`KEEP_BODY`].
+struct Kept {
+    key: String,
+    body: Option<Bytes>,
+    len: usize,
+}
 
 /// The open connection: the client and the last replies.
 pub struct Transport {
     client: Client,
-    bodies: VecDeque<(String, Bytes)>,
+    bodies: VecDeque<Kept>,
 }
 
 impl Transport {
-    fn remember(&mut self, key: String, body: Bytes) {
-        self.bodies.retain(|(k, _)| *k != key);
-        if self.bodies.len() >= MAX_BODIES {
+    fn remember(&mut self, key: String, body: &Bytes) {
+        self.bodies.retain(|k| k.key != key);
+        let len = body.len();
+        let body = (len <= KEEP_BODY).then(|| body.clone());
+        let size = body.as_ref().map_or(0, Bytes::len);
+        let kept = |b: &VecDeque<Kept>| -> usize {
+            b.iter()
+                .map(|k| k.body.as_ref().map_or(0, Bytes::len))
+                .sum()
+        };
+        while !self.bodies.is_empty()
+            && (self.bodies.len() >= MAX_BODIES || kept(&self.bodies) + size > KEEP_TOTAL)
+        {
             self.bodies.pop_front();
         }
-        self.bodies.push_back((key, body));
+        self.bodies.push_back(Kept { key, body, len });
     }
 
-    fn last(&self, key: &str) -> Option<&Bytes> {
-        self.bodies.iter().find(|(k, _)| k == key).map(|(_, b)| b)
+    fn last(&self, key: &str) -> Option<&Kept> {
+        self.bodies.iter().find(|k| k.key == key)
     }
 }
 
@@ -1036,59 +1065,210 @@ const SHOW_BODY: usize = 64 * 1024;
 const TRY_MS: u32 = 120_000;
 /// `test_selector`: values shown.
 const SHOW_VALUES: usize = 20;
+/// `test_selector`: a value whose JSON text is longer is shown as that
+/// text, cut (20 values stay far below a 64 KiB frame).
+const SHOW_VALUE: usize = 2 * 1024;
+/// `test_selector`: a converted string `value` longer than this is cut.
+const SHOW_TEXT: usize = 8 * 1024;
 
 /// Headers never shown by `try_request`.
 const HIDDEN_HEADERS: &[&str] = &["set-cookie", "set-cookie2", "authorization"];
 
-fn mask(prep: &Prepared, s: &str) -> String {
-    let mut out = s.to_owned();
-    for m in &prep.masks {
-        out = out.replace(m.as_str(), "***");
+/// What a secret in a shown text becomes.
+const HIDDEN: &str = "***";
+/// A text that still holds a secret once JSON-unescaped is shown as this.
+const HIDDEN_WHOLE: &str = "*** hidden: it holds a connection secret";
+
+/// A mask that is a plain decimal number (`[-+]?\d+(\.\d+)?`): a reading
+/// equal to it as a whole is hidden. (`1e5`, `inf` are not numbers here.)
+fn numeric(m: &str) -> Option<f64> {
+    let d = m.strip_prefix(['-', '+']).unwrap_or(m);
+    let (int, frac) = d.split_once('.').unwrap_or((d, "0"));
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(int) || !digits(frac) {
+        return None;
+    }
+    m.parse::<f64>().ok().filter(|x| x.is_finite())
+}
+
+fn holds_secret(prep: &Prepared, s: &str) -> bool {
+    prep.masks.iter().any(|m| s.contains(m.as_str()))
+}
+
+/// Four hex digits of a JSON unicode escape.
+fn hex4(it: &mut std::str::Chars<'_>) -> Option<u32> {
+    let h: String = it.by_ref().take(4).collect();
+    if h.len() == 4 && h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        u32::from_str_radix(&h, 16).ok()
+    } else {
+        None
+    }
+}
+
+/// `s` with its JSON escapes decoded (slash, backslash, quote, control
+/// letters, unicode escapes with surrogate pairs), to find a secret that
+/// an escape hides. Other backslashes stay as they are.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let rest = it.clone();
+        let decoded = match it.next() {
+            Some('/') => Some('/'),
+            Some('\\') => Some('\\'),
+            Some('"') => Some('"'),
+            Some('b') => Some('\x08'),
+            Some('f') => Some('\x0c'),
+            Some('n') => Some('\n'),
+            Some('r') => Some('\r'),
+            Some('t') => Some('\t'),
+            Some('u') => match hex4(&mut it) {
+                Some(hi @ 0xD800..=0xDBFF) => {
+                    let mut look = it.clone();
+                    let pair = look.next() == Some('\\') && look.next() == Some('u');
+                    match pair.then(|| hex4(&mut look)).flatten() {
+                        Some(lo @ 0xDC00..=0xDFFF) => {
+                            it = look;
+                            char::from_u32(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+                        }
+                        _ => Some(char::REPLACEMENT_CHARACTER),
+                    }
+                }
+                Some(cp) => Some(char::from_u32(cp).unwrap_or(char::REPLACEMENT_CHARACTER)),
+                None => None,
+            },
+            _ => None,
+        };
+        match decoded {
+            Some(d) => out.push(d),
+            None => {
+                out.push('\\');
+                it = rest;
+            }
+        }
     }
     out
 }
 
-fn has_secret(prep: &Prepared, s: &str) -> bool {
-    prep.masks.iter().any(|m| s.contains(m.as_str()))
+/// `s` as a user sees it: every secret in it (longest first) replaced by
+/// `***`; a text that still holds one once JSON-unescaped (an escaped
+/// echo in a body that is not JSON, or JSON inside a string) is hidden
+/// whole. Borrowed when nothing is masked.
+fn shown<'a>(prep: &Prepared, s: &'a str) -> Cow<'a, str> {
+    if prep.masks.is_empty() {
+        return Cow::Borrowed(s);
+    }
+    let mut out = Cow::Borrowed(s);
+    for m in &prep.masks {
+        if out.contains(m.as_str()) {
+            out = Cow::Owned(out.replace(m.as_str(), HIDDEN));
+        }
+    }
+    if out.contains('\\') && holds_secret(prep, &unescape(&out)) {
+        return Cow::Owned(HIDDEN_WHOLE.to_owned());
+    }
+    out
 }
 
-/// Mask the link's secrets in every string, number and member name of `j`
-/// (after JSON unescaping, so `\/` or `\u0031` cannot hide one): a
-/// server that echoes a credential never shows it in a point, an action
-/// reply or the kept reply (depth is bounded by `serde_json`'s 128).
+/// A JSON number, or a numeric text, equal as a whole to a numeric secret
+/// (a PIN, a numeric key). `51234.5` never equals the secret `1234`.
+fn secret_number(prep: &Prepared, j: &Json) -> bool {
+    if prep.numbers.is_empty() {
+        return false;
+    }
+    let x = match j {
+        Json::Number(n) => n.as_f64(),
+        Json::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    x.is_some_and(|x| prep.numbers.contains(&x))
+}
+
+/// Mask `j` for showing: every string and member name as [`shown`], every
+/// number equal to a numeric secret as the string `***`. Two member names
+/// that mask alike are both kept (`***#2`). Runs on what is shown only
+/// (a point's value, an action reply), never before a selector, so a
+/// reading or a name that only contains a secret's characters is selected
+/// as it is. Depth is bounded by `serde_json`'s 128.
 fn mask_json(prep: &Prepared, j: &mut Json) {
+    if prep.masks.is_empty() {
+        return;
+    }
     match j {
-        Json::String(s) if has_secret(prep, s) => *s = mask(prep, s),
-        // A numeric secret (a PIN, a numeric key) echoed as a number.
-        Json::Number(n) if has_secret(prep, &n.to_string()) => {
-            *j = Json::String(mask(prep, &n.to_string()));
+        Json::String(s) => {
+            if let Cow::Owned(m) = shown(prep, s) {
+                *s = m;
+            }
+        }
+        Json::Number(_) => {
+            if secret_number(prep, j) {
+                *j = Json::String(HIDDEN.to_owned());
+            }
         }
         Json::Array(a) => a.iter_mut().for_each(|v| mask_json(prep, v)),
-        Json::Object(o) if o.keys().any(|k| has_secret(prep, k)) => {
+        Json::Object(o) => {
             let old = std::mem::take(o);
-            *o = old
-                .into_iter()
-                .map(|(k, mut v)| {
-                    mask_json(prep, &mut v);
-                    (mask(prep, &k), v)
-                })
-                .collect();
+            for (k, mut v) in old {
+                mask_json(prep, &mut v);
+                let k = shown(prep, &k).into_owned();
+                let mut key = k.clone();
+                let mut n = 2;
+                while o.contains_key(&key) {
+                    key = format!("{k}#{n}");
+                    n += 1;
+                }
+                o.insert(key, v);
+            }
         }
-        Json::Object(o) => o.values_mut().for_each(|v| mask_json(prep, v)),
         _ => {}
     }
 }
 
-/// Parse a reply as JSON with the secrets masked, and the bytes to keep
-/// for `test_selector` (masked too).
-fn masked_json(prep: &Prepared, body: &Bytes) -> Option<(Json, Bytes)> {
-    let mut json: Json = serde_json::from_slice(body).ok()?;
+/// The value of a point (or of `test_selector`) from the matches in the
+/// unmasked reply, as a user sees it: a number equal to a numeric secret
+/// fails ("value hidden"); a string is masked ([`mask_json`] on the
+/// matches, so an object shown as text is masked inside). A count or a
+/// bool shows no secret.
+fn shown_value(prep: &Prepared, conv: &Conv<'_>, found: &[&Json]) -> Result<Value, String> {
     if prep.masks.is_empty() {
-        return Some((json, body.clone()));
+        return conv.eval(found);
     }
-    mask_json(prep, &mut json);
-    let kept = Bytes::from(serde_json::to_vec(&json).ok()?);
-    Some((json, kept))
+    match conv.vtype {
+        ValueType::Number if conv.aggregate != Aggregate::Count => {
+            if found.iter().any(|j| secret_number(prep, j)) {
+                return Err(format!(
+                    "{}: value hidden: it holds a connection secret",
+                    conv.path
+                ));
+            }
+            conv.eval(found)
+        }
+        ValueType::String => {
+            let masked: Vec<Json> = found
+                .iter()
+                .map(|j| {
+                    let mut c = (*j).clone();
+                    mask_json(prep, &mut c);
+                    c
+                })
+                .collect();
+            conv.eval(&masked.iter().collect::<Vec<_>>())
+        }
+        _ => conv.eval(found),
+    }
+}
+
+/// `s` cut to at most `n` bytes at a char boundary; `true` when cut.
+fn cut(s: &str, n: usize) -> (&str, bool) {
+    let mut at = s.len().min(n);
+    while !s.is_char_boundary(at) {
+        at -= 1;
+    }
+    (&s[..at], at < s.len())
 }
 
 async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
@@ -1118,26 +1298,30 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     }
     let headers = headers
         .into_iter()
-        .map(|(k, v)| (k, Value::Str(mask(&prep, &v))))
+        .map(|(k, v)| (k, Value::Str(shown(&prep, &v).into_owned())))
         .collect();
-    // A JSON reply is shown as its masked JSON (escapes cannot hide a
-    // secret from the mask); any other body as its masked text. Masked
-    // whole before the cut: a cut never splits a secret.
-    let masked = masked_json(&prep, &reply.body);
-    let text = match &masked {
-        Some((json, _)) if !prep.masks.is_empty() => {
-            serde_json::to_string(json).unwrap_or_default()
+    // A JSON reply is shown as its masked JSON (parsed, so an escape cannot
+    // hide a secret); any other body as its masked text, hidden whole when
+    // it still holds a secret once JSON-unescaped. Masked whole before the
+    // cut: a cut never splits a secret.
+    let parsed = serde_json::from_slice::<Json>(&reply.body).ok();
+    let is_json = parsed.is_some();
+    let text = match parsed {
+        Some(mut json) if !prep.masks.is_empty() => {
+            mask_json(&prep, &mut json);
+            serde_json::to_string(&json).unwrap_or_default()
         }
-        _ => mask(&prep, &String::from_utf8_lossy(&reply.body)),
+        _ => match shown(&prep, &String::from_utf8_lossy(&reply.body)) {
+            Cow::Owned(s) if s == HIDDEN_WHOLE => {
+                "*** body hidden: it holds a connection secret".to_owned()
+            }
+            s => s.into_owned(),
+        },
     };
-    let mut cut = text.len().min(SHOW_BODY);
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    let truncated = cut < text.len();
-    let body = text[..cut].to_owned();
-    if let Some((_, kept)) = masked {
-        t.remember(dev.req.key(), kept);
+    let (body, truncated) = cut(&text, SHOW_BODY);
+    let body = body.to_owned();
+    if is_json {
+        t.remember(dev.req.key(), &reply.body);
     }
     Ok(Value::Map(BTreeMap::from([
         ("status".into(), Value::UInt(reply.status.as_u16().into())),
@@ -1177,30 +1361,50 @@ fn test_selector(
     let sel = Selector::parse(&path).map_err(|e| bad("path", e))?;
     let vtype: Option<ValueType> = arg_enum(args, "type")?;
     let aggregate: Aggregate = arg_enum(args, "aggregate")?.unwrap_or(Aggregate::None);
-    let body = t.last(&dev.req.key()).ok_or_else(|| {
+    let kept = t.last(&dev.req.key()).ok_or_else(|| {
         LinkError::new(
             Status::NotAvailable,
             "no JSON reply to this device's request yet: wait for a poll or run try_request",
         )
     })?;
+    let body = kept.body.as_ref().ok_or_else(|| {
+        LinkError::new(
+            Status::NotAvailable,
+            format!(
+                "the last reply ({} bytes) is over {} KiB and is not kept",
+                kept.len,
+                KEEP_BODY / 1024
+            ),
+        )
+    })?;
     let json: Json = serde_json::from_slice(body)
         .map_err(|_| LinkError::new(Status::NotAvailable, "the last reply is not JSON"))?;
+    // Selected from the reply as received; what is shown is masked.
+    let prep = &t.client.prep;
     let found = sel.select(&json);
+    let mut truncated = found.len() > SHOW_VALUES;
+    let values = found
+        .iter()
+        .take(SHOW_VALUES)
+        .map(|j| {
+            let mut c = (*j).clone();
+            mask_json(prep, &mut c);
+            let text = serde_json::to_string(&c).unwrap_or_default();
+            if text.len() <= SHOW_VALUE {
+                json_value(&c)
+            } else {
+                // Shown as its JSON text, cut: the reply stays bounded.
+                truncated = true;
+                Value::Str(format!("{}…", cut(&text, SHOW_VALUE).0))
+            }
+        })
+        .collect();
     let mut out = BTreeMap::from([
         (
             "count".into(),
             Value::UInt(u64::try_from(found.len()).unwrap_or(u64::MAX)),
         ),
-        (
-            "values".into(),
-            Value::Array(
-                found
-                    .iter()
-                    .take(SHOW_VALUES)
-                    .map(|j| json_value(j))
-                    .collect(),
-            ),
-        ),
+        ("values".into(), Value::Array(values)),
     ]);
     if let Some(vtype) = vtype {
         let conv = Conv {
@@ -1212,11 +1416,19 @@ fn test_selector(
             bool_true: "",
             bool_false: "",
         };
-        match conv.eval(&found) {
+        match shown_value(prep, &conv, &found) {
+            Ok(Value::Str(s)) if s.len() > SHOW_TEXT => {
+                truncated = true;
+                out.insert(
+                    "value".into(),
+                    Value::Str(format!("{}…", cut(&s, SHOW_TEXT).0)),
+                )
+            }
             Ok(v) => out.insert("value".into(), v),
             Err(e) => out.insert("error".into(), Value::Str(e)),
         };
     }
+    out.insert("truncated".into(), Value::Bool(truncated));
     Ok(Value::Map(out))
 }
 
@@ -1276,22 +1488,21 @@ impl Driver for HttpDriver {
         if !expected(&plan.expect, code) {
             return all(DriverError::Device(status_err(&what, code)));
         }
-        let prep = t.client.prep.clone();
-        let Some((json, kept)) = masked_json(&prep, &reply.body) else {
+        let Ok(json) = serde_json::from_slice::<Json>(&reply.body) else {
             return all(DriverError::Device(format!("{what}: reply is not JSON")));
         };
+        // Selected from the reply as received; each value masked as shown.
+        let prep = t.client.prep.clone();
         let out = plan
             .points
             .iter()
             .map(|(id, p)| {
                 let found = p.sel.select(&json);
-                (
-                    id.clone(),
-                    p.conv().eval(&found).map_err(DriverError::Point),
-                )
+                let v = shown_value(&prep, &p.conv(), &found);
+                (id.clone(), v.map_err(DriverError::Point))
             })
             .collect();
-        t.remember(plan.req.key(), kept);
+        t.remember(plan.req.key(), &reply.body);
         out
     }
 
@@ -1625,6 +1836,57 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(p.body(&Value::Str("a\"b".into())).unwrap(), b"\"a\\\"b\"");
+    }
+
+    #[test]
+    fn masking_helpers() {
+        let (b, u) = ('\\', 'u');
+        let esc =
+            format!("a{b}/b{b}{b}c{b}\"d{b}n{b}{u}0041{b}{u}d83d{b}{u}de00{b}{u}d800z{b}x{b}");
+        assert_eq!(
+            unescape(&esc),
+            format!(
+                "a/b{b}c\"d\nA\u{1F600}{}z{b}x{b}",
+                char::REPLACEMENT_CHARACTER
+            )
+        );
+        assert_eq!(unescape(&format!("{b}{u}12")), format!("{b}{u}12"));
+        for (m, want) in [
+            ("1234", Some(1234.0)),
+            ("-12.5", Some(-12.5)),
+            ("+7", Some(7.0)),
+            ("1e5", None),
+            ("inf", None),
+            ("NaN", None),
+            ("1.", None),
+            (".5", None),
+            ("12a", None),
+        ] {
+            assert_eq!(numeric(m), want, "{m}");
+        }
+        // masks longest first, numbers found
+        let c = Conn::from_value(&m(&[
+            ("base_url", "http://127.0.0.1".into()),
+            ("auth", "basic".into()),
+            ("username", "u".into()),
+            ("password", "1234".into()),
+        ]))
+        .unwrap();
+        assert_eq!(c.prep.masks, vec!["dToxMjM0".to_owned(), "1234".to_owned()]);
+        assert_eq!(c.prep.numbers, vec![1234.0]);
+        let prep = &c.prep;
+        assert_eq!(shown(prep, "x1234y"), "x***y");
+        assert_eq!(
+            shown(prep, "51234.5"),
+            "5***.5",
+            "a text masks by substring"
+        );
+        assert!(!secret_number(prep, &json!(51234.5)));
+        assert!(secret_number(prep, &json!(1234)));
+        assert!(secret_number(prep, &json!(" 1234.0 ")));
+        let mut j = json!({"a1234": 51234.5, "b": 1234, "a***": 0});
+        mask_json(prep, &mut j);
+        assert_eq!(j, json!({"a***": 0, "a***#2": 51234.5, "b": "***"}));
     }
 
     fn dev(kv: &[(&str, Value)]) -> wyrm_link_sdk::Result<Dev> {

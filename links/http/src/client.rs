@@ -196,9 +196,12 @@ pub struct Prepared {
     /// Least time between two requests (the rate limit).
     pub interval: Duration,
     pub max_body: usize,
-    /// Secret texts (and their encodings) that are masked in replies shown
-    /// by `try_request`.
+    /// Secret texts (and their encodings), longest first: masked in what a
+    /// user is shown of a reply (point values, action replies).
     pub masks: Vec<String>,
+    /// The masks that are plain decimal numbers: a reading equal to one is
+    /// hidden.
+    pub numbers: Vec<f64>,
     /// Shown as the connection's warning while it runs.
     pub note: Option<String>,
 }
@@ -689,6 +692,7 @@ mod tests {
                 interval: Duration::ZERO,
                 max_body: 1024,
                 masks: Vec::new(),
+                numbers: Vec::new(),
                 note: None,
             }),
             live: None,
