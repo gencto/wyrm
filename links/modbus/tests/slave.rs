@@ -988,3 +988,61 @@ async fn listen_port_0_is_refused() {
     assert_eq!(state(&h, "s1").as_deref(), Some("connected"));
     h.stop().await;
 }
+
+/// Security review (M9 follow-up): a master that sends no complete request
+/// for `master_idle_s` is closed and frees its place, so 16 idle sockets do
+/// not lock real masters out; a master that keeps asking stays connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_masters_are_closed() {
+    use tokio::io::AsyncReadExt;
+    let port = free_port();
+    let dev = map(&[
+        ("unit", Value::UInt(1)),
+        ("points", map(&[("v", pt("holding", 0, "u16", &[]))])),
+    ]);
+    let conn = map(&[
+        ("kind", "ip_slave".into()),
+        ("listen_port", Value::UInt(port.into())),
+        ("master_idle_s", Value::UInt(1)),
+        ("devices", map(&[("d1", dev)])),
+    ]);
+    let h = H::start(Tree(map(&[("connections", map(&[("s1", conn)]))]))).await;
+    wait("slave listening", || {
+        state(&h, "s1").as_deref() == Some("connected")
+    })
+    .await;
+    assert_eq!(set(&h, "v", 9u64).await, Some(Status::Ok));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    // A master that asks every 300 ms is served all along.
+    let mut busy = master(port, 1).await;
+    // 16 sockets that never send a request fill every place.
+    let mut idle = Vec::new();
+    for _ in 0..16 {
+        idle.push(tokio::net::TcpStream::connect(addr).await.unwrap());
+    }
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(2500) {
+        let r = tokio::time::timeout(Duration::from_secs(1), busy.read_holding_registers(0, 1));
+        assert_eq!(
+            r.await.ok().and_then(Result::ok),
+            Some(Ok(vec![9])),
+            "an active master after {:?}",
+            start.elapsed()
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    // The idle ones were closed after about 1 s ...
+    let mut closed = 0;
+    for s in &mut idle {
+        let mut buf = [0u8; 8];
+        let r = tokio::time::timeout(Duration::from_secs(1), s.read(&mut buf)).await;
+        if matches!(r, Ok(Ok(0)) | Ok(Err(_))) {
+            closed += 1;
+        }
+    }
+    // ... (15 of them: the active master took the 16th place first)
+    assert!(closed >= 15, "{closed} idle masters closed");
+    // ... and new masters are served.
+    assert_eq!(read_when_up(port, 0, 1).await, vec![9]);
+    h.stop().await;
+}

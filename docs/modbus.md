@@ -111,6 +111,7 @@ edit changes nothing.
 |---|---|---|---|---|
 | `listen_host` | Listen Host | `127.0.0.1` | | `ip_slave`: every address the name resolves to (section 13) |
 | `listen_port` | Listen Port | 502 | 1…65535 | `ip_slave`; 502 needs privileges on Linux; 0 is refused (the system would pick a port no master can know) |
+| `master_idle_s` | Master Idle Timeout (s) | 60 | 1…86400 | `ip_slave`: a master that sends no complete request for this long is closed (section 13) |
 | `serial_port`, `baud_rate`, `data_bits`, `stop_bits`, `parity` | | as the serial connection | | `serial_slave` |
 
 ### Device
@@ -565,6 +566,11 @@ served coils, discrete inputs, input or holding registers of its unit
   its addresses together). A 17th master is closed as soon as it
   connects; it is served once another master disconnects. The request
   queue (64) bounds requests, this bounds sockets.
+- **An idle master is closed** after `master_idle_s` (60 s by default)
+  without a complete request, and its place is free again: idle or
+  half-sent connections cannot hold all 16 places. A master that polls
+  less often than that reconnects for each poll; raise `master_idle_s`
+  for it. There is no limit per source address.
 - `ip_slave` listens on every address the host name resolves to
   (`localhost`: `::1` and `127.0.0.1`). An address the host lacks, or an
   address family it lacks (IPv6 turned off), is left out; no address left

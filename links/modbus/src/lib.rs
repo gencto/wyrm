@@ -233,7 +233,9 @@ pub struct SerialConn {
 /// address the host name resolves to).
 /// Another address than loopback is allowed (logged at warn and shown on
 /// the connection's `status`): Modbus has no authentication. At most 16
-/// masters are served at once; another is closed as soon as it connects.
+/// masters are served at once; another is closed as soon as it connects,
+/// and a master that sends no complete request for `master_idle_s` is
+/// closed, so idle sockets do not lock the others out.
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct IpSlaveConn {
     #[param(default = "127.0.0.1", display = "Listen Host", dest)]
@@ -241,6 +243,13 @@ pub struct IpSlaveConn {
     /// Not 0: a port the system picks is one no master can know.
     #[param(default = 502, min = 1, display = "Listen Port", dest)]
     pub listen_port: u16,
+    #[param(
+        default = 60,
+        min = 1,
+        max = 86400,
+        display = "Master Idle Timeout (s)"
+    )]
+    pub master_idle_s: u32,
 }
 
 /// A Modbus RTU slave on a serial port.

@@ -100,6 +100,74 @@ struct Front {
     /// A TCP master's place among [`MAX_MASTERS`], held while its
     /// connection is served (the service lives as long as it).
     _place: Option<Arc<OwnedSemaphorePermit>>,
+    /// When the TCP master's last complete request came ([`Idle`]).
+    last: Option<Arc<std::sync::Mutex<Instant>>>,
+}
+
+/// A TCP master's socket that ends (reads as closed) once the master sent
+/// no complete request for `idle`: an idle master does not hold one of the
+/// [`MAX_MASTERS`] places for ever (security review). Bytes alone do not
+/// count, so a master that trickles a partial frame is closed too.
+struct Idle {
+    stream: tokio::net::TcpStream,
+    last: Arc<std::sync::Mutex<Instant>>,
+    idle: Duration,
+    timer: Pin<Box<tokio::time::Sleep>>,
+}
+
+impl Idle {
+    fn new(stream: tokio::net::TcpStream, idle: Duration) -> Self {
+        let now = Instant::now();
+        Idle {
+            stream,
+            last: Arc::new(std::sync::Mutex::new(now)),
+            idle,
+            timer: Box::pin(tokio::time::sleep_until(now + idle)),
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for Idle {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        while self.timer.as_mut().poll(cx).is_ready() {
+            let due = *self.last.lock().unwrap_or_else(|e| e.into_inner()) + self.idle;
+            if Instant::now() >= due {
+                debug!("master closed: idle for {:?}", self.idle);
+                // End of stream: the request loop ends, the place is freed.
+                return std::task::Poll::Ready(Ok(()));
+            }
+            self.timer.as_mut().reset(due);
+        }
+        Pin::new(&mut self.stream).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for Idle {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.stream).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(cx)
+    }
 }
 
 impl Service for Front {
@@ -109,6 +177,9 @@ impl Service for Front {
     type Future = Pin<Box<dyn Future<Output = Answer> + Send>>;
 
     fn call(&self, req: SlaveRequest<'static>) -> Self::Future {
+        if let Some(last) = &self.last {
+            *last.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        }
         let (tx, rtu) = (self.tx.clone(), self.rtu);
         Box::pin(async move {
             // Busy: an exception on TCP; silence on RTU, where the unit may
@@ -262,13 +333,21 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
                 tx: tx.clone(),
                 rtu: false,
                 _place: None,
+                last: None,
             };
             let masters = Arc::new(Semaphore::new(MAX_MASTERS));
+            let idle = Duration::from_secs(c.master_idle_s.into());
             let task = tokio::spawn(async move {
                 // Dropped (the task aborted): every listener's task ends.
                 let mut set = tokio::task::JoinSet::new();
                 for l in listeners {
-                    set.spawn(serve_tcp(l, front.clone(), masters.clone(), tx.clone()));
+                    set.spawn(serve_tcp(
+                        l,
+                        front.clone(),
+                        masters.clone(),
+                        idle,
+                        tx.clone(),
+                    ));
                 }
                 while set.join_next().await.is_some() {}
             });
@@ -327,11 +406,12 @@ async fn bind(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
 }
 
 /// Serve the masters of one listener; `masters` holds the places of the
-/// whole connection ([`MAX_MASTERS`]).
+/// whole connection ([`MAX_MASTERS`]); a master idle for `idle` is closed.
 async fn serve_tcp(
     listener: tokio::net::TcpListener,
     front: Front,
     masters: Arc<Semaphore>,
+    idle: Duration,
     down: mpsc::Sender<Msg>,
 ) {
     use tokio_modbus::server::tcp::Server;
@@ -344,8 +424,10 @@ async fn serve_tcp(
                 debug!(%addr, "master refused: {MAX_MASTERS} masters connected");
                 return Ok(None);
             };
+            let stream = Idle::new(stream, idle);
             let front = Front {
                 _place: Some(Arc::new(place)),
+                last: Some(stream.last.clone()),
                 ..front
             };
             Ok(Some((front, stream)))
@@ -404,6 +486,7 @@ impl Slave {
             tx: tx.clone(),
             rtu: true,
             _place: None,
+            last: None,
         };
         let task = tokio::spawn(serve_rtu(stream, front, tx));
         Slave::new(rx, task, true, None)
