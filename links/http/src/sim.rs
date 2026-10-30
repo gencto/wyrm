@@ -260,10 +260,12 @@ async fn handle(st: Shared, req: Request<Incoming>) -> Result<Resp, std::convert
         s.seen.push(seen.clone());
         (s.slow_ms, s.close, s.mode.clone())
     };
+    // The reply is made when the request arrives, then held back: a late
+    // reply carries the data of its own time, so a test can tell it apart.
+    let mut r = answer(&st, &seen, mode).await;
     if slow > 0 {
         tokio::time::sleep(Duration::from_millis(slow)).await;
     }
-    let mut r = answer(&st, &seen, mode).await;
     if close {
         r.headers_mut().insert(
             hyper::header::CONNECTION,
