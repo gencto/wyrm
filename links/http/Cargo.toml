@@ -1,0 +1,57 @@
+[package]
+name = "wyrm-link-http"
+description = "WYRM HTTP/REST JSON poller on the driver framework (ADR 0004)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process HTTP JSON server for tests and demos.
+sim = ["hyper/server"]
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-http-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-http"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+# HTTP/1.1 client as links/agent: hyper over tokio-rustls (ring provider).
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+bytes.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+# System CA roots when ca_pem is empty (Apache-2.0 OR ISC OR MIT).
+rustls-native-certs.workspace = true
+base64.workspace = true
+# Replies are JSON (device data, not the wire codec).
+serde_json.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-http = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+rcgen.workspace = true
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "http"
+description = "HTTP/REST JSON APIs: one request per device, JSONPath selectors as points, JSON writes"
+bin = "wyrm-link-http"
+features = ["process"]
