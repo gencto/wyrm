@@ -181,6 +181,56 @@ pub fn identity_allowed(identity: Identity, mode: Mode, url: &str) -> Result<(),
     ))
 }
 
+/// How a user identity travels on the chosen endpoint: the token policy
+/// the library will use (`find_policy`, the first of that token type) must
+/// protect it. On a `sign` channel the channel does not encrypt, so the
+/// token policy does: empty means the channel's policy encrypts the
+/// password (OPC UA Part 4, 7.41) and is taken, as are the strong
+/// policies; None (a password in clear text, an X.509 token without a
+/// signature) and deprecated or unknown policies are refused before
+/// ActivateSession. `sign_and_encrypt` and loopback are not limited.
+///
+/// The token policy comes from GetEndpoints (the library uses that
+/// endpoint description and offers no hook between CreateSession and
+/// ActivateSession). Whatever a man in the middle writes there, the result
+/// is a refusal or a password encrypted with a strong policy to the server
+/// certificate that CreateSession checked.
+pub fn token_policy_allowed(
+    identity: Identity,
+    mode: Mode,
+    url: &str,
+    ep: &EndpointDescription,
+) -> Result<(), String> {
+    let (ty, name) = match identity {
+        Identity::Anonymous => return Ok(()),
+        Identity::Username => (UserTokenType::UserName, "username"),
+        Identity::Certificate => (UserTokenType::Certificate, "certificate"),
+    };
+    let Some(policy) = ep.find_policy(ty) else {
+        return Err(format!("the endpoint has no {name} user token"));
+    };
+    if mode != Mode::Sign || is_loopback(url) {
+        return Ok(());
+    }
+    let uri = policy.security_policy_uri.as_ref();
+    if uri.is_empty() {
+        return Ok(());
+    }
+    match SecurityPolicy::from_uri(uri) {
+        SecurityPolicy::Basic256Sha256
+        | SecurityPolicy::Aes128Sha256RsaOaep
+        | SecurityPolicy::Aes256Sha256RsaPss => Ok(()),
+        SecurityPolicy::None => Err(format!(
+            "the server's {name} token policy has security policy None: on a sign-only \
+             channel the token would travel unprotected; use security mode sign_and_encrypt"
+        )),
+        _ => Err(format!(
+            "the server's {name} token policy {uri} is deprecated or unknown; use security \
+             mode sign_and_encrypt"
+        )),
+    }
+}
+
 fn policy_of(p: Policy) -> SecurityPolicy {
     match p {
         Policy::None => SecurityPolicy::None,
@@ -367,6 +417,7 @@ impl Transport {
                 ))
             })?;
         ep.endpoint_url = p.endpoint.as_str().into();
+        token_policy_allowed(p.identity, p.security_mode, &p.endpoint, &ep).map_err(transport)?;
         // The certificate the server will present (CreateSession checks it
         // is the same), for the advice when the open fails.
         let server_cert = X509::from_byte_string(&ep.server_certificate).ok();
@@ -957,6 +1008,106 @@ pub fn pki_root(data_dir: &std::path::Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opcua::types::UserTokenPolicy;
+
+    fn endpoint_with(ty: UserTokenType, uri: &str) -> EndpointDescription {
+        EndpointDescription {
+            user_identity_tokens: Some(vec![UserTokenPolicy {
+                policy_id: "p".into(),
+                token_type: ty,
+                security_policy_uri: uri.into(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }
+    }
+
+    /// On a sign-only channel to another host, the token policy decides how
+    /// a password travels: None (clear text) and deprecated or unknown
+    /// policies are refused before ActivateSession; empty means the
+    /// channel's policy encrypts it (Part 4, 7.41), and the strong policies
+    /// are taken.
+    #[test]
+    fn token_policies_on_a_sign_only_channel() {
+        let remote = "opc.tcp://plc1:4840/";
+        let none = SecurityPolicy::None.to_uri();
+        let b256 = SecurityPolicy::Basic256Sha256.to_uri();
+        let b128 = SecurityPolicy::Basic128Rsa15.to_uri();
+        for ty in [UserTokenType::UserName, UserTokenType::Certificate] {
+            let id = if ty == UserTokenType::UserName {
+                Identity::Username
+            } else {
+                Identity::Certificate
+            };
+            let check =
+                |mode, url, uri: &str| token_policy_allowed(id, mode, url, &endpoint_with(ty, uri));
+            assert!(check(Mode::Sign, remote, none).is_err(), "{ty:?} None");
+            assert!(
+                check(Mode::Sign, remote, b128).is_err(),
+                "{ty:?} deprecated"
+            );
+            assert!(
+                check(Mode::Sign, remote, "urn:nonsense").is_err(),
+                "{ty:?} unknown"
+            );
+            assert!(
+                check(Mode::Sign, remote, "").is_ok(),
+                "{ty:?} channel policy"
+            );
+            assert!(check(Mode::Sign, remote, b256).is_ok(), "{ty:?} strong");
+            // the channel encrypts everything; loopback is exempt
+            assert!(check(Mode::SignAndEncrypt, remote, none).is_ok());
+            assert!(check(Mode::Sign, "opc.tcp://127.0.0.1:4840/", none).is_ok());
+        }
+        // no token of that type: refused here with a clear text
+        let anon = endpoint_with(UserTokenType::Anonymous, "");
+        assert!(token_policy_allowed(Identity::Username, Mode::Sign, remote, &anon).is_err());
+        assert!(token_policy_allowed(Identity::Anonymous, Mode::Sign, remote, &anon).is_ok());
+    }
+
+    /// What the rule above relies on: on a sign-only channel the library
+    /// refuses a None token policy and encrypts with the channel's policy
+    /// when the token policy is empty, so a password never travels in
+    /// clear text there.
+    #[test]
+    fn the_library_encrypts_a_password_on_a_sign_only_channel() {
+        let (cert, _key) = X509::cert_and_pkey(&opcua::crypto::X509Data {
+            key_size: 2048,
+            common_name: "srv".into(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            country: String::new(),
+            state: String::new(),
+            alt_host_names: opcua::crypto::X509Data::alt_host_names(
+                "urn:srv", None, false, false, false,
+            ),
+            certificate_duration_days: 1,
+        })
+        .unwrap();
+        let cert = Some(cert);
+        let nonce = [7u8; 32];
+        let policy = |uri: &str| UserTokenPolicy {
+            policy_id: "p".into(),
+            token_type: UserTokenType::UserName,
+            security_policy_uri: uri.into(),
+            ..Default::default()
+        };
+        let enc = |uri: &str| {
+            opcua::crypto::legacy_encrypt_secret(
+                SecurityPolicy::Basic256Sha256,
+                MessageSecurityMode::Sign,
+                &policy(uri),
+                &nonce,
+                &cert,
+                b"pw-secret",
+            )
+        };
+        assert!(enc(SecurityPolicy::None.to_uri()).is_err());
+        let e = enc("").unwrap();
+        assert!(!e.encryption_algorithm.is_empty());
+        let secret = e.secret.value.clone().unwrap_or_default();
+        assert!(!secret.windows(9).any(|w| w == b"pw-secret"));
+    }
 
     #[test]
     fn hosts() {
