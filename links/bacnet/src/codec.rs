@@ -167,21 +167,22 @@ fn put_header(out: &mut Vec<u8>, number: u8, context: bool, lvt: usize) {
     } else {
         (0xF0, Some(number))
     };
-    if lvt <= 4 {
-        out.push(first_num | class | lvt as u8);
+    if let Ok(small @ 0..=4) = u8::try_from(lvt) {
+        out.push(first_num | class | small);
         out.extend(ext_num);
+        return;
+    }
+    out.push(first_num | class | 5);
+    out.extend(ext_num);
+    if let Ok(len @ 5..=253) = u8::try_from(lvt) {
+        out.push(len);
+    } else if let Ok(len) = u16::try_from(lvt) {
+        out.push(254);
+        out.extend_from_slice(&len.to_be_bytes());
     } else {
-        out.push(first_num | class | 5);
-        out.extend(ext_num);
-        if lvt <= 253 {
-            out.push(lvt as u8);
-        } else if lvt <= 0xFFFF {
-            out.push(254);
-            out.extend_from_slice(&(lvt as u16).to_be_bytes());
-        } else {
-            out.push(255);
-            out.extend_from_slice(&(lvt as u32).to_be_bytes());
-        }
+        out.push(255);
+        let len = u32::try_from(lvt).unwrap_or(u32::MAX);
+        out.extend_from_slice(&len.to_be_bytes());
     }
 }
 
@@ -240,7 +241,8 @@ pub fn encode_app(out: &mut Vec<u8>, v: &AppValue) {
         }
         AppValue::BitString(bits) => {
             let bytes = bits.len().div_ceil(8);
-            let unused = (bytes * 8 - bits.len()) as u8;
+            // 0…7 by construction
+            let unused = u8::try_from(bytes * 8 - bits.len()).unwrap_or(0);
             put_header(out, tag::BIT_STRING, false, bytes + 1);
             out.push(unused);
             for chunk in bits.chunks(8) {
@@ -777,10 +779,17 @@ pub fn npdu_header(out: &mut Vec<u8>, dest: Option<&NetAddr>, expecting_reply: b
     out.extend_from_slice(&[0x01, control]);
     if let Some(d) = dest {
         out.extend_from_slice(&d.net.to_be_bytes());
-        out.push(d.mac.len() as u8);
-        out.extend_from_slice(&d.mac);
+        put_mac(out, &d.mac);
         out.push(0xFF); // hop count
     }
+}
+
+/// A MAC address with its one-octet length (at most 255 octets: a MAC
+/// from the wire or from `mac` params, 1–7, always fits).
+fn put_mac(out: &mut Vec<u8>, mac: &[u8]) {
+    let mac = &mac[..mac.len().min(255)];
+    out.push(u8::try_from(mac.len()).unwrap_or(u8::MAX));
+    out.extend_from_slice(mac);
 }
 
 /// NPDU with a source network (what a router puts on a reply; the
@@ -788,8 +797,7 @@ pub fn npdu_header(out: &mut Vec<u8>, dest: Option<&NetAddr>, expecting_reply: b
 pub fn npdu_header_from(out: &mut Vec<u8>, source: &NetAddr) {
     out.extend_from_slice(&[0x01, 0x08]);
     out.extend_from_slice(&source.net.to_be_bytes());
-    out.push(source.mac.len() as u8);
-    out.extend_from_slice(&source.mac);
+    put_mac(out, &source.mac);
 }
 
 pub fn parse_npdu(b: &[u8]) -> Result<Npdu<'_>> {
@@ -854,7 +862,9 @@ const APDU_SIZES: [u16; 6] = [50, 128, 206, 480, 1024, 1476];
 
 /// The largest size code that fits `max` octets.
 pub fn max_apdu_code(max: u16) -> u8 {
-    APDU_SIZES.iter().rposition(|s| *s <= max).unwrap_or(0) as u8
+    // an index of the six sizes
+    let code = APDU_SIZES.iter().rposition(|s| *s <= max).unwrap_or(0);
+    u8::try_from(code).unwrap_or(0)
 }
 
 pub fn apdu_size(code: u8) -> u16 {
@@ -1798,7 +1808,7 @@ mod tests {
                     match r % 4 {
                         0 => 0x0E,
                         1 => 0x0F,
-                        _ => (r >> 8) as u8,
+                        _ => r.to_le_bytes()[1],
                     }
                 })
                 .collect();

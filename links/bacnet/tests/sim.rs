@@ -400,7 +400,10 @@ async fn every_data_type_reads_writes_and_reads_back() {
         ("signed", pt("integer_value", 1, &w("signed"))),
         ("enum", pt("binary_value", 1, &w("enumerated"))),
         ("bool", pt("analog_value", 1, &oos)),
-        ("text", pt("characterstring_value", 1, &w("character_string"))),
+        (
+            "text",
+            pt("characterstring_value", 1, &w("character_string")),
+        ),
         ("cal", pt("calendar", 1, &[])),
         (
             "bits",
@@ -451,7 +454,11 @@ async fn every_data_type_reads_writes_and_reads_back() {
         ("signed", Value::Int(-7), AppValue::Signed(-7)),
         ("enum", Value::UInt(1), AppValue::Enumerated(1)),
         ("bool", Value::Bool(true), AppValue::Boolean(true)),
-        ("text", Value::from("wyrm"), AppValue::CharString("wyrm".into())),
+        (
+            "text",
+            Value::from("wyrm"),
+            AppValue::CharString("wyrm".into()),
+        ),
     ];
     for (p, v, sent) in cases {
         let att = h.set(&format!("c1/d1/{p}"), v.clone(), tok()).await;
@@ -628,10 +635,14 @@ async fn a_split_of_one_group_does_not_cap_the_others() {
         s.add_analog_inputs(40);
         // names far longer than the plan's estimate (70 octets)
         for i in 100..108 {
-            s.objects.get_mut(&ObjectId::new(0, i)).unwrap().props.insert(
-                wyrm_link_bacnet::codec::prop::OBJECT_NAME,
-                vec![AppValue::CharString("n".repeat(200))],
-            );
+            s.objects
+                .get_mut(&ObjectId::new(0, i))
+                .unwrap()
+                .props
+                .insert(
+                    wyrm_link_bacnet::codec::prop::OBJECT_NAME,
+                    vec![AppValue::CharString("n".repeat(200))],
+                );
         }
     }
     let no_flags = ("check_status", Value::Bool(false));

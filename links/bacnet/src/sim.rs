@@ -217,7 +217,8 @@ impl Sim {
         cal.props
             .insert(prop::PRESENT_VALUE, vec![AppValue::Boolean(false)]);
         objects.insert(CAL1, cal);
-        let mut csv = Object::new("Message", CSV1.ty, 1).io(AppValue::CharString("hello".into()), None);
+        let mut csv =
+            Object::new("Message", CSV1.ty, 1).io(AppValue::CharString("hello".into()), None);
         csv.writable.insert(prop::PRESENT_VALUE);
         objects.insert(CSV1, csv);
         Self {

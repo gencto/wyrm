@@ -2333,7 +2333,11 @@ async fn relinquish(
         arg_uint(args, "instance", None, (0, u64::from(codec::MAX_INSTANCE)))?,
         "instance",
     )? as u32;
-    let priority = required(arg_uint(args, "priority", Some(16), (1, 16))?, "priority")? as u8;
+    let priority = u8::try_from(required(
+        arg_uint(args, "priority", Some(16), (1, 16))?,
+        "priority",
+    )?)
+    .map_err(|_| LinkError::invalid_parameter("priority: 1…16"))?;
     let tg = t.target(dev).await.map_err(action_err)?;
     let data = codec::write_property(
         ObjectId::new(ty, instance),
@@ -2465,7 +2469,10 @@ impl Driver for BacnetDriver {
             .iter()
             .zip(&plan.slots)
             .map(|((id, p), (v, flags))| {
-                (id.clone(), point_result(p, &res[*v], flags.map(|f| &res[f])))
+                (
+                    id.clone(),
+                    point_result(p, &res[*v], flags.map(|f| &res[f])),
+                )
             })
             .collect()
     }
@@ -2762,7 +2769,10 @@ mod tests {
                 let plan = BacnetDriver::plan(&dev, &points);
                 let reads = u32::try_from(plan.reads()).unwrap();
                 let poll = pr + bind + pr * reads;
-                assert!(BacnetDriver::poll_timeout(&conn, &plan) > poll, "{retries} {ms}");
+                assert!(
+                    BacnetDriver::poll_timeout(&conn, &plan) > poll,
+                    "{retries} {ms}"
+                );
             }
         }
     }
