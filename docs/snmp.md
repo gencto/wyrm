@@ -56,7 +56,10 @@ switches select a VLAN by community).
 | `timeout_ms`, `retries` | 1000, 1 | as above | |
 
 The engine id is discovered when the connection opens (RFC 3414 §4) and the
-keys are localized for it. noAuthNoPriv is not offered.
+keys are localized for it. The agent's boots and time come from its first
+authenticated answer (an authenticated `usmStatsNotInTimeWindows` report to
+the first request), not from the unauthenticated discovery report.
+noAuthNoPriv is not offered.
 
 `host`, `port`, `user`, the protocols and `context` are the destination of the
 secrets: an `edit` that changes one of them drops the stored secrets unless it
@@ -167,8 +170,10 @@ the write. Only INTEGER, OCTET STRING and Gauge32 are written.
 | No answer within `timeout_ms × (1 + retries)` | A device miss: points `uncertain/stale`, after 3 misses `bad/comm_fail` and the device `failed`. |
 | `authorizationError` on a poll or ping | The device `failed`: "authorizationError: the agent's access control (VACM) refuses this request; check the community, user or context". |
 | v3 report `usmStatsWrongDigests`, `usmStatsUnknownUserNames`, `usmStatsUnsupportedSecLevels`, `usmStatsDecryptionErrors` | When the connection opens: the connection `failed` with the reason (e.g. "the agent refused the authentication digest (usmStatsWrongDigests): check auth_protocol and auth_passphrase"); later: the device fails with it. |
-| v3 report `usmStatsNotInTimeWindows` (authenticated) | The agent restarted or its clock moved: the link takes the agent's boots/time and sends again once. |
-| v3 report `usmStatsUnknownEngineIDs` | The engine id changed (a replaced device): the connection reopens and discovers it again. |
+| v3 report `usmStatsNotInTimeWindows` (authenticated) | The agent restarted or its clock moved: the link takes the agent's boots/time (forward only) and sends again once. |
+| v3 answer outside the time window (lower boots, or more than 150 s behind) | Dropped (`rejected_replies`): a replay. When no answer is taken the device misses with "the agent's answers are outside the time window …". An agent whose boots counter went down is refused until the connection is restarted (RFC 3414). |
+| v3 report `usmStatsUnknownEngineIDs` with another engine id | The engine id changed (a replaced device): the connection reopens and discovers it again. |
+| v3 report `usmStatsUnknownEngineIDs` with the engine id the link has | Not authenticated and not true (a forged or broken report): the device fails with it; the connection stays. |
 | ICMP port unreachable (nothing listens on the port) | The connection drops; it reopens with backoff and stays `failed` with `error` while nothing answers; its devices are `stopped_by_parent`. |
 | No answer when the connection opens | The connection `failed` ("no answer from the agent …"). |
 
@@ -193,9 +198,13 @@ connection. The device ping is the same GET in the device's view; any answer,
   beyond loopback says so in `attr.warning` of its `status` leaf; use
   `snmp_v3` with `aes128` beyond a trusted network. A v3 connection with
   `priv_protocol: none` beyond loopback says that values travel unencrypted.
-* An answer to a v3 request is taken only when its MAC verifies and its
-  security level is the request's. An unauthenticated report never changes the
-  link's notion of the agent's clock.
+* An answer to a v3 request is taken only when its MAC verifies, its
+  authoritative engine id is the agent's, its security level is the request's
+  and it is in the time window (RFC 3414 §3.2 7b): lower boots, or a time more
+  than 150 s behind the link's notion of the agent's clock, is a replayed old
+  message and is dropped. The clock moves forward only, and only on
+  authenticated messages; the unauthenticated discovery report sets the engine
+  id, never the clock.
 * **Walk** is a `config` action: it reads any subtree of the agent with the
   link's credentials (interface, ARP, vendor tables beyond the configured
   points) and costs the agent up to hundreds of requests, so a `read` or

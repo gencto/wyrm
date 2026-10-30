@@ -4,7 +4,8 @@
 //! writable `sysContact` and `ifAdminStatus`, and one object of each SMI
 //! type under `1.3.6.1.4.1.64999.1`), and failure modes: silence, a reply
 //! delayed past the client's timeout, `authorizationError`, `tooBig`,
-//! `genErr` on one OID, a restart (new boots), unknown OIDs.
+//! `genErr` on one OID, a restart (new boots), unknown OIDs, and v3
+//! responses forged one way each ([`Forge`]).
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -28,6 +29,29 @@ pub const ENGINE_ID: &[u8] = b"\x80\x00\xfd\xe7\x04wyrm-sim";
 
 /// RFC 3414: a message more than 150 s off the agent's clock is refused.
 const TIME_WINDOW: u32 = 150;
+
+/// How a v3 response is forged (every other part of it is right, and it
+/// carries the request's msgID): the link must never take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Forge {
+    /// The MAC is wrong (one octet flipped).
+    CorruptMac,
+    /// `FLAG_AUTH` cleared: no MAC, not encrypted (a downgrade).
+    NoAuth,
+    /// Authenticated but not encrypted, to an authPriv request.
+    NoPriv,
+    /// Another `msgAuthoritativeEngineID` (MAC right for it).
+    WrongEngine,
+    /// `msgAuthoritativeEngineBoots` one lower (a replayed old message;
+    /// MAC and encryption right for it).
+    StaleBoots,
+    /// `msgAuthoritativeEngineTime` 1000 s earlier, same boots (a replayed
+    /// old message; MAC and encryption right for it).
+    StaleTime,
+    /// An unauthenticated `usmStatsUnknownEngineIDs` report that names the
+    /// agent's own engine id, instead of the response.
+    UnknownEngine,
+}
 
 /// A v3 user and its localized keys.
 pub struct User {
@@ -54,8 +78,15 @@ pub struct Agent {
     /// Answer nothing.
     pub silent: bool,
     /// Answer the next request after this long, every value replaced by
-    /// the marker (a late reply).
+    /// the marker (a late reply), v2c and v3.
     pub late_next: Option<(Duration, SnmpValue)>,
+    /// Forge every v3 response this way, every value replaced by the
+    /// marker.
+    pub forge: Option<(Forge, SnmpValue)>,
+    /// Seconds added to `snmpEngineTime` (an agent that has run a while).
+    pub clock_offset: u32,
+    /// Replace every value of the answers by this (set per request).
+    mark_with: Option<SnmpValue>,
     /// Answer every request with `authorizationError`.
     pub auth_error: bool,
     /// Answer a GET of more varbinds with `tooBig`; truncate a GETBULK.
@@ -193,6 +224,9 @@ impl Agent {
             started: Instant::now(),
             silent: false,
             late_next: None,
+            forge: None,
+            clock_offset: 0,
+            mark_with: None,
             auth_error: false,
             max_varbinds: None,
             gen_err: None,
@@ -232,7 +266,9 @@ impl Agent {
 
     /// `snmpEngineTime`, seconds since start.
     pub fn engine_time(&self) -> u32 {
-        u32::try_from(self.started.elapsed().as_secs()).unwrap_or(u32::MAX)
+        u32::try_from(self.started.elapsed().as_secs())
+            .unwrap_or(u32::MAX)
+            .saturating_add(self.clock_offset)
     }
 
     /// A restart: boots goes up, time and `sysUpTime` start again.
@@ -324,8 +360,19 @@ impl Agent {
         }
     }
 
-    /// The response to `req`.
+    /// The response to `req`, its values replaced by the marker of a late
+    /// or forged reply.
     fn answer(&mut self, req: &Pdu) -> Pdu {
+        let mut resp = self.answer_plain(req);
+        if let Some(m) = &self.mark_with {
+            for vb in &mut resp.varbinds {
+                vb.1 = m.clone();
+            }
+        }
+        resp
+    }
+
+    fn answer_plain(&mut self, req: &Pdu) -> Pdu {
         let mut resp = Pdu {
             ty: msg::RESPONSE,
             request_id: req.request_id,
@@ -498,6 +545,9 @@ impl Agent {
 
     fn handle_v3(&mut self, datagram: &[u8], m: msg::V3In<'_>) -> Option<Vec<u8>> {
         let id = m.msg_id;
+        if matches!(self.forge, Some((Forge::UnknownEngine, _))) && !m.usm.engine_id.is_empty() {
+            return Some(self.report(id, ReportKind::UnknownEngineId, None));
+        }
         if m.usm.engine_id.is_empty() || m.usm.engine_id != ENGINE_ID {
             return Some(self.report(id, ReportKind::UnknownEngineId, None));
         }
@@ -546,19 +596,39 @@ impl Agent {
                 }
             }
         };
+        let forge = self.forge.clone();
+        if let Some((_, marker)) = &forge {
+            self.mark_with = Some(marker.clone());
+        }
         let resp = ScopedPdu {
             engine_id: ENGINE_ID.to_vec(),
             context: scoped.context.clone(),
             pdu: self.answer(&scoped.pdu),
         }
         .encode();
+        let forge = forge.map(|(f, _)| f);
         let user = &self.users[ui];
-        let (auth, auth_key, priv_key) = (user.auth, user.auth_key.clone(), user.priv_key.clone());
+        let (auth, auth_key) = (user.auth, user.auth_key.clone());
+        let priv_key = match forge {
+            Some(Forge::NoAuth | Forge::NoPriv) => None,
+            _ => user.priv_key.clone(),
+        };
         let name = user.name.clone();
-        let (boots, time) = (self.boots, self.engine_time());
+        let (mut boots, mut time) = (self.boots, self.engine_time());
+        match forge {
+            Some(Forge::StaleBoots) => boots = boots.saturating_sub(1),
+            Some(Forge::StaleTime) => time = time.saturating_sub(1000),
+            _ => {}
+        }
+        let engine_id: &[u8] = if forge == Some(Forge::WrongEngine) {
+            b"\x80\x00\xfd\xe7\x04other-engine"
+        } else {
+            ENGINE_ID
+        };
+        let authenticate = forge != Some(Forge::NoAuth);
         self.salt = self.salt.wrapping_add(1);
         let salt = self.salt.to_be_bytes();
-        let (data, priv_params, flags): (Vec<u8>, &[u8], u8) = match &priv_key {
+        let (data, priv_params, mut flags): (Vec<u8>, &[u8], u8) = match &priv_key {
             Some(k) => {
                 let mut enc = resp;
                 usm::encrypt(k, boots, time, &salt, &mut enc);
@@ -568,35 +638,26 @@ impl Agent {
             }
             None => (resp, &[], msg::FLAG_AUTH),
         };
+        if !authenticate {
+            flags = 0;
+        }
         let usm_out = UsmOut {
-            engine_id: ENGINE_ID,
+            engine_id,
             boots,
             time,
             user: name.as_bytes(),
-            auth_len: auth.mac_len(),
+            auth_len: if authenticate { auth.mac_len() } else { 0 },
             priv_params,
         };
         let mut out = msg::encode_v3(id, flags, &usm_out, &data);
-        let mac = auth.sign(&auth_key, &out.bytes);
-        out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
-        Some(out.bytes)
-    }
-}
-
-/// Replace every varbind value of a reply by `marker` (a late reply that
-/// must never be published).
-fn mark(reply: &[u8], marker: &SnmpValue) -> Vec<u8> {
-    match msg::decode(reply) {
-        Ok(Message::Community {
-            community, mut pdu, ..
-        }) => {
-            for vb in &mut pdu.varbinds {
-                vb.1 = marker.clone();
+        if authenticate {
+            let mut mac = auth.sign(&auth_key, &out.bytes);
+            if forge == Some(Forge::CorruptMac) {
+                mac[0] ^= 0x01;
             }
-            msg::encode_community(community, &pdu)
+            out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
         }
-        // v3 replies are delayed as they are.
-        _ => reply.to_vec(),
+        Some(out.bytes)
     }
 }
 
@@ -616,15 +677,19 @@ pub async fn spawn_with(
             };
             let (reply, late) = {
                 let mut a = agent.lock().unwrap_or_else(|p| p.into_inner());
+                // A late reply's values are the marker (it must never be
+                // published).
+                let late = a.late_next.take();
+                a.mark_with = late.as_ref().map(|(_, m)| m.clone());
                 let reply = a.handle(&buf[..n]);
-                (reply, reply_is_late(&mut a))
+                a.mark_with = None;
+                (reply, late.map(|(d, _)| d))
             };
             let Some(reply) = reply else {
                 continue;
             };
             match late {
-                Some((delay, marker)) => {
-                    let reply = mark(&reply, &marker);
+                Some(delay) => {
                     let sock = sock.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(delay).await;
@@ -638,10 +703,6 @@ pub async fn spawn_with(
         }
     });
     Ok((local, task))
-}
-
-fn reply_is_late(a: &mut Agent) -> Option<(Duration, SnmpValue)> {
-    a.late_next.take()
 }
 
 /// A new [`Agent`] on `addr`.

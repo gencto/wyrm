@@ -53,9 +53,18 @@ pub enum Security {
     V3(V3),
 }
 
+/// RFC 3414 §3.2 7b: an authenticated message more than this many seconds
+/// behind the agent's clock as we know it is outside the time window.
+const TIME_WINDOW: u32 = 150;
+
+/// RFC 3414: at this `snmpEngineBoots` the agent's engine is locked out.
+const MAX_BOOTS: u32 = 0x7FFF_FFFF;
+
 /// The agent's engine as discovered, and our keys for it.
 struct Engine {
     id: Vec<u8>,
+    /// `snmpEngineBoots` and `latestReceivedEngineTime` of the agent, from
+    /// authenticated messages only (0/0 until the first one).
     boots: u32,
     time: u32,
     /// When `time` was learned.
@@ -65,9 +74,24 @@ struct Engine {
 }
 
 impl Engine {
+    /// Our notion of the agent's `snmpEngineBoots` and `snmpEngineTime`.
     fn now(&self) -> (u32, u32) {
         let secs = u32::try_from(self.at.elapsed().as_secs()).unwrap_or(u32::MAX);
         (self.boots, self.time.saturating_add(secs))
+    }
+
+    /// RFC 3414 §3.2 step 7b for the authenticated message's `boots` and
+    /// `time`: the clock moves forward only (higher boots, or the same
+    /// boots and a later time); `false` = outside the time window (a
+    /// replayed old message), to be dropped.
+    fn timely(&mut self, boots: u32, time: u32) -> bool {
+        if boots > self.boots || (boots == self.boots && time > self.time) {
+            self.boots = boots;
+            self.time = time;
+            self.at = Instant::now();
+        }
+        let (b, t) = self.now();
+        !(b == MAX_BOOTS || boots < b || (boots == b && time.saturating_add(TIME_WINDOW) < t))
     }
 }
 
@@ -87,6 +111,9 @@ pub struct Session {
     salt: u64,
     sec: Security,
     engine: Option<Engine>,
+    /// An authenticated answer to the request waited for was outside the
+    /// time window.
+    stale: bool,
     outcomes: Vec<Outcome>,
     buf: Vec<u8>,
 }
@@ -152,6 +179,7 @@ impl Session {
             salt: random_u64(),
             sec,
             engine: None,
+            stale: false,
             outcomes: Vec::new(),
             buf: vec![0u8; msg::MAX_MESSAGE + 64],
         };
@@ -234,6 +262,7 @@ impl Session {
         let mut resynced = false;
         let mut ids: Vec<i32> = Vec::new();
         let mut attempt = 0u8;
+        self.stale = false;
         loop {
             let id = self.id();
             ids.push(id);
@@ -265,6 +294,14 @@ impl Session {
                 }
                 Ok(None) => {
                     self.outcomes.push(Outcome::Timeout);
+                    if attempt >= self.retries && self.stale {
+                        return Err(DriverError::Device(
+                            "the agent's answers are outside the time window (RFC 3414: \
+                             its engine boots or time went back, or they are replayed); \
+                             restart the connection if the agent lost its boots counter"
+                                .into(),
+                        ));
+                    }
                     if attempt >= self.retries {
                         return Err(DriverError::Device(format!(
                             "no answer from the agent ({} tries of {} ms)",
@@ -430,7 +467,16 @@ impl Session {
                     if !v3.auth.verify(&e.auth_key, &zeroed, m.usm.auth) {
                         return Ok(Got::Rejected);
                     }
+                    // RFC 3414 §3.2 step 7b, before anything else is read.
+                    let (boots, time) = (m.usm.boots, m.usm.time);
+                    if !self.engine.as_mut().is_some_and(|e| e.timely(boots, time)) {
+                        self.stale = true;
+                        return Ok(Got::Rejected);
+                    }
                 }
+                let Some(e) = &self.engine else {
+                    return Ok(Got::Rejected);
+                };
                 let scoped = match m.data {
                     ScopedData::Plain(s) => s,
                     ScopedData::Encrypted(c) => {
@@ -460,12 +506,6 @@ impl Session {
                         if !ids.contains(&pdu.request_id) {
                             return Ok(Got::Rejected);
                         }
-                        let (boots, time) = (m.usm.boots, m.usm.time);
-                        if let Some(e) = &mut self.engine {
-                            e.boots = boots;
-                            e.time = time;
-                            e.at = Instant::now();
-                        }
                         Ok(Got::Pdu(pdu))
                     }
                     msg::REPORT => {
@@ -473,7 +513,7 @@ impl Session {
                             .varbinds
                             .first()
                             .map_or(ReportKind::Other, |(o, _)| ReportKind::of(o));
-                        Err(self.report(kind, authentic, m.usm.boots, m.usm.time))
+                        Err(self.report(kind, authentic, m.usm.engine_id))
                     }
                     _ => Ok(Got::Undecodable),
                 }
@@ -482,19 +522,25 @@ impl Session {
         }
     }
 
-    /// What a report means for the request.
-    fn report(&mut self, kind: ReportKind, authentic: bool, boots: u32, time: u32) -> Fail {
+    /// What a report means for the request. `engine_id`: the report's
+    /// `msgAuthoritativeEngineID`.
+    fn report(&mut self, kind: ReportKind, authentic: bool, engine_id: &[u8]) -> Fail {
         match kind {
-            // Only an authentic report may move our notion of the clock.
-            ReportKind::NotInTimeWindow if authentic => {
-                if let Some(e) = &mut self.engine {
-                    e.boots = boots;
-                    e.time = time;
-                    e.at = Instant::now();
-                }
-                Fail::Again
+            // Only an authentic report moves our notion of the clock, and
+            // only forward: `accept` did that (step 7b). Send again.
+            ReportKind::NotInTimeWindow if authentic => Fail::Again,
+            // Not authenticated, and for the engine id we have: the agent
+            // would not say so (a forged or broken report). Not a reason
+            // to reopen and discover again.
+            ReportKind::UnknownEngineId
+                if self.engine.as_ref().is_some_and(|e| e.id == engine_id) =>
+            {
+                Fail::Error(DriverError::Device(format!(
+                    "{} for the engine id it has (a broken or forged report)",
+                    kind.message()
+                )))
             }
-            // A reopen discovers the engine again.
+            // Another engine id: a reopen discovers it again.
             ReportKind::UnknownEngineId => Fail::Error(DriverError::Transport(format!(
                 "{}; discovering it again",
                 kind.message()
@@ -504,9 +550,11 @@ impl Session {
     }
 
     /// RFC 3414 §4: a request without user or engine id is answered with a
-    /// report that names the engine (and, on most agents, its boots and
-    /// time; else the first authenticated request resynchronizes). Then the
-    /// keys are localized for that engine.
+    /// report that names the engine. Then the keys are localized for that
+    /// engine. The boots and time of that report are not authenticated and
+    /// are not taken: the clock starts at 0/0, so the first request gets an
+    /// authenticated `notInTimeWindow` report, which sets it (the second
+    /// step of RFC 3414 §4).
     async fn discover(&mut self) -> Result<(), DriverError> {
         let mut attempt = 0u8;
         let mut ids = Vec::new();
@@ -548,16 +596,16 @@ impl Session {
                     Ok(Message::V3(m))
                         if ids.contains(&m.msg_id) && !m.usm.engine_id.is_empty() =>
                     {
-                        break Some((m.usm.engine_id.to_vec(), m.usm.boots, m.usm.time));
+                        break Some(m.usm.engine_id.to_vec());
                     }
                     Ok(_) => self.outcomes.push(Outcome::Count(LATE)),
                     Err(_) => self.outcomes.push(Outcome::Count(UNDECODABLE)),
                 }
             };
             match found {
-                Some((id, boots, time)) => {
+                Some(id) => {
                     self.outcomes.push(Outcome::Reply(sent.elapsed()));
-                    return self.localize(id, boots, time);
+                    return self.localize(id);
                 }
                 None => {
                     self.outcomes.push(Outcome::Timeout);
@@ -572,7 +620,7 @@ impl Session {
         }
     }
 
-    fn localize(&mut self, id: Vec<u8>, boots: u32, time: u32) -> Result<(), DriverError> {
+    fn localize(&mut self, id: Vec<u8>) -> Result<(), DriverError> {
         let Security::V3(v3) = &self.sec else {
             return Ok(());
         };
@@ -584,16 +632,54 @@ impl Session {
             ),
             None => None,
         };
-        debug!(engine_id_len = id.len(), boots, "engine discovered");
+        debug!(engine_id_len = id.len(), "engine discovered");
         self.engine = Some(Engine {
             id,
-            boots,
-            time,
+            boots: 0,
+            time: 0,
             at: Instant::now(),
             auth_key,
             priv_key,
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn engine(boots: u32, time: u32) -> Engine {
+        Engine {
+            id: vec![1],
+            boots,
+            time,
+            at: Instant::now(),
+            auth_key: Zeroizing::new(Vec::new()),
+            priv_key: None,
+        }
+    }
+
+    /// RFC 3414 §3.2 7b: the clock moves forward only; a message with
+    /// lower boots, or more than 150 s behind, or at the last boots value
+    /// is outside the time window.
+    #[test]
+    fn timeliness() {
+        let mut e = engine(0, 0);
+        assert!(e.timely(3, 1000), "the first authenticated message sets it");
+        assert_eq!((e.boots, e.time), (3, 1000));
+        assert!(e.timely(3, 900), "within 150 s");
+        assert_eq!(e.time, 1000, "never back");
+        assert!(!e.timely(3, 849), "more than 150 s behind");
+        assert!(!e.timely(2, 5000), "lower boots");
+        assert_eq!(
+            (e.boots, e.time),
+            (3, 1000),
+            "a stale message moves nothing"
+        );
+        assert!(e.timely(4, 1), "a restart moves it forward");
+        assert_eq!((e.boots, e.time), (4, 1));
+        assert!(!e.timely(MAX_BOOTS, 1), "locked out");
     }
 }
 

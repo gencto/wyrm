@@ -7,6 +7,7 @@ use wyrm_core::{Perm, Quality, Sample, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::{NodeState, Tree};
 use wyrm_link_sdk::{Secret, TestHarness};
 use wyrm_link_snmp::ber::{Oid, SnmpValue};
+use wyrm_link_snmp::sim::Forge;
 use wyrm_link_snmp::{sim, Snmp};
 
 type H = TestHarness<Snmp>;
@@ -810,6 +811,91 @@ async fn v3_refusals_are_clear() {
         assert!(!e.contains("-pass") && !e.contains("not-the"), "{e}");
         h.stop().await;
     }
+}
+
+/// A v3 response forged as `forge` (every other part right, the request's
+/// msgID) is never taken: its marker values are never published, it is
+/// counted in `rejected_replies` (not as a late reply), the point goes
+/// stale, and it comes back when the agent answers rightly. Returns the
+/// device's error while the forged responses came.
+async fn a_forged_v3_reply_is_never_taken(forge: Forge) -> Option<String> {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    // an agent that has run a while (a time 1000 s back is still > 0)
+    agent.lock().unwrap().clock_offset = 10_000;
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let seen = samples(&h, "c1/d1/name").await;
+    let late = diag(&h, "late_replies").await;
+    let marker = Value::from("FORGED");
+    agent.lock().unwrap().forge = Some((forge, SnmpValue::OctetString(b"FORGED".to_vec())));
+    wait_diag(&h, "rejected_replies", 1).await;
+    wait("device failed", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+    })
+    .await;
+    let err = error(&h, "c1/d1");
+    assert_eq!(qual(&h, "name"), Some(Quality::Bad), "{forge:?}");
+    agent.lock().unwrap().forge = None;
+    wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
+    assert!(
+        !seen.lock().unwrap().iter().any(|s| s.v == marker),
+        "{forge:?}: the forged value was published"
+    );
+    assert_eq!(diag(&h, "late_replies").await, late, "{forge:?}: not late");
+    h.stop().await;
+    err
+}
+
+/// RFC 3414 §3.2 7b: an authenticated response with lower boots, or with
+/// the same boots and a time more than 150 s behind the link's notion of
+/// the agent's clock, is a replay: dropped, never taken, and the clock is
+/// not moved back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_v3_reply_is_never_taken() {
+    for forge in [Forge::StaleBoots, Forge::StaleTime] {
+        let e = a_forged_v3_reply_is_never_taken(forge).await;
+        assert!(
+            e.as_deref().is_some_and(|e| e.contains("time window")),
+            "{forge:?}: {e:?}"
+        );
+    }
+}
+
+/// An unauthenticated `usmStatsUnknownEngineIDs` report for the engine id
+/// the link has is not a reason to reopen (anyone on the path can send
+/// one): the device fails with it, the connection stays connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_engine_report_for_the_known_engine_keeps_the_connection() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[("name", scalar(SYS_NAME, &[("poll_s", Value::Float(0.1))]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[("ping", Value::Bool(false))],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    let seen = samples(&h, "c1/status").await;
+    agent.lock().unwrap().forge = Some((Forge::UnknownEngine, SnmpValue::Null));
+    wait("device failed", || {
+        state(&h, "c1/d1").as_deref() == Some("failed")
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("forged"))
+    })
+    .await;
+    assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "the connection never changed state"
+    );
+    agent.lock().unwrap().forge = None;
+    wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
+    h.stop().await;
 }
 
 /// An agent restart (new boots) is a `notInTimeWindow` report: the link
