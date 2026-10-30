@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 use wyrm_core::{Perm, Quality, Status, Value};
-use wyrm_link_modbus::{codec, sim, Conn, Device, Modbus, Point};
-use wyrm_link_sdk::driver::{ParamSpec, Params, Tree};
+use wyrm_link_modbus::{codec, sim, Conn, Device, Modbus, ModbusDriver, Point};
+use wyrm_link_sdk::driver::{Driver, DriverError, ParamSpec, Params, Tree};
 use wyrm_link_sdk::TestHarness;
 
 type H = TestHarness<Modbus>;
@@ -1026,8 +1026,9 @@ async fn a_late_reply_is_not_taken() {
 }
 
 /// Ruling 8: the poll's whole-operation bound grows with the plan. Ten
-/// spans of 50 ms each and one slow span (a timeout of 100 ms and a retry)
-/// take about 650 ms: more than 4 × 100 ms, within 100 × 2 × 10 + 1000.
+/// spans of 20 ms each and one slow span (three timeouts of 100 ms, then
+/// an answer) take about 520 ms: more than 4 × 100 ms, within
+/// 100 × 4 × 10 + 1000.
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_bound_grows_with_spans() {
     let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
@@ -1036,8 +1037,8 @@ async fn poll_bound_grows_with_spans() {
         for i in 0..10 {
             t.holding[i * 2] = 100 + i as u16;
         }
-        t.latency = Duration::from_millis(50);
-        t.drop_next = Some((1, 8, 1));
+        t.latency = Duration::from_millis(20);
+        t.drop_next = Some((1, 8, 3));
     }
     let points: Vec<(String, Value)> = (0..10u64)
         .map(|i| {
@@ -1052,7 +1053,7 @@ async fn poll_bound_grows_with_spans() {
         addr.port(),
         &[
             ("timeout_ms", Value::UInt(100)),
-            ("retries", Value::UInt(1)),
+            ("retries", Value::UInt(3)),
         ],
         &[
             ("ping", "none".into()),
@@ -1072,7 +1073,49 @@ async fn poll_bound_grows_with_spans() {
             "p{i}"
         );
     }
-    assert_eq!(dev.lock().unwrap().dropped, 1);
+    assert_eq!(dev.lock().unwrap().dropped, 3);
     assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
     h.stop().await;
+}
+
+/// Review Focus 2 across units, in a fixed order (driver calls, no
+/// tickers): a dead unit 2 on an RTU bus does not poison unit 3. Unit 3's
+/// read right after unit 2's timeout gets its own reply on a reopened
+/// transport; without the reopen it would get unit 2's late reply (a
+/// header mismatch, and the connection dropped).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_reply_does_not_reach_another_unit() {
+    let (addr, dev, _task) = sim::spawn_rtu_over_tcp("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[10] = 1010;
+        t.holding[30] = 3030;
+        t.delay_once = Some((2, 10, Duration::from_millis(300)));
+    }
+    let conn = Conn::from_kind_value(
+        "ip_connection",
+        &map(&[
+            ("host", "127.0.0.1".into()),
+            ("port", Value::UInt(addr.port().into())),
+            ("transport", "rtu_over_tcp".into()),
+            ("timeout_ms", Value::UInt(200)),
+        ]),
+    )
+    .unwrap();
+    let unit = |u: u64| Device::from_value(&map(&[("unit", Value::UInt(u))])).unwrap();
+    let plan = |d: &Device, a: u64| {
+        let p = Point::from_value(&pt("holding", a, "u16", &[])).unwrap();
+        ModbusDriver::plan(d, &[("p".to_owned(), p)])
+    };
+    let (u2, u3) = (unit(2), unit(3));
+    let mut t = ModbusDriver::open(&conn).await.unwrap();
+    let r = ModbusDriver::poll(&mut t, &u2, &plan(&u2, 10)).await;
+    assert!(matches!(r[..], [(_, Err(DriverError::Device(_)))]), "{r:?}");
+    let r = ModbusDriver::poll(&mut t, &u3, &plan(&u3, 30)).await;
+    assert_eq!(r, [("p".to_owned(), Ok(Value::UInt(3030)))]);
+    // the late reply has gone out on the closed transport by now
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let r = ModbusDriver::poll(&mut t, &u3, &plan(&u3, 30)).await;
+    assert_eq!(r, [("p".to_owned(), Ok(Value::UInt(3030)))]);
+    assert_eq!(dev.lock().unwrap().connections, 2, "exactly one reopen");
 }
