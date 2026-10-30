@@ -764,6 +764,18 @@ fn evaluate(
                 Err(format!("no {} series matches", p.series_name()))
             } else {
                 let v = inputs(&series, p.mode, snap, state, false)?;
+                if p.mode == Mode::RatePerS {
+                    if v.len() < series.len() {
+                        // A bucket new since the last scrape: a quantile
+                        // from a part of the buckets would be wrong.
+                        return None;
+                    }
+                    if v.iter().all(|(_, c)| *c == 0.0) {
+                        // No observations in the interval (PromQL: NaN, a
+                        // gap): keep the last value.
+                        return None;
+                    }
+                }
                 let mut buckets = Vec::with_capacity(v.len());
                 let mut bad_le = false;
                 for (i, c) in v {
@@ -1040,6 +1052,47 @@ mod tests {
     fn conn(url: String) -> Conn {
         let v = Value::Map(BTreeMap::from([("url".to_owned(), Value::Str(url))]));
         Conn::from_map(&normalize(&Conn::schema(), &v).unwrap()).unwrap()
+    }
+
+    fn snap(seq: u64, secs: u64, body: &str) -> Snapshot {
+        Snapshot {
+            seq,
+            at: Instant::now() + Duration::from_secs(secs),
+            scrape: Arc::new(expo::parse(body, 100, usize::MAX).unwrap()),
+        }
+    }
+
+    /// A histogram quantile over the last interval waits until every
+    /// bucket has an earlier value, and a quiet interval gives no new value.
+    #[test]
+    fn histogram_rate_on_new_buckets_and_quiet_intervals() {
+        let v = Value::Map(BTreeMap::from([
+            ("selector".to_owned(), Value::Str("h".into())),
+            (
+                "function".to_owned(),
+                Value::Str("histogram_quantile".into()),
+            ),
+            ("mode".to_owned(), Value::Str("rate_per_s".into())),
+        ]));
+        let p = Point::from_map(&normalize(&Point::schema(), &v).unwrap()).unwrap();
+        let empty = Value::Map(BTreeMap::new());
+        let dev = Dev::from_map(&normalize(&Dev::schema(), &empty).unwrap()).unwrap();
+        let mut st = None;
+        let first = "h_bucket{le=\"1\"} 1\nh_bucket{le=\"+Inf\"} 1\n";
+        assert!(evaluate(&snap(1, 0, first), &dev, &p, &mut st).is_none());
+        // a bucket le=0.5 appears: no value from a part of the buckets
+        let grown = "h_bucket{le=\"0.5\"} 1\nh_bucket{le=\"1\"} 3\nh_bucket{le=\"+Inf\"} 3\n";
+        assert_eq!(evaluate(&snap(2, 1, grown), &dev, &p, &mut st), None);
+        // no observations in the interval: no new value, no point error
+        assert_eq!(evaluate(&snap(3, 2, grown), &dev, &p, &mut st), None);
+        let more = "h_bucket{le=\"0.5\"} 3\nh_bucket{le=\"1\"} 5\nh_bucket{le=\"+Inf\"} 5\n";
+        assert_eq!(
+            evaluate(&snap(4, 3, more), &dev, &p, &mut st),
+            Some(Ok(0.25))
+        );
+        // the series change their labels: all new, no value yet
+        let relabelled = "h_bucket{le=\"0.5\",j=\"b\"} 3\nh_bucket{le=\"+Inf\",j=\"b\"} 5\n";
+        assert_eq!(evaluate(&snap(5, 4, relabelled), &dev, &p, &mut st), None);
     }
 
     /// A poll cut while the body is parsed: the next scrape finishes that

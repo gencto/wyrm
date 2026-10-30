@@ -162,7 +162,10 @@ buckets at least are required. A rank in the `+Inf` bucket gives the
 highest finite bound. With `mode: rate_per_s` the buckets are the
 increases since the last scrape, so the quantile is that of the last
 interval; with `raw` it is that of all observations since the exporter
-started. `aggregate` must stay `none`.
+started. `aggregate` must stay `none`. With `rate_per_s`, a point gets no
+new value (it keeps its last one) while a bucket is new since the last
+scrape, and for an interval with no observations (PromQL gives `NaN`
+there): a quiet service does not flap to `bad`.
 
 **Value type:** every point is a number (`f64`). Exposition values `NaN`,
 `+Inf` and `-Inf` are parsed; a point whose result is not a finite number
@@ -184,7 +187,8 @@ published only when it changes.
 | body over `max_body_mib`, more than `max_series` series, a parsed exposition over 16 × `max_body_mib` of memory | connection | as above; the error names the param |
 | no complete response within `timeout_ms` | device miss | points `uncertain/stale`; after 3 misses in a row the device is `failed` and points are `bad/comm_fail` |
 | HTTP status other than 2xx (500, 404, …) | device miss | as above; the device `error` leaf shows `HTTP <code>` |
-| no series matches, several match with `none`, not a finite number, broken histogram | point | that point `bad`; its device stays `connected` |
+| no series matches, several match with `none`, not a finite number, broken histogram (no `le="+Inf"` bucket, fewer than two buckets, a bad `le`, no observations at all with `raw`) | point | that point `bad`; its device stays `connected` |
+| `histogram_quantile` with `rate_per_s`: a new bucket, or no observations in the interval | none | no new value; the point keeps its last value and quality |
 | a line of the exposition that does not parse or is over a line bound (section 9) | none | the line is skipped and counted in `parse_errors` |
 
 A failed scrape is not kept: the next second tries again, so each failed
