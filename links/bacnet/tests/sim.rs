@@ -571,6 +571,51 @@ async fn silent_device_goes_stale_then_bad() {
     h.stop().await;
 }
 
+/// The device answers the first RPM of a poll but not the last: the points
+/// of the request without an answer take the ladder alone (framework,
+/// `DriverError::Device` per point), the others stay good and the device
+/// connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_batch_without_an_answer_goes_stale_alone() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();
+    {
+        let mut s = dev.lock().unwrap();
+        s.max_apdu = 128;
+        s.add_analog_inputs(16);
+    }
+    let no_flags = [("check_status", Value::Bool(false))];
+    let pts: Vec<(String, Value)> = (100..116)
+        .map(|i| (format!("ai{i}"), pt("analog_input", i, &no_flags)))
+        .collect();
+    let h = H::start(tree(
+        addr,
+        &[],
+        &[("ping_s", Value::Float(0.0))],
+        Value::Map(pts.into_iter().collect()),
+    ))
+    .await;
+    wait("all 16", || {
+        (100..116).all(|i| qual(&h, &format!("ai{i}")) == Some(Quality::Good))
+    })
+    .await;
+    assert!(dev.lock().unwrap().rpm_sizes.iter().all(|n| *n < 16));
+    dev.lock().unwrap().drop_object = Some(ObjectId::new(0, 115));
+    let mut seen_uncertain = false;
+    wait("ai115 uncertain/stale then bad/comm_fail", || {
+        let q = qual(&h, "ai115");
+        seen_uncertain |= q == Some(Quality::Uncertain);
+        q == Some(Quality::Bad)
+    })
+    .await;
+    assert!(seen_uncertain, "stale before bad");
+    assert_eq!(qual(&h, "ai100"), Some(Quality::Good), "the first batch");
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+    // it answers again
+    dev.lock().unwrap().drop_object = None;
+    wait("good again", || qual(&h, "ai115") == Some(Quality::Good)).await;
+    h.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn port_in_use_fails_the_connection_then_reconnects() {
     let (addr, _dev, _task) = sim::spawn("127.0.0.1:0", DEV).await.unwrap();

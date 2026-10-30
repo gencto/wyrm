@@ -103,6 +103,8 @@ pub struct Sim {
     pub silent: bool,
     /// Leave the next `n` confirmed requests unanswered.
     pub drop_next: u32,
+    /// Leave every read that names this object unanswered.
+    pub drop_object: Option<ObjectId>,
     /// Delay before every reply.
     pub delay: Duration,
     /// Delay the next reply (once).
@@ -207,6 +209,7 @@ impl Sim {
             vendor_id: 999,
             silent: false,
             drop_next: 0,
+            drop_object: None,
             delay: Duration::ZERO,
             delay_next: None,
             reject_next: None,
@@ -263,6 +266,21 @@ impl Sim {
                 ObjectId::new(0, i),
                 Object::new(&format!("AI {i}"), 0, i).io(AppValue::Real(i as f32), Some(98)),
             );
+        }
+    }
+
+    /// A read naming [`Sim::drop_object`].
+    fn names_dropped(&self, service: u8, data: &[u8]) -> bool {
+        let Some(drop) = self.drop_object else {
+            return false;
+        };
+        match service {
+            codec::service::READ_PROPERTY => {
+                codec::parse_read_property(data).is_ok_and(|(o, _)| o == drop)
+            }
+            codec::service::READ_PROPERTY_MULTIPLE => codec::parse_read_property_multiple(data)
+                .is_ok_and(|specs| specs.iter().any(|(o, _)| *o == drop)),
+            _ => false,
         }
     }
 
@@ -527,8 +545,8 @@ impl Sim {
                 data,
                 ..
             }) if !global => {
-                if self.drop_next > 0 {
-                    self.drop_next -= 1;
+                if self.drop_next > 0 || self.names_dropped(service, data) {
+                    self.drop_next = self.drop_next.saturating_sub(1);
                     self.dropped += 1;
                     return Vec::new();
                 }

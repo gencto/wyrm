@@ -871,6 +871,27 @@ fn flags_fault(values: &[AppValue]) -> Option<String> {
     }
 }
 
+/// A point's result from the read of its value and (with `check_status`)
+/// of its `status-flags`. Flags without an answer (their request timed
+/// out) leave the fault check undone: no answer for the point either, so
+/// the framework's ladder applies to it. Flags the device refuses (it has
+/// none) do not hide the value.
+fn point_result(
+    p: &Point,
+    value: &Result<Vec<AppValue>, DriverError>,
+    flags: Option<&Result<Vec<AppValue>, DriverError>>,
+) -> Result<Value, DriverError> {
+    let values = value.as_ref().map_err(Clone::clone)?;
+    match flags {
+        Some(Err(e @ (DriverError::Device(_) | DriverError::Transport(_)))) => Err(e.clone()),
+        Some(Ok(fl)) => match flags_fault(fl) {
+            Some(fault) => Err(point_err(fault)),
+            None => decode_point(p, values),
+        },
+        _ => decode_point(p, values),
+    }
+}
+
 /// The application value written for `v` on point `p` (scale undone).
 fn encode_point(p: &Point, v: &Value) -> Result<AppValue, DriverError> {
     let k = p.kind();
@@ -2342,16 +2363,7 @@ impl Driver for BacnetDriver {
             .iter()
             .zip(&plan.slots)
             .map(|((id, p), (v, flags))| {
-                let r = match &res[*v] {
-                    Err(e) => Err(e.clone()),
-                    Ok(values) => match flags.and_then(|f| res[f].as_ref().ok()) {
-                        Some(fl) if flags_fault(fl).is_some() => {
-                            Err(point_err(flags_fault(fl).unwrap_or_default()))
-                        }
-                        _ => decode_point(p, values),
-                    },
-                };
-                (id.clone(), r)
+                (id.clone(), point_result(p, &res[*v], flags.map(|f| &res[f])))
             })
             .collect()
     }
@@ -2609,6 +2621,34 @@ mod tests {
         let big = vec![item(2, 1, 77, 2000), item(2, 1, 85, 5)];
         assert_eq!(chunks(&big, 480, None), vec![0..1, 1..2]);
         assert!(chunks(&[], 480, None).is_empty());
+    }
+
+    /// The value answered but its `status-flags` (in a later request) did
+    /// not: the fault check could not run, so no `good` value.
+    #[test]
+    fn point_without_its_flags_is_not_good() {
+        let p = ai(&[]);
+        let v = Ok(vec![AppValue::Real(1.0)]);
+        let ok_flags = Ok(vec![AppValue::BitString(vec![false; 4])]);
+        let fault = Ok(vec![AppValue::BitString(vec![false, true, false, false])]);
+        let timeout = Err(DriverError::Device("no reply".into()));
+        let refused = Err(point_err("property: unknown-property"));
+        assert_eq!(point_result(&p, &v, Some(&ok_flags)), Ok(Value::Float(1.0)));
+        assert_eq!(point_result(&p, &v, None), Ok(Value::Float(1.0)));
+        assert!(matches!(
+            point_result(&p, &v, Some(&fault)),
+            Err(DriverError::Point(_))
+        ));
+        assert!(matches!(
+            point_result(&p, &v, Some(&timeout)),
+            Err(DriverError::Device(_))
+        ));
+        // a device without status-flags still gives the value
+        assert_eq!(point_result(&p, &v, Some(&refused)), Ok(Value::Float(1.0)));
+        assert!(matches!(
+            point_result(&p, &timeout, Some(&ok_flags)),
+            Err(DriverError::Device(_))
+        ));
     }
 
     #[test]
