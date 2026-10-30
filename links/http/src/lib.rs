@@ -1173,13 +1173,15 @@ const HIDDEN: &str = "***";
 /// A text that still holds a secret once JSON-unescaped is shown as this.
 const HIDDEN_WHOLE: &str = "*** hidden: it holds a connection secret";
 
-/// A mask that is a plain decimal number (`[-+]?\d+(\.\d+)?`): a reading
-/// equal to it as a whole is hidden. (`1e5`, `inf` are not numbers here.)
+/// A mask that is a plain decimal number as JSON writes one
+/// (`[-+]?(0|[1-9]\d*)(\.\d+)?`): a reading equal to it as a whole is
+/// hidden. `1e5`, `inf`, and `0000` or `0123` (a JSON number never has
+/// leading zeros: the PIN `0000` must not hide the reading 0) are not.
 fn numeric(m: &str) -> Option<f64> {
     let d = m.strip_prefix(['-', '+']).unwrap_or(m);
     let (int, frac) = d.split_once('.').unwrap_or((d, "0"));
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    if !digits(int) || !digits(frac) {
+    if !digits(int) || !digits(frac) || (int.len() > 1 && int.starts_with('0')) {
         return None;
     }
     m.parse::<f64>().ok().filter(|x| x.is_finite())
@@ -1269,17 +1271,18 @@ fn shown<'a>(prep: &Prepared, s: &'a str) -> Cow<'a, str> {
 }
 
 /// A JSON number, or a numeric text, equal as a whole to a numeric secret
-/// (a PIN, a numeric key). `51234.5` never equals the secret `1234`.
+/// (a PIN, a numeric key), or a text equal to a secret (`"0000"`).
+/// `51234.5` never equals the secret `1234`.
 fn secret_number(prep: &Prepared, j: &Json) -> bool {
-    if prep.numbers.is_empty() {
-        return false;
+    match j {
+        Json::Number(n) => n.as_f64().is_some_and(|x| prep.numbers.contains(&x)),
+        Json::String(s) => {
+            let t = s.trim();
+            prep.masks.iter().any(|m| m == t)
+                || t.parse::<f64>().is_ok_and(|x| prep.numbers.contains(&x))
+        }
+        _ => false,
     }
-    let x = match j {
-        Json::Number(n) => n.as_f64(),
-        Json::String(s) => s.trim().parse::<f64>().ok(),
-        _ => None,
-    };
-    x.is_some_and(|x| prep.numbers.contains(&x))
 }
 
 /// Mask `j` for showing: every string and member name as [`shown`], every
@@ -1955,9 +1958,25 @@ mod tests {
             ("1.", None),
             (".5", None),
             ("12a", None),
+            // a JSON number never has leading zeros: a PIN 0000 or 0123
+            // must not hide the readings 0 or 123
+            ("0000", None),
+            ("0123", None),
+            ("-05", None),
+            ("0", Some(0.0)),
+            ("0.5", Some(0.5)),
         ] {
             assert_eq!(numeric(m), want, "{m}");
         }
+        let pin = Conn::from_value(&m(&[
+            ("base_url", "http://127.0.0.1".into()),
+            ("auth", "basic".into()),
+            ("username", "u".into()),
+            ("password", "0000".into()),
+        ]))
+        .unwrap();
+        assert!(!secret_number(&pin.prep, &json!(0)));
+        assert!(secret_number(&pin.prep, &json!(" 0000 ")), "echoed as text");
         // masks longest first, numbers found
         let c = Conn::from_value(&m(&[
             ("base_url", "http://127.0.0.1".into()),

@@ -214,8 +214,10 @@ password `admin`). Masking applies to what a user is shown:
   JSON, such as one with an anti-XSSI prefix, or JSON inside a string) is
   hidden whole: `*** hidden: it holds a connection secret`;
 - numbers: only a number equal as a whole value to a secret that is a
-  plain decimal number (a PIN, a numeric key; also as numeric text) is
-  hidden. A `number` point that would show one fails with "value hidden:
+  plain decimal number as JSON writes one (a PIN, a numeric key; also as
+  numeric text) is hidden. A secret with leading zeros (`0000`, `0123`)
+  hides only the same text, never the reading `0` or `123`. A `number`
+  point that would show one fails with "value hidden:
   it holds a connection secret" (quality `bad`); a `count` is not hidden;
   in a `string` point or an action reply the number shows as `"***"`;
 - a `bool` shows no secret and is never masked.
