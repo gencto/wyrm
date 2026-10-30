@@ -1018,15 +1018,31 @@ fn point_value(p: &Point, dv: DataValue) -> Result<Value, DriverError> {
     conv::scale(v, p.p.scale, p.p.offset).map_err(DriverError::Point)
 }
 
-/// Where the PKI of a link lives under its `data_dir`.
+/// Where the PKI of a link lives under its `data_dir`, as an absolute path:
+/// async-opcua joins its own certificate paths under each server store, so
+/// a relative `data_dir` (`./data/plant`) would point at a path that does
+/// not exist.
 pub fn pki_root(data_dir: &std::path::Path) -> PathBuf {
-    data_dir.join("opcua-pki")
+    let root = data_dir.join("opcua-pki");
+    std::path::absolute(&root).unwrap_or(root)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use opcua::types::UserTokenPolicy;
+
+    /// A relative `data_dir` (the demo's `./data/plant`) gives an absolute
+    /// PKI root under the current directory.
+    #[test]
+    fn pki_root_is_absolute() {
+        let root = pki_root(std::path::Path::new("./data/plant/links/ua/data"));
+        assert!(root.is_absolute(), "{root:?}");
+        assert!(
+            root.ends_with("data/plant/links/ua/data/opcua-pki"),
+            "{root:?}"
+        );
+    }
 
     fn endpoint_with(ty: UserTokenType, uri: &str) -> EndpointDescription {
         EndpointDescription {
