@@ -922,6 +922,24 @@ async fn add_connection_checks_params() {
             ("endpoint", "opc.tcp://h:1/".into()),
             ("security_policy", "Basic256Sha256".into()),
         ]),
+        // a password without channel security to another host, whatever
+        // the server would advertise
+        map(&[
+            ("name", "c".into()),
+            ("endpoint", "opc.tcp://plc1:4840/".into()),
+            ("identity", "username".into()),
+            ("username", "u".into()),
+            ("password", "p".into()),
+        ]),
+        // user info hides the real host
+        map(&[
+            ("name", "c".into()),
+            ("endpoint", "opc.tcp://127.0.0.1@plc1:4840/".into()),
+        ]),
+        map(&[
+            ("name", "c".into()),
+            ("endpoint", "opc.tcp://plc1:4840/?x".into()),
+        ]),
     ] {
         assert_eq!(
             add(bad.clone()).await,

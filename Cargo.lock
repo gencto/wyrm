@@ -6618,6 +6618,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "wyrm-core",
  "wyrm-link-opcua",
  "wyrm-link-sdk",

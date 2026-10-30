@@ -102,6 +102,8 @@ wyrm-link-mqtt = { path = "links/mqtt" }
 wyrm-link-opcua = { path = "links/opcua" }
 # OPC UA client (links/opcua); RustCrypto, no OpenSSL. Server only for its simulator.
 async-opcua = { version = "0.19", default-features = false }
+# The URL parser async-opcua connects with (links/opcua checks endpoints with the same one).
+url = "2.5"
 wyrm-link-agent = { path = "links/agent" }
 # WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
 wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }

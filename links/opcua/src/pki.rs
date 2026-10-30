@@ -169,11 +169,17 @@ fn dir_is_empty(dir: &Path) -> Result<bool, String> {
 fn write_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), String> {
     let err = |e: std::io::Error| format!("{}: {e}", path.display());
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(err)?;
+        if private {
+            private_dir(dir)?;
+        } else {
+            fs::create_dir_all(dir).map_err(err)?;
+        }
     }
+    // A new file each time: the mode applies only when the file is created.
     let tmp = path.with_extension("tmp");
+    let _ = fs::remove_file(&tmp);
     let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     if private {
         use std::os::unix::fs::OpenOptionsExt;
@@ -186,6 +192,51 @@ fn write_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), String> {
     f.sync_all().map_err(err)?;
     drop(f);
     fs::rename(&tmp, path).map_err(err)
+}
+
+/// The directory of keys: created with mode 0700 (and set to it when it
+/// exists), before any key goes in.
+fn private_dir(dir: &Path) -> Result<(), String> {
+    let err = |e: std::io::Error| format!("{}: {e}", dir.display());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(err)?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(dir).map_err(err)?;
+    Ok(())
+}
+
+/// PEM text of DER bytes.
+pub fn pem(label: &str, der: &[u8]) -> String {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::with_capacity(der.len() * 4 / 3 + 4);
+    for chunk in der.chunks(3) {
+        let n = chunk.len();
+        let v = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            if i <= n {
+                b64.push(B64[((v >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                b64.push('=');
+            }
+        }
+    }
+    let mut out = format!("-----BEGIN {label}-----\n");
+    for line in b64.as_bytes().chunks(64) {
+        out.push_str(std::str::from_utf8(line).unwrap_or(""));
+        out.push('\n');
+    }
+    out.push_str(&format!("-----END {label}-----\n"));
+    out
 }
 
 /// `cert_pem`/`key_pem` as the files the library reads. The key's content
@@ -232,17 +283,21 @@ fn generated(root: &Path, application_uri: &str) -> Result<(PathBuf, PathBuf), S
         alt_host_names: alt,
         certificate_duration_days: DAYS,
     };
-    let tmp_cert = cert.with_extension("new");
-    let tmp_key = key.with_extension("new");
-    CertificateStore::create_certificate_and_key(&data, true, &tmp_cert, &tmp_key)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp_key, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("{}: {e}", tmp_key.display()))?;
-    }
-    fs::rename(&tmp_key, &key).map_err(|e| format!("{}: {e}", key.display()))?;
-    fs::rename(&tmp_cert, &cert).map_err(|e| format!("{}: {e}", cert.display()))?;
+    // Made in memory; the key file is created 0600 in a 0700 directory, so
+    // it is never readable by others, not even for a moment.
+    let (x509, pkey) = X509::cert_and_pkey(&data)?;
+    let key_der = pkey
+        .to_der()
+        .map_err(|e| format!("encode the private key: {e}"))?;
+    write_file(
+        &key,
+        pem("PRIVATE KEY", key_der.as_bytes()).as_bytes(),
+        true,
+    )?;
+    let der = x509
+        .to_der()
+        .map_err(|e| format!("encode the certificate: {e}"))?;
+    write_file(&cert, &der, false)?;
     let thumb = CertificateStore::read_cert(&cert)
         .map(|c| c.thumbprint().as_hex_string())
         .unwrap_or_default();
@@ -252,4 +307,90 @@ fn generated(root: &Path, application_uri: &str) -> Result<(PathBuf, PathBuf), S
         "generated the OPC UA application certificate; trust it on the server"
     );
     Ok((cert, key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("wyrm-opcua-pki-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        d
+    }
+
+    #[cfg(unix)]
+    fn mode(p: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn generated_key_is_private_from_the_start() {
+        let root = tmp("gen");
+        // a wide private/ dir and a stale temp file of another mode
+        fs::create_dir_all(root.join("private")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(root.join("private"), fs::Permissions::from_mode(0o755)).unwrap();
+            let h = hash16(&["urn:t"]);
+            let stale = root.join("private").join(format!("app-{h}.tmp"));
+            fs::write(&stale, b"x").unwrap();
+            fs::set_permissions(&stale, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let (cert, key) = generated(&root, "urn:t").unwrap();
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&root.join("private")), 0o700);
+            assert_eq!(mode(&key), 0o600);
+        }
+        let pem = fs::read_to_string(&key).unwrap();
+        assert!(pem.starts_with("-----BEGIN PRIVATE KEY-----\n"));
+        assert!(PrivateKey::from_pem(pem.as_bytes()).is_ok());
+        assert!(CertificateStore::read_cert(&cert).is_ok());
+        // the library reads them as its own
+        let (store, c, k) = CertificateStore::new_with_x509_data(
+            &root.join("store"),
+            false,
+            Some(&cert),
+            Some(&key),
+            None::<X509Data>,
+        );
+        assert!(c.is_some() && k.is_some());
+        drop(store);
+        // made once
+        let again = generated(&root, "urn:t").unwrap();
+        assert_eq!(again, (cert, key));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn supplied_key_is_written_private() {
+        let root = tmp("own");
+        let (x509, pkey) = X509::cert_and_pkey(&X509Data {
+            key_size: 2048,
+            common_name: "t".into(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            country: String::new(),
+            state: String::new(),
+            alt_host_names: X509Data::alt_host_names("urn:t", None, false, false, false),
+            certificate_duration_days: 1,
+        })
+        .unwrap();
+        let cert_pem = pem("CERTIFICATE", &x509.to_der().unwrap());
+        let key_pem = pem("PRIVATE KEY", pkey.to_der().unwrap().as_bytes());
+        let (_, key) = own_from_pem(&root, &cert_pem, &key_pem).unwrap();
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&root.join("private")), 0o700);
+            assert_eq!(mode(&key), 0o600);
+        }
+        assert_eq!(fs::read_to_string(&key).unwrap(), key_pem);
+        // a bad key never shows in the error
+        let e = own_from_pem(&root, &cert_pem, "secret-key-text").unwrap_err();
+        assert!(!e.contains("secret-key-text"), "{e}");
+        let _ = fs::remove_dir_all(&root);
+    }
 }

@@ -83,27 +83,60 @@ impl Drop for AbortOnDrop {
     }
 }
 
-pub fn is_loopback(url: &str) -> bool {
-    let host = host_of(url);
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .parse::<IpAddr>()
-            .is_ok_and(|a| a.is_loopback())
+/// Parse an endpoint URL with the parser the library connects with
+/// (`url::Url`, host from `host_str`), so that the host checked here is the
+/// host it connects to. Refused: another scheme than `opc.tcp`, no host,
+/// user info (`opc.tcp://127.0.0.1@evil/`), a query or a fragment.
+pub fn parse_endpoint(s: &str) -> Result<url::Url, String> {
+    let u = url::Url::parse(s).map_err(|e| format!("not a URL: {e}"))?;
+    if u.scheme() != "opc.tcp" {
+        return Err("expected opc.tcp://host:port/path".into());
+    }
+    if u.host_str().is_none_or(str::is_empty) {
+        return Err("no host".into());
+    }
+    if !u.username().is_empty() || u.password().is_some() {
+        return Err("user info (user@host) is not allowed".into());
+    }
+    if u.query().is_some() || u.fragment().is_some() {
+        return Err("a query or fragment is not allowed".into());
+    }
+    Ok(u)
 }
 
-/// The host of `opc.tcp://host:port/path`.
-pub fn host_of(url: &str) -> &str {
-    let rest = url.strip_prefix("opc.tcp://").unwrap_or(url);
-    let authority = rest.split('/').next().unwrap_or("");
-    if let Some(v6) = authority.strip_prefix('[') {
-        return v6.split(']').next().unwrap_or("");
+/// The host the library connects to (IPv6 without brackets); empty when
+/// the URL is not a valid endpoint.
+pub fn host_of(url: &str) -> String {
+    parse_endpoint(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_matches(['[', ']']).to_owned()))
+        .unwrap_or_default()
+}
+
+/// The endpoint's host is this machine (`localhost`, 127.0.0.0/8, ::1).
+pub fn is_loopback(url: &str) -> bool {
+    let host = host_of(url);
+    host.eq_ignore_ascii_case("localhost") || host.parse::<IpAddr>().is_ok_and(|a| a.is_loopback())
+}
+
+/// A user identity leaves this host only over a channel with security. On
+/// a channel without it, how a token is protected comes from the endpoint
+/// description of GetEndpoints, which arrives before any trusted channel: a
+/// man in the middle could name its own certificate and get the password
+/// (or a signature with the user's key). Loopback is the exception.
+pub fn identity_allowed(identity: Identity, mode: Mode, url: &str) -> Result<(), String> {
+    if identity == Identity::Anonymous || mode != Mode::None || is_loopback(url) {
+        return Ok(());
     }
-    authority
-        .rsplit_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(authority)
+    Err(format!(
+        "identity {} to {} needs security mode sign or sign_and_encrypt (only loopback \
+         takes a user identity without one)",
+        match identity {
+            Identity::Username => "username",
+            _ => "certificate",
+        },
+        host_of(url)
+    ))
 }
 
 fn policy_of(p: Policy) -> SecurityPolicy {
@@ -171,6 +204,7 @@ impl Transport {
         let policy = policy_of(p.security_policy);
         let mode = mode_of(p.security_mode);
         let started = SystemTime::now();
+        identity_allowed(p.identity, p.security_mode, &p.endpoint).map_err(transport)?;
         let prep = match (&conn.pki, p.security_policy) {
             (Some(root), _) => {
                 let root = root.clone();
@@ -258,14 +292,6 @@ impl Transport {
                 ))
             })?;
         ep.endpoint_url = p.endpoint.as_str().into();
-        // A password goes over the wire in clear only to loopback.
-        if p.identity == Identity::Username && !is_loopback(&p.endpoint) && password_in_clear(&ep) {
-            return Err(transport(format!(
-                "refusing to send the password in clear to {}: use a security mode, or a \
-                 server whose user token policy encrypts it",
-                host_of(&p.endpoint)
-            )));
-        }
         let (session, event_loop) = client
             .connect_to_endpoint_directly(ep, id)
             .map_err(|e| transport(open_error(e.status(), conn, prep.as_ref())))?;
@@ -765,20 +791,6 @@ fn endpoint_value(e: &EndpointDescription) -> Value {
     Value::Map(m)
 }
 
-/// A user name token on `ep` would carry the password unencrypted: a channel
-/// without security and a token policy without a security policy of its own.
-pub fn password_in_clear(ep: &EndpointDescription) -> bool {
-    if ep.security_mode != MessageSecurityMode::None {
-        return false;
-    }
-    ep.find_policy(UserTokenType::UserName)
-        .map(|t| {
-            t.security_policy_uri.is_empty()
-                || SecurityPolicy::from_uri(t.security_policy_uri.as_ref()) == SecurityPolicy::None
-        })
-        .unwrap_or(true)
-}
-
 /// The server's `MaxNodesPerRead` (i=11705); 0 when it gives none.
 async fn read_max_nodes(session: &Session) -> usize {
     let id = ReadValueId::from(NodeId::from(
@@ -818,41 +830,54 @@ mod tests {
         assert_eq!(host_of("opc.tcp://10.0.0.5:4840"), "10.0.0.5");
         assert_eq!(host_of("opc.tcp://[::1]:4840/"), "::1");
         assert!(is_loopback("opc.tcp://127.0.0.1:4840/"));
-        assert!(is_loopback("opc.tcp://localhost:4840/"));
+        assert!(is_loopback("opc.tcp://127.1.2.3:4840/"));
+        assert!(is_loopback("opc.tcp://LOCALHOST:4840/"));
         assert!(is_loopback("opc.tcp://[::1]:4840/"));
         assert!(!is_loopback("opc.tcp://plc1:4840/"));
+        assert!(!is_loopback("opc.tcp://[::ffff:10.0.0.1]:4840/"));
+        // the host checked is the host the library connects to
+        for (url, host) in [
+            ("opc.tcp://plc1:4840/a/b", "plc1"),
+            ("opc.tcp://plc1/", "plc1"),
+            ("opc.tcp://[fe80::1]:4840/", "fe80::1"),
+        ] {
+            assert_eq!(host_of(url), host);
+            let lib = opcua::core::comms::url::hostname_from_url(url)
+                .ok()
+                .map(|h| h.trim_matches(['[', ']']).to_owned());
+            assert_eq!(lib.as_deref(), Some(host), "{url}");
+        }
+        // differentials are refused, never read as loopback
+        for bad in [
+            "opc.tcp://127.0.0.1@evil:4840/",
+            "opc.tcp://user:pw@127.0.0.1:4840/",
+            "opc.tcp://evil:4840/?127.0.0.1",
+            "opc.tcp://evil:4840/#127.0.0.1",
+            "opc.tcp://[::1:4840/",
+            "opc.tcp://",
+            "opc.tcp:///path",
+            "http://127.0.0.1:4840/",
+            "127.0.0.1:4840",
+        ] {
+            assert!(parse_endpoint(bad).is_err(), "{bad}");
+            assert!(!is_loopback(bad), "{bad}");
+            assert_eq!(host_of(bad), "", "{bad}");
+        }
     }
 
     #[test]
-    fn passwords_in_clear() {
-        use opcua::types::UserTokenPolicy;
-        let ep = |mode: MessageSecurityMode, token_policy: &str| EndpointDescription {
-            security_mode: mode,
-            user_identity_tokens: Some(vec![UserTokenPolicy {
-                token_type: UserTokenType::UserName,
-                security_policy_uri: token_policy.into(),
-                ..Default::default()
-            }]),
-            ..Default::default()
-        };
-        assert!(password_in_clear(&ep(MessageSecurityMode::None, "")));
-        assert!(password_in_clear(&ep(
-            MessageSecurityMode::None,
-            SecurityPolicy::None.to_uri()
-        )));
-        assert!(!password_in_clear(&ep(
-            MessageSecurityMode::None,
-            SecurityPolicy::Basic256Sha256.to_uri()
-        )));
-        assert!(!password_in_clear(&ep(
-            MessageSecurityMode::SignAndEncrypt,
-            ""
-        )));
-        // no user name policy at all: nothing would encrypt it
-        let none = EndpointDescription {
-            security_mode: MessageSecurityMode::None,
-            ..Default::default()
-        };
-        assert!(password_in_clear(&none));
+    fn identities_need_security_off_loopback() {
+        let remote = "opc.tcp://plc1:4840/";
+        let local = "opc.tcp://127.0.0.1:4840/";
+        assert!(identity_allowed(Identity::Anonymous, Mode::None, remote).is_ok());
+        // whatever a server's token policy says: refused before GetEndpoints
+        assert!(identity_allowed(Identity::Username, Mode::None, remote).is_err());
+        assert!(identity_allowed(Identity::Certificate, Mode::None, remote).is_err());
+        assert!(identity_allowed(Identity::Username, Mode::Sign, remote).is_ok());
+        assert!(identity_allowed(Identity::Certificate, Mode::SignAndEncrypt, remote).is_ok());
+        assert!(identity_allowed(Identity::Username, Mode::None, local).is_ok());
+        assert!(
+            identity_allowed(Identity::Username, Mode::None, "opc.tcp://127.0.0.1@plc1/").is_err()
+        );
     }
 }

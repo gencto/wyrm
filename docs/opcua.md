@@ -31,11 +31,11 @@ wy/<site>/downstream/<link>/
 
 | Param | Default | Bounds | Meaning |
 |---|---|---|---|
-| `endpoint` | required | `opc.tcp://host:port/path` | The endpoint URL. The link connects to this URL even when the server advertises another host or port (NAT, relays). |
+| `endpoint` | required | `opc.tcp://host:port/path`; no user info, query or fragment | The endpoint URL. The link connects to this URL even when the server advertises another host or port (NAT, relays). |
 | `security_policy` | `None` | `None`, `Basic256Sha256`, `Aes128_Sha256_RsaOaep`, `Aes256_Sha256_RsaPss` | Security policy of the secure channel. |
 | `security_mode` | `none` | `none`, `sign`, `sign_and_encrypt` | `none` goes only with policy `None`; `sign`/`sign_and_encrypt` only with the others. |
 | `identity` | `anonymous` | `anonymous`, `username`, `certificate` | The user identity token. |
-| `username` | `""` | required for `username` | |
+| `username` | `""` | required for `username` | A user identity to another host needs security mode `sign` or `sign_and_encrypt` (section 5). |
 | `password` | `""` | **secret** | |
 | `user_cert_pem` | `""` | PEM | The X.509 user certificate (`certificate`). |
 | `user_key_pem` | `""` | **secret**, PEM | Its RSA key. Kept in memory only. |
@@ -155,9 +155,20 @@ Rules:
 
 - A secured connection needs the link's `data_dir`. Without one only policy
   `None` works (the error says so).
-- A password is sent in clear only to loopback: user name identity on a
-  channel without security, with a user token policy that does not encrypt
-  it, to another host, is refused before the password leaves.
+- A user identity (`username` or `certificate`) to another host needs
+  security mode `sign` or `sign_and_encrypt`; `add_connection`/`edit`
+  refuse it with mode `none`, and only loopback takes one without. The
+  link does not trust a server's user token policy that says it encrypts
+  the password on a channel without security: that policy comes from
+  GetEndpoints, before any checked channel, so a man in the middle could
+  name its own certificate.
+- `endpoint` is parsed with the URL parser the library connects with, and
+  a URL with user info (`opc.tcp://a@b/`), a query or a fragment is
+  refused, so the host the link checks (loopback rules above) is the host
+  it connects to.
+- Keys are written only into `private/`, created with mode 0700; a key
+  file is created with mode 0600 (the generated key is made in memory and
+  written by the link, never by the library with default permissions).
 - A connection with security mode `none` to another host shows a warning
   on its `status` leaf (`attr.warning`): values travel unsigned and
   unencrypted.

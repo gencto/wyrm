@@ -29,6 +29,8 @@ tracing.workspace = true
 sha2.workspace = true
 hex.workspace = true
 futures-util.workspace = true
+# Endpoint URLs, parsed as the library parses them (no second host parser).
+url.workspace = true
 clap = { workspace = true, optional = true }
 
 [dev-dependencies]

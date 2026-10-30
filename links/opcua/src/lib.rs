@@ -190,9 +190,7 @@ impl Params for Conn {
 
     fn from_map(m: &BTreeMap<String, Value>) -> wyrm_link_sdk::Result<Self> {
         let p = ConnParams::from_map(m)?;
-        if !p.endpoint.starts_with("opc.tcp://") || session::host_of(&p.endpoint).is_empty() {
-            return Err(bad("endpoint", "expected opc.tcp://host:port/path"));
-        }
+        session::parse_endpoint(&p.endpoint).map_err(|e| bad("endpoint", e))?;
         if (p.security_policy == Policy::None) != (p.security_mode == Mode::None) {
             return Err(bad(
                 "security_mode",
@@ -218,6 +216,8 @@ impl Params for Conn {
                     .map_err(|_| bad("user_key_pem", "not a PEM RSA private key"))?;
             }
         }
+        session::identity_allowed(p.identity, p.security_mode, &p.endpoint)
+            .map_err(|e| bad("identity", e))?;
         if p.cert_pem.is_empty() != p.key_pem.is_empty() {
             return Err(bad("cert_pem", "cert_pem and key_pem go together"));
         }
@@ -645,7 +645,7 @@ mod tests {
         .unwrap_err();
         assert!(!e.message.contains("very-private"), "{}", e.message);
         let c = Conn::from_value(&map(&[
-            ("endpoint", "opc.tcp://h:1/".into()),
+            ("endpoint", "opc.tcp://127.0.0.1:1/".into()),
             ("identity", "username".into()),
             ("username", "u".into()),
             ("password", "pw-secret".into()),

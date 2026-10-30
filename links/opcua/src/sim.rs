@@ -399,31 +399,7 @@ impl Sim {
     }
 }
 
-/// PEM text of DER bytes.
-pub fn pem(label: &str, der: &[u8]) -> String {
-    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut b64 = String::new();
-    for chunk in der.chunks(3) {
-        let n = chunk.len();
-        let v = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for i in 0..4 {
-            if i <= n {
-                b64.push(B64[((v >> (18 - 6 * i)) & 63) as usize] as char);
-            } else {
-                b64.push('=');
-            }
-        }
-    }
-    let mut out = format!("-----BEGIN {label}-----\n");
-    for line in b64.as_bytes().chunks(64) {
-        out.push_str(std::str::from_utf8(line).unwrap_or(""));
-        out.push('\n');
-    }
-    out.push_str(&format!("-----END {label}-----\n"));
-    out
-}
+pub use crate::pki::pem;
 
 // ---------- relay ----------
 
