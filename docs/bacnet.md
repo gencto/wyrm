@@ -187,7 +187,11 @@ comes after its timeout is dropped and counted in `late_replies`.
   `max_apdu` to skip the Who-Is.
 - **Forwarded-NPDU** (from a BBMD) names the original source. The link
   believes it only from the configured `bbmd`; from anyone else it is
-  dropped.
+  dropped. So on a subnet with its own BBMD, I-Ams from other subnets
+  (forwarded by that BBMD) are dropped while `bbmd` is empty: `who_is` and
+  devices without an address then see the local subnet only. For devices
+  on other subnets, set `bbmd` (foreign-device registration) or give each
+  device a fixed `address`.
 - **BBMD.** With `bbmd`, the link registers as a foreign device when the
   connection opens and renews the registration before a request once half
   of the TTL has passed.
@@ -257,6 +261,8 @@ simulator).
 - **One BACnet stack per port.** Another BACnet program on the host that
   holds UDP 47808 makes the connection `failed` (`bind … address in use`).
   Use another `bind_port` and a fixed `address` for each device then.
+- **Devices on other subnets** need `bbmd` or a fixed `address`: without
+  `bbmd`, forwarded I-Ams from a local BBMD are dropped (section 7).
 - The BBMD registration is renewed only while requests flow: a connection
   without devices lets it lapse.
 - No segmentation: long replies are split into more requests; one property
