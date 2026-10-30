@@ -134,15 +134,26 @@ The link's PKI is in its `data_dir`, in `opcua-pki/`:
 |---|---|
 | `own/app-<hash>.der`, `private/app-<hash>.pem` | The generated application certificate (self-signed, RSA 2048, 10 years, SAN: `application_uri` and this host's names) and its key (mode 0600). Made on the first open of a connection without `cert_pem` when the link has a `data_dir` (also for policy `None`, which does not use it), then reused. One per `application_uri`. |
 | `own/user-<hash>.der`, `private/user-<hash>.pem` | `cert_pem` and `key_pem` as files (the library reads its certificate and key from files on every connect). The key file has mode 0600. |
-| `servers/<url hash>-<trust>/trusted`, `…/rejected` | Server certificates per endpoint and trust mode. |
+| `servers/<url hash>-<trust>/trusted`, `…/rejected` | Server certificates per endpoint and trust mode. `<url hash>` is of the endpoint with a lower-case host, the port (4840 when absent) and the path (`/` when empty), so `opc.tcp://PLC1:4840` and `opc.tcp://plc1/` are one endpoint; `localhost` and `127.0.0.1` are two. `<trust>` is `pin-<hash>`, `tofu` or `strict`. |
+| `servers/<url hash>-tofu/tofu-ok` | Marks that a session was made with the certificate in `trusted/` (first use done). |
 
 The **thumbprint** (SHA-1, hex, as server trust lists show it) of the
-application certificate is logged at `info` when the certificate is made,
-and it is in the connection's `error` leaf when a secured open fails, for
-example: `connect to opc.tcp://plc1:4840/: BadSecurityChecksFailed; if the
-server does not trust this client yet, trust its application certificate
-(thumbprint 5A1F…) on the server`. Trust that certificate on the server
-(most servers put it in a "rejected" list) and the next attempt connects.
+application certificate is logged at `info` when the certificate is made
+and on every secured open that fails (with the server's thumbprint), and
+it is in the connection's `error` leaf when a secured open fails. The
+advice in `error` comes from the server certificate of GetEndpoints and
+the link's trust store, so it stays the same on every retry:
+
+- The link does not trust the server certificate: `… the server
+  certificate (thumbprint 9C02…) is not trusted: pin it (server_cert_pem)
+  or set trust_on_first_use`.
+- The link trusts it, but a host name, application URI or validity check
+  failed (BadCertificateHostNameInvalid, …): both thumbprints.
+- Otherwise the server refused this client, for example: `connect to
+  opc.tcp://plc1:4840/: BadSecurityChecksFailed; if the server does not
+  trust this client yet, trust its application certificate (thumbprint
+  5A1F…) on the server`. Trust that certificate on the server (most
+  servers put it in a "rejected" list) and the next attempt connects.
 
 **Server certificate trust** (for policies other than `None`; the library
 always checks the certificate's validity time, host name and application
@@ -151,8 +162,24 @@ URI):
 | Setting | What is trusted |
 |---|---|
 | `server_cert_pem` (pin) | Only that certificate. |
-| `trust_on_first_use: true` | The first certificate seen at that endpoint, then only it. |
+| `trust_on_first_use: true` | The first certificate with which a session was made at that endpoint, then only it. |
 | neither (the default) | Nothing: the open fails with the server certificate's thumbprint in `error` (`… is not trusted: pin it (server_cert_pem) or set trust_on_first_use`). |
+
+Trust on first use:
+
+- First use counts only after a session was made. The library stores an
+  unknown certificate in `trusted/` before it checks its host name,
+  validity and application URI; until the store has `tofu-ok`, the link
+  empties `trusted/` before each attempt, so a refused (or cut) first
+  attempt does not pin a certificate that never validates.
+- To reset it (the server got a new certificate), delete the directory
+  `<data_dir>/opcua-pki/servers/<url hash>-tofu/` while the link runs or
+  is stopped; the next open is a first use again. Or set a pin.
+- The first answer at the endpoint is trusted without a check of who
+  sent it. With a `username` or `certificate` identity, the first use
+  sends that identity to whoever answers first (a man in the middle on
+  the first connect gets the password). Pin the server certificate for a
+  connection with a user identity on a network you do not control.
 
 Rules:
 

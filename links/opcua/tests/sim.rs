@@ -539,7 +539,10 @@ async fn a_timed_out_chunk_goes_stale_while_the_other_answers() {
     let s = spawn(&d.0, |_| {}).await;
     // one node per Read request: two chunks, one of them with `Slow`
     let points = map(&[
-        ("int32", pt(&line("Int32"), &[("poll_s", Value::Float(1.0))])),
+        (
+            "int32",
+            pt(&line("Int32"), &[("poll_s", Value::Float(1.0))]),
+        ),
         ("slow", pt(&line("Slow"), &[("poll_s", Value::Float(1.0))])),
     ]);
     let h = H::start(tree(
@@ -554,7 +557,10 @@ async fn a_timed_out_chunk_goes_stale_while_the_other_answers() {
     .await;
     connected(&h).await;
     let good = |h: &H, p: &str| val(h, p).is_some_and(|(_, q)| q == Quality::Good);
-    wait("both good", || good(&h, "c1/d1/int32") && good(&h, "c1/d1/slow")).await;
+    wait("both good", || {
+        good(&h, "c1/d1/int32") && good(&h, "c1/d1/slow")
+    })
+    .await;
     // the Read request that holds `Slow` answers after the request timeout
     s.set_slow(Duration::from_millis(450));
     let mut seen_uncertain = false;
@@ -562,7 +568,10 @@ async fn a_timed_out_chunk_goes_stale_while_the_other_answers() {
     loop {
         let q = val(&h, "c1/d1/slow").map(|(_, q)| q);
         seen_uncertain |= q == Some(Quality::Uncertain);
-        assert!(good(&h, "c1/d1/int32"), "the chunk that answered stays good");
+        assert!(
+            good(&h, "c1/d1/int32"),
+            "the chunk that answered stays good"
+        );
         assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
         if q == Some(Quality::Bad) {
             break;
@@ -654,11 +663,26 @@ async fn secured_channel_trust_pin_and_first_use() {
     // strict: an unknown server certificate is refused, with its thumbprint
     let data = d.0.join("strict");
     let h = start_in(tree(&s.url(), &secured(&[]), &[], points()), &data).await;
+    let server_thumb = opcua::crypto::X509::from_pem(s.certificate_pem().as_bytes())
+        .unwrap()
+        .thumbprint()
+        .as_hex_string();
     wait("refused", || error(&h, "c1").contains("not trusted")).await;
     assert!(
-        error(&h, "c1").contains("thumbprint"),
+        error(&h, "c1").contains(&server_thumb),
         "{}",
         error(&h, "c1")
+    );
+    // the same advice after retries (the refused certificate is already in
+    // rejected/, and the library does not write it again)
+    for _ in 0..2 {
+        wait("a new attempt", || error(&h, "c1").is_empty()).await;
+        wait("refused again", || !error(&h, "c1").is_empty()).await;
+    }
+    let e = error(&h, "c1");
+    assert!(
+        e.contains("not trusted") && e.contains(&server_thumb),
+        "after retries: {e}"
     );
     h.stop().await;
 

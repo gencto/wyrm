@@ -17,14 +17,14 @@ use opcua::crypto::{PrivateKey, SecurityPolicy, X509};
 use opcua::types::{
     AttributeId, BrowseDescription, BrowseDirection, BrowseResultMask, DataValue,
     EndpointDescription, MessageSecurityMode, NamespaceMap, NodeClass, NodeId, ReadValueId,
-    ReferenceTypeId, StatusCode, TimestampsToReturn, UserTokenType, VariableId, Variant,
-    VariantScalarTypeId, WriteValue,
+    ReferenceTypeId, StatusCode, SubStatusCode, TimestampsToReturn, UserTokenType, VariableId,
+    Variant, VariantScalarTypeId, WriteValue,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::debug;
@@ -104,6 +104,23 @@ pub fn parse_endpoint(s: &str) -> Result<url::Url, String> {
     Ok(u)
 }
 
+/// The endpoint as one key for the files and limits kept per endpoint:
+/// `opc.tcp://<host, lower case>:<port, 4840 when absent><path, / when
+/// empty>`, so that `opc.tcp://PLC1:4840` and `opc.tcp://plc1/` are one
+/// endpoint. (The URL parser keeps a non-special scheme's host and path as
+/// written.) A URL that is not an endpoint is its own key.
+pub fn endpoint_key(url: &str) -> String {
+    let Ok(u) = parse_endpoint(url) else {
+        return url.to_owned();
+    };
+    let host = u.host_str().unwrap_or_default().to_ascii_lowercase();
+    let path = match u.path() {
+        "" => "/",
+        p => p,
+    };
+    format!("opc.tcp://{host}:{}{path}", u.port().unwrap_or(4840))
+}
+
 /// The host the library connects to (IPv6 without brackets); empty when
 /// the URL is not a valid endpoint.
 pub fn host_of(url: &str) -> String {
@@ -160,25 +177,59 @@ fn transport(e: impl std::fmt::Display) -> DriverError {
     DriverError::Transport(e.to_string())
 }
 
-/// Why an open failed, for the connection's `error` leaf. Certificate
-/// trouble names both thumbprints so that an operator can trust them.
-fn open_error(code: StatusCode, conn: &Conn, prep: Option<&(pki::Prepared, SystemTime)>) -> String {
-    let name = code.sub_code().name();
-    let secured = conn.p.security_policy != Policy::None;
+/// Why an open failed, for the connection's `error` leaf. On a secured
+/// connection the advice comes from the server's certificate (from
+/// GetEndpoints) and this client's trust store, not from file times: a
+/// certificate the store does not trust names the server's thumbprint on
+/// every attempt; a trusted one that fails a check names both; otherwise
+/// the server refused this client, and the advice names the client's.
+fn open_error(
+    code: StatusCode,
+    conn: &Conn,
+    prep: Option<&pki::Prepared>,
+    server: Option<&X509>,
+) -> String {
+    let sub = code.sub_code();
+    let name = sub.name();
     let mut msg = format!("connect to {}: {name}", conn.p.endpoint);
-    if let Some((prep, since)) = prep.filter(|_| secured) {
-        if let Some(server) = pki::rejected_since(&prep.store, *since) {
-            msg.push_str(&format!(
-                "; the server certificate (thumbprint {server}) is not trusted: pin it \
-                 (server_cert_pem) or set trust_on_first_use"
-            ));
-        } else {
-            msg.push_str(&format!(
-                "; if the server does not trust this client yet, trust its application \
-                 certificate (thumbprint {}) on the server",
-                prep.thumbprint
-            ));
-        }
+    let Some(prep) = prep.filter(|_| conn.p.security_policy != Policy::None) else {
+        return msg;
+    };
+    let Some(cert) = server else {
+        return msg;
+    };
+    let server_thumb = cert.thumbprint().as_hex_string();
+    tracing::info!(
+        endpoint = %conn.p.endpoint,
+        server = %server_thumb,
+        client = %prep.thumbprint,
+        "opc ua secured open failed: {name}"
+    );
+    if !prep.trusts(cert) {
+        msg.push_str(&format!(
+            "; the server certificate (thumbprint {server_thumb}) is not trusted: pin it \
+             (server_cert_pem) or set trust_on_first_use"
+        ));
+    } else if matches!(
+        sub,
+        SubStatusCode::BadCertificateTimeInvalid
+            | SubStatusCode::BadCertificateIssuerTimeInvalid
+            | SubStatusCode::BadCertificateHostNameInvalid
+            | SubStatusCode::BadCertificateUriInvalid
+            | SubStatusCode::BadCertificateInvalid
+    ) {
+        msg.push_str(&format!(
+            "; a certificate check failed: the server certificate (thumbprint \
+             {server_thumb}) needs this host name, the server's application URI and a \
+             valid date, and so does this client's (thumbprint {}) on the server",
+            prep.thumbprint
+        ));
+    } else {
+        msg.push_str(&format!(
+            "; if the server does not trust this client yet, trust its application \
+             certificate (thumbprint {}) on the server",
+            prep.thumbprint
+        ));
     }
     msg
 }
@@ -203,12 +254,11 @@ impl Transport {
         let p = &conn.p;
         let policy = policy_of(p.security_policy);
         let mode = mode_of(p.security_mode);
-        let started = SystemTime::now();
         identity_allowed(p.identity, p.security_mode, &p.endpoint).map_err(transport)?;
         let prep = match (&conn.pki, p.security_policy) {
             (Some(root), _) => {
                 let root = root.clone();
-                let url = p.endpoint.clone();
+                let url = endpoint_key(&p.endpoint);
                 let uri = p.application_uri.clone();
                 let own = (!p.cert_pem.is_empty()).then(|| (p.cert_pem.clone(), p.key_pem.clone()));
                 let pin = p.server_cert_pem.clone();
@@ -236,7 +286,7 @@ impl Transport {
                 .await
                 .map_err(transport)?
                 .map_err(transport)?;
-                Some((prep, started))
+                Some(prep)
             }
             (None, Policy::None) => None,
             (None, _) => {
@@ -260,7 +310,7 @@ impl Transport {
                 (u64::from(p.session_timeout_ms) / 3).clamp(1000, 30_000),
             ));
         match &prep {
-            Some((prep, _)) => {
+            Some(prep) => {
                 b = b
                     .pki_dir(prep.store.clone())
                     .certificate_path(prep.cert.clone())
@@ -282,7 +332,7 @@ impl Transport {
         let eps = client
             .get_server_endpoints_from_url(p.endpoint.as_str())
             .await
-            .map_err(|e| transport(open_error(e.status(), conn, prep.as_ref())))?;
+            .map_err(|e| transport(open_error(e.status(), conn, prep.as_ref(), None)))?;
         let mut ep =
             Client::find_matching_endpoint(&eps, &p.endpoint, policy, mode).ok_or_else(|| {
                 transport(format!(
@@ -292,9 +342,15 @@ impl Transport {
                 ))
             })?;
         ep.endpoint_url = p.endpoint.as_str().into();
+        // The certificate the server will present (CreateSession checks it
+        // is the same), for the advice when the open fails.
+        let server_cert = X509::from_byte_string(&ep.server_certificate).ok();
+        let fail = |code: StatusCode| {
+            transport(open_error(code, conn, prep.as_ref(), server_cert.as_ref()))
+        };
         let (session, event_loop) = client
             .connect_to_endpoint_directly(ep, id)
-            .map_err(|e| transport(open_error(e.status(), conn, prep.as_ref())))?;
+            .map_err(|e| fail(e.status()))?;
         let (up_tx, up_rx) = oneshot::channel::<Result<(), StatusCode>>();
         let (dead_tx, dead_rx) = watch::channel(None);
         let task = tokio::spawn(async move {
@@ -323,8 +379,11 @@ impl Transport {
         let mut guard = AbortOnDrop(Some(task));
         match up_rx.await {
             Ok(Ok(())) => {}
-            Ok(Err(code)) => return Err(transport(open_error(code, conn, prep.as_ref()))),
+            Ok(Err(code)) => return Err(fail(code)),
             Err(_) => return Err(transport("session event loop stopped")),
+        }
+        if let Some(prep) = &prep {
+            prep.opened();
         }
         let nss = session
             .read_namespace_array()
@@ -869,6 +928,26 @@ mod tests {
             assert!(!is_loopback(bad), "{bad}");
             assert_eq!(host_of(bad), "", "{bad}");
         }
+    }
+
+    #[test]
+    fn endpoint_keys_are_normalised() {
+        let k = endpoint_key("opc.tcp://plc1:4840/");
+        assert_eq!(k, "opc.tcp://plc1:4840/");
+        for same in [
+            "opc.tcp://plc1:4840",
+            "opc.tcp://PLC1:4840/",
+            "opc.tcp://plc1/",
+            "opc.tcp://plc1",
+        ] {
+            assert_eq!(endpoint_key(same), k, "{same}");
+        }
+        assert_ne!(endpoint_key("opc.tcp://plc1:4841/"), k);
+        assert_ne!(endpoint_key("opc.tcp://plc1:4840/a"), k);
+        assert_eq!(
+            endpoint_key("opc.tcp://[::1]:4840"),
+            "opc.tcp://[::1]:4840/"
+        );
     }
 
     #[test]

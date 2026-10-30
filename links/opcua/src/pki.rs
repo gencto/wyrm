@@ -13,6 +13,14 @@
 //! `<trust>` is `pin-<hash>` (only the pinned certificate is trusted),
 //! `tofu` (the first certificate seen is trusted, then only it) or `strict`
 //! (nothing is trusted: a secured connection fails until a pin is given).
+//! `<url hash>` is of the endpoint as [`crate::session::endpoint_key`]
+//! normalises it.
+//!
+//! First use counts only once a session was activated: then the store gets
+//! the marker file `tofu-ok`. Until it has it, `prepare` empties `trusted/`
+//! (the library stores an unknown certificate there before it checks host
+//! name, validity and application URI, and an open can also be cut by its
+//! timeout), so a refused first answer never pins the store.
 
 use opcua::crypto::{CertificateStore, PrivateKey, X509Data, X509};
 use sha2::{Digest, Sha256};
@@ -43,6 +51,26 @@ pub struct Prepared {
     pub thumbprint: String,
     /// Trust the server's certificate when it is unknown (first use).
     pub trust_unknown: bool,
+}
+
+/// The marker of a trust-on-first-use store whose first use made a session.
+const TOFU_OK: &str = "tofu-ok";
+
+impl Prepared {
+    /// `cert` (a server certificate) is in this store's `trusted/` and not
+    /// in its `rejected/` (the library checks `rejected/` first).
+    pub fn trusts(&self, cert: &X509) -> bool {
+        let name = CertificateStore::cert_file_name(cert);
+        self.store.join("trusted").join(&name).is_file()
+            && !self.store.join("rejected").join(&name).is_file()
+    }
+
+    /// A session was activated: a first-use store keeps what it trusts.
+    pub fn opened(&self) {
+        if self.trust_unknown {
+            let _ = write_file(&self.store.join(TOFU_OK), b"", false);
+        }
+    }
 }
 
 /// Trust of the server's certificate.
@@ -107,7 +135,19 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
             write_file(&trusted.join(&name), &der, false)?;
             false
         }
-        Trust::FirstUse => dir_is_empty(&trusted)?,
+        Trust::FirstUse => {
+            let marker = store.join(TOFU_OK);
+            if !marker.is_file() {
+                // No session yet: what an earlier attempt stored is not
+                // trusted (see the module doc).
+                clear_dir(&trusted)?;
+            }
+            let empty = dir_is_empty(&trusted)?;
+            if empty {
+                let _ = fs::remove_file(&marker);
+            }
+            empty
+        }
         Trust::Strict => false,
     };
     Ok(Prepared {
@@ -128,25 +168,6 @@ pub fn plain_store() -> Result<PathBuf, String> {
         fs::create_dir_all(dir.join(sub)).map_err(|e| format!("pki directory: {e}"))?;
     }
     Ok(dir)
-}
-
-/// The most recently written certificate in `<store>/rejected` since
-/// `since`: the server's certificate this client just refused.
-pub fn rejected_since(store: &Path, since: std::time::SystemTime) -> Option<String> {
-    let entries = fs::read_dir(store.join("rejected")).ok()?;
-    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
-    for e in entries.flatten() {
-        let Ok(t) = e.metadata().and_then(|m| m.modified()) else {
-            continue;
-        };
-        if t >= since && newest.as_ref().is_none_or(|(n, _)| t > *n) {
-            newest = Some((t, e.path()));
-        }
-    }
-    let (_, path) = newest?;
-    CertificateStore::read_cert(&path)
-        .ok()
-        .map(|c| c.thumbprint().as_hex_string())
 }
 
 fn clear_dir(dir: &Path) -> Result<(), String> {
@@ -363,6 +384,63 @@ mod tests {
         let again = generated(&root, "urn:t").unwrap();
         assert_eq!(again, (cert, key));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    /// First use counts once a session was made: a certificate an earlier
+    /// attempt stored in `trusted/` is dropped until then.
+    #[test]
+    fn first_use_counts_after_a_session() {
+        let root = tmp("tofu");
+        let (cert_pem, key_pem) = test_keypair();
+        let req = Request {
+            url: "opc.tcp://h:4840/",
+            application_uri: "urn:t",
+            own: Some((&cert_pem, &key_pem)),
+            trust: Trust::FirstUse,
+        };
+        let p = prepare(&root, &req).unwrap();
+        assert!(p.trust_unknown);
+        // the library stored the server's certificate, then the open failed
+        let server = X509::from_pem(cert_pem.as_bytes()).unwrap();
+        let name = CertificateStore::cert_file_name(&server);
+        fs::write(
+            p.store.join("trusted").join(&name),
+            server.to_der().unwrap(),
+        )
+        .unwrap();
+        assert!(p.trusts(&server));
+        let p = prepare(&root, &req).unwrap();
+        assert!(p.trust_unknown, "a failed first use does not pin");
+        assert!(!p.trusts(&server));
+        // this time a session was made: then only that certificate
+        fs::write(
+            p.store.join("trusted").join(&name),
+            server.to_der().unwrap(),
+        )
+        .unwrap();
+        p.opened();
+        let p = prepare(&root, &req).unwrap();
+        assert!(!p.trust_unknown);
+        assert!(p.trusts(&server));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn test_keypair() -> (String, String) {
+        let (x509, pkey) = X509::cert_and_pkey(&X509Data {
+            key_size: 2048,
+            common_name: "t".into(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            country: String::new(),
+            state: String::new(),
+            alt_host_names: X509Data::alt_host_names("urn:t", None, false, false, false),
+            certificate_duration_days: 1,
+        })
+        .unwrap();
+        (
+            pem("CERTIFICATE", &x509.to_der().unwrap()),
+            pem("PRIVATE KEY", pkey.to_der().unwrap().as_bytes()),
+        )
     }
 
     #[test]
