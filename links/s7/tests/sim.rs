@@ -391,13 +391,13 @@ async fn an_item_error_fails_that_point_only() {
             .collect();
         assert!(db2.contains(&(96, 2)) && db2.contains(&(98, 4)), "{db2:?}");
     }
-    // the PLC's text comes back to a reader
+    // the PLC's text comes back to the caller
     let (s, _, msg) = act(
         &h,
         "c1/d1",
         "read_address",
         map(&[("address", "DB9.DBW0".into())]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s, Some(Status::NotAvailable));
@@ -826,14 +826,22 @@ async fn ping_and_commissioning_actions() {
     .await;
     let (_, m) = h.meta("c1/d1").await;
     let acts = m.unwrap().actions.unwrap();
-    assert_eq!(acts["read_szl"].level, Some(Perm::Read));
-    assert_eq!(acts["read_address"].level, Some(Perm::Read));
+    // they hold the connection: commissioning, at config
+    assert_eq!(acts["read_szl"].level, Some(Perm::Config));
+    assert_eq!(acts["read_address"].level, Some(Perm::Config));
+    for (name, args) in [
+        ("read_szl", map(&[("id", Value::UInt(0x0011))])),
+        ("read_address", map(&[("address", "MW20".into())])),
+    ] {
+        let (s, _, _) = act(&h, "c1/d1", name, args, Perm::Read).await;
+        assert_eq!(s, Some(Status::PermissionDenied), "{name} at read");
+    }
     let (s, v, msg) = act(
         &h,
         "c1/d1",
         "read_szl",
         map(&[("id", Value::UInt(0x0011))]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s, Some(Status::Ok), "{msg}");
@@ -844,7 +852,7 @@ async fn ping_and_commissioning_actions() {
         "c1/d1",
         "read_address",
         map(&[("address", "MW20".into()), ("dtype", "int".into())]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s, Some(Status::Ok));
@@ -854,7 +862,7 @@ async fn ping_and_commissioning_actions() {
         "c1/d1",
         "read_address",
         map(&[("address", "MW20:REAL".into())]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s, Some(Status::InvalidParameter), "{msg}");
@@ -865,7 +873,7 @@ async fn ping_and_commissioning_actions() {
         "c1/d1",
         "read_szl",
         map(&[("id", Value::UInt(0x11))]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(s, Some(Status::NotAvailable));

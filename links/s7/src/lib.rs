@@ -34,10 +34,11 @@
 //! code → `Point` with the PLC's error text (S7-1200/1500 without PUT/GET
 //! access answer 0x8104).
 //!
-//! Driver actions (level read, run between polls): connection
-//! `connection_info` (the negotiated PDU size and parallel jobs, the
-//! TSAPs), device `read_szl` (one SZL list, the order code of 0x0011) and
-//! `read_address` (one value at any address, unscaled).
+//! Driver actions (run between polls): connection `connection_info` (level
+//! read: the negotiated PDU size and parallel jobs, the TSAPs), device
+//! `read_szl` (one SZL list, the order code of 0x0011) and `read_address`
+//! (one value at any address, unscaled), both commissioning at level
+//! config (they hold the connection).
 //!
 //! Not supported: S7comm-plus (symbolic access, the protected protocol of
 //! newer 1200/1500 firmware), optimized DBs, the protection-level
@@ -899,16 +900,20 @@ impl Driver for S7Driver {
         (dev.p.republish_s > 0.0).then(|| Duration::from_secs_f64(dev.p.republish_s))
     }
 
+    /// `connection_info` (no I/O) at read; `read_szl` and `read_address`
+    /// send a request and hold the connection while they wait, so they are
+    /// commissioning actions at config.
     fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
-        let read = |display: &str| {
+        let at = |perm: Perm, display: &str| {
             ActionMeta::new()
-                .level(Perm::Read)
+                .level(perm)
                 .display(display)
                 .timeout_ms(READ_ACTION_MS)
                 .result(ActionResult::Type(TypeCode::Map))
         };
+        let read = |display: &str| at(Perm::Config, display);
         match level {
-            Level::Connection => vec![("connection_info", read("Connection Info"))],
+            Level::Connection => vec![("connection_info", at(Perm::Read, "Connection Info"))],
             Level::Device => vec![
                 (
                     "read_szl",
