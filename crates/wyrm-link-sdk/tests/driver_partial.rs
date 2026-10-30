@@ -268,11 +268,12 @@ async fn answered_pings_do_not_undo_poll_misses() {
         seen.iter().all(|x| *x == Quality::Bad),
         "p left bad without an answer: {seen:?}"
     );
-    // The device answers pings: it shows `Connected`, its points stay bad.
-    wait("device connected", || {
-        h.ctx().last("c1/d1/status").map(|s| s.v) == Some(Value::UInt(NodeState::Connected as u64))
-    })
-    .await;
+    // The device answers pings, but its polls failed: it stays `Failed`
+    // with its error, its points stay bad (final re-review N1).
+    assert_eq!(
+        h.ctx().last("c1/d1/status").map(|s| s.v),
+        Some(Value::UInt(NodeState::Failed as u64))
+    );
     assert_eq!(q(&h, "c1/d1/p").map(|(_, x)| x), Some(Quality::Bad));
     s.p.store(false, Ordering::SeqCst);
     s.q.store(false, Ordering::SeqCst);

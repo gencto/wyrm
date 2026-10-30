@@ -2025,9 +2025,14 @@ impl<D: Driver> Owner<D> {
     /// earned stay (final review M2). Its points keep their quality until a
     /// poll answers: the ladder neither starts again nor goes back.
     async fn ping_ok(&mut self, dev: &str) {
+        let limit = D::stale_misses().max(1);
         let h = self.health(dev);
         h.misses = h.poll_misses;
-        self.dev_state(dev, NodeState::Connected, None).await;
+        // A device whose polls failed stays `Failed` with its error until
+        // a poll answers: `Connected` over `bad` points would mislead.
+        if h.poll_misses < limit {
+            self.dev_state(dev, NodeState::Connected, None).await;
+        }
     }
 
     /// Quality ladder: first miss → `uncertain/stale` (good points only);
@@ -2045,8 +2050,12 @@ impl<D: Driver> Owner<D> {
         if misses == 1 {
             mark_stale(&self.ctx, self.dev_points(dev)).await;
         }
-        if misses == D::stale_misses().max(1) {
-            self.dev_state(dev, NodeState::Failed, Some(why)).await;
+        // `>=`: a ping that answered in between does not reset the misses
+        // polls earned, so the limit can be passed without being met.
+        if misses >= D::stale_misses().max(1) {
+            if self.health(dev).state != Some(NodeState::Failed) {
+                self.dev_state(dev, NodeState::Failed, Some(why)).await;
+            }
             mark(
                 &self.ctx,
                 self.dev_points(dev),

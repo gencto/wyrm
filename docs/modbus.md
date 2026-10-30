@@ -252,8 +252,11 @@ shows what the device holds.
   never holds the sets, actions and edits of the link's other
   connections, and it is never written late. During `read_registers` or
   `read_device_id` (level `read`, one bounded request each) a set waits
-  for that one action and then runs: `read` callers cannot lock writers
-  out.
+  for that one action and then runs. The wait holds the link for up to
+  5 s: a `read_registers` to a unit that does not answer, with
+  `timeout_ms` above about 4 s, outlasts it, and the set answers `timeout`
+  and is not written. Keep `timeout_ms` low on lines where operators run
+  `read_registers` while sets arrive.
 - A write that waited behind a long poll until its caller stopped
   waiting is dropped and answers `timeout`: equipment is never written
   late.
@@ -303,7 +306,7 @@ shows what the device holds.
 | 3 polls missed | last value; the device `Failed` | `bad/comm_fail` |
 | one batch of the device timed out while its other batches answered | last value; the device stays `Connected` | `uncertain/stale`, after 3 such polls `bad/comm_fail` |
 | the poll could not run for 3 poll periods (it waits behind a driver action, a long write series or another device's polls that time out) | last value | `uncertain/stale`; `good` again at its next read |
-| polls miss while pings answer (a probe register that answers, a span the device drops) | last value; the device `Connected` | `bad/comm_fail` after 3 missed polls; it stays bad until a poll answers |
+| polls miss while pings answer (a probe register that answers, a span the device drops) | last value; the device `Failed` with the poll's error | `bad/comm_fail` after 3 missed polls; it stays bad, and the device `Failed`, until a poll answers |
 | exception reply for the point's request, or a value that does not decode | last value | `bad/device_error` |
 | connection down | last value; devices `Stopped by Parent` | `bad/disconnected` |
 | slave: the tree's value does not fit the point after an edit | last value | `bad/config_error` |

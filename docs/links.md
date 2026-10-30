@@ -120,7 +120,10 @@ one driver action (a scan, a register read) at a time: while it is queued or
 runs, another action on that connection answers `busy` at once. A set on that
 connection answers `busy` during an action at level `write` or `config` (a
 scan) and waits for one at level `read`. Send a `busy` call again after the
-action. Sets on the link's other connections are not delayed.
+action. Sets on the link's other connections are not delayed, except while
+a set waits behind a `read` action: that wait holds the link for up to 5 s,
+and a set whose `read` action outlasts 5 s answers `timeout` and is not
+written.
 
 ## 5. Upgrade, reinstall, remove
 
