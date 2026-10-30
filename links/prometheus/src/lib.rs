@@ -42,7 +42,7 @@ use eval::{Aggregate, Function, Mode};
 use expo::{Scrape, Series};
 use select::{Matcher, Selector};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::debug;
@@ -433,6 +433,16 @@ struct Pending {
     at: Instant,
     rtt: Duration,
     task: tokio::task::JoinHandle<Result<Scrape, Parsed>>,
+    /// Set when this is dropped: a parse whose Transport is gone (a cut
+    /// `open`, an edit, a stop) cannot be aborted, so it looks at the flag
+    /// between steps and every few thousand lines, and ends.
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Why a pending parse gave no exposition (the text names the param).
@@ -474,6 +484,9 @@ pub struct Transport {
     /// Tests: extra time each parse takes.
     #[cfg(test)]
     parse_delay: Duration,
+    /// Tests: parses that ran to the end (not cancelled).
+    #[cfg(test)]
+    parses_done: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Transport {
@@ -512,6 +525,8 @@ impl Transport {
             pending: None,
             #[cfg(test)]
             parse_delay: Duration::ZERO,
+            #[cfg(test)]
+            parses_done: Arc::default(),
         })
     }
 
@@ -606,18 +621,45 @@ impl Transport {
             let (max_body, max, max_parsed) =
                 (self.client.max_body(), self.max_series, self.max_parsed);
             #[cfg(test)]
-            let delay = self.parse_delay;
+            let (delay, done) = (self.parse_delay, self.parses_done.clone());
             let rtt = f.rtt;
+            let cancel = Arc::new(AtomicBool::new(false));
+            let flag = cancel.clone();
             // Gzip decoding and parsing take CPU time in proportion to the
             // body: on a blocking thread, never on the runtime's workers.
             let task = tokio::task::spawn_blocking(move || {
                 #[cfg(test)]
                 std::thread::sleep(delay);
-                let body = f.decode(max_body).map_err(Parsed::Decode)?;
+                let gone = || Parsed::Parse(expo::ParseError::Cancelled.to_string());
+                if flag.load(Ordering::Relaxed) {
+                    return Err(gone());
+                }
+                let body = f.decode(max_body, &flag).map_err(Parsed::Decode)?;
+                if flag.load(Ordering::Relaxed) {
+                    return Err(gone());
+                }
                 let text = String::from_utf8_lossy(&body);
-                expo::parse(&text, max, max_parsed).map_err(|e| Parsed::Parse(e.to_string()))
+                // What lives beside the text during the parse: the spare
+                // capacity of the body, or all of it when invalid UTF-8 made
+                // the text a copy (up to 3 times the body).
+                let beside = match &text {
+                    std::borrow::Cow::Borrowed(t) => body.capacity() - t.len(),
+                    std::borrow::Cow::Owned(t) => body.capacity() + t.capacity() - t.len(),
+                };
+                let r =
+                    expo::parse_cancellable(&text, max, max_parsed.saturating_sub(beside), &flag);
+                #[cfg(test)]
+                if !matches!(r, Err(expo::ParseError::Cancelled)) {
+                    done.fetch_add(1, Ordering::Relaxed);
+                }
+                r.map_err(|e| Parsed::Parse(e.to_string()))
             });
-            self.pending = Some(Pending { at, rtt, task });
+            self.pending = Some(Pending {
+                at,
+                rtt,
+                task,
+                cancel,
+            });
         }
         let Some(p) = self.pending.as_mut() else {
             return (
@@ -1186,6 +1228,22 @@ mod tests {
         // the series change their labels: all new, no value yet
         let relabelled = "h_bucket{le=\"0.5\",j=\"b\"} 3\nh_bucket{le=\"+Inf\",j=\"b\"} 5\n";
         assert_eq!(evaluate(&snap(5, 4, relabelled), &dev, &p, &mut st), None);
+    }
+
+    /// A parse whose Transport is gone (a cut `open`, an edit, a stop)
+    /// stops instead of running beside the next one.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_orphan_parse_stops() {
+        let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        let mut t = Transport::new(&conn(format!("http://{addr}/metrics"))).unwrap();
+        let done = t.parses_done.clone();
+        t.parse_delay = Duration::from_millis(600);
+        let cut = tokio::time::timeout(Duration::from_millis(300), t.scrape()).await;
+        assert!(cut.is_err(), "the scrape was cut while it parsed");
+        assert_eq!(e.lock().unwrap().requests, 1);
+        drop(t);
+        tokio::time::sleep(Duration::from_millis(900)).await;
+        assert_eq!(done.load(Ordering::Relaxed), 0, "the orphan parse stopped");
     }
 
     /// A poll cut while the body is parsed: the next scrape finishes that

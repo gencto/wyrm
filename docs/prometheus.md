@@ -281,16 +281,20 @@ What Prometheus has that this link does not do:
 - An edit of a device or point re-plans its connection's points, and
   their rates start again: the first scrape after it gives no rate.
 - An HTTP redirect (3xx) is a device miss; the link does not follow it.
-- **Memory.** One scrape holds its body (at most `max_body_mib`) and then
-  the parsed exposition. The link estimates the memory of the parsed
-  exposition while it parses (the bytes of names, labels and values plus
-  a fixed size per label, sample and map entry) and stops at 16 ×
-  `max_body_mib` (a connection error). A typical exposition takes 3 to 6
-  times its size by this estimate, so the default 8 MiB gives about 50 MiB
-  in practice and an estimate of 128 MiB at most. The real heap is
-  somewhat more: the estimate leaves out allocator rounding and spare
-  capacity of growing vectors. Keep `max_body_mib` low on small boards. The last scrape
-  is dropped before the next one arrives, so two never live at once.
+- **Memory.** One scrape is bounded at 16 × `max_body_mib` of memory: the
+  decoded body, a copy of it when it has invalid UTF-8, and the parsed
+  exposition. The link counts the parsed exposition while it parses: the
+  vector slots it holds (spare capacity too) and every non-empty name or
+  value as one allocation of at least 32 bytes. Over the bound is a
+  connection error that names `max_body_mib`. The real heap is within
+  about 1.3 times this count (allocator headers). A typical exposition
+  takes 4 to 8 times its size, so the default 8 MiB uses about 30 to
+  70 MiB, and never more than about 128 MiB counted (about 170 MiB of
+  heap). At 64 MiB the bound is 1 GiB counted (about 1.3 GiB of heap):
+  keep `max_body_mib` at 16 or less on a 2 GB board. The last scrape is
+  dropped before the next one arrives, and a parse whose connection was
+  edited, stopped or failed to open stops within milliseconds, so two
+  never live at once.
 - **Line bounds.** A line over 1 MiB, a sample with more than 128 labels,
   a metric or label name over 1 KiB and a label value over 16 KiB are
   skipped and counted in `parse_errors`. `# TYPE` and `# UNIT` lines past

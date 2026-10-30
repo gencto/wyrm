@@ -18,6 +18,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use std::io::Read;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -317,21 +318,33 @@ pub struct Fetched {
 
 impl Fetched {
     /// The decoded body, at most `max_body` bytes. Blocking work in
-    /// proportion to the body: run it off the async runtime. The error
-    /// text names the param.
-    pub fn decode(self, max_body: usize) -> Result<Vec<u8>, String> {
+    /// proportion to the body: run it off the async runtime. It reads 1 MiB
+    /// at a time and stops once `cancel` is set. The error text names the
+    /// param.
+    pub fn decode(self, max_body: usize, cancel: &AtomicBool) -> Result<Vec<u8>, String> {
         if !self.gzip {
             return Ok(self.body);
         }
         let mut out = Vec::new();
         let limit = max_body as u64 + 1;
-        flate2::read::GzDecoder::new(&self.body[..])
-            .take(limit)
-            .read_to_end(&mut out)
-            .map_err(|e| format!("gzip body: {e}"))?;
+        let mut gz = flate2::read::GzDecoder::new(&self.body[..]).take(limit);
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("the scrape was cancelled".into());
+            }
+            let n = (&mut gz)
+                .take(1 << 20)
+                .read_to_end(&mut out)
+                .map_err(|e| format!("gzip body: {e}"))?;
+            if n == 0 {
+                break;
+            }
+        }
         if out.len() > max_body {
             return Err(too_large(max_body));
         }
+        // `read_to_end` may leave up to twice the bytes allocated.
+        out.shrink_to_fit();
         Ok(out)
     }
 }

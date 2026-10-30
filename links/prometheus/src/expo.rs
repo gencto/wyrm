@@ -14,6 +14,7 @@
 //! error ([`ParseError::TooManySeries`]).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The type a `# TYPE` line gives a metric family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,8 @@ pub enum ParseError {
     TooManySeries(usize),
     /// The parsed exposition needs more than this many bytes.
     TooLarge(usize),
+    /// The scrape that asked for the parse is gone.
+    Cancelled,
 }
 
 impl std::fmt::Display for ParseError {
@@ -154,6 +157,7 @@ impl std::fmt::Display for ParseError {
                  ({MEMORY_FACTOR} × max_body_mib)",
                 max >> 20
             ),
+            ParseError::Cancelled => write!(f, "the scrape was cancelled"),
         }
     }
 }
@@ -166,34 +170,67 @@ pub const MAX_LABELS: usize = 128;
 pub const MAX_NAME: usize = 1024;
 /// Length of a label value (after unescaping).
 pub const MAX_LABEL_VALUE: usize = 16 * 1024;
-/// The memory budget of one parse, per byte of `max_body`: a realistic
-/// exposition takes 3 to 6 times its size, a hostile one of short labels
-/// 10 to 20 times; [`parse`] stops at this factor.
+/// The memory budget of one scrape, per byte of `max_body`: the text being
+/// parsed and the parsed exposition (the caller adds the decoded body and
+/// a lossy UTF-8 copy). A realistic exposition takes 4 to 8 times its
+/// size, a hostile one of short labels more; [`parse`] stops at this factor.
 pub const MEMORY_FACTOR: usize = 16;
 
-/// Estimated heap of one label pair, one sample and one map entry.
+/// Heap of one label pair slot, one sample (its slot in `series` and in a
+/// `by_name` list, ×2 for the spare capacity of a growing `Vec`) and one
+/// map entry.
 const PAIR: usize = std::mem::size_of::<(String, String)>();
-const SAMPLE: usize = std::mem::size_of::<Series>() + std::mem::size_of::<usize>();
+const SAMPLE: usize = 2 * (std::mem::size_of::<Series>() + std::mem::size_of::<usize>());
 const ENTRY: usize = 48;
+/// The smallest heap allocation of a non-empty string (glibc, 64-bit).
+const MIN_ALLOC: usize = 32;
+/// Lines between two looks at the cancel flag.
+const CANCEL_EVERY: usize = 4096;
 
+/// The heap of one string: none when empty, else one allocation.
+fn alloc(capacity: usize) -> usize {
+    if capacity == 0 {
+        0
+    } else {
+        capacity.max(MIN_ALLOC)
+    }
+}
+
+/// The heap one sample holds: label slots by capacity and every non-empty
+/// string as one allocation of at least [`MIN_ALLOC`] bytes.
 fn cost(x: &Series) -> usize {
     SAMPLE
-        + x.name.len()
+        + alloc(x.name.capacity())
+        + x.labels.capacity() * PAIR
         + x.labels
             .iter()
-            .map(|(k, v)| PAIR + k.len() + v.len())
+            .map(|(k, v)| alloc(k.capacity()) + alloc(v.capacity()))
             .sum::<usize>()
 }
 
 /// Parse `body` (UTF-8 text). `max_series` bounds the samples kept and the
-/// `# TYPE` / `# UNIT` entries; `max_bytes` the estimated memory of the
-/// result. Every line is bounded too ([`MAX_LINE`], [`MAX_LABELS`],
+/// `# TYPE` / `# UNIT` entries; `max_bytes` the estimated memory of `body`
+/// and the result. Every line is bounded too ([`MAX_LINE`], [`MAX_LABELS`],
 /// [`MAX_NAME`], [`MAX_LABEL_VALUE`]): a line over a bound is skipped and
 /// counted, before it allocates more than the bound.
 pub fn parse(body: &str, max_series: usize, max_bytes: usize) -> Result<Scrape, ParseError> {
+    parse_cancellable(body, max_series, max_bytes, &AtomicBool::new(false))
+}
+
+/// [`parse`] that stops with [`ParseError::Cancelled`] once `cancel` is set.
+pub fn parse_cancellable(
+    body: &str,
+    max_series: usize,
+    max_bytes: usize,
+    cancel: &AtomicBool,
+) -> Result<Scrape, ParseError> {
     let mut s = Scrape::default();
-    let mut used = 0usize;
+    // The text lives while it is parsed.
+    let mut used = body.len();
     for (n, line) in body.split('\n').enumerate() {
+        if n % CANCEL_EVERY == 0 && cancel.load(Ordering::Relaxed) {
+            return Err(ParseError::Cancelled);
+        }
         let line = line.strip_suffix('\r').unwrap_or(line);
         let r = if line.len() > MAX_LINE {
             Err(Bad("line too long"))
@@ -209,7 +246,7 @@ pub fn parse(body: &str, max_series: usize, max_bytes: usize) -> Result<Scrape, 
                     }
                     used = used.saturating_add(cost(&x));
                     let entry = s.by_name.entry(x.name.clone()).or_insert_with(|| {
-                        used = used.saturating_add(ENTRY + x.name.len());
+                        used = used.saturating_add(ENTRY + alloc(x.name.len()));
                         Vec::new()
                     });
                     entry.push(s.series.len());
@@ -258,7 +295,7 @@ fn comment(s: &mut Scrape, c: &str, max: usize, used: &mut usize) -> Result<(), 
                 if s.types.len() >= max {
                     return Err(Bad("more # TYPE lines than max_series"));
                 }
-                *used = used.saturating_add(ENTRY + name.len());
+                *used = used.saturating_add(ENTRY + alloc(name.len()));
             }
             s.types.insert(name.to_owned(), MetricType::parse(rest));
             Ok(())
@@ -269,7 +306,7 @@ fn comment(s: &mut Scrape, c: &str, max: usize, used: &mut usize) -> Result<(), 
                 if s.units.len() >= max {
                     return Err(Bad("more # UNIT lines than max_series"));
                 }
-                *used = used.saturating_add(ENTRY + name.len() + rest.len());
+                *used = used.saturating_add(ENTRY + alloc(name.len()) + alloc(rest.len()));
             }
             s.units.insert(name.to_owned(), rest.to_owned());
             Ok(())
@@ -354,6 +391,8 @@ fn sample(line: &str) -> Result<Series, Bad> {
         return Err(Bad("text after the timestamp"));
     }
     labels.sort_by(|a: &(String, String), b| a.0.cmp(&b.0));
+    // A pushed Vec keeps up to twice its slots: give the spare ones back.
+    labels.shrink_to_fit();
     if labels.windows(2).any(|w| w[0].0 == w[1].0) {
         return Err(Bad("duplicate label"));
     }
@@ -408,7 +447,10 @@ pub(crate) fn quoted(r: &str) -> Result<(String, &str), Bad> {
             return Err(Bad("label value too long"));
         }
         match c {
-            '"' => return Ok((out, &body[i + 1..])),
+            '"' => {
+                out.shrink_to_fit();
+                return Ok((out, &body[i + 1..]));
+            }
             '\\' => match chars.next() {
                 Some((_, '\\')) => out.push('\\'),
                 Some((_, '"')) => out.push('"'),
@@ -562,6 +604,61 @@ latency_seconds_count 144320
         assert_eq!(s.bad_lines, 80);
     }
 
+    /// `x{a="",b="",…}` with `n` labels of the shortest names (`a`…`z`,
+    /// then `aa`, `ab`, …): the shape that costs most per byte.
+    fn short_wide(n: usize) -> String {
+        let letters = b"abcdefghijklmnopqrstuvwxyz";
+        let name = |i: usize| {
+            if i < 26 {
+                (letters[i] as char).to_string()
+            } else {
+                format!("{}{}", letters[i / 26 - 1] as char, letters[i % 26] as char)
+            }
+        };
+        let labels: Vec<String> = (0..n).map(|i| format!("{}=\"\"", name(i))).collect();
+        format!("x{{{}}} 1\n", labels.join(","))
+    }
+
+    /// The estimate counts what a sample holds: its label slots by
+    /// capacity (none spare) and each non-empty string as one allocation.
+    #[test]
+    fn cost_counts_capacity_and_allocations() {
+        let line = short_wide(33);
+        let x = sample(line.trim_end()).unwrap();
+        assert_eq!(x.labels.len(), 33);
+        assert_eq!(x.labels.capacity(), x.labels.len(), "no spare label slots");
+        let strings = 1 + x
+            .labels
+            .iter()
+            .map(|(k, v)| usize::from(!k.is_empty()) + usize::from(!v.is_empty()))
+            .sum::<usize>();
+        assert!(cost(&x) >= x.labels.capacity() * PAIR + MIN_ALLOC * strings);
+    }
+
+    /// The costliest shape (many lines of 33 short labels with empty
+    /// values) is refused within the stated budget of 16 × its size.
+    #[test]
+    fn short_label_lines_are_refused_within_the_budget() {
+        let body = short_wide(33).repeat(5_000);
+        assert!(matches!(
+            parse(&body, 1_000_000, MEMORY_FACTOR * body.len()),
+            Err(ParseError::TooLarge(_))
+        ));
+    }
+
+    /// A cancelled parse stops (it is checked every 4096 lines).
+    #[test]
+    fn a_cancelled_parse_stops() {
+        let body = "a 1\n".repeat(10_000);
+        let cancel = AtomicBool::new(true);
+        assert_eq!(
+            parse_cancellable(&body, 1_000_000, usize::MAX, &cancel).unwrap_err(),
+            ParseError::Cancelled
+        );
+        cancel.store(false, Ordering::Relaxed);
+        assert!(parse_cancellable(&body, 1_000_000, usize::MAX, &cancel).is_ok());
+    }
+
     /// Many lines under the per-line caps still add up: the whole parse
     /// has a memory budget.
     #[test]
@@ -578,8 +675,8 @@ latency_seconds_count 144320
         ));
         let s = parse(&body, 1_000_000, budget).unwrap();
         assert_eq!(s.series.len(), 2_000);
-        // a realistic exposition fits in the budget of its size
+        // a realistic exposition takes less than half the budget
         let real = BODY.repeat(200);
-        assert!(parse(&real, 1_000_000, 4 * real.len()).is_ok());
+        assert!(parse(&real, 1_000_000, MEMORY_FACTOR / 2 * real.len()).is_ok());
     }
 }
