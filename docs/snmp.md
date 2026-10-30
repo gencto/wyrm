@@ -185,10 +185,14 @@ connection. The device ping is the same GET in the device's view; any answer,
 * An answer to a v3 request is taken only when its MAC verifies and its
   security level is the request's. An unauthenticated report never changes the
   link's notion of the agent's clock.
+* **Walk** is a `config` action: it reads any subtree of the agent with the
+  link's credentials (interface, ARP, vendor tables beyond the configured
+  points) and costs the agent up to hundreds of requests, so a `read` or
+  `write` caller is refused.
 
 ## 8. Walk
 
-Device action **Walk** (`walk {oid, max = 500}`, level `read`, at most 60 s):
+Device action **Walk** (`walk {oid, max = 500}`, level `config`, at most 60 s):
 GETBULK from `oid` while the answers stay below it, at most `max` (1…10000)
 entries → `[{oid, type, value}]`, `type` the SMI type (`integer`,
 `octet_string`, `counter32`, …) and `value` as `auto` converts it. Use it to

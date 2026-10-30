@@ -95,7 +95,7 @@ async fn check(conn: Vec<(&str, Value)>) {
             "c1/d1",
             "walk",
             map(&[("oid", "1.3.6.1.2.1.1".into())]),
-            Some(h.ptok(Perm::Read)),
+            Some(h.ptok(Perm::Config)),
         )
         .await;
     let r = r.remove(0);

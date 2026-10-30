@@ -1179,7 +1179,9 @@ impl Driver for SnmpDriver {
         (dev.republish_s > 0.0).then(|| Duration::from_secs_f64(dev.republish_s))
     }
 
-    /// Device action `walk` (level read), for commissioning.
+    /// Device action `walk` at level config: it reads any subtree with the
+    /// link's credentials, beyond the configured points, and costs the
+    /// agent up to hundreds of requests (commissioning is a config task).
     fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         if level != Level::Device {
             return Vec::new();
@@ -1193,7 +1195,7 @@ impl Driver for SnmpDriver {
         vec![(
             "walk",
             ActionMeta::new()
-                .level(Perm::Read)
+                .level(Perm::Config)
                 .display("Walk")
                 .timeout_ms(WALK_ACTION_MS)
                 .result(ActionResult::Type(TypeCode::Array))

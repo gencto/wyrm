@@ -795,7 +795,7 @@ async fn v3_time_window_resync() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn walk_action() {
-    let (addr, _agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
     for conn in [
         v2c(addr.port(), &[]),
         v3(addr.port(), "sha1user", "sha1", "aes128"),
@@ -812,13 +812,24 @@ async fn walk_action() {
         .await;
         let (_, m) = h.meta("c1/d1").await;
         let acts = m.unwrap().actions.unwrap();
-        assert_eq!(acts["walk"].level, Some(Perm::Read));
+        assert_eq!(acts["walk"].level, Some(Perm::Config));
+        // a reader or writer may not walk the agent with the link's credentials
+        let requests = agent.lock().unwrap().requests;
+        for perm in [Perm::Read, Perm::Write] {
+            let (s, v) = act(&h, "c1/d1", "walk", map(&[("oid", "1.3.6.1".into())]), perm).await;
+            assert_eq!(s, Some(Status::PermissionDenied), "{perm:?}");
+            assert_eq!(v, None);
+        }
+        assert!(
+            agent.lock().unwrap().requests <= requests + 20,
+            "a refused walk sends nothing (a full walk would be ~170 requests; pings aside)"
+        );
         let (s, v) = act(
             &h,
             "c1/d1",
             "walk",
             map(&[("oid", IF_DESCR.into())]),
-            Perm::Read,
+            Perm::Config,
         )
         .await;
         assert_eq!(s, Some(Status::Ok));
@@ -838,7 +849,7 @@ async fn walk_action() {
             "c1/d1",
             "walk",
             map(&[("oid", "1.3.6.1.2.1.2".into()), ("max", Value::UInt(10))]),
-            Perm::Read,
+            Perm::Config,
         )
         .await;
         assert!(matches!(v, Some(Value::Array(r)) if r.len() == 10));
@@ -847,7 +858,7 @@ async fn walk_action() {
             "c1/d1",
             "walk",
             map(&[("oid", "nope".into())]),
-            Perm::Read,
+            Perm::Config,
         )
         .await;
         assert_eq!(s, Some(Status::InvalidParameter));
