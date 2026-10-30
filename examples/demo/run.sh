@@ -39,11 +39,11 @@ stop() { kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap stop EXIT INT TERM
 
 $BIN/wyrm-modbus-sim --listen 127.0.0.1:5020 >data/modbus-sim.log 2>&1 & pids+=($!)
-# edge: meter (http), net1 (snmp), metrics (prometheus)
+# edge links http, snmp, prometheus
 $BIN/wyrm-http-sim --listen 127.0.0.1:18090 >data/http-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-snmp-sim --listen 127.0.0.1:1161 >data/snmp-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-prometheus-sim --listen 127.0.0.1:19101 >data/prometheus-sim.log 2>&1 & pids+=($!)
-# plant: plc7 (s7), bms (bacnet), ua (opcua)
+# plant links s7, bacnet, opcua
 $BIN/wyrm-s7-sim --listen 127.0.0.1:10102 >data/s7-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-bacnet-sim --listen 127.0.0.1:47809 --instance 1234 --extra 20 >data/bacnet-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-opcua-sim --port 4840 --pki data/opcua-sim-pki >data/opcua-sim.log 2>&1 & pids+=($!)
@@ -65,10 +65,10 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   edge:    zenoh tcp/127.0.0.1:7457, gateway http://127.0.0.1:8444
   plant:   zenoh tcp/127.0.0.1:7467, gateway http://127.0.0.1:8446
   login:   admin / $WYRM_GATEWAY_ADMIN_PASSWORD
-  links:   central: hq (mock), scheduler
-           edge:  mock, lab (mockdev), plc1 (modbus, process), mbslave (modbus slave on
-                  127.0.0.1:15502), meter (http), net1 (snmp), metrics (prometheus), scheduler
-           plant: line (mock), plc7 (s7), bms (bacnet), ua (opcua), scheduler
+  links:   central: mock, scheduler
+           edge:  mock, mockdev, modbus (process), modbus_slave (on 127.0.0.1:15502),
+                  http, snmp, prometheus, scheduler
+           plant: mock, s7, bacnet, opcua, scheduler
   sims:    modbus :5020, http :18090, snmp udp :1161, prometheus :19101, s7 :10102,
            bacnet udp :47809, opcua :4840 (logs in data/*-sim.log)
   chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸

@@ -48,7 +48,7 @@ Planned: more links, `~val?history=` (spec 01/03) and a history view in the expl
   admin_keys: [],                  // public key from `wyr keygen`
   links: {
     mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
-    plc1: { driver: "modbus", mode: "process", params: { connections: { line1: { host: "127.0.0.1", port: 5020, devices: { ahu1: { unit: 1, points: { /* … */ } } } } } } },
+    modbus: { driver: "modbus", mode: "process", params: { connections: { line1: { host: "127.0.0.1", port: 5020, devices: { ahu1: { unit: 1, points: { /* … */ } } } } } } },
   },
 }
 ```
@@ -56,7 +56,7 @@ Planned: more links, `~val?history=` (spec 01/03) and a history view in the expl
 cargo build --release -p wyrmd -p wyr
 target/release/wyr keygen --out admin.key          # prints the public key
 # put that key into admin_keys in examples/wyrmd.json5, then:
-cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim &   # for plc1
+cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim &   # for the modbus link
 target/release/wyrmd -c examples/wyrmd.json5
 target/release/wyr list wy/local/downstream
 target/release/wyr list --watch wy/local/downstream/mock/g0
@@ -129,9 +129,10 @@ Commands from above (ADR 0018): central's users (through its gateway) and operat
 A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge (ADR 0007) and commands it as plant allows (`allow_config` at each hop for `sys`).
 
 Demo with a chain of three sites, connectors and the Flutter app:
-`examples/demo/run.sh` starts `central`, `edge` (mock, framework mock `lab`,
-modbus process link against `wyrm-modbus-sim`) and `plant` (a mock line,
-connected to edge), each with a gateway (`:8445`, `:8444`, `:8446`, user
+`examples/demo/run.sh` starts `central`, `edge` (`mock`, `mockdev`, `modbus`
+as a process link, `modbus_slave`, `http`, `snmp`, `prometheus`) and `plant`
+(`mock`, `s7`, `bacnet`, `opcua`; connected to edge), each link against its
+simulator, each with a gateway (`:8445`, `:8444`, `:8446`, user
 `admin`, password `wyrm-demo-1`); central reads plant through edge. `wyrmd -c <cfg> ca` creates a site's CA
 and the certificates of the sites below it before they start. App: `cd dart/wyrm_flutter/example &&
 flutter create --platforms=macos . && flutter run -d macos` (raise

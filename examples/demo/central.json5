@@ -19,6 +19,6 @@
   gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },
   links: {
     // A small mock on the central site itself.
-    hq: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },
+    mock: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },
   },
 }

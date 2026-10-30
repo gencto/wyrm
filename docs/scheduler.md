@@ -72,7 +72,7 @@ In the explorer, open `wy/<site>/downstream/scheduler`.
    End `2026-11-02T17:00`, Recurrence `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`.
    The result is the event's id, `e1`.
 3. `lobby` ▸ **Add Target**: Point
-   `wy/<site>/downstream/plc1/line1/ahu1/fan`, Confirm `read_back`.
+   `wy/<site>/downstream/modbus/line1/ahu1/fan`, Confirm `read_back`.
    This needs `config` (section 10). The target writes the state now at once.
 4. `lobby/current` shows `true` from 08:00 to 17:00 on weekdays, else
    `false`. `lobby` ▸ **Get Events** with a Timerange shows the
@@ -397,7 +397,7 @@ what it missed.
   "events": [{ "id": "e1", "display": "", "value": true, "priority": 0, "special": false,
                "start": "2026-11-02T08:00", "end": "2026-11-02T17:00",
                "recurrence": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" }],
-  "targets": [{ "id": "t1", "point": "wy/edge/downstream/plc1/line1/ahu1/fan",
+  "targets": [{ "id": "t1", "point": "wy/edge/downstream/modbus/line1/ahu1/fan",
                 "confirm": "read_back", "enabled": true, "created_by": "user:admin" }],
   "next_target": 2
 }
@@ -488,7 +488,7 @@ site, embedded scheduler, release build, 2026-10-29):
 | Making and removing the 1 000 schedules | 47.1 s and 42.8 s (50 requests per second per caller) |
 | Transition latency, 100 moments, `current` | p50 16.0 ms, p99 23.7 ms, max 26.7 ms (target < 50 ms) |
 | Transition latency, the written mock point (`ack` target) | p50 16.9 ms, p99 24.8 ms, max 27.6 ms |
-| `feedback` target on `plc1/line1/ahu1/fan` with `fan_status` | `confirmed` after 390 ms; a write of `false` by hand: `override` after 973 ms; the next transition wrote `true` again: `confirmed` |
+| `feedback` target on `modbus/line1/ahu1/fan` with `fan_status` | `confirmed` after 390 ms; a write of `false` by hand: `override` after 973 ms; the next transition wrote `true` again: `confirmed` |
 
 WASM package, 200 schedules × 10 events × 1 target: `start` answered in
 0.29 s, all 200 back in the tree in 1.7 s (e2e `scheduler_three_modes`).
@@ -514,8 +514,8 @@ WASM package, 200 schedules × 10 events × 1 target: `start` answered in
    embedded scheduler.
 2. Log in to the edge gateway (`http://127.0.0.1:8444`, user `admin`) and
    open `wy/edge/downstream/scheduler`. Make a schedule as in section 3 with
-   the target `plc1/line1/ahu1/fan`, Confirm `feedback`, Feedback Point
-   `wy/edge/downstream/plc1/line1/ahu1/fan_status`.
+   the target `modbus/line1/ahu1/fan`, Confirm `feedback`, Feedback Point
+   `wy/edge/downstream/modbus/line1/ahu1/fan_status`.
 3. Write `false` to `fan` by hand: the target turns `override`.
 4. `wyr probe --gateway http://127.0.0.1:8444 --site edge scheduler` runs
    the built-in scenario (`links/probe/scenarios/scheduler.json`).

@@ -7,8 +7,8 @@
 #   2. latency:  one schedule of MOMENTS moment events one second apart (values 1, 2, …)
 #                with an `ack` target on a mock point; the arrival of each value at
 #                `<s>/current` and at the point minus its scheduled time → p50/p99;
-#   3. feedback: a target on plc1/line1/ahu1/fan with `confirm: feedback` on
-#                plc1/line1/ahu1/fan_status → `confirmed`; a write of `false` by hand →
+#   3. feedback: a target on modbus/line1/ahu1/fan with `confirm: feedback` on
+#                modbus/line1/ahu1/fan_status → `confirmed`; a write of `false` by hand →
 #                `override`; the next transition writes `true` again → `confirmed`.
 #
 #   examples/demo/run.sh                     # in another terminal
@@ -59,7 +59,7 @@ N, MOMENTS, IDLE_S = (int(os.environ[k]) for k in ("N", "MOMENTS", "IDLE_S"))
 PHASES = set(os.environ["PHASES"].split(","))
 ROOT = f"wy/{SITE}/downstream/scheduler"
 POINT = f"wy/{SITE}/{os.environ['MOCK_POINT']}"
-FAN = f"wy/{SITE}/downstream/plc1/line1/ahu1/fan"
+FAN = f"wy/{SITE}/downstream/modbus/line1/ahu1/fan"
 FAN_STATUS = f"{FAN}_status"
 # at most 100 events per schedule; the node budget holds 1 000 schedules of one event
 assert 1 <= MOMENTS <= 100, "MOMENTS: 1 to 100"

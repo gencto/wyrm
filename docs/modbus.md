@@ -661,10 +661,10 @@ running it.
   wyrm-modbus-sim -- --listen 127.0.0.1:5020`): a Modbus TCP device with
   1000 coils, discrete inputs, input and holding registers (all 0 at
   start), FC1–6, 15, 16, 17, 22 and 43/14. The demo's edge site runs one
-  for its link `plc1`.
+  for its link `modbus`.
 - The probe scenario `modbus` (`links/probe/scenarios/modbus.json`) runs on
-  every site that has the link `plc1` with `line1/ahu1` and skips the
-  others (a `plc1` that is down fails it): `wyr probe modbus --gateway
+  every site that has the link `modbus` with `line1/ahu1` and skips the
+  others (a `modbus` that is down fails it): `wyr probe modbus --gateway
   http://127.0.0.1:8444 --site edge`.
 - The driver is tested against this simulator only. It is not yet
   verified against `diagslave` or a real device.

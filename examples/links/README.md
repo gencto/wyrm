@@ -30,7 +30,7 @@ Run `examples/packages/build.sh`, then `examples/demo/run.sh` (it serves
 | portable, WASM | from Repository | Name `echo`, Package `portable-echo` |
 | portable, process | from Repository | Name `echop`, Package `portable-echo-process` |
 | portable, embedded | from Driver | Name `echoe`, Driver `portable-echo` |
-| built-in driver | from Driver, or `links` in `wyrmd.json5` | as `mock`, `lab` and `plc1` in `examples/demo/edge.json5` |
+| built-in driver | from Driver, or `links` in `wyrmd.json5` | as `mock`, `mockdev` and `modbus` in `examples/demo/edge.json5` |
 
 The install result lists the grants a package got
 (`…; grant wy/{site}/downstream/mock read`). Then:

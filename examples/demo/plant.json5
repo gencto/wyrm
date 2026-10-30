@@ -18,11 +18,11 @@
   gateway: { listen: "127.0.0.1:8446", admin_user: "admin" },
   links: {
     // A production line: 8 points at 1 Hz in two folders.
-    line: { driver: "mock", params: { points: 8, rate_hz: 1, depth: 1, fanout: 2 } },
+    mock: { driver: "mock", params: { points: 8, rate_hz: 1, depth: 1, fanout: 2 } },
     // These three are reached from central only through edge (a downstream
     // of a downstream).
     // Siemens S7 against wyrm-s7-sim (port 10102), docs/s7.md.
-    plc7: {
+    s7: {
       driver: "s7",
       params: {
         connections: {
@@ -44,7 +44,7 @@
     },
     // BACnet/IP against wyrm-bacnet-sim (UDP 47809; the link binds 47810),
     // docs/bacnet.md.
-    bms: {
+    bacnet: {
       driver: "bacnet",
       params: {
         connections: {
@@ -67,7 +67,7 @@
     },
     // OPC UA (security None on loopback) against wyrm-opcua-sim (port 4840),
     // docs/opcua.md.
-    ua: {
+    opcua: {
       driver: "opcua",
       params: {
         connections: {
