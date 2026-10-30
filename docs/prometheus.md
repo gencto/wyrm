@@ -247,7 +247,7 @@ every scrape), `sim_temperature_celsius{instance="a"|"b",sensor="t1"}`
 `sim_escaped` (escaped label values) and `sim_nan`. In tests
 (`links/prometheus/tests/sim.rs`, feature `sim`) the shared state also
 gives the failure modes: 500 replies, silence, a slow body, an oversized
-body, malformed lines and a disconnect, plus basic or bearer auth and
+body (with or without `Content-Length`), malformed lines and a disconnect, plus basic or bearer auth and
 gzip.
 
 Try it with the simulator and a link:

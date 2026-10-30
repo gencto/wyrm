@@ -12,7 +12,8 @@
 //! * `sim_escaped{text=…}` with escaped label values, `sim_nan NaN`.
 //!
 //! Failure modes ([`Fail`]): a 500 reply, silence (the request is read,
-//! nothing comes back), a slow body, an oversized body, malformed lines,
+//! nothing comes back), a slow body, an oversized body (with or without
+//! `Content-Length`), malformed lines,
 //! and a disconnect right after the request. Optional basic or bearer
 //! auth ([`Exporter::require_auth`]); gzip when the client accepts it and
 //! [`Exporter::gzip`] is on.
@@ -39,6 +40,9 @@ pub enum Fail {
     SlowBody,
     /// A body of [`Exporter::oversize_bytes`].
     Oversize,
+    /// The same body without `Content-Length`, ended by closing the
+    /// connection: only the bound on the bytes read stops it.
+    OversizeNoLength,
     /// Broken lines between the good ones.
     Malformed,
     /// Close the connection right after the request.
@@ -285,8 +289,14 @@ async fn serve(mut s: TcpStream, st: Shared) {
         return;
     }
     match fail {
-        Fail::Oversize => {
-            let _ = s.write_all(reply("200 OK", "", oversize).as_bytes()).await;
+        Fail::Oversize | Fail::OversizeNoLength => {
+            let head = if fail == Fail::Oversize {
+                reply("200 OK", "", oversize)
+            } else {
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
+                    .to_owned()
+            };
+            let _ = s.write_all(head.as_bytes()).await;
             let line = b"sim_filler 1\n";
             let mut sent = 0;
             while sent < oversize {

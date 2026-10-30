@@ -501,6 +501,22 @@ async fn oversized_body_and_too_many_series_are_connection_errors() {
     .await;
     assert_eq!(state(&h, "c1").as_deref(), Some("failed"));
     h.stop().await;
+    // no Content-Length (the body ends when the connection closes): the
+    // bound on the bytes read stops it
+    exporter(&e).fail = Fail::OversizeNoLength;
+    let h = H::start(simple(
+        addr.port(),
+        &[
+            ("max_body_mib", Value::UInt(1)),
+            ("timeout_ms", Value::UInt(5000)),
+        ],
+    ))
+    .await;
+    wait("streamed over max_body_mib", || {
+        error(&h, "c1").is_some_and(|e| e.contains("max_body_mib"))
+    })
+    .await;
+    h.stop().await;
     // a gzip body that inflates past the bound (lots of identical lines)
     {
         let mut x = exporter(&e);
