@@ -638,7 +638,7 @@ mod tests {
         assert_eq!(scalar(&raw, T::Int16).unwrap(), Variant::Int16(215));
         assert!(scalar(&Value::Float(600_000_000.4), T::Int32).is_err());
         assert!(scalar(&Value::Float(3_000_000_000.5), T::UInt32).is_err());
-        assert!(scalar(&Value::Float(1_000_000.0005), T::Int64).is_err());
+        assert!(scalar(&Value::Float(1_000_000.000_5), T::Int64).is_err());
         assert_eq!(
             scalar(&Value::Float(600_000_000.0), T::Int32).unwrap(),
             Variant::Int32(600_000_000)
