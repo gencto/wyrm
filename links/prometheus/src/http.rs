@@ -5,7 +5,8 @@
 //! reply that comes after a timeout dies with its connection and can never
 //! be taken for a later scrape. The whole scrape (connect, TLS, headers,
 //! body) is bounded by the connection's timeout; the body by `max_body`
-//! bytes on the wire and again after gzip decoding.
+//! bytes on the wire and again after gzip decoding ([`Fetched::decode`],
+//! which the caller runs on a blocking thread).
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
@@ -270,12 +271,39 @@ pub enum FetchError {
     TooLarge(String),
 }
 
-/// A scrape's body and how it was sent.
+/// A scrape's body as it came on the wire (at most `max_body` bytes).
 pub struct Fetched {
     pub body: Vec<u8>,
+    /// `Content-Encoding: gzip` (decode with [`Fetched::decode`]).
+    pub gzip: bool,
     pub content_type: String,
     /// From the request to the end of the body.
     pub rtt: Duration,
+}
+
+impl Fetched {
+    /// The decoded body, at most `max_body` bytes. Blocking work in
+    /// proportion to the body: run it off the async runtime. The error
+    /// text names the param.
+    pub fn decode(self, max_body: usize) -> Result<Vec<u8>, String> {
+        if !self.gzip {
+            return Ok(self.body);
+        }
+        let mut out = Vec::new();
+        let limit = max_body as u64 + 1;
+        flate2::read::GzDecoder::new(&self.body[..])
+            .take(limit)
+            .read_to_end(&mut out)
+            .map_err(|e| format!("gzip body: {e}"))?;
+        if out.len() > max_body {
+            return Err(too_large(max_body));
+        }
+        Ok(out)
+    }
+}
+
+fn too_large(max_body: usize) -> String {
+    format!("the response body is over {max_body} bytes (max_body_mib)")
 }
 
 /// The scrape client of one connection. No `Debug`: holds credentials.
@@ -331,6 +359,10 @@ impl Client {
 
     pub fn timeout(&self) -> Duration {
         self.timeout
+    }
+
+    pub fn max_body(&self) -> usize {
+        self.max_body
     }
 
     pub async fn fetch(&self) -> Result<Fetched, FetchError> {
@@ -409,12 +441,16 @@ impl Client {
         };
         let content_type = header(hyper::header::CONTENT_TYPE);
         let encoding = header(hyper::header::CONTENT_ENCODING);
-        let too_large = || {
-            FetchError::TooLarge(format!(
-                "the response body is over {} bytes (max_body_mib)",
-                self.max_body
-            ))
+        let gzip = match encoding.as_str() {
+            "" | "identity" => false,
+            "gzip" | "x-gzip" => true,
+            other => {
+                return Err(FetchError::Io(format!(
+                    "unsupported content-encoding {other:?}"
+                )))
+            }
         };
+        let too_large = || FetchError::TooLarge(too_large(self.max_body));
         let declared = header(hyper::header::CONTENT_LENGTH)
             .parse::<u64>()
             .unwrap_or(0);
@@ -432,28 +468,9 @@ impl Client {
                 buf.extend_from_slice(&d);
             }
         }
-        let body = match encoding.as_str() {
-            "" | "identity" => buf,
-            "gzip" | "x-gzip" => {
-                let mut out = Vec::new();
-                let limit = self.max_body as u64 + 1;
-                flate2::read::GzDecoder::new(&buf[..])
-                    .take(limit)
-                    .read_to_end(&mut out)
-                    .map_err(|e| FetchError::Io(format!("gzip body: {e}")))?;
-                if out.len() > self.max_body {
-                    return Err(too_large());
-                }
-                out
-            }
-            other => {
-                return Err(FetchError::Io(format!(
-                    "unsupported content-encoding {other:?}"
-                )))
-            }
-        };
         Ok(Fetched {
-            body,
+            body: buf,
+            gzip,
             content_type,
             rtt: Duration::ZERO,
         })

@@ -61,11 +61,14 @@ pub type Prometheus = Framework<PrometheusDriver>;
 /// last scrape (scrapes themselves follow `scrape_s`).
 pub const EVAL_TICK: Duration = Duration::from_secs(1);
 
-/// Time to parse a large body, beside `timeout_ms`.
+/// Time to decode and parse a body, beside `timeout_ms`: a base and a part
+/// per MiB of `max_body_mib` (a slow ARM board parses some 10 MiB/s).
 const PARSE_MARGIN: Duration = Duration::from_secs(5);
+const PARSE_PER_MIB: Duration = Duration::from_millis(250);
 
-/// Bound on `list_series` (it may scrape).
-const LIST_ACTION_MS: u32 = 70_000;
+/// Bound on `list_series` (it may scrape): above the longest
+/// [`Driver::io_timeout`] (60 s + 5 s + 64 × 250 ms).
+const LIST_ACTION_MS: u32 = 90_000;
 
 /// Diagnostics counter of skipped exposition lines.
 const PARSE_ERRORS: &str = "parse_errors";
@@ -420,6 +423,22 @@ struct Snapshot {
     scrape: Arc<Scrape>,
 }
 
+/// A body being decoded and parsed on a blocking thread. When the poll that
+/// started it is cut ([`Driver::poll_timeout`]), the task stays here and the
+/// next scrape waits for it instead of fetching a second body beside it.
+struct Pending {
+    /// When the scrape started.
+    at: Instant,
+    rtt: Duration,
+    task: tokio::task::JoinHandle<Result<Scrape, Parsed>>,
+}
+
+/// Why a pending parse gave no exposition (the text names the param).
+enum Parsed {
+    Decode(String),
+    Parse(String),
+}
+
 /// The state of one `rate_per_s` point between scrapes.
 struct RateState {
     /// The scrape the state was last updated from.
@@ -441,14 +460,18 @@ pub struct Transport {
     insecure: bool,
     seq: u64,
     good: Option<Snapshot>,
-    /// Start of the last attempt and its outcome.
-    attempt: Option<(Instant, Result<(), DriverError>)>,
+    /// Start and end of the last attempt, and its outcome.
+    attempt: Option<(Instant, Instant, Result<(), DriverError>)>,
     /// Failed attempts in a row.
     fails: u32,
     /// Plans (device groups) that got the last attempt's failure.
     served: HashSet<u64>,
     rates: HashMap<(u64, PointId), RateState>,
     outcomes: Vec<Outcome>,
+    pending: Option<Pending>,
+    /// Tests: extra time each parse takes.
+    #[cfg(test)]
+    parse_delay: Duration,
 }
 
 impl Transport {
@@ -484,6 +507,9 @@ impl Transport {
             served: HashSet::new(),
             rates: HashMap::new(),
             outcomes: Vec::new(),
+            pending: None,
+            #[cfg(test)]
+            parse_delay: Duration::ZERO,
         })
     }
 
@@ -497,7 +523,7 @@ impl Transport {
     /// only once per `scrape_s`.
     async fn ensure(&mut self, plan: Option<u64>) -> Result<(), DriverError> {
         let half = EVAL_TICK / 2;
-        if let Some((at, r)) = &self.attempt {
+        if let Some((at, _, r)) = &self.attempt {
             let age = Instant::now().saturating_duration_since(*at);
             let fresh = age + half < self.scrape_every;
             match r {
@@ -526,11 +552,10 @@ impl Transport {
     }
 
     async fn scrape(&mut self) -> Result<(), DriverError> {
-        let at = Instant::now();
         // The last scrape goes either way: drop it before the new body
         // arrives, so that two parsed expositions never live at once.
         self.good = None;
-        let r = self.fetch_and_parse().await;
+        let (at, r) = self.fetch_and_parse().await;
         match &r {
             Ok(scrape) => {
                 self.seq += 1;
@@ -552,43 +577,62 @@ impl Transport {
             }
         }
         let r = r.map(|_| ());
-        self.attempt = Some((at, r.clone()));
+        self.attempt = Some((at, Instant::now(), r.clone()));
         r
     }
 
-    async fn fetch_and_parse(&mut self) -> Result<Arc<Scrape>, DriverError> {
-        let started = Instant::now();
-        let f = match self.client.fetch().await {
-            Ok(f) => f,
+    /// Fetch a body and parse it off the async runtime, or finish the parse
+    /// of a scrape whose poll was cut (see [`Pending`]). Returns the time
+    /// the scrape started.
+    async fn fetch_and_parse(&mut self) -> (Instant, Result<Arc<Scrape>, DriverError>) {
+        if self.pending.is_none() {
+            let at = Instant::now();
+            let f = match self.fetch().await {
+                Ok(f) => f,
+                Err(e) => return (at, Err(e)),
+            };
+            let (max_body, max, max_parsed) =
+                (self.client.max_body(), self.max_series, self.max_parsed);
+            #[cfg(test)]
+            let delay = self.parse_delay;
+            let rtt = f.rtt;
+            // Gzip decoding and parsing take CPU time in proportion to the
+            // body: on a blocking thread, never on the runtime's workers.
+            let task = tokio::task::spawn_blocking(move || {
+                #[cfg(test)]
+                std::thread::sleep(delay);
+                let body = f.decode(max_body).map_err(Parsed::Decode)?;
+                let text = String::from_utf8_lossy(&body);
+                expo::parse(&text, max, max_parsed).map_err(|e| Parsed::Parse(e.to_string()))
+            });
+            self.pending = Some(Pending { at, rtt, task });
+        }
+        let Some(p) = self.pending.as_mut() else {
+            return (
+                Instant::now(),
+                Err(DriverError::Transport("no scrape".into())),
+            );
+        };
+        // Cancel-safe: a cut poll leaves the task in `pending`.
+        let joined = (&mut p.task).await;
+        let (at, rtt) = (p.at, p.rtt);
+        self.pending = None;
+        let parsed = match joined {
+            Ok(Ok(parsed)) => parsed,
+            Ok(Err(Parsed::Decode(e))) => {
+                self.outcomes.push(Outcome::Error);
+                return (at, Err(DriverError::Transport(e)));
+            }
+            Ok(Err(Parsed::Parse(e))) => {
+                self.outcomes.push(Outcome::Reply(rtt));
+                return (at, Err(DriverError::Transport(e)));
+            }
             Err(e) => {
-                return Err(match e {
-                    http::FetchError::Timeout => {
-                        self.outcomes.push(Outcome::Timeout);
-                        DriverError::Device(format!(
-                            "no complete response within {} ms",
-                            self.client_timeout_ms()
-                        ))
-                    }
-                    http::FetchError::Status(code, reason) => {
-                        self.outcomes.push(Outcome::Exception(started.elapsed()));
-                        DriverError::Device(format!("HTTP {code} {reason}").trim_end().to_owned())
-                    }
-                    http::FetchError::Io(e) | http::FetchError::TooLarge(e) => {
-                        self.outcomes.push(Outcome::Error);
-                        DriverError::Transport(e)
-                    }
-                });
+                self.outcomes.push(Outcome::Error);
+                return (at, Err(DriverError::Transport(format!("parse task: {e}"))));
             }
         };
-        self.outcomes.push(Outcome::Reply(f.rtt));
-        let (max, max_parsed) = (self.max_series, self.max_parsed);
-        let parsed = tokio::task::spawn_blocking(move || {
-            let text = String::from_utf8_lossy(&f.body);
-            expo::parse(&text, max, max_parsed)
-        })
-        .await
-        .map_err(|e| DriverError::Transport(format!("parse task: {e}")))?
-        .map_err(|e| DriverError::Transport(e.to_string()))?;
+        self.outcomes.push(Outcome::Reply(rtt));
         if parsed.bad_lines > 0 {
             if let Some((line, why)) = parsed.first_bad {
                 debug!(
@@ -602,7 +646,30 @@ impl Transport {
                 self.outcomes.push(Outcome::Count(PARSE_ERRORS));
             }
         }
-        Ok(Arc::new(parsed))
+        (at, Ok(Arc::new(parsed)))
+    }
+
+    /// One request: the raw body, or the error as the framework sees it.
+    async fn fetch(&mut self) -> Result<http::Fetched, DriverError> {
+        let started = Instant::now();
+        let r = self.client.fetch().await;
+        r.map_err(|e| match e {
+            http::FetchError::Timeout => {
+                self.outcomes.push(Outcome::Timeout);
+                DriverError::Device(format!(
+                    "no complete response within {} ms",
+                    self.client_timeout_ms()
+                ))
+            }
+            http::FetchError::Status(code, reason) => {
+                self.outcomes.push(Outcome::Exception(started.elapsed()));
+                DriverError::Device(format!("HTTP {code} {reason}").trim_end().to_owned())
+            }
+            http::FetchError::Io(e) | http::FetchError::TooLarge(e) => {
+                self.outcomes.push(Outcome::Error);
+                DriverError::Transport(e)
+            }
+        })
     }
 
     fn client_timeout_ms(&self) -> u128 {
@@ -833,7 +900,9 @@ impl Driver for PrometheusDriver {
     }
 
     fn io_timeout(conn: &Conn) -> Duration {
-        Duration::from_millis(conn.timeout_ms.into()) + PARSE_MARGIN
+        Duration::from_millis(conn.timeout_ms.into())
+            + PARSE_MARGIN
+            + PARSE_PER_MIB * conn.max_body_mib
     }
 
     fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
@@ -961,4 +1030,34 @@ async fn list_series(t: &mut Transport, args: &Value) -> Result<Value, LinkError
         ),
         ("series".into(), Value::Array(rows)),
     ])))
+}
+
+#[cfg(all(test, feature = "sim"))]
+mod tests {
+    use super::*;
+    use wyrm_link_sdk::driver::params::normalize;
+
+    fn conn(url: String) -> Conn {
+        let v = Value::Map(BTreeMap::from([("url".to_owned(), Value::Str(url))]));
+        Conn::from_map(&normalize(&Conn::schema(), &v).unwrap()).unwrap()
+    }
+
+    /// A poll cut while the body is parsed: the next scrape finishes that
+    /// parse instead of fetching and parsing a second body beside it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cut_parse_is_finished_not_repeated() {
+        let (addr, e, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+        let requests = || e.lock().unwrap().requests;
+        let mut t = Transport::new(&conn(format!("http://{addr}/metrics"))).unwrap();
+        t.parse_delay = Duration::from_millis(800);
+        let cut = tokio::time::timeout(Duration::from_millis(400), t.scrape()).await;
+        assert!(cut.is_err(), "the scrape was cut while it parsed");
+        assert_eq!(requests(), 1);
+        t.parse_delay = Duration::ZERO;
+        t.scrape().await.unwrap();
+        assert_eq!(requests(), 1, "the cut scrape's parse was finished");
+        assert!(t.good.is_some());
+        t.scrape().await.unwrap();
+        assert_eq!(requests(), 2);
+    }
 }

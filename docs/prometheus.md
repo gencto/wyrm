@@ -196,6 +196,11 @@ Each scrape opens its own HTTP connection and closes it after the body. A
 reply that comes after a timeout dies with its connection and is never
 taken for a later scrape.
 
+Gzip decoding and parsing run on a blocking thread, not on the broker's
+async workers. A poll is bounded by `timeout_ms` + 5 s + 250 ms per MiB of
+`max_body_mib`. A poll cut while the body is parsed is a miss, and the
+next poll waits for that same parse instead of fetching a second body.
+
 A device without points stays `Connecting`: the link has no device ping,
 because a ping would mark a device good between failed scrapes.
 
