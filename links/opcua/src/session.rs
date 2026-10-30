@@ -184,9 +184,9 @@ pub fn identity_allowed(identity: Identity, mode: Mode, url: &str) -> Result<(),
 /// How a user identity travels on the chosen endpoint: the token policy
 /// the library will use (`find_policy`, the first of that token type) must
 /// protect it. On a `sign` channel the channel does not encrypt, so the
-/// token policy does: empty means the channel's policy encrypts the
-/// password (OPC UA Part 4, 7.41) and is taken, as are the strong
-/// policies; None (a password in clear text, an X.509 token without a
+/// token policy does: empty means the channel's policy (OPC UA Part 4,
+/// 7.41; [`fill_token_policies`] writes it in before this check) and is
+/// taken, as are the strong policies; None (a password in clear text, an X.509 token without a
 /// signature) and deprecated or unknown policies are refused before
 /// ActivateSession. `sign_and_encrypt` and loopback are not limited.
 ///
@@ -228,6 +228,22 @@ pub fn token_policy_allowed(
             "the server's {name} token policy {uri} is deprecated or unknown; use security \
              mode sign_and_encrypt"
         )),
+    }
+}
+
+/// Write the channel's policy into user token policies with an empty
+/// security policy URI. Part 4 (7.41) says empty means the channel's
+/// policy; async-opcua 0.19 reads it so for passwords but as None for
+/// X.509 tokens, which it then sends without a signature. A channel
+/// without security keeps empty URIs.
+pub fn fill_token_policies(ep: &mut EndpointDescription, channel: SecurityPolicy) {
+    if channel == SecurityPolicy::None {
+        return;
+    }
+    for t in ep.user_identity_tokens.iter_mut().flatten() {
+        if t.security_policy_uri.is_empty() {
+            t.security_policy_uri = channel.to_uri().into();
+        }
     }
 }
 
@@ -418,6 +434,7 @@ impl Transport {
                 ))
             })?;
         ep.endpoint_url = p.endpoint.as_str().into();
+        fill_token_policies(&mut ep, policy);
         token_policy_allowed(p.identity, p.security_mode, &p.endpoint, &ep).map_err(transport)?;
         // The certificate the server will present (CreateSession checks it
         // is the same), for the advice when the open fails.
@@ -1064,6 +1081,66 @@ mod tests {
         let anon = endpoint_with(UserTokenType::Anonymous, "");
         assert!(token_policy_allowed(Identity::Username, Mode::Sign, remote, &anon).is_err());
         assert!(token_policy_allowed(Identity::Anonymous, Mode::Sign, remote, &anon).is_ok());
+    }
+
+    /// An empty token policy URI means the channel's policy (Part 4, 7.41),
+    /// but the library reads it as None for X.509 tokens and sends them
+    /// unsigned: the link writes the channel's policy in, so the token is
+    /// signed (and a password is encrypted as before).
+    #[test]
+    fn empty_token_policies_take_the_channel_policy() {
+        let b256 = SecurityPolicy::Basic256Sha256;
+        let mut ep = endpoint_with(UserTokenType::Certificate, "");
+        fill_token_policies(&mut ep, b256);
+        let uri = ep
+            .find_policy(UserTokenType::Certificate)
+            .unwrap()
+            .security_policy_uri
+            .as_ref()
+            .to_owned();
+        assert_eq!(uri, b256.to_uri());
+        // the library signs with it (with None it would not)
+        let (cert, key) = X509::cert_and_pkey(&opcua::crypto::X509Data {
+            key_size: 2048,
+            common_name: "u".into(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            country: String::new(),
+            state: String::new(),
+            alt_host_names: opcua::crypto::X509Data::alt_host_names(
+                "urn:u", None, false, false, false,
+            ),
+            certificate_duration_days: 1,
+        })
+        .unwrap();
+        let nonce = opcua::types::ByteString::from(vec![7u8; 32]);
+        let sign = |p: SecurityPolicy| {
+            opcua::crypto::create_signature_data(&key, p, &cert.as_byte_string(), &nonce)
+                .unwrap()
+                .signature
+        };
+        assert!(!sign(SecurityPolicy::from_uri(&uri)).is_null_or_empty());
+        assert!(sign(SecurityPolicy::None).is_null_or_empty());
+        // a policy the server named stays; a None channel keeps empty
+        let mut ep = endpoint_with(
+            UserTokenType::UserName,
+            SecurityPolicy::Aes256Sha256RsaPss.to_uri(),
+        );
+        fill_token_policies(&mut ep, b256);
+        assert_eq!(
+            ep.find_policy(UserTokenType::UserName)
+                .unwrap()
+                .security_policy_uri
+                .as_ref(),
+            SecurityPolicy::Aes256Sha256RsaPss.to_uri()
+        );
+        let mut ep = endpoint_with(UserTokenType::UserName, "");
+        fill_token_policies(&mut ep, SecurityPolicy::None);
+        assert!(ep
+            .find_policy(UserTokenType::UserName)
+            .unwrap()
+            .security_policy_uri
+            .is_empty());
     }
 
     /// What the rule above relies on: on a sign-only channel the library

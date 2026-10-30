@@ -205,9 +205,12 @@ Rules:
   token policy protects the identity. Before ActivateSession the link
   refuses a token policy with security policy None (a password in clear
   text, an X.509 token without a signature) or a deprecated or unknown
-  one; it takes an empty one (the channel's policy encrypts the password,
-  OPC UA Part 4, 7.41) and Basic256Sha256, Aes128_Sha256_RsaOaep,
-  Aes256_Sha256_RsaPss. The token policy comes from GetEndpoints (the
+  one; it takes an empty one (it means the channel's policy, OPC UA Part
+  4, 7.41) and Basic256Sha256, Aes128_Sha256_RsaOaep,
+  Aes256_Sha256_RsaPss. On every secured channel the link writes the
+  channel's policy into an empty token policy before the open: the
+  library would read an empty one as None for an X.509 token and send it
+  without a signature (a password it encrypts either way). The token policy comes from GetEndpoints (the
   library offers no hook between CreateSession and ActivateSession), so
   whatever a man in the middle writes there ends in a refusal or in a
   password encrypted with a strong policy to the server certificate that
