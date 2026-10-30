@@ -838,22 +838,56 @@ async fn a_port_in_use_fails_the_connection() {
     h.stop().await;
 }
 
+/// The quality codes (attachment key 1) published on `s1/d1/<p>/~val`,
+/// in order, from now on.
+async fn quals(h: &H, p: &str) -> std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>> {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sub = h
+        .session()
+        .declare_subscriber(h.key(&format!("s1/d1/{p}"), "~val"))
+        .await
+        .expect("subscriber");
+    let sink = seen.clone();
+    tokio::spawn(async move {
+        while let Ok(s) = sub.recv_async().await {
+            let qual = s
+                .attachment()
+                .and_then(|a| {
+                    wyrm_core::codec::from_slice::<wyrm_core::Attachment>(&a.to_bytes()).ok()
+                })
+                .and_then(|a| a.qual);
+            sink.lock().unwrap().push(qual);
+        }
+    });
+    seen
+}
+
+/// 50000 on a u16 point, then the point edited to `i16`.
+fn to_i16() -> Value {
+    map(&[
+        ("table", "holding".into()),
+        ("addr", Value::UInt(1)),
+        ("dtype", "i16".into()),
+    ])
+}
+
 /// O1 (ruling P29): a point edited to a data type its tree value does not
 /// fit (50000 as `i16`) serves nothing; the broker's old value is marked
-/// bad (`bad/config_error`), not left good, until the tree sets one.
+/// bad with the reason `bad/config_error`, not left good, until the tree
+/// sets one.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tree_value_the_edited_point_cannot_serve_is_bad() {
     let points = map(&[("a", pt("holding", 1, "u16", &[]))]);
     let (h, port) = start(points).await;
     assert_eq!(set(&h, "a", 50_000u64).await, Some(Status::Ok));
-    let edit = map(&[
-        ("table", "holding".into()),
-        ("addr", Value::UInt(1)),
-        ("dtype", "i16".into()),
-    ]);
-    assert_eq!(act(&h, "s1/d1/a", "edit", edit).await, Some(Status::Ok));
+    let seen = quals(&h, "a").await;
+    assert_eq!(act(&h, "s1/d1/a", "edit", to_i16()).await, Some(Status::Ok));
     let last = || h.ctx().last("s1/d1/a").expect("a sample");
     wait("marked bad", || last().q == wyrm_core::Quality::Bad).await;
+    wait("reason config_error", || {
+        seen.lock().unwrap().last() == Some(&Some("bad/config_error".to_owned()))
+    })
+    .await;
     assert_eq!(last().v, Value::UInt(50_000), "the old value kept");
     let mut m = master(port, 1).await;
     assert_eq!(
@@ -869,5 +903,35 @@ async fn a_tree_value_the_edited_point_cannot_serve_is_bad() {
         Ok(vec![0xFFFB]),
         "-5 as i16"
     );
+    h.stop().await;
+}
+
+/// O1 on a reopened server: the point is already bad (`bad/disconnected`,
+/// the connection stopped) when it is edited; after `start` the reason
+/// becomes `bad/config_error`, as the quality alone would not change.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reopened_server_shows_config_error_on_an_already_bad_point() {
+    let points = map(&[("a", pt("holding", 1, "u16", &[]))]);
+    let (h, _port) = start(points).await;
+    assert_eq!(set(&h, "a", 50_000u64).await, Some(Status::Ok));
+    let seen = quals(&h, "a").await;
+    assert_eq!(act(&h, "s1", "stop", map(&[])).await, Some(Status::Ok));
+    let last = || h.ctx().last("s1/d1/a").expect("a sample");
+    wait("disconnected", || {
+        seen.lock().unwrap().last() == Some(&Some("bad/disconnected".to_owned()))
+    })
+    .await;
+    assert_eq!(act(&h, "s1/d1/a", "edit", to_i16()).await, Some(Status::Ok));
+    assert_eq!(act(&h, "s1", "start", map(&[])).await, Some(Status::Ok));
+    wait("served again", || {
+        state(&h, "s1/d1").as_deref() == Some("connected")
+    })
+    .await;
+    wait("reason config_error", || {
+        seen.lock().unwrap().last() == Some(&Some("bad/config_error".to_owned()))
+    })
+    .await;
+    assert_eq!(last().q, wyrm_core::Quality::Bad);
+    assert_eq!(last().v, Value::UInt(50_000), "the old value kept");
     h.stop().await;
 }

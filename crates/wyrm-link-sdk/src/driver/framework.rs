@@ -1949,9 +1949,20 @@ impl<D: Driver> Owner<D> {
                 // the point's new params): the broker would keep the old
                 // value at good quality. Bad until the tree or the remote
                 // side gives one the server takes (the publish of a value it
-                // serves follows below and wins).
+                // serves follows below and wins). Published even when the
+                // point is bad already (`bad/disconnected` while the server
+                // was down): the reason changes, not only the quality, so
+                // not `mark`, which skips a point of the same quality.
                 warn!(point = %path, "the tree's last value is not served: {why}");
-                mark(&self.ctx, [path.clone()], Quality::Bad, QUAL_CONFIG_ERROR).await;
+                let bad = Sample {
+                    v: last.v,
+                    q: Quality::Bad,
+                    t: now_us(),
+                };
+                let _ = self
+                    .ctx
+                    .update_sample(path, bad, Some(QUAL_CONFIG_ERROR))
+                    .await;
             }
         }
         self.publish_changed(t).await;

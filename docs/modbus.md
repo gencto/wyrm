@@ -196,7 +196,8 @@ registers are:
   A scaled value publishes as a float.
 - `bits16`, `char` and `varchar` ignore `scale`, `offset` and `bit`
   (without an error).
-- `m10k`: `lo` must be 0…9999, else the point shows `bad/device_error`.
+- `m10k`: `lo` must be 0…9999 for the unsigned types and −9999…9999 for
+  the signed ones, else the point shows `bad/device_error`.
   The signed types read both words as `i16`, as DSA does, so halves of
   mixed signs are accepted.
 - An invalid BCD digit or a non-ASCII text is a point error
@@ -212,8 +213,11 @@ registers are:
   switch: `max_regs = 1` and `max_bits = 1` read each point alone.
 - An exception reply to one request fails only the points of that request
   (`bad/device_error`, the last value kept). A timeout of every request is
-  a device miss (section 8). An I/O or protocol error drops the
-  connection; it reconnects.
+  a device miss (section 8). When some requests of a poll time out and
+  others answer, only the points of the timed-out requests go
+  `uncertain/stale` (then `bad/comm_fail`), and the device stays
+  `Connected`. An I/O or protocol error drops the connection; it
+  reconnects.
 
 ## 6. Writes
 
@@ -256,7 +260,9 @@ shows what the device holds.
 
 - Every request is bounded by `timeout_ms`. After a timeout it is sent
   again up to `retries` times; an exception or an I/O error is not
-  retried. The last timeout counts as a device miss.
+  retried. When every request of a poll times out, the poll counts as a
+  device miss; when only some do, their points take the ladder alone
+  (section 5).
 - **After an unanswered request the transport is reopened before the next
   request,** on every transport. On RTU a late reply would be taken for
   the next request of the same unit and function (`tokio-modbus` cannot
@@ -574,9 +580,10 @@ running it.
 - **Reconnects:** a DSA connection that fails at link start is never
   retried, and a serial one reconnects once only. Here a connection
   retries for ever with capped, jittered backoff.
-- **Bit writes:** DSA writes a bit in a register without FC22 or a
-  read-modify-write, so it overwrites the other bits. Here: FC22, or read
-  and FC6.
+- **Bit writes:** DSA has no FC22 or read-modify-write: a write of a bit
+  in a register fails with only a log line ("not a numeric array") and
+  writes nothing (`SlaveFolder.java:551-553, 635-639, 602-605`). Here:
+  FC22, or read and FC6.
 - **Inverse scaling on write:** DSA writes `v × scaling − scaling offset`,
   which is not the inverse of its read when the offset is not 0. Here a
   write is the exact inverse of the read.
