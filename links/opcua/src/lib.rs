@@ -555,6 +555,11 @@ impl Link for Opcua {
 
     async fn start(tree: Tree, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
         let pki = ctx.data_dir().map(session::pki_root);
+        if let Some(root) = &pki {
+            // supplied keys a stopped process left on disk
+            let root = root.clone();
+            let _ = tokio::task::spawn_blocking(move || pki::sweep(&root)).await;
+        }
         let inner = PKI
             .scope(
                 pki.clone(),

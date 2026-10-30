@@ -71,6 +71,9 @@ pub struct Transport {
     types: HashMap<NodeId, (VariantScalarTypeId, bool)>,
     outcomes: Vec<Outcome>,
     note: Option<String>,
+    /// The use of a supplied certificate's files, while the session lives
+    /// (the library reads the key on channel renewals). Dropped last.
+    _lease: Option<pki::KeyLease>,
 }
 
 impl Drop for Transport {
@@ -431,6 +434,7 @@ impl Transport {
             types: HashMap::new(),
             outcomes: Vec::new(),
             note,
+            _lease: prep.and_then(|p| p.lease),
         })
     }
 

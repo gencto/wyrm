@@ -6,7 +6,7 @@
 //! own/app-<uri hash>.der        generated application certificate
 //! private/app-<uri hash>.pem    its key (0600)
 //! own/user-<pem hash>.der       a certificate given as `cert_pem`
-//! private/user-<pem hash>.pem   its key (`key_pem`, 0600)
+//! private/user-<pem hash>.pem   its key (`key_pem`, 0600, plain text)
 //! servers/<url hash>-<trust>/   trusted/ and rejected/ for one endpoint
 //! ```
 //!
@@ -16,6 +16,11 @@
 //! `<url hash>` is of the endpoint as [`crate::session::endpoint_key`]
 //! normalises it.
 //!
+//! The `user-*` files exist only while a connection that names them opens
+//! or has a session ([`KeyLease`]); the library reads the key from its file
+//! on every secure channel open and renewal, so it cannot stay in memory
+//! only. [`sweep`] removes the ones a stopped process left.
+//!
 //! First use counts only once a session was activated: then the store gets
 //! the marker file `tofu-ok`. Until it has it, `prepare` empties `trusted/`
 //! (the library stores an unknown certificate there before it checks host
@@ -24,6 +29,7 @@
 
 use opcua::crypto::{CertificateStore, PrivateKey, X509Data, X509};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -38,8 +44,61 @@ const KEY_BITS: u32 = 2048;
 /// Validity of a generated application certificate.
 const DAYS: u32 = 3650;
 
+/// Supplied key files in use, by key path: how many connections open
+/// with them or have a session.
+static IN_USE: Mutex<BTreeMap<PathBuf, usize>> = Mutex::new(BTreeMap::new());
+
+/// One connection's use of the `user-*` files of a supplied `cert_pem` /
+/// `key_pem`. The files are removed when the last use ends (a session
+/// closed, an open failed or cut, an edit that changes the certificate, a
+/// removed connection).
+#[derive(Debug)]
+pub struct KeyLease {
+    cert: PathBuf,
+    key: PathBuf,
+}
+
+impl Drop for KeyLease {
+    fn drop(&mut self) {
+        let mut used = IN_USE.lock().unwrap_or_else(|p| p.into_inner());
+        let n = used.get(&self.key).copied().unwrap_or(1);
+        if n > 1 {
+            used.insert(self.key.clone(), n - 1);
+        } else {
+            used.remove(&self.key);
+            let _ = fs::remove_file(&self.key);
+            let _ = fs::remove_file(&self.cert);
+        }
+    }
+}
+
+/// Remove the `user-*` files under `root` that no connection uses (left by
+/// a process that stopped). Run at link start.
+pub fn sweep(root: &Path) {
+    let used = IN_USE.lock().unwrap_or_else(|p| p.into_inner());
+    for dir in ["own", "private"] {
+        let Ok(entries) = fs::read_dir(root.join(dir)) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            let user = e
+                .file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with("user-"));
+            let key = path.with_extension("pem");
+            let key = root
+                .join("private")
+                .join(key.file_name().unwrap_or_default());
+            if user && !used.contains_key(&key) {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+}
+
 /// What a connection opens with.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Prepared {
     /// The certificate store's directory (trusted/, rejected/).
     pub store: PathBuf,
@@ -51,6 +110,8 @@ pub struct Prepared {
     pub thumbprint: String,
     /// Trust the server's certificate when it is unknown (first use).
     pub trust_unknown: bool,
+    /// The use of a supplied certificate's files (none for a generated one).
+    pub lease: Option<KeyLease>,
 }
 
 /// The marker of a trust-on-first-use store whose first use made a session.
@@ -103,9 +164,15 @@ fn hash16(parts: &[&str]) -> String {
 pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
     let io = |what: &str, e: std::io::Error| format!("{what}: {e}");
     fs::create_dir_all(root).map_err(|e| io("pki directory", e))?;
-    let (cert, key) = match r.own {
-        Some((cert_pem, key_pem)) => own_from_pem(root, cert_pem, key_pem)?,
-        None => generated(root, r.application_uri)?,
+    let (cert, key, lease) = match r.own {
+        Some((cert_pem, key_pem)) => {
+            let lease = own_from_pem(root, cert_pem, key_pem)?;
+            (lease.cert.clone(), lease.key.clone(), Some(lease))
+        }
+        None => {
+            let (cert, key) = generated(root, r.application_uri)?;
+            (cert, key, None)
+        }
     };
     let x509 = CertificateStore::read_cert(&cert)?;
     let thumbprint = x509.thumbprint().as_hex_string();
@@ -156,6 +223,7 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
         key,
         thumbprint,
         trust_unknown,
+        lease,
     })
 }
 
@@ -260,9 +328,9 @@ pub fn pem(label: &str, der: &[u8]) -> String {
     out
 }
 
-/// `cert_pem`/`key_pem` as the files the library reads. The key's content
-/// never enters an error.
-fn own_from_pem(root: &Path, cert_pem: &str, key_pem: &str) -> Result<(PathBuf, PathBuf), String> {
+/// `cert_pem`/`key_pem` as the files the library reads, for one use. The
+/// key's content never enters an error.
+fn own_from_pem(root: &Path, cert_pem: &str, key_pem: &str) -> Result<KeyLease, String> {
     let cert = X509::from_pem(cert_pem.as_bytes())
         .map_err(|_| "cert_pem: not a PEM certificate".to_owned())?;
     PrivateKey::from_pem(key_pem.as_bytes())
@@ -271,9 +339,16 @@ fn own_from_pem(root: &Path, cert_pem: &str, key_pem: &str) -> Result<(PathBuf, 
     let cert_path = root.join("own").join(format!("user-{h}.der"));
     let key_path = root.join("private").join(format!("user-{h}.pem"));
     let der = cert.to_der().map_err(|e| format!("cert_pem: {e}"))?;
+    // Written and counted under the lock: a last use that ends at the same
+    // time removes the files before, never after, this write.
+    let mut used = IN_USE.lock().unwrap_or_else(|p| p.into_inner());
     write_file(&cert_path, &der, false)?;
     write_file(&key_path, key_pem.as_bytes(), true)?;
-    Ok((cert_path, key_path))
+    *used.entry(key_path.clone()).or_insert(0) += 1;
+    Ok(KeyLease {
+        cert: cert_path,
+        key: key_path,
+    })
 }
 
 /// The generated application certificate of `application_uri`, made on
@@ -459,13 +534,30 @@ mod tests {
         .unwrap();
         let cert_pem = pem("CERTIFICATE", &x509.to_der().unwrap());
         let key_pem = pem("PRIVATE KEY", pkey.to_der().unwrap().as_bytes());
-        let (_, key) = own_from_pem(&root, &cert_pem, &key_pem).unwrap();
+        let lease = own_from_pem(&root, &cert_pem, &key_pem).unwrap();
+        let key = lease.key.clone();
         #[cfg(unix)]
         {
             assert_eq!(mode(&root.join("private")), 0o700);
             assert_eq!(mode(&key), 0o600);
         }
         assert_eq!(fs::read_to_string(&key).unwrap(), key_pem);
+        // two uses: the files stay until the last one ends
+        let second = own_from_pem(&root, &cert_pem, &key_pem).unwrap();
+        drop(lease);
+        assert!(key.is_file() && second.cert.is_file());
+        let cert = second.cert.clone();
+        drop(second);
+        assert!(!key.exists() && !cert.exists(), "removed with the last use");
+        // files a stopped process left are swept; files in use are not
+        let kept = own_from_pem(&root, &cert_pem, &key_pem).unwrap();
+        fs::write(root.join("private/user-0011223344556677.pem"), "k").unwrap();
+        fs::write(root.join("own/user-0011223344556677.der"), "c").unwrap();
+        sweep(&root);
+        assert!(!root.join("private/user-0011223344556677.pem").exists());
+        assert!(!root.join("own/user-0011223344556677.der").exists());
+        assert!(kept.key.is_file() && kept.cert.is_file());
+        drop(kept);
         // a bad key never shows in the error
         let e = own_from_pem(&root, &cert_pem, "secret-key-text").unwrap_err();
         assert!(!e.contains("secret-key-text"), "{e}");
