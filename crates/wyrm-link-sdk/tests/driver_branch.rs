@@ -7,12 +7,14 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
-use wyrm_core::meta::Writable;
+use wyrm_core::meta::{ParamMeta, Writable};
 use wyrm_core::status::StatusCode;
-use wyrm_core::{NodeMeta, Perm, Quality, Status, Value};
+use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::branch::{FORMAT, MAX_BYTES, MAX_NODES, NOT_EXPORTED};
-use wyrm_link_sdk::driver::{Driver, DriverError, Framework, NodeState, PointId, Tree};
-use wyrm_link_sdk::{Params, TestHarness};
+use wyrm_link_sdk::driver::{
+    Driver, DriverError, Framework, Level, NodeState, PointId, Target, Tree,
+};
+use wyrm_link_sdk::{LinkError, Params, TestHarness};
 
 /// What one test's driver saw (by the connection's `tag`): `open` and
 /// `poll:<ids>`, in order.
@@ -59,6 +61,9 @@ enum Conn {
 struct Dev {
     #[param(default = 1)]
     unit: u32,
+    /// Ping period; 0 = no pings.
+    #[param(default = 0)]
+    ping_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -102,7 +107,8 @@ impl Driver for Br {
         Ok(Transport(seen(tag)))
     }
 
-    async fn ping(_t: &mut Transport, _dev: &Dev) -> Result<(), DriverError> {
+    async fn ping(t: &mut Transport, _dev: &Dev) -> Result<(), DriverError> {
+        t.0.lock().unwrap().push("ping".into());
         Ok(())
     }
 
@@ -146,8 +152,37 @@ impl Driver for Br {
         Duration::from_secs_f64(p.poll_s)
     }
 
-    fn ping_period(_dev: &Dev) -> Option<Duration> {
-        None
+    fn ping_period(dev: &Dev) -> Option<Duration> {
+        (dev.ping_ms > 0).then(|| Duration::from_millis(dev.ping_ms.into()))
+    }
+
+    /// `hold {ms}` on a device: keeps the owner task busy that long.
+    fn actions(level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
+        match level {
+            Level::Device => vec![(
+                "hold",
+                ActionMeta::new()
+                    .level(Perm::Config)
+                    .timeout_ms(5000)
+                    .param("ms", ParamMeta::of(TypeCode::Number).required(true)),
+            )],
+            Level::Connection => Vec::new(),
+        }
+    }
+
+    async fn invoke(
+        _t: &mut Transport,
+        _conn: &Conn,
+        _target: Target<'_, Self>,
+        _action: &str,
+        args: &Value,
+    ) -> Result<Value, LinkError> {
+        let ms = match args {
+            Value::Map(m) => m.get("ms").and_then(Value::as_f64).unwrap_or(0.0),
+            _ => 0.0,
+        };
+        tokio::time::sleep(Duration::from_secs_f64(ms / 1000.0)).await;
+        Ok(Value::Null)
     }
 }
 
@@ -502,7 +537,7 @@ async fn export_leaves_secrets_out() {
     assert_eq!(children(&c), ["d1"]);
     let d = &c["children"][0];
     assert_eq!(d["kind"], "device");
-    assert_eq!(d["params"], json!({"unit": 7}));
+    assert_eq!(d["params"], json!({"unit": 7, "ping_ms": 0}));
     assert_eq!(children(d), ["f1", "p0"]);
     let f1 = &d["children"][0];
     assert_eq!(f1["kind"], "folder");
@@ -1058,5 +1093,101 @@ async fn overwrite_keeps_secrets_for_the_same_destination() {
         Some(&Value::Array(vec![Value::Str("c1.password".into())]))
     );
     assert_eq!(state(&h, "c1"), is_state(NodeState::Failed));
+    h.stop().await;
+}
+
+/// Fix round 2 (ruling P19): requests planned before a change never run
+/// on what replaced it. The owner is held (a driver action) longer than
+/// the call bound while a poll of `p0` waits in its queue; the device is
+/// overwritten meanwhile (it comes back stopped). Once released, the old
+/// poll must not publish onto the new `p0` nor mark the device connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_requests_never_reach_new_nodes() {
+    let h = H::start_with(tree(72), |lc| {
+        lc.driver_timeout = Duration::from_millis(300)
+    })
+    .await;
+    wait("p0 polled", || {
+        h.ctx().last("c1/d1/p0").map(|s| s.v) == Some(Value::Float(1.0))
+    })
+    .await;
+    let d1 = json!({"format": FORMAT, "driver": "br", "kind": "device", "name": "d1",
+        "params": {"unit": 7}, "children": [
+            {"kind": "point", "name": "p0", "params": {"addr": 7, "poll_s": 0.02}}]});
+    let hold = h.invoke(
+        "c1/d1",
+        "hold",
+        map(&[("ms", Value::UInt(1500))]),
+        Some(h.ptok(Perm::Config)),
+    );
+    let overwrite = async {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        ok(&h, "c1", "import", import_args(&d1, None, true)).await
+    };
+    let (held, _) = tokio::join!(hold, overwrite);
+    assert_eq!(
+        code(held[0].att.status),
+        Some(Status::Ok),
+        "{:?}",
+        held[0].att.err
+    );
+    let until = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < until {
+        assert!(
+            h.ctx().last("c1/d1/p0").is_none(),
+            "an old value on the new node"
+        );
+        assert_eq!(state(&h, "c1/d1"), is_state(NodeState::Stopped));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    h.stop().await;
+}
+
+/// Fix round 2: a device pings again only once its last ping ran, so an
+/// owner held for a second does not queue a ping per tick.
+#[tokio::test(flavor = "multi_thread")]
+async fn pings_do_not_pile_up() {
+    let tag = 73;
+    let mut t = tree(tag);
+    if let Value::Map(top) = &mut t.0 {
+        let Some(Value::Map(conns)) = top.get_mut("connections") else {
+            panic!()
+        };
+        let Some(Value::Map(c1)) = conns.get_mut("c1") else {
+            panic!()
+        };
+        let Some(Value::Map(devs)) = c1.get_mut("devices") else {
+            panic!()
+        };
+        let Some(Value::Map(d1)) = devs.get_mut("d1") else {
+            panic!()
+        };
+        d1.insert("ping_ms".into(), Value::UInt(10));
+    }
+    let h = H::start(t).await;
+    let pings = |from: usize| log(tag).iter().skip(from).filter(|l| *l == "ping").count();
+    wait("pinging", || pings(0) > 3).await;
+    let hold = h.invoke(
+        "c1/d1",
+        "hold",
+        map(&[("ms", Value::UInt(1000))]),
+        Some(h.ptok(Perm::Config)),
+    );
+    let mark = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        log(tag).len()
+    };
+    let (held, from) = tokio::join!(hold, mark);
+    assert_eq!(
+        code(held[0].att.status),
+        Some(Status::Ok),
+        "{:?}",
+        held[0].att.err
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // About 100 ticks passed while held; at most one ping waited for the
+    // owner, then one per 10 ms.
+    let n = pings(from);
+    assert!(n < 30, "{n} pings after the hold");
     h.stop().await;
 }

@@ -13,7 +13,9 @@
 //! (group `edit`), `restart`, and `stop` or `start`, whichever applies.
 //!
 //! * One owner task per connection holds the transport and serves `Poll`,
-//!   `Ping`, `Write` and `Reconfigure` requests in order.
+//!   `Ping`, `Write` and `Invoke` requests in order, each against the
+//!   current plan generation: a request planned before a re-plan is dropped
+//!   (a write answers `busy`), never run on what replaced it.
 //! * One ticker per `(device, poll period)` group; a tick is skipped while
 //!   the previous poll of that group is in flight. Points are polled all the
 //!   time (owner decision, ADR 0004 amendment); with `poll_unsubscribed:
@@ -407,26 +409,46 @@ struct DevRun<D: Driver> {
 
 type DevMap<D> = BTreeMap<String, DevRun<D>>;
 
-enum Req<D: Driver> {
+/// The devices of a running connection as planned, with the generation of
+/// that plan (ruling P19). The link task replaces it on every re-plan
+/// (under the write lock); the owner reads it before every request and
+/// publishes results under the read lock, only for requests of the current
+/// generation. So nothing planned before a change runs or publishes after
+/// it, whatever the owner was doing.
+struct View<D: Driver> {
+    gen: u64,
+    devs: Arc<DevMap<D>>,
+}
+
+type SharedView<D> = Arc<tokio::sync::RwLock<View<D>>>;
+
+enum Req {
     Poll {
         dev: String,
         group: usize,
+        /// The plan generation the ticker was started for.
+        gen: u64,
+        /// The group's flag: cleared once the poll ran or was dropped.
+        inflight: Arc<AtomicBool>,
     },
     Ping {
         dev: String,
+        gen: u64,
+        /// The device's ping flag: one ping queued or running at a time.
+        inflight: Arc<AtomicBool>,
     },
     Write {
         dev: String,
         point: String,
         value: Value,
+        /// The plan generation when the set came: after a re-plan the write
+        /// is refused (`busy`), never sent with what replaced the point.
+        gen: u64,
         /// When the caller stops waiting (the SDK's bound on the set): a
         /// write still queued then is dropped, never sent late (P13).
         deadline: tokio::time::Instant,
         reply: oneshot::Sender<Result<()>>,
     },
-    /// A new view of the devices; the owner answers `ack` once it uses it
-    /// (every earlier poll published).
-    Reconfigure(Arc<DevMap<D>>, Option<oneshot::Sender<()>>),
     /// A driver action on the connection (`dev: None`) or a device.
     Invoke {
         dev: Option<String>,
@@ -441,7 +463,10 @@ enum Req<D: Driver> {
 }
 
 struct ConnRun<D: Driver> {
-    tx: mpsc::Sender<Req<D>>,
+    tx: mpsc::Sender<Req>,
+    /// The plan the owner serves ([`View`]) and its generation.
+    view: SharedView<D>,
+    gen: u64,
     stop: watch::Sender<bool>,
     owner: JoinHandle<()>,
     tickers: Vec<JoinHandle<()>>,
@@ -1167,7 +1192,8 @@ impl<D: Driver> Framework<D> {
     async fn start_tickers(
         &self,
         devs: &DevMap<D>,
-        tx: &mpsc::Sender<Req<D>>,
+        tx: &mpsc::Sender<Req>,
+        gen: u64,
     ) -> (Vec<JoinHandle<()>>, watch::Sender<bool>) {
         let (tick_stop, rx) = watch::channel(false);
         let mut tickers = Vec::new();
@@ -1182,10 +1208,11 @@ impl<D: Driver> Framework<D> {
                     }
                 }
                 tickers.push(tokio::spawn(
-                    poll_ticker::<D>(
+                    poll_ticker(
                         tx.clone(),
                         dev.clone(),
                         gi,
+                        gen,
                         g.period,
                         g.inflight.clone(),
                         pubs,
@@ -1197,7 +1224,7 @@ impl<D: Driver> Framework<D> {
             }
             if let Some(period) = D::ping_period(&run.cfg) {
                 tickers.push(tokio::spawn(
-                    ping_ticker::<D>(tx.clone(), dev.clone(), period, rx.clone()).in_current_span(),
+                    ping_ticker(tx.clone(), dev.clone(), gen, period, rx.clone()).in_current_span(),
                 ));
             }
         }
@@ -1258,21 +1285,27 @@ impl<D: Driver> Framework<D> {
                     );
                     (task, nudge)
                 });
+                let view = Arc::new(tokio::sync::RwLock::new(View {
+                    gen: 0,
+                    devs: devs.clone(),
+                }));
                 let owner = tokio::spawn(
                     owner::<D>(
                         self.ctx.clone(),
                         name.to_owned(),
                         cfg,
-                        devs.clone(),
+                        view.clone(),
                         book.clone(),
                         rx,
                         stop_rx,
                     )
                     .in_current_span(),
                 );
-                let (tickers, tick_stop) = self.start_tickers(&devs, &tx).await;
+                let (tickers, tick_stop) = self.start_tickers(&devs, &tx, 0).await;
                 self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
                     tx,
+                    view,
+                    gen: 0,
                     stop,
                     owner,
                     tickers,
@@ -1381,19 +1414,11 @@ impl<D: Driver> Framework<D> {
         Ok(())
     }
 
-    /// Device/point change: new plan for the owner, new tickers, no reconnect.
+    /// Device/point change: new plan for the owner, new tickers, no
+    /// reconnect. The next generation of the plan ([`View`]): requests
+    /// queued or running under the old one never publish after this
+    /// returns. It waits only for a publish in progress (no device I/O).
     async fn replan(&mut self, conn: &str) {
-        self.replan_with(conn, false).await;
-    }
-
-    /// [`Self::replan`], returning once the owner uses the new plan (at
-    /// most [`LinkCtx::driver_timeout`]): no poll of the old plan publishes
-    /// after it (an overwrite declares new nodes at the old keys next).
-    async fn replan_settled(&mut self, conn: &str) {
-        self.replan_with(conn, true).await;
-    }
-
-    async fn replan_with(&mut self, conn: &str, settle: bool) {
         let devs = Arc::new(self.dev_map(conn));
         let Some(run) = self.conns.get_mut(conn).and_then(|c| c.run.take()) else {
             return;
@@ -1402,21 +1427,17 @@ impl<D: Driver> Framework<D> {
         for t in run.tickers {
             let _ = tokio::time::timeout(Duration::from_secs(1), t).await;
         }
-        let (ack, acked) = match settle {
-            true => {
-                let (tx, rx) = oneshot::channel();
-                (Some(tx), Some(rx))
-            }
-            false => (None, None),
+        let gen = {
+            let mut v = run.view.write().await;
+            v.gen += 1;
+            v.devs = devs.clone();
+            v.gen
         };
-        let _ = run.tx.send(Req::Reconfigure(devs.clone(), ack)).await;
-        if let Some(rx) = acked {
-            let _ = tokio::time::timeout(self.ctx.driver_timeout(), rx).await;
-        }
-        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx).await;
+        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx, gen).await;
         self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
             tickers,
             tick_stop,
+            gen,
             ..run
         });
     }
@@ -1502,10 +1523,11 @@ async fn stop_run<D: Driver>(run: ConnRun<D>) {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn poll_ticker<D: Driver>(
-    tx: mpsc::Sender<Req<D>>,
+async fn poll_ticker(
+    tx: mpsc::Sender<Req>,
     dev: String,
     group: usize,
+    gen: u64,
     period: Duration,
     inflight: Arc<AtomicBool>,
     pubs: Vec<PointPublisher>,
@@ -1540,6 +1562,8 @@ async fn poll_ticker<D: Driver>(
             .try_send(Req::Poll {
                 dev: dev.clone(),
                 group,
+                gen,
+                inflight: inflight.clone(),
             })
             .is_err()
         {
@@ -1548,12 +1572,14 @@ async fn poll_ticker<D: Driver>(
     }
 }
 
-async fn ping_ticker<D: Driver>(
-    tx: mpsc::Sender<Req<D>>,
+async fn ping_ticker(
+    tx: mpsc::Sender<Req>,
     dev: String,
+    gen: u64,
     period: Duration,
     mut stop: watch::Receiver<bool>,
 ) {
+    let inflight = Arc::new(AtomicBool::new(false));
     let mut iv = tokio::time::interval(period);
     iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -1561,7 +1587,19 @@ async fn ping_ticker<D: Driver>(
             _ = iv.tick() => {}
             _ = stop.changed() => return,
         }
-        let _ = tx.try_send(Req::Ping { dev: dev.clone() });
+        // No pile-up: while the last ping waits for the owner or runs (a
+        // long action holds it), ticks are skipped.
+        if inflight.swap(true, Ordering::AcqRel) {
+            continue;
+        }
+        let ping = Req::Ping {
+            dev: dev.clone(),
+            gen,
+            inflight: inflight.clone(),
+        };
+        if tx.try_send(ping).is_err() {
+            inflight.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -1575,12 +1613,22 @@ struct DevHealth {
 struct Owner<D: Driver> {
     ctx: LinkCtx,
     conn: String,
+    view: SharedView<D>,
+    /// The plan of [`Owner::gen`] (refreshed before every request).
     devs: Arc<DevMap<D>>,
+    gen: u64,
     health: BTreeMap<String, DevHealth>,
     book: diag::SharedBook,
 }
 
 impl<D: Driver> Owner<D> {
+    /// Take the current plan.
+    async fn refresh(&mut self) {
+        let v = self.view.read().await;
+        self.devs = v.devs.clone();
+        self.gen = v.gen;
+    }
+
     /// Count the requests of the operation that just ran for `dev` (or the
     /// connection); `cut` = its bound cut it, which counts one timeout (the
     /// request on the wire never got its outcome).
@@ -1713,16 +1761,22 @@ async fn owner<D: Driver>(
     ctx: LinkCtx,
     conn: String,
     cfg: D::Conn,
-    devs: Arc<DevMap<D>>,
+    view: SharedView<D>,
     book: diag::SharedBook,
-    mut rx: mpsc::Receiver<Req<D>>,
+    mut rx: mpsc::Receiver<Req>,
     mut stop: watch::Receiver<bool>,
 ) {
     let timeout = D::io_timeout(&cfg);
+    let (devs, gen) = {
+        let v = view.read().await;
+        (v.devs.clone(), v.gen)
+    };
     let mut o = Owner::<D> {
         ctx,
         conn,
+        view,
         devs,
+        gen,
         health: BTreeMap::new(),
         book,
     };
@@ -1738,6 +1792,7 @@ async fn owner<D: Driver>(
                 attempt = 0;
                 o.record(&mut t, None, false);
                 set_status(&o.ctx, &o.conn, NodeState::Connected, None).await;
+                o.refresh().await;
                 let devs: Vec<String> = o.devs.keys().cloned().collect();
                 for d in devs {
                     o.dev_state(&d, NodeState::Connecting, None).await;
@@ -1752,6 +1807,7 @@ async fn owner<D: Driver>(
         };
         warn!(conn = %o.conn, "connection failed: {failure}");
         set_status(&o.ctx, &o.conn, NodeState::Failed, Some(&failure)).await;
+        o.refresh().await;
         o.cascade_down().await;
         // Backoff; writes meanwhile are answered `disconnected`.
         let sleep = tokio::time::sleep(backoff(attempt, jitter()));
@@ -1769,22 +1825,21 @@ async fn owner<D: Driver>(
                     Some(Req::Invoke { reply, .. }) => {
                         let _ = reply.send(Err(LinkError::new(Status::Disconnected, failure.clone())));
                     }
-                    Some(Req::Reconfigure(m, ack)) => {
-                        o.devs = m;
-                        if let Some(a) = ack {
-                            let _ = a.send(());
-                        }
+                    Some(Req::Poll { inflight, .. } | Req::Ping { inflight, .. }) => {
+                        inflight.store(false, Ordering::Release);
                     }
-                    Some(Req::Poll { dev, group }) => {
-                        if let Some(g) = o.devs.get(&dev).and_then(|d| d.groups.get(group)) {
-                            g.inflight.store(false, Ordering::Release);
-                        }
-                    }
-                    Some(Req::Ping { .. }) => {}
                 },
             }
         }
     }
+}
+
+/// The first transport error among poll results.
+fn transport_error(results: &[(PointId, Result<Value, DriverError>)]) -> Option<String> {
+    results.iter().find_map(|(_, r)| match r {
+        Err(DriverError::Transport(e)) => Some(e.clone()),
+        _ => None,
+    })
 }
 
 /// Serve requests on an open transport. `None` = stopped; `Some(err)` =
@@ -1793,7 +1848,7 @@ async fn owner<D: Driver>(
 async fn serve<D: Driver>(
     o: &mut Owner<D>,
     t: &mut D::Transport,
-    rx: &mut mpsc::Receiver<Req<D>>,
+    rx: &mut mpsc::Receiver<Req>,
     stop: &mut watch::Receiver<bool>,
     cfg: &D::Conn,
 ) -> Option<String> {
@@ -1803,23 +1858,40 @@ async fn serve<D: Driver>(
             r = rx.recv() => r?,
             _ = stop.changed() => return None,
         };
+        o.refresh().await;
+        // Results are published under the plan's read lock, and only while
+        // it is still the plan of the request (P19).
+        let view = o.view.clone();
         match req {
-            Req::Reconfigure(m, ack) => {
-                o.devs = m;
-                if let Some(a) = ack {
-                    let _ = a.send(());
-                }
-            }
-            Req::Poll { dev, group } => {
+            Req::Poll {
+                dev,
+                group,
+                gen,
+                inflight,
+            } => {
                 let devs = o.devs.clone();
-                let Some(d) = devs.get(&dev) else { continue };
-                let Some(g) = d.groups.get(group) else {
+                let planned = (gen == o.gen)
+                    .then(|| devs.get(&dev))
+                    .flatten()
+                    .and_then(|d| d.groups.get(group).map(|g| (d, g)));
+                let Some((d, g)) = planned else {
+                    inflight.store(false, Ordering::Release);
                     continue;
                 };
                 let bound = D::poll_timeout(cfg, &g.plan);
                 let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &g.plan)).await;
-                g.inflight.store(false, Ordering::Release);
+                inflight.store(false, Ordering::Release);
                 o.record(t, Some(&dev), r.is_err());
+                let current = view.read().await;
+                if current.gen != gen {
+                    debug!(%dev, "poll results dropped: the plan changed");
+                    if let Ok(results) = r {
+                        if let Some(e) = transport_error(&results) {
+                            return Some(e);
+                        }
+                    }
+                    continue;
+                }
                 match r {
                     Err(_) => o.dev_miss(&dev, "poll timed out").await,
                     Ok(results) => {
@@ -1828,23 +1900,37 @@ async fn serve<D: Driver>(
                         }
                     }
                 }
+                drop(current);
             }
-            Req::Ping { dev } => {
+            Req::Ping { dev, gen, inflight } => {
                 let devs = o.devs.clone();
-                let Some(d) = devs.get(&dev) else { continue };
+                let Some(d) = (gen == o.gen).then(|| devs.get(&dev)).flatten() else {
+                    inflight.store(false, Ordering::Release);
+                    continue;
+                };
                 let r = tokio::time::timeout(timeout, D::ping(t, &d.cfg)).await;
+                inflight.store(false, Ordering::Release);
                 o.record(t, Some(&dev), r.is_err());
+                if let Ok(Err(DriverError::Transport(e))) = r {
+                    return Some(e);
+                }
+                let current = view.read().await;
+                if current.gen != gen {
+                    continue;
+                }
                 match r {
                     Err(_) => o.dev_miss(&dev, "ping timed out").await,
                     Ok(Ok(())) | Ok(Err(DriverError::Point(_))) => o.dev_ok(&dev).await,
                     Ok(Err(DriverError::Device(e))) => o.dev_miss(&dev, &e).await,
-                    Ok(Err(DriverError::Transport(e))) => return Some(e),
+                    Ok(Err(DriverError::Transport(_))) => {}
                 }
+                drop(current);
             }
             Req::Write {
                 dev,
                 point,
                 value,
+                gen,
                 deadline,
                 reply,
             } => {
@@ -1853,6 +1939,16 @@ async fn serve<D: Driver>(
                     // change the device behind its back (P13).
                     debug!(%dev, %point, "write dropped: its caller stopped waiting");
                     let _ = reply.send(Err(LinkError::timeout("write not started in time")));
+                    continue;
+                }
+                if gen != o.gen {
+                    // The point was re-planned (edited, replaced) after the
+                    // set came: never write with what replaced it (P19).
+                    debug!(%dev, %point, "write dropped: the plan changed");
+                    let _ = reply.send(Err(LinkError::new(
+                        Status::Busy,
+                        "the connection was reconfigured: not written, try again",
+                    )));
                     continue;
                 }
                 let devs = o.devs.clone();
@@ -1888,7 +1984,14 @@ async fn serve<D: Driver>(
                     let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await;
                     o.record(t, Some(&dev), r.is_err());
                     if let Ok(results) = r {
-                        if let Err(e) = o.publish_results(&dev, results).await {
+                        let current = view.read().await;
+                        let published = if current.gen == gen {
+                            o.publish_results(&dev, results).await
+                        } else {
+                            transport_error(&results).map_or(Ok(()), Err)
+                        };
+                        drop(current);
+                        if let Err(e) = published {
                             let _ = reply.send(outcome);
                             return Some(e);
                         }
@@ -2013,6 +2116,7 @@ impl<D: Driver> Link for Framework<D> {
                 dev: dev.clone(),
                 point: point.clone(),
                 value,
+                gen: run.gen,
                 deadline,
                 reply,
             })
@@ -2956,7 +3060,7 @@ impl<D: Driver> Framework<D> {
                         diag::remove_dev(&run.book, &name);
                     }
                     // The old device's plan ends before its nodes go.
-                    self.replan_settled(conn).await;
+                    self.replan(conn).await;
                     self.ctx.remove_node(&path).await?;
                 }
                 self.declare_branch(conn, &name).await?;
@@ -3030,7 +3134,7 @@ impl<D: Driver> Framework<D> {
                 if old {
                     // The old points' plan ends before their nodes go: no
                     // value read with old params lands on a new node.
-                    self.replan_settled(conn).await;
+                    self.replan(conn).await;
                     self.ctx.remove_node(&at_base).await?;
                 }
                 for f in &new_folders {
