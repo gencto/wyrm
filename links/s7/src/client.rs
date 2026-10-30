@@ -290,6 +290,13 @@ impl Client {
     /// Read Var of `items` (they fit the PDU). A header error (the PLC
     /// refused the whole request) is a point error with its text.
     pub async fn read(&mut self, items: &[Item]) -> Result<Vec<Result<Vec<u8>, u8>>, DriverError> {
+        if items.is_empty() || items.len() > proto::MAX_ITEMS {
+            return Err(DriverError::Point(format!(
+                "a Read Var takes 1…{} items, not {}",
+                proto::MAX_ITEMS,
+                items.len()
+            )));
+        }
         let (pdu, rtt) = self.exchange(|r| proto::read_var(r, items)).await?;
         let r = parsed(&pdu, self)?;
         if r.error != 0 {

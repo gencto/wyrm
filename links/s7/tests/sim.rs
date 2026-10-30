@@ -288,12 +288,12 @@ async fn a_small_pdu_splits_requests() {
         p.pdu_size = 100;
         p.max_items = 20;
         let db = p.db(1, 1000);
-        let text: Vec<u8> = (0..150).map(|i| b'A' + (i % 26) as u8).collect();
+        let text: Vec<u8> = (0..150u8).map(|i| b'A' + i % 26).collect();
         db[300] = 200;
         db[301] = 150;
         db[302..452].copy_from_slice(&text);
-        for k in 0..12 {
-            db[500 + k * 20] = k as u8;
+        for k in 0..12u8 {
+            db[usize::from(k) * 20 + 500] = k;
         }
     }
     let mut pts: Vec<(String, Value)> = (0..12)
@@ -318,7 +318,7 @@ async fn a_small_pdu_splits_requests() {
     })
     .await;
     let want: String = (0..150)
-        .map(|i| char::from(b'A' + (i % 26) as u8))
+        .map(|i| char::from(b'A' + i % 26))
         .collect();
     assert_eq!(val(&h, "long"), Some(Value::Str(want)));
     for k in 0..12 {
@@ -647,7 +647,7 @@ async fn long_writes_in_parts_and_put_get_refused() {
     let h = H::start(tree(addr.port(), &[], &[], points)).await;
     wait("polled", || val(&h, "long").is_some()).await;
     let text: String = (0..150)
-        .map(|i| char::from(b'a' + (i % 26) as u8))
+        .map(|i| char::from(b'a' + i % 26))
         .collect();
     let att = h
         .set("c1/d1/long", text.as_str(), Some(h.ptok(Perm::Write)))

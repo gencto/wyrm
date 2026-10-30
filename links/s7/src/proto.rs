@@ -304,10 +304,15 @@ impl Item {
     }
 }
 
-/// Read Var of `items`.
+/// Read Var of `items`: at most [`MAX_ITEMS`] (the caller checks; a count
+/// that does not fit the count byte takes the first 255, so the count
+/// and the items always agree).
 pub fn read_var(pdu_ref: u16, items: &[Item]) -> Vec<u8> {
+    debug_assert!(items.len() <= MAX_ITEMS, "{} items", items.len());
+    let n = u8::try_from(items.len()).unwrap_or(u8::MAX);
+    let items = &items[..usize::from(n)];
     let mut p = Vec::with_capacity(2 + ITEM_SPEC * items.len());
-    p.extend_from_slice(&[FN_READ, items.len() as u8]);
+    p.extend_from_slice(&[FN_READ, n]);
     for i in items {
         p.extend_from_slice(&i.spec());
     }

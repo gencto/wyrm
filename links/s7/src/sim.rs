@@ -333,7 +333,7 @@ fn log_job(req: &[u8]) -> Job {
                 area: it[8],
                 db: u16::from_be_bytes([it[6], it[7]]),
                 start: if tc { addr } else { addr >> 3 },
-                bit: if tc { 0 } else { (addr & 7) as u8 },
+                bit: if tc { 0 } else { it[11] & 7 },
                 count: u16::from_be_bytes([it[4], it[5]]),
                 ts: it[3],
             });
@@ -388,7 +388,7 @@ fn answer(p: &mut Plc, req: &[u8], pdu: &mut u16) -> Option<Vec<u8>> {
             } else {
                 write_var(p, &items, data)?
             };
-            let r = ack_data(pref, 0, &[*f, n as u8], &reply);
+            let r = ack_data(pref, 0, &[*f, params[1]], &reply);
             if r.len() > usize::from(*pdu) {
                 p.oversize += 1;
                 return Some(ack_data(pref, 0x8500, &[], &[]));

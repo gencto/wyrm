@@ -441,9 +441,10 @@ fn width_offset(s: &str, bare_bit: bool) -> Result<(Width, u32, u8), String> {
         (Width::Bit, Some((byte, bit))) => {
             let byte = digits(byte).ok_or("the byte offset must be a number")?;
             let bit = digits(bit)
+                .and_then(|b| u8::try_from(b).ok())
                 .filter(|b| *b <= 7)
                 .ok_or("the bit number must be 0…7")?;
-            Ok((width, byte, bit as u8))
+            Ok((width, byte, bit))
         }
         (Width::Bit, None) => Err("a bit address needs a bit number (X4.3, M1.0)".into()),
         (_, Some(_)) => Err("only a bit address (X) has a bit number".into()),
@@ -574,8 +575,10 @@ fn bcd(b: u8) -> Result<u32, ConvError> {
     Ok(u32::from(hi) * 10 + u32::from(lo))
 }
 
+/// The two low decimal digits of `n` as BCD.
 fn to_bcd(n: u32) -> u8 {
-    ((((n / 10) % 10) << 4) | (n % 10)) as u8
+    let [_, _, _, b] = ((((n / 10) % 10) << 4) | (n % 10)).to_be_bytes();
+    b
 }
 
 /// Bytes of the PLC → published value. `bit` is the bit of a BOOL.
@@ -617,7 +620,9 @@ pub fn encode(t: DType, v: &Value, c: &Conv) -> Result<Vec<u8>, ConvError> {
             Value::Bool(on) => vec![u8::from(*on)],
             _ => return Err(ConvError::TypeMismatch),
         },
-        DType::Byte => vec![c.raw_int(v, 0, 0xFF)? as u8],
+        DType::Byte => {
+            vec![u8::try_from(c.raw_int(v, 0, 0xFF)?).map_err(|_| ConvError::OutOfRange)?]
+        }
         DType::Word => (c.raw_int(v, 0, 0xFFFF)? as u16).to_be_bytes().to_vec(),
         DType::Dword => (c.raw_int(v, 0, 0xFFFF_FFFF)? as u32)
             .to_be_bytes()
@@ -658,12 +663,14 @@ pub fn encode(t: DType, v: &Value, c: &Conv) -> Result<Vec<u8>, ConvError> {
                 out.push(u8::try_from(u32::from(ch)).map_err(|_| ConvError::NotLatin1)?);
             }
             let len = out.len() - 1;
-            if len > usize::from(n) {
-                return Err(ConvError::Invalid(format!(
-                    "text of {len} characters does not fit STRING[{n}]"
-                )));
-            }
-            out[0] = len as u8;
+            out[0] = u8::try_from(len)
+                .ok()
+                .filter(|l| *l <= n)
+                .ok_or_else(|| {
+                    ConvError::Invalid(format!(
+                        "text of {len} characters does not fit STRING[{n}]"
+                    ))
+                })?;
             out
         }
         DType::DateAndTime => {
@@ -859,7 +866,7 @@ pub fn encode_dt(s: &str, tz_min: i32) -> Result<[u8; 8], ConvError> {
         ));
     }
     // weekday 1 = Sunday; 1970-01-01 was a Thursday
-    let dow = (days + 4).rem_euclid(7) as u8 + 1;
+    let dow = u8::try_from((days + 4).rem_euclid(7)).unwrap_or(0) + 1;
     Ok([
         to_bcd((y % 100) as u32),
         to_bcd(mo),
@@ -868,7 +875,7 @@ pub fn encode_dt(s: &str, tz_min: i32) -> Result<[u8; 8], ConvError> {
         to_bcd(rem / 60 % 60),
         to_bcd(rem % 60),
         to_bcd(ms / 10),
-        (((ms % 10) as u8) << 4) | dow,
+        (to_bcd(ms % 10) << 4) | dow,
     ])
 }
 
