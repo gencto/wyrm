@@ -837,3 +837,37 @@ async fn a_port_in_use_fails_the_connection() {
     drop(taken);
     h.stop().await;
 }
+
+/// O1 (ruling P29): a point edited to a data type its tree value does not
+/// fit (50000 as `i16`) serves nothing; the broker's old value is marked
+/// bad (`bad/config_error`), not left good, until the tree sets one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tree_value_the_edited_point_cannot_serve_is_bad() {
+    let points = map(&[("a", pt("holding", 1, "u16", &[]))]);
+    let (h, port) = start(points).await;
+    assert_eq!(set(&h, "a", 50_000u64).await, Some(Status::Ok));
+    let edit = map(&[
+        ("table", "holding".into()),
+        ("addr", Value::UInt(1)),
+        ("dtype", "i16".into()),
+    ]);
+    assert_eq!(act(&h, "s1/d1/a", "edit", edit).await, Some(Status::Ok));
+    let last = || h.ctx().last("s1/d1/a").expect("a sample");
+    wait("marked bad", || last().q == wyrm_core::Quality::Bad).await;
+    assert_eq!(last().v, Value::UInt(50_000), "the old value kept");
+    let mut m = master(port, 1).await;
+    assert_eq!(
+        m.read_holding_registers(1, 1).await.unwrap(),
+        Err(ExceptionCode::ServerDeviceFailure),
+        "nothing served"
+    );
+    assert_eq!(set(&h, "a", Value::Int(-5)).await, Some(Status::Ok));
+    assert_eq!(last().q, wyrm_core::Quality::Good);
+    assert_eq!(last().v, Value::Int(-5));
+    assert_eq!(
+        m.read_holding_registers(1, 1).await.unwrap(),
+        Ok(vec![0xFFFB]),
+        "-5 as i16"
+    );
+    h.stop().await;
+}

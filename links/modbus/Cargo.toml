@@ -33,6 +33,10 @@ thiserror.workspace = true
 serde_json.workspace = true
 clap = { workspace = true, optional = true }
 
+# `EAFNOSUPPORT` for the slave listener's bind (already in the lock file).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 wyrm-link-modbus = { path = ".", features = ["sim"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

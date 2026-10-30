@@ -1874,9 +1874,11 @@ impl<D: Driver> Owner<D> {
     /// server, a device started again, a point edited to another scale
     /// serve the tree's value, and a point the tree never set has none. A
     /// point that stays as it was keeps what it serves (a master may have
-    /// written it). Devices the server refuses show `Failed`, the others
-    /// `Connected`. Under the plan's read lock; each write bounded by
-    /// `bound`.
+    /// written it). A tree value the server does not take (it does not fit
+    /// the point's new data type) is logged at warn and the point marked
+    /// `bad/config_error`, its old value kept, until a value is served.
+    /// Devices the server refuses show `Failed`, the others `Connected`.
+    /// Under the plan's read lock; each write bounded by `bound`.
     async fn serve_plan(&mut self, t: &mut D::Transport, bound: Duration) {
         let devs = self.devs.clone();
         let before = self.served.take().map(|(_, d)| d);
@@ -1901,13 +1903,25 @@ impl<D: Driver> Owner<D> {
                 if same(name, d, id, p) {
                     continue;
                 }
-                let Some(last) = d.paths.get(id).and_then(|path| self.ctx.last(path)) else {
+                let Some(path) = d.paths.get(id) else {
+                    continue;
+                };
+                let Some(last) = self.ctx.last(path) else {
                     continue;
                 };
                 let w = tokio::time::timeout(bound, D::write(t, &d.cfg, id, p, &last.v));
-                if let Ok(Err(e)) = w.await {
-                    debug!(%id, "last value not served again: {e}");
-                }
+                let why = match w.await {
+                    Ok(Ok(())) => continue,
+                    Ok(Err(e)) => e.to_string(),
+                    Err(_) => "timed out".to_owned(),
+                };
+                // The server does not serve the tree's value (it does not fit
+                // the point's new params): the broker would keep the old
+                // value at good quality. Bad until the tree or the remote
+                // side gives one the server takes (the publish of a value it
+                // serves follows below and wins).
+                warn!(point = %path, "the tree's last value is not served: {why}");
+                mark(&self.ctx, [path.clone()], Quality::Bad, QUAL_CONFIG_ERROR).await;
             }
         }
         self.publish_changed(t).await;

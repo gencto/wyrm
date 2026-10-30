@@ -222,7 +222,7 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
             for addr in addrs {
                 match bind(addr).await {
                     Ok(l) => listeners.push(l),
-                    Err(e) if e.kind() == std::io::ErrorKind::AddrNotAvailable => {
+                    Err(e) if host_lacks(&e) => {
                         debug!(%addr, "not listening there: {e}");
                         missing.get_or_insert(format!("listen on {addr}: {e}"));
                     }
@@ -285,6 +285,21 @@ pub(crate) async fn open(conn: &Conn) -> Result<Slave, DriverError> {
             Err(DriverError::Transport("not a slave connection".to_owned()))
         }
     }
+}
+
+/// `EAFNOSUPPORT`: std has no `ErrorKind` for it.
+#[cfg(unix)]
+const EAFNOSUPPORT: i32 = libc::EAFNOSUPPORT;
+/// `WSAEAFNOSUPPORT`.
+#[cfg(not(unix))]
+const EAFNOSUPPORT: i32 = 10047;
+
+/// A bind error that says the host lacks the address, or its whole
+/// address family (an IPv6-disabled Linux host binding `::1` for
+/// `localhost`): that address is left out. Any other error (the port in
+/// use, no permission) fails the connection.
+fn host_lacks(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::AddrNotAvailable || e.raw_os_error() == Some(EAFNOSUPPORT)
 }
 
 /// Bind `addr`, waiting up to [`BIND_WAIT`] while the port is in use.
@@ -1121,6 +1136,24 @@ mod pty_tests {
         assert!(s.set(0, &points["sp"], &Value::UInt(1)).is_err());
         assert_eq!(s.word((0, Table::Holding, 10)), None);
         assert!(s.set(3, &points["sp"], &Value::UInt(1)).is_ok());
+    }
+
+    /// R1: a missing address or address family leaves that address out;
+    /// a port in use or no permission fails the connection.
+    #[test]
+    fn bind_errors_that_leave_an_address_out() {
+        use std::io::{Error, ErrorKind};
+        let no_family = Error::from_raw_os_error(EAFNOSUPPORT);
+        // the kind alone (the rule before R1) does not catch it
+        assert_ne!(no_family.kind(), ErrorKind::AddrNotAvailable);
+        assert!(host_lacks(&no_family));
+        assert!(host_lacks(&Error::from(ErrorKind::AddrNotAvailable)));
+        assert!(!host_lacks(&Error::from(ErrorKind::AddrInUse)));
+        assert!(!host_lacks(&Error::from(ErrorKind::PermissionDenied)));
+        // as the OS reports them (the module runs on unix only)
+        assert!(host_lacks(&Error::from_raw_os_error(libc::EADDRNOTAVAIL)));
+        assert!(!host_lacks(&Error::from_raw_os_error(libc::EADDRINUSE)));
+        assert!(!host_lacks(&Error::from_raw_os_error(libc::EACCES)));
     }
 
     /// N6: an RTU broadcast write is counted in the connection's
