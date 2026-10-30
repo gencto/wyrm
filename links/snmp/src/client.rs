@@ -650,6 +650,28 @@ impl Session {
     }
 }
 
+fn transport(what: &str) -> DriverError {
+    DriverError::Transport(what.to_owned())
+}
+
+/// `open` fails as a whole: whatever went wrong is the connection's.
+fn as_transport(e: DriverError) -> DriverError {
+    match e {
+        DriverError::Transport(m) => DriverError::Transport(m),
+        DriverError::Device(m) | DriverError::Point(m) => DriverError::Transport(m),
+    }
+}
+
+/// A socket error. On a connected UDP socket an ICMP port unreachable
+/// shows as `ConnectionRefused`: nothing listens on the agent's port.
+fn io_err(e: &std::io::Error) -> DriverError {
+    if e.kind() == std::io::ErrorKind::ConnectionRefused {
+        DriverError::Transport("the agent's port is unreachable (ICMP port unreachable)".into())
+    } else {
+        DriverError::Transport(format!("socket: {e}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,27 +707,5 @@ mod tests {
         assert!(e.timely(4, 1), "a restart moves it forward");
         assert_eq!((e.boots, e.time), (4, 1));
         assert!(!e.timely(MAX_BOOTS, 1), "locked out");
-    }
-}
-
-fn transport(what: &str) -> DriverError {
-    DriverError::Transport(what.to_owned())
-}
-
-/// `open` fails as a whole: whatever went wrong is the connection's.
-fn as_transport(e: DriverError) -> DriverError {
-    match e {
-        DriverError::Transport(m) => DriverError::Transport(m),
-        DriverError::Device(m) | DriverError::Point(m) => DriverError::Transport(m),
-    }
-}
-
-/// A socket error. On a connected UDP socket an ICMP port unreachable
-/// shows as `ConnectionRefused`: nothing listens on the agent's port.
-fn io_err(e: &std::io::Error) -> DriverError {
-    if e.kind() == std::io::ErrorKind::ConnectionRefused {
-        DriverError::Transport("the agent's port is unreachable (ICMP port unreachable)".into())
-    } else {
-        DriverError::Transport(format!("socket: {e}"))
     }
 }
