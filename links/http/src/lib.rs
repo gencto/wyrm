@@ -440,6 +440,10 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
     }
     if let Some((name, value)) = secret_header {
         mask(&p.secret_header_value);
+        // `Bearer <token>`, `Token <key>`: an echo of the token alone too
+        if let Some((_, rest)) = p.secret_header_value.trim().split_once(' ') {
+            mask(rest.trim());
+        }
         headers.push((name, value));
     }
     let tls = if origin.tls {
@@ -1396,6 +1400,34 @@ fn shown_value(prep: &Prepared, conv: &Conv<'_>, found: &[&Json]) -> Result<Valu
     }
 }
 
+/// `try_request`'s body when a text that is not JSON holds a secret.
+const HIDDEN_BODY: &str = "*** body hidden: it holds a connection secret";
+
+/// A body that is JSON after a BOM and/or an anti-XSSI prefix (`)]}'`,
+/// `)]}',`): the prefix and the JSON.
+fn prefixed_json(text: &str) -> Option<(&str, Json)> {
+    let rest = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let rest = match rest.strip_prefix(")]}'") {
+        Some(r) => r.strip_prefix(',').unwrap_or(r),
+        None => rest,
+    };
+    let rest = rest.trim_start();
+    if rest.len() == text.len() {
+        return None;
+    }
+    let json = serde_json::from_str(rest).ok()?;
+    Some((&text[..text.len() - rest.len()], json))
+}
+
+/// A number in a text that is not JSON (NDJSON, JSONP, a form) equal to a
+/// numeric secret.
+fn holds_secret_number(prep: &Prepared, s: &str) -> bool {
+    !prep.numbers.is_empty()
+        && s.split(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')))
+            .filter_map(|t| t.parse::<f64>().ok())
+            .any(|x| prep.numbers.contains(&x))
+}
+
 /// `s` cut to at most `n` bytes at a char boundary; `true` when cut.
 fn cut(s: &str, n: usize) -> (&str, bool) {
     let mut at = s.len().min(n);
@@ -1438,18 +1470,27 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     // hide a secret); any other body as its masked text, hidden whole when
     // it still holds a secret once JSON-unescaped. Masked whole before the
     // cut: a cut never splits a secret.
+    // A JSON reply after an anti-XSSI prefix or a BOM is masked as JSON
+    // too (the prefix shown as it is).
+    let raw = String::from_utf8_lossy(&reply.body);
     let parsed = serde_json::from_slice::<Json>(&reply.body).ok();
     let is_json = parsed.is_some();
-    let text = match parsed {
-        Some(mut json) if !prep.masks.is_empty() => {
-            mask_json(&prep, &mut json);
-            serde_json::to_string(&json).unwrap_or_default()
+    let parsed = parsed.map(|j| ("", j)).or_else(|| prefixed_json(&raw));
+    let (text, masked) = match parsed {
+        Some((prefix, json)) if !prep.masks.is_empty() => {
+            let mut shown_json = json.clone();
+            mask_json(&prep, &mut shown_json);
+            let text = serde_json::to_string(&shown_json).unwrap_or_default();
+            (format!("{prefix}{text}"), shown_json != json)
         }
-        _ => match shown(&prep, &String::from_utf8_lossy(&reply.body)) {
-            Cow::Owned(s) if s == HIDDEN_WHOLE => {
-                "*** body hidden: it holds a connection secret".to_owned()
-            }
-            s => s.into_owned(),
+        // Not JSON: masked as text; hidden whole when it still holds a
+        // secret once JSON-unescaped, or holds a number equal to a numeric
+        // secret (the PIN 0123 echoed as 123 in NDJSON or JSONP).
+        _ => match shown(&prep, &raw) {
+            Cow::Owned(s) if s == HIDDEN_WHOLE => (HIDDEN_BODY.to_owned(), true),
+            _ if holds_secret_number(&prep, &raw) => (HIDDEN_BODY.to_owned(), true),
+            Cow::Owned(s) => (s, true),
+            Cow::Borrowed(s) => (s.to_owned(), false),
         },
     };
     let (body, truncated) = cut(&text, SHOW_BODY);
@@ -1457,14 +1498,18 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     if is_json {
         t.remember(dev.req.key(), &reply.body);
     }
+    // A masked body shows the masked length: the raw one would give the
+    // length of an echoed secret.
+    let bytes = if masked { text.len() } else { reply.body.len() };
     Ok(Value::Map(BTreeMap::from([
         ("status".into(), Value::UInt(reply.status.as_u16().into())),
         ("headers".into(), Value::Map(headers)),
         ("body".into(), Value::Str(body)),
         ("truncated".into(), Value::Bool(truncated)),
+        ("masked".into(), Value::Bool(masked)),
         (
             "bytes".into(),
-            Value::UInt(u64::try_from(reply.body.len()).unwrap_or(u64::MAX)),
+            Value::UInt(u64::try_from(bytes).unwrap_or(u64::MAX)),
         ),
     ])))
 }
@@ -2202,6 +2247,10 @@ mod tests {
         assert!(c.prep.masks.contains(&"sec-777".to_owned()));
         assert!(!format!("{c:?}").contains("sec-777"));
         assert!(!Conn::public_map(&c).contains_key("secret_header_value"));
+        // a scheme and a token: the token alone is masked too
+        let c = sh("Authorization", "Bearer abc-123", "http://127.0.0.1").unwrap();
+        assert!(c.prep.masks.contains(&"Bearer abc-123".to_owned()));
+        assert!(c.prep.masks.contains(&"abc-123".to_owned()));
         for (name, value, base) in [
             ("X-Api-Secret", "", "http://127.0.0.1"),
             ("Host", "x", "http://127.0.0.1"),

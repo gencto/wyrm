@@ -1385,11 +1385,45 @@ async fn test_selector_is_bounded() {
 async fn bodies_that_are_not_json_are_masked() {
     let token = "ab/c1-tok";
     let cases = [
+        // an anti-XSSI prefix or a BOM: the JSON after it is masked
         (
             token,
             r#")]}'{"t": "Bearer ab\/c1-tok"}"#,
+            Some(r#")]}'{"t":"Bearer ***"}"#),
+            "***",
+        ),
+        (
+            "0123",
+            ")]}',\n{\"pin\": 123, \"m\": 7}",
+            Some(")]}',\n{\"m\":7,\"pin\":\"***\"}"),
+            "***",
+        ),
+        (
+            "0123",
+            "\u{feff}{\"pin\": 123, \"m\": 7}",
+            Some("\u{feff}{\"m\":7,\"pin\":\"***\"}"),
+            "***",
+        ),
+        // not JSON at all: an escaped echo or a number equal to a numeric
+        // secret hides the body whole
+        (
+            token,
+            r#"cb({"t": "Bearer ab\/c1-tok"})"#,
             None,
             "body hidden",
+        ),
+        ("0123", "{\"pin\": 123}\n{\"m\": 7}", None, "body hidden"),
+        (
+            "1234567890123456789012",
+            "n=1.2345678901234568e21",
+            None,
+            "body hidden",
+        ),
+        (
+            "0123",
+            "n=1234 m=51234.5",
+            Some("n=1234 m=51234.5"),
+            "51234.5",
         ),
         (token, "plain ab/c1-tok text", Some("plain *** text"), "***"),
         (token, "no secret here", Some("no secret here"), "here"),
@@ -1426,6 +1460,12 @@ async fn bodies_that_are_not_json_are_masked() {
         if let Some(w) = want {
             assert_eq!(body, w);
         }
+        // a masked body never tells the length of the raw one (it would
+        // give the length of the secret)
+        let masked = body != raw;
+        assert_eq!(field(&v, "masked"), &Value::Bool(masked), "{raw}");
+        let len = if masked { body.len() } else { raw.len() };
+        assert_eq!(field(&v, "bytes"), &Value::UInt(len as u64), "{raw}");
         h.stop().await;
     }
 }
