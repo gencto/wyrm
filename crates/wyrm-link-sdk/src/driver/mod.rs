@@ -4,8 +4,9 @@
 //! validate-then-diff edits, typed states with parent→child cascade, the
 //! per-connection owner task, batched polling, read-back writes, the
 //! quality ladder, and (opt-in) driver actions, diagnostics counters,
-//! folders between a device and its points, and root imports of another
-//! system's export.
+//! folders between a device and its points, root imports of another
+//! system's export, and server kinds (connections that serve the tree to
+//! remote clients, ADR 0024).
 
 pub mod branch;
 mod diag;
@@ -93,6 +94,30 @@ pub struct Converted {
 
 /// The keys the framework adds to the reply of a root import.
 pub const REPORT_KEYS: [&str; 2] = ["created", "reenter"];
+
+/// A device of a server connection as planned ([`Driver::serve`]): enabled,
+/// with a valid config, and its valid points.
+pub struct Served<'a, D: Driver> {
+    /// The device's name in the tree.
+    pub name: &'a str,
+    pub dev: &'a D::Dev,
+    pub points: &'a BTreeMap<PointId, D::Point>,
+}
+
+/// One request of a server connection's remote side, applied by
+/// [`Driver::remote`].
+pub struct Remote {
+    /// The device it was for: its diagnostics and its connection's count
+    /// it (`None`: the connection's only).
+    pub dev: Option<String>,
+    /// Run once the framework published the values it changed (the reply
+    /// to the remote side, so that it never sees a value before the tree).
+    pub done: Option<Box<dyn FnOnce() + Send>>,
+}
+
+/// A value a server connection changed: `(device, point id, value)`
+/// ([`Driver::take_changed`]).
+pub type Changed = (String, PointId, Value);
 
 /// A protocol driver. All I/O methods run on the connection's owner task,
 /// one at a time, each bounded by [`Driver::io_timeout`].
@@ -264,6 +289,59 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// counts them for that device and its connection.
     fn take_outcomes(_t: &mut Self::Transport) -> Vec<Outcome> {
         Vec::new()
+    }
+
+    /// Server kinds (ruling 15, ADR 0024): a connection of this kind serves
+    /// its devices to remote clients (a Modbus slave) instead of polling
+    /// them. [`Driver::open`] returns the running server. Its points are
+    /// never polled or pinged and take `~set` at level write, whatever
+    /// [`Driver::point_meta`] says: [`Driver::write`] puts the value into
+    /// what the server serves, without a read-back, and the framework
+    /// publishes [`Driver::take_changed`]. Requests of the remote side come
+    /// through [`Driver::remote`] on the owner task, so they and the tree's
+    /// sets are applied in one order. Driver actions of such a connection
+    /// and its devices are [`Driver::server_actions`].
+    fn is_server(_conn: &Self::Conn) -> bool {
+        false
+    }
+
+    /// A server connection's devices and points as planned, after open and
+    /// after every re-plan, on the owner task (never during a request). The
+    /// values it serves for them go to [`Driver::take_changed`]. After open
+    /// the framework first writes each point's last value in the tree
+    /// ([`Driver::write`]), so a reopened server serves what it served.
+    fn serve(_t: &mut Self::Transport, _devs: &[Served<'_, Self>]) {}
+
+    /// Wait for the next request of a server connection's remote side and
+    /// apply it; the values it changed go to [`Driver::take_changed`]. It
+    /// must be cancel-safe (the owner waits for its own requests beside it):
+    /// await only the receipt of the request, then apply it at once. A
+    /// `Transport` error (the server stopped) makes the framework reopen.
+    /// Never called on a connection that is not a server.
+    fn remote(
+        _t: &mut Self::Transport,
+    ) -> impl Future<Output = Result<Remote, DriverError>> + Send {
+        std::future::pending()
+    }
+
+    /// The values a server connection changed since the last call
+    /// (drained), published by the framework after [`Driver::serve`],
+    /// [`Driver::remote`] and [`Driver::write`].
+    fn take_changed(_t: &mut Self::Transport) -> Vec<Changed> {
+        Vec::new()
+    }
+
+    /// Driver actions of a server connection or of its devices, in place
+    /// of [`Driver::actions`] (same rules).
+    fn server_actions(_level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
+    /// A note about an open connection (a server listening beyond
+    /// loopback): logged at warn when it opens and shown as `attr.warning`
+    /// of its `status` leaf while it runs.
+    fn status_note(_t: &Self::Transport) -> Option<String> {
+        None
     }
 }
 

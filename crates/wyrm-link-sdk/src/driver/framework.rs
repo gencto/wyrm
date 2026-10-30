@@ -49,14 +49,19 @@
 //! * Root imports ([`Driver::root_imports`]): the driver turns another
 //!   system's export into connection branches ([`Driver::convert`]); the
 //!   framework checks them all, then imports each like `import` at the root.
+//! * Server kinds ([`Driver::is_server`], ADR 0024): no tickers; every
+//!   point takes `~set`, written into what the server serves and published
+//!   from it ([`Driver::take_changed`]); the owner hands each plan to the
+//!   server ([`Driver::serve`], a re-plan wakes it) and applies the remote
+//!   side's requests ([`Driver::remote`]) in the same order as the sets.
 
 use super::branch::{self, Node};
 use super::diag;
 use super::params::{all_secret_names, normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
 use super::{
-    backoff, jitter, Converted, Driver, DriverError, Level, NodeState, Outcome, PointId, Target,
-    REPORT_KEYS,
+    backoff, jitter, Converted, Driver, DriverError, Level, NodeState, Outcome, PointId, Served,
+    Target, REPORT_KEYS,
 };
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
@@ -71,7 +76,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, warn};
-use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
+use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
 /// A new run token: a device gets one when it is added, edited, started or
@@ -394,6 +399,12 @@ struct ConnEntry<D: Driver> {
 }
 
 impl<D: Driver> ConnEntry<D> {
+    /// A connection of a server kind ([`Driver::is_server`]); an invalid
+    /// config is not one (it does not run).
+    fn server(&self) -> bool {
+        self.slot.cfg.as_ref().is_some_and(D::is_server)
+    }
+
     /// The connection as a branch node.
     fn node(&self, name: &str) -> Node {
         Node {
@@ -484,6 +495,9 @@ enum Req {
         deadline: tokio::time::Instant,
         reply: oneshot::Sender<Result<Value>>,
     },
+    /// A server connection was re-planned: hand the new plan to the server
+    /// ([`Driver::serve`]).
+    Serve,
 }
 
 struct ConnRun<D: Driver> {
@@ -625,10 +639,20 @@ pub fn reserved_names<D: Driver>() -> Vec<&'static str> {
     v
 }
 
-/// [`Driver::actions`] without names of the framework; level `config` when
-/// the driver left it out.
-fn driver_actions<D: Driver>(level: Level, kind: &str) -> Vec<(&'static str, ActionMeta)> {
-    D::actions(level, kind)
+/// [`Driver::actions`] (of a server connection and its devices:
+/// [`Driver::server_actions`]) without names of the framework; level
+/// `config` when the driver left it out.
+fn driver_actions<D: Driver>(
+    server: bool,
+    level: Level,
+    kind: &str,
+) -> Vec<(&'static str, ActionMeta)> {
+    let declared = if server {
+        D::server_actions(level, kind)
+    } else {
+        D::actions(level, kind)
+    };
+    declared
         .into_iter()
         .filter(|(name, _)| {
             let ok = !framework_action(name);
@@ -929,7 +953,7 @@ impl<D: Driver> Framework<D> {
         self.ctx
             .declare_action(name, "import", import_form())
             .await?;
-        for (id, meta) in driver_actions::<D>(Level::Connection, &c.slot.kind) {
+        for (id, meta) in driver_actions::<D>(c.server(), Level::Connection, &c.slot.kind) {
             self.ctx.declare_action(name, id, meta).await?;
         }
         self.declare_diag(name, |n| c.devices.contains_key(n))
@@ -956,6 +980,7 @@ impl<D: Driver> Framework<D> {
     }
 
     async fn declare_dev(&self, conn: &str, dev: &str) -> Result<()> {
+        let server = self.conns[conn].server();
         let d = &self.conns[conn].devices[dev];
         let base = format!("{conn}/{dev}");
         let shown = d.slot.shown();
@@ -978,7 +1003,7 @@ impl<D: Driver> Framework<D> {
                 .declare_action(&base, "import", import_form())
                 .await?;
         }
-        for (id, meta) in driver_actions::<D>(Level::Device, &d.slot.kind) {
+        for (id, meta) in driver_actions::<D>(server, Level::Device, &d.slot.kind) {
             self.ctx.declare_action(&base, id, meta).await?;
         }
         self.declare_diag(&base, |n| d.taken(&[], n)).await?;
@@ -1053,6 +1078,7 @@ impl<D: Driver> Framework<D> {
     }
 
     async fn declare_point(&self, conn: &str, dev: &str, pt: &str) -> Result<()> {
+        let server = self.conns[conn].server();
         let d = &self.conns[conn].devices[dev];
         let p = &d.points[pt].slot;
         let path = format!("{conn}/{dev}/{}", d.rel(pt));
@@ -1060,6 +1086,10 @@ impl<D: Driver> Framework<D> {
             Some(cfg) => D::point_meta(cfg),
             None => NodeMeta::leaf(TypeCode::Dynamic),
         };
+        if server && p.cfg.is_some() {
+            // A server's points take their values from the tree.
+            meta.writable = Some(Writable::Write);
+        }
         let shown = p.shown();
         let cfg = meta.cfg.get_or_insert_with(Map::new);
         cfg.extend(shown.clone());
@@ -1249,15 +1279,20 @@ impl<D: Driver> Framework<D> {
         out
     }
 
-    /// Start tickers for `devs`.
+    /// Start tickers for `devs` (none on a server connection: it is never
+    /// polled or pinged).
     async fn start_tickers(
         &self,
         devs: &DevMap<D>,
         tx: &mpsc::Sender<Req>,
         gen: u64,
+        server: bool,
     ) -> (Vec<JoinHandle<()>>, watch::Sender<bool>) {
         let (tick_stop, rx) = watch::channel(false);
         let mut tickers = Vec::new();
+        if server {
+            return (tickers, tick_stop);
+        }
         for (dev, run) in devs {
             for (gi, g) in run.groups.iter().enumerate() {
                 let mut pubs = Vec::new();
@@ -1315,6 +1350,7 @@ impl<D: Driver> Framework<D> {
             }
             (Some(cfg), true) => {
                 let cfg = cfg.clone();
+                let server = D::is_server(&cfg);
                 let devs = Arc::new(self.dev_map(name));
                 for (d, e) in &c.devices {
                     let base = format!("{name}/{d}");
@@ -1362,7 +1398,7 @@ impl<D: Driver> Framework<D> {
                     )
                     .in_current_span(),
                 );
-                let (tickers, tick_stop) = self.start_tickers(&devs, &tx, 0).await;
+                let (tickers, tick_stop) = self.start_tickers(&devs, &tx, 0, server).await;
                 self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
                     tx,
                     view,
@@ -1404,6 +1440,7 @@ impl<D: Driver> Framework<D> {
         parts: &[String],
         action: &str,
     ) -> Option<(String, Option<String>, Option<u32>)> {
+        let server = self.conns.get(parts.first()?)?.server();
         let (conn, dev, level, kind) = match parts {
             [c] => (c, None, Level::Connection, &self.conns.get(c)?.slot.kind),
             [c, d] => (
@@ -1414,7 +1451,7 @@ impl<D: Driver> Framework<D> {
             ),
             _ => return None,
         };
-        driver_actions::<D>(level, kind)
+        driver_actions::<D>(server, level, kind)
             .into_iter()
             .find(|(n, _)| *n == action)
             .map(|(_, m)| (conn.clone(), dev, m.timeout_ms))
@@ -1482,6 +1519,7 @@ impl<D: Driver> Framework<D> {
     /// returns. It waits only for a publish in progress (no device I/O).
     async fn replan(&mut self, conn: &str) {
         let devs = Arc::new(self.dev_map(conn));
+        let server = self.conns.get(conn).is_some_and(ConnEntry::server);
         let Some(run) = self.conns.get_mut(conn).and_then(|c| c.run.take()) else {
             return;
         };
@@ -1495,7 +1533,12 @@ impl<D: Driver> Framework<D> {
             v.devs = devs.clone();
             v.gen
         };
-        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx, gen).await;
+        let (tickers, tick_stop) = self.start_tickers(&devs, &run.tx, gen, server).await;
+        if server {
+            // Nothing else wakes the owner of a server: it hands the new
+            // plan to the server at once (a new point is served now).
+            let _ = run.tx.send(Req::Serve).await;
+        }
         self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
             tickers,
             tick_stop,
@@ -1682,6 +1725,12 @@ struct Owner<D: Driver> {
     gen: u64,
     health: BTreeMap<String, DevHealth>,
     book: diag::SharedBook,
+    /// A server connection ([`Driver::is_server`]).
+    server: bool,
+    /// The plan generation the server was last handed ([`Driver::serve`]).
+    served: Option<u64>,
+    /// The `status` leaf shows a [`Driver::status_note`].
+    noted: bool,
 }
 
 impl<D: Driver> Owner<D> {
@@ -1794,6 +1843,69 @@ impl<D: Driver> Owner<D> {
         }
     }
 
+    /// Publish the values a server changed ([`Driver::take_changed`]) of the
+    /// points in the current plan. Under the plan's read lock.
+    async fn publish_changed(&mut self, t: &mut D::Transport) {
+        let devs = self.devs.clone();
+        for (dev, id, v) in D::take_changed(t) {
+            if let Some(path) = devs.get(&dev).and_then(|d| d.paths.get(&id)) {
+                put_point(&self.ctx, path, v, Quality::Good, None, None).await;
+            }
+        }
+    }
+
+    /// A server connection: hand the current plan to the server, publish
+    /// what it serves, and show every device `Connected`. After open
+    /// (`seed`), each point's last value in the tree is written first, so a
+    /// reopened server serves what it served before. Under the plan's read
+    /// lock; each write bounded by `bound`.
+    async fn serve_plan(&mut self, t: &mut D::Transport, seed: bool, bound: Duration) {
+        let devs = self.devs.clone();
+        if seed {
+            for d in devs.values() {
+                for (id, p) in &d.points {
+                    let Some(last) = d.paths.get(id).and_then(|path| self.ctx.last(path)) else {
+                        continue;
+                    };
+                    let w = tokio::time::timeout(bound, D::write(t, &d.cfg, id, p, &last.v));
+                    if let Ok(Err(e)) = w.await {
+                        debug!(%id, "last value not served again: {e}");
+                    }
+                }
+            }
+            // `serve` gives every value served below.
+            let _ = D::take_changed(t);
+        }
+        let served: Vec<Served<'_, D>> = devs
+            .iter()
+            .map(|(name, d)| Served {
+                name,
+                dev: &d.cfg,
+                points: &d.points,
+            })
+            .collect();
+        D::serve(t, &served);
+        self.served = Some(self.gen);
+        self.publish_changed(t).await;
+        for d in devs.keys() {
+            self.dev_ok(d).await;
+        }
+    }
+
+    /// Show [`Driver::status_note`] of the open connection (`None`: clear a
+    /// note shown before) as `attr.warning` of its `status` leaf.
+    async fn note(&mut self, note: Option<&str>) {
+        if note.is_none() && !self.noted {
+            return;
+        }
+        let meta = match note {
+            Some(n) => status_meta().attr("warning", n),
+            None => status_meta(),
+        };
+        let _ = self.ctx.declare_node(&status_path(&self.conn), meta).await;
+        self.noted = note.is_some();
+    }
+
     async fn publish_results(
         &mut self,
         dev: &str,
@@ -1864,6 +1976,9 @@ async fn owner<D: Driver>(
         gen,
         health: BTreeMap::new(),
         book,
+        server: D::is_server(&cfg),
+        served: None,
+        noted: false,
     };
     let mut attempt = 0u32;
     loop {
@@ -1876,6 +1991,11 @@ async fn owner<D: Driver>(
             Ok(Ok(mut t)) => {
                 attempt = 0;
                 o.record(&mut t, None, false);
+                let note = D::status_note(&t);
+                if let Some(n) = &note {
+                    warn!(conn = %o.conn, "{n}");
+                }
+                o.note(note.as_deref()).await;
                 set_status(&o.ctx, &o.conn, NodeState::Connected, None).await;
                 {
                     // Under the plan's read lock: a re-plan (an overwrite)
@@ -1883,13 +2003,20 @@ async fn owner<D: Driver>(
                     let view = o.view.clone();
                     let v = view.read().await;
                     o.adopt(&v);
-                    let devs: Vec<String> = o.devs.keys().cloned().collect();
-                    for d in devs {
-                        o.dev_state(&d, NodeState::Connecting, None).await;
+                    if o.server {
+                        o.serve_plan(&mut t, true, timeout).await;
+                    } else {
+                        let devs: Vec<String> = o.devs.keys().cloned().collect();
+                        for d in devs {
+                            o.dev_state(&d, NodeState::Connecting, None).await;
+                        }
                     }
                 }
                 match serve::<D>(&mut o, &mut t, &mut rx, &mut stop, &cfg).await {
-                    None => return,
+                    None => {
+                        o.note(None).await;
+                        return;
+                    }
                     Some(e) => e,
                 }
             }
@@ -1897,6 +2024,7 @@ async fn owner<D: Driver>(
             Err(_) => "open timed out".to_owned(),
         };
         warn!(conn = %o.conn, "connection failed: {failure}");
+        o.note(None).await;
         set_status(&o.ctx, &o.conn, NodeState::Failed, Some(&failure)).await;
         {
             let view = o.view.clone();
@@ -1923,6 +2051,8 @@ async fn owner<D: Driver>(
                     Some(Req::Poll { inflight, .. } | Req::Ping { inflight, .. }) => {
                         inflight.store(false, Ordering::Release);
                     }
+                    // Served on the next open.
+                    Some(Req::Serve) => {}
                 },
             }
         }
@@ -1937,9 +2067,18 @@ fn transport_error(results: &[(PointId, Result<Value, DriverError>)]) -> Option<
     })
 }
 
+/// What the owner serves next: one of its requests, or (a server) a
+/// request of the remote side, already applied.
+enum Next {
+    Req(Req),
+    Remote(std::result::Result<super::Remote, DriverError>),
+}
+
 /// Serve requests on an open transport. `None` = stopped; `Some(err)` =
 /// the transport broke. Pings are bounded by [`Driver::io_timeout`],
 /// writes by [`Driver::write_timeout`], polls by [`Driver::poll_timeout`].
+/// A server also serves its remote side ([`Driver::remote`]) and gets every
+/// new plan before the next request ([`Driver::serve`]).
 async fn serve<D: Driver>(
     o: &mut Owner<D>,
     t: &mut D::Transport,
@@ -1948,16 +2087,45 @@ async fn serve<D: Driver>(
     cfg: &D::Conn,
 ) -> Option<String> {
     let timeout = D::io_timeout(cfg);
+    let server = o.server;
     loop {
-        let req = tokio::select! {
-            r = rx.recv() => r?,
+        let next = tokio::select! {
+            r = rx.recv() => Next::Req(r?),
+            r = D::remote(t), if server => Next::Remote(r),
             _ = stop.changed() => return None,
         };
         o.refresh().await;
         // Results are published under the plan's read lock, and only while
         // it is still the plan of the request (P19).
         let view = o.view.clone();
+        if server && o.served != Some(o.gen) {
+            let current = view.read().await;
+            if current.gen == o.gen {
+                o.serve_plan(t, false, timeout).await;
+            }
+            drop(current);
+        }
+        let req = match next {
+            Next::Req(r) => r,
+            Next::Remote(Err(DriverError::Transport(e))) => return Some(e),
+            Next::Remote(Err(e)) => {
+                debug!(conn = %o.conn, "remote request: {e}");
+                continue;
+            }
+            Next::Remote(Ok(r)) => {
+                o.record(t, r.dev.as_deref(), false);
+                let current = view.read().await;
+                o.publish_changed(t).await;
+                drop(current);
+                // The remote side gets its answer once the tree shows it.
+                if let Some(done) = r.done {
+                    done();
+                }
+                continue;
+            }
+        };
         match req {
+            Req::Serve => {}
             Req::Poll {
                 dev,
                 group,
@@ -2070,6 +2238,19 @@ async fn serve<D: Driver>(
                         return Some(e);
                     }
                 };
+                if server {
+                    // The value set is the value served: publish what the
+                    // server now serves (no read-back).
+                    let current = view.read().await;
+                    if current.gen == gen {
+                        o.publish_changed(t).await;
+                    } else {
+                        let _ = D::take_changed(t);
+                    }
+                    drop(current);
+                    let _ = reply.send(outcome);
+                    continue;
+                }
                 // Read back: the tree shows what the device holds (after a
                 // failed write too, when the driver asks: a write may have
                 // gone through in part).
