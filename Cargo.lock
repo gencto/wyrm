@@ -6554,6 +6554,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-bacnet"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-bacnet",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-guest"
 version = "0.1.0"
 dependencies = [
@@ -6684,6 +6696,29 @@ dependencies = [
  "tracing",
  "wyrm-core",
  "wyrm-gateway-client",
+ "wyrm-link-sdk",
+]
+
+[[package]]
+name = "wyrm-link-prometheus"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "flate2",
+ "http-body-util",
+ "hyper 1.12.0",
+ "hyper-util",
+ "rcgen",
+ "regex",
+ "rustls",
+ "rustls-native-certs",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "wyrm-core",
+ "wyrm-link-prometheus",
  "wyrm-link-sdk",
 ]
 
@@ -6887,6 +6922,7 @@ dependencies = [
  "wyrm-gateway",
  "wyrm-gateway-client",
  "wyrm-link-agent",
+ "wyrm-link-bacnet",
  "wyrm-link-http",
  "wyrm-link-mock",
  "wyrm-link-modbus",
@@ -6894,6 +6930,7 @@ dependencies = [
  "wyrm-link-opcua",
  "wyrm-link-portable",
  "wyrm-link-probe",
+ "wyrm-link-prometheus",
  "wyrm-link-s7",
  "wyrm-link-scheduler",
  "wyrm-link-sdk",
