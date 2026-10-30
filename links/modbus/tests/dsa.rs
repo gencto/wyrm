@@ -775,8 +775,9 @@ fn legacy_ip_devices_share_a_connection() {
 async fn reserved_names_are_renamed() {
     use wyrm_link_modbus::ModbusDriver;
     use wyrm_link_sdk::driver::framework::reserved_names;
-    let names = reserved_names::<ModbusDriver>();
+    let mut names = reserved_names::<ModbusDriver>();
     assert!(names.contains(&"reopens") && names.contains(&"import"));
+    names.push("add_x");
     let mut devs = serde_json::Map::new();
     for (i, n) in names.iter().enumerate() {
         let mut d = json!({
@@ -804,11 +805,16 @@ async fn reserved_names_are_renamed() {
     let conv_ = conv(&j);
     assert_eq!(dropped(&conv_), vec![]);
     for n in &names {
-        assert!(find(&conv_, &format!("C/{n}_2/{n}_2")).is_some(), "{n}");
-        assert!(find(&conv_, &format!("C/{n}_2/f/{n}_2")).is_some(), "{n}");
+        let m = match n.strip_prefix("add_") {
+            Some(rest) => format!("add-{rest}"),
+            None => format!("{n}_2"),
+        };
+        assert!(find(&conv_, &format!("C/{m}/{m}")).is_some(), "{n}");
+        assert!(find(&conv_, &format!("C/{m}/f/{m}")).is_some(), "{n}");
     }
     let h = H::start(Tree(Value::Null)).await;
     import(&h, &j).await;
     assert!(h.meta("C/reopens_2/f/reopens_2").await.1.is_some());
+    assert!(h.meta("C/add-x/f/add-x").await.1.is_some());
     h.stop().await;
 }
