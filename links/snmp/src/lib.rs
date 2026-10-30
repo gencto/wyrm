@@ -188,7 +188,7 @@ pub fn parse_engine_id(s: &str) -> Result<Vec<u8>, String> {
         .bytes()
         .filter(|b| !matches!(b, b':' | b' ' | b'-'))
         .collect();
-    if digits.len() % 2 != 0 || !digits.iter().all(u8::is_ascii_hexdigit) {
+    if !digits.len().is_multiple_of(2) || !digits.iter().all(u8::is_ascii_hexdigit) {
         return Err("hex octets, e.g. 0x80001f8880…".into());
     }
     let octets: Vec<u8> = digits
