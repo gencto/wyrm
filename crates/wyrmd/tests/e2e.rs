@@ -6181,3 +6181,122 @@ async fn scheduler_three_modes() {
     }
     env.stop().await;
 }
+
+/// The `rows` of a DQL query's `get_table`, by `path`.
+async fn dql_rows(c: &WyrmClient, q: &str) -> Option<BTreeMap<String, BTreeMap<String, Value>>> {
+    let t = c
+        .invoke_one(
+            &format!("wy/{SITE}/downstream/dql/{q}"),
+            "get_table",
+            Value::Null,
+        )
+        .await
+        .ok()??;
+    let Value::Map(m) = t else { return None };
+    let Some(Value::Array(rows)) = m.get("rows") else {
+        return None;
+    };
+    Some(
+        rows.iter()
+            .filter_map(|r| match r {
+                Value::Map(r) => match r.get("path") {
+                    Some(Value::Str(p)) => Some((p.clone(), r.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// ADR 0025: the embedded DQL link lists a link through the router, keeps its table live,
+/// publishes it as a value, and a sink query (config) writes a point only on a change.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_embedded_queries_the_tree() {
+    let env = Env::start(
+        "dql",
+        r#"links: { m: { driver: "mock", params: { points: 5, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(4)).await
+    })
+    .await;
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("pts")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/m | where type == 'number' | subscribe value :name"
+                )),
+            ),
+            ("publish_ms", Value::UInt(100)),
+        ]),
+    )
+    .await
+    .expect("add_query");
+    let rows = eventually("5 rows with values", 30, || async {
+        dql_rows(&c, "pts").await.filter(|r| {
+            r.len() == 5
+                && r.values()
+                    .all(|r| r.get("value").is_some_and(|v| *v != Value::Null))
+        })
+    })
+    .await;
+    assert_eq!(rows[&point(0)][":name"], Value::from("p0"));
+    // the table follows a write, and it is a value readers subscribe to
+    c.set(&point(2), Value::Float(7.5)).await.expect("set p2");
+    eventually("the table shows the write", 30, || async {
+        dql_rows(&c, "pts")
+            .await
+            .filter(|r| r[&point(2)]["value"] == Value::Float(7.5))
+    })
+    .await;
+    let table = eventually("table published", 30, || async {
+        last_sample(&env, &format!("{dql}/pts/table")).await
+    })
+    .await;
+    assert!(matches!(table.v, Value::Array(a) if a.len() == 5));
+
+    // a sink: p1 follows p0 doubled, only after a change of p0 (D5)
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("follow")),
+            (
+                "text",
+                Value::from(format!(
+                    "path wy/{SITE}/downstream/m/p0 | subscribe | set ../p1 = value * 2.0"
+                )),
+            ),
+        ]),
+    )
+    .await
+    .expect("add a sink query as admin");
+    eventually("the sink query is ready", 30, || async {
+        c.meta(&format!("{dql}/follow")).await.ok().filter(|m| {
+            m.attr.as_ref().and_then(|a| a.get("status")) == Some(&Value::from("ready"))
+        })
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let before = last_sample(&env, &point(1)).await.map(|s| s.v);
+    assert_ne!(before, Some(Value::Float(42.0)));
+    c.set(&point(0), Value::Float(21.0)).await.expect("set p0");
+    eventually("p1 = 2 × p0", 30, || async {
+        last_sample(&env, &point(1))
+            .await
+            .filter(|s| s.v == Value::Float(42.0))
+    })
+    .await;
+    env.stop().await;
+}

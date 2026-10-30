@@ -21,6 +21,7 @@ mod bench;
 mod dev;
 mod flow;
 mod pack;
+mod query;
 mod replay;
 mod scaffold;
 mod sim;
@@ -115,6 +116,24 @@ enum Cmd {
         window: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
+    },
+    /// Run a DQL query (ADR 0025) with your own token and print its table as it changes:
+    /// `wyr query "list wy/s/downstream/plc/** | where type == 'number' | subscribe"`.
+    /// Sinks (`set`, `invoke`) are printed, not sent, unless `--sinks`.
+    Query {
+        text: String,
+        /// Print the table once it is complete, then exit.
+        #[arg(long)]
+        once: bool,
+        /// Print at most this often, ms.
+        #[arg(long, default_value_t = 500)]
+        every_ms: u64,
+        /// One JSON object per table.
+        #[arg(long)]
+        json: bool,
+        /// Send the query's set/invoke calls.
+        #[arg(long)]
+        sinks: bool,
     },
     /// Write a value: `true`, `21.5`, `3`, `null` or any text.
     Set { node: String, value: String },
@@ -322,6 +341,13 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Sub { pattern, reliable } => sub(&client, &pattern, reliable).await,
+        Cmd::Query {
+            text,
+            once,
+            every_ms,
+            json,
+            sinks,
+        } => query::run(&client, &text, once, every_ms, json, sinks).await,
         Cmd::Values {
             node,
             from,
@@ -914,6 +940,16 @@ mod tests {
         assert!(matches!(
             ok(&["watch", "wy/s/**"]).unwrap(),
             Cmd::Sub { .. }
+        ));
+        assert!(matches!(
+            ok(&["query", "list wy/s/downstream", "--once", "--json"]).unwrap(),
+            Cmd::Query {
+                once: true,
+                json: true,
+                sinks: false,
+                every_ms: 500,
+                ..
+            }
         ));
     }
 

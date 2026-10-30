@@ -242,11 +242,25 @@ impl BufferHost {
     /// A key a request may name: inside the site, a plain node path (no wildcards, no `.`/`..`),
     /// and within the link's grants. Shape is checked first, so a malformed key never reaches `may`.
     fn check_key(&self, key: &str, perm: Perm) -> Result<(), AppError> {
-        let Some(rest) = key.strip_prefix(&self.site_prefix) else {
-            return Err(AppError::new(
-                Status::PermissionDenied,
-                format!("{key} is outside {}", self.site_prefix),
-            ));
+        self.check_key_of(key, perm, false)
+    }
+
+    /// `other_sites`: another site's keys are read (`subscribe`, `list`) under an explicit
+    /// grant (ADR 0025, D4); requests (`set`, `invoke`) stay on the link's own site.
+    fn check_key_of(&self, key: &str, perm: Perm, other_sites: bool) -> Result<(), AppError> {
+        let other = key
+            .strip_prefix("wy/")
+            .and_then(|r| r.split_once('/'))
+            .filter(|_| other_sites && !key.starts_with(&self.site_prefix));
+        let rest = match (key.strip_prefix(&self.site_prefix), other) {
+            (Some(rest), _) => rest,
+            (None, Some((_, rest))) if self.services.may(key, perm) => rest,
+            _ => {
+                return Err(AppError::new(
+                    Status::PermissionDenied,
+                    format!("{key} is outside {}", self.site_prefix),
+                ))
+            }
         };
         let plain = |seg: &str| !matches!(seg, "." | "..") && !seg.contains(['*', '$']);
         if rest.is_empty() || keyspace::validate_path(rest).is_err() || !rest.split('/').all(plain)
@@ -409,7 +423,7 @@ impl Host for BufferHost {
 
     fn subscribe(&mut self, key: &str) -> Result<SubId, AppError> {
         // one final `/**`: a subtree (ADR 0025); the prefix is checked as a node key
-        self.check_key(key.strip_suffix("/**").unwrap_or(key), Perm::Read)?;
+        self.check_key_of(key.strip_suffix("/**").unwrap_or(key), Perm::Read, true)?;
         if self.counts.subs + self.added_subs.len() >= self.limits.max_subs {
             return Err(exhausted("too many subscriptions"));
         }
@@ -428,7 +442,7 @@ impl Host for BufferHost {
     }
 
     fn list(&mut self, key: &str, full: bool) -> Result<SubId, AppError> {
-        self.check_key(key, Perm::Read)?;
+        self.check_key_of(key, Perm::Read, true)?;
         if self.counts.lists + self.added_lists.len() >= self.limits.max_lists {
             return Err(exhausted("too many lists"));
         }
@@ -835,10 +849,14 @@ mod tests {
         let mut h = host(0, true, Limits::default());
         let e = h.set("wy/other/x", Value::Int(1)).unwrap_err();
         assert_eq!(e.status, Status::PermissionDenied);
+        // another site: read under a grant (here every key is granted), never written
+        assert!(h.subscribe("wy/other/x").is_ok());
+        assert!(h.list("wy/other/x", false).is_ok());
         assert_eq!(
-            h.subscribe("wy/other/x").unwrap_err().status,
+            h.invoke("wy/other/x", "a", Value::Null).unwrap_err().status,
             Status::PermissionDenied
         );
+        assert_eq!(h.finish().unwrap().len(), 2);
         let r = h.set("wy/s/x", Value::Int(1)).unwrap();
         let s = h.subscribe("wy/s/x").unwrap();
         let i = h.invoke("wy/s/x", "go", Value::Null).unwrap();
@@ -849,7 +867,7 @@ mod tests {
         assert!(matches!(&cmds[2], Command::Invoke(id, ..) if *id == i));
         assert!(matches!(&cmds[3], Command::Log(Level::Info, _)));
         assert!(r.0 < s.0 && s.0 < i.0);
-        assert_eq!(h.next_id(), 4);
+        assert_eq!(h.next_id(), 6);
     }
 
     #[test]
@@ -922,8 +940,9 @@ mod tests {
             h.list("wy/s/downstream/**", false).unwrap_err().status,
             Status::InvalidParameter
         );
+        let mut no_grant = host(0, false, Limits::default());
         assert_eq!(
-            h.list("wy/x/downstream", false).unwrap_err().status,
+            no_grant.list("wy/x/downstream", false).unwrap_err().status,
             Status::PermissionDenied
         );
         let l = h.list("wy/s/downstream", false).unwrap();

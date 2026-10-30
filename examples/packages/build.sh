@@ -24,6 +24,10 @@
 #                    target link (sys/links/<id>/~act/grant)
 #     scheduler-process
 #                    the same app as a process package
+#     dql            the DQL link (ADR 0025, links/dql) as a WASM package; no
+#                    grants: an operator grants read on each root a query
+#                    lists and write on each sink target
+#     dql-process    the same app as a process package
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -53,6 +57,10 @@ $WYR link pack --manifest-path "$PORTABLE" --kind process --name portable-echo-p
 SCHEDULER=$ROOT/links/scheduler/Cargo.toml
 $WYR link pack --manifest-path "$SCHEDULER" --out "$ZIPS"
 $WYR link pack --manifest-path "$SCHEDULER" --kind process --name scheduler-process --out "$ZIPS"
+# and the DQL link
+DQL=$ROOT/links/dql/Cargo.toml
+$WYR link pack --manifest-path "$DQL" --out "$ZIPS"
+$WYR link pack --manifest-path "$DQL" --kind process --name dql-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \
