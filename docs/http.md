@@ -206,8 +206,11 @@ percent-encoded query key.
 Selectors run on a view of the reply in which every **value** that holds
 a secret is masked; **member names stay raw**. So a filter (`<`, `>`,
 `==`, `!=`) compares `***` or `Bearer ***`, never the secret, and a count,
-"nothing found" or "selects N values" cannot depend on it: nobody can read
-a secret back one comparison at a time. `$.adminState` with the password
+"nothing found" or "selects N values" cannot depend on the secret's
+characters: a secret cannot be read back one character at a time. Two
+limits remain (section 9): masking still tells whether a text equals or
+holds a secret, so a short secret can be guessed through an echoing
+server, and member names stay raw. `$.adminState` with the password
 `admin` still selects, and `51234.5` with the PIN `1234` stays a number.
 The masking rules, the same for selectors and for what is shown:
 
@@ -226,7 +229,13 @@ The masking rules, the same for selectors and for what is shown:
   holds a connection secret" (quality `bad`). This also happens to a
   reading that equals a numeric secret by chance, as long as it holds that
   value: with the PIN `0100`, a level of `100` goes `bad` each time it is
-  100 (an explicit error, never a wrong value). A `count` is not hidden;
+  100 (an explicit error, never a wrong value). A `count` of masked
+  matches is not hidden;
+- a point whose filter compared a masked value (`[?(@.id == 1234)]` with
+  the PIN `1234`, `[?(@.level > 50)]` on a level equal to it) fails with
+  "value hidden: a filter compared a value that holds a connection secret"
+  (`test_selector` gives it as `error`), never a count one too low or
+  another element;
 - member names in what is shown (a `string` point of an object,
   `try_request`, `test_selector` values) are masked too, and two names
   that mask alike are both shown (`***`, `***#2`);
@@ -236,8 +245,11 @@ The masking rules, the same for selectors and for what is shown:
 prefix (`)]}'`) the JSON is masked as above; otherwise the text is masked,
 and the body is hidden whole (`*** body hidden: it holds a connection
 secret`) when it still holds a secret once JSON-unescaped, or when a
-number in it equals a numeric secret. A masked reply reports
-`masked: true` and the masked length in `bytes`.
+number in it equals a numeric secret (also a run of digits after a letter
+or a sign: `code123`, `id-123`). A masked reply reports `masked: true`
+and the masked length in `bytes`, and its headers leave out
+`Content-Length`, `ETag`, `Digest`, `Content-MD5`, `Repr-Digest` and
+`Content-Digest` (the raw length, or a hash of the raw body).
 
 Secrets shorter than 3 characters are not masked. Errors name the method
 and the path; they never hold the query (an API key may be in it),
@@ -367,9 +379,22 @@ the tree with the `add_*` actions. As a package (ADR 0021):
   password `admin` shows `***istrator`, and a filter on it compares
   `***istrator`). Secrets shorter than 3 characters are not masked.
 - **A reading equal to a numeric secret** fails "value hidden" while it
-  holds that value (the PIN `0100` and a level of `100`): the point flaps
-  `bad`. Choose a PIN that is not a likely reading, or keep the echo
-  endpoint apart from the readings.
+  holds that value (the PIN `0100` and a level of `100`), and so does a
+  point whose filter compares such a reading: the point flaps `bad`.
+  Choose a PIN that is not a likely reading, or keep the echo endpoint
+  apart from the readings.
+- **Masking tells whether a text holds a secret, so guesses can be
+  tested.** A `config` user who can put candidates into a device's `query`
+  or `headers` on an endpoint of the same origin that echoes the request
+  sees `***` in place of the one candidate that equals the secret: a
+  4-digit PIN falls in about 10 requests, a 6-digit one in about 1000, a
+  common password to a dictionary. A long random token does not fall this
+  way. Use long random secrets; a PIN or a short password is not protected
+  from a `config` user of an echoing server.
+- **Member names stay raw** for selectors (so `$.adminState` works). When
+  a server uses a secret as a member name, `$['<guess>']` is an equality
+  test, and the order of `$.obj.*` follows the raw names. Only a server
+  that puts a configured secret into a member name is affected.
 - **Other encodings of a secret** are not masked: a query key re-encoded by
   the server (`%2f` in lower case, `+` for a space) or HTML entities in an
   error page.

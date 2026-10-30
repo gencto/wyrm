@@ -1369,9 +1369,13 @@ fn mask_json(prep: &Prepared, j: &mut Json) {
 /// The reply as a selector sees it: every value that holds a secret in its
 /// masked form, member names raw. A filter (`<`, `>`, `==`, `!=`) then
 /// compares `***` or `Bearer ***`, never the secret, so a count, "nothing
-/// found" or "selects N values" cannot depend on it (no oracle to read a
-/// secret back one character at a time); `$.adminState` with the password
-/// `admin` still selects, and `51234.5` with the PIN `1234` stays a number.
+/// found" or "selects N values" cannot depend on the secret's characters
+/// (no oracle to read it back one character at a time; a filter that met a
+/// masked value fails the point, [`select_view`]); `$.adminState` with the
+/// password `admin` still selects, and `51234.5` with the PIN `1234` stays
+/// a number. Limits (guide, known limits): masking still tells whether a
+/// text equals or holds a secret, so a short secret can be guessed through
+/// an echoing server, and member names stay raw.
 fn selection_view(prep: &Prepared, j: &mut Json) {
     mask_tree(prep, j, false);
 }
