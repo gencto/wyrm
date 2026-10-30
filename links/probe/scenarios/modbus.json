@@ -2,6 +2,7 @@
   "name": "modbus",
   "description": "Modbus link (docs/modbus.md) on the demo's plc1 against wyrm-modbus-sim: diagnostics leaves, read_registers and its bound, read_device_id, a folder with a point and its copy (polled), export of ahu1 and import as a new stopped device; all removed.",
   "steps": [
+    { "require": "wy/{site}/sys/links/plc1" },
     { "require": "wy/{site}/downstream/plc1/line1" },
     { "require": "wy/{site}/downstream/plc1/line1/ahu1" },
     { "meta": "wy/{site}/downstream/plc1/line1", "has_action": ["add_device", "scan_units", "copy", "export", "import", "edit", "remove", "restart"], "has_child": ["status", "requests", "errors", "timeouts", "exceptions", "reopens", "last_rtt_ms", "avg_rtt_ms"] },

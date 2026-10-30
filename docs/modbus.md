@@ -514,7 +514,7 @@ served coils, discrete inputs, input or holding registers of its unit
 | FC22 on a register whose points' bits are not all known | exception 4 |
 | FC8, FC17, FC23, FC43 and every function code but FC1–6, 15, 16 and 22 | exception 1 (illegal function) |
 | a unit no device serves | TCP: exception 0x0B (gateway target failed to respond); RTU: no reply (another slave may have it) |
-| the queue is full, or the answer takes more than 1 s | TCP: exception 6 (busy); RTU: no reply. The request is never applied late. |
+| the queue is full, or the answer takes more than 1 s | TCP: exception 6 (busy); RTU: no reply. A request still waiting is never applied late. Under heavy load a write taken just before its 1 s ends can be applied and still answer busy; a master that sends it again writes the same value again (FC5, 6, 15, 16 and 22 give the same result twice). |
 | RTU broadcast (unit 0) write | applied to every served unit that takes it, no reply; counted once on the connection |
 | RTU broadcast read | ignored |
 
@@ -594,10 +594,10 @@ running it.
   new one opens.
 - **Storage:** DSA keeps node attributes in plain `nodes.json`. Here the
   tree is sealed (ChaCha20-Poly1305) in the link's `data_dir`.
-- **Request order:** DSA writes go outside its master lock. Here one owner
-  task per connection sends every request in order.
-- **Late replies:** after a timeout DSA can take a late reply for the
-  next request; here the transport is reopened (section 7).
+- **Request order:** DSA polls and pings under its master lock but sends
+  writes outside it (whether modbus4j orders them itself was not
+  checked). Here one owner task per connection sends every request in
+  order.
 - **Quality:** DSA's "zero on failed poll" publishes invented values; here
   the quality ladder tells the truth (section 8).
 - **Integers:** DSA passes every value through `double`, so a `UINT64`
@@ -617,8 +617,8 @@ running it.
   start), FC1–6, 15, 16, 17, 22 and 43/14. The demo's edge site runs one
   for its link `plc1`.
 - The probe scenario `modbus` (`links/probe/scenarios/modbus.json`) runs on
-  every site with `plc1/line1` and skips the others (a site whose `plc1`
-  is not connected skips it too): `wyr probe modbus --gateway
+  every site that has the link `plc1` with `line1/ahu1` and skips the
+  others (a `plc1` that is down fails it): `wyr probe modbus --gateway
   http://127.0.0.1:8444 --site edge`.
 - The driver is tested against this simulator only. It is not yet
   verified against `diagslave` or a real device.

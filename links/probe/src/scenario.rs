@@ -28,8 +28,9 @@
 //!   `lacks_child`, `type`; `children` key with `contains`, `lacks`;
 //! * `sleep_ms`;
 //! * `require` key: the scenario applies only where that node exists; when
-//!   it does not (not found, or no connected link owns it), every later
-//!   step is skipped and nothing fails.
+//!   it does not, every later step is skipped and nothing fails. A key of a
+//!   link that is down answers `disconnected` and fails: require the link's
+//!   `sys/links/<id>` first to skip sites that do not have the link.
 //!
 //! A step that still names a variable nobody saved (a cleanup after the
 //! step that saves it failed) is skipped.

@@ -272,16 +272,6 @@ pub async fn run(conn: &Conn, sc: &Scenario, mut vars: BTreeMap<String, String>)
                     not_here = true;
                     Ok((None, "absent: the scenario does not apply here".into()))
                 }
-                // No link owns the key (its liveliness is gone, spec 05): a
-                // link this site does not run, or one that is down.
-                Err(e) if e.is(wyrm_core::Status::Disconnected) => {
-                    not_here = true;
-                    Ok((
-                        None,
-                        "absent (its link is not connected): the scenario does not apply here"
-                            .into(),
-                    ))
-                }
                 Err(e) => Err(e.to_string()),
             },
             "watch" if watches.contains_key(&target) => Ok((None, "already watched".into())),
