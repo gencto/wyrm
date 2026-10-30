@@ -426,10 +426,10 @@ impl fmt::Display for Address {
 /// `X4.3`, `B5`, `W6`, `D8`, and with `bare_bit` also `4.3` (`M4.3`).
 fn width_offset(s: &str, bare_bit: bool) -> Result<(Width, u32, u8), String> {
     let (width, rest) = match s.chars().next() {
-        Some('X') => (Width::Bit, &s[1..]),
-        Some('B') => (Width::Byte, &s[1..]),
-        Some('W') => (Width::Word, &s[1..]),
-        Some('D') => (Width::DWord, &s[1..]),
+        Some('X') => (Width::Bit, s.get(1..).unwrap_or_default()),
+        Some('B') => (Width::Byte, s.get(1..).unwrap_or_default()),
+        Some('W') => (Width::Word, s.get(1..).unwrap_or_default()),
+        Some('D') => (Width::DWord, s.get(1..).unwrap_or_default()),
         Some(c) if bare_bit && c.is_ascii_digit() => (Width::Bit, s),
         _ => return Err("expected X, B, W or D and an offset (DBX4.3, MW20, IB0)".into()),
     };
@@ -807,7 +807,7 @@ pub fn encode_dt(s: &str, tz_min: i32) -> Result<[u8; 8], ConvError> {
         if end == start {
             return Err(bad());
         }
-        let frac = &s[start..end];
+        let frac = s.get(start..end).ok_or_else(bad)?;
         let three: String = frac.chars().chain("000".chars()).take(3).collect();
         ms = three.parse().map_err(|_| bad())?;
         i = end;
@@ -815,17 +815,25 @@ pub fn encode_dt(s: &str, tz_min: i32) -> Result<[u8; 8], ConvError> {
     let zone = s.get(i..).ok_or_else(bad)?;
     let off_min: i64 = match zone {
         "Z" | "z" => 0,
-        z if z.len() == 6 && (z.starts_with('+') || z.starts_with('-')) && &z[3..4] == ":" => {
-            let hh: i64 = z[1..3].parse().map_err(|_| bad())?;
-            let mm: i64 = z[4..6].parse().map_err(|_| bad())?;
-            let m = hh * 60 + mm;
-            if z.starts_with('-') {
-                -m
-            } else {
-                m
+        // `±HH:MM`, checked byte by byte (no slicing of user text)
+        z => match *z.as_bytes() {
+            [sign @ (b'+' | b'-'), h1, h0, b':', m1, m0]
+                if [h1, h0, m1, m0].iter().all(u8::is_ascii_digit) =>
+            {
+                let digit = |b: u8| i64::from(b - b'0');
+                let (hh, mm) = (digit(h1) * 10 + digit(h0), digit(m1) * 10 + digit(m0));
+                if hh > 23 || mm > 59 {
+                    return Err(bad());
+                }
+                let m = hh * 60 + mm;
+                if sign == b'-' {
+                    -m
+                } else {
+                    m
+                }
             }
-        }
-        _ => return Err(bad()),
+            _ => return Err(bad()),
+        },
     };
     let days = days_from_civil(y.into(), mo, d);
     if !(1..=12).contains(&mo)
@@ -930,6 +938,27 @@ mod tests {
             let e = Address::parse(s).unwrap_err();
             assert!(e.contains(why), "{s}: {e}");
         }
+    }
+
+    /// Text from a user never panics the parser (no byte slicing).
+    #[test]
+    fn non_ascii_addresses_are_errors() {
+        for s in [
+            "DBé.DBW0",
+            "DB1.DBé0",
+            "DB1.DBXé.1",
+            "DB1.DBX0.é",
+            "Mé",
+            "MWé",
+            "é",
+            "Té",
+            "DB1.DBW0:é",
+            "DB1.DBB0:STRING[é]",
+            "ＭW20",
+        ] {
+            assert!(Address::parse(s).is_err(), "{s}");
+        }
+        assert!(DType::from_param("réal").is_err());
     }
 
     #[test]
@@ -1132,6 +1161,20 @@ mod tests {
             "2026-10-30",
             "x",
             "2026-10-30T25:00:00Z",
+            // zones: non-ASCII, out of range, signs inside, short, long
+            "2026-10-30T12:00:00+0é:0",
+            "2026-10-30T12:00:00+é0:00",
+            "2026-10-30T12:00:00+24:00",
+            "2026-10-30T12:00:00+01:60",
+            "2026-10-30T12:00:00+-1:00",
+            "2026-10-30T12:00:00+01:0",
+            "2026-10-30T12:00:00+01:000",
+            // non-ASCII elsewhere
+            "2026-10-30T12:00:00.é",
+            "2026-10-30T12:00:00é",
+            "é026-10-30T12:00:00Z",
+            "2026-10-30T12:00:00.12é",
+            "2026-1é-30T12:00:00Z",
         ] {
             assert!(encode_dt(bad, 0).is_err(), "{bad}");
         }

@@ -407,21 +407,33 @@ impl Plan {
     }
 }
 
-/// The bytes of `spans` read by `reqs`: a buffer and an error per span, and
-/// the error that stopped the reads (a broken transport or no reply; the
-/// requests after it are not sent).
-async fn read_spans(
-    c: &mut Client,
-    spans: &[Span],
-    reqs: &[Vec<Chunk>],
-) -> (Vec<Vec<u8>>, Vec<Option<DriverError>>, Option<DriverError>) {
+/// What [`read_spans`] read.
+struct Reads {
+    /// The bytes of each span.
+    bufs: Vec<Vec<u8>>,
+    /// The error of each span, if any.
+    errs: Vec<Option<DriverError>>,
+    /// The span failed by an item return code only: reading its points
+    /// one by one may help. A header error (the whole request refused,
+    /// PUT/GET for one) fails them all alike, so it never does.
+    by_item: Vec<bool>,
+    /// The error that stopped the reads (a broken transport or no reply;
+    /// the requests after it were not sent).
+    stop: Option<DriverError>,
+}
+
+/// The bytes of `spans` read by `reqs`.
+async fn read_spans(c: &mut Client, spans: &[Span], reqs: &[Vec<Chunk>]) -> Reads {
     let mut bufs: Vec<Vec<u8>> = spans.iter().map(|s| vec![0; s.bytes()]).collect();
     let mut errs: Vec<Option<DriverError>> = vec![None; spans.len()];
+    let mut item = vec![false; spans.len()];
+    let mut other = vec![false; spans.len()];
     let mut stop: Option<DriverError> = None;
     for req in reqs {
         if let Some(e) = &stop {
             for ch in req {
                 errs[ch.span] = Some(e.clone());
+                other[ch.span] = true;
             }
             continue;
         }
@@ -442,12 +454,14 @@ async fn read_spans(
                             bufs[ch.span][from..from + want].copy_from_slice(&data[..want]);
                         }
                         Ok(data) => {
+                            other[ch.span] = true;
                             errs[ch.span].get_or_insert(DriverError::Point(format!(
                                 "short reply: {} of {want} bytes",
                                 data.len()
                             )));
                         }
                         Err(rc) => {
+                            item[ch.span] = true;
                             errs[ch.span].get_or_insert(DriverError::Point(proto::item_text(rc)));
                         }
                     }
@@ -455,18 +469,26 @@ async fn read_spans(
             }
             Err(e @ DriverError::Point(_)) => {
                 for ch in req {
+                    other[ch.span] = true;
                     errs[ch.span].get_or_insert(e.clone());
                 }
             }
             Err(e) => {
                 for ch in req {
+                    other[ch.span] = true;
                     errs[ch.span] = Some(e.clone());
                 }
                 stop = Some(e);
             }
         }
     }
-    (bufs, errs, stop)
+    let by_item = item.iter().zip(&other).map(|(i, o)| *i && !*o).collect();
+    Reads {
+        bufs,
+        errs,
+        by_item,
+        stop,
+    }
 }
 
 fn decode(p: &Point, dev: &Dev, bytes: &[u8]) -> Result<Value, DriverError> {
@@ -573,7 +595,7 @@ async fn read_address(
         c.pdu(),
         usize::from(dev.p.max_items),
     );
-    let (bufs, errs, _) = read_spans(c, std::slice::from_ref(&span), &reqs).await;
+    let Reads { bufs, errs, .. } = read_spans(c, std::slice::from_ref(&span), &reqs).await;
     if let Some(e) = errs.into_iter().next().flatten() {
         return Err(action_err(e));
     }
@@ -658,13 +680,21 @@ impl Driver for S7Driver {
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
         let pdu = c.pdu();
         let packed = plan.packed(pdu);
-        let (bufs, errs, stop) = read_spans(c, &packed.spans, &packed.reqs).await;
+        let Reads {
+            bufs,
+            errs,
+            by_item,
+            stop,
+        } = read_spans(c, &packed.spans, &packed.reqs).await;
         let mut out = Vec::with_capacity(plan.points.len());
         let mut again: Vec<usize> = Vec::new();
         for (si, s) in packed.spans.iter().enumerate() {
             match &errs[si] {
-                // a merged item failed: read its points one by one
-                Some(DriverError::Point(_)) if s.members.len() > 1 && stop.is_none() => {
+                // a merged item failed by its return code: read its
+                // points one by one
+                Some(DriverError::Point(_))
+                    if by_item[si] && s.members.len() > 1 && stop.is_none() =>
+                {
                     again.extend(&s.members);
                 }
                 Some(e) => {
@@ -698,14 +728,20 @@ impl Driver for S7Driver {
             })
             .collect();
         let reqs = plan::pack(&singles, pdu, plan.max_items);
-        let (bufs, errs, _) = read_spans(c, &singles, &reqs).await;
+        let Reads {
+            bufs,
+            errs,
+            by_item,
+            ..
+        } = read_spans(c, &singles, &reqs).await;
         let mut alone = Vec::new();
         for (si, s) in singles.iter().enumerate() {
             let i = s.members[0];
             let (id, p) = &plan.points[i];
             match &errs[si] {
                 Some(e) => {
-                    if matches!(e, DriverError::Point(_)) {
+                    // it fails alone by its own return code
+                    if by_item[si] {
                         alone.push(i);
                     }
                     out.push((id.clone(), Err(e.clone())));

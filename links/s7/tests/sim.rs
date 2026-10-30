@@ -408,6 +408,56 @@ async fn an_item_error_fails_that_point_only() {
     h.stop().await;
 }
 
+/// A header error (the whole request refused: PUT/GET off) fails the points
+/// of the request without a read point by point, and merging comes back
+/// when the PLC answers again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_header_error_does_not_split_merged_items() {
+    let (addr, dev, _sim) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[("a", pt("DB1.DBW0", &[])), ("b", pt("DB1.DBW2", &[]))]);
+    let h = H::start(tree(addr.port(), &[], &[("ping", "none".into())], points)).await;
+    wait("good", || {
+        q(&h, "a") == Some(Quality::Good) && q(&h, "b") == Some(Quality::Good)
+    })
+    .await;
+    let before = dev.lock().unwrap().reads().len();
+    dev.lock().unwrap().deny_put_get = true;
+    wait("refused", || {
+        q(&h, "a") == Some(Quality::Bad) && q(&h, "b") == Some(Quality::Bad)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    {
+        let p = dev.lock().unwrap();
+        let during: Vec<Vec<(u32, u16)>> = p.reads()[before..]
+            .iter()
+            .map(|j| j.items.iter().map(|i| (i.start, i.count)).collect())
+            .collect();
+        assert!(during.len() >= 3, "{during:?}");
+        assert!(
+            during.iter().all(|items| items == &[(0, 4)]),
+            "no reads point by point: {during:?}"
+        );
+    }
+    dev.lock().unwrap().deny_put_get = false;
+    wait("good again", || {
+        q(&h, "a") == Some(Quality::Good) && q(&h, "b") == Some(Quality::Good)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    {
+        let p = dev.lock().unwrap();
+        let last = p.reads().last().cloned().cloned().unwrap();
+        let items: Vec<(u8, u32, u16)> = last
+            .items
+            .iter()
+            .map(|i| (i.area, i.start, i.count))
+            .collect();
+        assert_eq!(items, vec![(0x84, 0, 4)], "still merged");
+    }
+    h.stop().await;
+}
+
 /// Write Var per point, read back; a bit with the bit transport size (its
 /// byte's other bits stay); a STRING without its maximum-length byte.
 #[tokio::test(flavor = "multi_thread")]

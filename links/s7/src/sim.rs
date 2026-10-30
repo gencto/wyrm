@@ -233,7 +233,7 @@ async fn serve(mut s: TcpStream, dev: Device) {
     let Some(cr) = read_tpkt(&mut s).await else {
         return;
     };
-    if cr.get(1) != Some(&0xE0) {
+    if cr.len() < 7 || cr.get(1) != Some(&0xE0) {
         return;
     }
     let mut tsap = 0;
@@ -261,7 +261,9 @@ async fn serve(mut s: TcpStream, dev: Device) {
         if frame.get(1) != Some(&0xF0) {
             return;
         }
-        let req = &frame[usize::from(frame[0]) + 1..];
+        let Some(req) = frame.get(usize::from(frame[0]) + 1..) else {
+            return;
+        };
         let (reply, delay, close) = {
             let mut p = plc(&dev);
             let job = log_job(req);
