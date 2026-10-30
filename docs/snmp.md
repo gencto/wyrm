@@ -169,7 +169,7 @@ id) up to `retries` times. Two more counters show datagrams the link drops:
 | Counter | Counts |
 |---|---|
 | `late_replies` | Answers to an earlier request (their id is not one of this request's). A late v3 answer is authenticated first, and its boots and time move the link's notion of the agent's clock forward. |
-| `rejected_replies` | v3 answers that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, it is outside the time window (§7). |
+| `rejected_replies` | v3 messages that are not taken, late ones included (they are authenticated before their id is matched): the MAC does not verify, the authoritative engine id or the user name is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, it is outside the time window (§7). |
 | `undecodable_replies` | Datagrams that are not an SNMP message the link reads (framing, header or PDU malformed). |
 
 ## 5. Writes
@@ -239,7 +239,12 @@ connection. The device ping is the same GET in the device's view; any answer,
 * The clock is kept across reconnects, so a forced reconnect (a forged ICMP
   error or report) does not open a window for replays. **Reset Engine Clock**
   (connection action, `config`, v3) forgets it; run it only when the agent
-  really lost its boots counter (it was reinstalled or reset). When it
+  really lost its boots counter (it was reinstalled or reset), or its engine
+  time went back within the same boots (an agent that takes its engine time
+  from the wall clock, after an NTP step): both are refused the same way.
+  RFC 3414 expects the keys to change after the boots go down: change the
+  passphrases then (on the agent and here), because messages recorded in the
+  old boots period stay valid against a link whose clock was just reset. When it
   succeeds, the connection reconnects once at its next request (its devices
   show `stopped_by_parent` for a moment), learns the clock again, and the
   warning on its `status` clears. A connection

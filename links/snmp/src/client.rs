@@ -29,9 +29,10 @@ use crate::usm::{self, Auth, ReportKind};
 /// the request waited for (late replies).
 pub const LATE: &str = "late_replies";
 
-/// Diagnostics counter of v3 replies to the request that were dropped: the
-/// MAC did not verify, the engine id was another, the security level was
-/// lower than the request's.
+/// Diagnostics counter of v3 messages that were dropped, late ones too
+/// (they are authenticated before their msgID is matched): the MAC did not
+/// verify, the engine id or user was another, the security level was lower
+/// than the request's, or the message was outside the time window.
 pub const REJECTED: &str = "rejected_replies";
 
 /// Diagnostics counter of datagrams that were not an SNMP message this
@@ -89,7 +90,7 @@ struct Clock {
 static CLOCKS: LazyLock<Mutex<HashMap<ClockKey, Clock>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Bound on [`CLOCKS`] (more clears it).
+/// Bound on [`CLOCKS`] (more drops the oldest).
 const MAX_CLOCKS: usize = 4096;
 
 fn clock_load(key: &ClockKey) -> Option<Clock> {
@@ -99,10 +100,18 @@ fn clock_load(key: &ClockKey) -> Option<Clock> {
 
 fn clock_save(key: &ClockKey, c: Clock) {
     let mut m = CLOCKS.lock().unwrap_or_else(|p| p.into_inner());
-    if m.len() >= MAX_CLOCKS && !m.contains_key(key) {
-        m.clear();
+    clock_insert(&mut m, key.clone(), c, MAX_CLOCKS);
+}
+
+/// Insert `c`; at `max` entries the one learned longest ago goes.
+fn clock_insert(m: &mut HashMap<ClockKey, Clock>, key: ClockKey, c: Clock, max: usize) {
+    if m.len() >= max && !m.contains_key(&key) {
+        let oldest = m.iter().min_by_key(|(_, c)| c.at).map(|(k, _)| k.clone());
+        if let Some(k) = oldest {
+            m.remove(&k);
+        }
     }
-    m.insert(key.clone(), c);
+    m.insert(key, c);
 }
 
 fn clock_forget(key: &ClockKey) {
@@ -123,11 +132,14 @@ static REDISCOVERY: LazyLock<Mutex<HashMap<SocketAddr, (Instant, Duration)>>> =
 /// Whether the engine of `addr` may be discovered again now; else how long
 /// to wait.
 fn rediscovery_allowed(addr: SocketAddr) -> Result<(), Duration> {
+    rediscovery_allowed_at(addr, Instant::now())
+}
+
+fn rediscovery_allowed_at(addr: SocketAddr, now: Instant) -> Result<(), Duration> {
     let mut m = REDISCOVERY.lock().unwrap_or_else(|p| p.into_inner());
     if m.len() >= MAX_CLOCKS && !m.contains_key(&addr) {
         m.clear();
     }
-    let now = Instant::now();
     match m.get_mut(&addr) {
         Some((last, gap)) if now < *last + *gap => Err(*last + *gap - now),
         Some((last, gap)) => {
@@ -597,7 +609,8 @@ impl Session {
                 // so that a genuine late answer still moves the clock
                 // forward; the msgID after.
                 if authentic {
-                    if m.usm.engine_id != e.id.as_slice() {
+                    // RFC 3414 §3.2 step 3: our engine and our user.
+                    if m.usm.engine_id != e.id.as_slice() || m.usm.user != v3.user.as_slice() {
                         return Ok(Got::Rejected);
                     }
                     let mut zeroed = datagram.to_vec();
@@ -987,6 +1000,11 @@ mod tests {
 
     /// An authenticated message from the agent's engine.
     fn signed(msg_id: i32, boots: u32, time: u32, pdu: Pdu) -> Vec<u8> {
+        signed_as(b"u", msg_id, boots, time, pdu)
+    }
+
+    /// An authenticated message for `user` (the session's key).
+    fn signed_as(user: &[u8], msg_id: i32, boots: u32, time: u32, pdu: Pdu) -> Vec<u8> {
         let scoped = ScopedPdu {
             engine_id: ENGINE.to_vec(),
             context: Vec::new(),
@@ -997,7 +1015,7 @@ mod tests {
             engine_id: ENGINE,
             boots,
             time,
-            user: b"u",
+            user,
             auth_len: Auth::Sha256.mac_len(),
             priv_params: &[],
         };
@@ -1075,8 +1093,81 @@ mod tests {
     #[test]
     fn rediscovery_is_rate_limited() {
         let a: SocketAddr = "192.0.2.10:161".parse().unwrap();
-        assert!(rediscovery_allowed(a).is_ok());
-        let wait = rediscovery_allowed(a).unwrap_err();
-        assert!(wait <= REDISCOVER_MIN && wait > REDISCOVER_MIN - Duration::from_secs(5));
+        let t0 = Instant::now();
+        let s = Duration::from_secs;
+        assert!(rediscovery_allowed_at(a, t0).is_ok());
+        assert_eq!(rediscovery_allowed_at(a, t0 + s(10)), Err(s(20)));
+        // after 30 s: allowed, and the wait doubles to 60 s
+        assert!(rediscovery_allowed_at(a, t0 + s(31)).is_ok());
+        assert_eq!(rediscovery_allowed_at(a, t0 + s(61)), Err(s(30)));
+        assert!(rediscovery_allowed_at(a, t0 + s(92)).is_ok());
+        // 120 s now; up to 900 s at most
+        assert_eq!(rediscovery_allowed_at(a, t0 + s(92)), Err(s(120)));
+        let mut t = t0 + s(92);
+        for _ in 0..6 {
+            let wait = rediscovery_allowed_at(a, t).unwrap_err();
+            t += wait;
+            assert!(rediscovery_allowed_at(a, t).is_ok());
+        }
+        assert_eq!(rediscovery_allowed_at(a, t), Err(REDISCOVER_MAX));
+        // quiet for twice the wait: back to 30 s
+        let t = t + REDISCOVER_MAX * 2 + s(1);
+        assert!(rediscovery_allowed_at(a, t).is_ok());
+        assert_eq!(rediscovery_allowed_at(a, t), Err(REDISCOVER_MIN));
+    }
+
+    /// RFC 3414 §3.2 step 3: an authenticated message for another user is
+    /// not taken.
+    #[tokio::test]
+    async fn a_message_for_another_user_is_rejected() {
+        let mut s = session(true).await;
+        let resp = Pdu {
+            ty: msg::RESPONSE,
+            request_id: 7,
+            error_status: 0,
+            error_index: 0,
+            varbinds: Vec::new(),
+        };
+        let d = signed_as(b"other", 7, 3, 1000, resp.clone());
+        assert!(matches!(s.accept(&d, &[7]), Ok(Got::Rejected)));
+        assert!(matches!(
+            s.accept(&signed(7, 3, 1000, resp), &[7]),
+            Ok(Got::Pdu(_))
+        ));
+    }
+
+    /// The bound on kept clocks drops the oldest one only.
+    #[test]
+    fn the_oldest_clock_is_dropped_at_the_bound() {
+        let t0 = Instant::now();
+        let mut m: HashMap<ClockKey, Clock> = HashMap::new();
+        let key =
+            |n: u16| -> ClockKey { (SocketAddr::from(([192, 0, 2, 50], n)), vec![1], vec![2]) };
+        for n in 0..3u16 {
+            let at = t0 + Duration::from_secs(u64::from(n) + 1);
+            clock_insert(
+                &mut m,
+                key(n),
+                Clock {
+                    boots: 1,
+                    time: 1,
+                    at,
+                },
+                3,
+            );
+        }
+        clock_insert(
+            &mut m,
+            key(9),
+            Clock {
+                boots: 1,
+                time: 1,
+                at: t0 + Duration::from_secs(9),
+            },
+            3,
+        );
+        assert_eq!(m.len(), 3);
+        assert!(!m.contains_key(&key(0)), "the oldest went");
+        assert!(m.contains_key(&key(1)) && m.contains_key(&key(2)) && m.contains_key(&key(9)));
     }
 }
