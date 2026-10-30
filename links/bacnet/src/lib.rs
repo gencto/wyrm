@@ -2485,18 +2485,22 @@ impl Driver for BacnetDriver {
         (dev.ping_s > 0.0).then(|| Duration::from_secs_f64(dev.ping_s))
     }
 
-    /// A ping: Who-Is (with retries), a unicast Who-Is for the max APDU,
-    /// the request (with retries); opening: the BBMD registration.
+    /// A ping or a write, each step with its retries: the BBMD renewal
+    /// (inside the first request, one per op at most), the Who-Is binding
+    /// and its `object-identifier` confirmation (or, for a fixed address,
+    /// one max-APDU Who-Is window), then the request. Opening: the BBMD
+    /// registration alone.
     fn io_timeout(conn: &Conn) -> Duration {
-        conn.per_request() * 2 + conn.timeout() + Duration::from_secs(1)
+        conn.per_request() * 4 + conn.timeout() + Duration::from_secs(1)
     }
 
-    /// Finding the device, then one request per read at worst (ReadProperty
-    /// after RPM was refused); a poll stops at its first timeout.
+    /// As [`Driver::io_timeout`], with one request per read at worst
+    /// (ReadProperty after RPM was refused); a poll stops at its first
+    /// timeout.
     fn poll_timeout(conn: &Conn, plan: &Plan) -> Duration {
         let n = u32::try_from(plan.reads())
             .unwrap_or(u32::MAX)
-            .saturating_add(1);
+            .saturating_add(3);
         conn.per_request().saturating_mul(n) + conn.timeout() + Duration::from_secs(1)
     }
 
@@ -2693,6 +2697,40 @@ mod tests {
         let big = vec![item(2, 1, 77, 2000), item(2, 1, 85, 5)];
         assert_eq!(chunks(&big, 480, None), vec![0..1, 1..2]);
         assert!(chunks(&[], 480, None).is_empty());
+    }
+
+    /// The framework's bounds cover the longest path of a ping or write
+    /// and of a poll, every step with all its retries: the BBMD renewal
+    /// (inside the first request), the Who-Is binding and its confirmation
+    /// (or the max-APDU Who-Is of a fixed address), then the requests.
+    #[test]
+    fn io_bounds_cover_the_worst_path() {
+        for retries in 0..=5u8 {
+            for ms in [100u32, 3000, 60_000] {
+                let conn = Conn {
+                    apdu_timeout_ms: ms,
+                    apdu_retries: retries,
+                    ..Conn::from_value(&Value::Map(BTreeMap::new())).unwrap()
+                };
+                let (t, pr) = (conn.timeout(), conn.per_request());
+                let bind = (pr + pr).max(t); // discover + confirm, or max-APDU Who-Is
+                let one = pr + bind + pr;
+                assert!(BacnetDriver::io_timeout(&conn) > one, "{retries} {ms}");
+                assert!(BacnetDriver::write_timeout(&conn, &ai(&[])) > one);
+                let points: Vec<(PointId, Point)> = (0..7)
+                    .map(|i| (format!("p{i}"), ai(&[("instance", Value::UInt(i))])))
+                    .collect();
+                let dev = Dev::from_value(&Value::Map(BTreeMap::from([(
+                    "instance".to_owned(),
+                    Value::UInt(1),
+                )])))
+                .unwrap();
+                let plan = BacnetDriver::plan(&dev, &points);
+                let reads = u32::try_from(plan.reads()).unwrap();
+                let poll = pr + bind + pr * reads;
+                assert!(BacnetDriver::poll_timeout(&conn, &plan) > poll, "{retries} {ms}");
+            }
+        }
     }
 
     /// The reply estimate holds when every result is an error `[5]{class,
