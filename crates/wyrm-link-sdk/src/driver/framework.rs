@@ -21,6 +21,10 @@
 //!   starts; device and point edits re-plan without reconnecting.
 //! * A config that fails validation at load keeps its node (`Failed`,
 //!   error shown) and stays editable; nothing is deleted.
+//! * A poll is bounded by [`Driver::poll_timeout`] (it may take many
+//!   requests), pings and writes by [`Driver::io_timeout`]. A value is
+//!   published on a change, and again when unchanged once its last sample
+//!   is [`Driver::republish`] old.
 
 use super::params::{normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
@@ -277,9 +281,25 @@ async fn set_status(ctx: &LinkCtx, base: &str, state: NodeState, error: Option<&
     }
 }
 
-/// Publish a point value when it or its quality changed.
-async fn put_point(ctx: &LinkCtx, path: &str, v: Value, q: Quality, qual: Option<&str>) {
-    if ctx.last(path).is_some_and(|s| s.v == v && s.q == q) {
+/// Publish a point value when it or its quality changed, or (heartbeat,
+/// [`Driver::republish`]) when the last sample is at least `republish` old.
+async fn put_point(
+    ctx: &LinkCtx,
+    path: &str,
+    v: Value,
+    q: Quality,
+    qual: Option<&str>,
+    republish: Option<Duration>,
+) {
+    let fresh = |t: u64| {
+        republish.is_none_or(|d| {
+            now_us().saturating_sub(t) < u64::try_from(d.as_micros()).unwrap_or(u64::MAX)
+        })
+    };
+    if ctx
+        .last(path)
+        .is_some_and(|s| s.v == v && s.q == q && fresh(s.t))
+    {
         return;
     }
     let _ = ctx
@@ -1054,18 +1074,27 @@ impl<D: Driver> Owner<D> {
     ) -> std::result::Result<(), String> {
         let mut device_err = None;
         let mut any_ok = false;
+        let republish = self.devs.get(dev).and_then(|d| D::republish(&d.cfg));
         for (id, r) in results {
             let path = format!("{}/{dev}/{id}", self.conn);
             match r {
                 Ok(v) => {
                     any_ok = true;
-                    put_point(&self.ctx, &path, v, Quality::Good, None).await;
+                    put_point(&self.ctx, &path, v, Quality::Good, None, republish).await;
                 }
                 Err(DriverError::Point(e)) => {
                     any_ok = true; // the device answered
                     debug!(point = %path, "point error: {e}");
                     let v = self.ctx.last(&path).map(|s| s.v).unwrap_or(Value::Null);
-                    put_point(&self.ctx, &path, v, Quality::Bad, Some(QUAL_DEVICE_ERROR)).await;
+                    put_point(
+                        &self.ctx,
+                        &path,
+                        v,
+                        Quality::Bad,
+                        Some(QUAL_DEVICE_ERROR),
+                        republish,
+                    )
+                    .await;
                 }
                 Err(DriverError::Device(e)) => device_err = Some(e),
                 Err(DriverError::Transport(e)) => return Err(e),
@@ -1111,7 +1140,7 @@ async fn owner<D: Driver>(
                 for d in devs {
                     o.dev_state(&d, NodeState::Connecting, None).await;
                 }
-                match serve::<D>(&mut o, &mut t, &mut rx, &mut stop, timeout).await {
+                match serve::<D>(&mut o, &mut t, &mut rx, &mut stop, &cfg).await {
                     None => return,
                     Some(e) => e,
                 }
@@ -1149,14 +1178,16 @@ async fn owner<D: Driver>(
 }
 
 /// Serve requests on an open transport. `None` = stopped; `Some(err)` =
-/// the transport broke.
+/// the transport broke. Pings and writes are bounded by
+/// [`Driver::io_timeout`], polls by [`Driver::poll_timeout`].
 async fn serve<D: Driver>(
     o: &mut Owner<D>,
     t: &mut D::Transport,
     rx: &mut mpsc::Receiver<Req<D>>,
     stop: &mut watch::Receiver<bool>,
-    timeout: Duration,
+    cfg: &D::Conn,
 ) -> Option<String> {
+    let timeout = D::io_timeout(cfg);
     loop {
         let req = tokio::select! {
             r = rx.recv() => r?,
@@ -1170,7 +1201,8 @@ async fn serve<D: Driver>(
                 let Some(g) = d.groups.get(group) else {
                     continue;
                 };
-                let r = tokio::time::timeout(timeout, D::poll(t, &d.cfg, &g.plan)).await;
+                let bound = D::poll_timeout(cfg, &g.plan);
+                let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &g.plan)).await;
                 g.inflight.store(false, Ordering::Release);
                 match r {
                     Err(_) => o.dev_miss(&dev, "poll timed out").await,
@@ -1215,8 +1247,9 @@ async fn serve<D: Driver>(
                     Ok(()) => {
                         // Read back: the tree shows what the device holds.
                         let plan = D::plan(&d.cfg, &[(point.clone(), p.clone())]);
+                        let bound = D::poll_timeout(cfg, &plan);
                         if let Ok(results) =
-                            tokio::time::timeout(timeout, D::poll(t, &d.cfg, &plan)).await
+                            tokio::time::timeout(bound, D::poll(t, &d.cfg, &plan)).await
                         {
                             if let Err(e) = o.publish_results(&dev, results).await {
                                 let _ = reply.send(Ok(()));

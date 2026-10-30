@@ -92,8 +92,22 @@ pub trait Driver: Sized + Send + Sync + 'static {
         Some(Duration::from_secs(5))
     }
 
+    /// Bound on one ping or write (and on opening the connection).
     fn io_timeout(_conn: &Self::Conn) -> Duration {
         Duration::from_secs(2)
+    }
+
+    /// Bound on one poll of `plan`, which may take many requests (default:
+    /// [`Driver::io_timeout`]). A poll cut by it is a device miss and its
+    /// results are lost, so it should grow with the plan.
+    fn poll_timeout(conn: &Self::Conn, _plan: &Self::Plan) -> Duration {
+        Self::io_timeout(conn)
+    }
+
+    /// Heartbeat: publish an unchanged value again once its last sample is
+    /// this old (on the next poll). `None` = publish on a change only.
+    fn republish(_dev: &Self::Dev) -> Option<Duration> {
+        None
     }
 
     /// Missed polls before `uncertain/stale` becomes `bad/comm_fail`.

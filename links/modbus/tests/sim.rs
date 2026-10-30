@@ -28,21 +28,26 @@ fn pt(table: &str, addr: u64, dtype: &str, extra: &[(&str, Value)]) -> Value {
 }
 
 fn tree(port: u16, dev: &[(&str, Value)], points: Value) -> Tree {
+    conn_tree(port, &[], dev, points)
+}
+
+/// `c1/d1` like [`tree`], with connection params `conn` beside (or over)
+/// host, port and a 200 ms timeout.
+fn conn_tree(port: u16, conn: &[(&str, Value)], dev: &[(&str, Value)], points: Value) -> Tree {
     let mut d: Vec<(&str, Value)> = vec![("unit", Value::UInt(1)), ("ping_s", Value::Float(0.1))];
     d.extend_from_slice(dev);
     d.push(("points", points));
-    Tree(map(&[(
-        "connections",
-        map(&[(
-            "c1",
-            map(&[
-                ("host", "127.0.0.1".into()),
-                ("port", Value::UInt(port.into())),
-                ("timeout_ms", Value::UInt(200)),
-                ("devices", map(&[("d1", map(&d))])),
-            ]),
-        )]),
-    )]))
+    let mut c: Vec<(&str, Value)> = vec![
+        ("host", "127.0.0.1".into()),
+        ("port", Value::UInt(port.into())),
+        ("timeout_ms", Value::UInt(200)),
+    ];
+    for (k, v) in conn {
+        c.retain(|(n, _)| n != k);
+        c.push((k, v.clone()));
+    }
+    c.push(("devices", map(&[("d1", map(&d))])));
+    Tree(map(&[("connections", map(&[("c1", map(&c))]))]))
 }
 
 /// The `status` enum leaf as a state name (`connected`, `failed`, …).
@@ -798,5 +803,276 @@ async fn stored_writable_text_beyond_one_write() {
     assert!(err.starts_with("regs:") && err.contains("123"), "{att:?}");
     assert_eq!(dev.lock().unwrap().holding[200..202], [0x4142, 0x4300]);
     assert_eq!(val(&h, "text"), Some(Value::from("ABC")));
+    h.stop().await;
+}
+
+/// Every `~val` sample published for `path`, in order.
+async fn samples(h: &H, path: &str) -> std::sync::Arc<std::sync::Mutex<Vec<wyrm_core::Sample>>> {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s = seen.clone();
+    h.session()
+        .declare_subscriber(h.key(path, "~val"))
+        .callback(move |sample| {
+            if let Ok(v) = wyrm_core::codec::from_slice(&sample.payload().to_bytes()) {
+                s.lock().unwrap().push(v);
+            }
+        })
+        .background()
+        .await
+        .expect("subscriber");
+    seen
+}
+
+/// Function codes of the writes the simulator served, with their address.
+fn writes(dev: &sim::Device) -> Vec<(u8, u16)> {
+    dev.lock()
+        .unwrap()
+        .log
+        .iter()
+        .filter(|(_, fc, _)| matches!(fc, 5 | 6 | 15 | 16 | 22))
+        .map(|(_, fc, a)| (*fc, *a))
+        .collect()
+}
+
+/// Ruling 5: `write_mode = single` writes a multi-register value as a
+/// series of FC6, lowest address first (DSA "Never"); no FC16.
+#[tokio::test(flavor = "multi_thread")]
+async fn single_mode_writes_a_series_of_fc6() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let wr = [("writable", Value::Bool(true))];
+    let points = map(&[
+        ("temp", pt("holding", 60, "f32", &wr)),
+        ("sp", pt("holding", 70, "u16", &wr)),
+    ]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("write_mode", "single".into())],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    wait("polled", || {
+        val(&h, "temp").is_some() && val(&h, "sp").is_some()
+    })
+    .await;
+    let tok = || Some(h.ptok(Perm::Write));
+    assert_eq!(
+        status(&h.set("c1/d1/temp", 21.5, tok()).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(writes(&dev), [(6, 60), (6, 61)]);
+    assert_eq!(dev.lock().unwrap().count(16), 0, "no FC16");
+    assert_eq!(
+        dev.lock().unwrap().holding[60..62],
+        codec::encode(codec::DType::F32, &Value::Float(21.5), 1, 1.0, 0.0).unwrap()[..]
+    );
+    assert_eq!(val(&h, "temp"), Some(Value::Float(21.5)), "read back");
+    assert_eq!(
+        status(&h.set("c1/d1/sp", 7u64, tok()).await),
+        Some(Status::Ok)
+    );
+    assert_eq!(writes(&dev), [(6, 60), (6, 61), (6, 70)]);
+    h.stop().await;
+}
+
+/// Ruling 6: with `retries = 1` a request that times out is sent again;
+/// the value comes in good and the quality never changes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timeout_is_retried_once() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[70] = 5;
+        t.drop_next = Some((1, 70, 1));
+    }
+    // One poll only (60 s), no ping: the request counts are exact.
+    let points = map(&[(
+        "v",
+        pt("holding", 70, "u16", &[("poll_s", Value::Float(60.0))]),
+    )]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("retries", Value::UInt(1))],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    let seen = samples(&h, "c1/d1/v").await;
+    wait("value after one retry", || {
+        val(&h, "v") == Some(Value::UInt(5))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    {
+        let t = dev.lock().unwrap();
+        assert_eq!(t.dropped, 1);
+        assert_eq!(t.log.iter().filter(|r| **r == (1, 3, 70)).count(), 2);
+    }
+    assert_eq!(h.ctx().last("c1/d1/v").map(|s| s.q), Some(Quality::Good));
+    assert!(
+        seen.lock().unwrap().iter().all(|s| s.q == Quality::Good),
+        "{:?}",
+        seen.lock().unwrap()
+    );
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
+    assert_eq!(dev.lock().unwrap().connections, 1, "no reconnect");
+    h.stop().await;
+}
+
+/// Ruling 6: an exception reply is an answer, not a miss: never retried
+/// (neither a read nor a write).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_exception_is_not_retried() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[(
+        "bad",
+        // beyond the simulator's 1000 registers: IllegalDataAddress
+        pt(
+            "holding",
+            2000,
+            "u16",
+            &[
+                ("poll_s", Value::Float(60.0)),
+                ("writable", Value::Bool(true)),
+            ],
+        ),
+    )]);
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[("retries", Value::UInt(1))],
+        &[("ping", "none".into())],
+        points,
+    ))
+    .await;
+    wait("bad point", || {
+        h.ctx()
+            .last("c1/d1/bad")
+            .is_some_and(|s| s.q == Quality::Bad)
+    })
+    .await;
+    let att = h.set("c1/d1/bad", 1u64, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&att), Some(Status::InvalidParameter), "{att:?}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let t = dev.lock().unwrap();
+    // one read at start, one write (no read-back after a failed write)
+    assert_eq!(t.log.iter().filter(|r| **r == (1, 3, 2000)).count(), 1);
+    assert_eq!(t.log.iter().filter(|r| **r == (1, 6, 2000)).count(), 1);
+}
+
+/// Review Focus 2, ruling 7: on RTU (here over TCP) unit 2 answers 300 ms
+/// late with a 200 ms timeout. The next read of unit 2 (another address,
+/// same function code and length, so tokio-modbus would take the late
+/// reply) and the read of unit 3 return their own values: the driver
+/// reopens the transport once, and not again without a request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_reply_is_not_taken() {
+    let (addr, dev, _task) = sim::spawn_rtu_over_tcp("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        t.holding[10] = 1010;
+        t.holding[20] = 2020;
+        t.holding[30] = 3030;
+        t.delay_once = Some((2, 10, Duration::from_millis(300)));
+    }
+    let once = |a: u64| pt("holding", a, "u16", &[("poll_s", Value::Float(60.0))]);
+    let dev_of = |unit: u64, points: Value| {
+        map(&[
+            ("unit", Value::UInt(unit)),
+            ("ping", "none".into()),
+            // a and b in separate requests
+            ("contiguous_only", Value::Bool(true)),
+            ("points", points),
+        ])
+    };
+    let h = H::start(Tree(map(&[(
+        "connections",
+        map(&[(
+            "c1",
+            map(&[
+                ("host", "127.0.0.1".into()),
+                ("port", Value::UInt(addr.port().into())),
+                ("transport", "rtu_over_tcp".into()),
+                ("timeout_ms", Value::UInt(200)),
+                (
+                    "devices",
+                    map(&[
+                        ("u2", dev_of(2, map(&[("a", once(10)), ("b", once(20))]))),
+                        ("u3", dev_of(3, map(&[("c", once(30))]))),
+                    ]),
+                ),
+            ]),
+        )]),
+    )])))
+    .await;
+    let (seen_b, seen_c) = (samples(&h, "c1/u2/b").await, samples(&h, "c1/u3/c").await);
+    let v = |p: &str| h.ctx().last(p).map(|s| s.v);
+    wait("b and c read", || {
+        v("c1/u2/b").is_some() && v("c1/u3/c").is_some()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(v("c1/u2/b"), Some(Value::UInt(2020)));
+    assert_eq!(v("c1/u3/c"), Some(Value::UInt(3030)));
+    for (p, seen) in [("b", &seen_b), ("c", &seen_c)] {
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter().all(|s| s.v != Value::UInt(1010)),
+            "{p} took the late reply: {seen:?}"
+        );
+    }
+    assert!(v("c1/u2/a").is_none(), "a timed out");
+    assert_eq!(dev.lock().unwrap().connections, 2, "exactly one reopen");
+    h.stop().await;
+}
+
+/// Ruling 8: the poll's whole-operation bound grows with the plan. Ten
+/// spans of 50 ms each and one slow span (a timeout of 100 ms and a retry)
+/// take about 650 ms: more than 4 × 100 ms, within 100 × 2 × 10 + 1000.
+#[tokio::test(flavor = "multi_thread")]
+async fn poll_bound_grows_with_spans() {
+    let (addr, dev, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    {
+        let mut t = dev.lock().unwrap();
+        for i in 0..10 {
+            t.holding[i * 2] = 100 + i as u16;
+        }
+        t.latency = Duration::from_millis(50);
+        t.drop_next = Some((1, 8, 1));
+    }
+    let points: Vec<(String, Value)> = (0..10u64)
+        .map(|i| {
+            (
+                format!("p{i}"),
+                pt("holding", i * 2, "u16", &[("poll_s", Value::Float(60.0))]),
+            )
+        })
+        .collect();
+    let points = Value::Map(points.into_iter().collect());
+    let h = H::start(conn_tree(
+        addr.port(),
+        &[
+            ("timeout_ms", Value::UInt(100)),
+            ("retries", Value::UInt(1)),
+        ],
+        &[
+            ("ping", "none".into()),
+            ("contiguous_only", Value::Bool(true)),
+        ],
+        points,
+    ))
+    .await;
+    wait("all ten spans", || {
+        (0..10).all(|i| val(&h, &format!("p{i}")).is_some())
+    })
+    .await;
+    for i in 0..10u64 {
+        assert_eq!(
+            val(&h, &format!("p{i}")),
+            Some(Value::UInt(100 + i)),
+            "p{i}"
+        );
+    }
+    assert_eq!(dev.lock().unwrap().dropped, 1);
+    assert_eq!(state(&h, "c1/d1").as_deref(), Some("connected"));
     h.stop().await;
 }

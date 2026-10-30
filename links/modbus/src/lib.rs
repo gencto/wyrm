@@ -12,9 +12,10 @@
 //! * reads (FC1–4) batched per table by [`codec::plan`] (`max_regs`,
 //!   `max_bits`, `contiguous_only`); a span-level exception fails its
 //!   member points only;
-//! * writes FC5/FC15 (coils), FC6/FC16 (registers, `write_mode`), FC22 mask
-//!   write for a bit in a register with a read-modify-write fallback that is
-//!   cached per unit when the device lacks FC22;
+//! * writes FC5/FC15 (coils), FC6/FC16 (registers, `write_mode`; `single`
+//!   writes a multi-word value as a series of FC6), FC22 mask write for a
+//!   bit in a register with a read-modify-write fallback that is cached per
+//!   unit when the device lacks FC22;
 //! * device ping by reading a probe register (an exception reply = alive) or
 //!   FC17 Report Server ID.
 //!
@@ -23,9 +24,17 @@
 //! request without a reply; `tokio-modbus` 0.17 always waits for one, so a
 //! unit-0 device on RTU sends nothing and fails with that reason.
 //!
-//! Every request is bounded by `timeout_ms`; a timeout is a device miss, an
-//! I/O or protocol error drops the connection. Modbus ASCII and UDP are not
-//! supported.
+//! Every request is bounded by `timeout_ms` and sent again up to `retries`
+//! times after a timeout (never after an exception); a last timeout is a
+//! device miss, an I/O or protocol error drops the connection. On RTU a
+//! reply that comes after its timeout would be taken for the next request
+//! of the same unit and function (`tokio-modbus` cannot drain input), so
+//! the next request after a timeout reopens the transport first. Modbus TCP
+//! never takes a late reply (its transaction id differs); `tokio-modbus`
+//! reports it as a protocol error, which reconnects. A poll is bounded by
+//! `timeout_ms × (1 + retries) × requests + 1 s`. `republish_s` on a
+//! device publishes unchanged values again (a heartbeat). Modbus ASCII and
+//! UDP are not supported.
 
 #![forbid(unsafe_code)]
 
@@ -38,9 +47,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::LazyLock;
 use std::time::Duration;
-use tokio_modbus::client::{rtu, tcp, Client, Context, Reader, Writer};
+use tokio_modbus::client::{rtu, tcp, Client, Context};
 use tokio_modbus::slave::SlaveContext;
-use tokio_modbus::{ExceptionCode, Request, Slave};
+use tokio_modbus::{ExceptionCode, Request, Response, Slave};
+use tracing::debug;
 use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, normalize, ParamSpec};
@@ -56,7 +66,8 @@ pub type Modbus = Framework<ModbusDriver>;
 pub enum WriteMode {
     /// FC6/FC5 for one word or bit, FC16 for more.
     Auto,
-    /// FC6/FC5 only (multi-word values still need FC16).
+    /// FC6/FC5 only: a multi-word value is a series of FC6, lowest
+    /// address first (DSA "Never").
     Single,
     /// FC16/FC15 always.
     Multiple,
@@ -124,6 +135,13 @@ impl Conn {
             Conn::Serial(c) => c.write_mode,
         }
     }
+
+    fn retries(&self) -> u8 {
+        match self {
+            Conn::Ip(c) => c.retries,
+            Conn::Serial(c) => c.retries,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -139,6 +157,9 @@ pub struct IpConn {
     pub timeout_ms: u32,
     #[param(enum, default = "auto", display = "Write Mode")]
     pub write_mode: WriteMode,
+    /// Repeats of a request after a timeout (not after an exception).
+    #[param(default = 0, min = 0, max = 5, display = "Retries")]
+    pub retries: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -157,6 +178,10 @@ pub struct SerialConn {
     pub timeout_ms: u32,
     #[param(enum, default = "auto", display = "Write Mode")]
     pub write_mode: WriteMode,
+    /// Repeats of a request after a timeout (not after an exception); 1 is
+    /// a good value on RS485.
+    #[param(default = 0, min = 0, max = 5, display = "Retries")]
+    pub retries: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Params)]
@@ -180,6 +205,15 @@ pub struct Device {
     pub max_regs: u16,
     #[param(default = 2000, min = 1, max = 2000, display = "Max Bits per Read")]
     pub max_bits: u16,
+    /// Publish an unchanged value again after this long (0 = only on a
+    /// change; DSA republishes every 60 s).
+    #[param(
+        default = 0.0,
+        min = 0.0,
+        max = 3600.0,
+        display = "Republish Unchanged Values (s)"
+    )]
+    pub republish_s: f64,
 }
 
 /// One point. Hand-written `Params` because `dtype` uses the codec names and
@@ -428,10 +462,22 @@ fn serial_builder(c: &SerialConn) -> tokio_serial::SerialPortBuilder {
 
 pub struct Transport {
     ctx: Context,
+    /// Kept to reopen the transport (ruling 7).
+    conn: Conn,
     timeout: Duration,
+    retries: u8,
     write_mode: WriteMode,
     /// RTU framing (serial or RTU over TCP): unit 0 is broadcast there.
     rtu: bool,
+    /// The unit addressed (set again on a reopened transport).
+    unit: u8,
+    /// RTU only: a request went out and its reply was not taken (timed
+    /// out, or the framework's bound cut the operation). The reply may
+    /// still come, and `tokio-modbus` cannot drain it, so the next request
+    /// reopens the transport first.
+    unanswered: bool,
+    /// Reopens after an unanswered RTU request (diagnostics: Task 3).
+    reopens: u64,
     /// Units that answered FC22 with `IllegalFunction`.
     no_fc22: HashSet<u8>,
 }
@@ -448,19 +494,14 @@ pub struct Plan {
     tables: Vec<TableReads>,
 }
 
-type Reply<T> = Result<Result<T, ExceptionCode>, DriverError>;
-
-/// Run one request with the timeout and sort the outcome.
-async fn io<T>(
-    timeout: Duration,
-    f: impl std::future::Future<Output = tokio_modbus::Result<T>>,
-) -> Reply<T> {
-    match tokio::time::timeout(timeout, f).await {
-        Err(_) => Err(DriverError::Device("request timed out".into())),
-        Ok(Err(e)) => Err(DriverError::Transport(e.to_string())),
-        Ok(Ok(r)) => Ok(r),
+impl Plan {
+    /// Read requests of one poll.
+    fn requests(&self) -> usize {
+        self.tables.iter().map(|t| t.spans.len()).sum()
     }
 }
+
+type Reply<T> = Result<Result<T, ExceptionCode>, DriverError>;
 
 fn exception(e: ExceptionCode) -> DriverError {
     DriverError::Point(format!("device exception {e:?}"))
@@ -470,27 +511,135 @@ fn codec_err(e: codec::CodecError) -> DriverError {
     DriverError::Point(e.to_string())
 }
 
+/// A reply of another kind than the request (`tokio-modbus` checks the
+/// function code, so this does not happen).
+fn unexpected(r: &Response) -> DriverError {
+    DriverError::Transport(format!(
+        "unexpected reply (function {})",
+        r.function_code().value()
+    ))
+}
+
 /// Why a unit-0 device on RTU sends nothing.
 const NO_RTU_BROADCAST: &str = "broadcast (unit 0) is not supported on RTU";
+
+/// Open the connection's socket or serial port (unit 1 addressed).
+async fn connect(conn: &Conn, timeout: Duration) -> Result<Context, DriverError> {
+    Ok(match conn {
+        Conn::Ip(c) => {
+            let target = format!("{}:{}", c.host, c.port);
+            let addr: SocketAddr = tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
+                .await
+                .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
+                .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
+                .next()
+                .ok_or_else(|| DriverError::Transport(format!("resolve {target}: no address")))?;
+            match c.transport {
+                IpTransport::Tcp => {
+                    tokio::time::timeout(timeout, tcp::connect_slave(addr, Slave(1)))
+                        .await
+                        .map_err(|_| DriverError::Transport(format!("connect {target}: timeout")))?
+                        .map_err(|e| DriverError::Transport(format!("connect {target}: {e}")))?
+                }
+                IpTransport::RtuOverTcp => {
+                    let stream =
+                        tokio::time::timeout(timeout, tokio::net::TcpStream::connect(addr))
+                            .await
+                            .map_err(|_| {
+                                DriverError::Transport(format!("connect {target}: timeout"))
+                            })?
+                            .map_err(|e| {
+                                DriverError::Transport(format!("connect {target}: {e}"))
+                            })?;
+                    rtu::attach_slave(stream, Slave(1))
+                }
+            }
+        }
+        Conn::Serial(c) => {
+            if !serial_path_ok(&c.serial_port) {
+                return Err(DriverError::Transport(format!(
+                    "serial_port {:?}: not a serial device path (/dev/tty*, /dev/cu.*, \
+                     /dev/serial/by-id/*, /dev/serial/by-path/*, /dev/rfcomm*, COMn)",
+                    c.serial_port
+                )));
+            }
+            let stream = tokio_serial::SerialStream::open(&serial_builder(c))
+                .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
+            rtu::attach_slave(stream, Slave(1))
+        }
+    })
+}
 
 impl Transport {
     /// Address `unit`; `false` = it is the RTU broadcast address, which
     /// `tokio-modbus` cannot send (it always waits for a reply).
     fn select(&mut self, unit: u8) -> bool {
+        self.unit = unit;
         self.ctx.set_slave(Slave(unit));
         !(self.rtu && unit == 0)
     }
 
-    async fn read(&mut self, table: Table, addr: u16, n: u16) -> Reply<Vec<u16>> {
-        let t = self.timeout;
-        fn bits(r: Result<Vec<bool>, ExceptionCode>) -> Result<Vec<u16>, ExceptionCode> {
-            r.map(|b| b.into_iter().map(u16::from).collect())
+    /// Close the transport and open it again (ruling 7): a late reply to
+    /// the unanswered request then arrives on the closed one.
+    async fn reopen(&mut self) -> Result<(), DriverError> {
+        // Close first: a serial port opens exclusively.
+        let _ = tokio::time::timeout(self.timeout, self.ctx.disconnect()).await;
+        self.ctx = connect(&self.conn, self.timeout).await?;
+        self.ctx.set_slave(Slave(self.unit));
+        self.unanswered = false;
+        self.reopens += 1;
+        debug!(
+            reopens = self.reopens,
+            "RTU transport reopened after an unanswered request"
+        );
+        Ok(())
+    }
+
+    /// One request, bounded by `timeout_ms`, sent again up to `retries`
+    /// times after a timeout only (an exception is an answer; an I/O or
+    /// protocol error drops the connection). On RTU a request after an
+    /// unanswered one goes out on a reopened transport.
+    async fn call(&mut self, req: Request<'static>) -> Reply<Response> {
+        let mut retry = 0;
+        loop {
+            if self.unanswered {
+                self.reopen().await?;
+            }
+            self.unanswered = self.rtu;
+            match tokio::time::timeout(self.timeout, self.ctx.call(req.clone())).await {
+                Err(_) if retry < self.retries => {
+                    retry += 1;
+                    debug!(retry, "request timed out; sending it again");
+                }
+                Err(_) => return Err(DriverError::Device("request timed out".into())),
+                Ok(r) => {
+                    self.unanswered = false;
+                    return r.map_err(|e| DriverError::Transport(e.to_string()));
+                }
+            }
         }
-        Ok(match table {
-            Table::Coil => bits(io(t, self.ctx.read_coils(addr, n)).await?),
-            Table::Discrete => bits(io(t, self.ctx.read_discrete_inputs(addr, n)).await?),
-            Table::Input => io(t, self.ctx.read_input_registers(addr, n)).await?,
-            Table::Holding => io(t, self.ctx.read_holding_registers(addr, n)).await?,
+    }
+
+    /// A write request: `Ok` on any normal reply.
+    async fn write_req(&mut self, req: Request<'static>) -> Result<(), DriverError> {
+        self.call(req).await?.map(|_| ()).map_err(exception)
+    }
+
+    async fn read(&mut self, table: Table, addr: u16, n: u16) -> Reply<Vec<u16>> {
+        let req = match table {
+            Table::Coil => Request::ReadCoils(addr, n),
+            Table::Discrete => Request::ReadDiscreteInputs(addr, n),
+            Table::Input => Request::ReadInputRegisters(addr, n),
+            Table::Holding => Request::ReadHoldingRegisters(addr, n),
+        };
+        Ok(match self.call(req).await? {
+            Err(e) => Err(e),
+            // Bits come padded to whole bytes.
+            Ok(Response::ReadCoils(b) | Response::ReadDiscreteInputs(b)) => {
+                Ok(b.into_iter().take(n.into()).map(u16::from).collect())
+            }
+            Ok(Response::ReadInputRegisters(w) | Response::ReadHoldingRegisters(w)) => Ok(w),
+            Ok(other) => return Err(unexpected(&other)),
         })
     }
 
@@ -505,27 +654,63 @@ impl Transport {
     ) -> Result<(), DriverError> {
         let (and, or) = codec::bit_masks(bit, on);
         if !self.no_fc22.contains(&unit) {
-            match io(self.timeout, self.ctx.masked_write_register(addr, and, or)).await? {
-                Ok(()) => return Ok(()),
+            match self.call(Request::MaskWriteRegister(addr, and, or)).await? {
+                Ok(_) => return Ok(()),
                 Err(ExceptionCode::IllegalFunction) => {
                     self.no_fc22.insert(unit);
                 }
                 Err(e) => return Err(exception(e)),
             }
         }
-        let cur = io(self.timeout, self.ctx.read_holding_registers(addr, 1))
+        let cur = self
+            .read(Table::Holding, addr, 1)
             .await?
             .map_err(exception)?;
         let cur = *cur
             .first()
             .ok_or_else(|| DriverError::Point("short read".into()))?;
-        io(
-            self.timeout,
-            self.ctx
-                .write_single_register(addr, codec::apply_masks(cur, and, or)),
-        )
-        .await?
-        .map_err(exception)
+        self.write_req(Request::WriteSingleRegister(
+            addr,
+            codec::apply_masks(cur, and, or),
+        ))
+        .await
+    }
+
+    /// Registers from `addr`: FC6 for one word (unless `multiple`), FC16
+    /// for more, or a series of FC6 in `single` mode (lowest address first;
+    /// a failure part-way names how many went out).
+    async fn write_words(&mut self, addr: u16, words: Vec<u16>) -> Result<(), DriverError> {
+        match (self.write_mode, words.as_slice()) {
+            (WriteMode::Auto | WriteMode::Single, [w]) => {
+                self.write_req(Request::WriteSingleRegister(addr, *w)).await
+            }
+            (WriteMode::Single, _) => {
+                let n = words.len();
+                for (i, w) in words.into_iter().enumerate() {
+                    let a = u16::try_from(i)
+                        .ok()
+                        .and_then(|i| addr.checked_add(i))
+                        .ok_or_else(|| DriverError::Point("addr: value runs past 65535".into()))?;
+                    let r = self.write_req(Request::WriteSingleRegister(a, w)).await;
+                    if let Err(e) = r {
+                        if i == 0 {
+                            return Err(e);
+                        }
+                        let partial = format!("{e} (after {i} of {n} registers were written)");
+                        return Err(match e {
+                            DriverError::Transport(_) => DriverError::Transport(partial),
+                            DriverError::Device(_) => DriverError::Device(partial),
+                            DriverError::Point(_) => DriverError::Point(partial),
+                        });
+                    }
+                }
+                Ok(())
+            }
+            _ => {
+                self.write_req(Request::WriteMultipleRegisters(addr, words.into()))
+                    .await
+            }
+        }
     }
 }
 
@@ -542,63 +727,21 @@ impl Driver for ModbusDriver {
 
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
         let timeout = Duration::from_millis(conn.timeout_ms().into());
-        let ctx = match conn {
-            Conn::Ip(c) => {
-                let target = format!("{}:{}", c.host, c.port);
-                let addr: SocketAddr =
-                    tokio::time::timeout(timeout, tokio::net::lookup_host(&target))
-                        .await
-                        .map_err(|_| DriverError::Transport(format!("resolve {target}: timeout")))?
-                        .map_err(|e| DriverError::Transport(format!("resolve {target}: {e}")))?
-                        .next()
-                        .ok_or_else(|| {
-                            DriverError::Transport(format!("resolve {target}: no address"))
-                        })?;
-                match c.transport {
-                    IpTransport::Tcp => {
-                        tokio::time::timeout(timeout, tcp::connect_slave(addr, Slave(1)))
-                            .await
-                            .map_err(|_| {
-                                DriverError::Transport(format!("connect {target}: timeout"))
-                            })?
-                            .map_err(|e| DriverError::Transport(format!("connect {target}: {e}")))?
-                    }
-                    IpTransport::RtuOverTcp => {
-                        let stream =
-                            tokio::time::timeout(timeout, tokio::net::TcpStream::connect(addr))
-                                .await
-                                .map_err(|_| {
-                                    DriverError::Transport(format!("connect {target}: timeout"))
-                                })?
-                                .map_err(|e| {
-                                    DriverError::Transport(format!("connect {target}: {e}"))
-                                })?;
-                        rtu::attach_slave(stream, Slave(1))
-                    }
-                }
-            }
-            Conn::Serial(c) => {
-                if !serial_path_ok(&c.serial_port) {
-                    return Err(DriverError::Transport(format!(
-                        "serial_port {:?}: not a serial device path (/dev/tty*, /dev/cu.*, \
-                         /dev/serial/by-id/*, /dev/serial/by-path/*, /dev/rfcomm*, COMn)",
-                        c.serial_port
-                    )));
-                }
-                let stream = tokio_serial::SerialStream::open(&serial_builder(c))
-                    .map_err(|e| DriverError::Transport(format!("open {}: {e}", c.serial_port)))?;
-                rtu::attach_slave(stream, Slave(1))
-            }
-        };
+        let ctx = connect(conn, timeout).await?;
         let rtu = match conn {
             Conn::Ip(c) => c.transport == IpTransport::RtuOverTcp,
             Conn::Serial(_) => true,
         };
         Ok(Transport {
             ctx,
+            conn: conn.clone(),
             timeout,
+            retries: conn.retries(),
             write_mode: conn.write_mode(),
             rtu,
+            unit: 1,
+            unanswered: false,
+            reopens: 0,
             no_fc22: HashSet::new(),
         })
     }
@@ -611,12 +754,10 @@ impl Driver for ModbusDriver {
             Ping::None => Ok(()),
             // Any answer, exception included, means the device is alive.
             Ping::Probe => t.read(dev.probe_table, dev.probe_addr, 1).await.map(|_| ()),
-            Ping::Fc17 => io(
-                t.timeout,
-                t.ctx.call(Request::Custom(0x11, Vec::new().into())),
-            )
-            .await
-            .map(|_| ()),
+            Ping::Fc17 => t
+                .call(Request::Custom(0x11, Vec::new().into()))
+                .await
+                .map(|_| ()),
         }
     }
 
@@ -705,18 +846,17 @@ impl Driver for ModbusDriver {
         if !t.select(dev.unit) {
             return Err(DriverError::Point(NO_RTU_BROADCAST.into()));
         }
-        let timeout = t.timeout;
         match (p.table, p.dtype) {
             (Table::Coil, _) => {
                 let Value::Bool(on) = v else {
                     return Err(DriverError::Point("expected true or false".into()));
                 };
-                let r = if t.write_mode == WriteMode::Multiple {
-                    io(timeout, t.ctx.write_multiple_coils(p.addr, &[*on])).await?
+                t.write_req(if t.write_mode == WriteMode::Multiple {
+                    Request::WriteMultipleCoils(p.addr, vec![*on].into())
                 } else {
-                    io(timeout, t.ctx.write_single_coil(p.addr, *on)).await?
-                };
-                r.map_err(exception)
+                    Request::WriteSingleCoil(p.addr, *on)
+                })
+                .await
             }
             (Table::Holding, DType::Binary) => {
                 let Value::Bool(on) = v else {
@@ -739,12 +879,7 @@ impl Driver for ModbusDriver {
                 }
                 let words =
                     codec::encode(p.dtype, v, p.regs, p.scale, p.offset).map_err(codec_err)?;
-                let r = if words.len() == 1 && t.write_mode != WriteMode::Multiple {
-                    io(timeout, t.ctx.write_single_register(p.addr, words[0])).await?
-                } else {
-                    io(timeout, t.ctx.write_multiple_registers(p.addr, &words)).await?
-                };
-                r.map_err(exception)
+                t.write_words(p.addr, words).await
             }
             _ => Err(DriverError::Point("point is not writable".into())),
         }
@@ -774,9 +909,22 @@ impl Driver for ModbusDriver {
         (dev.ping != Ping::None).then(|| Duration::from_secs_f64(dev.ping_s))
     }
 
-    /// Whole-operation bound; each request inside is bounded by `timeout_ms`.
+    /// Bound on a ping or write (up to 4 requests: FC22 + read-modify-write,
+    /// each with its retries); each request inside is bounded by
+    /// `timeout_ms`.
     fn io_timeout(conn: &Conn) -> Duration {
-        Duration::from_millis(u64::from(conn.timeout_ms()) * 4)
+        Duration::from_millis(u64::from(conn.timeout_ms()) * 4 * (1 + u64::from(conn.retries())))
+    }
+
+    /// Ruling 8: `timeout_ms × (1 + retries) × requests + 1 s`.
+    fn poll_timeout(conn: &Conn, plan: &Plan) -> Duration {
+        let per = u64::from(conn.timeout_ms()) * (1 + u64::from(conn.retries()));
+        let n = u64::try_from(plan.requests()).unwrap_or(u64::MAX);
+        Duration::from_millis(per.saturating_mul(n).saturating_add(1000))
+    }
+
+    fn republish(dev: &Device) -> Option<Duration> {
+        (dev.republish_s > 0.0).then(|| Duration::from_secs_f64(dev.republish_s))
     }
 
     /// Serial ports found on this host, for the `serial_port` field.
