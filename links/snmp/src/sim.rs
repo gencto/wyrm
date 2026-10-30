@@ -102,6 +102,10 @@ pub struct Agent {
     pre: Vec<Vec<u8>>,
     /// Authenticated `notInTimeWindow` reports sent.
     pub time_reports: u64,
+    /// Answer a request outside the time window with a response instead
+    /// of a `notInTimeWindow` report (an agent that does not follow RFC
+    /// 3414 §3.2 7a).
+    pub skips_time_check: bool,
     /// Answer every request with `authorizationError`.
     pub auth_error: bool,
     /// Answer a GET of more varbinds with `tooBig`; truncate a GETBULK.
@@ -251,6 +255,7 @@ impl Agent {
             replay_first: None,
             pre: Vec::new(),
             time_reports: 0,
+            skips_time_check: false,
             auth_error: false,
             max_varbinds: None,
             gen_err: None,
@@ -652,7 +657,9 @@ impl Agent {
             self.pre.push(old);
         }
         let now = self.engine_time();
-        if m.usm.boots != self.boots || m.usm.time.abs_diff(now) > TIME_WINDOW {
+        if !self.skips_time_check
+            && (m.usm.boots != self.boots || m.usm.time.abs_diff(now) > TIME_WINDOW)
+        {
             let user = &self.users[ui];
             let user = User {
                 name: user.name.clone(),

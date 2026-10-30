@@ -1105,6 +1105,26 @@ async fn a_replay_after_a_forced_reconnect_is_refused() {
     h.stop().await;
 }
 
+/// An agent that answers a request outside its time window (the first
+/// one, at 0/0) with a response instead of a `notInTimeWindow` report: the
+/// link learns the clock from that response, does not use its values, and
+/// sends the request again.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_without_the_time_check_still_opens() {
+    let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    agent.lock().unwrap().skips_time_check = true;
+    let points = map(&[("name", scalar(SYS_NAME, &[]))]);
+    let h = H::start(tree(
+        &v3(addr.port(), "sha256user", "sha256", "aes128"),
+        &[],
+        points,
+    ))
+    .await;
+    wait("good", || qual(&h, "name") == Some(Quality::Good)).await;
+    assert_eq!(agent.lock().unwrap().time_reports, 0, "no report was sent");
+    h.stop().await;
+}
+
 /// An agent that lost its boots counter (boots went down) is refused: the
 /// link keeps the agent's clock, so its answers are outside the time
 /// window. Reset Engine Clock (config, v3 connections only) forgets it and

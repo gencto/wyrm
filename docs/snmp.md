@@ -60,9 +60,10 @@ The engine id is discovered when the connection opens (RFC 3414 §4) and the
 keys are localized for it. The agent's boots and time come from authenticated
 messages only, never from the unauthenticated discovery report. The link keeps
 them across reconnects (per agent address, engine id and user, for as long as
-the link runs); the first time, they come from an authenticated
-`usmStatsNotInTimeWindows` report to the first request. noAuthNoPriv is not
-offered.
+the link runs); the first time, they come from the authenticated answer to
+the first request, sent at boots/time 0/0: a `usmStatsNotInTimeWindows`
+report, or, from an agent that skips that check, a response whose values are
+not used (the request is sent again). noAuthNoPriv is not offered.
 
 `host`, `port`, `user`, the protocols and `context` are the destination of the
 secrets: an `edit` that changes one of them drops the stored secrets unless it
@@ -167,7 +168,7 @@ id) up to `retries` times. Two more counters show datagrams the link drops:
 | Counter | Counts |
 |---|---|
 | `late_replies` | Answers to an earlier request (their id is not one of this request's). A late v3 answer is authenticated first, and its boots and time move the link's notion of the agent's clock forward. |
-| `rejected_replies` | v3 answers that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, it is outside the time window (§7), or it is a response to a request sent before the clock was known. |
+| `rejected_replies` | v3 answers that are not taken: the MAC does not verify, the authoritative engine id is another, the security level is lower than the request's (no MAC, or not encrypted for an authPriv request), it does not decrypt, it is outside the time window (§7). |
 | `undecodable_replies` | Datagrams that are not an SNMP message the link reads (framing, header or PDU malformed). |
 
 ## 5. Writes
@@ -225,9 +226,9 @@ connection. The device ping is the same GET in the device's view; any answer,
   message and is dropped. The clock moves forward only, and only on
   authenticated messages, late ones included (RFC 3412 §7.2: authentication
   and timeliness come before the msgID); the unauthenticated discovery report
-  sets the engine id, never the clock. A response to a request sent before the
-  clock is known is never taken (the agent answers such a request with a
-  report).
+  sets the engine id, never the clock. The values of a response to a request
+  sent before the clock is known are never taken (it may be a replay): only
+  its boots and time, and the request is sent again.
 * The clock is kept across reconnects, so a forced reconnect (a forged ICMP
   error or report) does not open a window for replays. **Reset Engine Clock**
   (connection action, `config`, v3) forgets it; run it only when the agent

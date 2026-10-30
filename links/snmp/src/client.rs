@@ -642,11 +642,18 @@ impl Session {
                         if !ids.contains(&pdu.request_id) {
                             return Ok(Got::Rejected);
                         }
-                        // The agent answers a request sent before the clock
-                        // was known (0/0) with a notInTimeWindow report,
-                        // never with a response: this one is a replay.
+                        // A request sent before the clock was known (0/0):
+                        // never take the values (they may be a replay's);
+                        // learn the clock from it, forward only, as from a
+                        // notInTimeWindow report (an agent that skips the
+                        // RFC 3414 §3.2 7a check answers with a response),
+                        // and send again.
                         if !seeded {
-                            return Ok(Got::Rejected);
+                            let (boots, time) = (m.usm.boots, m.usm.time);
+                            if let Some(e) = self.engine.as_mut() {
+                                e.timely(boots, time);
+                            }
+                            return Err(Fail::Again);
                         }
                         Ok(Got::Pdu(pdu))
                     }
@@ -990,11 +997,13 @@ mod tests {
         assert_eq!(s.engine.as_ref().unwrap().boots, 4);
     }
 
-    /// Before the clock is known (0/0) a response is never taken: the
-    /// agent answers such a request with a notInTimeWindow report, which
-    /// sets the clock.
+    /// Before the clock is known (0/0) a response is never taken: its
+    /// values may be a replay's. Its boots and time set the clock (forward
+    /// only, as a notInTimeWindow report's would), and the request is sent
+    /// again (an agent that skips the RFC 3414 §3.2 7a check answers a
+    /// 0/0 request with a response).
     #[tokio::test]
-    async fn a_response_before_the_clock_is_known_is_a_replay() {
+    async fn a_response_before_the_clock_is_known_only_sets_it() {
         let mut s = session(false).await;
         let resp = Pdu {
             ty: msg::RESPONSE,
@@ -1005,9 +1014,12 @@ mod tests {
         };
         assert!(matches!(
             s.accept(&signed(7, 3, 500, resp), &[7]),
-            Ok(Got::Rejected)
+            Err(Fail::Again)
         ));
-        assert!(!s.engine.as_ref().unwrap().seeded);
+        let e = s.engine.as_ref().unwrap();
+        assert!(e.seeded);
+        assert_eq!((e.boots, e.time), (3, 500));
+        let mut s = session(false).await;
         let r = signed(7, 3, 900, report(7, ReportKind::NotInTimeWindow));
         assert!(matches!(s.accept(&r, &[7]), Err(Fail::Again)));
         let e = s.engine.as_ref().unwrap();
