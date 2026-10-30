@@ -19,5 +19,73 @@
   links: {
     // A production line: 8 points at 1 Hz in two folders.
     line: { driver: "mock", params: { points: 8, rate_hz: 1, depth: 1, fanout: 2 } },
+    // These three are reached from central only through edge (a downstream
+    // of a downstream).
+    // Siemens S7 against wyrm-s7-sim (port 10102), docs/s7.md.
+    plc7: {
+      driver: "s7",
+      params: {
+        connections: {
+          plc1: {
+            host: "127.0.0.1", port: 10102, rack: 0, slot: 1,
+            devices: {
+              cpu: {
+                points: {
+                  counter: { address: "DB1.DBW0:INT", poll_s: 1 },
+                  temp: { address: "DB1.DBD2:REAL", unit: "°C" },
+                  name: { address: "DB1.DBB8:STRING[16]" },
+                  mw: { address: "MW10", writable: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // BACnet/IP against wyrm-bacnet-sim (UDP 47809; the link binds 47810),
+    // docs/bacnet.md.
+    bms: {
+      driver: "bacnet",
+      params: {
+        connections: {
+          sim: {
+            bind_host: "127.0.0.1", bind_port: 47810, broadcast: "127.0.0.1:47809",
+            devices: {
+              d1: {
+                instance: 1234, address: "127.0.0.1:47809",
+                points: {
+                  temp: { object_type: "analog_input", instance: 1, unit: "°C" },
+                  sp: { object_type: "analog_value", instance: 1, writable: true, priority: 8 },
+                  sp_free: { object_type: "analog_value", instance: 1, property: "relinquish",
+                             writable: true, priority: 8 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // OPC UA (security None on loopback) against wyrm-opcua-sim (port 4840),
+    // docs/opcua.md.
+    ua: {
+      driver: "opcua",
+      params: {
+        connections: {
+          sim: {
+            endpoint: "opc.tcp://127.0.0.1:4840/",
+            devices: {
+              line1: {
+                namespace_uri: "urn:wyrm:opcua-sim:data",
+                points: {
+                  counter: { node_id: "s=Line1.Double" },
+                  answer: { node_id: "s=Line1.Int32" },
+                  setpoint: { node_id: "s=Line1.Setpoint", writable: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 }

@@ -83,5 +83,108 @@
         },
       },
     },
+    // Modbus slave (ADR 0024): masters on 127.0.0.1:15502 read the tree's
+    // values; `remote_sp` takes master writes.
+    mbslave: {
+      driver: "modbus",
+      params: {
+        connections: {
+          s1: {
+            kind: "ip_slave",
+            listen_host: "127.0.0.1",
+            listen_port: 15502,
+            devices: {
+              unit1: {
+                unit: 1,
+                points: {
+                  temp: { table: "holding", addr: 0, dtype: "f32", writable: true, unit: "°C" },
+                  remote_sp: { table: "holding", addr: 2, dtype: "u16", writable: true, writable_by_master: true },
+                  run: { table: "coil", addr: 0, dtype: "binary", writable: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // HTTP/REST JSON against wyrm-http-sim (port 18090), docs/http.md.
+    meter: {
+      driver: "http",
+      params: {
+        connections: {
+          sim: {
+            base_url: "http://127.0.0.1:18090/api",
+            devices: {
+              data: {
+                path: "/data",
+                points: {
+                  power: { path: "$.meter.power", unit: "W", poll_s: 2 },
+                  energy: { path: "$.meter.energy", unit: "Wh", poll_s: 2 },
+                  b: { path: "$.items[?(@.id==\"b\")].v", poll_s: 2 },
+                  total: { path: "$.items[*].v", aggregate: "sum", poll_s: 2 },
+                },
+              },
+              resource: {
+                path: "/resource",
+                points: {
+                  setpoint: {
+                    path: "$.setpoint", writable: true, poll_s: 5,
+                    write_body: "{\"setpoint\": {{value}}}",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // SNMP v2c against wyrm-snmp-sim (port 1161), docs/snmp.md. The
+    // community here is for the demo only.
+    net1: {
+      driver: "snmp",
+      params: {
+        connections: {
+          sim: {
+            kind: "snmp_v2c", host: "127.0.0.1", port: 1161, community: "public",
+            devices: {
+              agent: {
+                points: {
+                  uptime: { oid: "1.3.6.1.2.1.1.3.0", conv: "timeticks_s", unit: "s" },
+                  eth0_in: { oid: "1.3.6.1.2.1.31.1.1.1.6", kind: "table_column", index: "1",
+                             conv: "rate_per_s", scale: 8, unit: "bit/s", poll_s: 5 },
+                  contact: { oid: "1.3.6.1.2.1.1.4.0", conv: "string", writable: true,
+                             set_type: "octet_string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // Prometheus scrape of wyrm-prometheus-sim (port 19101), docs/prometheus.md.
+    metrics: {
+      driver: "prometheus",
+      params: {
+        connections: {
+          sim: {
+            url: "http://127.0.0.1:19101/metrics",
+            scrape_s: 5,
+            devices: {
+              a: {
+                labels: "instance=\"a\"",
+                points: {
+                  temp: { selector: "sim_temperature_celsius", unit: "°C" },
+                },
+              },
+              all: {
+                points: {
+                  req_rate: { selector: "sim_requests_total", aggregate: "sum", mode: "rate_per_s", unit: "1/s" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 }
