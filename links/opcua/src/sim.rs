@@ -21,6 +21,7 @@
 //! | `Bad` | Double | every read answers BadSensorFailure |
 //! | `Uncertain` | Double | 5.0 with UncertainLastUsableValue |
 //! | `Slow` | Double | 7.0; a read waits [`Sim::set_slow`] first |
+//! | `Matrix` | Double, ValueRank 2 | writable |
 //!
 //! `Line1` also has a HasComponent reference to `Int32` (two hierarchical
 //! references to one node).
@@ -290,6 +291,11 @@ pub async fn spawn(opts: Options) -> std::io::Result<Sim> {
             var(&id("Slow"), "Slow")
                 .data_type(DataTypeId::Double)
                 .value(7.0f64),
+            var(&id("Matrix"), "Matrix")
+                .data_type(DataTypeId::Double)
+                .value_rank(2)
+                .value(vec![1.0f64, 2.0, 3.0, 4.0])
+                .writable(),
         ];
         for v in vars {
             v.organized_by(folder.clone()).insert(&mut *a);

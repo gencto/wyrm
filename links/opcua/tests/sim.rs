@@ -390,6 +390,7 @@ async fn writes_convert_to_the_server_type_and_read_back() {
         ("flags", pt(&line("Flags"), &w)),
         ("locked", pt(&line("Locked"), &w)),
         ("ro", pt(&line("Setpoint"), &[])),
+        ("matrix", pt(&line("Matrix"), &w)),
     ]);
     let h = H::start(tree(&s.url(), &[], &[], points)).await;
     connected(&h).await;
@@ -442,6 +443,17 @@ async fn writes_convert_to_the_server_type_and_read_back() {
     // the server refuses: not writable there
     assert_ne!(set("locked", Value::Float(2.0)).await, Some(Status::Ok));
     assert_eq!(s.get("Locked"), Some(opcua::types::Variant::Double(1.0)));
+    // a multi-dimensional node (ValueRank 2): refused, never sent flat
+    let before = s.get("Matrix");
+    assert_eq!(
+        set(
+            "matrix",
+            Value::Array(vec![Value::Float(9.0), Value::Float(8.0)])
+        )
+        .await,
+        Some(Status::InvalidParameter)
+    );
+    assert_eq!(s.get("Matrix"), before);
     // read-only in the tree
     assert_ne!(set("ro", Value::Float(1.0)).await, Some(Status::Ok));
     assert_eq!(s.get("Setpoint"), Some(opcua::types::Variant::Double(42.5)));

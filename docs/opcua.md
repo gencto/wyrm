@@ -108,7 +108,9 @@ integers.
 1. The link reads the node's DataType and ValueRank once per session (and
    the current value when the DataType is not a built-in type). The target
    type is that DataType (Duration → Double, UtcTime → DateTime), else the
-   type of the current value; ValueRank ≥ 0 means an array.
+   type of the current value; ValueRank 0 or 1 means an array, and
+   ValueRank 2 or more (a matrix) is refused: multi-dimensional writes are
+   not supported.
 2. It undoes `scale`/`offset`: raw = (value − `offset`) / `scale`.
 3. It converts and **refuses lossy conversions** with `invalid_parameter`
    and a clear text: a fraction to an integer type (only rounding noise of

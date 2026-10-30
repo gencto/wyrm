@@ -604,6 +604,12 @@ impl Transport {
             Some(Variant::Int32(n)) => *n,
             _ => -1,
         };
+        if rank >= 2 {
+            // Array::new would send a flat one-dimensional array.
+            return Err(DriverError::Point(format!(
+                "multi-dimensional writes are not supported (ValueRank {rank})"
+            )));
+        }
         let array = match rank {
             n if n >= 0 => true,
             -1 => false,
