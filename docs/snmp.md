@@ -118,8 +118,19 @@ integer stays an integer; otherwise the value is a float.
 Counter32 that goes down wrapped once (`new + 2³² − old`); a Counter64 that
 goes down was reset, and that poll gives no value. A plan with rate points
 also reads `sysUpTime.0`; when it goes down the agent restarted, and every
-rate starts again without a value. The time base is the link's clock between
-the two answers. `scale = 8` turns octets per second into bits per second.
+rate starts again without a value. The time base is the link's clock: the
+time each answer came (the answer of the request that carried that varbind,
+not the end of the poll). `scale = 8` turns octets per second into bits per
+second.
+
+A Counter32 can wrap more than once between two samples, and the link cannot
+see it: a 1 Gbit/s `ifInOctets` wraps every 34 s. So a Counter32 sample older
+than `max(2 × poll_s, poll_s + 5 s)` (after an outage) gives no rate; the rate
+starts again from the new sample. Keep `poll_s` well below the wrap time, and
+use the 64-bit `ifHC*` counters for links faster than about 100 Mbit/s. A
+counter that is cleared without an agent restart (`clear counters`, an
+interface reset) looks like one wrap to the link: one rate up to
+`2³² / seconds`. The link does not read `ifCounterDiscontinuityTime`.
 
 A varbind of the wrong type for its conversion is a point error (`conv mac:
 cannot convert a counter32`), never a made-up value. A varbind whose value
@@ -315,8 +326,9 @@ WYRM_SNMP_AGENT=127.0.0.1:16163 WYRM_SNMP_USER=sha1user WYRM_SNMP_PASS=sha1user-
 * No v3 key change (`usmUserTable`) or user management on the agent.
 * One OID per point; no table point that publishes a whole column as an array.
 * A SET carries one varbind; INTEGER, OCTET STRING and Gauge32 only.
-* `rate_per_s` uses the link's clock between answers, not the agent's
-  `sysUpTime`.
+* `rate_per_s` uses the link's clock at each answer, not the agent's
+  `sysUpTime` deltas; a counter cleared without a restart gives one spike
+  (§3).
 * SNMP over TCP, TLS (RFC 6353) or DTLS is not supported; UDP only.
 * Interop was checked against net-snmp 5.6 (v2c, v3 SHA-1/AES-128); SHA-256 is
   checked against the built-in simulator and an independent key derivation.

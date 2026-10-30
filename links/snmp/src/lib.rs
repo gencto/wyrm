@@ -768,8 +768,10 @@ async fn get_column(
         .collect())
 }
 
-/// One member's value from its varbind (`rate_per_s`: from the last
-/// sample; `None` = no value yet).
+/// One member's value from its varbind, answered at `now` (`rate_per_s`:
+/// from the last sample; `None` = no value yet). A Counter32 sample older
+/// than `max(2 × poll_s, poll_s + 5 s)` (an outage) may have wrapped more
+/// than once: the rate starts again from the new sample.
 fn value_of(
     rates: &mut PlanRates,
     m: &Member,
@@ -799,6 +801,10 @@ fn value_of(
         return None;
     }
     let secs = now.saturating_duration_since(old.at).as_secs_f64();
+    let poll = m.point.poll_s;
+    if bits == 32 && secs > (2.0 * poll).max(poll + 5.0) {
+        return None;
+    }
     convert::rate(old.raw, raw, bits, secs, m.point.linear()).map(Ok)
 }
 
@@ -1038,7 +1044,8 @@ impl Driver for SnmpDriver {
         plan: &Plan,
     ) -> Vec<(PointId, Result<Value, DriverError>)> {
         let scope = dev.scope();
-        let mut reads: Vec<(&Member, Read)> = Vec::new();
+        // Each read with the time its answer came (the time base of rates).
+        let mut reads: Vec<(&Member, Read, Instant)> = Vec::new();
         // A request without an answer fails its own members (an agent whose
         // handler for one OID hangs) and the next requests are still sent.
         // Two in a row without an answer, or a broken transport, stop the
@@ -1051,7 +1058,8 @@ impl Driver for SnmpDriver {
             match get_batch(&mut t.s, scope, &oids).await {
                 Ok(r) => {
                     missed = 0;
-                    reads.extend(batch.iter().zip(r));
+                    let at = Instant::now();
+                    reads.extend(batch.iter().zip(r).map(|(m, r)| (m, r, at)));
                 }
                 Err(e) => {
                     missed += 1;
@@ -1068,7 +1076,8 @@ impl Driver for SnmpDriver {
                 match get_column(&mut t.s, scope, col, plan.max_repetitions, plan.max_pages).await {
                     Ok(r) => {
                         missed = 0;
-                        reads.extend(col.members.iter().zip(r));
+                        let at = Instant::now();
+                        reads.extend(col.members.iter().zip(r).map(|(m, r)| (m, r, at)));
                     }
                     Err(e) => {
                         missed += 1;
@@ -1081,15 +1090,14 @@ impl Driver for SnmpDriver {
                 }
             }
         }
-        let now = Instant::now();
         if t.rates.len() > MAX_RATE_PLANS {
             t.rates.clear();
         }
         let rates = t.rates.entry(plan.id).or_default();
         let mut out = Vec::new();
         if plan.rates {
-            let up = reads.iter().find(|(m, _)| m.id == UPTIME_ID);
-            if let Some((_, Ok(SnmpValue::TimeTicks(ticks)))) = up {
+            let up = reads.iter().find(|(m, _, _)| m.id == UPTIME_ID);
+            if let Some((_, Ok(SnmpValue::TimeTicks(ticks)), _)) = up {
                 if rates.uptime.is_some_and(|old| *ticks < old) {
                     debug!("agent restarted (sysUpTime went down): rates start again");
                     rates.samples.clear();
@@ -1098,12 +1106,12 @@ impl Driver for SnmpDriver {
             }
         }
         let mut seen = std::collections::HashSet::new();
-        for (m, r) in reads {
+        for (m, r, at) in reads {
             if m.id == UPTIME_ID {
                 continue;
             }
             seen.insert(m.id.as_str());
-            if let Some(v) = value_of(rates, m, r, now) {
+            if let Some(v) = value_of(rates, m, r, at) {
                 out.push((m.id.clone(), v));
             }
         }
@@ -1280,6 +1288,48 @@ mod tests {
 
     fn point(kv: &[(&str, Value)]) -> wyrm_link_sdk::Result<Point> {
         Point::from_value(&map(kv))
+    }
+
+    /// A Counter32 sample older than `max(2 × poll_s, poll_s + 5 s)` may
+    /// have wrapped more than once: no rate from it, the rate starts again.
+    /// A Counter64 rate over a long gap is still right.
+    #[test]
+    fn an_old_counter32_sample_gives_no_rate() {
+        let m = |conv: &str| Member {
+            id: "p".into(),
+            oid: Oid(vec![1, 3, 6, 1]),
+            point: point(&[
+                ("oid", "1.3.6.1".into()),
+                ("conv", conv.into()),
+                ("poll_s", Value::Float(1.0)),
+            ])
+            .unwrap(),
+        };
+        let t0 = Instant::now();
+        let s = Duration::from_secs;
+        let mut r = PlanRates::default();
+        let c32 = m("rate_per_s");
+        let v = |x: u32| Ok(SnmpValue::Counter32(x));
+        assert!(value_of(&mut r, &c32, v(100), t0).is_none(), "first sample");
+        assert_eq!(
+            value_of(&mut r, &c32, v(300), t0 + s(2)).map(|x| x.unwrap()),
+            Some(Value::Float(100.0))
+        );
+        // 60 s later (an outage): no value, a new start
+        assert!(value_of(&mut r, &c32, v(500), t0 + s(62)).is_none());
+        assert_eq!(
+            value_of(&mut r, &c32, v(600), t0 + s(63)).map(|x| x.unwrap()),
+            Some(Value::Float(100.0))
+        );
+        // within max(2 s, 6 s) of the last sample: a rate
+        assert!(value_of(&mut r, &c32, v(1100), t0 + s(68)).is_some());
+        let mut r = PlanRates::default();
+        let v64 = |x: u64| Ok(SnmpValue::Counter64(x));
+        assert!(value_of(&mut r, &c32, v64(0), t0).is_none());
+        assert_eq!(
+            value_of(&mut r, &c32, v64(6000), t0 + s(60)).map(|x| x.unwrap()),
+            Some(Value::Float(100.0))
+        );
     }
 
     #[test]
