@@ -1169,15 +1169,18 @@ const SHOW_VALUE: usize = 2 * 1024;
 /// `test_selector`: a converted string `value` longer than this is cut.
 const SHOW_TEXT: usize = 8 * 1024;
 
-/// Headers that describe the raw body: not shown by `try_request` when it
-/// masked the body.
-const BODY_HEADERS: &[&str] = &[
-    "content-length",
-    "etag",
-    "digest",
-    "content-md5",
-    "repr-digest",
-    "content-digest",
+/// The only headers `try_request` shows when it masked the body (masked
+/// like it): any other may give the raw length, a range, a hash or a
+/// checksum of the raw body (`Content-Length`, `ETag`, `Digest`,
+/// `X-Checksum-*`, …). An allowlist: a denylist always misses one.
+const SAFE_HEADERS: &[&str] = &[
+    "content-type",
+    "date",
+    "cache-control",
+    "server",
+    "vary",
+    "retry-after",
+    "location",
 ];
 
 /// Headers never shown by `try_request`.
@@ -1454,8 +1457,10 @@ fn prefixed_json(text: &str) -> Option<(&str, Json)> {
 
 /// A number in a text that is not JSON (NDJSON, JSONP, a form) equal to a
 /// numeric secret.
-/// Both as a number with a sign and an exponent (`1.2e21`) and as each
-/// run of digits alone (`code123`, `id-123`, `123-`).
+/// Three passes: as a number with a sign and an exponent (`1.2e21`), as a
+/// decimal (`code123`, `id-123`, `123-`), and as each run of digits alone
+/// (`1.0123.4`, `v1234.5`). The leading-zero and 0–9 rules hold as for
+/// JSON numbers (`prep.numbers` excludes 0 to 9; a parse strips zeros).
 fn holds_secret_number(prep: &Prepared, s: &str) -> bool {
     let hit = |sep: &dyn Fn(char) -> bool| {
         s.split(sep)
@@ -1464,7 +1469,8 @@ fn holds_secret_number(prep: &Prepared, s: &str) -> bool {
     };
     !prep.numbers.is_empty()
         && (hit(&|c| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')))
-            || hit(&|c| !(c.is_ascii_digit() || c == '.')))
+            || hit(&|c| !(c.is_ascii_digit() || c == '.'))
+            || hit(&|c| !c.is_ascii_digit()))
 }
 
 /// `s` cut to at most `n` bytes at a char boundary; `true` when cut.
@@ -1540,10 +1546,16 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
     // A masked body shows the masked length: the raw one would give the
     // length of an echoed secret.
     let bytes = if masked { text.len() } else { reply.body.len() };
+    // A masked body: the safe headers only, the others counted. The raw
+    // length, a range or a hash of the raw body would give the length of a
+    // secret or allow an offline guess.
+    let mut hidden_headers = 0u64;
     if masked {
-        // the raw length, or a hash of the raw body (ETag, Digest), would
-        // give the length of a secret or allow an offline guess
-        headers.retain(|k, _| !BODY_HEADERS.contains(&k.as_str()));
+        headers.retain(|k, _| {
+            let keep = SAFE_HEADERS.contains(&k.as_str());
+            hidden_headers += u64::from(!keep);
+            keep
+        });
     }
     Ok(Value::Map(BTreeMap::from([
         ("status".into(), Value::UInt(reply.status.as_u16().into())),
@@ -1551,6 +1563,7 @@ async fn try_request(t: &mut Transport, dev: &Dev) -> Result<Value, LinkError> {
         ("body".into(), Value::Str(body)),
         ("truncated".into(), Value::Bool(truncated)),
         ("masked".into(), Value::Bool(masked)),
+        ("hidden_headers".into(), Value::UInt(hidden_headers)),
         (
             "bytes".into(),
             Value::UInt(u64::try_from(bytes).unwrap_or(u64::MAX)),

@@ -1442,6 +1442,10 @@ async fn bodies_that_are_not_json_are_masked() {
         ("0123", "code123", None, "body hidden"),
         ("0123", "id-123", None, "body hidden"),
         ("0123", "pin:123-", None, "body hidden"),
+        // a digit run inside a token that parses as no number
+        ("0123", "v=1.0123.4", None, "body hidden"),
+        ("1234", "v1234.5", None, "body hidden"),
+        ("1234", "build 1.1234.7-rc", None, "body hidden"),
         (token, "plain ab/c1-tok text", Some("plain *** text"), "***"),
         (token, "no secret here", Some("no secret here"), "here"),
         (
@@ -1453,7 +1457,22 @@ async fn bodies_that_are_not_json_are_masked() {
     ];
     for (token, raw, want, has) in cases {
         let (addr, s, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
-        st(&s).raw = Some(raw.to_owned());
+        {
+            let mut t = st(&s);
+            t.raw = Some(raw.to_owned());
+            // headers that describe the raw body (re-review R5 and the
+            // security review: a denylist misses some)
+            t.raw_headers = [
+                ("x-checksum-sha256", "deadbeef"),
+                ("content-range", "bytes 0-9/10"),
+                ("x-hash", "h1"),
+                ("x-amz-checksum-crc32", "AAAAAA=="),
+                ("etag", "W/\"10-abc\""),
+            ]
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        }
         let h = H::start(tree(
             base(addr.port()),
             &[("auth", "bearer".into()), ("token", token.into())],
@@ -1489,6 +1508,28 @@ async fn bodies_that_are_not_json_are_masked() {
             panic!("headers")
         };
         assert_eq!(headers.contains_key("content-length"), !masked, "{raw}");
+        // a masked reply shows an allowlist of headers only, and counts the
+        // others: no checksum, hash or range of the raw body
+        const SAFE: &[&str] = &[
+            "content-type",
+            "date",
+            "cache-control",
+            "server",
+            "vary",
+            "retry-after",
+            "location",
+        ];
+        let hidden = field(&v, "hidden_headers");
+        if masked {
+            assert!(
+                headers.keys().all(|k| SAFE.contains(&k.as_str())),
+                "{headers:?}"
+            );
+            assert!(matches!(hidden, Value::UInt(n) if *n >= 5), "{hidden:?}");
+        } else {
+            assert_eq!(hidden, &Value::UInt(0));
+            assert!(headers.contains_key("x-checksum-sha256"), "{headers:?}");
+        }
         h.stop().await;
     }
 }

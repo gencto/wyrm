@@ -96,6 +96,8 @@ pub struct State {
     pub connections: u64,
     /// Served as is by `GET /api/raw` (exact bytes, e.g. JSON escapes).
     pub raw: Option<String>,
+    /// Extra headers of `GET /api/raw` (checksums, ranges).
+    pub raw_headers: Vec<(String, String)>,
 }
 
 impl Default for State {
@@ -127,6 +129,7 @@ impl Default for State {
             seen: Vec::new(),
             connections: 0,
             raw: None,
+            raw_headers: Vec::new(),
         }
     }
 }
@@ -336,6 +339,14 @@ async fn answer(st: &Shared, seen: &Seen, mode: Mode) -> Resp {
         ("GET", "/api/raw") => {
             let mut r = reply(200, json!({}));
             *r.body_mut() = Full::new(Bytes::from(s.raw.clone().unwrap_or_default()));
+            for (k, v) in &s.raw_headers {
+                if let (Ok(k), Ok(v)) = (
+                    hyper::header::HeaderName::from_bytes(k.as_bytes()),
+                    hyper::header::HeaderValue::from_str(v),
+                ) {
+                    r.headers_mut().insert(k, v);
+                }
+            }
             r
         }
         ("GET", "/api/resource") => reply(200, s.resource.clone()),

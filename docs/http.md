@@ -245,11 +245,15 @@ The masking rules, the same for selectors and for what is shown:
 prefix (`)]}'`) the JSON is masked as above; otherwise the text is masked,
 and the body is hidden whole (`*** body hidden: it holds a connection
 secret`) when it still holds a secret once JSON-unescaped, or when a
-number in it equals a numeric secret (also a run of digits after a letter
-or a sign: `code123`, `id-123`). A masked reply reports `masked: true`
-and the masked length in `bytes`, and its headers leave out
-`Content-Length`, `ETag`, `Digest`, `Content-MD5`, `Repr-Digest` and
-`Content-Digest` (the raw length, or a hash of the raw body).
+number in it equals a numeric secret. Every run of digits is tried on its
+own too (`code123`, `id-123`, `v1234.5`, `1.0123.4`), with the same
+leading-zero and 0 to 9 rules. A masked reply reports `masked: true` and
+the masked length in `bytes`, and it shows only the headers
+`Content-Type`, `Date`, `Cache-Control`, `Server`, `Vary`, `Retry-After`
+and `Location` (masked like the body). Every other header may give the
+raw length, a range, a hash or a checksum of the raw body
+(`Content-Length`, `Content-Range`, `ETag`, `Digest`, `X-Checksum-*`, …):
+they are left out and counted in `hidden_headers`.
 
 Secrets shorter than 3 characters are not masked. Errors name the method
 and the path; they never hold the query (an API key may be in it),
@@ -276,13 +280,16 @@ connection's rate limit with the polls, so they are commissioning tools,
 not reading.
 
 - **Try Request** (`try_request`): sends the device's request now and
-  returns `{status, headers, body, truncated, masked, bytes}`: any status,
+  returns `{status, headers, body, truncated, masked, hidden_headers,
+  bytes}`: any status,
   the body up to 64 KiB as text. `Set-Cookie`, `Authorization` and every
   header named like one the connection sends with a credential are left
   out; the other headers and the body are masked as in section 6 (on a
   connection with secrets a JSON reply is shown as its masked, compact
   JSON). `bytes` is the reply's length, or the masked text's length when
-  `masked`. A JSON reply is also kept for `test_selector`.
+  `masked`; a masked reply shows the allowlisted headers only
+  (section 6), and `hidden_headers` counts the others. A JSON reply is
+  also kept for `test_selector`.
 - **Test Selector** (`test_selector {path, type?, aggregate?}`): runs a
   selector against the last JSON reply of the device's request (a poll's
   or `try_request`'s), without I/O, on the same masked view as the points
