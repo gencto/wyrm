@@ -1328,7 +1328,12 @@ async fn stop_start_shows_connected_again() {
     ok(&h, "c1/d1", "stop", map(&[])).await;
     assert_eq!(state(&h, "c1/d1"), is_state(NodeState::Stopped));
     ok(&h, "c1/d1", "start", map(&[])).await;
-    assert_eq!(state(&h, "c1/d1"), is_state(NodeState::New));
+    // `New`, unless its first poll (at once, every 20 ms) already answered.
+    let now = state(&h, "c1/d1");
+    assert!(
+        now == is_state(NodeState::New) || now == is_state(NodeState::Connected),
+        "{now:?}"
+    );
     wait("connected again", || {
         state(&h, "c1/d1") == is_state(NodeState::Connected)
     })

@@ -568,7 +568,9 @@ served coils, discrete inputs, input or holding registers of its unit
   queue (64) bounds requests, this bounds sockets.
 - **An idle master is closed** after `master_idle_s` (60 s by default)
   without a complete request, and its place is free again: idle or
-  half-sent connections cannot hold all 16 places. A master that polls
+  half-sent connections cannot hold all 16 places. The deadline also
+  holds while the slave waits to send a reply: a master that sends
+  requests but never reads the replies is closed the same way. A master that polls
   less often than that reconnects for each poll; raise `master_idle_s`
   for it. There is no limit per source address.
 - `ip_slave` listens on every address the host name resolves to

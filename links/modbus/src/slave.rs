@@ -104,10 +104,14 @@ struct Front {
     last: Option<Arc<std::sync::Mutex<Instant>>>,
 }
 
-/// A TCP master's socket that ends (reads as closed) once the master sent
-/// no complete request for `idle`: an idle master does not hold one of the
+/// A TCP master's socket that ends once the master sent no complete
+/// request for `idle`: an idle master does not hold one of the
 /// [`MAX_MASTERS`] places for ever (security review). Bytes alone do not
-/// count, so a master that trickles a partial frame is closed too.
+/// count, so a master that trickles a partial frame is closed too. The
+/// deadline holds on both paths: a read ends as closed, and a write or
+/// flush that waits (a master that sends requests but never reads the
+/// replies fills its window) fails with `TimedOut`, so the request loop
+/// ends in either case.
 struct Idle {
     stream: tokio::net::TcpStream,
     last: Arc<std::sync::Mutex<Instant>>,
@@ -127,20 +131,38 @@ impl Idle {
     }
 }
 
+impl Idle {
+    /// The master sent no complete request for `idle`. Polls the timer, so
+    /// a read, write or flush that then waits is woken at the deadline.
+    fn expired(&mut self, cx: &mut std::task::Context<'_>) -> bool {
+        while self.timer.as_mut().poll(cx).is_ready() {
+            let due = *self.last.lock().unwrap_or_else(|e| e.into_inner()) + self.idle;
+            if Instant::now() >= due {
+                debug!("master closed: no request for {:?}", self.idle);
+                return true;
+            }
+            self.timer.as_mut().reset(due);
+        }
+        false
+    }
+
+    fn timed_out<T>(&self) -> std::task::Poll<std::io::Result<T>> {
+        std::task::Poll::Ready(Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "master idle",
+        )))
+    }
+}
+
 impl tokio::io::AsyncRead for Idle {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        while self.timer.as_mut().poll(cx).is_ready() {
-            let due = *self.last.lock().unwrap_or_else(|e| e.into_inner()) + self.idle;
-            if Instant::now() >= due {
-                debug!("master closed: idle for {:?}", self.idle);
-                // End of stream: the request loop ends, the place is freed.
-                return std::task::Poll::Ready(Ok(()));
-            }
-            self.timer.as_mut().reset(due);
+        if self.expired(cx) {
+            // End of stream: the request loop ends, the place is freed.
+            return std::task::Poll::Ready(Ok(()));
         }
         Pin::new(&mut self.stream).poll_read(cx, buf)
     }
@@ -152,6 +174,9 @@ impl tokio::io::AsyncWrite for Idle {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
+        if self.expired(cx) {
+            return self.timed_out();
+        }
         Pin::new(&mut self.stream).poll_write(cx, buf)
     }
 
@@ -159,6 +184,9 @@ impl tokio::io::AsyncWrite for Idle {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        if self.expired(cx) {
+            return self.timed_out();
+        }
         Pin::new(&mut self.stream).poll_flush(cx)
     }
 
