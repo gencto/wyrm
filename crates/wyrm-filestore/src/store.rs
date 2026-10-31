@@ -760,7 +760,7 @@ impl<B: Backend> Session<B> {
         // a store with two children of one name (Drive): another one's path
         if let (Some(other), Some(id)) = (view.entries.get(&e.path), e.id.as_deref()) {
             if other.id.as_deref().is_some_and(|o| o != id) {
-                let short = format!("{} ({})", e.path, &id[..id.len().min(8)]);
+                let short = format!("{} ({})", e.path, id.chars().take(8).collect::<String>());
                 e.path = if view.entries.contains_key(&short) {
                     format!("{} ({id})", e.path)
                 } else {
@@ -982,7 +982,11 @@ async fn run<B: Backend>(s: Arc<Session<B>>) {
     let mut attempt = 0u32;
     loop {
         s.status(NodeState::Connecting, None).await;
-        let err = match s.backend.check_place(s.data_dir.as_deref(), &s.options) {
+        let err = match s
+            .backend
+            .check_place(s.data_dir.as_deref(), &s.options)
+            .await
+        {
             // a mount point moved, or the allowed roots changed
             Err(e) => Some(e.message),
             // a second over the backend's own bound: its error, which says
@@ -1134,11 +1138,13 @@ impl<B: Backend> FileStore<B> {
                 .declare_node(&format!("{name}/{leaf}"), meta)
                 .await?;
         }
-        let parsed = parse::<B>(&raw).and_then(|(p, c, en)| {
-            let b = B::new(&p)?;
-            b.check_place(self.ctx.data_dir(), &self.options)?;
-            Ok((b, c, en))
-        });
+        let parsed = match parse::<B>(&raw).and_then(|(p, c, en)| Ok((B::new(&p)?, c, en))) {
+            Ok((b, c, en)) => match b.check_place(self.ctx.data_dir(), &self.options).await {
+                Ok(()) => Ok((b, c, en)),
+                Err(e) => Err(e),
+            },
+            Err(e) => Err(e),
+        };
         let (backend, common, enabled) = match parsed {
             Ok(v) => v,
             Err(e) => {
@@ -1205,8 +1211,10 @@ impl<B: Backend> FileStore<B> {
             return Err(bad(format!("{name} exists")));
         }
         let raw = normalized::<B>(&args)?;
-        parse::<B>(&raw)
-            .and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir(), &self.options))?;
+        let (p, _, _) = parse::<B>(&raw)?;
+        B::new(&p)?
+            .check_place(self.ctx.data_dir(), &self.options)
+            .await?;
         self.conns.insert(name.clone(), Slot { raw, run: None });
         self.save();
         self.bring_up(&name).await
@@ -1220,8 +1228,10 @@ impl<B: Backend> FileStore<B> {
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
         let merged = keep_secrets(&schema::<B>(), &old, &args);
         let mut raw = normalized::<B>(&merged)?;
-        parse::<B>(&raw)
-            .and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir(), &self.options))?;
+        let (p, _, _) = parse::<B>(&raw)?;
+        B::new(&p)?
+            .check_place(self.ctx.data_dir(), &self.options)
+            .await?;
         if let Some(e) = old.get(ENABLED) {
             raw.insert(ENABLED.to_owned(), e.clone());
         }

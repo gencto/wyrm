@@ -86,3 +86,28 @@ async fn server_errors_fail_then_recover() {
     .await;
     h.stop().await;
 }
+
+/// Delete without `recursive` fails closed: a response the client cannot
+/// map is content, and the collection stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_without_recursive_fails_closed() {
+    use wyrm_core::Status;
+    use wyrm_filestore::testkit::{act, ok, status};
+    let (h, st, _t) = setup("app-pass", "/").await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    ok(
+        &h,
+        "c1/files",
+        "create_folder",
+        map(&[("name", "box".into())]),
+    )
+    .await;
+    st.lock().unwrap().odd_href = Some("/elsewhere/%zz".into());
+    let (a, _) = act(&h, "c1/files/box", "delete", map(&[])).await;
+    assert_eq!(status(&a), Status::InvalidParameter, "{:?}", a.err);
+    assert!(st.lock().unwrap().nodes.contains_key("box"));
+    st.lock().unwrap().odd_href = None;
+    ok(&h, "c1/files/box", "delete", map(&[])).await;
+    assert!(!st.lock().unwrap().nodes.contains_key("box"));
+    h.stop().await;
+}

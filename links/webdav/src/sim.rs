@@ -41,6 +41,9 @@ pub struct State {
     pub basic: Option<(String, String)>,
     pub mode: Mode,
     pub seen: Vec<String>,
+    /// An href added to every `Depth: 1` answer (a server that answers
+    /// with a path the client cannot map).
+    pub odd_href: Option<String>,
 }
 
 impl State {
@@ -170,6 +173,12 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
                     .enumerate()
                 {
                     body.push_str(&response(p, c, i % 2 == 1, &host));
+                }
+                if let Some(h) = &s.odd_href {
+                    body.push_str(&format!(
+                        "<d:response><d:href>{}</d:href><d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>",
+                        escape(h)
+                    ));
                 }
             }
             body.push_str("</d:multistatus>");

@@ -20,7 +20,7 @@ use bytes::Bytes;
 use hyper::Method;
 use std::collections::VecDeque;
 use std::time::Duration;
-use wyrm_filestore::backend::{join, last_name, not_empty, parent_of, status_error};
+use wyrm_filestore::backend::{join, last_name, not_empty, status_error};
 use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{parse_http_date, pct_decode, pct_encode};
 use wyrm_filestore::{xml, Backend, Entry, Error, FileStore, Limits, Scan};
@@ -113,6 +113,18 @@ pub struct Found {
     pub modified: Option<u64>,
     pub etag: Option<String>,
     pub content_type: Option<String>,
+}
+
+/// The decoded path of an href (an absolute URL or an absolute path).
+pub fn href_path(href: &str) -> Option<String> {
+    let path = match href.find("://") {
+        Some(i) => {
+            let rest = &href[i + 3..];
+            rest.find('/').map_or("/", |j| &rest[j..])
+        }
+        None => href,
+    };
+    pct_decode(path)
 }
 
 /// The responses of a `207 Multi-Status`.
@@ -431,13 +443,35 @@ impl Backend for WebDavStore {
 
     async fn delete(&self, e: &Entry, _below: &[Entry], recursive: bool) -> Result<(), Error> {
         if e.dir && !recursive {
-            // DELETE of a collection takes all in it: ask the server first
-            let inside = self.propfind(&e.path, "1").await?;
-            if inside.iter().any(|f| {
-                self.rel(&f.href)
-                    .is_some_and(|r| parent_of(r) == Some(e.path.as_str()))
-            }) {
-                return Err(not_empty(&e.path));
+            // DELETE of a collection takes all in it: ask the server first.
+            // Fail closed: any response but the collection itself (one we
+            // cannot map, or whose href does not decode, too) is content.
+            let r = self
+                .send(
+                    "PROPFIND",
+                    self.target(&e.path, true),
+                    &[
+                        ("depth", "1"),
+                        ("content-type", "application/xml; charset=utf-8"),
+                    ],
+                    Bytes::from_static(PROPFIND.as_bytes()),
+                    MAX_LISTING,
+                )
+                .await?;
+            if r.status != 207 {
+                return Err(status_error(r.status, &format!("PROPFIND /{}", e.path), ""));
+            }
+            let doc = xml::parse(&r.text())
+                .map_err(|x| Error::Refused(format!("PROPFIND /{}: {x}", e.path)))?;
+            // exactly one response, and it is the collection
+            for (n, resp) in doc.all("response").enumerate() {
+                let me = resp
+                    .text_of("href")
+                    .and_then(href_path)
+                    .is_some_and(|h| self.rel(h.trim_end_matches('/')) == Some(e.path.as_str()));
+                if !me || n > 0 {
+                    return Err(not_empty(&e.path));
+                }
             }
         }
         let r = self

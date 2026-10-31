@@ -172,7 +172,13 @@ One absolute path per line; a connection's `root` must be one of them or
 below one. Empty (the default) allows none: an embedded `localfs` reads and
 writes with the broker's permissions, so a user with `config` on the link
 must not choose any path of the host. `/proc`, `/sys` and `/dev` are never
-allowed. The check runs on add, edit, start and before every probe.
+allowed. The check runs on add, edit, start and before every probe. A
+directory that does not exist yet is checked where it would be made (its
+existing part resolved, links followed), so a link inside an allowed
+directory that leads out does not take a new `root` with `create_root` out
+with it. The params are read when the link starts: narrowing
+`allowed_roots` takes effect on the link's next restart (the admin's
+`update` restarts it).
 
 | Param | Default | |
 |---|---|---|
@@ -211,8 +217,15 @@ What it guarantees:
   meanwhile is never replaced; a failed write removes only what it made.
 - A hung mount fails the call after `timeout_ms` (and the connection
   probes again); the blocking thread stays until the kernel returns, and
-  while it does the connection's next calls answer `timeout` at once, so
-  one hung mount holds one thread, not one per retry.
+  while it does the next calls on that directory answer `timeout` at once
+  (also after a Stop and Start or an Edit), so one hung mount holds one
+  thread, not one per retry. The place check runs on that pool too.
+- The root is pinned where the probe resolved it; a root swapped for a
+  link after that is refused on the next change, and the probe checks the
+  new place before it pins it again.
+- The temporary file of an overwrite has a name no other process can
+  guess and is removed only when this upload made it; the old file's
+  permission bits stay, without setuid, setgid or sticky.
 - Left: the checks resolve a path, then act on it. On a shared NFS/SMB
   mount another writer could swap a folder for a link between the two.
 - Names that are not UTF-8 (possible on Linux) are left out; sockets,

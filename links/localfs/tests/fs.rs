@@ -332,3 +332,76 @@ async fn hidden_names_are_not_written_unless_shown() {
     assert!(d.0.join(".env.example").exists());
     h.stop().await;
 }
+
+/// A root that does not exist yet is checked where it would be made: a
+/// link inside an allowed root that leads out does not carry a new root
+/// (and `create_root`) out with it.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_root_below_a_link_out_is_refused() {
+    use wyrm_link_sdk::TestHarness;
+    let allowed = Dir::new("allowed-link");
+    let outside = Dir::new("outside-link");
+    std::os::unix::fs::symlink(&outside.0, allowed.0.join("link")).unwrap();
+    let opts = [(
+        "allowed_roots",
+        Value::Str(allowed.0.to_str().unwrap().into()),
+    )];
+    let h = TestHarness::<wyrm_link_localfs::LocalFs>::start(wyrm_filestore::Bootstrap(map(&opts)))
+        .await;
+    let root = allowed.0.join("link").join(".ssh");
+    let (a, _) = act(
+        &h,
+        "",
+        "add_connection",
+        map(&[
+            ("name", "x".into()),
+            ("root", Value::Str(root.to_str().unwrap().into())),
+            ("create_root", Value::Bool(true)),
+        ]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::InvalidParameter, "{:?}", a.err);
+    assert!(!outside.0.join(".ssh").exists(), "nothing made outside");
+    // a missing root that stays inside is fine
+    let inside = allowed.0.join("new").join("deeper");
+    ok(
+        &h,
+        "",
+        "add_connection",
+        map(&[
+            ("name", "y".into()),
+            ("root", Value::Str(inside.to_str().unwrap().into())),
+            ("create_root", Value::Bool(true)),
+        ]),
+    )
+    .await;
+    wait("connected", 10, || state(&h, "y") == Some("connected")).await;
+    assert!(inside.is_dir());
+    h.stop().await;
+}
+
+/// The root swapped for a link out after the probe: changes are refused
+/// until the probe checked the place again.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_root_swapped_for_a_link_is_refused() {
+    let d = Dir::new("swap");
+    let outside = Dir::new("swap-outside");
+    let root = d.0.join("root");
+    std::fs::create_dir_all(&root).unwrap();
+    let h = start(&root, &[]).await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    std::fs::rename(&root, d.0.join("moved")).unwrap();
+    std::os::unix::fs::symlink(&outside.0, &root).unwrap();
+    let (a, _) = act(
+        &h,
+        "c1/files",
+        "upload",
+        map(&[("name", "x.txt".into()), ("text", "x".into())]),
+    )
+    .await;
+    assert_ne!(status(&a), Status::Ok, "refused");
+    assert!(!outside.0.join("x.txt").exists(), "nothing written outside");
+    h.stop().await;
+}

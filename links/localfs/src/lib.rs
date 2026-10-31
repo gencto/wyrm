@@ -41,12 +41,13 @@
 
 use bytes::Bytes;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::debug;
 use wyrm_core::{TypeCode, Value};
@@ -121,6 +122,80 @@ pub struct LocalStore {
     fsync: bool,
     timeout: Duration,
     gate: Gate,
+    /// What the last place check found (allowed roots, the broker's data
+    /// directory), so the probe can check the root again once it exists.
+    place: Arc<Mutex<Option<Place>>>,
+    /// The root as the last probe resolved and checked it. Every change
+    /// resolves the root again and refuses when it moved (a root swapped
+    /// for a symlink after the probe).
+    pinned: Arc<Mutex<Option<PathBuf>>>,
+}
+
+/// The bounds a root must keep, resolved.
+#[derive(Debug, Clone)]
+struct Place {
+    allowed: Vec<PathBuf>,
+    broker: Option<PathBuf>,
+}
+
+impl Place {
+    /// `root` (resolved) is below an allowed root, not a kernel file
+    /// system, and does not overlap the broker's data directory.
+    fn admits(&self, root: &Path) -> Result<(), Error> {
+        if self.allowed.is_empty() {
+            return Err(Error::Refused(
+                "root: no allowed_roots: the broker's admin lists the directories this link may use in its params".into(),
+            ));
+        }
+        if !self.allowed.iter().any(|a| root.starts_with(a)) {
+            return Err(Error::Refused(format!(
+                "root: {} is not below one of the link's allowed_roots",
+                root.display()
+            )));
+        }
+        if PSEUDO.iter().any(|p| root.starts_with(p)) {
+            return Err(Error::Refused(
+                "root: a kernel file system (/proc, /sys, /dev)".into(),
+            ));
+        }
+        if let Some(b) = &self.broker {
+            if root.starts_with(b) || b.starts_with(root) {
+                return Err(Error::Refused(
+                    "root: overlaps the broker's data directory (registry, keys, link data)".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `p` with every symlink resolved, also when it does not exist yet: the
+/// longest existing ancestor resolved, the rest appended. A missing path
+/// below a link that leads elsewhere resolves to where the link leads, so
+/// it is checked where `create_dir_all` would put it.
+pub fn resolve(p: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = p;
+    loop {
+        if let Ok(real) = fs::canonicalize(at) {
+            let mut out = real;
+            for c in rest.iter().rev() {
+                out.push(c);
+            }
+            return out;
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                at = parent;
+            }
+            _ => return p.to_path_buf(),
+        }
+    }
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -192,7 +267,7 @@ fn tag(m: &fs::Metadata) -> String {
 const PSEUDO: [&str; 3] = ["/proc", "/sys", "/dev"];
 
 /// The roots the broker's admin allows (`allowed_roots`, one absolute path
-/// per line), resolved where they exist.
+/// per line), resolved.
 fn allowed_roots(options: &BTreeMap<String, Value>) -> Vec<PathBuf> {
     let text = match options.get(ALLOWED_ROOTS) {
         Some(Value::Str(s)) => s.as_str(),
@@ -202,29 +277,46 @@ fn allowed_roots(options: &BTreeMap<String, Value>) -> Vec<PathBuf> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .map(|p| fs::canonicalize(&p).unwrap_or(p))
+        .filter(|p| {
+            p.is_absolute()
+                && !p
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+        })
+        .map(|p| resolve(&p))
         .collect()
 }
 
 /// The link option that lists the directories connections may use.
 pub const ALLOWED_ROOTS: &str = "allowed_roots";
 
-/// Blocking calls of one connection on the shared blocking pool, each under
+/// Blocking calls on one directory on the shared blocking pool, each under
 /// a timeout. A call that times out keeps its thread until the kernel
 /// returns; while one does, new calls answer `Timeout` at once, so a hung
-/// mount holds at most one thread per connection (and the probe every
-/// backoff does not leave one more behind each time).
+/// mount holds at most one thread per directory (and the probe every
+/// backoff does not leave one more behind each time). The count is kept
+/// per directory for the life of the process ([`Gate::for_root`]): a Stop
+/// and Start, or an Edit, does not forget a call that still hangs.
 #[derive(Default)]
 pub struct Gate {
     stuck: Arc<AtomicUsize>,
 }
+
+/// The stuck calls of every directory, by root as given.
+static STUCK: std::sync::LazyLock<Mutex<HashMap<PathBuf, Arc<AtomicUsize>>>> =
+    std::sync::LazyLock::new(Default::default);
 
 const RUNNING: u8 = 0;
 const DONE: u8 = 1;
 const ABANDONED: u8 = 2;
 
 impl Gate {
+    /// The gate of the directory `root`, shared by every connection on it.
+    pub fn for_root(root: &Path) -> Self {
+        let stuck = lock(&STUCK).entry(root.to_path_buf()).or_default().clone();
+        Self { stuck }
+    }
+
     /// Calls that timed out and still run.
     pub fn stuck(&self) -> usize {
         self.stuck.load(Ordering::Acquire)
@@ -294,10 +386,18 @@ impl LocalStore {
         Ok(p)
     }
 
-    /// The resolved root, and `dir` resolved and checked to be inside it.
-    fn confined(root: &Path, dir: &Path) -> Result<PathBuf, Error> {
+    /// `dir` resolved and checked to be inside the root, which must still
+    /// resolve to where the probe pinned it.
+    fn confined(pinned: &Option<PathBuf>, root: &Path, dir: &Path) -> Result<PathBuf, Error> {
         let r = fs::canonicalize(root)
             .map_err(|e| Error::Unreachable(format!("{}: {e}", root.display())))?;
+        if pinned.as_deref() != Some(r.as_path()) {
+            // the probe checks the place again before it pins the new one
+            return Err(Error::Unreachable(format!(
+                "{} resolves elsewhere than when it was checked: connecting again",
+                root.display()
+            )));
+        }
         let d = fs::canonicalize(dir).map_err(|e| io_error(e, &dir.display().to_string()))?;
         if !d.starts_with(&r) {
             return Err(Error::Refused(format!(
@@ -384,6 +484,33 @@ fn read_folder(
     Ok(out)
 }
 
+/// A value nobody outside this process can predict (std's per-process
+/// random hash keys, the time, a counter).
+fn unguessable(name: &str) -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static N: AtomicUsize = AtomicUsize::new(0);
+    static KEYS: std::sync::LazyLock<std::collections::hash_map::RandomState> =
+        std::sync::LazyLock::new(Default::default);
+    let mut h = KEYS.build_hasher();
+    h.write(name.as_bytes());
+    h.write_u64(now_us());
+    h.write_usize(N.fetch_add(1, Ordering::Relaxed));
+    h.finish() ^ fnv64(name)
+}
+
+/// The permissions of `m` without setuid, setgid and sticky bits.
+fn plain_permissions(m: &fs::Metadata) -> fs::Permissions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::Permissions::from_mode(m.permissions().mode() & 0o777)
+    }
+    #[cfg(not(unix))]
+    {
+        m.permissions()
+    }
+}
+
 /// Write `data` to `target`, which must not exist. A file this call made
 /// and could not finish is removed; a file someone else made is never
 /// touched.
@@ -425,14 +552,16 @@ impl Backend for LocalStore {
             return Err(bad("root", "no '..'"));
         }
         Ok(Self {
-            root,
             create_root: p.create_root,
             read_only: p.read_only,
             show_hidden: p.show_hidden,
             follow: p.follow_symlinks,
             fsync: p.fsync,
             timeout: Duration::from_millis(p.timeout_ms.into()),
-            gate: Gate::default(),
+            gate: Gate::for_root(&root),
+            root,
+            place: Arc::default(),
+            pinned: Arc::default(),
         })
     }
 
@@ -451,42 +580,35 @@ impl Backend for LocalStore {
     /// Below an allowed root (set by the broker's admin in the link's
     /// params, never by a connection), not a kernel file system, and not
     /// overlapping the broker's data directory (`<data_dir>/links/<id>/data`
-    /// is the link's) in either direction.
-    fn check_place(
+    /// is the link's) in either direction. The root is resolved through
+    /// its existing part, on the blocking pool behind the gate.
+    async fn check_place(
         &self,
         data_dir: Option<&Path>,
         options: &BTreeMap<String, Value>,
     ) -> Result<(), LinkError> {
-        let resolve = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-        let root = resolve(&self.root);
-        let allowed = allowed_roots(options);
-        if allowed.is_empty() {
-            return Err(bad(
-                "root",
-                "no allowed_roots: the broker's admin lists the directories this link may use in its params",
-            ));
-        }
-        if !allowed.iter().any(|a| root.starts_with(a)) {
-            return Err(bad("root", "not below one of the link's allowed_roots"));
-        }
-        if PSEUDO.iter().any(|p| root.starts_with(p)) {
-            return Err(bad("root", "a kernel file system (/proc, /sys, /dev)"));
-        }
-        let Some(d) = data_dir else { return Ok(()) };
-        let broker = match d.ancestors().nth(2) {
-            Some(links) if links.file_name().is_some_and(|n| n == "links") => {
-                links.parent().unwrap_or(links)
-            }
-            _ => d,
-        };
-        let broker = resolve(broker);
-        if root.starts_with(&broker) || broker.starts_with(&root) {
-            return Err(bad(
-                "root",
-                "overlaps the broker's data directory (registry, keys, link data)",
-            ));
-        }
-        Ok(())
+        let (root, options, place) = (self.root.clone(), options.clone(), self.place.clone());
+        let data_dir = data_dir.map(Path::to_path_buf);
+        self.blocking("place check", move || {
+            let broker = data_dir.map(|d| {
+                let b = match d.ancestors().nth(2) {
+                    Some(links) if links.file_name().is_some_and(|n| n == "links") => {
+                        links.parent().unwrap_or(links).to_path_buf()
+                    }
+                    _ => d.clone(),
+                };
+                resolve(&b)
+            });
+            let p = Place {
+                allowed: allowed_roots(&options),
+                broker,
+            };
+            p.admits(&resolve(&root))?;
+            *lock(&place) = Some(p);
+            Ok(())
+        })
+        .await
+        .map_err(LinkError::from)
     }
 
     fn root(&self) -> Entry {
@@ -496,7 +618,11 @@ impl Backend for LocalStore {
     async fn check(&self) -> Result<(), Error> {
         let root = self.root.clone();
         let create = self.create_root && !self.read_only;
+        let (place, pinned) = (self.place.clone(), self.pinned.clone());
         self.blocking("probe", move || {
+            let Some(place) = lock(&place).clone() else {
+                return Err(Error::Refused("root: not checked yet".into()));
+            };
             if create && !root.exists() {
                 fs::create_dir_all(&root)
                     .map_err(|e| Error::Unreachable(format!("create {}: {e}", root.display())))?;
@@ -509,9 +635,15 @@ impl Backend for LocalStore {
                     root.display()
                 )));
             }
-            fs::read_dir(&root)
-                .map(|_| ())
-                .map_err(|e| Error::Auth(format!("{}: {e}", root.display())))
+            // where it is now: the place again, then pinned for the changes
+            let real = fs::canonicalize(&root)
+                .map_err(|e| Error::Unreachable(format!("{}: {e}", root.display())))?;
+            place
+                .admits(&real)
+                .map_err(|e| Error::Auth(e.message().to_owned()))?;
+            fs::read_dir(&real).map_err(|e| Error::Auth(format!("{}: {e}", root.display())))?;
+            *lock(&pinned) = Some(real);
+            Ok(())
         })
         .await
     }
@@ -575,9 +707,10 @@ impl Backend for LocalStore {
         self.new_name(name)?;
         let (root, ppath, name_s) = (self.root.clone(), parent.path.clone(), name.to_owned());
         let path = join(&parent.path, name);
+        let pin = lock(&self.pinned).clone();
         self.blocking(&format!("create folder {path}"), move || {
             let p = LocalStore::host_path(&root, &ppath)?;
-            let p = LocalStore::confined(&root, &p)?;
+            let p = LocalStore::confined(&pin, &root, &p)?;
             let target = p.join(&name_s);
             fs::create_dir(&target)
                 .map_err(|e| io_error(e, &format!("create folder {}", join(&ppath, &name_s))))?;
@@ -605,9 +738,10 @@ impl Backend for LocalStore {
         let t = self.timeout + Duration::from_secs(data.len() as u64 / (4 * 1024 * 1024));
         let what = format!("upload {path}");
         let w = what.clone();
+        let pin = lock(&self.pinned).clone();
         let job = move || -> Result<Entry, Error> {
             let p = LocalStore::host_path(&root, &ppath)?;
-            let dir = LocalStore::confined(&root, &p)?;
+            let dir = LocalStore::confined(&pin, &root, &p)?;
             let target = dir.join(&name_s);
             if overwrite {
                 let old = match fs::symlink_metadata(&target) {
@@ -617,19 +751,19 @@ impl Backend for LocalStore {
                     Ok(m) => Some(m),
                     Err(_) => None,
                 };
-                // a short name: any file name fits beside it
-                let tmp = dir.join(format!(
-                    ".wyrm-{:016x}.tmp",
-                    fnv64(&format!("{name_s}{}", now_us()))
-                ));
-                let written = write_new(&tmp, &data, fsync).and_then(|()| {
-                    // the old file's permissions stay (owner and xattrs do not)
-                    if let Some(m) = &old {
-                        let _ = fs::set_permissions(&tmp, m.permissions());
-                    }
-                    fs::rename(&tmp, &target)
-                });
-                if let Err(e) = written {
+                // a short name nobody can guess: any file name fits beside it,
+                // and `create_new` fails rather than take another's file
+                let tmp = dir.join(format!(".wyrm-{:016x}.tmp", unguessable(&name_s)));
+                // `write_new` removes a temporary file it made and could not
+                // finish; one it could not make is not ours
+                write_new(&tmp, &data, fsync).map_err(|e| io_error(e, &w))?;
+                // the old file's permission bits stay, never setuid, setgid
+                // or sticky (owner and xattrs do not stay)
+                if let Some(m) = &old {
+                    let _ = fs::set_permissions(&tmp, plain_permissions(m));
+                }
+                if let Err(e) = fs::rename(&tmp, &target) {
+                    // ours: made above
                     let _ = fs::remove_file(&tmp);
                     return Err(io_error(e, &w));
                 }
@@ -654,12 +788,13 @@ impl Backend for LocalStore {
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {
         let (root, path) = (self.root.clone(), file.path.clone());
+        let pin = lock(&self.pinned).clone();
         self.blocking(&format!("download {}", file.path), move || {
             let what = format!("download {path}");
             let p = LocalStore::host_path(&root, &path)?;
             // the file itself resolved inside the root (a link swapped in
             // for it is refused), then opened by that resolved path
-            let real = LocalStore::confined(&root, &p)?;
+            let real = LocalStore::confined(&pin, &root, &p)?;
             let f = fs::File::open(&real).map_err(|e| io_error(e, &what))?;
             if !f.metadata().map_err(|e| io_error(e, &what))?.is_file() {
                 return Err(Error::Refused(format!("{what}: not a regular file")));
@@ -682,6 +817,7 @@ impl Backend for LocalStore {
             return Err(Error::Refused("the directory itself".into()));
         }
         let (root, path, dir) = (self.root.clone(), e.path.clone(), e.dir);
+        let pin = lock(&self.pinned).clone();
         self.blocking(&format!("delete {}", e.path), move || {
             let what = format!("delete {path}");
             let p = LocalStore::host_path(&root, &path)?;
@@ -689,7 +825,7 @@ impl Backend for LocalStore {
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_else(|| root.clone());
-            LocalStore::confined(&root, &parent)?;
+            LocalStore::confined(&pin, &root, &parent)?;
             let m = fs::symlink_metadata(&p).map_err(|e| io_error(e, &what))?;
             let r = if m.file_type().is_symlink() {
                 // the link, never what it points to

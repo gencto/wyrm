@@ -295,13 +295,14 @@ pub trait Backend: Sized + Send + Sync + 'static {
     /// the link's `data_dir` and its [`Backend::link_options`] when a
     /// connection is added, edited or started, and before every probe
     /// (a local directory must not overlap the broker's data, and must be
-    /// below an allowed root).
+    /// below an allowed root). It may touch the store (resolve paths): a
+    /// backend bounds it as its other calls.
     fn check_place(
         &self,
         _data_dir: Option<&std::path::Path>,
         _options: &std::collections::BTreeMap<String, wyrm_core::Value>,
-    ) -> Result<(), LinkError> {
-        Ok(())
+    ) -> impl Future<Output = Result<(), LinkError>> + Send {
+        async { Ok(()) }
     }
 }
 
