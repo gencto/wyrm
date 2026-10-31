@@ -11,7 +11,8 @@
 //!   gives it one job at a time and applies the commands of a job before it sends the next, so
 //!   every event sees the effects of the one before it.
 //! - The event queue (at most [`QUEUE`] entries) lives in the actor, where it can coalesce: when
-//!   it is full a value replaces the queued value of its subscription, `set`/`invoke` get `busy`;
+//!   it is full a value waits aside, one per (subscription, key) (the newest wins, at most
+//!   [`OVERFLOW`]; more are dropped and counted) until the queue has room; `set`/`invoke` get `busy`;
 //!   timers and replies are always queued (their number is bounded by the limits).
 //! - Store writes are applied on the engine thread right after the call, before the event's other
 //!   commands, so the next event reads them and they are durable before the reply leaves.
@@ -42,6 +43,10 @@ use crate::PortableConfig;
 
 /// Events waiting for the engine (values of one subscription coalesce beyond this).
 pub const QUEUE: usize = 256;
+/// Values held aside, one per (subscription, key), while the queue is full; more are dropped.
+pub const OVERFLOW: usize = 4096;
+/// Stack of the engine thread (std's default is 2 MiB).
+pub const ENGINE_STACK: usize = 8 << 20;
 /// Nodes of a dead instance that the new `start` does not declare again go after this.
 pub const SWEEP_AFTER: Duration = Duration::from_secs(10);
 /// No event completed for this long: the link is `stuck`.
@@ -128,23 +133,52 @@ fn from_client(e: ClientError) -> AppError {
     AppError::new(status, e.message)
 }
 
-/// Sets up a list or a subscription until it works: a failure is transient (a request the
-/// router or a busy link dropped, a peer that is reconnecting), and the app is never told, so
-/// giving up would leave its rows waiting for good. Backoff 250 ms, ×2, at most 5 s; the task
-/// ends when the app ends the list or subscription (it is aborted).
+/// A failure that may pass by itself: a request the router or a busy link dropped, a peer that
+/// is reconnecting. A refusal (`permission_denied`, `not_found`, `invalid_parameter`, …) waits
+/// for someone to change something.
+fn transient(e: &ClientError) -> bool {
+    matches!(
+        e.status,
+        StatusCode::Known(
+            Status::Timeout
+                | Status::Disconnected
+                | Status::Busy
+                | Status::NotAvailable
+                | Status::RateLimited
+                | Status::InternalError
+        )
+    )
+}
+
+/// Sets up a list or a subscription until it works; the app is never told, so giving up would
+/// leave its rows waiting for good. A transient failure backs off from 250 ms, ×2, up to 5 s; a
+/// refusal waits 60 s (a grant may come later) and says so once at `warn`, then at `debug`. The
+/// task ends when the app ends the list or subscription (it is aborted).
 async fn retried<T, F, Fut>(what: &str, key: &str, mut f: F) -> T
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, ClientError>>,
 {
     let mut wait = Duration::from_millis(250);
+    let mut said = false;
     loop {
         match f().await {
             Ok(v) => return v,
             Err(e) => {
-                warn!(%key, "{what}: {e}; again in {} ms", wait.as_millis());
-                tokio::time::sleep(wait).await;
-                wait = (wait * 2).min(Duration::from_secs(5));
+                let pause = if transient(&e) {
+                    let w = wait;
+                    wait = (wait * 2).min(Duration::from_secs(5));
+                    w
+                } else {
+                    Duration::from_secs(60)
+                };
+                if said {
+                    debug!(%key, "{what}: {e}; again in {} ms", pause.as_millis());
+                } else {
+                    warn!(%key, "{what}: {e}; again in {} ms", pause.as_millis());
+                    said = true;
+                }
+                tokio::time::sleep(pause).await;
             }
         }
     }
@@ -333,6 +367,10 @@ struct Actor {
     client: WyrmClient,
     state: State,
     queue: VecDeque<Pending>,
+    /// Values that came while the queue was full: the newest per (subscription, key).
+    overflow: HashMap<(u64, String), wyrm_core::Sample>,
+    /// Values dropped because `overflow` was full, since start.
+    overflow_dropped: u64,
     inflight: Option<InFlight>,
     timers: HashMap<u64, AbortHandle>,
     subs: HashMap<u64, AbortHandle>,
@@ -570,14 +608,21 @@ impl Actor {
                 if !self.subs.contains_key(&id) {
                     return;
                 }
-                if self.queue.len() >= QUEUE {
-                    let queued = self.queue.iter_mut().rev().find(
-                        |p| matches!(&p.ev, Event::Value(SubId(s), k, _) if *s == id && *k == key),
-                    );
-                    if let Some(p) = queued {
-                        p.ev = Event::Value(SubId(id), key, sample);
-                        return;
+                if self.queue.len() >= QUEUE || !self.overflow.is_empty() {
+                    // full (or values already wait aside, which go first): O(1), bounded
+                    let k = (id, key);
+                    if self.overflow.len() < OVERFLOW || self.overflow.contains_key(&k) {
+                        self.overflow.insert(k, sample);
+                    } else {
+                        self.overflow_dropped += 1;
+                        if self.overflow_dropped.is_power_of_two() {
+                            warn!(
+                                dropped = self.overflow_dropped,
+                                "event queue and overflow full: values dropped"
+                            );
+                        }
                     }
+                    return;
                 }
                 self.push(Event::Value(SubId(id), key, sample));
             }
@@ -670,11 +715,24 @@ impl Actor {
         }
     }
 
+    /// Values that waited aside go back into the queue as it has room.
+    fn refill(&mut self) {
+        while self.queue.len() < QUEUE && !self.overflow.is_empty() {
+            let Some(k) = self.overflow.keys().next().cloned() else {
+                break;
+            };
+            if let Some(sample) = self.overflow.remove(&k) {
+                self.push(Event::Value(SubId(k.0), k.1, sample));
+            }
+        }
+    }
+
     /// Hand the next event to the engine when it is idle.
     fn pump(&mut self) {
         if self.inflight.is_some() || !matches!(self.state, State::Running) {
             return;
         }
+        self.refill();
         if self.code_gen > self.started_gen {
             self.begin_swap();
             return;
@@ -1027,6 +1085,7 @@ impl Actor {
                 Command::List(SubId(id), key, full) => self.spawn_list(id, key, full),
                 Command::Unsubscribe(SubId(id)) => {
                     if let Some(h) = self.subs.remove(&id) {
+                        self.overflow.retain(|(s, _), _| *s != id);
                         h.abort();
                     }
                     if let Some((h, ..)) = self.lists.remove(&id) {
@@ -1301,6 +1360,9 @@ where
         let call_time = Duration::from_millis(cfg.call_ms.into());
         std::thread::Builder::new()
             .name(format!("wyrm-link-{}", ctx.link()))
+            // an app's own recursion (an expression interpreter, a parser) gets room: a stack
+            // overflow aborts the whole broker, and the size is only reserved, not used
+            .stack_size(ENGINE_STACK)
             .spawn(move || engine_thread(engine, host, store, call, call_time, jobs_rx, out_tx))
             .map_err(|e| LinkError::internal(format!("engine thread: {e}")))?;
 
@@ -1318,6 +1380,8 @@ where
             internal: internal_tx,
             state: State::Starting,
             queue: VecDeque::new(),
+            overflow: HashMap::new(),
+            overflow_dropped: 0,
             inflight: None,
             timers: HashMap::new(),
             subs: HashMap::new(),
