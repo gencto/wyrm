@@ -6911,6 +6911,31 @@ async fn dql_perf_local() {
         tokio::time::sleep(Duration::from_secs(secs)).await;
         (cpu_secs() - c0) / t0.elapsed().as_secs_f64() * 100.0
     };
+    // samples per second an independent subscriber sees on the mock
+    let rate = || {
+        let c = c.clone();
+        async move {
+            let mut s = c
+                .subscribe(&format!("wy/{SITE}/downstream/hot/**"))
+                .await
+                .unwrap();
+            // the stored values first
+            while tokio::time::timeout(Duration::from_millis(300), s.next())
+                .await
+                .is_ok_and(|e| e.is_some())
+            {}
+            let (t0, mut n) = (std::time::Instant::now(), 0u64);
+            while t0.elapsed() < Duration::from_secs(3) {
+                if let Ok(Some(_)) =
+                    tokio::time::timeout(Duration::from_millis(100), s.next()).await
+                {
+                    n += 1;
+                }
+            }
+            n as f64 / t0.elapsed().as_secs_f64()
+        }
+    };
+    eprintln!("samples/s seen without the query: {:.0}", rate().await);
     let without = busy(10).await;
     c.invoke_one(
         &dql,
@@ -6935,6 +6960,14 @@ async fn dql_perf_local() {
     .await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let with = busy(10).await;
+    eprintln!("samples/s seen with the query: {:.0}", rate().await);
+    let fresh = last_sample(&env, &format!("{dql}/hot/table")).await;
+    eprintln!(
+        "the query's table: last published {:?} ms ago, errors {:?}, refetches {:?}",
+        fresh.map(|s| (wyrm_link_sdk::now_us().saturating_sub(s.t)) / 1000),
+        dql_attr(&env, &format!("{dql}/hot"), "errors").await,
+        dql_attr(&env, &format!("{dql}/hot"), "refetches").await,
+    );
     eprintln!(
         "50k samples/s: broker process {without:.0} % of one core without a query, {with:.0} % with a query over all 5 000 points (DQL: {:.0} %), {} cores here",
         with - without,
