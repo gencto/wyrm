@@ -1500,10 +1500,11 @@ async fn portable_app_installs_as_wasm() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
@@ -1740,10 +1741,11 @@ async fn portable_app_upgrade_is_a_hot_start() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
