@@ -592,6 +592,11 @@ served coils, discrete inputs, input or holding registers of its unit
   masters' requests meanwhile.
 - A copy or import of a slave connection starts stopped, so two slaves
   never fight for a port.
+- An `ip_slave` binds its port when the connection starts. If the port is
+  still held (for example by another process, or for a moment while the
+  broker rebuilds its router), the connection goes `Failed` with the bind
+  error and tries again with backoff. Nothing else is needed: wait, or
+  pick another port (ADR 0029, decision 9).
 
 ## 14. Not supported, and why
 

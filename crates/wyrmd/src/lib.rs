@@ -680,8 +680,8 @@ impl Config {
             "timestamping/enabled",
             r#"{ router: true, peer: true, client: true }"#,
         )?;
-        // TODO(owner decision): `{dataflows,pub}/**` persistence — rocksdb
-        // volume (dynamic `.so` only) or wyrm-state WAL (ADR 0003).
+        // `~val` only, in memory: the broker keeps its own state with
+        // wyrm-state (ADR 0029, decision 4); rocksdb is a dynamic `.so`.
         c.insert_json5(
             "plugins/storage_manager",
             r#"{ storages: { val: { key_expr: "wy/**/~val", volume: "memory" } } }"#,

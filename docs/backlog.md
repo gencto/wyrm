@@ -359,3 +359,25 @@ that was tested, all are hardening.
   "commands per second" number (ADR Tests); the e2e WASM mode skips
   silently without the wasm32 target; SDK `set` has no deadline for its
   wait in the SDK command queue (before the portable work, too).
+
+## 12. Known gaps (2026-10-31)
+
+Work that is known and not done. The decisions around it are in ADR 0029.
+
+- Evidence: `wyr bench` on the reference board (4-core ARM64, 2 GB, LAN);
+  each protocol link against a real device or a third-party simulator
+  (`diagslave` for Modbus); the pentest checklist T1–T12 of
+  `docs/security/threats.md`.
+- Platform: a TPM-backed `SecretStore`; the cloud profile (OIDC,
+  ClickHouse, Postgres); the flow node `llm`; history watches on a whole
+  subtree; an MCP `history` tool.
+- Framework hooks that links asked for: per-point quality, a
+  `poll_period` that sees connection and device params, the sample time
+  from the driver, `~meta` from device data, a driver-owned connection
+  leaf.
+- Portable apps: the `wyrm:app` world after 0.2.0 (TLS imports, a host
+  random source), so WASM history sync can reach TLS databases; an e2e
+  through an installed package; flows that define DQL queries (they have
+  no `auth`).
+- Audit: an acknowledged path so that records put during a reconnect are
+  sent again (ADR 0029, decision 7).
