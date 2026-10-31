@@ -11,6 +11,7 @@
 //! Errors name the method and the path, never the query (it may carry a
 //! signature or a token), headers or bodies.
 
+use crate::backend::Error;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::client::conn::http1::SendRequest;
@@ -403,6 +404,96 @@ impl Response {
     }
 }
 
+/// A `Content-Range` header of a reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentRange {
+    /// `bytes <start>-<end>/<size>` (`size` is `None` for `*`).
+    Part {
+        start: u64,
+        end: u64,
+        size: Option<u64>,
+    },
+    /// `bytes */<size>` (with a 416).
+    Unsatisfied { size: u64 },
+}
+
+fn digits(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
+}
+
+/// Parse `Content-Range` (RFC 9110 14.4); `None` when it is not one of
+/// bytes (a start after its end, an end at or past a known size).
+pub fn parse_content_range(h: &str) -> Option<ContentRange> {
+    let h = h.trim();
+    let (unit, rest) = h.split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (span, size) = rest.trim().split_once('/')?;
+    let size = match size.trim() {
+        "*" => None,
+        n => Some(digits(n)?),
+    };
+    if span.trim() == "*" {
+        return Some(ContentRange::Unsatisfied { size: size? });
+    }
+    let (a, b) = span.split_once('-')?;
+    let (start, end) = (digits(a)?, digits(b)?);
+    if start > end || size.is_some_and(|n| end >= n) {
+        return None;
+    }
+    Some(ContentRange::Part { start, end, size })
+}
+
+/// The bytes of a ranged `GET` of `len` bytes from `offset` (S3, Drive,
+/// WebDAV), checked:
+/// - `206`: its `Content-Range` must start at `offset` and span the body
+///   exactly, or the part is refused (never used as if it were that part);
+/// - `200`: the whole file, taken only for a range from 0 that holds it
+///   (a store that ignores `Range` past 0 is refused rather than read whole);
+/// - `416` with `Content-Range: bytes */<size>` and `offset` at or past
+///   `size`: [`Error::PastEnd`];
+/// - any other reply (a 416 without a usable size too): `other`, the
+///   backend's own error for it.
+pub fn range_reply(
+    r: Response,
+    offset: u64,
+    len: usize,
+    what: &str,
+    other: impl FnOnce(&Response) -> Error,
+) -> Result<Bytes, Error> {
+    let range = r.header("content-range").and_then(parse_content_range);
+    match r.status {
+        206 => match range {
+            Some(ContentRange::Part { start, end, .. })
+                if start == offset
+                    && (end - start).checked_add(1) == Some(r.body.len() as u64) =>
+            {
+                Ok(r.body)
+            }
+            _ => Err(Error::Refused(format!(
+                "{what}: the store sent a part that is not bytes {offset}-: Content-Range {:?}, {} bytes",
+                r.header("content-range").unwrap_or(""),
+                r.body.len()
+            ))),
+        },
+        200 if offset == 0 && r.body.len() <= len => Ok(r.body),
+        200 => Err(Error::Refused(format!("{what}: the store ignores Range"))),
+        416 => match range {
+            Some(ContentRange::Unsatisfied { size }) if offset >= size => Err(Error::PastEnd(
+                format!("{what}: offset {offset} is past the end ({size} bytes)"),
+                size,
+            )),
+            _ => Err(other(&r)),
+        },
+        _ => Err(other(&r)),
+    }
+}
+
 /// Why a request got no reply.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpError {
@@ -674,6 +765,89 @@ mod tests {
         ] {
             assert!(Endpoint::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    fn reply(status: u16, range: Option<&str>, body: &'static [u8]) -> Response {
+        let mut headers = HeaderMap::new();
+        if let Some(r) = range {
+            headers.insert("content-range", HeaderValue::from_str(r).unwrap());
+        }
+        Response {
+            status,
+            headers,
+            body: Bytes::from_static(body),
+        }
+    }
+
+    #[test]
+    fn content_ranges() {
+        use ContentRange::*;
+        let p = parse_content_range;
+        assert_eq!(
+            p("bytes 0-9/100"),
+            Some(Part {
+                start: 0,
+                end: 9,
+                size: Some(100)
+            })
+        );
+        assert_eq!(
+            p("Bytes 5-5/*"),
+            Some(Part {
+                start: 5,
+                end: 5,
+                size: None
+            })
+        );
+        assert_eq!(p("bytes */42"), Some(Unsatisfied { size: 42 }));
+        for bad in [
+            "",
+            "bytes",
+            "bytes 9-0/100",
+            "bytes 0-100/100",
+            "bytes */*",
+            "items 0-1/2",
+            "bytes +1-2/3",
+            "bytes 0-1",
+        ] {
+            assert_eq!(p(bad), None, "{bad}");
+        }
+    }
+
+    /// A 206 is used only when its Content-Range starts at the asked
+    /// offset and spans the body; a 416 past the end says the size.
+    #[test]
+    fn range_replies() {
+        let other = |r: &Response| Error::Refused(format!("HTTP {}", r.status));
+        let ok = range_reply(reply(206, Some("bytes 4-7/10"), b"abcd"), 4, 4, "x", other);
+        assert_eq!(ok.unwrap(), Bytes::from_static(b"abcd"));
+        // the last part, shorter than asked
+        let ok = range_reply(reply(206, Some("bytes 8-9/10"), b"ab"), 8, 4, "x", other);
+        assert_eq!(ok.unwrap(), Bytes::from_static(b"ab"));
+        for (range, body) in [
+            (None, &b"abcd"[..]),
+            (Some("bytes 0-3/10"), b"abcd"),
+            (Some("bytes 4-8/10"), b"abcd"),
+            (Some("bytes 4-7/10"), b"abc"),
+            (Some("nonsense"), b"abcd"),
+            (Some("bytes 4-18446744073709551615/*"), b"abcd"),
+        ] {
+            let r = range_reply(reply(206, range, body), 4, 4, "x", other);
+            assert!(matches!(r, Err(Error::Refused(_))), "{range:?}: {r:?}");
+        }
+        assert!(range_reply(reply(200, None, b"ab"), 0, 4, "x", other).is_ok());
+        assert!(range_reply(reply(200, None, b"abcdef"), 2, 4, "x", other).is_err());
+        let r = range_reply(reply(416, Some("bytes */6"), b""), 8, 4, "x", other);
+        assert!(matches!(r, Err(Error::PastEnd(_, 6))), "{r:?}");
+        let r = range_reply(reply(416, Some("bytes */6"), b""), 6, 4, "x", other);
+        assert!(matches!(r, Err(Error::PastEnd(_, 6))), "at the end: {r:?}");
+        // the offset is inside the file it names, or no size: an error
+        for range in [Some("bytes */60"), None, Some("bytes 0-1/6")] {
+            let r = range_reply(reply(416, range, b""), 8, 4, "x", other);
+            assert_eq!(r, Err(Error::Refused("HTTP 416".into())), "{range:?}");
+        }
+        let r = range_reply(reply(404, None, b""), 0, 4, "x", other);
+        assert_eq!(r, Err(Error::Refused("HTTP 404".into())));
     }
 
     #[test]

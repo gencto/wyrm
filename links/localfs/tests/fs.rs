@@ -453,3 +453,29 @@ async fn beyond_the_single_request_limit() {
     assert_eq!(status(&a), Status::OutOfRange);
     h.stop().await;
 }
+
+/// A part asked past the end of a file that shrank answers `eof` with the real size, as a 416
+/// does for the HTTP stores.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_past_the_end_answers_eof() {
+    let d = Dir::new("past-end");
+    d.put("reports/readme.txt", b"abcdefghij");
+    let h = start(&d.0, &[]).await;
+    let node = "c1/files/reports/readme.txt";
+    wait("tree", 10, || h.ctx().has_node(node)).await;
+    d.put("reports/readme.txt", b"abcd");
+    let v = ok(
+        &h,
+        node,
+        "download_part",
+        map(&[("offset", Value::UInt(8))]),
+    )
+    .await;
+    let Some(Value::Map(m)) = v else {
+        panic!("{v:?}")
+    };
+    assert_eq!(m["data"], Value::Bytes(Vec::new()));
+    assert_eq!(m["eof"], Value::Bool(true));
+    assert_eq!(m["size"], Value::UInt(4));
+    h.stop().await;
+}

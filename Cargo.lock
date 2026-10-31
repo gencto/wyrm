@@ -6538,6 +6538,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.12.0",
  "hyper-util",
+ "nix 0.29.0",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",

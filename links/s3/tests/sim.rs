@@ -252,3 +252,185 @@ async fn large_files_in_parts() {
     }
     h.stop().await;
 }
+
+fn field(v: &Option<Value>, k: &str) -> Value {
+    match v {
+        Some(Value::Map(m)) => m.get(k).cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+fn conn_kv(addr: std::net::SocketAddr) -> Vec<(&'static str, Value)> {
+    vec![
+        ("endpoint", Value::Str(format!("http://{addr}"))),
+        ("bucket", "plant".into()),
+        ("access_key_id", "AKIASIM".into()),
+        ("secret_access_key", "sim-secret-key".into()),
+        ("refresh_s", Value::Float(0.0)),
+    ]
+}
+
+/// Connection names `.` and `..` are refused (`invalid_message`) by
+/// Add Connection, and left out of the bootstrap connections; other
+/// names, dots in them included, keep working.
+#[tokio::test(flavor = "multi_thread")]
+async fn dot_names_are_refused() {
+    use wyrm_core::Status;
+    use wyrm_filestore::testkit::{act, ok, status};
+    let (addr, _st, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
+    let conn = map(&conn_kv(addr));
+    let boot = wyrm_filestore::Bootstrap(map(&[(
+        "connections",
+        map(&[(".", conn.clone()), ("..", conn.clone()), ("c1", conn)]),
+    )]));
+    let h = H::<S3Store>::start(boot).await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    assert!(state(&h, ".").is_none() && state(&h, "..").is_none());
+    for name in [".", ".."] {
+        let mut kv = conn_kv(addr);
+        kv.push(("name", name.into()));
+        let (a, _) = act(&h, "", "add_connection", map(&kv)).await;
+        assert_eq!(status(&a), Status::InvalidMessage, "{name}: {:?}", a.err);
+    }
+    let mut kv = conn_kv(addr);
+    kv.push(("name", "a.b".into()));
+    ok(&h, "", "add_connection", map(&kv)).await;
+    wait("a.b connected", 10, || {
+        state(&h, "a.b") == Some("connected")
+    })
+    .await;
+    h.stop().await;
+}
+
+/// A 206 whose Content-Range does not start at the asked offset, or that
+/// has none, is refused: never used as that part.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_with_a_wrong_content_range_is_refused() {
+    use wyrm_core::Status;
+    use wyrm_filestore::testkit::{act, ok, status};
+    let (h, st, _task) = setup("sim-secret-key", &[]).await;
+    let node = "c1/files/reports/readme.txt";
+    wait("tree", 10, || h.ctx().has_node(node)).await;
+    let args = map(&[("offset", Value::UInt(4)), ("length", Value::UInt(4))]);
+    for lie in ["bytes 2-5/16", "bytes 4-9/16", ""] {
+        st.lock().unwrap().content_range = Some(lie.into());
+        let (a, _) = act(&h, node, "download_part", args.clone()).await;
+        assert_eq!(status(&a), Status::InvalidParameter, "{lie:?}: {:?}", a.err);
+    }
+    st.lock().unwrap().content_range = None;
+    let v = ok(&h, node, "download_part", args).await;
+    assert_eq!(field(&v, "data"), Value::Bytes(b"hly ".to_vec()));
+    h.stop().await;
+}
+
+/// A file shrunk in the store behind the tree (it still shows the old
+/// size): a part past its new end answers no data, `eof`, and the size
+/// the store gave in its 416.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_past_the_end_answers_eof() {
+    use wyrm_filestore::testkit::ok;
+    let (h, st, _task) = setup("sim-secret-key", &[]).await;
+    let node = "c1/files/reports/readme.txt";
+    wait("tree", 10, || h.ctx().has_node(node)).await;
+    st.lock().unwrap().put("reports/readme.txt", b"abcd");
+    let v = ok(
+        &h,
+        node,
+        "download_part",
+        map(&[("offset", Value::UInt(8))]),
+    )
+    .await;
+    assert_eq!(field(&v, "data"), Value::Bytes(Vec::new()), "{v:?}");
+    assert_eq!(field(&v, "eof"), Value::Bool(true));
+    assert_eq!(field(&v, "size"), Value::UInt(4));
+    assert_eq!(field(&v, "offset"), Value::UInt(8));
+    h.stop().await;
+}
+
+/// Stop cuts a commit whose multipart upload is in progress: the link
+/// sends AbortMultipartUpload before the stop answers, and no parts stay
+/// in the bucket.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_aborts_a_multipart_upload_in_progress() {
+    cut_aborts_a_multipart_upload("stop").await;
+}
+
+/// Edit cuts it the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_aborts_a_multipart_upload_in_progress() {
+    cut_aborts_a_multipart_upload("edit").await;
+}
+
+async fn cut_aborts_a_multipart_upload(action: &str) {
+    use std::time::{Duration, Instant};
+    use wyrm_filestore::testkit::{big, ok};
+    let (h, st, _task) = setup_with(
+        "sim-secret-key",
+        &[
+            ("multipart_mib", Value::UInt(5)),
+            ("timeout_ms", Value::UInt(30_000)),
+        ],
+        |_| {},
+    )
+    .await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    st.lock().unwrap().hold_parts = true;
+    let data = big(6 * 1024 * 1024);
+    let v = ok(
+        &h,
+        "c1/files",
+        "upload_begin",
+        map(&[
+            ("name", "cut.bin".into()),
+            ("size", Value::UInt(data.len() as u64)),
+            ("part_size", Value::UInt(8 * 1024 * 1024)),
+        ]),
+    )
+    .await;
+    let id = field(&v, "upload");
+    ok(
+        &h,
+        "c1",
+        "upload_part",
+        map(&[
+            ("upload", id.clone()),
+            ("index", Value::UInt(0)),
+            ("data", Value::Bytes(data)),
+        ]),
+    )
+    .await;
+    ok(&h, "c1", "upload_commit", map(&[("upload", id)])).await;
+    wait("a part in flight", 10, || {
+        let s = st.lock().unwrap();
+        s.multipart.len() == 1
+            && s.seen
+                .iter()
+                .any(|r| r.starts_with("PUT") && r.contains("partNumber"))
+    })
+    .await;
+    let args = if action == "edit" {
+        // the shown params (no secrets: the stored ones are kept), changed
+        let (_, m) = h.meta("c1").await;
+        let mut cfg = m.and_then(|m| m.cfg).expect("cfg");
+        cfg.insert("timeout_ms".into(), Value::UInt(29_000));
+        Value::Map(cfg)
+    } else {
+        map(&[])
+    };
+    let started = Instant::now();
+    ok(&h, "c1", action, args).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cut, not timed out"
+    );
+    {
+        let s = st.lock().unwrap();
+        assert!(s.multipart.is_empty(), "the multipart upload is aborted");
+        assert!(s
+            .seen
+            .iter()
+            .any(|r| r.starts_with("DELETE") && r.contains("uploadId")));
+        assert!(!s.objects.contains_key("cut.bin"));
+    }
+    h.stop().await;
+}

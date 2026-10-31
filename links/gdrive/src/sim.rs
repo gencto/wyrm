@@ -417,10 +417,14 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
                         .and_then(|(a, b)| {
                             Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?))
                         }) {
-                        Some((a, b)) if a < f.data.len() => {
-                            SimResponse::new(206).body(f.data.slice(a..=b.min(f.data.len() - 1)))
+                        Some((a, b)) if a <= b && a < f.data.len() => {
+                            let b = b.min(f.data.len() - 1);
+                            SimResponse::new(206)
+                                .header("content-range", format!("bytes {a}-{b}/{}", f.data.len()))
+                                .body(f.data.slice(a..=b))
                         }
-                        _ => SimResponse::new(416),
+                        _ => SimResponse::new(416)
+                            .header("content-range", format!("bytes */{}", f.data.len())),
                     }
                 }
                 ("GET", false) if r.param("alt").as_deref() == Some("media") => {

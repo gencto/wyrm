@@ -33,5 +33,9 @@ webpki-roots.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# statvfs: the free space of the spool's disk.
+nix = { workspace = true, features = ["fs"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

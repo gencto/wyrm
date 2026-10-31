@@ -562,6 +562,9 @@ struct Session<B: Backend> {
     options: Arc<Map>,
     /// Uploads in parts, spooled on the link's disk.
     uploads: crate::parts::Uploads,
+    /// Commits running in the background: a stop waits for them to be
+    /// cut before [`Backend::abort_cut`].
+    commits: std::sync::Mutex<Vec<JoinHandle<()>>>,
 }
 
 fn busy(what: &str) -> LinkError {
@@ -577,11 +580,16 @@ fn unsafe_entry(e: &Entry) -> bool {
 }
 
 impl<B: Backend> Session<B> {
-    /// Mark the connection stopped and cut the actions in flight.
-    fn close(&self) {
+    /// Mark the connection stopped and cut the actions in flight; the
+    /// spool is removed on the blocking pool.
+    fn close(&self) -> crate::parts::Cleanup {
         self.closed.store(true, Ordering::Release);
         self.stopped.notify_waiters();
-        self.uploads.clear();
+        self.uploads.clear()
+    }
+
+    fn take_commits(&self) -> Vec<JoinHandle<()>> {
+        std::mem::take(&mut *self.commits.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Returns once the connection stopped.
@@ -1101,7 +1109,7 @@ impl<B: Backend> Session<B> {
         let id = arg_str(args, "upload")?.ok_or_else(|| bad("upload: required"))?;
         let (c, sha) = self.uploads.commit(&id, owner)?;
         let s = self.clone();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let work = s.clone().send_spooled(c.clone(), sha);
             let r = tokio::select! {
                 r = work => r,
@@ -1110,8 +1118,12 @@ impl<B: Backend> Session<B> {
                     "the connection stopped: the commit was cut",
                 )),
             };
-            s.uploads.finish(&c.id, r);
+            s.uploads.finish(&c.id, r).await;
         });
+        let mut commits = self.commits.lock().unwrap_or_else(|e| e.into_inner());
+        commits.retain(|t| !t.is_finished());
+        commits.push(task);
+        drop(commits);
         Ok(Value::Map(Map::from([(
             "state".to_owned(),
             Value::Str("committing".into()),
@@ -1197,10 +1209,20 @@ impl<B: Backend> Session<B> {
         let data = if len == 0 {
             Bytes::new()
         } else {
-            self.backend
-                .get_range(&file, offset, len)
-                .await
-                .map_err(|e| self.seen(e))?
+            match self.backend.get_range(&file, offset, len).await {
+                Ok(d) => d,
+                // the file is shorter in the store than the tree shows: no
+                // data, the end, and the store's size
+                Err(Error::PastEnd(_, real)) if offset >= real => {
+                    return Ok(Value::Map(Map::from([
+                        ("offset".to_owned(), Value::UInt(offset)),
+                        ("size".to_owned(), Value::UInt(real)),
+                        ("eof".to_owned(), Value::Bool(true)),
+                        ("data".to_owned(), Value::Bytes(Vec::new())),
+                    ])));
+                }
+                Err(e) => return Err(self.seen(e).into()),
+            }
         };
         if data.len() > len {
             return Err(LinkError::new(
@@ -1461,7 +1483,9 @@ impl<B: Backend> FileStore<B> {
             transfers: Semaphore::new(TRANSFERS),
             data_dir: self.ctx.data_dir().map(std::path::Path::to_path_buf),
             options: self.options.clone(),
-            uploads: crate::parts::Uploads::new(spool_dir(&self.ctx, name)),
+            // what an earlier session left is gone before uploads begin
+            uploads: crate::parts::Uploads::open(spool_dir(&self.ctx, name)).await,
+            commits: std::sync::Mutex::new(Vec::new()),
         });
         let task = tokio::spawn(run(s.clone()));
         if let Some(slot) = self.conns.get_mut(name) {
@@ -1477,9 +1501,27 @@ impl<B: Backend> FileStore<B> {
         };
         // cuts the actions in flight at their next await (between two
         // requests: a recursive S3 delete stops at the next key)
-        s.close();
+        let cleanup = s.close();
         task.abort();
         let _ = task.await;
+        // the next session of this name opens the same spool directory
+        cleanup.wait().await;
+        // the commits cut, their uploads to the store dropped: what they
+        // left in the store goes (an S3 multipart upload), bounded
+        let bound = s.backend.timeout() + Duration::from_secs(1);
+        let commits = s.take_commits();
+        let _ = tokio::time::timeout(bound, async {
+            for c in commits {
+                let _ = c.await;
+            }
+        })
+        .await;
+        if tokio::time::timeout(bound, s.backend.abort_cut())
+            .await
+            .is_err()
+        {
+            info!(conn = %name, "uploads cut by the stop: their abort took too long");
+        }
         // In-flight actions apply under the view lock and see `closed`.
         let _guard = s.view.lock().await;
         let files = format!("{name}/{FILES}");
@@ -1494,7 +1536,7 @@ impl<B: Backend> FileStore<B> {
             Some(Value::Str(s)) => s,
             _ => return Err(bad("name: required")),
         };
-        keyspace::validate_segment(&name).map_err(|e| bad(format!("name: {e}")))?;
+        check_conn_name(&name)?;
         if self.conns.contains_key(&name) {
             return Err(bad(format!("{name} exists")));
         }
@@ -1509,6 +1551,7 @@ impl<B: Backend> FileStore<B> {
     }
 
     async fn edit(&mut self, name: &str, args: Map) -> Result<()> {
+        check_conn_name(name)?;
         let old = self
             .conns
             .get(name)
@@ -1559,6 +1602,18 @@ impl<B: Backend> FileStore<B> {
         }
         Ok(())
     }
+}
+
+/// A connection name: a key segment, and not `.` or `..` (`invalid_message`):
+/// a path made of it would name the parent or the link itself.
+fn check_conn_name(name: &str) -> Result<()> {
+    if name == "." || name == ".." {
+        return Err(LinkError::new(
+            Status::InvalidMessage,
+            format!("name: {name:?} is not a connection name"),
+        ));
+    }
+    keyspace::validate_segment(name).map_err(|e| bad(format!("name: {e}")))
 }
 
 /// The params of a new or edited connection, checked against the schema,
@@ -1687,8 +1742,8 @@ impl<B: Backend> Link for FileStore<B> {
         fs.ctx.declare_action("", "add_connection", add).await?;
         for (name, v) in conns {
             // a connection the link cannot show is skipped, never the link
-            if let Err(e) = keyspace::validate_segment(&name) {
-                warn!("connections.{name}: {e}: left out");
+            if let Err(e) = check_conn_name(&name) {
+                warn!("connections.{name}: {}: left out", e.message);
                 continue;
             }
             let Value::Map(raw) = v else {
@@ -1800,8 +1855,9 @@ impl<B: Backend> Link for FileStore<B> {
         let names: Vec<String> = self.conns.keys().cloned().collect();
         for n in names {
             if let Some((s, task)) = self.conns.get_mut(&n).and_then(|c| c.run.take()) {
-                s.close();
+                let cleanup = s.close();
                 task.abort();
+                cleanup.wait().await;
             }
         }
     }
@@ -1821,7 +1877,8 @@ impl<B: Backend> Drop for FileStore<B> {
     fn drop(&mut self) {
         for c in self.conns.values() {
             if let Some((s, t)) = &c.run {
-                s.close();
+                // the spool goes on the blocking pool, unwaited
+                drop(s.close());
                 t.abort();
             }
         }
@@ -1850,8 +1907,8 @@ mod tests {
     /// A connection name is a key segment, and `.` and `..` are segments:
     /// its spool directory (cleared on every start and stop) must still be
     /// one plain directory below `uploads`, never the link's data itself.
-    #[test]
-    fn spool_stays_below_uploads() {
+    #[tokio::test]
+    async fn spool_stays_below_uploads() {
         let base = std::env::temp_dir().join(format!("wyrm-spool-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(base.join("uploads").join("other")).unwrap();
@@ -1862,7 +1919,7 @@ mod tests {
             assert_eq!(p.parent(), Some(base.join("uploads").as_path()), "{conn}");
             let n = p.file_name().and_then(|n| n.to_str()).unwrap();
             assert!(n != "." && n != "..", "{conn}");
-            crate::parts::Uploads::new(p).clear();
+            crate::parts::Uploads::open(p).await.clear().wait().await;
         }
         assert!(keep.exists(), "the link's data stays");
         assert!(

@@ -49,6 +49,12 @@ pub struct State {
     pub seen: Vec<String>,
     /// Multipart uploads in progress: id → (key, parts by number).
     pub multipart: BTreeMap<String, (String, BTreeMap<u32, Bytes>)>,
+    /// When set, a ranged GET's 206 carries this `Content-Range` instead
+    /// of the true one (empty: none), as a store that lies about it.
+    pub content_range: Option<String>,
+    /// UploadPart requests are never answered (others are): an upload
+    /// stays in progress until it is cut.
+    pub hold_parts: bool,
 }
 
 impl Default for State {
@@ -63,6 +69,8 @@ impl Default for State {
             page: 1000,
             seen: Vec::new(),
             multipart: BTreeMap::new(),
+            content_range: None,
+            hold_parts: false,
         }
     }
 }
@@ -233,6 +241,9 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             "The specified bucket does not exist",
         ));
     }
+    if s.hold_parts && r.method == "PUT" && r.param("uploadId").is_some() {
+        return None;
+    }
     if let Some(resp) = multipart(&mut s, &r, &key) {
         return Some(resp);
     }
@@ -240,10 +251,21 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
         ("GET", true) if r.param("list-type").as_deref() == Some("2") => list(&s, &r),
         ("GET", false) => match s.objects.get(&key) {
             Some(o) => match r.header("range").and_then(|h| range(h, o.data.len())) {
-                Some((a, b)) => SimResponse::new(206)
-                    .header("content-type", o.content_type.clone())
-                    .header("content-range", format!("bytes {a}-{b}/{}", o.data.len()))
-                    .body(o.data.slice(a..=b)),
+                Some(Ok((a, b))) => {
+                    let cr = match &s.content_range {
+                        Some(lie) => lie.clone(),
+                        None => format!("bytes {a}-{b}/{}", o.data.len()),
+                    };
+                    let resp = SimResponse::new(206).header("content-type", o.content_type.clone());
+                    let resp = if cr.is_empty() {
+                        resp
+                    } else {
+                        resp.header("content-range", cr)
+                    };
+                    resp.body(o.data.slice(a..=b))
+                }
+                Some(Err(())) => SimResponse::new(416)
+                    .header("content-range", format!("bytes */{}", o.data.len())),
                 None => SimResponse::new(200)
                     .header("content-type", o.content_type.clone())
                     .header("etag", format!("\"{}\"", o.etag))
@@ -279,12 +301,20 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
     })
 }
 
-/// `bytes=a-b` within a body of `len` bytes.
-pub fn range(h: &str, len: usize) -> Option<(usize, usize)> {
+/// `bytes=a-b` within a body of `len` bytes: `Err` for a start at or past
+/// its end (416), `None` for a header that is not one range (the whole
+/// body).
+pub fn range(h: &str, len: usize) -> Option<Result<(usize, usize), ()>> {
     let (a, b) = h.strip_prefix("bytes=")?.split_once('-')?;
     let a: usize = a.parse().ok()?;
-    let b: usize = b.parse::<usize>().ok()?.min(len.checked_sub(1)?);
-    (a <= b).then_some((a, b))
+    let b: usize = b.parse().ok()?;
+    if a > b {
+        return None;
+    }
+    if a >= len {
+        return Some(Err(()));
+    }
+    Some(Ok((a, b.min(len - 1))))
 }
 
 /// CreateMultipartUpload, UploadPart, CompleteMultipartUpload and

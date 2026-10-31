@@ -840,8 +840,16 @@ impl Backend for LocalStore {
             let p = LocalStore::host_path(&root, &path)?;
             let real = LocalStore::confined(&pin, &root, &p)?;
             let mut f = fs::File::open(&real).map_err(|e| io_error(e, &what))?;
-            if !f.metadata().map_err(|e| io_error(e, &what))?.is_file() {
+            let meta = f.metadata().map_err(|e| io_error(e, &what))?;
+            if !meta.is_file() {
                 return Err(Error::Refused(format!("{what}: not a regular file")));
+            }
+            // past the end (the file shrank since the tree was read): `eof`, as HTTP's 416
+            if offset > 0 && offset >= meta.len() {
+                return Err(Error::PastEnd(
+                    format!("{what}: offset {offset} is past the end"),
+                    meta.len(),
+                ));
             }
             f.seek(SeekFrom::Start(offset))
                 .map_err(|e| io_error(e, &what))?;

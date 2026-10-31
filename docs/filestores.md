@@ -85,6 +85,11 @@ Common connection params (all four links):
 | `max_file_mib` | 4096 | 1–1 048 576 | a file uploaded in parts |
 | `max_download_kib` | 1024 | 1–16 384 | |
 
+A connection name is one key segment. The names `.` and `..` are
+refused (`invalid_message`) by Add Connection. A connection with
+one of these names in the bootstrap params or in `filestore.conns` is left
+out (the link logs a warning and starts the other connections).
+
 Connections and their secrets are kept sealed in the link's `data_dir`
 (`filestore.conns`, the link's store key), never shown in `~meta` or
 replies. Bootstrap params (`wyrmd.json5`) may list connections too:
@@ -181,9 +186,17 @@ Upload File and Download carry a file in one request (at most 64 MiB and
   (`multipart_mib`, 16 MiB parts), a Drive resumable upload
   (`upload_chunk_kib`, 8 MiB chunks), one streamed WebDAV `PUT`, a copy for
   `localfs`. Memory holds one part, not the file.
+- The link keeps 1 GiB free on the disk of its spool. `upload_begin`
+  refuses a file larger than the free space minus 1 GiB
+  (`resource_exhausted`). Each `upload_part` checks again before it writes:
+  the parts not received yet must still fit. When another upload took the
+  space, the part is refused (`resource_exhausted`); send it again when
+  there is room.
 - An upload belongs to whoever began it; at most 4 per connection; one
   idle for an hour is dropped. Stopping or editing the connection, or
-  restarting the link, drops its uploads: begin again.
+  restarting the link, drops its uploads: begin again. A commit cut by
+  Stop, Edit or Remove does not leave parts in the store: S3 gets an
+  AbortMultipartUpload before the connection closes.
 - Give `sha256` at begin to have the parts checked before the file goes
   to the store.
 
@@ -191,6 +204,17 @@ A client loop: `upload_begin`, then `upload_part` for each index (several
 at once is fine, two run at a time), `upload_status` to find what is
 missing after a cut, `upload_commit`, then `upload_status` until `done`.
 A download: `download_part` from offset 0 until `eof`.
+
+- Each part the store sends is checked. A `206` reply must carry a
+  `Content-Range` that starts at the asked offset and has the length of
+  its body. Otherwise the part is refused (`invalid_parameter`) and not
+  used.
+- When the file in the store is now shorter than the tree shows, a part at
+  or past its end answers `{data: [], offset, size, eof: true}`. `size` is
+  the file's real size: from the `416` reply of S3, Google Drive and
+  WebDAV (`Content-Range: bytes */<size>`), or from the disk for
+  `localfs`. Refresh the folder to see the new size. A `416` without that
+  size is an error.
 
 ## 7. Local directory (`localfs`)
 

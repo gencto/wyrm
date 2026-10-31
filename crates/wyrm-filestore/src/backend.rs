@@ -149,6 +149,9 @@ pub enum Error {
     /// name, quota).
     Refused(String),
     TooLarge(String),
+    /// A ranged read starts at or past the end of the file (an HTTP 416
+    /// with `Content-Range: bytes */<size>`): the file's size in the store.
+    PastEnd(String, u64),
 }
 
 impl Error {
@@ -168,7 +171,8 @@ impl Error {
             | Error::NotFound(m)
             | Error::Exists(m)
             | Error::Refused(m)
-            | Error::TooLarge(m) => m,
+            | Error::TooLarge(m)
+            | Error::PastEnd(m, _) => m,
         }
     }
 }
@@ -188,7 +192,7 @@ impl From<Error> for LinkError {
             Error::NotFound(_) => Status::NotFound,
             Error::Exists(_) => Status::InvalidParameter,
             Error::Refused(_) => Status::InvalidParameter,
-            Error::TooLarge(_) => Status::OutOfRange,
+            Error::TooLarge(_) | Error::PastEnd(..) => Status::OutOfRange,
         };
         LinkError::new(status, e.message().to_owned())
     }
@@ -301,7 +305,9 @@ pub trait Backend: Sized + Send + Sync + 'static {
     }
 
     /// `len` bytes of `file` from `offset` (fewer at its end, none past
-    /// it): one part of a download.
+    /// it): one part of a download. A store that says the offset is past
+    /// the end answers [`Error::PastEnd`] with the file's real size (an
+    /// HTTP store checks its reply with [`crate::http::range_reply`]).
     fn get_range(
         &self,
         file: &Entry,
@@ -329,6 +335,16 @@ pub trait Backend: Sized + Send + Sync + 'static {
         below: &[Entry],
         recursive: bool,
     ) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// The connection stopped (Stop, Edit, Remove) while uploads to the
+    /// store were under way, and their futures were dropped: remove what
+    /// they left in the store (S3: AbortMultipartUpload of each multipart
+    /// upload not completed). Called once those uploads are cut, before
+    /// the connection is torn down; best effort, bounded by the framework
+    /// to [`Backend::timeout`]. Default: nothing to remove.
+    fn abort_cut(&self) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Bootstrap params of the link beside `connections` (set by the
     /// broker's admin in `sys/links`, never by `add_connection`), checked

@@ -26,7 +26,7 @@ use bytes::Bytes;
 use hyper::Method;
 use std::time::Duration;
 use wyrm_filestore::backend::{join, not_empty, status_error};
-use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
+use wyrm_filestore::http::{range_reply, tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{amz_date, parse_rfc3339, pct_encode};
 use wyrm_filestore::{xml, Backend, Entry, Error, FileStore, Limits, Scan};
 use wyrm_link_sdk::{LinkError, ParamEnum, Params};
@@ -144,6 +144,9 @@ pub struct S3Store {
     timeout: Duration,
     /// Part size of a multipart upload (bytes).
     multipart: u64,
+    /// Multipart uploads begun and not completed or aborted yet: upload
+    /// id → key. What a cut leaves here is aborted by `abort_cut`.
+    open: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -344,6 +347,10 @@ async fn read_part(src: &std::path::Path, offset: u64, len: u64) -> Result<Bytes
 
 impl S3Store {
     /// CreateMultipartUpload: the upload id.
+    fn opened(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, String>> {
+        self.open.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     async fn multipart_begin(&self, key: &str, content_type: &str) -> Result<String, Error> {
         let q = [("uploads".to_owned(), String::new())];
         let r = self
@@ -516,6 +523,7 @@ impl Backend for S3Store {
             token: zeroize::Zeroizing::new(p.session_token.clone()),
             timeout: Duration::from_millis(p.timeout_ms.into()),
             multipart: u64::from(p.multipart_mib) * 1024 * 1024,
+            open: Default::default(),
         })
     }
 
@@ -695,18 +703,8 @@ impl Backend for S3Store {
                 len + 1024,
             )
             .await?;
-        match r.status {
-            206 => Ok(r.body),
-            // a store that sends the whole file for a range: only when it is
-            // that range
-            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
-            200 => Err(Error::Refused(format!(
-                "download {}: the store ignores Range",
-                file.path
-            ))),
-            416 => Ok(Bytes::new()),
-            _ => Err(Self::fail(&r, &format!("download {}", file.path))),
-        }
+        let what = format!("download {}", file.path);
+        range_reply(r, offset, len, &what, |r| Self::fail(r, &what))
     }
 
     async fn put_file(
@@ -729,10 +727,12 @@ impl Backend for S3Store {
             .multipart
             .max(size.div_ceil(10_000).next_multiple_of(1024 * 1024));
         let upload = self.multipart_begin(&key, content_type).await?;
-        match self
+        // no await before it: a cut from here on leaves the id to abort
+        self.opened().insert(upload.clone(), key.clone());
+        let sent = self
             .multipart_send(&key, &upload, src, size, part, existing.is_none())
-            .await
-        {
+            .await;
+        let r = match sent {
             Ok(etag) => {
                 let mut e = Entry::file(path, size);
                 e.modified = Some(wyrm_filestore::util::now_us());
@@ -742,11 +742,30 @@ impl Backend for S3Store {
             }
             Err(err) => {
                 // the parts sent must not stay (they cost storage)
-                let q = [("uploadId".to_owned(), upload)];
+                let q = [("uploadId".to_owned(), upload.clone())];
                 let _ = self
                     .send(Method::DELETE, &key, &q, &[], Bytes::new(), MAX_LISTING)
                     .await;
                 Err(err)
+            }
+        };
+        self.opened().remove(&upload);
+        r
+    }
+
+    async fn abort_cut(&self) {
+        let cut: Vec<(String, String)> = self.opened().drain().collect();
+        for (upload, key) in cut {
+            // best effort: a store that does not answer keeps the parts
+            // until its lifecycle rule removes them
+            let q = [("uploadId".to_owned(), upload)];
+            match self
+                .send(Method::DELETE, &key, &q, &[], Bytes::new(), MAX_LISTING)
+                .await
+            {
+                Ok(r) if r.ok() || r.status == 404 => {}
+                Ok(r) => tracing::info!(key = %key, "abort of a cut upload: HTTP {}", r.status),
+                Err(e) => tracing::info!(key = %key, "abort of a cut upload: {e}"),
             }
         }
     }

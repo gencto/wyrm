@@ -31,7 +31,7 @@ use serde_json::{json, Value as Json};
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
 use wyrm_filestore::backend::{join, not_empty, status_error};
-use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
+use wyrm_filestore::http::{range_reply, tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{parse_rfc3339, pct_encode};
 use wyrm_filestore::{Backend, Entry, Error, FileStore, Limits, Scan};
 use wyrm_link_sdk::{LinkError, ParamEnum, Params};
@@ -692,16 +692,8 @@ impl Backend for GDriveStore {
         let req =
             Request::new(Method::GET, self.file_target(id, "&alt=media")).header("range", &range);
         let r = self.call_req(req, len + 1024).await?;
-        match r.status {
-            206 => Ok(r.body),
-            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
-            200 => Err(Error::Refused(format!(
-                "download {}: Drive ignored Range",
-                file.path
-            ))),
-            416 => Ok(Bytes::new()),
-            _ => Err(Self::fail(&r, &format!("download {}", file.path))),
-        }
+        let what = format!("download {}", file.path);
+        range_reply(r, offset, len, &what, |r| Self::fail(r, &what))
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {

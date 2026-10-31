@@ -21,7 +21,7 @@ use hyper::Method;
 use std::collections::VecDeque;
 use std::time::Duration;
 use wyrm_filestore::backend::{join, last_name, not_empty, status_error};
-use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
+use wyrm_filestore::http::{range_reply, tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{parse_http_date, pct_decode, pct_encode};
 use wyrm_filestore::{xml, Backend, Entry, Error, FileStore, Limits, Scan};
 use wyrm_link_sdk::{LinkError, ParamEnum, Params};
@@ -472,16 +472,8 @@ impl Backend for WebDavStore {
                 len + 1024,
             )
             .await?;
-        match r.status {
-            206 => Ok(r.body),
-            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
-            200 => Err(Error::Refused(format!(
-                "download {}: the server ignores Range",
-                file.path
-            ))),
-            416 => Ok(Bytes::new()),
-            s => Err(status_error(s, &format!("download {}", file.path), "")),
-        }
+        let what = format!("download {}", file.path);
+        range_reply(r, offset, len, &what, |r| status_error(r.status, &what, ""))
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {

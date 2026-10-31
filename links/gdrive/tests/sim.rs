@@ -211,3 +211,35 @@ async fn large_files_in_parts() {
     );
     h.stop().await;
 }
+
+/// A file shrunk in Drive behind the tree: a part past its new end
+/// answers no data, `eof`, and the size of Drive's 416.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_past_the_end_answers_eof() {
+    let (h, st, _t) = setup(&[(
+        "service_account_json",
+        Value::Str(key_json("sim@wyrm.iam.gserviceaccount.com")),
+    )])
+    .await;
+    let node = "c1/files/reports/readme.txt";
+    wait("tree", 10, || h.ctx().has_node(node)).await;
+    {
+        let mut s = st.lock().unwrap();
+        let id = s.find("reports/readme.txt").expect("seeded");
+        s.files.get_mut(&id).expect("file").data = b"abcd".to_vec().into();
+    }
+    let v = wyrm_filestore::testkit::ok(
+        &h,
+        node,
+        "download_part",
+        map(&[("offset", Value::UInt(8))]),
+    )
+    .await;
+    let Some(Value::Map(m)) = v else {
+        panic!("{v:?}")
+    };
+    assert_eq!(m["data"], Value::Bytes(Vec::new()));
+    assert_eq!(m["eof"], Value::Bool(true));
+    assert_eq!(m["size"], Value::UInt(4));
+    h.stop().await;
+}

@@ -227,9 +227,12 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
         }
         "GET" => match s.nodes.get(&path) {
             Some(n) if !n.dir => match r.header("range").and_then(|h| range(h, n.data.len())) {
-                Some((a, b)) => SimResponse::new(206)
+                Some(Ok((a, b))) => SimResponse::new(206)
                     .header("content-type", n.content_type.clone())
+                    .header("content-range", format!("bytes {a}-{b}/{}", n.data.len()))
                     .body(n.data.slice(a..=b)),
+                Some(Err(())) => SimResponse::new(416)
+                    .header("content-range", format!("bytes */{}", n.data.len())),
                 None => SimResponse::new(200)
                     .header("content-type", n.content_type.clone())
                     .body(n.data.clone()),
@@ -247,12 +250,20 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
     })
 }
 
-/// `bytes=a-b` within a body of `len` bytes.
-fn range(h: &str, len: usize) -> Option<(usize, usize)> {
+/// `bytes=a-b` within a body of `len` bytes: `Err` for a start at or past
+/// its end (416), `None` for a header that is not one range (the whole
+/// body).
+fn range(h: &str, len: usize) -> Option<Result<(usize, usize), ()>> {
     let (a, b) = h.strip_prefix("bytes=")?.split_once('-')?;
     let a: usize = a.parse().ok()?;
-    let b: usize = b.parse::<usize>().ok()?.min(len.checked_sub(1)?);
-    (a <= b).then_some((a, b))
+    let b: usize = b.parse().ok()?;
+    if a > b {
+        return None;
+    }
+    if a >= len {
+        return Some(Err(()));
+    }
+    Some(Ok((a, b.min(len - 1))))
 }
 
 /// Serve on `addr`; the tree is shared with the caller.

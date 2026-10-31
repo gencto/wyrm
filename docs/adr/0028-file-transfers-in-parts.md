@@ -20,7 +20,7 @@ ADR 0027 moves a file as one action: `upload` takes it as one argument, `downloa
 
 ## Consequences
 - Memory no longer grows with the file: a 512 MiB transfer in parts of 8 MiB (debug build, the link, the client and Zenoh in one process) peaked at 133 MiB of resident memory.
-- The link's disk holds a file in progress whole (sparse at first); `max_file_mib` bounds it, and the free space is not checked before (a full disk fails the part that does not fit).
+- The link's disk holds a file in progress whole (sparse at first); `max_file_mib` bounds it, and `upload_begin` refuses a file larger than the free space of the spool's disk minus 1 GiB (`resource_exhausted`), checked again at each part for the bytes still to come (ADR 0029, decision 11).
 - A connection's uploads in progress are lost when it stops or the link restarts (the spool is not kept; the client begins again).
 - Not done: presigned URLs (bytes past the brokers when a client can reach the store); a server-side copy between connections; a hash of a download (the client checks it against the store's `etag` where that is a digest).
 

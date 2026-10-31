@@ -130,3 +130,27 @@ async fn large_files_in_parts() {
     );
     h.stop().await;
 }
+
+/// A file shrunk on the server behind the tree: a part past its new end
+/// answers no data, `eof`, and the size of the server's 416.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_past_the_end_answers_eof() {
+    let (h, st, _t) = setup("app-pass", "/").await;
+    let node = "c1/files/reports/readme.txt";
+    wait("tree", 10, || h.ctx().has_node(node)).await;
+    st.lock().unwrap().put("reports/readme.txt", b"abcd");
+    let v = wyrm_filestore::testkit::ok(
+        &h,
+        node,
+        "download_part",
+        map(&[("offset", Value::UInt(8))]),
+    )
+    .await;
+    let Some(Value::Map(m)) = v else {
+        panic!("{v:?}")
+    };
+    assert_eq!(m["data"], Value::Bytes(Vec::new()));
+    assert_eq!(m["eof"], Value::Bool(true));
+    assert_eq!(m["size"], Value::UInt(4));
+    h.stop().await;
+}
