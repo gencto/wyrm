@@ -389,6 +389,13 @@ impl My {
                 ));
             }
             caps |= CLIENT_SSL;
+            // Nothing may come between the greeting and the handshake: bytes read in the clear
+            // must never pass for what TLS protects (STARTTLS injection).
+            if !self.buf.is_empty() {
+                return Err(TargetError::Fatal(
+                    "mysql: the server sent data before TLS".into(),
+                ));
+            }
             self.send(net, &head(caps))?;
             net.tls_upgrade(
                 self.conn,

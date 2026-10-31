@@ -281,3 +281,37 @@ fn writes_and_classifies_errors() {
     );
     assert!(got[2].starts_with("INSERT INTO `wyrm_history`"));
 }
+
+#[test]
+fn nothing_in_the_clear_passes_for_tls() {
+    // a greeting that offers TLS, followed at once by a forged OK in the clear
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let Ok((mut s, _)) = l.accept() else { return };
+        let caps: u32 = 0x200 | 0x8000 | 0x8_0000 | 0x8 | 0x2000 | 0x800;
+        let mut gr = vec![10u8];
+        gr.extend_from_slice(b"8.0.36\0");
+        gr.extend_from_slice(&7u32.to_le_bytes());
+        gr.extend_from_slice(&NONCE[..8]);
+        gr.push(0);
+        gr.extend_from_slice(&(caps as u16).to_le_bytes());
+        gr.push(45);
+        gr.extend_from_slice(&2u16.to_le_bytes());
+        gr.extend_from_slice(&((caps >> 16) as u16).to_le_bytes());
+        gr.push(21);
+        gr.extend_from_slice(&[0u8; 10]);
+        gr.extend_from_slice(&NONCE[8..]);
+        gr.push(0);
+        gr.extend_from_slice(b"mysql_native_password\0");
+        let mut out = packet(0, &gr);
+        out.extend(packet(2, OK));
+        s.write_all(&out).unwrap();
+        let _ = read_packet(&mut s);
+    });
+    let mut c = cfg(port);
+    c.insert("ssl".into(), Value::from("require"));
+    let mut h = TcpHost::default();
+    let e = My::connect(&mut h, &c, Some("s3cret")).err().unwrap();
+    assert!(e.message().contains("before TLS"), "{e}");
+}
