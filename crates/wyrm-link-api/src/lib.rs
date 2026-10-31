@@ -154,6 +154,95 @@ fn covers(pattern: &str, key: &str) -> bool {
     }
 }
 
+/// One change of a list made with [`Host::list`] (ADR 0023, amended by ADR 0025): the children of
+/// one node, each a name and its own `~meta` summary.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListChange {
+    /// The whole snapshot: first, and again after the owner reconnects or the queue overflowed.
+    Refreshed(Vec<(String, NodeMeta)>),
+    Added(String, NodeMeta),
+    Changed(String, NodeMeta),
+    Removed(String),
+    /// The node's owner (its link) is gone; its children are gone with it.
+    Disconnected,
+}
+
+impl ListChange {
+    const REFRESHED: u8 = 0;
+    const ADDED: u8 = 1;
+    const CHANGED: u8 = 2;
+    const REMOVED: u8 = 3;
+    const DISCONNECTED: u8 = 4;
+
+    /// CBOR `[kind, ...]`: `[0, [[name, meta]...]]`, `[1|2, name, meta]`, `[3, name]`, `[4]`.
+    pub fn to_cbor(&self) -> Vec<u8> {
+        let mut e = Encoder::new(Vec::new());
+        // Writing to a `Vec` does not fail.
+        let _ = (|| -> Result<(), minicbor::encode::Error<core::convert::Infallible>> {
+            match self {
+                ListChange::Refreshed(children) => {
+                    e.array(2)?
+                        .u8(Self::REFRESHED)?
+                        .array(children.len() as u64)?;
+                    for (n, m) in children {
+                        e.array(2)?.str(n)?.encode(m)?;
+                    }
+                }
+                ListChange::Added(n, m) => {
+                    e.array(3)?.u8(Self::ADDED)?.str(n)?.encode(m)?;
+                }
+                ListChange::Changed(n, m) => {
+                    e.array(3)?.u8(Self::CHANGED)?.str(n)?.encode(m)?;
+                }
+                ListChange::Removed(n) => {
+                    e.array(2)?.u8(Self::REMOVED)?.str(n)?;
+                }
+                ListChange::Disconnected => {
+                    e.array(1)?.u8(Self::DISCONNECTED)?;
+                }
+            }
+            Ok(())
+        })();
+        e.into_writer()
+    }
+
+    pub fn from_cbor(bytes: &[u8]) -> Result<Self, minicbor::decode::Error> {
+        let mut d = Decoder::new(bytes);
+        d.array()?;
+        let child = |d: &mut Decoder<'_>| -> Result<(String, NodeMeta), minicbor::decode::Error> {
+            Ok((d.str()?.to_owned(), d.decode()?))
+        };
+        Ok(match d.u8()? {
+            Self::REFRESHED => {
+                let n = d
+                    .array()?
+                    .ok_or_else(|| minicbor::decode::Error::message("indefinite array"))?;
+                let mut out = Vec::new();
+                for _ in 0..n {
+                    d.array()?;
+                    out.push(child(&mut d)?);
+                }
+                ListChange::Refreshed(out)
+            }
+            Self::ADDED => {
+                let (n, m) = child(&mut d)?;
+                ListChange::Added(n, m)
+            }
+            Self::CHANGED => {
+                let (n, m) = child(&mut d)?;
+                ListChange::Changed(n, m)
+            }
+            Self::REMOVED => ListChange::Removed(d.str()?.to_owned()),
+            Self::DISCONNECTED => ListChange::Disconnected,
+            k => {
+                return Err(minicbor::decode::Error::message(format!(
+                    "unknown list change {k}"
+                )))
+            }
+        })
+    }
+}
+
 /// Log level of [`Host::log`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -209,6 +298,8 @@ pub trait App: Sized {
     fn on_timer(&mut self, _host: &mut dyn Host, _timer: TimerId) {}
     fn on_value(&mut self, _host: &mut dyn Host, _sub: SubId, _key: &str, _sample: Sample) {}
     fn on_reply(&mut self, _host: &mut dyn Host, _req: ReqId, _result: Result<Value, AppError>) {}
+    /// A change of a list made with [`Host::list`] (`key`: the listed node).
+    fn on_list(&mut self, _host: &mut dyn Host, _sub: SubId, _key: &str, _change: ListChange) {}
     fn stop(&mut self, _host: &mut dyn Host) {}
 }
 
@@ -231,8 +322,21 @@ pub trait Host {
     fn store_put(&mut self, key: &str, value: &[u8]) -> Result<(), AppError>;
     fn store_delete(&mut self, key: &str);
     // other points, within the link's grants
+    /// Values of `key`, or of every node under `<prefix>` when `key` is `<prefix>/**` (one
+    /// subscription for a subtree); each sample comes with its node key.
     fn subscribe(&mut self, key: &str) -> Result<SubId, AppError>;
+    /// Ends a subscription or a list.
     fn unsubscribe(&mut self, sub: SubId);
+    /// The children of `key`, reactive: [`App::on_list`] gets a [`ListChange::Refreshed`] first,
+    /// then the changes (ADR 0025). Each child comes with its `view=list` summary, or with its
+    /// whole `~meta` (`attr`, `actions`, …) when `full` (one more request per child). A host
+    /// without lists answers `not_supported`.
+    fn list(&mut self, _key: &str, _full: bool) -> Result<SubId, AppError> {
+        Err(AppError::new(
+            Status::NotSupported,
+            "this host has no list (wyrm:app@0.1.0)",
+        ))
+    }
     /// The reply comes through [`App::on_reply`].
     fn set(&mut self, key: &str, value: Value) -> Result<ReqId, AppError>;
     fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError>;
@@ -283,7 +387,7 @@ pub trait Host {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrm_core::{Perm, Status};
+    use wyrm_core::{NodeMeta, Perm, Status};
 
     #[test]
     fn app_error_cbor_roundtrip() {
@@ -318,6 +422,28 @@ mod tests {
         let anon = Who::default();
         assert_eq!(Who::from_cbor(&anon.to_cbor()).unwrap(), anon);
         assert!(Who::from_cbor(&[0xff]).is_err());
+    }
+
+    #[test]
+    fn list_change_cbor_roundtrip() {
+        let meta = NodeMeta {
+            display: Some("Fan".into()),
+            ..NodeMeta::default()
+        };
+        for c in [
+            ListChange::Refreshed(vec![
+                ("a".into(), meta.clone()),
+                ("b".into(), NodeMeta::default()),
+            ]),
+            ListChange::Refreshed(Vec::new()),
+            ListChange::Added("a".into(), meta.clone()),
+            ListChange::Changed("a".into(), meta),
+            ListChange::Removed("a".into()),
+            ListChange::Disconnected,
+        ] {
+            assert_eq!(ListChange::from_cbor(&c.to_cbor()).unwrap(), c);
+        }
+        assert!(ListChange::from_cbor(&[0x81, 0x09]).is_err());
     }
 
     #[test]

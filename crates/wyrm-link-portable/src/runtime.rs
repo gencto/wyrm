@@ -26,12 +26,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn, Instrument};
-use wyrm_client::{ClientError, SigningTokens, ValEvent, WyrmClient};
+use wyrm_client::{ClientError, ListEvent, SigningTokens, ValEvent, WyrmClient};
 use wyrm_core::ptok::Grant;
 use wyrm_core::status::StatusCode;
-use wyrm_core::{keyspace, Quality, Status, Value};
+use wyrm_core::{keyspace, NodeMeta, Quality, Status, Value};
 use wyrm_link_api::buffer::{BufferHost, Command, Counts, Limits};
-use wyrm_link_api::{AppError, Level, ReqId, SubId, TimerId, Who};
+use wyrm_link_api::{AppError, Level, ListChange, ReqId, SubId, TimerId, Who};
 use wyrm_link_sdk::driver::persist::STORE_KEY;
 use wyrm_link_sdk::{Caller, Link, LinkCtx, LinkError, ReplySink};
 
@@ -85,6 +85,7 @@ enum Internal {
     Timer(u64),
     Value(u64, String, wyrm_core::Sample),
     Reply(u64, Result<Value, AppError>),
+    List(u64, String, Box<ListChange>),
 }
 
 /// `Start` and `Event` carry a sequence number: the store remembers the last one whose writes it
@@ -125,6 +126,28 @@ fn from_client(e: ClientError) -> AppError {
         _ => Status::InternalError,
     };
     AppError::new(status, e.message)
+}
+
+/// Sets up a list or a subscription until it works: a failure is transient (a request the
+/// router or a busy link dropped, a peer that is reconnecting), and the app is never told, so
+/// giving up would leave its rows waiting for good. Backoff 250 ms, ×2, at most 5 s; the task
+/// ends when the app ends the list or subscription (it is aborted).
+async fn retried<T, F, Fut>(what: &str, key: &str, mut f: F) -> T
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ClientError>>,
+{
+    let mut wait = Duration::from_millis(250);
+    loop {
+        match f().await {
+            Ok(v) => return v,
+            Err(e) => {
+                warn!(%key, "{what}: {e}; again in {} ms", wait.as_millis());
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(Duration::from_secs(5));
+            }
+        }
+    }
 }
 
 fn answer(to: Option<Answer>, r: Result<Option<Value>, AppError>) {
@@ -313,6 +336,8 @@ struct Actor {
     inflight: Option<InFlight>,
     timers: HashMap<u64, AbortHandle>,
     subs: HashMap<u64, AbortHandle>,
+    /// Lists (ADR 0025): the task and the listed key, to list again after an overflow.
+    lists: HashMap<u64, (AbortHandle, String, bool)>,
     reqs: HashMap<u64, AbortHandle>,
     paths: Paths,
     max_nodes: usize,
@@ -444,6 +469,7 @@ impl Actor {
         Counts {
             timers: self.timers.len(),
             subs: self.subs.len(),
+            lists: self.lists.len(),
             inflight: self.reqs.len(),
         }
     }
@@ -545,11 +571,9 @@ impl Actor {
                     return;
                 }
                 if self.queue.len() >= QUEUE {
-                    let queued = self
-                        .queue
-                        .iter_mut()
-                        .rev()
-                        .find(|p| matches!(&p.ev, Event::Value(SubId(s), ..) if *s == id));
+                    let queued = self.queue.iter_mut().rev().find(
+                        |p| matches!(&p.ev, Event::Value(SubId(s), k, _) if *s == id && *k == key),
+                    );
                     if let Some(p) = queued {
                         p.ev = Event::Value(SubId(id), key, sample);
                         return;
@@ -557,6 +581,92 @@ impl Actor {
                 }
                 self.push(Event::Value(SubId(id), key, sample));
             }
+            Internal::List(id, key, change) => {
+                if !self.lists.contains_key(&id) {
+                    return;
+                }
+                // A full queue keeps one event per list: a list with nothing queued is queued
+                // (lists are bounded by `max_lists`, as timers and replies are by theirs); one
+                // that already waits drops its queued changes and lists again, which starts
+                // with a fresh `Refreshed`. Relisting every list on a full queue instead would
+                // keep hundreds of lists answering at once relisting forever.
+                let waits = || {
+                    self.queue
+                        .iter()
+                        .any(|q| matches!(q.ev, Event::List(SubId(s), ..) if s == id))
+                };
+                if self.queue.len() >= QUEUE && waits() {
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::List(SubId(s), ..) if s == id));
+                    self.relist(id);
+                    return;
+                }
+                self.push(Event::List(SubId(id), key, change));
+            }
+        }
+    }
+
+    /// Start the list task `id` on `key` (again).
+    fn spawn_list(&mut self, id: u64, key: String, full: bool) {
+        let (client, tx) = (self.client.clone(), self.internal.clone());
+        let k = key.clone();
+        // `full`: each child's whole `~meta` in place of its `view=list` summary
+        let meta_of = move |client: WyrmClient, key: String, name: String, summary: NodeMeta| async move {
+            if full {
+                client
+                    .meta(&format!("{key}/{name}"))
+                    .await
+                    .unwrap_or(summary)
+            } else {
+                summary
+            }
+        };
+        let t = tokio::spawn(async move {
+            let mut s = retried("list", &k, || client.list(&k)).await;
+            while let Some(ev) = s.next().await {
+                let change = match ev {
+                    ListEvent::Refreshed(c) => {
+                        let mut out = Vec::with_capacity(c.len());
+                        for c in c {
+                            let m =
+                                meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                            out.push((c.name, m));
+                        }
+                        ListChange::Refreshed(out)
+                    }
+                    ListEvent::Added(c) => {
+                        let m = meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                        ListChange::Added(c.name, m)
+                    }
+                    ListEvent::Changed(c) => {
+                        let m = meta_of(client.clone(), k.clone(), c.name.clone(), c.meta).await;
+                        ListChange::Changed(c.name, m)
+                    }
+                    ListEvent::Removed(n) | ListEvent::Disconnected(Some(n)) => {
+                        ListChange::Removed(n)
+                    }
+                    ListEvent::Disconnected(None) => ListChange::Disconnected,
+                    // a dynamic child is back: its summary comes with it
+                    ListEvent::Connected(n) => {
+                        let meta = client.meta(&format!("{k}/{n}")).await.unwrap_or_default();
+                        ListChange::Added(n, meta)
+                    }
+                };
+                if tx
+                    .send(Internal::List(id, k.clone(), Box::new(change)))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+        self.lists.insert(id, (t.abort_handle(), key, full));
+    }
+
+    fn relist(&mut self, id: u64) {
+        if let Some((h, key, full)) = self.lists.remove(&id) {
+            h.abort();
+            self.spawn_list(id, key, full);
         }
     }
 
@@ -717,6 +827,7 @@ impl Actor {
             .drain()
             .chain(self.subs.drain())
             .chain(self.reqs.drain())
+            .chain(self.lists.drain().map(|(id, (h, ..))| (id, h)))
         {
             h.abort();
         }
@@ -902,13 +1013,7 @@ impl Actor {
                 Command::Subscribe(SubId(id), key) => {
                     let (client, tx) = (self.client.clone(), self.internal.clone());
                     let t = tokio::spawn(async move {
-                        let mut s = match client.subscribe(&key).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!(%key, "subscribe: {e}");
-                                return;
-                            }
-                        };
+                        let mut s = retried("subscribe", &key, || client.subscribe(&key)).await;
                         while let Some(ev) = s.next().await {
                             if let ValEvent::Sample { key, sample, .. } = ev {
                                 if tx.send(Internal::Value(id, key, sample)).is_err() {
@@ -919,10 +1024,16 @@ impl Actor {
                     });
                     self.subs.insert(id, t.abort_handle());
                 }
+                Command::List(SubId(id), key, full) => self.spawn_list(id, key, full),
                 Command::Unsubscribe(SubId(id)) => {
                     if let Some(h) = self.subs.remove(&id) {
                         h.abort();
                     }
+                    if let Some((h, ..)) = self.lists.remove(&id) {
+                        h.abort();
+                    }
+                    self.queue
+                        .retain(|q| !matches!(q.ev, Event::List(SubId(s), ..) if s == id));
                     self.queue
                         .retain(|q| !matches!(q.ev, Event::Value(SubId(s), ..) if s == id));
                 }
@@ -1058,7 +1169,9 @@ impl<E> Drop for Runtime<E> {
     }
 }
 
-/// The verified caller as the app sees it.
+/// The verified caller as the app sees it. Each grant is capped at the request's effective level
+/// (a `LimitedKey`'s limit, ADR 0025): a flow or agent token never shows the app more than the
+/// responder let it do.
 fn who_of(c: &Caller) -> Who {
     Who {
         subject: c
@@ -1068,7 +1181,12 @@ fn who_of(c: &Caller) -> Who {
         grants: c
             .claims
             .as_ref()
-            .map(|cl| cl.grants.iter().map(|g| (g.k.clone(), g.p)).collect())
+            .map(|cl| {
+                cl.grants
+                    .iter()
+                    .map(|g| (g.k.clone(), g.p.min(c.perm)))
+                    .collect()
+            })
             .unwrap_or_default(),
     }
 }
@@ -1079,7 +1197,9 @@ fn client_of(ctx: &LinkCtx) -> WyrmClient {
     let client = WyrmClient::new(ctx.client().clone());
     match ctx.requester_key() {
         Some(key) => {
-            let grants = ctx
+            // a token carries the first grant that covers its key: the highest level first, so
+            // a `read` grant on a root never shadows a `write` one on the same root
+            let mut grants: Vec<Grant> = ctx
                 .grants()
                 .iter()
                 .map(|(p, perm)| Grant {
@@ -1087,6 +1207,7 @@ fn client_of(ctx: &LinkCtx) -> WyrmClient {
                     p: *perm,
                 })
                 .collect();
+            grants.sort_by_key(|g| std::cmp::Reverse(g.p));
             client.with_tokens(Arc::new(
                 SigningTokens::new(key, ctx.site())
                     .subject(format!("link:{}", ctx.link()))
@@ -1200,6 +1321,7 @@ where
             inflight: None,
             timers: HashMap::new(),
             subs: HashMap::new(),
+            lists: HashMap::new(),
             reqs: HashMap::new(),
             paths: Paths::default(),
             max_nodes: limits.max_nodes,

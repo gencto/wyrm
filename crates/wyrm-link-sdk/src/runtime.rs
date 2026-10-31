@@ -30,13 +30,18 @@ use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
 use wyrm_core::profile::{self, ProfileDef};
 use wyrm_core::{Attachment, NodeMeta, Perm, SetRequest, Status, Value};
-use zenoh::handlers::FifoChannelHandler;
 use zenoh::key_expr::keyexpr;
 use zenoh::liveliness::LivelinessToken;
 use zenoh::query::{Query, Queryable};
 use zenoh::Session;
 
 const QUEUE_DEPTH: usize = 256;
+/// Queries waiting for the link's queryable task. Zenoh runs the queryable's handler on the
+/// requester's thread for an in-process `get` (an embedded link, the broker itself): a handler
+/// that blocks there blocks a runtime worker, and enough of them deadlock the process (900
+/// lists of the DQL link at once did). So the handler never blocks: past this depth a query is
+/// dropped, which ends it at once with no reply, and the requester can try again.
+const QUERY_DEPTH: usize = 4096;
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const LIST_LIMIT_MAX: usize = 1000;
 
@@ -241,8 +246,14 @@ pub async fn spawn<L: Link>(
             driver_timeout: cfg.driver_timeout,
         },
     );
+    let (qtx, qrx) = mpsc::channel::<Query>(QUERY_DEPTH);
     let queryable = session
         .declare_queryable(format!("{}/**", ctx.0.prefix))
+        .callback(move |q| {
+            if let Err(mpsc::error::TrySendError::Full(q)) = qtx.try_send(q) {
+                debug!(key = %q.key_expr(), "the link's query queue is full: query dropped");
+            }
+        })
         .await?;
     ctx.publish_meta("").await?;
 
@@ -293,7 +304,7 @@ pub async fn spawn<L: Link>(
     let query_task = tokio::spawn(
         async move {
             tokio::join!(
-                serve(shared, queryable),
+                serve(shared, queryable, qrx),
                 follow_profiles(psession, psite, profiles),
                 async move {
                     if let Some((ctx, key)) = overlays {
@@ -547,11 +558,14 @@ struct Shared<C> {
     next_rid: AtomicU32,
 }
 
+/// `queryable` stays declared as long as this runs.
 async fn serve<C: Send + 'static>(
     sh: Arc<Shared<C>>,
-    queryable: Queryable<FifoChannelHandler<Query>>,
+    queryable: Queryable<()>,
+    mut queries: mpsc::Receiver<Query>,
 ) {
-    while let Ok(q) = queryable.recv_async().await {
+    let _declared = queryable;
+    while let Some(q) = queries.recv().await {
         sh.route(q).await;
     }
 }

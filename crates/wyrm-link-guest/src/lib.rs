@@ -1,5 +1,6 @@
 //! Guest side of the portable link API (ADR 0023): runs an [`App`] inside a WebAssembly component
-//! of world `wyrm:app/app` (`crates/wyrm-wasm-host/wit/app/app.wit`).
+//! of world `wyrm:app/app@0.2.0` (`crates/wyrm-wasm-host/wit/app2/app.wit`; ADR 0023, lists by
+//! ADR 0025).
 //!
 //! An app crate builds as a `cdylib` for `wasm32-unknown-unknown` and names its app once:
 //!
@@ -23,7 +24,7 @@ extern crate self as wyrm_link_guest;
 #[allow(unsafe_code, clippy::all, missing_docs)]
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "../wyrm-wasm-host/wit/app",
+        path: "../wyrm-wasm-host/wit/app2",
         world: "wyrm:app/app",
         pub_export_macro: true,
         export_macro_name: "export",
@@ -39,7 +40,7 @@ use bindings::wyrm::app::host as imports;
 use std::cell::RefCell;
 use std::thread::LocalKey;
 use wyrm_core::{codec, ActionMeta, NodeMeta, Sample, Status, Value};
-use wyrm_link_api::{App, AppError, ConnId, Host, Level, ReqId, SubId, TimerId, Who};
+use wyrm_link_api::{App, AppError, ConnId, Host, Level, ListChange, ReqId, SubId, TimerId, Who};
 
 /// Exports `$app` (a type that implements [`App`]) as the component's world `wyrm:app/app`.
 ///
@@ -88,6 +89,9 @@ macro_rules! export {
                     result: ::core::result::Result<::std::vec::Vec<u8>, ::std::vec::Vec<u8>>,
                 ) {
                     $crate::__private::on_reply::<$app>(&__WYRM_APP, req, result)
+                }
+                fn on_list(sub: u64, key: ::std::string::String, change: ::std::vec::Vec<u8>) {
+                    $crate::__private::on_list::<$app>(&__WYRM_APP, sub, &key, &change)
                 }
                 fn stop() {
                     $crate::__private::stop::<$app>(&__WYRM_APP)
@@ -178,6 +182,12 @@ impl Host for GuestHost {
         imports::unsubscribe(sub.0);
     }
 
+    fn list(&mut self, key: &str, full: bool) -> Result<SubId, AppError> {
+        imports::list(key, full)
+            .map(SubId)
+            .map_err(|e| AppError::from_cbor(&e))
+    }
+
     fn set(&mut self, key: &str, value: Value) -> Result<ReqId, AppError> {
         let b = encode_value(&value)?;
         imports::set(key, &b)
@@ -256,6 +266,10 @@ pub mod __private {
 
     pub fn on_reply<A: App>(slot: &'static Slot<A>, req: u64, result: Result<Vec<u8>, Vec<u8>>) {
         run_on_reply(slot, &mut GuestHost, req, result);
+    }
+
+    pub fn on_list<A: App>(slot: &'static Slot<A>, sub: u64, key: &str, change: &[u8]) {
+        run_on_list(slot, &mut GuestHost, sub, key, change);
     }
 
     pub fn stop<A: App>(slot: &'static Slot<A>) {
@@ -348,6 +362,21 @@ fn run_on_reply<A: App>(
         Err(e) => Err(AppError::from_cbor(&e)),
     };
     with_app(slot, |app| app.on_reply(host, ReqId(req), result));
+}
+
+fn run_on_list<A: App>(
+    slot: &'static Slot<A>,
+    host: &mut dyn Host,
+    sub: u64,
+    key: &str,
+    change: &[u8],
+) {
+    match ListChange::from_cbor(change) {
+        Ok(change) => {
+            with_app(slot, |app| app.on_list(host, SubId(sub), key, change));
+        }
+        Err(e) => host.log(Level::Warn, &format!("list change of {key} dropped: {e}")),
+    }
 }
 
 fn run_stop<A: App>(slot: &'static Slot<A>, host: &mut dyn Host) {

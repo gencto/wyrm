@@ -33,6 +33,7 @@ wyrm-link-portable.workspace = true
 wyrm-example-portable.workspace = true
 # the embedded scheduler (ADR 0022) at `downstream/scheduler`
 wyrm-link-scheduler.workspace = true
+wyrm-link-dql.workspace = true
 # the system zone for the scheduler's `default_tz` (ruling 3)
 jiff = { workspace = true, features = ["std", "tz-system"] }
 # Static plugins need the internal runtime API; this crate is the only one

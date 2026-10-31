@@ -76,6 +76,15 @@ mod app_world {
     });
 }
 
+/// `wyrm:app@0.2.0` (ADR 0025): 0.1.0 plus `list` / `on-list`.
+mod app2_world {
+    wasmtime::component::bindgen!({
+        path: "wit/app2",
+        world: "app",
+        imports: { default: trappable },
+    });
+}
+
 /// Epoch tick of the time limit.
 pub const TICK: Duration = Duration::from_millis(10);
 
@@ -377,9 +386,10 @@ mod sealed {
 pub trait World: sealed::Sealed + Sized + 'static {
     #[doc(hidden)]
     type Pre: Clone + Send + Sync;
-    /// The one import this world may have (`wyrm:link/tcp` for `driver`).
+    /// The imports this world may have (`wyrm:link/tcp` for `driver`, one `wyrm:app/host`
+    /// version for `app`).
     #[doc(hidden)]
-    const IMPORT: Option<&'static str> = None;
+    const IMPORTS: &'static [&'static str] = &[];
     /// The linker with exactly the imports of this world.
     #[doc(hidden)]
     fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
@@ -409,7 +419,7 @@ impl sealed::Sealed for AppWorld {}
 
 impl World for DriverWorld {
     type Pre = driver_world::DriverPre<Ctx>;
-    const IMPORT: Option<&'static str> = Some("wyrm:link/tcp@0.1.0");
+    const IMPORTS: &'static [&'static str] = &["wyrm:link/tcp@0.1.0"];
     fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
         let mut l = Linker::new(engine);
         driver_world::wyrm::link::tcp::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
@@ -510,7 +520,7 @@ impl Host {
         if let Some((name, _)) = component
             .component_type()
             .imports(&self.engine)
-            .find(|(name, _)| Some(*name) != W::IMPORT)
+            .find(|(name, _)| !W::IMPORTS.contains(name))
         {
             return Err(Error::Denied(name.to_owned()));
         }
@@ -550,6 +560,16 @@ impl<W: World> Clone for Artifact<W> {
             sha: self.sha.clone(),
             pre: self.pre.clone(),
             engine: self.engine.clone(),
+        }
+    }
+}
+
+impl Artifact<AppWorld> {
+    /// The `wyrm:app` version the component was built for: `"0.1.0"` or `"0.2.0"` (ADR 0025).
+    pub fn app_version(&self) -> &'static str {
+        match self.pre {
+            AppPre::V1(_) => "0.1.0",
+            AppPre::V2(_) => "0.2.0",
         }
     }
 }
@@ -832,26 +852,58 @@ impl LinkDriver {
 
 // ---------- world `wyrm:app/app` (ADR 0023) ----------
 
-/// `wyrm:app/app`: a portable link. Its import `wyrm:app/host` delegates to the
-/// [`BufferHost`] the caller lends the instance for a call.
-pub struct AppWorld(app_world::App);
+/// `wyrm:app/app`: a portable link, of world `wyrm:app@0.1.0` or `@0.2.0` (ADR 0025). Its import
+/// `wyrm:app/host` delegates to the [`BufferHost`] the caller lends the instance for a call.
+pub enum AppWorld {
+    V1(app_world::App),
+    V2(app2_world::App),
+}
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub enum AppPre {
+    V1(app_world::AppPre<Ctx>),
+    V2(app2_world::AppPre<Ctx>),
+}
+
+/// The same call on either world version (the generated types differ, the calls do not).
+macro_rules! on_world {
+    ($w:expr, $s:expr, |$x:ident| $call:expr) => {
+        match $w {
+            AppWorld::V1($x) => $call,
+            AppWorld::V2($x) => $call,
+        }
+    };
+}
 
 impl World for AppWorld {
-    type Pre = app_world::AppPre<Ctx>;
-    const IMPORT: Option<&'static str> = Some("wyrm:app/host@0.1.0");
+    type Pre = AppPre;
+    const IMPORTS: &'static [&'static str] = &["wyrm:app/host@0.1.0", "wyrm:app/host@0.2.0"];
     fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
         let mut l = Linker::new(engine);
         app_world::wyrm::app::host::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
             &mut l,
             |c| c,
         )?;
+        app2_world::wyrm::app::host::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
+            &mut l,
+            |c| c,
+        )?;
         Ok(l)
     }
+    /// A component that exports `on-list` is a 0.2.0 one; anything else must be 0.1.0.
     fn pre(linker: &Linker<Ctx>, c: &Component) -> wasmtime::Result<Self::Pre> {
-        app_world::AppPre::new(linker.instantiate_pre(c)?)
+        let ipre = linker.instantiate_pre(c)?;
+        match app2_world::AppPre::new(ipre.clone()) {
+            Ok(p) => Ok(AppPre::V2(p)),
+            Err(_) => app_world::AppPre::new(ipre).map(AppPre::V1),
+        }
     }
     fn instantiate(pre: &Self::Pre, store: &mut Store<Ctx>) -> wasmtime::Result<Self> {
-        pre.instantiate(store).map(AppWorld)
+        match pre {
+            AppPre::V1(p) => p.instantiate(store).map(AppWorld::V1),
+            AppPre::V2(p) => p.instantiate(store).map(AppWorld::V2),
+        }
     }
     /// Apps start through [`AppRunner::start`], with a buffer for their effects.
     fn init(
@@ -880,7 +932,10 @@ impl Ctx {
     }
 }
 
-impl app_world::wyrm::app::host::Host for Ctx {
+/// The import functions of both world versions; `$extra` adds those of the newer one.
+macro_rules! app_host_impl {
+    ($tr:path, { $($extra:tt)* }) => {
+        impl $tr for Ctx {
     fn declare_node(&mut self, path: String, meta: Vec<u8>) -> wasmtime::Result<()> {
         let meta = decode("declare-node meta", &meta)?;
         wyrm_link_api::Host::declare_node(self.app()?, &path, meta);
@@ -1010,7 +1065,19 @@ impl app_world::wyrm::app::host::Host for Ctx {
         wyrm_link_api::Host::log(self.app()?, wyrm_link_api::Level::from_code(level), &msg);
         Ok(())
     }
+            $($extra)*
+        }
+    };
 }
+
+app_host_impl!(app_world::wyrm::app::host::Host, {});
+app_host_impl!(app2_world::wyrm::app::host::Host, {
+    fn list(&mut self, key: String, full: bool) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::list(self.app()?, &key, full)
+            .map(|s| s.0)
+            .map_err(|e| e.to_cbor()))
+    }
+});
 
 /// What a placeholder buffer serves: nothing. It only holds the place of the caller's buffer
 /// in a store between calls.
@@ -1149,7 +1216,7 @@ impl AppRunner {
             generation,
         });
         self.live_sha = Some(art.sha.clone());
-        let r = self.call(host, |w, s| w.0.call_start(s, config))?;
+        let r = self.call(host, |w, s| on_world!(w, s, |x| x.call_start(s, config)))?;
         Ok(r.map_err(|e| AppError::from_cbor(&e)))
     }
 
@@ -1160,7 +1227,9 @@ impl AppRunner {
         value: &[u8],
         who: &[u8],
     ) -> Result<AppResult<()>, Error> {
-        let r = self.call(host, |w, s| w.0.call_on_set(s, path, value, who))?;
+        let r = self.call(host, |w, s| {
+            on_world!(w, s, |x| x.call_on_set(s, path, value, who))
+        })?;
         Ok(r.map_err(|e| AppError::from_cbor(&e)))
     }
 
@@ -1173,12 +1242,14 @@ impl AppRunner {
         args: &[u8],
         who: &[u8],
     ) -> Result<AppResult<Vec<u8>>, Error> {
-        let r = self.call(host, |w, s| w.0.call_on_invoke(s, path, action, args, who))?;
+        let r = self.call(host, |w, s| {
+            on_world!(w, s, |x| x.call_on_invoke(s, path, action, args, who))
+        })?;
         Ok(r.map_err(|e| AppError::from_cbor(&e)))
     }
 
     pub fn on_timer(&mut self, host: &mut BufferHost, id: u64) -> Result<(), Error> {
-        self.call(host, |w, s| w.0.call_on_timer(s, id))
+        self.call(host, |w, s| on_world!(w, s, |x| x.call_on_timer(s, id)))
     }
 
     pub fn on_value(
@@ -1188,7 +1259,35 @@ impl AppRunner {
         key: &str,
         sample: &[u8],
     ) -> Result<(), Error> {
-        self.call(host, |w, s| w.0.call_on_value(s, sub, key, sample))
+        self.call(host, |w, s| {
+            on_world!(w, s, |x| x.call_on_value(s, sub, key, sample))
+        })
+    }
+
+    /// `change`: the CBOR of a `ListChange`. A 0.1.0 component has no lists (it cannot make
+    /// one), so there it is a no-op.
+    pub fn on_list(
+        &mut self,
+        host: &mut BufferHost,
+        sub: u64,
+        key: &str,
+        change: &[u8],
+    ) -> Result<(), Error> {
+        if matches!(self.live.as_ref().map(|l| &l.world), Some(AppWorld::V1(_))) {
+            return Ok(());
+        }
+        self.call(host, |w, s| match w {
+            AppWorld::V2(x) => x.call_on_list(s, sub, key, change),
+            AppWorld::V1(_) => Ok(()),
+        })
+    }
+
+    /// The world version of the live instance: `"0.1.0"` or `"0.2.0"`.
+    pub fn world_version(&self) -> Option<&'static str> {
+        self.live.as_ref().map(|l| match l.world {
+            AppWorld::V1(_) => "0.1.0",
+            AppWorld::V2(_) => "0.2.0",
+        })
     }
 
     /// `result`: the CBOR of the `Value` answered, or of the `AppError`.
@@ -1198,14 +1297,16 @@ impl AppRunner {
         req: u64,
         result: Result<&[u8], &[u8]>,
     ) -> Result<(), Error> {
-        self.call(host, |w, s| w.0.call_on_reply(s, req, result))
+        self.call(host, |w, s| {
+            on_world!(w, s, |x| x.call_on_reply(s, req, result))
+        })
     }
 
     /// `stop` runs at most [`AppRunner::STOP_TIME`] (or the call time, if shorter).
     pub fn stop(&mut self, host: &mut BufferHost) -> Result<(), Error> {
         let limits = self.limits;
         self.limits.time = limits.time.min(Self::STOP_TIME);
-        let r = self.call(host, |w, s| w.0.call_stop(s));
+        let r = self.call(host, |w, s| on_world!(w, s, |x| x.call_stop(s)));
         self.limits = limits;
         r
     }

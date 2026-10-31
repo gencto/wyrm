@@ -115,6 +115,8 @@ pub struct ControlConfig {
     /// The embedded scheduler runs ([`SCHEDULER_LINK`], ADR 0022): its keys
     /// are made at attach and every link trusts its requester key.
     pub scheduler: bool,
+    /// The embedded DQL link runs ([`DQL_LINK`], ADR 0025), as the scheduler.
+    pub dql: bool,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -144,6 +146,11 @@ pub const STORAGE_LINK: &str = "storage";
 /// Link id of the embedded scheduler (`wy/<site>/downstream/scheduler`, ADR 0022): not a
 /// registry link; it signs its writes with its own requester key, trusted by every link.
 pub const SCHEDULER_LINK: &str = "scheduler";
+/// Link id of the embedded DQL link (`wy/<site>/downstream/dql`, ADR 0025): a built-in link as
+/// the scheduler, with its own requester key for its sinks.
+pub const DQL_LINK: &str = "dql";
+/// Built-in links: not in the registry, ids reserved, own keys made by the admin.
+pub const BUILTIN_LINKS: [&str; 2] = [SCHEDULER_LINK, DQL_LINK];
 /// `sys/overlays/.sites`: overlays of downstream sites' points this site
 /// records, by full key, laid on by the gateway (ADR 0020). Never a link
 /// id: those may not start with `.`.
@@ -295,6 +302,8 @@ pub struct Control {
     closing: std::sync::atomic::AtomicBool,
     /// The embedded scheduler's keys are saved: it runs ([`Control::scheduler_runs`]).
     scheduler_keys: std::sync::atomic::AtomicBool,
+    /// The embedded DQL link's keys are saved: it runs ([`Control::dql_runs`]).
+    dql_keys: std::sync::atomic::AtomicBool,
     /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
     pub(crate) history: Arc<wyrm_history::Historian>,
     /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
@@ -623,6 +632,7 @@ impl Control {
                 inflight: Default::default(),
                 closing: Default::default(),
                 scheduler_keys: Default::default(),
+                dql_keys: Default::default(),
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
@@ -758,6 +768,7 @@ impl Control {
         limited.extend(self.agent_limited_keys());
         limited.extend(self.requester_limited_keys());
         limited.extend(self.scheduler_limited_key());
+        limited.extend(self.dql_limited_key());
         limited.extend(self.upstream_trust("downstream"));
         (self.cfg.admin_keys.clone(), limited)
     }
@@ -776,6 +787,20 @@ impl Control {
         })
     }
 
+    /// The embedded DQL link's requester key, for its sinks: `write` on this site's `downstream`
+    /// only, bound to the subject `link:dql` (ADR 0025).
+    fn dql_limited_key(&self) -> Option<wyrm_link_sdk::LimitedKey> {
+        if !self.dql_runs() {
+            return None;
+        }
+        Some(wyrm_link_sdk::LimitedKey {
+            key: self.requester_key_of(DQL_LINK)?,
+            cap: Perm::Write,
+            scopes: vec![format!("wy/{}/downstream", self.cfg.site)],
+            subject: Some(format!("link:{DQL_LINK}")),
+        })
+    }
+
     /// The link config of a link the broker runs in-process (an embedded
     /// registry link or a built-in one): the links' trust, its secrets,
     /// its private `data_dir` and `grants`.
@@ -786,10 +811,10 @@ impl Control {
     ) -> Result<LinkConfig, LinkError> {
         let mut lcfg = LinkConfig::new(self.cfg.site.clone(), id);
         let (admin_keys, mut limited_keys) = self.link_trust();
-        if id == SCHEDULER_LINK {
-            // R21: its own writes never reach its own nodes (no schedule writes the scheduler
-            // in a loop); the app cannot tell its own subtree from a point key
-            let own = self.requester_key_of(SCHEDULER_LINK);
+        if BUILTIN_LINKS.contains(&id) {
+            // R21: its own writes never reach its own nodes (no schedule or query writes the
+            // link itself in a loop); the app cannot tell its own subtree from a point key
+            let own = self.requester_key_of(id);
             limited_keys.retain(|k| Some(k.key) != own);
         }
         lcfg.admin_keys = admin_keys;
@@ -916,6 +941,24 @@ impl Control {
             };
         self.scheduler_keys
             .store(ok, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The embedded DQL link's keys, made once; as [`Self::prepare_scheduler`] (R22).
+    pub fn prepare_dql(&self) {
+        let ok = self.cfg.dql
+            && match self.ensure_builtin_keys(DQL_LINK) {
+                Ok(()) => true,
+                Err(e) => {
+                    error!("dql: its keys are not saved ({e}): the broker runs without it");
+                    false
+                }
+            };
+        self.dql_keys.store(ok, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The embedded DQL link runs: it is on and its keys are saved ([`Self::prepare_dql`]).
+    pub fn dql_runs(&self) -> bool {
+        self.dql_keys.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The embedded scheduler runs: it is on and its keys are saved ([`Self::prepare_scheduler`]).
@@ -1580,6 +1623,7 @@ impl Control {
         // The scheduler's key before the admin answers any `hello`: a process
         // link trusts only the keys its `hello` reply carried.
         self.prepare_scheduler();
+        self.prepare_dql();
         // Agent keys first: every link started below trusts them.
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
@@ -2597,6 +2641,9 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     links.insert(STORAGE_LINK.to_owned());
     if ctl.cfg.scheduler {
         links.insert(SCHEDULER_LINK.to_owned());
+    }
+    if ctl.cfg.dql {
+        links.insert(DQL_LINK.to_owned());
     }
     links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
@@ -4849,8 +4896,8 @@ impl Admin {
         if cfg.peers.downstream.contains(&site)
             || self.check_new_site(&site).is_err()
             || reg.links.contains_key(&site)
-            // `downstream/scheduler` is the embedded scheduler (ADR 0022)
-            || site == SCHEDULER_LINK
+            // `downstream/scheduler` and `downstream/dql` are built-in links (ADR 0022, 0025)
+            || BUILTIN_LINKS.contains(&site.as_str())
             || reg.blocklist.contains(&cn)
         {
             return refused(NOT_HERE);
@@ -5395,7 +5442,7 @@ fn broker_admissible(reg: &Registry, peers: &acl::Peers, own: &str, site: &str) 
         || peers.reachable().iter().any(|r| r == site)
         || reg.peers.contains_key(site)
         || reg.links.contains_key(site)
-        || site == SCHEDULER_LINK
+        || BUILTIN_LINKS.contains(&site)
         || reg.quarantine.contains_key(site)
         || reg.blocklist.contains(&crate::registry::broker_cn(site));
     !known
@@ -5907,7 +5954,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    use super::{Control, ControlConfig, SCHEDULER_LINK};
+    use super::{Control, ControlConfig, DQL_LINK, SCHEDULER_LINK};
     use wyrm_core::Perm;
 
     struct NoDrivers;
@@ -5956,6 +6003,7 @@ mod tests {
             anchor_init: false,
             repository: None,
             scheduler,
+            dql: scheduler,
         };
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }
@@ -5981,6 +6029,25 @@ mod tests {
         assert!(!off.scheduler_runs());
         assert!(off.scheduler_limited_key().is_none());
         assert!(!off.link_trust().1.iter().any(scheduler_subject));
+    }
+
+    /// ADR 0025: the embedded DQL link's key as the scheduler's: `write`, this site's
+    /// `downstream`, subject `link:dql`; the link itself does not trust it.
+    #[test]
+    fn the_dql_key_is_pinned_and_not_trusted_by_itself() {
+        let ctl = control("dql-key", true, |_| {});
+        ctl.prepare_dql();
+        assert!(ctl.dql_runs());
+        let k = ctl.dql_limited_key().expect("a key");
+        assert_eq!(k.cap, wyrm_core::Perm::Write);
+        assert_eq!(k.scopes, vec!["wy/s/downstream".to_owned()]);
+        assert_eq!(k.subject.as_deref(), Some("link:dql"));
+        let dql = |k: &wyrm_link_sdk::LimitedKey| k.subject.as_deref() == Some("link:dql");
+        let own = ctl.embedded_link_config(DQL_LINK, Vec::new()).unwrap();
+        assert!(!own.limited_keys.iter().any(dql));
+        let other = ctl.embedded_link_config("mock", Vec::new()).unwrap();
+        assert!(other.limited_keys.iter().any(dql));
+        assert!(crate::registry::validate_new_link_id(DQL_LINK).is_err());
     }
 
     /// R21: the scheduler does not trust its own key (a schedule cannot write the scheduler's

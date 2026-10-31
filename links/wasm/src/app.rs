@@ -207,6 +207,10 @@ impl WasmEngine {
                 r.on_reply(host, req.0, bytes.as_deref().map_err(|e| e.as_slice()))?;
                 Ok(None)
             }
+            Event::List(sub, key, change) => {
+                r.on_list(host, sub.0, &key, &change.to_cbor())?;
+                Ok(None)
+            }
             Event::Stop => {
                 r.stop(host)?;
                 Ok(None)

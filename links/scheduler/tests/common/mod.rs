@@ -57,8 +57,10 @@ impl Services for SimServices {
     fn store_keys(&self) -> usize {
         self.lock().store.len()
     }
-    fn may(&self, _key: &str, _perm: Perm) -> bool {
-        true
+    /// As the embedded scheduler's grants: this site only (another site's keys are reachable
+    /// only under a grant, ADR 0025).
+    fn may(&self, key: &str, _perm: Perm) -> bool {
+        key.starts_with(&format!("{SITE}/"))
     }
     fn tcp_connect(&mut self, _a: &str, _p: u16, _t: u32) -> Result<ConnId, AppError> {
         Err(AppError::new(Status::PermissionDenied, "no network"))
@@ -187,6 +189,7 @@ impl SimHost {
         Counts {
             timers: self.timers.len(),
             subs: self.subs.len(),
+            lists: 0,
             inflight: self.sets.len(),
         }
     }
