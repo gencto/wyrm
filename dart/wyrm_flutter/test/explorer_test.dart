@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -167,6 +168,30 @@ class SettableApi extends ActApi {
       throw WyrmException.of(Status.permissionDenied, 'not allowed');
     }
   }
+}
+
+/// Storage values of every editable kind (ADR 0017): a map, an array, binary
+/// and a number with a unit.
+class StorageValuesApi extends SettableApi {
+  static final mapMeta = NodeMeta(ty: TypeCode.map, writable: Writable.write, hasChildren: false);
+  static final listMeta = NodeMeta(ty: TypeCode.array, writable: Writable.write, hasChildren: false);
+  static final binMeta = NodeMeta(ty: TypeCode.binary, writable: Writable.write, hasChildren: false);
+  static final numMeta =
+      NodeMeta(ty: TypeCode.number, writable: Writable.write, unit: const TText('°C'), hasChildren: false);
+
+  @override
+  Future<List<Child>> children(String key) async => key == 'wy/s/downstream/c'
+      ? [Child('cfg', mapMeta), Child('list', listMeta), Child('blob', binMeta), Child('sp', numMeta)]
+      : super.children(key);
+
+  @override
+  Stream<ValEvent> subscribe(String pattern) => switch (pattern) {
+        'wy/s/downstream/c/cfg' => Stream.value(ValSample(pattern, Sample(VMap({'a': const VInt(1)}), t: 1))),
+        'wy/s/downstream/c/list' => Stream.value(ValSample(pattern, const Sample(VArray([VInt(1)]), t: 1))),
+        'wy/s/downstream/c/blob' => Stream.value(ValSample(pattern, Sample(VBytes(Uint8List.fromList([1])), t: 1))),
+        'wy/s/downstream/c/sp' => Stream.value(ValSample(pattern, const Sample(VFloat(21.5), t: 1))),
+        _ => super.subscribe(pattern),
+      };
 }
 
 /// A recorded point (ADR 0016): `temp` has `has_history` in the list and
@@ -865,6 +890,48 @@ void main() {
     expect(api.sets.last, ('wy/s/downstream/c/lvl', const VInt(2)));
     expect(find.text('not allowed'), findsOneWidget);
     expect(find.textContaining('WyrmException'), findsNothing);
+  });
+
+  testWidgets('Metrics: a map, an array, binary and a number are typed and sent as their type', (t) async {
+    t.view.physicalSize = const Size(1200, 900);
+    t.view.devicePixelRatio = 1;
+    final api = StorageValuesApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    await select(t, 'c');
+    Future<void> type(String shown, String text) async {
+      await t.tap(find.text(shown));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('value-edit')), text);
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pumpAndSettle();
+    }
+
+    // the map opens as JSON and goes out as a map
+    await t.tap(find.text('{1}'));
+    await t.pumpAndSettle();
+    expect(find.text('{"a":1}'), findsOneWidget);
+    await t.enterText(find.byKey(const ValueKey('value-edit')), '{"a": 2, "on": true}');
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    await t.pumpAndSettle();
+    expect(api.sets.last, ('wy/s/downstream/c/cfg', VMap({'a': const VInt(2), 'on': const VBool(true)})));
+    await type('[1]', '[1, "x"]');
+    expect(api.sets.last, ('wy/s/downstream/c/list', const VArray([VInt(1), VStr('x')])));
+    await type('1 bytes', '0xff00');
+    expect(api.sets.last, ('wy/s/downstream/c/blob', VBytes(Uint8List.fromList([0xff, 0]))));
+    // a number opens without its unit
+    await t.tap(find.text('21.50 °C'));
+    await t.pumpAndSettle();
+    expect(find.text('21.5'), findsOneWidget);
+    await t.enterText(find.byKey(const ValueKey('value-edit')), '22');
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    await t.pumpAndSettle();
+    expect(api.sets.last, ('wy/s/downstream/c/sp', const VInt(22)));
+    // text that is not a map is not sent; the reason shows
+    final n = api.sets.length;
+    await type('{1}', 'not json');
+    expect(api.sets.length, n);
+    expect(find.textContaining('a JSON object'), findsOneWidget);
   });
 
   testWidgets('an empty list stays a list: shown dimmed, not typed, not sent', (t) async {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,6 +114,40 @@ void main() {
     api.lists['wy/s/downstream']!.addError(WyrmException.of(Status.permissionDenied, 'permission denied'));
     await tester.pump();
     expect(find.textContaining('permission denied'), findsOneWidget);
+  });
+
+  test('editText and parseValueText: maps, arrays, binary and numbers round-trip', () {
+    final m = VMap({'a': const VInt(1), 'b': VArray([const VStr('x'), const VBool(true), const VFloat(0.5)])});
+    expect(editText(m, null), '{"a":1,"b":["x",true,0.5]}');
+    expect(parseValueText(editText(m, null), TypeCode.map), m);
+    expect(parseValueText('[1, "two", null]', TypeCode.array),
+        const VArray([VInt(1), VStr('two'), VNull()]));
+    final bin = VBytes(Uint8List.fromList([0x0a, 0x1b]));
+    expect(editText(bin, null), '0x0a1b');
+    expect(parseValueText('0x0A1B', TypeCode.binary), bin);
+    expect(parseValueText('', TypeCode.binary), VBytes(Uint8List(0)));
+    // a number is edited without its unit; one typed with a unit keeps the number
+    final temp = NodeMeta(ty: TypeCode.number, unit: const TText('°C'));
+    expect(formatValue(const VFloat(21.5), temp), '21.50 °C');
+    expect(editText(const VFloat(21.5), temp), '21.5');
+    expect(parseValueText('21.50 °C', TypeCode.number), const VFloat(21.5));
+    expect(parseValueText('7', TypeCode.number), const VInt(7));
+    // dynamic: JSON when it is JSON, else text
+    expect(parseValueText('{"on": true}', TypeCode.dynamic_), VMap({'on': const VBool(true)}));
+    expect(parseValueText('hello', TypeCode.dynamic_), const VStr('hello'));
+    expect(parseValueText(' text ', TypeCode.string), const VStr('text'));
+    // what is not such a value is refused, never sent as 0 or as text
+    for (final (t, ty) in [
+      ('abc', TypeCode.number),
+      ('[1]', TypeCode.map),
+      ('{"a": 1', TypeCode.map),
+      ('{}', TypeCode.array),
+      ('0x1', TypeCode.binary),
+      ('zz', TypeCode.binary),
+      ('yes', TypeCode.bool_),
+    ]) {
+      expect(() => parseValueText(t, ty), throwsFormatException, reason: '$t as $ty');
+    }
   });
 
   test('formatValue', () {

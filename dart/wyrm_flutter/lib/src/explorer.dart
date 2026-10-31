@@ -14,7 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'explorer_theme.dart';
-import 'tree.dart' show formatValue, unitSuffix, historyStores, isRecorded, historyReadKey;
+import 'tree.dart' show formatValue, editText, parseValueText, unitSuffix, historyStores, isRecorded, historyReadKey;
 
 part 'history.dart';
 part 'time_fields.dart';
@@ -775,7 +775,7 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         // A list, also an empty one (nothing to choose: shown, not typed).
         _enum[e.key] = d is VStr ? d.v : p.enumValues!.firstOrNull;
       } else {
-        _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : formatValue(d, null));
+        _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : editText(d, null));
         if (p.editor == _editorDuration) _units[e.key] = 1;
       }
     }
@@ -796,10 +796,8 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       final n = (double.tryParse(t) ?? 0) * _units[k]!;
       return n == n.roundToDouble() ? VInt(n.round()) : VFloat(n);
     }
-    if (p.ty == TypeCode.number) {
-      return int.tryParse(t) != null ? VInt(int.parse(t)) : VFloat(double.tryParse(t) ?? 0);
-    }
-    return VStr(t);
+    // a number, a map, an array, binary or a dynamic value as typed (FormatException: shown)
+    return parseValueText(t, p.ty);
   }
 
   Future<void> _invoke() async {
@@ -831,7 +829,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
           _status = _Status.error;
           // the message alone, not `WyrmException(status): …`; a refusal
           // carries none (spec 04), so its status instead
-          _error = e is! WyrmException
+          _error = e is FormatException
+              ? e.message
+              : e is! WyrmException
               ? '$e'
               : e.message.isEmpty
                   ? e.status.name.replaceAll('_', ' ')
@@ -1594,13 +1594,16 @@ class _MetricRowState extends State<_MetricRow> {
   String? _setError;
 
   Future<void> _commit() async {
-    final t = _edit!.text.trim();
+    final t = _edit!.text;
+    final Value v;
+    try {
+      v = parseValueText(t, _meta.ty);
+    } on FormatException catch (e) {
+      // not sent: the text is kept to correct, the reason shown under it
+      setState(() => _setError = e.message);
+      return;
+    }
     setState(() => _edit = null);
-    final v = switch (_meta.ty) {
-      TypeCode.number => int.tryParse(t) != null ? VInt(int.parse(t)) : VFloat(double.tryParse(t) ?? 0),
-      TypeCode.bool_ => VBool(t == 'true' || t == '1'),
-      _ => VStr(t),
-    };
     await _set(v);
   }
 
@@ -1698,9 +1701,10 @@ class _MetricRowState extends State<_MetricRow> {
         if (s != null) const Text(' : '),
         if (_edit != null)
           SizedBox(
-            width: 110,
+            width: switch (_meta.ty) { TypeCode.map || TypeCode.array || TypeCode.dynamic_ => 320, _ => 110 },
             child: _FieldBox(
               child: TextField(
+                key: const ValueKey('value-edit'),
                 controller: _edit,
                 autofocus: true,
                 style: WyStyle.input,
@@ -1716,7 +1720,7 @@ class _MetricRowState extends State<_MetricRow> {
         else
           GestureDetector(
             onTap: _meta.isSettable
-                ? () => setState(() => _edit = TextEditingController(text: s == null ? '' : text))
+                ? () => setState(() => _edit = TextEditingController(text: s == null ? '' : editText(s.sample.v, _meta)))
                 : null,
             child: MouseRegion(
               cursor: _meta.isSettable ? SystemMouseCursors.text : MouseCursor.defer,

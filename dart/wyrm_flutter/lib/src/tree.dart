@@ -3,6 +3,8 @@
 // stream. A visible leaf holds one `subscribe()` on its exact key.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -346,3 +348,89 @@ String formatValue(Value v, NodeMeta? meta) {
     VMap(:final v) => '{${v.length}}',
   };
 }
+
+/// The text a value is edited as: a map or an array as JSON (bytes inside
+/// them as `0x…` text), binary as hex `0x…`, a number without its unit, the
+/// rest as shown.
+String editText(Value v, NodeMeta? meta) => switch (v) {
+      VMap() || VArray() => jsonEncode(_jsonOf(v)),
+      VBytes(:final v) => '0x${hexOf(v)}',
+      VInt(:final v) when meta?.enumValues == null => '$v',
+      VFloat(:final v) => '$v',
+      VNull() => '',
+      _ => formatValue(v, meta),
+    };
+
+Object? _jsonOf(Value v) => switch (v) {
+      VMap(:final v) => {for (final e in v.entries) e.key: _jsonOf(e.value)},
+      VArray(:final v) => [for (final e in v) _jsonOf(e)],
+      VBytes(:final v) => '0x${hexOf(v)}',
+      _ => v.toDart(),
+    };
+
+/// The value typed as `text` for a node of type `ty`, the way [editText]
+/// shows it: a number (a unit after it is ignored), `true`/`false`, a JSON
+/// object for a map, a JSON array for an array, hex for binary, JSON or else
+/// text for a dynamic value, text for the rest. Throws a [FormatException]
+/// with a message for people when the text is not such a value.
+Value parseValueText(String text, TypeCode? ty) {
+  final t = text.trim();
+  switch (ty) {
+    case TypeCode.number:
+      final word = t.split(RegExp(r'\s+')).first;
+      final i = int.tryParse(word);
+      if (i != null) return VInt(i);
+      final d = double.tryParse(word);
+      if (d == null || !d.isFinite) throw const FormatException('not a number');
+      return VFloat(d);
+    case TypeCode.bool_:
+      return switch (t) {
+        'true' || '1' => const VBool(true),
+        'false' || '0' => const VBool(false),
+        _ => throw const FormatException('true or false'),
+      };
+    case TypeCode.map:
+      final j = _json(t, 'a JSON object: {"name": value, …}');
+      if (j is! Map) throw const FormatException('a JSON object: {"name": value, …}');
+      return _valueOf(j);
+    case TypeCode.array:
+      final j = _json(t, 'a JSON array: [value, …]');
+      if (j is! List) throw const FormatException('a JSON array: [value, …]');
+      return _valueOf(j);
+    case TypeCode.binary:
+      final h = t.startsWith('0x') || t.startsWith('0X') ? t.substring(2) : t;
+      if (h.length.isOdd || !RegExp(r'^[0-9a-fA-F]*$').hasMatch(h)) {
+        throw const FormatException('hex bytes, such as 0x0a1b');
+      }
+      return VBytes(Uint8List.fromList([
+        for (var i = 0; i < h.length; i += 2) int.parse(h.substring(i, i + 2), radix: 16),
+      ]));
+    case TypeCode.dynamic_:
+      try {
+        return _valueOf(jsonDecode(t));
+      } on FormatException {
+        return VStr(t);
+      }
+    default:
+      return VStr(t);
+  }
+}
+
+Object? _json(String t, String expected) {
+  try {
+    return jsonDecode(t);
+  } on FormatException {
+    throw FormatException(expected);
+  }
+}
+
+Value _valueOf(Object? j) => switch (j) {
+      null => const VNull(),
+      bool b => VBool(b),
+      int i => VInt(i),
+      double d => VFloat(d),
+      String s => VStr(s),
+      List<Object?> l => VArray([for (final e in l) _valueOf(e)]),
+      Map<Object?, Object?> m => VMap({for (final e in m.entries) '${e.key}': _valueOf(e.value)}),
+      _ => VStr('$j'),
+    };

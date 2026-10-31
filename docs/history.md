@@ -14,6 +14,23 @@ the broker, how to read it back, and what the limits are. Decision: ADR 0014.
 The last values are not saved: after a restart a point has a value again when
 its link publishes one. History is recorded only for points in a watch group.
 
+Broker storage (`wy/<site>/storage`, values that people create) is kept in
+`data_dir/storage/storage.redb`. To change a storage value in the explorer,
+click it in Metrics and type the new value:
+
+| Type | Type it as | Example |
+|---|---|---|
+| `number` | a number; a unit after it is ignored | `21.5` |
+| `bool` | choose `true` or `false` | |
+| `string` | text | `north wing` |
+| `map` | a JSON object | `{"mode": "eco", "limit": 40}` |
+| `array` | a JSON array | `[1, 2, 3]` |
+| `binary` | hex bytes, `0x` before them is optional | `0x0a1b` |
+| `dynamic` | JSON, or else text | `{"on": true}` or `hello` |
+
+The explorer does not send text that is not of the value's type. It shows
+why under the value, for example "a JSON object".
+
 ## 2. Record history
 
 Open `wy/<site>/sys/history`.
