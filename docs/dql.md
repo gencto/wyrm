@@ -132,8 +132,12 @@ be stopped halfway):
 - no `+` and no list or map literal inside a macro's body, so each step of a chain gives at most
   what it was given;
 - a list literal holds at most 64 items;
-- a value of more than 1 000 items (all levels), or a text or bytes value over 16 KiB, is `null`
-  in an expression.
+- a value of more than 1 000 items (all levels; text, bytes and map keys count one item per 16
+  bytes) is `null` in an expression, and a result that large is an error.
+
+What only the run can see (a row variable read on every item of a long range) is bounded while
+it runs: one evaluation reads row variables at most 10 000 times and, in a native link, takes
+at most 20 ms; past either it stops with the error `too costly`, and the row counts an error.
 
 ## From DSA
 

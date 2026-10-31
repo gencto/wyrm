@@ -697,8 +697,8 @@ impl Engine {
                     }
                 }
                 Stage::Where(e) => {
-                    let ctx = cel::scope(&self.base, &meta, &cols);
-                    match e.eval(&ctx) {
+                    let row = cel::Row::new(&meta, &cols);
+                    match row.eval(&self.base, e) {
                         Ok(Value::Bool(true)) => {}
                         Ok(_) => return (None, Vec::new()),
                         Err(_) => {
@@ -711,8 +711,8 @@ impl Engine {
                 }
                 Stage::Expression(es) => {
                     for (name, e) in es {
-                        let ctx = cel::scope(&self.base, &meta, &cols);
-                        let v = e.eval(&ctx).unwrap_or_else(|_| {
+                        let row = cel::Row::new(&meta, &cols);
+                        let v = row.eval(&self.base, e).unwrap_or_else(|_| {
                             if !reads_nulls(e, &meta, &cols) {
                                 errors += 1;
                             }
@@ -737,8 +737,8 @@ impl Engine {
                             .map(|(_, v)| v.clone())
                             .unwrap_or(Value::Null),
                         Arg::Expr(e) => {
-                            let ctx = cel::scope(&self.base, &meta, &cols);
-                            e.eval(&ctx).unwrap_or_else(|_| {
+                            let row = cel::Row::new(&meta, &cols);
+                            row.eval(&self.base, e).unwrap_or_else(|_| {
                                 if !reads_nulls(e, &meta, &cols) {
                                     *errors += 1;
                                 }

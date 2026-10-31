@@ -176,11 +176,6 @@ impl Expr {
             .map(str::to_owned)
             .collect()
     }
-
-    pub fn eval(&self, ctx: &Context<'_, '_>) -> Result<Value, String> {
-        let v = self.prog.execute(ctx).map_err(|e| e.to_string())?;
-        from_cel(v)
-    }
 }
 
 /// The names macros bind: `x` in `.all(x, …)`, `.exists(x, …)`, `.exists_one(x, …)`,
@@ -201,27 +196,99 @@ fn macro_vars(src: &str) -> Vec<String> {
     out
 }
 
-/// A row's variables, bound in a child scope of `base` (which holds CEL's functions).
-pub fn scope<'a>(
-    base: &'a Context<'static, 'static>,
-    meta: &BTreeMap<String, Value>,
-    cols: &[(String, Value)],
-) -> Context<'a, 'static> {
-    let mut c = base.new_inner_scope();
-    let mut row = HashMap::with_capacity(cols.len());
-    for f in META_FIELDS {
-        c.add_variable_from_value(f, meta.get(f).map(to_cel).unwrap_or(Cel::Null));
-    }
-    c.add_variable_from_value("meta", to_cel(&Value::Map(meta.clone())));
-    for (k, v) in cols {
-        let cv = to_cel(v);
-        if is_ident(k) {
-            c.add_variable_from_value(k.as_str(), cv.clone());
+/// Lookups of a row's variables one evaluation may make: a macro that reads a row variable in
+/// its body pays one per item, so this bounds what the static check cannot see (a long range
+/// made with `+`, an outer list compared on every item).
+pub const MAX_LOOKUPS: u64 = 10_000;
+/// The time one evaluation may take (native builds; a WASM component has its host's fuel).
+#[cfg(not(target_arch = "wasm32"))]
+pub const ROW_TIME: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// A row's variables, served to an evaluation through a resolver that counts its lookups (and,
+/// natively, watches the clock): past the bound every variable is gone, so the evaluation stops
+/// at its next lookup with an error, `too costly`. cel-rust has no other way to stop one.
+pub struct Row {
+    vars: HashMap<String, Cel>,
+    lookups: std::sync::atomic::AtomicU64,
+    over: std::sync::atomic::AtomicBool,
+    #[cfg(not(target_arch = "wasm32"))]
+    deadline: std::sync::Mutex<std::time::Instant>,
+}
+
+impl Row {
+    pub fn new(meta: &BTreeMap<String, Value>, cols: &[(String, Value)]) -> Self {
+        let mut vars = HashMap::with_capacity(META_FIELDS.len() + cols.len() + 2);
+        let mut row = HashMap::with_capacity(cols.len());
+        for f in META_FIELDS {
+            vars.insert(f.to_owned(), meta.get(f).map(to_cel).unwrap_or(Cel::Null));
         }
-        row.insert(Key::String(Arc::new(k.clone())), cv);
+        vars.insert("meta".to_owned(), to_cel(&Value::Map(meta.clone())));
+        for (k, v) in cols {
+            let cv = to_cel(v);
+            if is_ident(k) {
+                vars.insert(k.clone(), cv.clone());
+            }
+            if k.len() <= MAX_VALUE_BYTES {
+                row.insert(Key::String(Arc::new(k.clone())), cv);
+            }
+        }
+        vars.insert("row".to_owned(), Cel::Map(Map { map: Arc::new(row) }));
+        Row {
+            vars,
+            lookups: Default::default(),
+            over: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            deadline: std::sync::Mutex::new(std::time::Instant::now()),
+        }
     }
-    c.add_variable_from_value("row", Cel::Map(Map { map: Arc::new(row) }));
-    c
+
+    /// Evaluate `e` over this row; `base` holds CEL's functions.
+    pub fn eval(&self, base: &Context<'static, 'static>, e: &Expr) -> Result<Value, String> {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.lookups.store(0, Relaxed);
+        self.over.store(false, Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *self.deadline.lock().unwrap_or_else(|p| p.into_inner()) =
+                std::time::Instant::now() + ROW_TIME;
+        }
+        let base: &Context<'static, '_> = base;
+        let mut c = base.new_inner_scope();
+        c.set_variable_resolver(self);
+        let r = e.prog.execute(&c);
+        if self.over.load(Relaxed) {
+            return Err(format!(
+                "CEL: too costly for one row ({MAX_LOOKUPS} variable lookups or the time bound)"
+            ));
+        }
+        from_cel(r.map_err(|e| e.to_string())?)
+    }
+
+    fn spent(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.lookups.fetch_add(1, Relaxed) >= MAX_LOOKUPS {
+            return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::time::Instant::now() > *self.deadline.lock().unwrap_or_else(|p| p.into_inner()) {
+            return true;
+        }
+        false
+    }
+}
+
+impl ::cel::context::VariableResolver for Row {
+    fn resolve<'b>(&'b self, name: &str) -> Option<::cel::common::value::CowVal<'b, 'b>> {
+        let v = self.vars.get(name)?;
+        if self.spent() {
+            self.over.store(true, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        v.clone()
+            .try_into()
+            .ok()
+            .map(::cel::common::value::CowVal::Owned)
+    }
 }
 
 /// A CEL identifier, not a reserved word.
@@ -257,8 +324,8 @@ pub fn is_ident(s: &str) -> bool {
         )
 }
 
-/// A value as CEL; one of more than [`MAX_VALUE_ITEMS`] items (all levels) is `null`, so a
-/// macro over it costs nothing.
+/// A value as CEL; one of more than [`MAX_VALUE_ITEMS`] items (all levels; text, bytes and map
+/// keys count one per 16 bytes), or a text or bytes value over [`MAX_VALUE_BYTES`], is `null`.
 pub fn to_cel(v: &Value) -> Cel {
     if items(v, MAX_VALUE_ITEMS + 1) > MAX_VALUE_ITEMS {
         return Cel::Null;
@@ -266,7 +333,8 @@ pub fn to_cel(v: &Value) -> Cel {
     to_cel_all(v)
 }
 
-/// Items of `v` at every level, counted up to `stop`.
+/// Items of `v` at every level, counted up to `stop`; text, bytes and map keys count one item
+/// per 16 bytes, so the bytes of a value are bounded with its items.
 fn items(v: &Value, stop: usize) -> usize {
     let mut n = 0;
     let mut todo = vec![v];
@@ -277,9 +345,11 @@ fn items(v: &Value, stop: usize) -> usize {
                 todo.extend(a.iter());
             }
             Value::Map(m) => {
-                n += m.len();
+                n += m.len() + m.keys().map(|k| k.len() / 16).sum::<usize>();
                 todo.extend(m.values());
             }
+            Value::Str(s) => n += s.len() / 16,
+            Value::Bytes(b) => n += b.len() / 16,
             _ => {}
         }
         if n >= stop {
@@ -311,9 +381,19 @@ fn to_cel_all(v: &Value) -> Cel {
     }
 }
 
-/// A CEL result as a value; a function, an opaque or a struct value is an error. Map keys
-/// become text.
+/// A CEL result as a value, within the bounds of a bound value; a function, an opaque or a
+/// struct value is an error. Map keys become text.
 pub fn from_cel(v: Cel) -> Result<Value, String> {
+    let v = from_cel_all(v)?;
+    if items(&v, MAX_VALUE_ITEMS + 1) > MAX_VALUE_ITEMS {
+        return Err(format!(
+            "a result of more than {MAX_VALUE_ITEMS} items (text counts one per 16 bytes)"
+        ));
+    }
+    Ok(v)
+}
+
+fn from_cel_all(v: Cel) -> Result<Value, String> {
     Ok(match v {
         Cel::Null => Value::Null,
         Cel::Bool(b) => Value::Bool(b),
@@ -323,7 +403,12 @@ pub fn from_cel(v: Cel) -> Result<Value, String> {
         Cel::Float(_) => return Err("not a finite number".into()),
         Cel::String(s) => Value::Str(s.as_ref().clone()),
         Cel::Bytes(b) => Value::Bytes(b.as_ref().clone()),
-        Cel::List(l) => Value::Array(l.iter().cloned().map(from_cel).collect::<Result<_, _>>()?),
+        Cel::List(l) => Value::Array(
+            l.iter()
+                .cloned()
+                .map(from_cel_all)
+                .collect::<Result<_, _>>()?,
+        ),
         Cel::Map(m) => {
             let mut out = BTreeMap::new();
             for (k, v) in m.map.iter() {
@@ -333,7 +418,7 @@ pub fn from_cel(v: Cel) -> Result<Value, String> {
                     Key::Uint(u) => u.to_string(),
                     Key::Bool(b) => b.to_string(),
                 };
-                out.insert(k, from_cel(v.clone())?);
+                out.insert(k, from_cel_all(v.clone())?);
             }
             Value::Map(out)
         }
@@ -372,8 +457,8 @@ mod tests {
             ("value".to_owned(), Value::Float(21.5)),
             ("value.timestamp".to_owned(), Value::Int(7)),
         ];
-        let c = scope(&b, &m, &cols);
-        let t = |src: &str| Expr::compile(src).unwrap().eval(&c);
+        let r = Row::new(&m, &cols);
+        let t = |src: &str| r.eval(&b, &Expr::compile(src).unwrap());
         assert_eq!(t("value > 20 && type == 'number'"), Ok(Value::Bool(true)));
         assert_eq!(t("row['value.timestamp']"), Ok(Value::Int(7)));
         assert_eq!(t("attr.unit != '%'"), Ok(Value::Bool(false)));
@@ -469,11 +554,21 @@ mod tests {
     /// must stay far below a row's share of an event.
     #[test]
     fn the_dearest_allowed_row_is_cheap() {
+        // on the stack the portable runtime gives an engine (8 MiB): a debug build recurses deep
+        let t = std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(dearest_allowed_row)
+            .unwrap();
+        t.join().unwrap();
+    }
+
+    fn dearest_allowed_row() {
         let b = base();
         let list = Value::Array((0..MAX_VALUE_ITEMS as i64).map(Value::Int).collect());
-        let text = Value::Str("x".repeat(MAX_VALUE_BYTES));
+        // the most text a value may hold: one item per 16 bytes, at most MAX_VALUE_ITEMS
+        let text = Value::Str("x".repeat(MAX_VALUE_ITEMS * 16 - 16));
         let cols = vec![("l".to_owned(), list), ("s".to_owned(), text)];
-        let c = scope(&b, &BTreeMap::new(), &cols);
+        let r = Row::new(&BTreeMap::new(), &cols);
         let chain = "l.filter(a, a % 2 == 0).map(a, a * 3).filter(a, a > 10).exists(a, a == 2994)";
         let concat = vec!["s"; 60].join(" + ");
         let src = format!("{chain} && size({concat}) > 0");
@@ -481,7 +576,7 @@ mod tests {
         let e = Expr::compile(&src).unwrap();
         let t = std::time::Instant::now();
         for _ in 0..10 {
-            assert_eq!(e.eval(&c), Ok(Value::Bool(true)));
+            assert_eq!(r.eval(&b, &e), Ok(Value::Bool(true)));
         }
         let per_row = t.elapsed() / 10;
         // debug build; a release build is several times faster
@@ -489,6 +584,44 @@ mod tests {
             per_row < std::time::Duration::from_millis(50),
             "{per_row:?} per row"
         );
+    }
+
+    /// What the static check lets through and only the run can see: a row variable read on every
+    /// item of a long range. The lookups stop it, with an error, quickly.
+    #[test]
+    fn a_costly_row_stops_at_its_lookups() {
+        let b = base();
+        let list = Value::Array((0..900).map(Value::Int).collect());
+        let text = Value::Str("ab".repeat(4000));
+        let cols = vec![("l".to_owned(), list), ("s".to_owned(), text)];
+        let r = Row::new(&BTreeMap::new(), &cols);
+        // a range of 30 × 900 items made with `+`, `l` compared on every item
+        let range = vec!["l"; 30].join(" + ");
+        // never true, so `exists` goes through every item: 3 lookups each
+        let e = Expr::compile(&format!("({range}).exists(a, l == l && s.matches('c'))")).unwrap();
+        let t = std::time::Instant::now();
+        let err = r.eval(&b, &e).unwrap_err();
+        assert!(err.contains("too costly"), "{err}");
+        assert!(
+            t.elapsed() < std::time::Duration::from_millis(500),
+            "{:?}",
+            t.elapsed()
+        );
+        // the same row answers a cheap expression right after (the bound resets)
+        assert_eq!(
+            r.eval(&b, &Expr::compile("size(l) == 900").unwrap()),
+            Ok(Value::Bool(true))
+        );
+        // a result past the bound of a value is an error, not a large row
+        let big = Expr::compile(&range).unwrap();
+        assert!(r.eval(&b, &big).unwrap_err().contains("more than"));
+        // map keys and text count toward a value's size
+        let wide = Value::Map(
+            (0..200)
+                .map(|i| (format!("{i}{}", "k".repeat(200)), Value::Null))
+                .collect(),
+        );
+        assert_eq!(to_cel(&wide), Cel::Null);
     }
 
     #[test]
