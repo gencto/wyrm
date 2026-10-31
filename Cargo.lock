@@ -6674,6 +6674,10 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "sha2",
  "tokio",
  "tracing",

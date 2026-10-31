@@ -241,6 +241,25 @@ pub trait Host {
     fn tcp_send(&mut self, c: ConnId, data: &[u8]) -> Result<(), AppError>;
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>;
     fn tcp_close(&mut self, c: ConnId);
+    /// TLS over TCP to `host:port` (a DNS name or an IP literal), within the
+    /// `net` allowlist (ADR 0026): the host resolves the name, checks each
+    /// address ([`net::NetPolicy::allows_named`]), and verifies the server's
+    /// certificate for `host` against the system roots, or only against
+    /// `ca_pem` when given. The connection then takes `tcp_send`, `tcp_recv`
+    /// and `tcp_close` as a plain one; the keys stay in the host.
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        let _ = (host, port, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_connect: this host has no TLS",
+        ))
+    }
     fn log(&mut self, level: Level, msg: &str);
 }
 

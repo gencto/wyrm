@@ -1,9 +1,10 @@
 //! What the runtime gives the command buffer on the engine thread: the clock, the store, the
-//! link's grants and blocking TCP within the `net` allowlist (ADR 0012 rules).
+//! link's grants and blocking TCP, plain or TLS, within the `net` allowlist (ADR 0012 rules,
+//! host names and TLS: ADR 0026).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -54,13 +55,139 @@ pub fn grants_allow(grants: &[(String, Perm)], key: &str, need: Perm) -> bool {
         .is_some_and(|(_, perm)| perm >= need)
 }
 
+/// One open connection: plain TCP, or TLS over TCP (its keys never leave the host).
+enum Conn {
+    Plain(TcpStream),
+    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
+}
+
+impl Conn {
+    fn sock(&self) -> &TcpStream {
+        match self {
+            Conn::Plain(s) => s,
+            Conn::Tls(t) => &t.sock,
+        }
+    }
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.read(buf),
+            Conn::Tls(t) => t.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.write(buf),
+            Conn::Tls(t) => t.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Conn::Plain(s) => s.flush(),
+            Conn::Tls(t) => t.flush(),
+        }
+    }
+}
+
 pub struct RuntimeServices {
     store: SharedStore,
     grants: Vec<(String, Perm)>,
     policy: NetPolicy,
-    conns: HashMap<u32, TcpStream>,
+    conns: HashMap<u32, Conn>,
     next_conn: u32,
     call: SharedCall,
+}
+
+/// The host's CA certificates (`rustls-native-certs`), loaded once per process (CAs the host
+/// adds later need a restart), and the first error of the load, if any.
+type Roots = (
+    Vec<rustls_pki_types::CertificateDer<'static>>,
+    Option<String>,
+);
+
+static SYSTEM_ROOTS: std::sync::LazyLock<Roots> = std::sync::LazyLock::new(|| {
+    let r = rustls_native_certs::load_native_certs();
+    (r.certs, r.errors.first().map(|e| e.to_string()))
+});
+
+/// A client config that trusts the host's roots, or only the CAs in `ca_pem`. ring only:
+/// never the process default provider (aws-lc is forbidden).
+fn tls_config(ca_pem: Option<&str>) -> Result<Arc<rustls::ClientConfig>, AppError> {
+    use rustls_pki_types::pem::PemObject;
+    let mut roots = rustls::RootCertStore::empty();
+    match ca_pem.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(pem) => {
+            for c in rustls_pki_types::CertificateDer::pem_slice_iter(pem.as_bytes()) {
+                let c = c.map_err(|e| net_err(Status::InvalidParameter, format!("ca_pem: {e}")))?;
+                roots
+                    .add(c)
+                    .map_err(|e| net_err(Status::InvalidParameter, format!("ca_pem: {e}")))?;
+            }
+            if roots.is_empty() {
+                return Err(net_err(
+                    Status::InvalidParameter,
+                    "ca_pem: no certificate in it",
+                ));
+            }
+        }
+        None => {
+            let (certs, err) = &*SYSTEM_ROOTS;
+            roots.add_parsable_certificates(certs.iter().cloned());
+            if roots.is_empty() {
+                let why = err.as_deref().unwrap_or("none found");
+                return Err(net_err(
+                    Status::InternalError,
+                    format!("no CA certificates on this host ({why}); give ca_pem"),
+                ));
+            }
+        }
+    }
+    let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| net_err(Status::InternalError, format!("tls: {e}")))?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Ok(Arc::new(cfg))
+}
+
+/// The addresses of `host` (an IP literal is itself), resolved on a thread of its own so a
+/// hung resolver costs the call no more than `wait`.
+fn resolve(host: &str, port: u16, wait: Duration) -> Result<Vec<SocketAddr>, AppError> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let name = host.to_owned();
+    std::thread::Builder::new()
+        .name("wyrm-dns".into())
+        .spawn(move || {
+            let _ = tx.send(
+                (name.as_str(), port)
+                    .to_socket_addrs()
+                    .map(|a| a.collect::<Vec<_>>()),
+            );
+        })
+        .map_err(|e| net_err(Status::InternalError, format!("resolve {host}: {e}")))?;
+    match rx.recv_timeout(wait) {
+        Ok(Ok(a)) if !a.is_empty() => Ok(a),
+        Ok(Ok(_)) => Err(net_err(
+            Status::Disconnected,
+            format!("resolve {host}: no address"),
+        )),
+        Ok(Err(e)) => Err(net_err(
+            Status::Disconnected,
+            format!("resolve {host}: {e}"),
+        )),
+        Err(_) => Err(net_err(Status::Timeout, format!("resolve {host}: timeout"))),
+    }
 }
 
 fn net_err(status: Status, msg: impl Into<String>) -> AppError {
@@ -103,7 +230,14 @@ impl RuntimeServices {
         Ok(Duration::from_millis(ms.max(1).into()).min(left))
     }
 
-    fn conn(&mut self, c: ConnId) -> Result<&mut TcpStream, AppError> {
+    fn keep(&mut self, c: Conn) -> ConnId {
+        self.next_conn = self.next_conn.wrapping_add(1);
+        let h = self.next_conn;
+        self.conns.insert(h, c);
+        ConnId(h)
+    }
+
+    fn conn(&mut self, c: ConnId) -> Result<&mut Conn, AppError> {
         self.sweep();
         self.conns
             .get_mut(&c.0)
@@ -182,10 +316,68 @@ impl Services for RuntimeServices {
             net_err(status, format!("connect {addr}:{port}: {e}"))
         })?;
         let _ = s.set_nodelay(true);
-        self.next_conn = self.next_conn.wrapping_add(1);
-        let h = self.next_conn;
-        self.conns.insert(h, s);
-        Ok(ConnId(h))
+        Ok(self.keep(Conn::Plain(s)))
+    }
+
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
+            net_err(
+                Status::InvalidParameter,
+                format!("{host}: a DNS name or an IP literal"),
+            )
+        })?;
+        self.sweep();
+        if self.conns.len() >= MAX_CONNS {
+            return Err(net_err(
+                Status::ResourceExhausted,
+                format!("at most {MAX_CONNS} connections"),
+            ));
+        }
+        let cfg = tls_config(ca_pem)?;
+        let addrs = resolve(host, port, self.budget(timeout_ms)?)?;
+        let addr = addrs
+            .into_iter()
+            .find(|a| self.policy.allows_named(host, a.ip(), port))
+            .ok_or_else(|| {
+                net_err(
+                    Status::PermissionDenied,
+                    format!("{host}:{port} is not in the link's net list"),
+                )
+            })?;
+        let t = self.budget(timeout_ms)?;
+        let mut sock = TcpStream::connect_timeout(&addr, t).map_err(|e| {
+            let status = if timed_out(&e) {
+                Status::Timeout
+            } else {
+                Status::Disconnected
+            };
+            net_err(status, format!("connect {host}:{port}: {e}"))
+        })?;
+        let _ = sock.set_nodelay(true);
+        let mut tls = rustls::ClientConnection::new(cfg, name)
+            .map_err(|e| net_err(Status::InternalError, format!("tls {host}: {e}")))?;
+        // the handshake, within the time the call has left
+        while tls.is_handshaking() {
+            let t = self.budget(timeout_ms)?;
+            sock.set_read_timeout(Some(t))
+                .and_then(|_| sock.set_write_timeout(Some(t)))
+                .map_err(|e| net_err(Status::InternalError, e.to_string()))?;
+            if let Err(e) = tls.complete_io(&mut sock) {
+                let status = if timed_out(&e) {
+                    Status::Timeout
+                } else {
+                    Status::Disconnected
+                };
+                return Err(net_err(status, format!("tls {host}:{port}: {e}")));
+            }
+        }
+        Ok(self.keep(Conn::Tls(Box::new(rustls::StreamOwned::new(tls, sock)))))
     }
 
     fn tcp_send(&mut self, c: ConnId, data: &[u8]) -> Result<(), AppError> {
@@ -199,7 +391,8 @@ impl Services for RuntimeServices {
         while off < data.len() {
             let t = self.budget(u32::MAX)?;
             let s = self.conn(c)?;
-            s.set_write_timeout(Some(t))
+            s.sock()
+                .set_write_timeout(Some(t))
                 .map_err(|e| net_err(Status::InternalError, e.to_string()))?;
             match s.write(&data[off..]) {
                 Ok(0) => return Err(net_err(Status::Disconnected, "send: connection closed")),
@@ -209,13 +402,25 @@ impl Services for RuntimeServices {
                 Err(e) => return Err(net_err(Status::Disconnected, format!("send: {e}"))),
             }
         }
-        Ok(())
+        // TLS: the last record goes out now, not with the next read
+        let t = self.budget(u32::MAX)?;
+        let s = self.conn(c)?;
+        let _ = s.sock().set_write_timeout(Some(t));
+        s.flush().map_err(|e| {
+            let status = if timed_out(&e) {
+                Status::Timeout
+            } else {
+                Status::Disconnected
+            };
+            net_err(status, format!("send: {e}"))
+        })
     }
 
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError> {
         let t = self.budget(timeout_ms)?;
         let s = self.conn(c)?;
-        s.set_read_timeout(Some(t))
+        s.sock()
+            .set_read_timeout(Some(t))
             .map_err(|e| net_err(Status::InternalError, e.to_string()))?;
         let mut buf = vec![0u8; max.min(MAX_RECV) as usize];
         match s.read(&mut buf) {
@@ -272,6 +477,95 @@ mod tests {
         let e = s.tcp_connect("localhost", 502, 100).unwrap_err();
         assert_eq!(e.status, Status::InvalidParameter);
         assert_eq!(s.store_ready().unwrap_err().status, Status::NotSupported);
+    }
+
+    /// A TLS server on loopback for `localhost` that answers each read with it in capitals.
+    fn tls_server() -> (u16, String) {
+        let ck = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let ca = ck.cert.pem();
+        let key = rustls_pki_types::PrivateKeyDer::Pkcs8(ck.signing_key.serialize_der().into());
+        let cfg = Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![ck.cert.der().clone()], key)
+            .unwrap(),
+        );
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in l.incoming().flatten() {
+                let cfg = cfg.clone();
+                std::thread::spawn(move || {
+                    let conn = rustls::ServerConnection::new(cfg).unwrap();
+                    let mut t = rustls::StreamOwned::new(conn, sock);
+                    let mut b = [0u8; 64];
+                    while let Ok(n) = t.read(&mut b) {
+                        if n == 0 || t.write_all(&b[..n].to_ascii_uppercase()).is_err() {
+                            break;
+                        }
+                        let _ = t.flush();
+                    }
+                });
+            }
+        });
+        (port, ca)
+    }
+
+    fn services(net: &str) -> RuntimeServices {
+        RuntimeServices::new(
+            Arc::new(Mutex::new(Store::none())),
+            Vec::new(),
+            NetPolicy::parse(net).unwrap(),
+            Arc::new(Mutex::new(CallState {
+                deadline: Some(Instant::now() + Duration::from_secs(5)),
+                reset: false,
+            })),
+        )
+    }
+
+    #[test]
+    fn tls_by_name_within_the_net_list() {
+        let (port, ca) = tls_server();
+        // a name never opens loopback by itself (DNS rebinding)
+        let mut s = services(&format!("localhost:{port}"));
+        let e = s
+            .tls_connect("localhost", port, 2000, Some(&ca))
+            .unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied, "{e}");
+        // with a loopback entry: the handshake, then send and recv as plain TCP
+        let mut s = services(&format!("localhost:{port}, 127.0.0.1:{port}"));
+        let c = s.tls_connect("localhost", port, 2000, Some(&ca)).unwrap();
+        s.tcp_send(c, b"hello").unwrap();
+        assert_eq!(s.tcp_recv(c, 64, 2000).unwrap(), b"HELLO");
+        s.tcp_close(c);
+        // the certificate is for localhost: another name for the same address fails
+        let e = s
+            .tls_connect("127.0.0.1", port, 2000, Some(&ca))
+            .unwrap_err();
+        assert_eq!(e.status, Status::Disconnected, "{e}");
+        // another CA: refused
+        let (_, other) = tls_server();
+        let e = s
+            .tls_connect("localhost", port, 2000, Some(&other))
+            .unwrap_err();
+        assert_eq!(e.status, Status::Disconnected, "{e}");
+        let e = s
+            .tls_connect("localhost", port, 2000, Some("junk"))
+            .unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter, "{e}");
+        let e = s
+            .tls_connect("bad host!", port, 2000, Some(&ca))
+            .unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter, "{e}");
+        // nothing listed for that port
+        let e = s
+            .tls_connect("localhost", port + 1, 2000, Some(&ca))
+            .unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied, "{e}");
     }
 
     #[test]

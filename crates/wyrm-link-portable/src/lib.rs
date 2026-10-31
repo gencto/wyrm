@@ -192,7 +192,7 @@ mod tests {
             ("memory_mb", Value::UInt(513)),
             ("component", Value::Str(String::new())),
             ("component", Value::UInt(1)),
-            ("net", Value::Str("example.com:80".into())),
+            ("net", Value::Str("example.com".into())),
             ("net", Value::UInt(1)),
         ] {
             let mut m = BTreeMap::new();
