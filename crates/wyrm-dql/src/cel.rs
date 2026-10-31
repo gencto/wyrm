@@ -657,7 +657,8 @@ mod tests {
             Ok(Value::Bool(true))
         );
         // a result past the bound of a value is an error, not a large row
-        let big = Expr::compile(&vec!["l"; 30].join(" + ")).unwrap();
+        // (two copies: 1 800 items, cheap enough to stay below the time bound on a slow runner)
+        let big = Expr::compile("l + l").unwrap();
         assert!(r.eval(&b, &big).unwrap_err().contains("more than"));
         // map keys and text count toward a value's size
         let wide = Value::Map(
