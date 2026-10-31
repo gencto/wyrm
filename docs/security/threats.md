@@ -3,7 +3,8 @@
 Source of the threat list: wiki `05 Безпека/Модель загроз.md` (table "Загрози і контрзаходи").
 Iteration 5 is done when the pentest checklist for T1–T12 is closed (wiki `07 План/Ітерації.md`).
 
-Snapshot: 2026-10-20, commit `92f9bc9`, Zenoh 1.10.1. The tests ran on `92f9bc9` plus uncommitted workspace changes from another party (`Cargo.toml`, `Cargo.lock`: new member `links/mqtt`).
+Snapshot: 2026-10-20, commit `92f9bc9`, Zenoh 1.10.1.
+See also the code review of 2026-10-31 (`docs/security/review-2026-10-31.md`): new findings on what was added since this snapshot, and dependency advisories. The tests ran on `92f9bc9` plus uncommitted workspace changes from another party (`Cargo.toml`, `Cargo.lock`: new member `links/mqtt`).
 
 **Rule for "closed":** a control exists in the code **and** a passing test shows it.
 "Partial" = a control exists, but a part of the wiki countermeasure is missing or has no test.
