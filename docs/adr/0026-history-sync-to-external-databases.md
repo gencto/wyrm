@@ -1,6 +1,6 @@
 # ADR 0026 — History sync to external databases
 
-**Status:** proposed · 2026-10-31 (owner request: send the edge historian's data to MySQL, MongoDB, PostgreSQL, InfluxDB and DynamoDB; not native in the broker, extensions installed as links; owner decisions 1 and 2 taken 2026-10-31, decision 3 open, see the end).
+**Status:** accepted · 2026-10-31 (owner request: send the edge historian's data to MySQL, MongoDB, PostgreSQL, InfluxDB and DynamoDB; not native in the broker, extensions installed as links; owner decisions 1–3 taken 2026-10-31, see the end).
 
 ## Context
 The embedded historian (ADR 0014) records watched points into day files of redb on the edge. Sites need the same data in a central database. The owner named five targets: MySQL, MongoDB, PostgreSQL, InfluxDB, DynamoDB.
@@ -19,7 +19,7 @@ What a link can do today:
 - **Not in the broker binary.** A database client in `wyrmd` would grow the binary for every site, and adding one would need a new build and a restart of the edge. Each target is a link package that the operator installs where it is needed (ADR 0011, 0021).
 - **The historian stays the store; links forward.** The historian gets a change feed with a cursor per sink. Sinks read batches from it and confirm them. Only the historian deletes, by its own rules. A sink never deletes and never needs `config` on `sys`.
 - **Change journal in each day file.** Table `CHANGES: seq u64 → (series u32, t u64)`, written in the same transaction as the row, so a row and its sequence number commit together. `seq` is one counter for the store, kept in `index.redb` and taken in blocks so a crash leaves gaps, never repeats. A row written again (same key, a late or replaced value) gets a new `seq`, so it is sent again. Each day file records its lowest and highest `seq`; a read from a cursor opens only files whose range is above it. Deleting a day file deletes its journal with it.
-- **Sinks are historian state.** `sys/history/sinks/<name>`: the link id, the watch groups it takes (default all), `confirmed_seq`, and values `rows_sent`, `lag_rows`, `lag_s` (age of the oldest unconfirmed row), `last_batch`, `last_error`. Actions Add Sink, Edit, Remove, Reset Cursor {to start | to now}. Registry ops in the historian section (SCHEMA bump), audited (`history_sink`).
+- **Sinks are historian state.** `sys/history/sinks/<name>`: the link id, the watch groups it takes (owner decision 3: a list per sink, empty = all groups, so two sinks may take different groups), `confirmed_seq`, and values `rows_sent`, `lag_rows`, `lag_s` (age of the oldest unconfirmed row), `last_batch`, `last_error`. Actions Add Sink, Edit, Remove, Reset Cursor {to start | to now}. Registry ops in the historian section (SCHEMA bump), audited (`history_sink`).
 - **The feed.** The link asks `next {after, max}` on its own feed key `wy/<site>/sys/history/feeds/<link>`; the answer is rows `{seq, key, t, v, q}` with `seq > after`, at most `max` (≤ 5 000) and at most 1 MiB, oldest `seq` first, rows of its watch groups only. `after` confirms every row up to it, so the confirmation is the next request (at least once). The link signs with its requester key (ADR 0013, subject `link:<id>`); the historian trusts that key at `read`, scoped to that one feed key, as the admin trusts upstream keys today. The router ACL lets each link's session query its own feed key only, as with its overlay key (ADR 0016).
 - **Deleting.** The current rules stay and never wait for a sink (owner decision 1): Retention Days, then Auto Purge by Disk Space Remaining (ADR 0014) delete the oldest day, sent or not, because the equipment keeps working and recording on the edge while the cloud may be down for long; the unsent rows lost that way are counted (`rows_dropped_unsent` on the historian and on each sink). New: `keep_after_sync_days` (default 90, owner decision 2; empty = off): with at least one sink, a whole day file goes once every sink has confirmed its highest `seq` and the day is older than that many days. `0` keeps only what is not sent yet, as the DSA buffer does. With no sink the rule does nothing.
 - **Delivery is at least once.** A batch can be sent twice after a lost reply or a restart. Every sink writes with the key `(site, point key, t)` and replaces on conflict, so a resend changes nothing.
@@ -81,7 +81,7 @@ What a link can do today:
 - **Sinks read `~val?history=` per point:** one query per point per batch, no cursor, no confirmation.
 - **TLS inside the component (rustls with RustCrypto):** about a megabyte per component, slower under the fuel limit, and every package would carry its own copy of the roots.
 
-## Open decisions (owner)
+## Owner decisions
 1. ~~Disk full with unsent rows~~ — decided 2026-10-31: delete the oldest data, sent or not; local work goes on while the cloud may be stopped.
 2. ~~`keep_after_sync_days` default~~ — decided 2026-10-31: 90 days.
-3. **What a sink takes.** Proposed: a list of watch groups, default all.
+3. ~~What a sink takes~~ — decided 2026-10-31: a list of watch groups per sink, empty = all; e.g. InfluxDB takes `energy` and `diagnostics`, DynamoDB only `energy`.
