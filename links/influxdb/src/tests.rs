@@ -218,3 +218,54 @@ fn a_refused_connection_is_reconnect() {
     let e = Influx::connect(&mut h, &cfg(port), None).err().unwrap();
     assert!(matches!(e, TargetError::Reconnect(_)), "{e}");
 }
+
+/// The whole app: a timer, `next` to the sink, the batch written to InfluxDB, then the next
+/// request confirming it.
+#[test]
+fn the_app_moves_a_batch_from_the_sink_to_influxdb() {
+    use wyrm_link_api::App;
+    let (port, got, _) = server(vec![(204, false)]);
+    let mut h = TcpHost::default();
+    h.store.insert("secret".into(), b"tok".to_vec());
+    let mut params = cfg(port);
+    params.insert(
+        "sink".into(),
+        Value::from("wy/edge/sys/history/sinks/cloud"),
+    );
+    let mut app = InfluxSync::start(&mut h, Value::Map(params)).unwrap();
+    let t = h.timers.pop().unwrap();
+    app.on_timer(&mut h, t);
+    let (id, key, action, _) = h.invokes.pop().unwrap();
+    assert_eq!(
+        (key.as_str(), action.as_str()),
+        ("wy/edge/sys/history/sinks/cloud", "next")
+    );
+    let row = |seq: u64| {
+        Value::Map(Map::from([
+            ("seq".to_owned(), Value::UInt(seq)),
+            ("key".to_owned(), Value::from("wy/edge/downstream/mock/p")),
+            ("t".to_owned(), Value::UInt(1_000 + seq)),
+            ("v".to_owned(), Value::Float(seq as f64)),
+            ("q".to_owned(), Value::UInt(0)),
+        ]))
+    };
+    let batch = Value::Map(Map::from([
+        ("rows".to_owned(), Value::Array(vec![row(1), row(2)])),
+        ("next".to_owned(), Value::UInt(2)),
+    ]));
+    app.on_reply(&mut h, id, Ok(batch));
+    assert_eq!(h.values.get("rows_sent"), Some(&Value::UInt(2)));
+    let t = h.timers.pop().unwrap();
+    app.on_timer(&mut h, t);
+    let (_, _, _, args) = h.invokes.pop().unwrap();
+    let Value::Map(a) = args else { panic!() };
+    assert_eq!(
+        a.get("after"),
+        Some(&Value::UInt(2)),
+        "confirms the batch written"
+    );
+    let got = got.lock().unwrap();
+    assert_eq!(got.len(), 1);
+    assert!(got[0].head.contains("Authorization: Token tok"));
+    assert_eq!(got[0].body.lines().count(), 2, "{}", got[0].body);
+}

@@ -8,11 +8,18 @@ use std::time::Duration;
 use wyrm_core::{ActionMeta, NodeMeta, Sample, Status, Value};
 use wyrm_link_api::{AppError, ConnId, Host, Level, ReqId, SubId, TimerId};
 
-/// A host with real TCP (tests run natively; TLS is the portable host's own test).
+/// A host with real TCP (tests run natively; TLS is the portable host's own test). It also
+/// keeps what an App does, so a test drives a whole [`crate::SyncApp`]: the values it shows,
+/// its store, the timers it arms and the requests it sends (the test fires and answers them).
 #[derive(Default)]
 pub struct TcpHost {
     conns: HashMap<u32, TcpStream>,
     next: u32,
+    pub values: HashMap<String, Value>,
+    pub store: HashMap<String, Vec<u8>>,
+    pub timers: Vec<TimerId>,
+    pub invokes: Vec<(ReqId, String, String, Value)>,
+    ids: u64,
 }
 
 fn unsupported<T>() -> Result<T, AppError> {
@@ -23,21 +30,30 @@ impl Host for TcpHost {
     fn declare_node(&mut self, _p: &str, _m: NodeMeta) {}
     fn declare_action(&mut self, _p: &str, _n: &str, _a: ActionMeta) {}
     fn remove_node(&mut self, _p: &str) {}
-    fn update(&mut self, _p: &str, _s: Sample) {}
+    fn update(&mut self, p: &str, s: Sample) {
+        self.values.insert(p.to_owned(), s.v);
+    }
     fn now_us(&self) -> u64 {
         0
     }
     fn set_timer(&mut self, _ms: u64) -> Result<TimerId, AppError> {
-        unsupported()
+        self.ids += 1;
+        self.timers.push(TimerId(self.ids));
+        Ok(TimerId(self.ids))
     }
-    fn cancel_timer(&mut self, _t: TimerId) {}
-    fn store_get(&self, _k: &str) -> Option<Vec<u8>> {
-        None
+    fn cancel_timer(&mut self, t: TimerId) {
+        self.timers.retain(|x| *x != t);
     }
-    fn store_put(&mut self, _k: &str, _v: &[u8]) -> Result<(), AppError> {
-        unsupported()
+    fn store_get(&self, k: &str) -> Option<Vec<u8>> {
+        self.store.get(k).cloned()
     }
-    fn store_delete(&mut self, _k: &str) {}
+    fn store_put(&mut self, k: &str, v: &[u8]) -> Result<(), AppError> {
+        self.store.insert(k.to_owned(), v.to_vec());
+        Ok(())
+    }
+    fn store_delete(&mut self, k: &str) {
+        self.store.remove(k);
+    }
     fn subscribe(&mut self, _k: &str) -> Result<SubId, AppError> {
         unsupported()
     }
@@ -45,8 +61,11 @@ impl Host for TcpHost {
     fn set(&mut self, _k: &str, _v: Value) -> Result<ReqId, AppError> {
         unsupported()
     }
-    fn invoke(&mut self, _k: &str, _a: &str, _v: Value) -> Result<ReqId, AppError> {
-        unsupported()
+    fn invoke(&mut self, k: &str, a: &str, v: Value) -> Result<ReqId, AppError> {
+        self.ids += 1;
+        self.invokes
+            .push((ReqId(self.ids), k.to_owned(), a.to_owned(), v));
+        Ok(ReqId(self.ids))
     }
     fn tcp_connect(&mut self, addr: &str, port: u16, _t: u32) -> Result<ConnId, AppError> {
         let s = TcpStream::connect((addr, port))
