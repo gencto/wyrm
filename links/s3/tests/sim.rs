@@ -182,3 +182,50 @@ async fn runtime_connections_are_kept_sealed() {
     h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Stop cuts an action in flight: a recursive delete stuck on a silent
+/// store answers at once and deletes nothing after the stop.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_cuts_actions_in_flight() {
+    use std::time::{Duration, Instant};
+    use wyrm_filestore::testkit::{act, status};
+    let (h, st, _task) = setup_with(
+        "sim-secret-key",
+        &[("timeout_ms", Value::UInt(30_000))],
+        |_| {},
+    )
+    .await;
+    wait("tree", 10, || {
+        h.ctx().has_node("c1/files/reports/readme.txt")
+    })
+    .await;
+    st.lock().unwrap().mode = Mode::Silent;
+    let started = Instant::now();
+    let delete = act(
+        &h,
+        "c1/files/reports",
+        "delete",
+        map(&[("recursive", Value::Bool(true))]),
+    );
+    let stop = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        act(&h, "c1", "stop", map(&[])).await
+    };
+    let ((a, _), (b, _)) = tokio::join!(delete, stop);
+    assert_eq!(status(&b), wyrm_core::Status::Ok);
+    assert_eq!(status(&a), wyrm_core::Status::Disconnected, "{:?}", a.err);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cut, not timed out"
+    );
+    {
+        let mut s = st.lock().unwrap();
+        s.mode = Mode::Normal;
+        assert!(
+            !s.seen.iter().any(|r| r.starts_with("DELETE")),
+            "nothing deleted"
+        );
+        assert!(s.objects.contains_key("reports/readme.txt"));
+    }
+    h.stop().await;
+}

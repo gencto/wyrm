@@ -460,6 +460,8 @@ struct Session<B: Backend> {
     view: Mutex<View>,
     closed: AtomicBool,
     wake: Notify,
+    /// Wakes the actions in flight when the connection stops (they are cut).
+    stopped: Notify,
     /// One read of the tree at a time: a `refresh` while one runs is busy.
     scanning: Mutex<()>,
     /// Uploads and downloads in flight ([`TRANSFERS`]).
@@ -481,6 +483,26 @@ fn unsafe_entry(e: &Entry) -> bool {
 }
 
 impl<B: Backend> Session<B> {
+    /// Mark the connection stopped and cut the actions in flight.
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.stopped.notify_waiters();
+    }
+
+    /// Returns once the connection stopped.
+    async fn until_stopped(&self) {
+        loop {
+            let n = self.stopped.notified();
+            tokio::pin!(n);
+            // registered before the check: a close in between is not missed
+            n.as_mut().enable();
+            if self.closed.load(Ordering::Acquire) {
+                return;
+            }
+            n.await;
+        }
+    }
+
     /// A request that shows the connection broke wakes the connection
     /// task: it probes again (and fails the connection if it is down).
     fn seen(&self, e: Error) -> Error {
@@ -1141,6 +1163,7 @@ impl<B: Backend> FileStore<B> {
             view: Mutex::new(View::default()),
             closed: AtomicBool::new(false),
             wake: Notify::new(),
+            stopped: Notify::new(),
             scanning: Mutex::new(()),
             transfers: Semaphore::new(TRANSFERS),
             data_dir: self.ctx.data_dir().map(std::path::Path::to_path_buf),
@@ -1158,7 +1181,9 @@ impl<B: Backend> FileStore<B> {
         let Some((s, task)) = self.conns.get_mut(name).and_then(|c| c.run.take()) else {
             return;
         };
-        s.closed.store(true, Ordering::Release);
+        // cuts the actions in flight at their next await (between two
+        // requests: a recursive S3 delete stops at the next key)
+        s.close();
         task.abort();
         let _ = task.await;
         // In-flight actions apply under the view lock and see `closed`.
@@ -1258,13 +1283,24 @@ fn public_of<B: Backend>(raw: &Map) -> Map {
         .collect()
 }
 
-/// Run `work` on a task of its own and answer through `out`.
-fn spawn_reply<F>(out: ReplySink, work: F)
+/// Run `work` on a task of its own and answer through `out`; the work is
+/// cut when the connection stops (stop, remove, edit, the link's stop), so
+/// nothing of it runs on a connection that is gone. A blocking file system
+/// call already under way (`localfs`) still ends in the kernel.
+fn spawn_reply<B, F>(out: ReplySink, s: Arc<Session<B>>, work: F)
 where
+    B: Backend,
     F: std::future::Future<Output = Result<Value>> + Send + 'static,
 {
     tokio::spawn(async move {
-        match work.await {
+        let r = tokio::select! {
+            r = work => r,
+            () = s.until_stopped() => Err(LinkError::new(
+                Status::Disconnected,
+                "the connection stopped: the action was cut",
+            )),
+        };
+        match r {
             Ok(v) => {
                 let _ = out.reply(v).await;
             }
@@ -1357,7 +1393,7 @@ impl<B: Backend> Link for FileStore<B> {
                 "start" => self.set_enabled(conn, true).await,
                 "refresh" => {
                     let s = self.session(conn)?;
-                    spawn_reply(out, async move {
+                    spawn_reply(out, s.clone(), async move {
                         let root = s.backend.root();
                         s.refresh_now(&root).await
                     });
@@ -1371,8 +1407,9 @@ impl<B: Backend> Link for FileStore<B> {
         }
         let s = self.session(conn)?;
         let node = path.to_owned();
+        let cut = s.clone();
         match action {
-            "refresh" => spawn_reply(out, async move {
+            "refresh" => spawn_reply(out, cut, async move {
                 let dir = {
                     let view = s.view.lock().await;
                     s.resolve(&view, &node)?
@@ -1382,10 +1419,10 @@ impl<B: Backend> Link for FileStore<B> {
                 }
                 s.refresh_now(&dir).await
             }),
-            "create_folder" => spawn_reply(out, async move { s.mkdir(&node, &args).await }),
-            "upload" => spawn_reply(out, async move { s.upload(&node, args).await }),
-            "download" => spawn_reply(out, async move { s.download(&node, &args).await }),
-            "delete" => spawn_reply(out, async move { s.delete(&node, &args).await }),
+            "create_folder" => spawn_reply(out, cut, async move { s.mkdir(&node, &args).await }),
+            "upload" => spawn_reply(out, cut, async move { s.upload(&node, args).await }),
+            "download" => spawn_reply(out, cut, async move { s.download(&node, &args).await }),
+            "delete" => spawn_reply(out, cut, async move { s.delete(&node, &args).await }),
             _ => return Err(LinkError::not_supported(action.to_owned())),
         }
         Ok(())
@@ -1395,7 +1432,7 @@ impl<B: Backend> Link for FileStore<B> {
         let names: Vec<String> = self.conns.keys().cloned().collect();
         for n in names {
             if let Some((s, task)) = self.conns.get_mut(&n).and_then(|c| c.run.take()) {
-                s.closed.store(true, Ordering::Release);
+                s.close();
                 task.abort();
             }
         }
@@ -1415,7 +1452,8 @@ impl<B: Backend> FileStore<B> {
 impl<B: Backend> Drop for FileStore<B> {
     fn drop(&mut self) {
         for c in self.conns.values() {
-            if let Some((_, t)) = &c.run {
+            if let Some((s, t)) = &c.run {
+                s.close();
                 t.abort();
             }
         }

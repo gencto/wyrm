@@ -65,6 +65,8 @@ another whose key looks the same).
 Each connection runs one tree read at a time (a Refresh while one runs
 answers `busy`) and two uploads or downloads at a time (a third answers
 `busy`): the bytes of a transfer are held in memory.
+Stop, Remove and Edit of a connection cut its actions in flight: they
+answer `disconnected` and send nothing more to the store.
 
 Without `overwrite` an upload never replaces a file: S3 and WebDAV send
 `If-None-Match: *`, `localfs` creates the file new. Some servers ignore
