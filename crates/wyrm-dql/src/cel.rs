@@ -245,6 +245,8 @@ pub struct Row {
     over: std::sync::atomic::AtomicBool,
     #[cfg(not(target_arch = "wasm32"))]
     deadline: std::sync::Mutex<std::time::Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
+    time: std::time::Duration,
 }
 
 impl Row {
@@ -271,7 +273,16 @@ impl Row {
             over: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             deadline: std::sync::Mutex::new(std::time::Instant::now()),
+            #[cfg(not(target_arch = "wasm32"))]
+            time: ROW_TIME,
         }
+    }
+
+    /// A time bound other than [`ROW_TIME`] (tests on slow machines measure cost by lookups).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_time(mut self, time: std::time::Duration) -> Self {
+        self.time = time;
+        self
     }
 
     /// Evaluate `e` over this row; `base` holds CEL's functions.
@@ -282,7 +293,7 @@ impl Row {
         #[cfg(not(target_arch = "wasm32"))]
         {
             *self.deadline.lock().unwrap_or_else(|p| p.into_inner()) =
-                std::time::Instant::now() + ROW_TIME;
+                std::time::Instant::now() + self.time;
         }
         let base: &Context<'static, '_> = base;
         let mut c = base.new_inner_scope();
@@ -612,7 +623,8 @@ mod tests {
         // the most text a value may hold: one item per 16 bytes, at most MAX_VALUE_ITEMS
         let text = Value::Str("x".repeat(MAX_VALUE_ITEMS * 16 - 16));
         let cols = vec![("l".to_owned(), list), ("s".to_owned(), text)];
-        let r = Row::new(&BTreeMap::new(), &cols);
+        // the time bound off: a slow runner must not turn this into `too costly`
+        let r = Row::new(&BTreeMap::new(), &cols).with_time(std::time::Duration::from_secs(60));
         let chain = "l.filter(a, a % 2 == 0).map(a, a * 3).filter(a, a > 10).exists(a, a == 2994)";
         let concat = vec!["s"; 60].join(" + ");
         let src = format!("{chain} && size({concat}) > 0");
