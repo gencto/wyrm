@@ -589,3 +589,18 @@ fn a_query_stays_within_its_authors_rights() {
     );
     assert!(paths(&e).contains(&"wy/d/downstream/plc/t".to_owned()));
 }
+
+/// A sublist row exists because its parent passed the parent's stages: a reader sees it only if
+/// it may read that parent (and what the parent's stages read) too.
+#[test]
+fn a_reader_needs_the_parent_of_a_sublist_row() {
+    let mut t = plant();
+    let e = t.start("list wy/s/downstream/plc | where name == 'ahu1' | sublist ./*");
+    let all = |_: &str| true;
+    assert_eq!(e.table_where(0, 100, all).1, 2);
+    // the children alone, not their parent ahu1
+    let children = |k: &str| k.starts_with("wy/s/downstream/plc/ahu1/");
+    assert_eq!(e.table_where(0, 100, children).1, 0);
+    let with_parent = |k: &str| k.starts_with("wy/s/downstream/plc/ahu1");
+    assert_eq!(e.table_where(0, 100, with_parent).1, 2);
+}

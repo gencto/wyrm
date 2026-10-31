@@ -1093,7 +1093,8 @@ impl Engine {
 
     /// Rows `from..from+limit` in key order, each a map of its columns.
     /// Rows `from`… (at most `limit`) of those `keep` admits, and how many it admits. `keep`
-    /// sees every node a row reads: its own key and the value keys of its columns (`./x`, `..`).
+    /// sees every node a row depends on: its own key, the value keys of its columns (`./x`,
+    /// `..`), and the same of a `sublist` parent it came from (whose `where` decided it exists).
     pub fn table_where(
         &self,
         from: usize,
@@ -1101,11 +1102,16 @@ impl Engine {
         keep: impl Fn(&str) -> bool,
     ) -> (Vec<Value>, usize) {
         let last = self.plan.segments.len() - 1;
+        // root of a sublist → the parent row that opened it, per segment
+        let opened: Vec<HashMap<u64, &str>> = self
+            .parents
+            .iter()
+            .map(|m| m.iter().map(|(k, r)| (*r, k.as_str())).collect())
+            .collect();
         let mut total = 0;
         let mut rows = Vec::new();
         for (k, cols) in &self.table {
-            let reads = self.row_keys.get(&(last, k.clone()));
-            if !keep(k) || reads.is_some_and(|ks| !ks.iter().all(|x| keep(x))) {
+            if !self.admitted(last, k, &opened, &keep) {
                 continue;
             }
             if total >= from && rows.len() < limit {
@@ -1114,6 +1120,36 @@ impl Engine {
             total += 1;
         }
         (rows, total)
+    }
+
+    /// `keep` admits the row `key` of `seg` and what it depends on (see [`Engine::table_where`]);
+    /// a row of a sublist needs one parent it came from to be admitted too.
+    fn admitted(
+        &self,
+        seg: usize,
+        key: &str,
+        opened: &[HashMap<u64, &str>],
+        keep: &impl Fn(&str) -> bool,
+    ) -> bool {
+        if !keep(key) {
+            return false;
+        }
+        if let Some(ks) = self.row_keys.get(&(seg, key.to_owned())) {
+            if !ks.iter().all(|x| keep(x)) {
+                return false;
+            }
+        }
+        if seg == 0 {
+            return true;
+        }
+        let Some(cand) = self.cands[seg].get(key) else {
+            return false;
+        };
+        cand.roots.iter().any(|r| {
+            opened[seg - 1]
+                .get(r)
+                .is_some_and(|p| self.admitted(seg - 1, p, opened, keep))
+        })
     }
 
     pub fn table(&self, from: usize, limit: usize) -> Vec<Value> {

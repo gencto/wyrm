@@ -408,6 +408,10 @@ fn readers_see_their_own_rows_and_only_published_tables_are_values() {
     let other = map(&[("text", s("list wy/s/downstream/mock/** | subscribe"))]);
     let e = h.invoke("q", "edit", other, &writer()).unwrap_err();
     assert_eq!(e.status, Status::PermissionDenied);
+    // the same text again changes nothing: the author's rights stay (no rebinding to the writer)
+    let same = map(&[("text", s("list wy/s/downstream/mock/*/temp | subscribe"))]);
+    h.invoke("q", "edit", same, &writer()).unwrap();
+    assert_eq!(h.attr("q", "created_by"), s("user:eng"));
     h.invoke(
         "q",
         "edit",

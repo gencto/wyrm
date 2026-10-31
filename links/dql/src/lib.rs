@@ -788,10 +788,11 @@ impl Dql {
             def.display = d;
         }
         let text = opt_str(m, "text")?;
-        if let Some(t) = &text {
+        // the same text again is no change: its author and rights stay
+        if let Some(t) = text.as_ref().filter(|t| t.trim() != def.text) {
             refuse_sinks(t, who)?;
             // a published table is for whoever reads `<id>/table`: what it shows is config
-            if def.publish && t.trim() != def.text && !may_config(who) {
+            if def.publish && !may_config(who) {
                 return Err(AppError::new(
                     Status::PermissionDenied,
                     "to change the text of a query whose table is published needs config",
