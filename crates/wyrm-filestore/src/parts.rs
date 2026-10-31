@@ -87,6 +87,11 @@ impl Upload {
         self.got.len() as u64
     }
 
+    /// Its spool file is still on disk (a done upload's is removed).
+    fn holds_file(&self) -> bool {
+        !matches!(self.state, State::Done(_))
+    }
+
     /// Bytes of part `i`.
     fn part_len(&self, i: u64) -> u64 {
         let start = i * self.part;
@@ -237,42 +242,60 @@ impl Uploads {
         let parts = b.size.div_ceil(part);
         let id = new_id();
         let file = self.dir.join(format!("{id}.part"));
+        let size = b.size;
         {
-            let m = lock(&self.map);
-            if m.values().filter(|u| u.state == State::Receiving).count() >= MAX_UPLOADS {
+            // every upload that still holds a spool file counts (receiving,
+            // committing, failed and kept for another commit), and the slot
+            // is taken under the same lock: the spool stays within
+            // MAX_UPLOADS files of at most max_file_mib each
+            let mut m = lock(&self.map);
+            if m.values().filter(|u| u.holds_file()).count() >= MAX_UPLOADS {
                 return Err(LinkError::new(
                     Status::Busy,
-                    format!("{MAX_UPLOADS} uploads are in progress: commit or abort one"),
+                    format!("{MAX_UPLOADS} uploads are in progress: commit, or abort one"),
                 ));
             }
+            m.insert(
+                id.clone(),
+                Upload {
+                    owner: b.owner,
+                    parent: b.parent,
+                    name: b.name,
+                    content_type: b.content_type,
+                    overwrite: b.overwrite,
+                    size,
+                    part,
+                    got: vec![false; parts as usize],
+                    sha256,
+                    file: file.clone(),
+                    touched: Instant::now(),
+                    state: State::Receiving,
+                },
+            );
         }
-        self.make_dir()
-            .map_err(|e| LinkError::new(Status::InternalError, format!("spool: {e}")))?;
-        let (f2, size) = (file.clone(), b.size);
-        // a sparse file of the full size: parts land at their offsets
-        blocking(move || {
-            let f = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&f2)?;
-            f.set_len(size)
-        })
-        .await?;
-        let up = Upload {
-            owner: b.owner,
-            parent: b.parent,
-            name: b.name,
-            content_type: b.content_type,
-            overwrite: b.overwrite,
-            size: b.size,
-            part,
-            got: vec![false; parts as usize],
-            sha256,
-            file,
-            touched: Instant::now(),
-            state: State::Receiving,
+        let made = match self.make_dir() {
+            Ok(()) => {
+                // a sparse file of the full size: parts land at their offsets
+                let f2 = file.clone();
+                blocking(move || {
+                    let f = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&f2)?;
+                    // from here the file is ours
+                    f.set_len(size).inspect_err(|_| {
+                        drop(f);
+                        let _ = std::fs::remove_file(&f2);
+                    })
+                })
+                .await
+            }
+            Err(e) => Err(LinkError::new(Status::InternalError, format!("spool: {e}"))),
         };
-        lock(&self.map).insert(id.clone(), up);
+        if let Err(e) = made {
+            lock(&self.map).remove(&id);
+            return Err(e);
+        }
         Ok(Value::Map(Map::from([
             ("upload".to_owned(), Value::Str(id)),
             ("part_size".to_owned(), Value::UInt(part)),
@@ -554,6 +577,61 @@ mod tests {
         let mut b = begin(100, 65_536);
         b.sha256 = Some("xyz".into());
         assert!(u.begin(b, 1 << 20).await.is_err());
+        u.clear();
+    }
+
+    fn id_of(v: &Value) -> String {
+        match get(v, "upload") {
+            Value::Str(s) => s,
+            _ => panic!("no upload id"),
+        }
+    }
+
+    /// Every upload that still holds a spool file counts: one committing,
+    /// and one whose commit failed (a wrong sha256 makes one at will), so
+    /// the spool stays within `MAX_UPLOADS` files of `max_file_mib`.
+    #[tokio::test]
+    async fn spool_files_are_bounded() {
+        let dir = std::env::temp_dir().join(format!("wyrm-parts-b-{}", std::process::id()));
+        let u = Uploads::new(dir);
+        let mut ids = Vec::new();
+        for _ in 0..MAX_UPLOADS {
+            let id = id_of(&u.begin(begin(100, 65_536), 1 << 20).await.unwrap());
+            u.part(&id, "user:a", 0, vec![7; 100]).await.unwrap();
+            u.commit(&id, "user:a").unwrap();
+            ids.push(id);
+        }
+        let e = u.begin(begin(100, 65_536), 1 << 20).await.unwrap_err();
+        assert_eq!(e.status, Status::Busy, "committing ones hold their files");
+        u.finish(&ids[0], Err(LinkError::invalid_parameter("sha256")));
+        let e = u.begin(begin(100, 65_536), 1 << 20).await.unwrap_err();
+        assert_eq!(e.status, Status::Busy, "a failed one keeps its file");
+        u.abort(&ids[0], "user:a").unwrap();
+        assert!(u.begin(begin(100, 65_536), 1 << 20).await.is_ok());
+        u.finish(&ids[1], Ok(Value::Null));
+        assert!(
+            u.begin(begin(100, 65_536), 1 << 20).await.is_ok(),
+            "a done one holds no file"
+        );
+        u.clear();
+    }
+
+    /// Begins at once cannot pass the count together.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_begins_are_bounded() {
+        let dir = std::env::temp_dir().join(format!("wyrm-parts-c-{}", std::process::id()));
+        let u = std::sync::Arc::new(Uploads::new(dir));
+        let tasks: Vec<_> = (0..4 * MAX_UPLOADS)
+            .map(|_| {
+                let u = u.clone();
+                tokio::spawn(async move { u.begin(begin(100, 65_536), 1 << 20).await.is_ok() })
+            })
+            .collect();
+        let mut ok = 0;
+        for t in tasks {
+            ok += usize::from(t.await.unwrap());
+        }
+        assert_eq!(ok, MAX_UPLOADS);
         u.clear();
     }
 }
