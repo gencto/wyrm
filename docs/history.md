@@ -184,7 +184,9 @@ waits for a change: Set Password, Resume or new params.
 |---|---|---|
 | `influxdb` | `url` (`https://host[:port][/base]`; `http://` only to loopback unless `insecure_plaintext`), `org`, `bucket`, `measurement` (default `wyrm`), `ca_pem`, `timeout_ms` | v2 write API (InfluxDB 2.x and 3.x), line protocol at µs: tags `site`, `key`; fields `value`, `quality`. A row that is not a number, a bool or text is skipped. |
 
-PostgreSQL, DynamoDB, MySQL and MongoDB follow (ADR 0026).
+| `postgres` | `host`, `port` (5432), `database`, `user`, `table` (`wyrm_history` or `schema.table`), `sslmode` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | One table `site, key, t timestamptz, value double precision, value_text text, quality smallint`, primary key `(key, t)`, upsert. TLS by `SSLRequest`; SCRAM-SHA-256, or a cleartext password over TLS or to loopback; MD5 is refused. TimescaleDB too (make the table a hypertable yourself). |
+
+DynamoDB, MySQL and MongoDB follow (ADR 0026).
 
 ## 7. Other historians
 

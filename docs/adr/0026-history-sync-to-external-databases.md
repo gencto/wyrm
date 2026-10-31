@@ -60,12 +60,12 @@ What a link can do today:
 | Target | Protocol | TLS | Idempotent write | Our client covers |
 |---|---|---|---|---|
 | InfluxDB (v2, v3) | HTTP, line protocol | cloud: yes | same measurement, tags and time overwrite | HTTP/1.1 request and status only |
-| PostgreSQL | wire protocol (sans-IO `postgres-protocol`), SCRAM-SHA-256 | usually | `INSERT … ON CONFLICT DO NOTHING`, key `(site, key, t)` | startup, auth, one multi-row insert per batch, ping |
+| PostgreSQL | v3 wire protocol (own), SCRAM-SHA-256, TLS by `SSLRequest` | usually | `INSERT … ON CONFLICT (key, t) DO UPDATE`, one `(key, t)` per statement | startup, auth, one multi-row insert per batch, ping |
 | DynamoDB | HTTPS, JSON, SigV4, `BatchWriteItem` (25 items, 16 MiB) | always | partition key `site/key`, sort key `t`; TTL attribute as DSA | SigV4 signing, retry of `UnprocessedItems` |
 | MySQL | wire protocol | usually | `INSERT IGNORE`, primary key `(site, key, t)` | handshake, `caching_sha2_password` over TLS only (no RSA exchange), multi-row insert, ping |
 | MongoDB | OP_MSG, BSON (`bson` crate, builds for wasm32), SCRAM-SHA-256 | Atlas: always | unique index `(site, key, t)`, `insert` with `ordered: false`; time-series collection optional | `hello`, auth, insert, ping |
 
-- **Order of work.** 1) journal, sinks and the feed in `wyrm-history` and the admin, with e2e (late row resent, resend after a lost reply, `keep_after_sync_days`); 2) `tls-connect` in world `wyrm:app`; 3) `wyrm-history-sync` and the InfluxDB and PostgreSQL packages; 4) DynamoDB, MySQL, MongoDB. Done 2026-10-31: 1 (journal, sinks, feed, purge rule); 2 in the native host (the WIT import waits for the next world version); 3 core (`wyrm-history-sync`), the sink grant for the link, and InfluxDB. Open: PostgreSQL, then 4. Each client is tested against an in-crate fake server and, in an ignored e2e, against the real database in a container.
+- **Order of work.** 1) journal, sinks and the feed in `wyrm-history` and the admin, with e2e (late row resent, resend after a lost reply, `keep_after_sync_days`); 2) `tls-connect` in world `wyrm:app`; 3) `wyrm-history-sync` and the InfluxDB and PostgreSQL packages; 4) DynamoDB, MySQL, MongoDB. Done 2026-10-31: 1 (journal, sinks, feed, purge rule); 2 in the native host (the WIT import waits for the next world version); 3 core (`wyrm-history-sync`), the sink grant for the link, InfluxDB and PostgreSQL (with `tls_upgrade` in the host). Open: 4 (DynamoDB, MySQL, MongoDB) and the WIT imports. Each client is tested against an in-crate fake server and, in an ignored e2e, against the real database in a container.
 
 ## Consequences
 - The broker grows by the journal and the feed only; targets add nothing to sites that do not use them.

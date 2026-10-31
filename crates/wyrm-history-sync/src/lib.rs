@@ -14,6 +14,8 @@
 //! link's sealed store.
 
 pub mod http;
+#[cfg(any(test, feature = "testkit"))]
+pub mod testkit;
 
 use std::collections::BTreeMap;
 use wyrm_core::meta::ParamMeta;

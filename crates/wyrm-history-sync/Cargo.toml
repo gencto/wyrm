@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# `testkit::TcpHost` for the targets' tests
+testkit = []
+
 [dependencies]
 # Only crates that build for wasm32-unknown-unknown: a target runs as a WASM component too.
 wyrm-core.workspace = true

@@ -33,6 +33,7 @@ wyrm-link-portable = { workspace = true, optional = true }
 
 [dev-dependencies]
 wyrm-link-portable.workspace = true
+wyrm-history-sync = { workspace = true, features = ["testkit"] }
 
 # `wyr link pack` (ADR 0021, 0023): a WASM package; the same code packs as a
 # process with `--kind process`. The token goes in with Set Password.
