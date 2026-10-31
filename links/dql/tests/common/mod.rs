@@ -387,7 +387,8 @@ impl SimHost {
         self.settle();
     }
 
-    pub fn table(&self, q: &str) -> Vec<Value> {
+    /// The value `<q>/table` (a query with `publish`).
+    pub fn published(&self, q: &str) -> Vec<Value> {
         match self
             .nodes
             .get(&format!("{q}/table"))
@@ -397,6 +398,22 @@ impl SimHost {
             None => Vec::new(),
             Some(v) => panic!("table is {v:?}"),
         }
+    }
+
+    /// The rows `get_table` gives `who`.
+    pub fn table_as(&mut self, q: &str, who: &Who) -> Vec<Value> {
+        match self.invoke(q, "get_table", Value::Null, who) {
+            Ok(Value::Map(m)) => match m.get("rows") {
+                Some(Value::Array(a)) => a.clone(),
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    }
+
+    /// The rows `get_table` gives an engineer (who may read the whole site).
+    pub fn table(&mut self, q: &str) -> Vec<Value> {
+        self.table_as(q, &engineer())
     }
 
     pub fn attr(&self, q: &str, a: &str) -> Value {

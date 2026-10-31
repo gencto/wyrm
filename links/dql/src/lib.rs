@@ -149,6 +149,19 @@ fn rights_of(who: &Who) -> Result<Rights, AppError> {
     })
 }
 
+/// `publish` of the args; turning it on needs `config`: the whole table is then a value for
+/// whoever may read `<id>/table`, whatever its author's rights.
+fn publish_arg(m: &Args, who: &Who) -> Result<Option<bool>, AppError> {
+    let p = opt_bool(m, "publish")?;
+    if p == Some(true) && !may_config(who) {
+        return Err(AppError::new(
+            Status::PermissionDenied,
+            "to publish a query's table needs config on the DQL link",
+        ));
+    }
+    Ok(p)
+}
+
 fn refuse_sinks(text: &str, who: &Who) -> Result<(), AppError> {
     let plan = parse(text).map_err(|e| invalid("text", e))?;
     if plan.has_sinks() && !may_config(who) {
@@ -198,6 +211,8 @@ struct Query {
     /// The attributes last declared, to declare again only on a change.
     shown: Option<BTreeMap<String, Value>>,
     rows_shown: usize,
+    /// `<id>/table` is declared (the query publishes its table).
+    table_node: bool,
 }
 
 impl Query {
@@ -213,6 +228,7 @@ impl Query {
             dirty: true,
             shown: None,
             rows_shown: 0,
+            table_node: false,
         }
     }
 
@@ -356,7 +372,12 @@ impl Dql {
         let attrs = q.attrs();
         cx.host
             .declare_node(id, tree::query_meta(attrs.clone(), &q.def.display));
-        cx.host.declare_node(&tree::table(id), tree::table_meta());
+        if q.def.publish {
+            cx.host.declare_node(&tree::table(id), tree::table_meta());
+        } else if q.table_node {
+            cx.host.remove_node(&tree::table(id));
+        }
+        q.table_node = q.def.publish;
         cx.host
             .declare_node(&tree::enabled(id), tree::enabled_meta());
         cx.host.update(
@@ -519,6 +540,11 @@ impl Dql {
                     q.dirty = true;
                 }
             }
+            if !q.def.publish {
+                // nothing to publish: get_table answers each caller with what it may read
+                q.rows_shown = q.engine.as_ref().map_or(0, Engine::rows);
+                q.dirty = false;
+            }
             let every = q.def.publish_ms * 1000;
             let due = q.last_publish_us.is_none_or(|t| now >= t + every);
             if q.dirty && due {
@@ -647,6 +673,7 @@ impl Dql {
             text,
             enabled: opt_bool(m, "enabled")?.unwrap_or(true),
             publish_ms: publish_ms(m)?.unwrap_or(DEFAULT_PUBLISH_MS),
+            publish: publish_arg(m, who)?.unwrap_or(false),
             created_by: who.subject.clone().unwrap_or_default(),
             rights: Some(rights),
         };
@@ -677,6 +704,7 @@ impl Dql {
             .clamp(1, MAX_TTL_S);
         refuse_sinks(&text, who)?;
         let rights = rights_of(who)?;
+        let publish = publish_arg(m, who)?.unwrap_or(false);
         let now = cx.now();
         // identical text with the same author rights shares one ad-hoc query (DSA's
         // QueryManager): a table made with one user's rights is never handed to another
@@ -692,6 +720,7 @@ impl Dql {
                     q.expires_us.is_some()
                         && q.def.text == text.trim()
                         && q.def.rights.as_ref() == Some(&rights)
+                        && q.def.publish == publish
                 })
                 .map(|(id, _)| id.clone())
                 .unwrap_or_else(|| {
@@ -708,7 +737,11 @@ impl Dql {
             Some(q) if q.expires_us.is_none() => {
                 return Err(invalid("id", format!("{id} is a stored query")));
             }
-            Some(q) if q.def.text == text.trim() && q.def.rights.as_ref() == Some(&rights) => {
+            Some(q)
+                if q.def.text == text.trim()
+                    && q.def.rights.as_ref() == Some(&rights)
+                    && q.def.publish == publish =>
+            {
                 q.ttl_s = ttl_s;
                 q.expires_us = Some(now + ttl_s * 1_000_000);
             }
@@ -725,6 +758,7 @@ impl Dql {
                     text: text.trim().to_owned(),
                     enabled: true,
                     publish_ms: publish_ms(m)?.unwrap_or(DEFAULT_PUBLISH_MS),
+                    publish,
                     created_by: who.subject.clone().unwrap_or_default(),
                     rights: Some(rights),
                 };
@@ -739,13 +773,11 @@ impl Dql {
                 self.start_query(cx, &id);
             }
         }
-        Ok(Value::Map(
-            [
-                ("id".to_owned(), Value::Str(id.clone())),
-                ("table".to_owned(), Value::Str(tree::table(&id))),
-            ]
-            .into(),
-        ))
+        let mut out = BTreeMap::from([("id".to_owned(), Value::Str(id.clone()))]);
+        if publish {
+            out.insert("table".to_owned(), Value::Str(tree::table(&id)));
+        }
+        Ok(Value::Map(out))
     }
 
     fn edit(&mut self, cx: &mut Cx<'_>, id: &str, m: &Args, who: &Who) -> Result<Value, AppError> {
@@ -766,13 +798,22 @@ impl Dql {
         if let Some(p) = publish_ms(m)? {
             def.publish_ms = p;
         }
+        if let Some(p) = publish_arg(m, who)? {
+            def.publish = p;
+        }
         let restart = def.text != q.def.text || def.rights != q.def.rights;
+        // a table published from now on goes out at once, changed or not
+        let republish = def.publish && !q.def.publish;
         if q.expires_us.is_none() {
             self.save(cx, &def, false)?;
         }
         if let Some(q) = self.queries.get_mut(id) {
             q.def = def;
             q.shown = None;
+            if republish {
+                q.dirty = true;
+                q.last_publish_us = None;
+            }
         }
         self.declare_query(cx, id);
         if restart {
@@ -799,7 +840,20 @@ impl Dql {
         Ok(Value::Null)
     }
 
-    fn get_table(&mut self, cx: &mut Cx<'_>, id: &str, m: &Args) -> Result<Value, AppError> {
+    /// The rows the caller may read itself (its own `auth`): the author's rights made the table,
+    /// the reader's decide what of it they see (ADR 0025 item 4, owner decision).
+    fn get_table(
+        &mut self,
+        cx: &mut Cx<'_>,
+        id: &str,
+        m: &Args,
+        who: &Who,
+    ) -> Result<Value, AppError> {
+        let reader = rights_of(who)?;
+        let reader_who = Who {
+            authority: Some(reader.grants),
+            ..Who::default()
+        };
         let now = cx.now();
         let q = self.queries.get_mut(id).ok_or_else(|| not_found(id))?;
         if q.expires_us.is_some() {
@@ -809,7 +863,12 @@ impl Dql {
         let limit =
             (opt_uint(m, "limit")?.unwrap_or(TABLE_PAGE as u64) as usize).clamp(1, MAX_TABLE_PAGE);
         let (rows, total, cols) = match &q.engine {
-            Some(e) => (e.table(from, limit), e.rows(), e.columns().to_vec()),
+            Some(e) => {
+                let (rows, total) = e.table_where(from, limit, |k| {
+                    wyrm_dql::engine::may(&reader_who, &reader.site, k, Perm::Read)
+                });
+                (rows, total, e.columns().to_vec())
+            }
             None => (Vec::new(), 0, Vec::new()),
         };
         let mut out = BTreeMap::new();
@@ -880,7 +939,7 @@ impl Dql {
                     .map_err(|e| invalid("text", e))?;
                 Ok(Value::Map([("text".to_owned(), Value::Str(text))].into()))
             }
-            (id, "get_table") => self.get_table(cx, id, m),
+            (id, "get_table") => self.get_table(cx, id, m, who),
             (id, "export") => {
                 let q = self.queries.get(id).ok_or_else(|| not_found(id))?;
                 Ok(Value::Map(

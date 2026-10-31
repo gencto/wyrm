@@ -42,6 +42,9 @@ const TEXT_ABOUT: &str = "list <pattern> | where <CEL> | subscribe … | express
      invoke … | set … (docs/dql.md). Keys are full: wy/<site>/downstream/…; * is one segment, \
      ** any.";
 const PUBLISH_ABOUT: &str = "The table is published at most this often, ms (500; 100 to 60000).";
+const PUBLISH_TABLE_ABOUT: &str = "Publish the whole table as the value <query>/table, live, for \
+     whoever may read that node (needs config). Off: Get Table answers each caller with the rows \
+     it may read itself.";
 
 fn query_params(a: ActionMeta, required: bool) -> ActionMeta {
     a.param("display", text("Display"))
@@ -60,6 +63,12 @@ fn query_params(a: ActionMeta, required: bool) -> ActionMeta {
             ParamMeta::of(TypeCode::Number)
                 .display("Publish Interval")
                 .description(PUBLISH_ABOUT),
+        )
+        .param(
+            "publish",
+            ParamMeta::of(TypeCode::Bool)
+                .display("Publish Table")
+                .description(PUBLISH_TABLE_ABOUT),
         )
 }
 

@@ -25,7 +25,7 @@ fn add(
     )
 }
 
-fn temps(h: &SimHost, q: &str) -> Vec<Value> {
+fn temps(h: &mut SimHost, q: &str) -> Vec<Value> {
     h.table(q)
         .into_iter()
         .map(|r| match r {
@@ -48,7 +48,7 @@ fn a_stored_query_publishes_its_table_and_survives_a_restart() {
     .unwrap();
     h.advance_ms(200);
     assert_eq!(
-        temps(&h, "temps"),
+        temps(&mut h, "temps"),
         [Value::Int(0), Value::Int(1), Value::Int(2)]
     );
     assert_eq!(h.attr("temps", "status"), s("ready"));
@@ -60,12 +60,12 @@ fn a_stored_query_publishes_its_table_and_survives_a_restart() {
 
     h.put_value("wy/s/downstream/mock/d1/temp", Value::Int(42));
     h.advance_ms(200);
-    assert_eq!(temps(&h, "temps")[1], Value::Int(42));
+    assert_eq!(temps(&mut h, "temps")[1], Value::Int(42));
 
     h.restart();
     h.advance_ms(200);
     assert_eq!(
-        temps(&h, "temps"),
+        temps(&mut h, "temps"),
         [Value::Int(0), Value::Int(42), Value::Int(2)]
     );
 
@@ -165,7 +165,8 @@ fn ad_hoc_queries_are_shared_and_expire() {
         Some(Value::Str(s)) => s.clone(),
         _ => panic!(),
     };
-    assert_eq!(m.get("table"), Some(&s(&format!("{id}/table"))));
+    // not published: no table node, get_table answers
+    assert_eq!(m.get("table"), None);
     h.advance_ms(600);
     assert_eq!(h.table(&id).len(), 2);
     assert!(
@@ -181,15 +182,17 @@ fn ad_hoc_queries_are_shared_and_expire() {
     h.advance_ms(3_000);
     assert!(!h.nodes.contains_key(&id), "expired");
     assert!(h.lists.is_empty());
-    // a named one, for a dataflow
-    let r = h
-        .invoke(
-            "",
-            "run",
-            map(&[("text", s("list wy/s/downstream/mock")), ("id", s("flowq"))]),
-            &writer(),
-        )
-        .unwrap();
+    // a named one with its table published, for a dataflow: an engineer's call
+    let args = || {
+        map(&[
+            ("text", s("list wy/s/downstream/mock")),
+            ("id", s("flowq")),
+            ("publish", Value::Bool(true)),
+        ])
+    };
+    let e = h.invoke("", "run", args(), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let r = h.invoke("", "run", args(), &engineer()).unwrap();
     assert!(matches!(&r, Value::Map(m) if m.get("table") == Some(&s("flowq/table"))));
 }
 
@@ -363,4 +366,51 @@ fn queries_run_with_their_authors_rights() {
     h.restart();
     h.advance_ms(600);
     assert_eq!(h.table("mine").len(), 1);
+}
+
+/// ADR 0025 item 4, the tables (owner decision 2026-10-31): get_table gives each caller the rows
+/// it may read itself; only an engineer publishes a whole table as a live value.
+#[test]
+fn readers_see_their_own_rows_and_only_published_tables_are_values() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let text = "list wy/s/downstream/mock/*/temp | subscribe";
+    add(&mut h, "q", text, &engineer()).unwrap();
+    h.advance_ms(600);
+    // not published: no table node, nothing to subscribe
+    assert!(!h.nodes.contains_key("q/table"));
+    assert_eq!(h.table("q").len(), 2);
+    // a reader who may read d0 only gets d0's row of the engineer's table
+    let d0 = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/dql/**".into(), Perm::Read),
+            ("wy/s/downstream/mock/d0/**".into(), Perm::Read),
+        ]),
+        ..writer()
+    };
+    let rows = h.table_as("q", &d0);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    // a reader without auth gets nothing
+    let blind = Who {
+        authority: None,
+        ..writer()
+    };
+    let e = h.invoke("q", "get_table", Value::Null, &blind).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // publishing needs config; then the table is a live value, and off again removes it
+    let on = || map(&[("publish", Value::Bool(true))]);
+    let e = h.invoke("q", "edit", on(), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    h.invoke("q", "edit", on(), &engineer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.published("q").len(), 2);
+    h.invoke(
+        "q",
+        "edit",
+        map(&[("publish", Value::Bool(false))]),
+        &engineer(),
+    )
+    .unwrap();
+    h.advance_ms(600);
+    assert!(!h.nodes.contains_key("q/table"));
 }

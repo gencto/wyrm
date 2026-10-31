@@ -27,8 +27,8 @@ Its result is a **table**: one row per node (the row id is the node key), one co
 
 ```
 dql/
-  add_query {id, text, display?, enabled?, publish_ms?}    write; a query with set/invoke needs config
-  run {text, id?, ttl_s?} -> {id, table}                   ad-hoc, not stored
+  add_query {id, text, display?, enabled?, publish_ms?, publish?}   write; set/invoke or publish need config
+  run {text, id?, ttl_s?, publish?} -> {id, table?}        ad-hoc, not stored
   explain {text} -> {stages, columns, roots, sinks, errors}
   import {json, id?, overwrite?}                           config
   convert_dsa {text, site} -> {text}
@@ -36,19 +36,21 @@ dql/
   <query>/                 attrs: text, status, error, rows, columns, errors, sink_calls,
                            lists, lists_pending, depth, sites, collect_ms, last_publish,
                            created_by, expires (ad-hoc)
-    table                  the rows: an array of maps, in key order
+    table                  the rows: an array of maps, in key order (only with publish)
     enabled                writable
     get_table {from?, limit?} -> {rows, total, columns, status}
-    edit {display?, text?, publish_ms?}, export -> {json}, remove
+    edit {display?, text?, publish_ms?, publish?}, export -> {json}, remove
 ```
 
 - **Stored queries** (`add_query`, `import`) live in the link's store and come back after a
   restart; their table is rebuilt from the live tree (nothing of the old result is kept).
 - **Ad-hoc queries** (`run`) end after `ttl_s` (300 s, at most 3 600) unless `get_table` or
   `run` with the same text renews them. The same text shares one query. With `id` a dataflow
-  can subscribe a fixed key: `…/dql/<id>/table`.
-- **The table** is published at most every `publish_ms` (500 ms; 100 … 60 000) and only when it
-  changed: a quiet tree sends nothing.
+  can subscribe a fixed key: `…/dql/<id>/table` (with `publish`).
+- **The table** is read with `get_table`, which gives each caller the rows it may read itself.
+  With `publish: true` (needs `config`) it is also the live value `<id>/table`, published at most
+  every `publish_ms` (500 ms; 100 … 60 000) and only when it changed: a quiet tree sends nothing.
+  Whoever may read that node sees the whole table.
 
 ## Collection takes time
 
@@ -115,8 +117,8 @@ token carries the caller's grants (`auth`, spec 04), and the link keeps them wit
   counts in `errors` and `error` names the key.
 - An `edit` of the text, an `import` or a `run` takes the caller's rights.
 - A caller whose token has no `auth` (a dataflow, an older client) cannot define a query.
-- Whoever has `read` on the link reads every query's table: give the link's `read` only to roles
-  that may see what its queries show.
+- `get_table` gives each caller the rows it may read itself. A published table (`publish: true`,
+  `config`) is one value for whoever may read `<id>/table`: publish only what those readers may see.
 
 ## Sinks: set and invoke
 

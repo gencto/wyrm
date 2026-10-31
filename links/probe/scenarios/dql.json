@@ -1,11 +1,11 @@
 {
   "name": "dql",
-  "description": "DQL (ADR 0025): a stored query over the link's own stats appears with its nodes and publishes its table; explain, convert_dsa, an ad-hoc run, export and import, a refused text, enabled off, remove.",
+  "description": "DQL (ADR 0025): a stored query (its table published) over the link's own stats appears with its nodes and publishes its table; explain, convert_dsa, an ad-hoc run, export and import, a refused text, enabled off, remove.",
   "steps": [
     { "require": "wy/{site}/downstream/dql" },
     { "watch": "wy/{site}/downstream/dql" },
     { "sub": "wy/{site}/downstream/dql/pq{run}/table" },
-    { "invoke": "wy/{site}/downstream/dql", "action": "add_query", "args": { "id": "pq{run}", "text": "list wy/{site}/downstream/dql/stats | subscribe value :name", "publish_ms": 100 } },
+    { "invoke": "wy/{site}/downstream/dql", "action": "add_query", "args": { "id": "pq{run}", "text": "list wy/{site}/downstream/dql/stats | subscribe value :name", "publish_ms": 100, "publish": true } },
     { "added": "wy/{site}/downstream/dql", "name": "pq{run}" },
     { "meta": "wy/{site}/downstream/dql/pq{run}", "has_action": ["get_table", "export", "edit", "remove"], "has_child": ["table", "enabled"] },
     { "value": "wy/{site}/downstream/dql/pq{run}/table", "within_ms": 5000 },

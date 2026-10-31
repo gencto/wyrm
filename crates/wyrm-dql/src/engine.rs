@@ -290,6 +290,25 @@ fn has_null(v: &Value) -> bool {
     }
 }
 
+/// `who`'s own rights (`authority`, spec 04 `auth`, given on site `own`) give `need` on `key`; a
+/// key of another site is checked with the grants rewritten to it, as the gateway mints a user's
+/// tokens for a downstream site (ADR 0018). Unknown rights give nothing.
+pub fn may(who: &Who, own: &str, key: &str, need: Perm) -> bool {
+    let site = key.strip_prefix("wy/").and_then(|r| r.split('/').next());
+    match site {
+        Some(site) if site != own => Who {
+            authority: who.authority.as_ref().map(|a| {
+                a.iter()
+                    .map(|(k, p)| (wyrm_core::ptok::grant_for_site(k, own, site), *p))
+                    .collect()
+            }),
+            ..Who::default()
+        }
+        .may_for(key, need),
+        _ => who.may_for(key, need),
+    }
+}
+
 impl Engine {
     pub fn new(plan: Plan, mut limits: Limits) -> Self {
         if let Some(m) = plan.options.max_rows {
@@ -342,23 +361,9 @@ impl Engine {
 
     /// The author may `need` on `key`.
     fn may(&self, key: &str, need: Perm) -> bool {
-        let Some((who, own)) = &self.rights else {
-            return true;
-        };
-        let site = key.strip_prefix("wy/").and_then(|r| r.split('/').next());
-        match site {
-            Some(site) if site != own => {
-                let theirs = Who {
-                    authority: who.authority.as_ref().map(|a| {
-                        a.iter()
-                            .map(|(k, p)| (wyrm_core::ptok::grant_for_site(k, own, site), *p))
-                            .collect()
-                    }),
-                    ..Who::default()
-                };
-                theirs.may_for(key, need)
-            }
-            _ => who.may_for(key, need),
+        match &self.rights {
+            Some((who, own)) => may(who, own, key, need),
+            None => true,
         }
     }
 
@@ -1087,6 +1092,27 @@ impl Engine {
     }
 
     /// Rows `from..from+limit` in key order, each a map of its columns.
+    /// Rows `from`… (at most `limit`) of those whose key `keep` admits, and how many it admits.
+    pub fn table_where(
+        &self,
+        from: usize,
+        limit: usize,
+        keep: impl Fn(&str) -> bool,
+    ) -> (Vec<Value>, usize) {
+        let mut total = 0;
+        let mut rows = Vec::new();
+        for (k, cols) in &self.table {
+            if !keep(k) {
+                continue;
+            }
+            if total >= from && rows.len() < limit {
+                rows.push(Value::Map(cols.iter().cloned().collect()));
+            }
+            total += 1;
+        }
+        (rows, total)
+    }
+
     pub fn table(&self, from: usize, limit: usize) -> Vec<Value> {
         self.table
             .values()

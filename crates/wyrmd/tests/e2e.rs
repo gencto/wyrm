@@ -6464,6 +6464,7 @@ async fn dql_embedded_queries_the_tree() {
                 )),
             ),
             ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
         ]),
     )
     .await
@@ -6988,6 +6989,7 @@ async fn dql_collect(
             ("id", Value::from(id)),
             ("text", Value::from(text)),
             ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
         ]),
     )
     .await
@@ -7116,6 +7118,7 @@ async fn dql_perf_local() {
                 )),
             ),
             ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
         ]),
     )
     .await
@@ -7298,6 +7301,7 @@ async fn dql_perf_local() {
                     "list wy/{SITE}/downstream/hot/** | where type == 'number' | subscribe | option max_rows=5000"
                 )),
             ),
+            ("publish", Value::Bool(true)),
         ]),
     )
     .await

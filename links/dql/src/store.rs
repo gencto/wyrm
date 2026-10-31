@@ -22,6 +22,9 @@ pub struct Def {
     pub text: String,
     pub enabled: bool,
     pub publish_ms: u64,
+    /// The whole table is the value `<id>/table` (set with `config`); otherwise `get_table`
+    /// answers each caller with the rows it may read (ADR 0025 item 4, owner decision).
+    pub publish: bool,
     pub created_by: String,
     /// What its author may do, kept from the call that defined it (ADR 0025 item 4). `None`: a
     /// definition from before it was kept; it does not run.
@@ -91,6 +94,7 @@ impl Def {
             ("text".to_owned(), s(&self.text)),
             ("enabled".to_owned(), Value::Bool(self.enabled)),
             ("publish_ms".to_owned(), Value::UInt(self.publish_ms)),
+            ("publish".to_owned(), Value::Bool(self.publish)),
             ("created_by".to_owned(), s(&self.created_by)),
         ]);
         if let Some(r) = &self.rights {
@@ -117,6 +121,7 @@ impl Def {
                 Some(Value::Int(n)) if *n > 0 => *n as u64,
                 _ => crate::DEFAULT_PUBLISH_MS,
             },
+            publish: matches!(m.get("publish"), Some(Value::Bool(true))),
             created_by: text("created_by").unwrap_or_default(),
             rights: m.get("rights").and_then(Rights::from_value),
         })
@@ -172,6 +177,7 @@ pub fn to_json(def: &Def) -> String {
         "text": def.text,
         "enabled": def.enabled,
         "publish_ms": def.publish_ms,
+        "publish": def.publish,
     })
     .to_string()
 }
@@ -191,6 +197,7 @@ pub fn from_json(s: &str) -> Result<Def, String> {
             .get("publish_ms")
             .and_then(|x| x.as_u64())
             .unwrap_or(crate::DEFAULT_PUBLISH_MS),
+        publish: v.get("publish").and_then(|x| x.as_bool()).unwrap_or(false),
         created_by: String::new(),
         rights: None,
     })
@@ -208,6 +215,7 @@ mod tests {
             text: "list wy/s/downstream".into(),
             enabled: false,
             publish_ms: 250,
+            publish: true,
             created_by: "user:ann".into(),
             rights: Some(Rights {
                 site: "s".into(),
