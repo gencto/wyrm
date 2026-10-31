@@ -6686,6 +6686,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-mysql"
+version = "0.1.0"
+dependencies = [
+ "sha1",
+ "sha2",
+ "wyrm-core",
+ "wyrm-history-sync",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-opcua"
 version = "0.1.0"
 dependencies = [

@@ -188,7 +188,9 @@ waits for a change: Set Password, Resume or new params.
 
 | `dynamodb` | `region`, `table`, `access_key_id`, `endpoint` (default the region's; `http://` only to loopback, for DynamoDB Local, unless `insecure_plaintext`), `ttl_days` (0: none), `create_table` (false), `ca_pem`, `timeout_ms` | BatchWriteItem, 25 puts per request, SigV4; partition key `key`, sort key `t` (µs), `site`, `value` (N, BOOL, S or NULL), `quality`, `expiration` (epoch s) with `ttl_days`: switch the table's TTL on in AWS. The secret access key with Set Password. |
 
-MySQL and MongoDB follow (ADR 0026).
+| `mysql` | `host`, `port` (3306), `database`, `user`, `table` (`wyrm_history`), `ssl` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | MySQL and MariaDB. One table `` site, `key` VARCHAR(700), t DATETIME(6), value DOUBLE, value_text TEXT, quality `` (utf8mb4), primary key `` (`key`, t) ``, `INSERT … ON DUPLICATE KEY UPDATE`; text as hex literals. TLS by `SSLRequest`; `caching_sha2_password` (the full login only over TLS: no RSA) or `mysql_native_password`. A key over 700 characters is skipped. |
+
+MongoDB follows (ADR 0026).
 
 ## 7. Other historians
 
