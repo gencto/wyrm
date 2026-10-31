@@ -97,6 +97,29 @@ fn recv_more(
     Ok(())
 }
 
+/// The longest line of a chunked body (a size or a trailer).
+const MAX_LINE: usize = 1024;
+
+/// One CRLF-ended line from `rest` (read more as needed), without the CRLF.
+fn read_line(
+    net: &mut dyn Host,
+    conn: ConnId,
+    rest: &mut Vec<u8>,
+    timeout_ms: u32,
+) -> Result<Vec<u8>, TargetError> {
+    loop {
+        if let Some(i) = find(rest, b"\r\n") {
+            let line = rest[..i].to_vec();
+            rest.drain(..i + 2);
+            return Ok(line);
+        }
+        if rest.len() > MAX_LINE {
+            return Err(lost("chunk line too long"));
+        }
+        recv_more(net, conn, rest, timeout_ms)?;
+    }
+}
+
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
@@ -140,25 +163,25 @@ fn read_response(
     let body = if chunked {
         let mut body = Vec::new();
         loop {
-            let i = loop {
-                if let Some(i) = find(&rest, b"\r\n") {
-                    break i;
-                }
-                recv_more(net, conn, &mut rest, timeout_ms)?;
-            };
-            let size = std::str::from_utf8(&rest[..i])
+            let line = read_line(net, conn, &mut rest, timeout_ms)?;
+            let size = std::str::from_utf8(&line)
                 .ok()
                 .and_then(|s| usize::from_str_radix(s.split(';').next()?.trim(), 16).ok())
                 .ok_or_else(|| lost("bad chunk size"))?;
-            rest.drain(..i + 2);
             if size == 0 {
+                // trailers, up to the empty line: the connection stays clean for the next request
+                while !read_line(net, conn, &mut rest, timeout_ms)?.is_empty() {}
                 break;
             }
-            if body.len() + size > MAX_BODY {
+            // checked before any sum: a huge size cannot overflow
+            if size > MAX_BODY || body.len() + size > MAX_BODY {
                 return Err(lost("response body too long"));
             }
             while rest.len() < size + 2 {
                 recv_more(net, conn, &mut rest, timeout_ms)?;
+            }
+            if &rest[size..size + 2] != b"\r\n" {
+                return Err(lost("bad chunk end"));
             }
             body.extend_from_slice(&rest[..size]);
             rest.drain(..size + 2);

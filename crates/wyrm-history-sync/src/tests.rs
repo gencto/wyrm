@@ -13,6 +13,9 @@ struct Fake {
     timers: Vec<(TimerId, u64)>,
     invokes: Vec<(ReqId, String, String, Value)>,
     next: u64,
+    /// What `tcp_recv` hands out, in order; then the connection is closed.
+    recv: Vec<Vec<u8>>,
+    sent: Vec<u8>,
 }
 
 impl Host for Fake {
@@ -61,11 +64,16 @@ impl Host for Fake {
     fn tcp_connect(&mut self, _a: &str, _p: u16, _t: u32) -> Result<ConnId, AppError> {
         Err(AppError::new(Status::NotSupported, "tcp"))
     }
-    fn tcp_send(&mut self, _c: ConnId, _d: &[u8]) -> Result<(), AppError> {
-        Err(AppError::new(Status::NotSupported, "tcp"))
+    fn tcp_send(&mut self, _c: ConnId, d: &[u8]) -> Result<(), AppError> {
+        self.sent.extend_from_slice(d);
+        Ok(())
     }
     fn tcp_recv(&mut self, _c: ConnId, _m: u32, _t: u32) -> Result<Vec<u8>, AppError> {
-        Err(AppError::new(Status::NotSupported, "tcp"))
+        Ok(if self.recv.is_empty() {
+            Vec::new()
+        } else {
+            self.recv.remove(0)
+        })
     }
     fn tcp_close(&mut self, _c: ConnId) {}
     fn log(&mut self, _level: Level, _msg: &str) {}
@@ -337,4 +345,88 @@ fn urls_and_queries() {
     assert_eq!(query_value("my org/1"), "my%20org%2F1");
     assert!(loopback("localhost") && loopback("127.0.0.1") && loopback("::1"));
     assert!(!loopback("10.0.0.1"));
+}
+
+fn get(h: &mut Fake) -> Result<crate::http::Response, TargetError> {
+    let req = crate::http::Request {
+        method: "GET",
+        path: "/x",
+        host: "h",
+        headers: &[],
+        body: b"",
+    };
+    crate::http::send(h, ConnId(1), &req, 100)
+}
+
+#[test]
+fn http_bodies_and_bounds() {
+    // chunked, split across reads, with a trailer; the bytes after it stay
+    let mut h = Fake {
+        recv: vec![
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nab".to_vec(),
+            b"cd\r\n2;x=1\r\nef\r\n0\r\nX-T: 1\r\n\r\n".to_vec(),
+        ],
+        ..Fake::default()
+    };
+    let r = get(&mut h).unwrap();
+    assert_eq!((r.status, r.body.as_slice()), (200, &b"abcdef"[..]));
+    assert!(String::from_utf8_lossy(&h.sent).starts_with("GET /x HTTP/1.1\r\nHost: h\r\n"));
+    // Content-Length, and 204 without one
+    let mut h = Fake {
+        recv: vec![
+            b"HTTP/1.1 400 Bad\r\nContent-Length: 3\r\nConnection: close\r\n\r\nno!".to_vec(),
+        ],
+        ..Fake::default()
+    };
+    let r = get(&mut h).unwrap();
+    assert_eq!((r.status, r.text(10).as_str(), r.close), (400, "no!", true));
+    let mut h = Fake {
+        recv: vec![b"HTTP/1.1 204 No Content\r\n\r\n".to_vec()],
+        ..Fake::default()
+    };
+    assert_eq!(get(&mut h).unwrap().body, b"");
+    // bounds: a huge chunk size, an endless size line, a long body, a bad chunk end
+    for (bytes, why) in [
+        (
+            &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\n"[..],
+            "too long",
+        ),
+        (
+            &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"[..],
+            "chunk line",
+        ),
+        (
+            &b"HTTP/1.1 200 OK\r\nContent-Length: 99999999\r\n\r\n"[..],
+            "too long",
+        ),
+        (
+            &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nabc\r\n"[..],
+            "chunk end",
+        ),
+    ] {
+        let mut recv = vec![bytes.to_vec()];
+        if why == "chunk line" {
+            recv.push(vec![b'1'; 2000]);
+        }
+        let mut h = Fake {
+            recv,
+            ..Fake::default()
+        };
+        let e = get(&mut h).unwrap_err();
+        assert!(e.message().contains(why), "{why}: {e}");
+    }
+    // no line breaks in a request
+    let mut h = Fake::default();
+    let req = crate::http::Request {
+        method: "GET",
+        path: "/x",
+        host: "h",
+        headers: &[("X", "a\r\nEvil: 1")],
+        body: b"",
+    };
+    assert!(matches!(
+        crate::http::send(&mut h, ConnId(1), &req, 100),
+        Err(TargetError::Fatal(_))
+    ));
+    assert!(h.sent.is_empty());
 }
