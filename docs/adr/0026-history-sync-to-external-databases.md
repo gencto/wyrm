@@ -24,6 +24,36 @@ What a link can do today:
 - **Deleting.** The current rules stay: Retention Days, then Auto Purge by Disk Space Remaining (ADR 0014). New: with `keep_after_sync_days` set (default off), a whole day file goes once every sink has confirmed its highest `seq` and the day is older than that many days. `0` keeps only what is not sent yet, as the DSA buffer does.
 - **Delivery is at least once.** A batch can be sent twice after a lost reply or a restart. Every sink writes with the key `(site, point key, t)` and replaces on conflict, so a resend changes nothing.
 - **One package per target, one shared core, one form for all (owner, 2026-10-31).** A crate `wyrm-history-sync` (cursor, batch size, wait between batches, back-off while the target is down, the counters, secrets in the connection parameters, sealed by the framework) and one package per target, so a device installs only what it uses. Every target is a portable App with its own protocol client over the host's `tcp-connect`/`tls-connect`, no native driver crates (`sqlx`, `mongodb`, AWS SDK): the same code ships as a WASM package (the default) and as a process package, and behaves the same in both. A process package is not faster here in any way that matters: a batch is one or two round trips to the database, and encoding 5 000 rows in WASM takes well under a millisecond; what native drivers would save is our own protocol code, at the cost of a build per architecture and a process per sink.
+- **One target interface, as DSA's historian SDK (owner, 2026-10-31).** DSA keeps all common work in `sdk-dslink-java/sdk/historian` (nodes, watch groups, Get History, subscriptions); a database link implements only `DatabaseProvider` (`createDbAction`, `createDb`, `dbPermission`, `deleteRange`) and `Database` (`performConnect`, `write`, `query`, `queryFirst`, `queryLast`, `close`, `initExtensions`). Here `wyrm-history-sync` owns everything but talking to the database: the link's nodes (one per connection: `status`, `error`, the counters; actions Add, Edit, Remove, Test Connection, Pause/Resume), the feed loop (`next`, confirmation), batch sizes, back-off, secrets. A target implements one trait:
+
+  ```rust
+  pub trait Target: Sized {
+      /// Package and node kind: "influxdb", "postgres", "mysql", "mongodb", "dynamodb".
+      const KIND: &'static str;
+      /// Connection parameters with their schema; secrets marked, sealed by the core.
+      type Params: Params;
+      /// Open and authenticate (TCP or TLS through `net`).
+      fn connect(net: &mut dyn Net, p: &Self::Params) -> Result<Self, TargetError>;
+      /// Create the table, index or bucket if the parameters allow; safe to repeat.
+      fn prepare(&mut self, _net: &mut dyn Net) -> Result<(), TargetError> { Ok(()) }
+      /// Store one batch, replacing on `(key, t)`; `Ok` only when every row is stored.
+      fn write(&mut self, net: &mut dyn Net, rows: &[Row]) -> Result<(), TargetError>;
+      /// A cheap check while there is nothing to send.
+      fn ping(&mut self, net: &mut dyn Net) -> Result<(), TargetError>;
+      /// The largest batch it takes (rows, bytes), e.g. DynamoDB 25 items per request.
+      fn limits(&self) -> Limits { Limits::default() }
+      fn close(self, _net: &mut dyn Net) {}
+  }
+  /// `key` is the point's full key (`wy/<site>/…`), so `(key, t)` is unique across sites.
+  pub struct Row { pub seq: u64, pub site: String, pub key: String, pub t: u64, pub v: Value, pub q: Quality }
+  pub enum TargetError {
+      Retry(String),     // network, throttling: wait, send the same batch again
+      Reconnect(String), // connection lost: connect again, then the same batch
+      Fatal(String),     // auth, schema, a refused row: the sink stops with `error` until Edit
+  }
+  ```
+
+  `Net` is the TCP/TLS part of the portable host, the same in WASM and in a process. Shared helpers serve families: `http` (HTTP/1.1 over `Net`: InfluxDB, DynamoDB), `sql` (a dialect: table definition, multi-row insert with the conflict clause, quoting: PostgreSQL, MySQL), `auth` (SCRAM-SHA-256 for PostgreSQL and MongoDB, SigV4). A family member then costs little: TimescaleDB speaks PostgreSQL, MariaDB speaks MySQL, QuestDB and VictoriaMetrics take InfluxDB line protocol. A new target is one crate: the trait, its `Params`, `export!`, package metadata. Not in the trait, unlike DSA: `query`/`queryFirst`/`queryLast` (reads stay on the edge historian; a read-back from the central database would add an optional method that answers `not_supported` by default) and `deleteRange` (the central database keeps its own retention, DynamoDB by TTL).
 - **Host: TLS for portable Apps.** World `wyrm:app` adds `tls-connect(host, port, timeout-ms)`: the host resolves the name, checks every resolved address against the `NetPolicy` (which gains host-name entries), verifies the certificate against the system roots or a CA from the link's parameters, with rustls (ring) that `wyrmd` already links. The data stays in the component; the keys never do. Every target that needs TLS waits for it, in both forms.
 
 | Target | Protocol | TLS | Idempotent write | Our client covers |
