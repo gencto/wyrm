@@ -100,6 +100,22 @@ pub trait Services {
             "tls_connect: this host has no TLS",
         ))
     }
+    /// Start TLS on an open plain connection (`SSLRequest` of PostgreSQL and MySQL), verifying
+    /// the server's certificate for `host` as [`tls_connect`](Self::tls_connect) does; the
+    /// connection keeps its id. On an error the connection is closed.
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        let _ = (c, host, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_upgrade: this host has no TLS",
+        ))
+    }
     /// The instance is gone: close every connection it opened.
     fn close_all(&mut self) {}
 }
@@ -466,6 +482,16 @@ impl Host for BufferHost {
         ca_pem: Option<&str>,
     ) -> Result<ConnId, AppError> {
         self.services.tls_connect(host, port, timeout_ms, ca_pem)
+    }
+
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        self.services.tls_upgrade(c, host, timeout_ms, ca_pem)
     }
 
     fn log(&mut self, level: Level, msg: &str) {

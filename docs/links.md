@@ -300,13 +300,13 @@ value. A `write` is not shown at once: the next read shows the result.
 separated by commas or spaces: `10.0.5.0/24:502, 192.168.1.20:1502,
 [fd00::]/64:502`.
 
-- IP literals only for plain TCP, in the list and in `connect`.
-- Host names (`db.example.com:5432`, `*.example.com:443`) only for TLS
-  connections of a portable app (`tls_connect`, ADR 0026; in the native and
-  process forms today, in WASM with the next world version). The host
-  resolves the name and connects only to an address that an IP entry allows,
-  or to an ordinary address when the name is listed: a listed name never
-  reaches loopback, link-local or metadata addresses by itself.
+- A WASM driver (`wyrm:link/tcp`): IP literals only, in the list and in `connect`.
+- A portable app (ADR 0026; native and process forms today, WASM with the next world version)
+  may also name hosts: `db.example.com:5432`, `*.example.com:443`, in `tcp_connect`,
+  `tls_connect`, and `tls_upgrade` (TLS on an open connection, as PostgreSQL's and MySQL's
+  `SSLRequest`). The host resolves the name and connects only to an address that an IP entry
+  allows, or to an ordinary address when the name is listed: a listed name never reaches
+  loopback, link-local or metadata addresses by itself.
 - `connect` passes when the address is inside an entry and the port is that
   entry's port.
 - Loopback, link-local (also `169.254.169.254`), multicast, broadcast,

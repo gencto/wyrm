@@ -230,6 +230,62 @@ impl RuntimeServices {
         Ok(Duration::from_millis(ms.max(1).into()).min(left))
     }
 
+    /// The address to connect to: `addr` itself (an IP the list allows), or the first address
+    /// of a host name that [`NetPolicy::allows_named`] accepts.
+    fn reachable(&self, addr: &str, port: u16, timeout_ms: u32) -> Result<SocketAddr, AppError> {
+        let denied = || {
+            net_err(
+                Status::PermissionDenied,
+                format!("{addr}:{port} is not in the link's net list"),
+            )
+        };
+        if let Ok(ip) = addr.parse::<IpAddr>() {
+            return if self.policy.allows(ip, port) {
+                Ok(SocketAddr::new(ip, port))
+            } else {
+                Err(denied())
+            };
+        }
+        if rustls_pki_types::DnsName::try_from(addr).is_err() {
+            return Err(net_err(
+                Status::InvalidParameter,
+                format!("{addr}: an IP literal or a host name"),
+            ));
+        }
+        resolve(addr, port, self.budget(timeout_ms)?)?
+            .into_iter()
+            .find(|a| self.policy.allows_named(addr, a.ip(), port))
+            .ok_or_else(denied)
+    }
+
+    /// TLS over `sock`, within the time the call has left; the certificate for `host`.
+    fn handshake(
+        &self,
+        mut sock: TcpStream,
+        cfg: Arc<rustls::ClientConfig>,
+        name: rustls_pki_types::ServerName<'static>,
+        host: &str,
+        timeout_ms: u32,
+    ) -> Result<Conn, AppError> {
+        let mut tls = rustls::ClientConnection::new(cfg, name)
+            .map_err(|e| net_err(Status::InternalError, format!("tls {host}: {e}")))?;
+        while tls.is_handshaking() {
+            let t = self.budget(timeout_ms)?;
+            sock.set_read_timeout(Some(t))
+                .and_then(|_| sock.set_write_timeout(Some(t)))
+                .map_err(|e| net_err(Status::InternalError, e.to_string()))?;
+            if let Err(e) = tls.complete_io(&mut sock) {
+                let status = if timed_out(&e) {
+                    Status::Timeout
+                } else {
+                    Status::Disconnected
+                };
+                return Err(net_err(status, format!("tls {host}: {e}")));
+            }
+        }
+        Ok(Conn::Tls(Box::new(rustls::StreamOwned::new(tls, sock))))
+    }
+
     fn keep(&mut self, c: Conn) -> ConnId {
         self.next_conn = self.next_conn.wrapping_add(1);
         let h = self.next_conn;
@@ -290,24 +346,16 @@ impl Services for RuntimeServices {
     }
 
     fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError> {
-        let ip: IpAddr = addr
-            .parse()
-            .map_err(|_| net_err(Status::InvalidParameter, format!("{addr}: an IP literal")))?;
         self.sweep();
-        if !self.policy.allows(ip, port) {
-            return Err(net_err(
-                Status::PermissionDenied,
-                format!("{addr}:{port} is not in the link's net list"),
-            ));
-        }
         if self.conns.len() >= MAX_CONNS {
             return Err(net_err(
                 Status::ResourceExhausted,
                 format!("at most {MAX_CONNS} connections"),
             ));
         }
+        let to = self.reachable(addr, port, timeout_ms)?;
         let t = self.budget(timeout_ms)?;
-        let s = TcpStream::connect_timeout(&SocketAddr::new(ip, port), t).map_err(|e| {
+        let s = TcpStream::connect_timeout(&to, t).map_err(|e| {
             let status = if timed_out(&e) {
                 Status::Timeout
             } else {
@@ -340,18 +388,9 @@ impl Services for RuntimeServices {
             ));
         }
         let cfg = tls_config(ca_pem)?;
-        let addrs = resolve(host, port, self.budget(timeout_ms)?)?;
-        let addr = addrs
-            .into_iter()
-            .find(|a| self.policy.allows_named(host, a.ip(), port))
-            .ok_or_else(|| {
-                net_err(
-                    Status::PermissionDenied,
-                    format!("{host}:{port} is not in the link's net list"),
-                )
-            })?;
+        let addr = self.reachable(host, port, timeout_ms)?;
         let t = self.budget(timeout_ms)?;
-        let mut sock = TcpStream::connect_timeout(&addr, t).map_err(|e| {
+        let sock = TcpStream::connect_timeout(&addr, t).map_err(|e| {
             let status = if timed_out(&e) {
                 Status::Timeout
             } else {
@@ -360,24 +399,39 @@ impl Services for RuntimeServices {
             net_err(status, format!("connect {host}:{port}: {e}"))
         })?;
         let _ = sock.set_nodelay(true);
-        let mut tls = rustls::ClientConnection::new(cfg, name)
-            .map_err(|e| net_err(Status::InternalError, format!("tls {host}: {e}")))?;
-        // the handshake, within the time the call has left
-        while tls.is_handshaking() {
-            let t = self.budget(timeout_ms)?;
-            sock.set_read_timeout(Some(t))
-                .and_then(|_| sock.set_write_timeout(Some(t)))
-                .map_err(|e| net_err(Status::InternalError, e.to_string()))?;
-            if let Err(e) = tls.complete_io(&mut sock) {
-                let status = if timed_out(&e) {
-                    Status::Timeout
-                } else {
-                    Status::Disconnected
-                };
-                return Err(net_err(status, format!("tls {host}:{port}: {e}")));
+        let conn = self.handshake(sock, cfg, name, host, timeout_ms)?;
+        Ok(self.keep(conn))
+    }
+
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
+            net_err(
+                Status::InvalidParameter,
+                format!("{host}: a DNS name or an IP literal"),
+            )
+        })?;
+        let cfg = tls_config(ca_pem)?;
+        self.sweep();
+        let sock = match self.conns.remove(&c.0) {
+            Some(Conn::Plain(s)) => s,
+            Some(tls) => {
+                self.conns.insert(c.0, tls);
+                return Err(net_err(
+                    Status::InvalidParameter,
+                    "tls_upgrade: already TLS",
+                ));
             }
-        }
-        Ok(self.keep(Conn::Tls(Box::new(rustls::StreamOwned::new(tls, sock)))))
+            None => return Err(net_err(Status::NotFound, format!("no connection {}", c.0))),
+        };
+        let conn = self.handshake(sock, cfg, name, host, timeout_ms)?;
+        self.conns.insert(c.0, conn);
+        Ok(())
     }
 
     fn tcp_send(&mut self, c: ConnId, data: &[u8]) -> Result<(), AppError> {
@@ -474,7 +528,10 @@ mod tests {
         );
         let e = s.tcp_connect("127.0.0.1", 502, 100).unwrap_err();
         assert_eq!(e.status, Status::PermissionDenied);
+        // a name the list does not name, resolving to loopback: refused
         let e = s.tcp_connect("localhost", 502, 100).unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        let e = s.tcp_connect("bad name!", 502, 100).unwrap_err();
         assert_eq!(e.status, Status::InvalidParameter);
         assert_eq!(s.store_ready().unwrap_err().status, Status::NotSupported);
     }
@@ -566,6 +623,17 @@ mod tests {
             .tls_connect("localhost", port + 1, 2000, Some(&ca))
             .unwrap_err();
         assert_eq!(e.status, Status::PermissionDenied, "{e}");
+        // plain by name, then TLS on the same connection (as after an SSLRequest)
+        let c = s.tcp_connect("localhost", port, 2000).unwrap();
+        s.tls_upgrade(c, "localhost", 2000, Some(&ca)).unwrap();
+        s.tcp_send(c, b"up").unwrap();
+        assert_eq!(s.tcp_recv(c, 64, 2000).unwrap(), b"UP");
+        let e = s.tls_upgrade(c, "localhost", 2000, Some(&ca)).unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter, "already TLS: {e}");
+        // a wrong name on upgrade: refused, and the connection is gone
+        let c = s.tcp_connect("127.0.0.1", port, 2000).unwrap();
+        assert!(s.tls_upgrade(c, "other.example", 2000, Some(&ca)).is_err());
+        assert_eq!(s.tcp_send(c, b"x").unwrap_err().status, Status::NotFound);
     }
 
     #[test]
