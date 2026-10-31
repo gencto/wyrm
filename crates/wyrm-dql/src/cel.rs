@@ -34,6 +34,9 @@ const ACCU: &str = "@result";
 ///   [`MAX_MACROS`]);
 /// - no `+` and no list or map literal inside a macro's body (besides the macro's own
 ///   `@result + [x]`): each step of a chain gives at most what it was given;
+/// - no `+` in a macro's range (besides inside a macro it chains): a range is a row variable
+///   (at most [`MAX_VALUE_ITEMS`]), a literal or a chained macro's result, so one evaluation runs
+///   at most `MAX_MACROS × MAX_VALUE_ITEMS` steps;
 /// - a list literal holds at most [`MAX_LIST_LITERAL`] items.
 ///
 /// Outside macros, `+` and literals grow the result by what the text (≤ 1 KiB) writes.
@@ -68,6 +71,11 @@ fn walk(e: &::cel::IdedExpr, body: bool, macros: &mut usize) -> Result<(), Strin
                 return Err(format!("CEL: at most {MAX_MACROS} macros in an expression"));
             }
             // the range may itself be a macro: a chain, outside this one's body
+            if grows(&c.iter_range) {
+                return Err("CEL: no + in a macro's range (it would run the macro on a \
+                            longer list than a value holds)"
+                    .into());
+            }
             walk(&c.iter_range, false, macros)?;
             walk(&c.loop_cond, true, macros)?;
             walk(&c.loop_step, true, macros)?;
@@ -118,6 +126,30 @@ fn walk(e: &::cel::IdedExpr, body: bool, macros: &mut usize) -> Result<(), Strin
         }
         Expr::Select(sel) => walk(&sel.operand, body, macros),
         Expr::Ident(_) | Expr::Literal(_) | Expr::Unspecified => Ok(()),
+    }
+}
+
+/// `e` has a `+` outside the macros it holds (their own ranges are checked when they are walked).
+fn grows(e: &::cel::IdedExpr) -> bool {
+    use ::cel::common::ast::{EntryExpr, Expr};
+    match &e.expr {
+        Expr::Comprehension(_) => false,
+        Expr::Call(call) => {
+            call.func_name == "_+_"
+                || call.target.as_deref().is_some_and(grows)
+                || call.args.iter().any(grows)
+        }
+        Expr::List(l) => l.elements.iter().any(grows),
+        Expr::Map(m) => m.entries.iter().any(|en| match &en.expr {
+            EntryExpr::MapEntry(m) => grows(&m.key) || grows(&m.value),
+            EntryExpr::StructField(f) => grows(&f.value),
+        }),
+        Expr::Struct(st) => st.entries.iter().any(|en| match &en.expr {
+            EntryExpr::MapEntry(m) => grows(&m.key) || grows(&m.value),
+            EntryExpr::StructField(f) => grows(&f.value),
+        }),
+        Expr::Select(sel) => grows(&sel.operand),
+        Expr::Ident(_) | Expr::Literal(_) | Expr::Unspecified => false,
     }
 }
 
@@ -521,6 +553,18 @@ mod tests {
             "no + inside a macro",
         );
         refused("['x'].map(b, b + b)", "no + inside a macro");
+        // a range made longer than a value with `+`: 30 copies of a 1 000-item list
+        let range = vec!["l"; 30].join(" + ");
+        refused(
+            &format!("({range}).map(a, a).size() > 0"),
+            "in a macro's range",
+        );
+        refused(
+            &format!("[1].map(a, a).size() > 0 && (l + [1]).exists(a, a > 0)"),
+            "in a macro's range",
+        );
+        // a chained macro in a range is fine: its own range is checked
+        Expr::compile("l.filter(a, a > 1).map(a, a * 2).size() > 0").unwrap();
         refused(
             &format!("{l}.map(a, {{'k': a}})"),
             "no map literal inside a macro",
@@ -595,10 +639,10 @@ mod tests {
         let text = Value::Str("ab".repeat(4000));
         let cols = vec![("l".to_owned(), list), ("s".to_owned(), text)];
         let r = Row::new(&BTreeMap::new(), &cols);
-        // a range of 30 × 900 items made with `+`, `l` compared on every item
-        let range = vec!["l"; 30].join(" + ");
-        // never true, so `exists` goes through every item: 3 lookups each
-        let e = Expr::compile(&format!("({range}).exists(a, l == l && s.matches('c'))")).unwrap();
+        // `l` compared with itself on every item: never true, so `exists` goes through every
+        // item, 13 lookups each
+        let pairs = vec!["l == l"; 6].join(" && ");
+        let e = Expr::compile(&format!("l.exists(a, {pairs} && s.matches('c'))")).unwrap();
         let t = std::time::Instant::now();
         let err = r.eval(&b, &e).unwrap_err();
         assert!(err.contains("too costly"), "{err}");
@@ -613,7 +657,7 @@ mod tests {
             Ok(Value::Bool(true))
         );
         // a result past the bound of a value is an error, not a large row
-        let big = Expr::compile(&range).unwrap();
+        let big = Expr::compile(&vec!["l"; 30].join(" + ")).unwrap();
         assert!(r.eval(&b, &big).unwrap_err().contains("more than"));
         // map keys and text count toward a value's size
         let wide = Value::Map(

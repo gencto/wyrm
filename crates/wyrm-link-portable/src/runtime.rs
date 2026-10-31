@@ -722,7 +722,9 @@ impl Actor {
                 break;
             };
             if let Some(sample) = self.overflow.remove(&k) {
-                self.push(Event::Value(SubId(k.0), k.1, sample));
+                if self.subs.contains_key(&k.0) {
+                    self.push(Event::Value(SubId(k.0), k.1, sample));
+                }
             }
         }
     }
@@ -880,6 +882,8 @@ impl Actor {
     }
 
     fn drop_tasks(&mut self) {
+        // values aside belong to the old instance's subscriptions; a new one reuses their ids
+        self.overflow.clear();
         for (_, h) in self
             .timers
             .drain()
