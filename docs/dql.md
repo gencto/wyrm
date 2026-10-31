@@ -108,7 +108,8 @@ Reading `attr`, `actions` or `meta` makes the query fetch each listed node's who
 ## Sinks: set and invoke
 
 - A query with a sink needs `config` on the DQL link (the gateway's `engineer`, `admin`); `write`
-  (`operator`, the agent, dataflows) may define queries without sinks only.
+  (`operator`, the agent, dataflows) may define queries without sinks only. The same holds for
+  switching a sink query on and for removing it; `write` may switch it off (stop its writes).
 - **Nothing fires on start**: the first complete arguments of a row (after a start, a restart,
   an edit, `enabled` on, or when the row appears) are its baseline. A call goes out only when
   they change. A row whose arguments hold `null` sends nothing (unless `invoke_allow_null`).
@@ -131,6 +132,8 @@ be stopped halfway):
   them instead (`list.filter(x, …).map(x, …)`), at most 4 in one expression;
 - no `+` and no list or map literal inside a macro's body, so each step of a chain gives at most
   what it was given;
+- no `+` in a macro's range (`(l + m).map(…)`): a range is a value, a literal or a chained
+  macro, so one expression runs at most 4 × 1 000 steps;
 - a list literal holds at most 64 items;
 - a value of more than 1 000 items (all levels; text, bytes and map keys count one item per 16
   bytes) is `null` in an expression, and a result that large is an error.

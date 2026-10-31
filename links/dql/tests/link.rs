@@ -106,12 +106,32 @@ fn sink_queries_need_config_and_never_fire_on_start() {
         )
         .unwrap_err();
     assert_eq!(e.status, Status::PermissionDenied);
-    // but may switch it off and on, and remove it
+    // may stop its writes (switch it off), but not start them again or remove it
     h.set("sp/enabled", Value::Bool(false)).unwrap();
     assert_eq!(h.attr("sp", "status"), s("disabled"));
     assert!(h.subs.is_empty() && h.lists.is_empty());
-    h.invoke("sp", "remove", Value::Null, &writer()).unwrap();
+    let e = h.set("sp/enabled", Value::Bool(true)).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let e = h
+        .invoke("sp", "remove", Value::Null, &writer())
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // an engineer may
+    h.set_as("sp/enabled", Value::Bool(true), &engineer())
+        .unwrap();
+    h.invoke("sp", "remove", Value::Null, &engineer()).unwrap();
     assert!(!h.nodes.contains_key("sp") && !h.store_has("q/sp"));
+    // a query without sinks: the writer switches and removes it as before
+    add(
+        &mut h,
+        "plain",
+        "list wy/s/downstream/mock/*/temp | subscribe",
+        &writer(),
+    )
+    .unwrap();
+    h.set("plain/enabled", Value::Bool(false)).unwrap();
+    h.set("plain/enabled", Value::Bool(true)).unwrap();
+    h.invoke("plain", "remove", Value::Null, &writer()).unwrap();
 }
 
 #[test]

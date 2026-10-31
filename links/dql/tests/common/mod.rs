@@ -341,11 +341,15 @@ impl SimHost {
     }
 
     pub fn set(&mut self, path: &str, v: Value) -> Result<(), AppError> {
+        self.set_as(path, v, &writer())
+    }
+
+    pub fn set_as(&mut self, path: &str, v: Value, who: &Who) -> Result<(), AppError> {
         let r = self
             .app
             .as_mut()
             .expect("started")
-            .on_set(&mut self.buf, path, v, &writer());
+            .on_set(&mut self.buf, path, v, who);
         self.apply();
         self.settle();
         r

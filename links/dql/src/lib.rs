@@ -111,6 +111,19 @@ fn may_config(who: &Who) -> bool {
     who.grants.iter().any(|(_, p)| *p >= Perm::Config)
 }
 
+/// Switching a sink query on, or removing one, needs `config`, as making it did: an operator
+/// may stop its writes (switch it off), never start them again or drop an engineer's query.
+fn guard_sink_query(text: &str, who: &Who, what: &str) -> Result<(), AppError> {
+    let sinks = parse(text).map(|p| p.has_sinks()).unwrap_or(false);
+    if sinks && !may_config(who) {
+        return Err(AppError::new(
+            Status::PermissionDenied,
+            format!("to {what} a query with set or invoke needs config on the DQL link"),
+        ));
+    }
+    Ok(())
+}
+
 fn refuse_sinks(text: &str, who: &Who) -> Result<(), AppError> {
     let plan = parse(text).map_err(|e| invalid("text", e))?;
     if plan.has_sinks() && !may_config(who) {
@@ -820,7 +833,12 @@ impl Dql {
                 ))
             }
             (id, "edit") => self.edit(cx, id, m, who),
-            (id, "remove") => self.remove(cx, id),
+            (id, "remove") => {
+                if let Some(q) = self.queries.get(id) {
+                    guard_sink_query(&q.def.text, who, "remove")?;
+                }
+                self.remove(cx, id)
+            }
             _ => Err(AppError::new(
                 Status::NotFound,
                 format!("no action {action} on {path:?}"),
@@ -828,7 +846,13 @@ impl Dql {
         }
     }
 
-    fn set(&mut self, cx: &mut Cx<'_>, path: &str, value: Value) -> Result<(), AppError> {
+    fn set(
+        &mut self,
+        cx: &mut Cx<'_>,
+        path: &str,
+        value: Value,
+        who: &Who,
+    ) -> Result<(), AppError> {
         let id = path
             .strip_suffix("/enabled")
             .filter(|id| self.queries.contains_key(*id))
@@ -840,6 +864,9 @@ impl Dql {
         let q = self.queries.get(&id).ok_or_else(|| not_found(&id))?;
         if q.def.enabled == on {
             return Ok(());
+        }
+        if on {
+            guard_sink_query(&q.def.text, who, "switch on")?;
         }
         let mut def = q.def.clone();
         def.enabled = on;
@@ -924,10 +951,10 @@ impl App for Dql {
         host: &mut dyn Host,
         path: &str,
         value: Value,
-        _who: &Who,
+        who: &Who,
     ) -> Result<(), AppError> {
         let mut cx = Cx { host, used: 0 };
-        let r = self.set(&mut cx, path, value);
+        let r = self.set(&mut cx, path, value, who);
         self.settle(&mut cx);
         r
     }
