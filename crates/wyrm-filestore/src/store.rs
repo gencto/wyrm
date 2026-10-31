@@ -98,8 +98,22 @@ pub struct Common {
         desc = "folder levels shown"
     )]
     pub max_depth: u32,
-    #[param(default = 32, min = 1, max = 64, display = "Max Upload (MiB)")]
+    #[param(
+        default = 32,
+        min = 1,
+        max = 64,
+        display = "Max Upload (MiB)",
+        desc = "Upload File in one request"
+    )]
     pub max_upload_mib: u32,
+    #[param(
+        default = 4096,
+        min = 1,
+        max = 1048576,
+        display = "Max File in Parts (MiB)",
+        desc = "a file uploaded in parts (upload_begin … upload_commit), spooled on the link's disk"
+    )]
+    pub max_file_mib: u32,
     #[param(default = 1024, min = 1, max = 16384, display = "Max Download (KiB)")]
     pub max_download_kib: u32,
 }
@@ -291,6 +305,7 @@ fn refresh_action() -> ActionMeta {
 fn folder_actions(root: bool) -> BTreeMap<String, ActionMeta> {
     let mut m = BTreeMap::new();
     m.insert("refresh".into(), refresh_action());
+    m.insert("upload_begin".into(), upload_begin_action());
     m.insert(
         "create_folder".into(),
         act("Create Folder", Perm::Write)
@@ -353,8 +368,85 @@ fn delete_action(dir: bool) -> ActionMeta {
     }
 }
 
+fn num(display: &str) -> ParamMeta {
+    ParamMeta::of(TypeCode::Number).display(display)
+}
+
+fn upload_begin_action() -> ActionMeta {
+    act("Upload in Parts", Perm::Write)
+        .param("name", text(true).display("Name"))
+        .param("size", num("Size (bytes)").required(true))
+        .param(
+            "part_size",
+            num("Part Size (bytes)").description("64 KiB to 16 MiB; default 4 MiB"),
+        )
+        .param(
+            "content_type",
+            text(false)
+                .display("Content Type")
+                .description("empty: by the name's extension"),
+        )
+        .param(
+            "overwrite",
+            ParamMeta::of(TypeCode::Bool).display("Overwrite"),
+        )
+        .param(
+            "sha256",
+            text(false)
+                .display("SHA-256")
+                .description("hex; checked before the file goes to the store"),
+        )
+        .result(ActionResult::Type(TypeCode::Map))
+}
+
+/// The actions of a connection on its uploads in parts.
+fn upload_actions(m: &mut BTreeMap<String, ActionMeta>) {
+    let id = || text(true).display("Upload");
+    m.insert(
+        "upload_part".into(),
+        act("Upload Part", Perm::Write)
+            .timeout_ms(TRANSFER_MS)
+            .param("upload", id())
+            .param("index", num("Index").required(true).description("from 0"))
+            .param(
+                "data",
+                ParamMeta::of(TypeCode::Binary)
+                    .required(true)
+                    .display("Data"),
+            )
+            .result(ActionResult::Type(TypeCode::Map)),
+    );
+    m.insert(
+        "upload_status".into(),
+        act("Upload Status", Perm::Write)
+            .param("upload", id())
+            .result(ActionResult::Type(TypeCode::Map)),
+    );
+    m.insert(
+        "upload_commit".into(),
+        act("Commit Upload", Perm::Write)
+            .param("upload", id())
+            .result(ActionResult::Type(TypeCode::Map)),
+    );
+    m.insert(
+        "upload_abort".into(),
+        act("Abort Upload", Perm::Write).param("upload", id()),
+    );
+}
+
 fn file_actions() -> BTreeMap<String, ActionMeta> {
     let mut m = BTreeMap::new();
+    m.insert(
+        "download_part".into(),
+        act("Download Part", Perm::Read)
+            .timeout_ms(TRANSFER_MS)
+            .param("offset", num("Offset (bytes)").required(true))
+            .param(
+                "length",
+                num("Length (bytes)").description("default 4 MiB, at most 16 MiB"),
+            )
+            .result(ActionResult::Type(TypeCode::Map)),
+    );
     m.insert(
         "download".into(),
         act("Download", Perm::Read)
@@ -468,6 +560,8 @@ struct Session<B: Backend> {
     transfers: Semaphore,
     data_dir: Option<std::path::PathBuf>,
     options: Arc<Map>,
+    /// Uploads in parts, spooled on the link's disk.
+    uploads: crate::parts::Uploads,
 }
 
 fn busy(what: &str) -> LinkError {
@@ -487,6 +581,7 @@ impl<B: Backend> Session<B> {
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.stopped.notify_waiters();
+        self.uploads.clear();
     }
 
     /// Returns once the connection stopped.
@@ -930,6 +1025,197 @@ impl<B: Backend> Session<B> {
         }
         Ok(Value::Null)
     }
+
+    async fn upload_begin(&self, node: &str, args: &Map, owner: String) -> Result<Value> {
+        let name = arg_str(args, "name")?.unwrap_or_default();
+        util::check_name(&name).map_err(|e| bad(format!("name: {e}")))?;
+        let size = arg_u64(args, "size")?.ok_or_else(|| bad("size: required"))?;
+        let content_type = arg_str(args, "content_type")?
+            .filter(|c| !c.trim().is_empty())
+            .unwrap_or_else(|| util::guess_content_type(&name).to_owned());
+        if content_type.len() > 255 || hyper::header::HeaderValue::from_str(&content_type).is_err()
+        {
+            return Err(bad("content_type: not a valid content type"));
+        }
+        let overwrite = matches!(args.get("overwrite"), Some(Value::Bool(true)));
+        let parent = {
+            let view = self.view.lock().await;
+            let parent = self.resolve(&view, node)?;
+            if !parent.dir {
+                return Err(bad("not a folder"));
+            }
+            match view.child_named(&parent.path, &name) {
+                Some(e) if e.dir => return Err(bad(format!("{name} is a folder"))),
+                Some(_) if !overwrite => {
+                    return Err(bad(format!("{name} exists (set overwrite to replace it)")))
+                }
+                _ => {}
+            }
+            parent
+        };
+        let max = u64::from(self.common.max_file_mib) * 1024 * 1024;
+        self.uploads
+            .begin(
+                crate::parts::Begin {
+                    owner,
+                    parent,
+                    name,
+                    content_type,
+                    overwrite,
+                    size,
+                    part: arg_u64(args, "part_size")?,
+                    sha256: arg_str(args, "sha256")?,
+                },
+                max,
+            )
+            .await
+    }
+
+    async fn upload_part(&self, mut args: Map, owner: &str) -> Result<Value> {
+        let Ok(_slot) = self.transfers.try_acquire() else {
+            return Err(busy(&format!("{TRANSFERS} transfers are running")));
+        };
+        let id = arg_str(&args, "upload")?.ok_or_else(|| bad("upload: required"))?;
+        let index = arg_u64(&args, "index")?.ok_or_else(|| bad("index: required"))?;
+        let data = match args.remove("data") {
+            Some(Value::Bytes(b)) => b,
+            _ => return Err(bad("data: required (bytes)")),
+        };
+        self.uploads.part(&id, owner, index, data).await
+    }
+
+    fn upload_status(&self, args: &Map, owner: &str) -> Result<Value> {
+        let id = arg_str(args, "upload")?.ok_or_else(|| bad("upload: required"))?;
+        self.uploads.status(&id, owner)
+    }
+
+    fn upload_abort(&self, args: &Map, owner: &str) -> Result<Value> {
+        let id = arg_str(args, "upload")?.ok_or_else(|| bad("upload: required"))?;
+        self.uploads.abort(&id, owner)?;
+        Ok(Value::Null)
+    }
+
+    /// Start the commit: it runs in the background (a large file takes
+    /// longer than a request may wait); `upload_status` says how it ends.
+    fn upload_commit(self: &Arc<Self>, args: &Map, owner: &str) -> Result<Value> {
+        let id = arg_str(args, "upload")?.ok_or_else(|| bad("upload: required"))?;
+        let (c, sha) = self.uploads.commit(&id, owner)?;
+        let s = self.clone();
+        tokio::spawn(async move {
+            let work = s.clone().send_spooled(c.clone(), sha);
+            let r = tokio::select! {
+                r = work => r,
+                () = s.until_stopped() => Err(LinkError::new(
+                    Status::Disconnected,
+                    "the connection stopped: the commit was cut",
+                )),
+            };
+            s.uploads.finish(&c.id, r);
+        });
+        Ok(Value::Map(Map::from([(
+            "state".to_owned(),
+            Value::Str("committing".into()),
+        )])))
+    }
+
+    async fn send_spooled(
+        self: Arc<Self>,
+        c: crate::parts::Commit,
+        sha: Option<[u8; 32]>,
+    ) -> Result<Value> {
+        // waits for a transfer slot: the parts are in, the store may wait
+        let _slot = self
+            .transfers
+            .acquire()
+            .await
+            .map_err(|_| LinkError::new(Status::Disconnected, "connection stopped"))?;
+        if let Some(want) = sha {
+            let got = crate::parts::file_sha256(&c.file).await?;
+            if got != want {
+                return Err(bad(format!(
+                    "sha256: the parts make {}, not {}",
+                    crate::parts::digest_hex(&got),
+                    crate::parts::digest_hex(&want)
+                )));
+            }
+        }
+        let existing = {
+            let view = self.view.lock().await;
+            match view.child_named(&c.parent.path, &c.name).cloned() {
+                Some(e) if e.dir => return Err(bad(format!("{} is a folder", c.name))),
+                Some(_) if !c.overwrite => {
+                    return Err(bad(format!(
+                        "{} exists (begin again with overwrite)",
+                        c.name
+                    )))
+                }
+                e => e,
+            }
+        };
+        let e = self
+            .backend
+            .put_file(
+                &c.parent,
+                &c.name,
+                &c.file,
+                c.size,
+                &c.content_type,
+                existing.as_ref(),
+            )
+            .await
+            .map_err(|e| self.seen(e))?;
+        self.added(e).await
+    }
+
+    async fn download_part(&self, node: &str, args: &Map) -> Result<Value> {
+        let Ok(_slot) = self.transfers.try_acquire() else {
+            return Err(busy(&format!("{TRANSFERS} transfers are running")));
+        };
+        let file = {
+            let view = self.view.lock().await;
+            self.resolve(&view, node)?
+        };
+        if file.dir {
+            return Err(bad("a folder"));
+        }
+        let size = file.size.unwrap_or(0);
+        let offset = arg_u64(args, "offset")?.ok_or_else(|| bad("offset: required"))?;
+        if offset > size {
+            return Err(LinkError::new(
+                Status::OutOfRange,
+                format!("offset {offset}: the file has {size} bytes"),
+            ));
+        }
+        let length = arg_u64(args, "length")?.unwrap_or(crate::parts::DEFAULT_PART);
+        if length == 0 || length > crate::parts::MAX_PART {
+            return Err(bad(format!(
+                "length: 1 to {} bytes",
+                crate::parts::MAX_PART
+            )));
+        }
+        let len = length.min(size - offset) as usize;
+        let data = if len == 0 {
+            Bytes::new()
+        } else {
+            self.backend
+                .get_range(&file, offset, len)
+                .await
+                .map_err(|e| self.seen(e))?
+        };
+        if data.len() > len {
+            return Err(LinkError::new(
+                Status::InternalError,
+                format!("the store sent {} bytes for {len}", data.len()),
+            ));
+        }
+        let end = offset + data.len() as u64;
+        Ok(Value::Map(Map::from([
+            ("offset".to_owned(), Value::UInt(offset)),
+            ("size".to_owned(), Value::UInt(size)),
+            ("eof".to_owned(), Value::Bool(end >= size)),
+            ("data".to_owned(), Value::Bytes(data.into())),
+        ])))
+    }
 }
 
 fn shown(path: &str) -> &str {
@@ -1108,6 +1394,7 @@ impl<B: Backend> FileStore<B> {
         if enabled {
             actions.insert("stop".to_owned(), act("Stop", Perm::Config));
             actions.insert("refresh".to_owned(), refresh_action());
+            upload_actions(&mut actions);
         } else {
             actions.insert("start".to_owned(), act("Start", Perm::Config));
         }
@@ -1174,6 +1461,7 @@ impl<B: Backend> FileStore<B> {
             transfers: Semaphore::new(TRANSFERS),
             data_dir: self.ctx.data_dir().map(std::path::Path::to_path_buf),
             options: self.options.clone(),
+            uploads: crate::parts::Uploads::new(spool_dir(&self.ctx, name)),
         });
         let task = tokio::spawn(run(s.clone()));
         if let Some(slot) = self.conns.get_mut(name) {
@@ -1293,6 +1581,41 @@ fn public_of<B: Backend>(raw: &Map) -> Map {
         .collect()
 }
 
+/// Where a connection spools its uploads in parts: `<data_dir>/uploads/<conn>`,
+/// or, without a `data_dir`, a directory of its own in the system's
+/// temporary one (never shared: each start clears its directory).
+fn spool_dir(ctx: &LinkCtx, conn: &str) -> std::path::PathBuf {
+    match ctx.data_dir() {
+        Some(d) => d.join("uploads").join(conn),
+        None => std::env::temp_dir().join(format!(
+            "wyrm-filestore-{}-{}-{conn}",
+            std::process::id(),
+            crate::parts::new_id()
+        )),
+    }
+}
+
+/// The subject an upload belongs to: the `ptok` subject, else the origin.
+fn owner_of(who: &Caller) -> String {
+    who.claims
+        .as_ref()
+        .map(|c| c.sub.clone())
+        .or_else(|| who.origin.clone())
+        .unwrap_or_default()
+}
+
+fn arg_u64(args: &Map, name: &str) -> Result<Option<u64>> {
+    match args.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::UInt(n)) => Ok(Some(*n)),
+        Some(Value::Int(n)) if *n >= 0 => Ok(Some(*n as u64)),
+        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 9.0e15 => {
+            Ok(Some(*f as u64))
+        }
+        Some(_) => Err(bad(format!("{name}: a whole number of 0 or more"))),
+    }
+}
+
 /// Run `work` on a task of its own and answer through `out`; the work is
 /// cut when the connection stops (stop, remove, edit, the link's stop), so
 /// nothing of it runs on a connection that is gone. A blocking file system
@@ -1381,10 +1704,11 @@ impl<B: Backend> Link for FileStore<B> {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Caller,
+        who: &Caller,
         out: ReplySink,
     ) -> Result<()> {
         let args = map_args(args)?;
+        let owner = owner_of(who);
         if path.is_empty() {
             return match action {
                 "add_connection" => self.add(args).await,
@@ -1409,6 +1733,27 @@ impl<B: Backend> Link for FileStore<B> {
                     });
                     Ok(())
                 }
+                "upload_part" => {
+                    let s = self.session(conn)?;
+                    spawn_reply(
+                        out,
+                        s.clone(),
+                        async move { s.upload_part(args, &owner).await },
+                    );
+                    Ok(())
+                }
+                "upload_status" => {
+                    out.reply(self.session(conn)?.upload_status(&args, &owner)?)
+                        .await
+                }
+                "upload_commit" => {
+                    out.reply(self.session(conn)?.upload_commit(&args, &owner)?)
+                        .await
+                }
+                "upload_abort" => {
+                    out.reply(self.session(conn)?.upload_abort(&args, &owner)?)
+                        .await
+                }
                 _ => Err(LinkError::not_supported(action.to_owned())),
             };
         }
@@ -1432,6 +1777,12 @@ impl<B: Backend> Link for FileStore<B> {
             "create_folder" => spawn_reply(out, cut, async move { s.mkdir(&node, &args).await }),
             "upload" => spawn_reply(out, cut, async move { s.upload(&node, args).await }),
             "download" => spawn_reply(out, cut, async move { s.download(&node, &args).await }),
+            "upload_begin" => spawn_reply(out, cut, async move {
+                s.upload_begin(&node, &args, owner).await
+            }),
+            "download_part" => {
+                spawn_reply(out, cut, async move { s.download_part(&node, &args).await })
+            }
             "delete" => spawn_reply(out, cut, async move { s.delete(&node, &args).await }),
             _ => return Err(LinkError::not_supported(action.to_owned())),
         }

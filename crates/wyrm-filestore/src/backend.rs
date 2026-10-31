@@ -96,6 +96,10 @@ pub fn under(path: &str, dir: &str) -> bool {
         || (path.len() > dir.len() && path.starts_with(dir) && path.as_bytes()[dir.len()] == b'/')
 }
 
+/// The most [`Backend::put_file`] sends in one request by default (a
+/// store with its own way to take large files overrides it).
+pub const SINGLE_PUT_MAX: u64 = 64 * 1024 * 1024;
+
 /// Bounds of one scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -265,6 +269,48 @@ pub trait Backend: Sized + Send + Sync + 'static {
         content_type: &str,
         existing: Option<&Entry>,
     ) -> impl Future<Output = Result<Entry, Error>> + Send;
+
+    /// Store the file `src` on the link's disk (`size` bytes, an upload
+    /// received in parts) as the file `name` in `parent`, replacing
+    /// `existing` as [`Backend::put`] does, without holding it in memory:
+    /// a multipart, resumable or streamed upload. Default: read it whole
+    /// and [`Backend::put`], up to [`SINGLE_PUT_MAX`].
+    fn put_file(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: &std::path::Path,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> impl Future<Output = Result<Entry, Error>> + Send {
+        async move {
+            if size > SINGLE_PUT_MAX {
+                return Err(Error::TooLarge(format!(
+                    "{name}: this store takes at most {SINGLE_PUT_MAX} bytes in one upload"
+                )));
+            }
+            let path = src.to_path_buf();
+            let data = tokio::task::spawn_blocking(move || std::fs::read(path))
+                .await
+                .map_err(|e| Error::Refused(format!("{name}: {e}")))?
+                .map_err(|e| Error::Refused(format!("{name}: the received parts: {e}")))?;
+            self.put(parent, name, Bytes::from(data), content_type, existing)
+                .await
+        }
+    }
+
+    /// `len` bytes of `file` from `offset` (fewer at its end, none past
+    /// it): one part of a download.
+    fn get_range(
+        &self,
+        file: &Entry,
+        _offset: u64,
+        _len: usize,
+    ) -> impl Future<Output = Result<Bytes, Error>> + Send {
+        let msg = format!("{}: this store reads no parts of a file", file.path);
+        async move { Err(Error::Refused(msg)) }
+    }
 
     /// The content of the file `file`, at most `max` bytes (more is
     /// [`Error::TooLarge`]).

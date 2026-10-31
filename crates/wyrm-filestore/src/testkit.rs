@@ -375,3 +375,292 @@ pub async fn refused<B: Backend>(h: &H<B>) {
     let (_, l) = h.list(&format!("c1/{FILES}")).await;
     assert!(l.is_empty());
 }
+
+/// Bytes of a test file: not a repeating block, so a part in the wrong
+/// place shows.
+pub fn big(size: usize) -> Vec<u8> {
+    let mut x: u32 = 0x9E37_79B9;
+    (0..size)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            (x >> 24) as u8
+        })
+        .collect()
+}
+
+fn sha_hex(b: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(b)
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
+}
+
+fn text_of(v: &Option<Value>, k: &str) -> String {
+    match get(v, k) {
+        Value::Str(s) => s.clone(),
+        other => panic!("{k}: {other:?}"),
+    }
+}
+
+/// Wait until the upload `id` leaves `committing`; its status.
+async fn committed<B: Backend>(h: &H<B>, id: &str) -> Option<Value> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let v = ok(h, "c1", "upload_status", map(&[("upload", id.into())])).await;
+        if text_of(&v, "state") != "committing" {
+            return v;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "commit took too long"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Upload `data` to `folder` as `name` in parts of `part` bytes, the last
+/// part first; the final status.
+pub async fn upload_in_parts<B: Backend>(
+    h: &H<B>,
+    folder: &str,
+    name: &str,
+    data: &[u8],
+    part: usize,
+    extra: &[(&str, Value)],
+) -> Option<Value> {
+    let mut args = vec![
+        ("name", Value::Str(name.into())),
+        ("size", Value::UInt(data.len() as u64)),
+        ("part_size", Value::UInt(part as u64)),
+        ("sha256", Value::Str(sha_hex(data))),
+    ];
+    args.extend(extra.iter().cloned());
+    let v = ok(h, folder, "upload_begin", map(&args)).await;
+    let id = text_of(&v, "upload");
+    let parts = data.len().div_ceil(part);
+    assert_eq!(get(&v, "parts"), &Value::UInt(parts as u64));
+    for i in (0..parts).rev() {
+        let chunk = &data[i * part..((i + 1) * part).min(data.len())];
+        ok(
+            h,
+            "c1",
+            "upload_part",
+            map(&[
+                ("upload", id.clone().into()),
+                ("index", Value::UInt(i as u64)),
+                ("data", Value::Bytes(chunk.to_vec())),
+            ]),
+        )
+        .await;
+    }
+    let v = ok(
+        h,
+        "c1",
+        "upload_status",
+        map(&[("upload", id.clone().into())]),
+    )
+    .await;
+    assert_eq!(get(&v, "missing"), &Value::Array(Vec::new()));
+    let v = ok(
+        h,
+        "c1",
+        "upload_commit",
+        map(&[("upload", id.clone().into())]),
+    )
+    .await;
+    assert_eq!(text_of(&v, "state"), "committing");
+    committed(h, &id).await
+}
+
+/// Download the file node `file` in parts of `part` bytes.
+pub async fn download_in_parts<B: Backend>(h: &H<B>, file: &str, part: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let v = ok(
+            h,
+            file,
+            "download_part",
+            map(&[
+                ("offset", Value::UInt(out.len() as u64)),
+                ("length", Value::UInt(part as u64)),
+            ]),
+        )
+        .await;
+        match get(&v, "data") {
+            Value::Bytes(b) => out.extend_from_slice(b),
+            other => panic!("data: {other:?}"),
+        }
+        if get(&v, "eof") == &Value::Bool(true) {
+            return out;
+        }
+    }
+}
+
+/// Uploads and downloads in parts of a file of `size` bytes, after
+/// [`scenario`]'s seed is shown.
+pub async fn parts_scenario<B: Backend>(h: &H<B>, size: usize) {
+    let files = format!("c1/{FILES}");
+    wait("connected", 10, || state(h, "c1") == Some("connected")).await;
+    let (reports, _) = child(h, &files, "reports").await.expect("reports");
+    let data = big(size);
+    let part = 1024 * 1024 + 4096; // not a power of two: offsets show
+    let v = upload_in_parts(h, &reports, "big.bin", &data, part, &[]).await;
+    assert_eq!(text_of(&v, "state"), "done", "{v:?}");
+    let (node, m) = child(h, &reports, "big.bin").await.expect("big.bin shown");
+    assert_eq!(
+        h.ctx().last(&node).map(|s| s.v),
+        Some(Value::UInt(size as u64))
+    );
+    assert!(m.actions.unwrap().contains_key("download_part"));
+    let back = download_in_parts(h, &node, 3 * 1024 * 1024 + 1).await;
+    assert!(
+        back == data,
+        "the same bytes back ({} of {size})",
+        back.len()
+    );
+    // a range past the end, an empty one at the end
+    let (a, _) = act(
+        h,
+        &node,
+        "download_part",
+        map(&[("offset", Value::UInt(size as u64 + 1))]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::OutOfRange);
+    let v = ok(
+        h,
+        &node,
+        "download_part",
+        map(&[("offset", Value::UInt(size as u64))]),
+    )
+    .await;
+    assert_eq!(get(&v, "eof"), &Value::Bool(true));
+
+    // the name taken: refused at begin without overwrite
+    let (a, _) = act(
+        h,
+        &reports,
+        "upload_begin",
+        map(&[("name", "big.bin".into()), ("size", Value::UInt(10))]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::InvalidParameter);
+    // with overwrite but a wrong digest: the commit fails, the file stays
+    let small = big(200_000);
+    let v = ok(
+        h,
+        &reports,
+        "upload_begin",
+        map(&[
+            ("name", "big.bin".into()),
+            ("size", Value::UInt(small.len() as u64)),
+            ("part_size", Value::UInt(65_536)),
+            ("overwrite", Value::Bool(true)),
+            ("sha256", Value::Str("00".repeat(32))),
+        ]),
+    )
+    .await;
+    let id = text_of(&v, "upload");
+    for i in 0..small.len().div_ceil(65_536) {
+        let c = &small[i * 65_536..((i + 1) * 65_536).min(small.len())];
+        ok(
+            h,
+            "c1",
+            "upload_part",
+            map(&[
+                ("upload", id.clone().into()),
+                ("index", Value::UInt(i as u64)),
+                ("data", Value::Bytes(c.to_vec())),
+            ]),
+        )
+        .await;
+    }
+    ok(
+        h,
+        "c1",
+        "upload_commit",
+        map(&[("upload", id.clone().into())]),
+    )
+    .await;
+    let v = committed(h, &id).await;
+    assert_eq!(text_of(&v, "state"), "failed");
+    assert!(text_of(&v, "error").contains("sha256"));
+    assert_eq!(
+        h.ctx().last(&node).map(|s| s.v),
+        Some(Value::UInt(size as u64))
+    );
+    // overwrite with the right digest
+    let v = upload_in_parts(
+        h,
+        &reports,
+        "big.bin",
+        &small,
+        65_536,
+        &[("overwrite", Value::Bool(true))],
+    )
+    .await;
+    assert_eq!(text_of(&v, "state"), "done", "{v:?}");
+    wait("new size", 10, || {
+        h.ctx().last(&node).map(|s| s.v) == Some(Value::UInt(small.len() as u64))
+    })
+    .await;
+    assert!(download_in_parts(h, &node, 70_000).await == small);
+
+    // an upload is its owner's; abort drops it; a missing part blocks the commit
+    let v = ok(
+        h,
+        &reports,
+        "upload_begin",
+        map(&[
+            ("name", "x.bin".into()),
+            ("size", Value::UInt(100_000)),
+            ("part_size", Value::UInt(65_536)),
+        ]),
+    )
+    .await;
+    let id = text_of(&v, "upload");
+    let mut claims = h.claims(&[(&h.key("**", ""), Perm::Config)]);
+    claims.sub = "user:other".into();
+    let r = h
+        .invoke(
+            "c1",
+            "upload_status",
+            map(&[("upload", id.clone().into())]),
+            Some(h.sign(&claims)),
+        )
+        .await;
+    assert_eq!(status(&r[0].att), Status::NotFound, "another's upload");
+    let (a, _) = act(
+        h,
+        "c1",
+        "upload_commit",
+        map(&[("upload", id.clone().into())]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::InvalidParameter, "parts missing");
+    let (a, _) = act(
+        h,
+        "c1",
+        "upload_part",
+        map(&[
+            ("upload", id.clone().into()),
+            ("index", Value::UInt(5)),
+            ("data", Value::Bytes(vec![0; 10])),
+        ]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::InvalidParameter, "index out of range");
+    ok(
+        h,
+        "c1",
+        "upload_abort",
+        map(&[("upload", id.clone().into())]),
+    )
+    .await;
+    let (a, _) = act(h, "c1", "upload_status", map(&[("upload", id.into())])).await;
+    assert_eq!(status(&a), Status::NotFound);
+    assert!(child(h, &reports, "x.bin").await.is_none());
+}

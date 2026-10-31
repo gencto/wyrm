@@ -229,3 +229,26 @@ async fn stop_cuts_actions_in_flight() {
     }
     h.stop().await;
 }
+
+/// 11 MiB in parts: a multipart upload of 5 MiB parts to the bucket.
+#[tokio::test(flavor = "multi_thread")]
+async fn large_files_in_parts() {
+    let (h, st, _task) = setup_with(
+        "sim-secret-key",
+        &[("multipart_mib", Value::UInt(5))],
+        |s| {
+            s.objects.remove("other/x.txt");
+        },
+    )
+    .await;
+    wyrm_filestore::testkit::parts_scenario(&h, 11 * 1024 * 1024 + 123).await;
+    {
+        let s = st.lock().unwrap();
+        assert!(
+            s.seen.iter().any(|r| r.contains("uploads")),
+            "multipart used"
+        );
+        assert!(s.multipart.is_empty(), "no upload left open");
+    }
+    h.stop().await;
+}

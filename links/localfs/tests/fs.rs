@@ -405,3 +405,51 @@ async fn a_root_swapped_for_a_link_is_refused() {
     assert!(!outside.0.join("x.txt").exists(), "nothing written outside");
     h.stop().await;
 }
+
+/// A file in parts: spooled, then copied into the directory as read.
+#[tokio::test(flavor = "multi_thread")]
+async fn large_files_in_parts() {
+    let d = Dir::new("parts");
+    for (k, v) in SEED {
+        d.put(k, v.as_bytes());
+    }
+    let h = start(&d.0, &[]).await;
+    wyrm_filestore::testkit::parts_scenario(&h, 9 * 1024 * 1024 + 7).await;
+    let left: Vec<_> = walk(&d.0)
+        .into_iter()
+        .filter(|p| p.contains(".wyrm-"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    h.stop().await;
+}
+
+/// 80 MiB: more than one request may carry (64 MiB), in parts.
+#[tokio::test(flavor = "multi_thread")]
+async fn beyond_the_single_request_limit() {
+    use wyrm_filestore::testkit::{big, download_in_parts, upload_in_parts};
+    let d = Dir::new("eighty");
+    let h = start(&d.0, &[("max_file_mib", Value::UInt(100))]).await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    let data = big(80 * 1024 * 1024);
+    let v = upload_in_parts(&h, "c1/files", "eighty.bin", &data, 8 * 1024 * 1024, &[]).await;
+    assert!(format!("{v:?}").contains("done"), "{v:?}");
+    assert_eq!(
+        std::fs::metadata(d.0.join("eighty.bin")).unwrap().len(),
+        data.len() as u64
+    );
+    let back = download_in_parts(&h, "c1/files/eighty.bin", 16 * 1024 * 1024).await;
+    assert!(back == data);
+    // over max_file_mib: refused at begin
+    let (a, _) = act(
+        &h,
+        "c1/files",
+        "upload_begin",
+        map(&[
+            ("name", "huge.bin".into()),
+            ("size", Value::UInt(101 * 1024 * 1024)),
+        ]),
+    )
+    .await;
+    assert_eq!(status(&a), Status::OutOfRange);
+    h.stop().await;
+}

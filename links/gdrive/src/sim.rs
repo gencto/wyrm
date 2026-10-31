@@ -53,6 +53,19 @@ pub struct State {
     pub page: usize,
     next_id: u64,
     pub seen: Vec<String>,
+    /// Resumable upload sessions by id.
+    pub sessions: BTreeMap<String, Session>,
+}
+
+/// A resumable upload: the file it makes (or replaces) and what came.
+#[derive(Debug, Clone)]
+pub struct Session {
+    pub parent: String,
+    pub name: String,
+    pub mime: String,
+    pub replace: Option<String>,
+    pub size: u64,
+    pub data: Vec<u8>,
 }
 
 impl Default for State {
@@ -79,6 +92,7 @@ impl Default for State {
             page: 1000,
             next_id: 1,
             seen: Vec::new(),
+            sessions: BTreeMap::new(),
         }
     }
 }
@@ -321,6 +335,9 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
         return Some(err(401, "Request had invalid authentication credentials."));
     }
     let path = r.path.clone();
+    if let Some(resp) = resumable(&mut s, &r) {
+        return Some(resp);
+    }
     Some(match (r.method.as_str(), path.as_str()) {
         ("GET", "/drive/v3/files") => {
             let q = r.param("q").unwrap_or_default();
@@ -389,6 +406,23 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
                 return Some(err(404, &format!("File not found: {id}.")));
             };
             match (m, upload) {
+                ("GET", false)
+                    if r.param("alt").as_deref() == Some("media")
+                        && r.header("range").is_some() =>
+                {
+                    let h = r.header("range").unwrap_or("");
+                    match h
+                        .strip_prefix("bytes=")
+                        .and_then(|x| x.split_once('-'))
+                        .and_then(|(a, b)| {
+                            Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?))
+                        }) {
+                        Some((a, b)) if a < f.data.len() => {
+                            SimResponse::new(206).body(f.data.slice(a..=b.min(f.data.len() - 1)))
+                        }
+                        _ => SimResponse::new(416),
+                    }
+                }
                 ("GET", false) if r.param("alt").as_deref() == Some("media") => {
                     SimResponse::new(200)
                         .header("content-type", f.mime.clone())
@@ -422,6 +456,92 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             }
         }
     })
+}
+
+/// Resumable uploads: a session (`uploadType=resumable` on POST or PATCH)
+/// and its chunks (`PUT ?upload_id=` with `Content-Range`); `None` for
+/// other requests.
+fn resumable(s: &mut State, r: &SimRequest) -> Option<SimResponse> {
+    let host = r.header("host").unwrap_or("localhost").to_owned();
+    if r.param("uploadType").as_deref() == Some("resumable") && r.param("upload_id").is_none() {
+        let j: Json = serde_json::from_slice(&r.body).unwrap_or(Json::Null);
+        let size = r.header("x-upload-content-length")?.parse().ok()?;
+        let mime = r
+            .header("x-upload-content-type")
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let session = match (
+            r.method.as_str(),
+            r.path.strip_prefix("/upload/drive/v3/files/"),
+        ) {
+            ("POST", None) => Session {
+                parent: j["parents"][0].as_str().unwrap_or(ROOT).to_owned(),
+                name: j["name"].as_str().unwrap_or("").to_owned(),
+                mime,
+                replace: None,
+                size,
+                data: Vec::new(),
+            },
+            ("PATCH", Some(id)) => {
+                let f = s.files.get(id)?.clone();
+                Session {
+                    parent: f.parent,
+                    name: f.name,
+                    mime,
+                    replace: Some(id.to_owned()),
+                    size,
+                    data: Vec::new(),
+                }
+            }
+            _ => return Some(err(400, "bad resumable start")),
+        };
+        let sid = format!("s{}", s.sessions.len() + 1);
+        s.sessions.insert(sid.clone(), session);
+        return Some(SimResponse::new(200).header(
+            "location",
+            format!("http://{host}/upload/drive/v3/files?uploadType=resumable&upload_id={sid}"),
+        ));
+    }
+    let sid = r.param("upload_id")?;
+    if r.method != "PUT" {
+        return None;
+    }
+    let range = r
+        .header("content-range")?
+        .strip_prefix("bytes ")?
+        .to_owned();
+    let (span, total) = range.split_once('/')?;
+    let (a, b) = span.split_once('-')?;
+    let (a, b, total): (usize, usize, u64) =
+        (a.parse().ok()?, b.parse().ok()?, total.parse().ok()?);
+    let Some(sess) = s.sessions.get_mut(&sid) else {
+        return Some(err(404, "no such session"));
+    };
+    if a != sess.data.len() || b + 1 - a != r.body.len() || total != sess.size {
+        return Some(err(400, "chunk out of place"));
+    }
+    // Drive's rule: every chunk but the last a multiple of 256 KiB
+    if (b + 1) as u64 != total && !r.body.len().is_multiple_of(256 * 1024) {
+        return Some(err(400, "chunk not a multiple of 256 KiB"));
+    }
+    sess.data.extend_from_slice(&r.body);
+    if (sess.data.len() as u64) < sess.size {
+        let end = sess.data.len() - 1;
+        return Some(SimResponse::new(308).header("range", format!("bytes=0-{end}")));
+    }
+    let sess = s.sessions.remove(&sid)?;
+    let id = match sess.replace {
+        Some(id) => {
+            let f = s.files.get_mut(&id)?;
+            f.data = Bytes::from(sess.data);
+            f.mime = sess.mime;
+            f.modified = now_us();
+            id
+        }
+        None => s.add(&sess.parent, &sess.name, &sess.mime, &sess.data),
+    };
+    let f = s.files[&id].clone();
+    Some(jsonr(200, meta(&id, &f)))
 }
 
 /// Serve on `addr`; the drive's state is shared with the caller.

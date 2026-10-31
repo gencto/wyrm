@@ -238,6 +238,9 @@ pub struct Request {
     pub target: String,
     pub headers: Vec<(HeaderName, HeaderValue)>,
     pub body: Bytes,
+    /// A part of a file sent as the body instead of `body`, read as it
+    /// goes out (a large upload is never held in memory).
+    pub file: Option<FileBody>,
     /// A header that could not be set (its name): the request is refused
     /// rather than sent without it (an unauthenticated request).
     pub bad_header: Option<String>,
@@ -250,7 +253,26 @@ impl Request {
             target: target.into(),
             headers: Vec::new(),
             body: Bytes::new(),
+            file: None,
             bad_header: None,
+        }
+    }
+
+    /// Send `len` bytes of the file `path` from `offset` as the body.
+    pub fn file_body(mut self, path: impl Into<std::path::PathBuf>, offset: u64, len: u64) -> Self {
+        self.file = Some(FileBody {
+            path: path.into(),
+            offset,
+            len,
+        });
+        self
+    }
+
+    /// Bytes of the body.
+    pub fn body_len(&self) -> u64 {
+        match &self.file {
+            Some(f) => f.len,
+            None => self.body.len() as u64,
         }
     }
 
@@ -289,6 +311,73 @@ impl Request {
         let path = self.target.split('?').next().unwrap_or("");
         format!("{} {path}", self.method)
     }
+}
+
+/// A part of a file as a request body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileBody {
+    pub path: std::path::PathBuf,
+    pub offset: u64,
+    pub len: u64,
+}
+
+/// Chunks read from a file on the blocking pool while the request goes out.
+const FILE_CHUNK: usize = 256 * 1024;
+
+type SendBody = http_body_util::combinators::BoxBody<Bytes, std::io::Error>;
+
+/// A body read from a file as hyper polls it.
+struct FileStream {
+    rx: tokio::sync::mpsc::Receiver<std::io::Result<Bytes>>,
+    len: u64,
+}
+
+impl hyper::body::Body for FileStream {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, std::io::Error>>> {
+        self.rx
+            .poll_recv(cx)
+            .map(|o| o.map(|r| r.map(hyper::body::Frame::data)))
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        hyper::body::SizeHint::with_exact(self.len)
+    }
+}
+
+/// The body of `f`: a reader on the blocking pool feeds it in chunks and
+/// stops when the request is dropped.
+fn file_stream(f: &FileBody) -> SendBody {
+    use http_body_util::BodyExt as _;
+    use std::io::{Read, Seek, SeekFrom};
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    let f2 = f.clone();
+    tokio::task::spawn_blocking(move || {
+        let read = || -> std::io::Result<()> {
+            let mut file = std::fs::File::open(&f2.path)?;
+            file.seek(SeekFrom::Start(f2.offset))?;
+            let mut left = f2.len;
+            while left > 0 {
+                let n = left.min(FILE_CHUNK as u64) as usize;
+                let mut buf = vec![0u8; n];
+                file.read_exact(&mut buf)?;
+                if tx.blocking_send(Ok(Bytes::from(buf))).is_err() {
+                    return Ok(()); // the request is gone
+                }
+                left -= n as u64;
+            }
+            Ok(())
+        };
+        if let Err(e) = read() {
+            let _ = tx.blocking_send(Err(e));
+        }
+    });
+    FileStream { rx, len: f.len }.boxed()
 }
 
 /// A reply (any status).
@@ -334,7 +423,7 @@ impl std::fmt::Display for HttpError {
 }
 
 struct Live {
-    sender: SendRequest<Full<Bytes>>,
+    sender: SendRequest<SendBody>,
     task: JoinHandle<()>,
 }
 
@@ -479,11 +568,20 @@ impl Http {
                 .header(hyper::header::HOST, self.endpoint.authority())
                 .header(hyper::header::USER_AGENT, self.user_agent.as_str())
                 .header(hyper::header::ACCEPT_ENCODING, "identity");
-            if !req.body.is_empty() || matches!(req.method, Method::PUT | Method::POST) {
-                b = b.header(hyper::header::CONTENT_LENGTH, req.body.len());
+            if req.body_len() > 0 || matches!(req.method, Method::PUT | Method::POST) {
+                b = b.header(hyper::header::CONTENT_LENGTH, req.body_len());
             }
+            let body = match &req.file {
+                Some(f) => file_stream(f),
+                None => {
+                    use http_body_util::BodyExt as _;
+                    Full::new(req.body.clone())
+                        .map_err(|never| match never {})
+                        .boxed()
+                }
+            };
             let mut hr = b
-                .body(Full::new(req.body.clone()))
+                .body(body)
                 .map_err(|_| HttpError::Connect(format!("{what}: bad request")))?;
             for (k, v) in &req.headers {
                 hr.headers_mut().insert(k.clone(), v.clone());

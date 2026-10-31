@@ -111,6 +111,14 @@ pub struct DriveParams {
     #[param(default = 15000, min = 1000, max = 120000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
     #[param(
+        default = 8192,
+        min = 256,
+        max = 65536,
+        display = "Upload Chunk (KiB)",
+        desc = "a file received in parts goes to Drive in chunks of this size (a multiple of 256)"
+    )]
+    pub upload_chunk_kib: u32,
+    #[param(
         default = "https://www.googleapis.com",
         display = "API URL",
         desc = "the Drive API (a test server, a proxy)",
@@ -140,6 +148,8 @@ pub struct GDriveStore {
     drive: Option<String>,
     trash: bool,
     timeout: Duration,
+    /// Chunk of a resumable upload (bytes, a multiple of 256 KiB).
+    chunk: u64,
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -215,16 +225,23 @@ impl GDriveStore {
         body: Bytes,
         max: usize,
     ) -> Result<Response, Error> {
-        let t = self.timeout + Duration::from_secs(body.len() as u64 / (512 * 1024));
+        let mut req = Request::new(method, target).body(body);
+        if let Some(c) = ctype {
+            req = req.header("content-type", c);
+        }
+        self.call_req(req, max).await
+    }
+
+    /// `base` with the bearer token, bounded by the timeout and the time
+    /// its body takes at 512 KiB/s.
+    async fn call_req(&self, base: Request, max: usize) -> Result<Response, Error> {
+        let t = self.timeout + Duration::from_secs(base.body_len() / (512 * 1024));
         for attempt in 0..2 {
             let token = self.tokens.token().await?;
-            let mut req = Request::new(method.clone(), target.clone())
+            let req = base
+                .clone()
                 .secret_header("authorization", &format!("Bearer {}", token.as_str()))
-                .header("accept", "application/json")
-                .body(body.clone());
-            if let Some(c) = ctype {
-                req = req.header("content-type", c);
-            }
+                .header("accept", "application/json");
             let r = self.api.send(&req, t, max).await?;
             if r.status == 401 && attempt == 0 {
                 self.tokens.drop_token().await;
@@ -287,6 +304,23 @@ impl GDriveStore {
         e.id.as_deref()
             .filter(|i| valid_id(i))
             .ok_or_else(|| Error::NotFound(format!("{}: no Drive id", e.path)))
+    }
+
+    /// The path and query of a session URL Drive gave, which must be on
+    /// the API's own origin (the token is never sent elsewhere).
+    fn same_origin(&self, url: &str) -> Result<String, Error> {
+        let ep = &self.api.endpoint;
+        let origin = format!(
+            "{}://{}",
+            if ep.tls { "https" } else { "http" },
+            ep.authority()
+        );
+        url.strip_prefix(&origin)
+            .filter(|rest| rest.starts_with('/'))
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                Error::Refused("upload: the session URL is not on the API's origin".into())
+            })
     }
 
     fn file_target(&self, id: &str, query: &str) -> String {
@@ -369,7 +403,11 @@ impl Backend for GDriveStore {
             }
         };
         let timeout = Duration::from_millis(p.timeout_ms.into());
+        if !p.upload_chunk_kib.is_multiple_of(256) {
+            return Err(bad("upload_chunk_kib", "a multiple of 256 (Drive's rule)"));
+        }
         Ok(Self {
+            chunk: u64::from(p.upload_chunk_kib) * 1024,
             api,
             tokens: Tokens::new(
                 grant,
@@ -555,6 +593,115 @@ impl Backend for GDriveStore {
             .and_then(|e| e.path.rsplit('/').next().map(str::to_owned))
             .unwrap_or_else(|| segment(name));
         Ok(entry(&parent.path, &path_seg, &Self::json(&r, "upload")?))
+    }
+
+    async fn put_file(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: &std::path::Path,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> Result<Entry, Error> {
+        // a resumable upload: a session, then chunks read from the spool file
+        let fields = pct_encode(FIELDS, false);
+        let prefix = &self.api.endpoint.prefix;
+        let (method, target, meta) = match existing {
+            Some(e) => (
+                Method::PATCH,
+                format!(
+                    "{prefix}/upload/drive/v3/files/{}?uploadType=resumable&supportsAllDrives=true&fields={fields}",
+                    Self::need_id(e)?
+                ),
+                json!({}),
+            ),
+            None => (
+                Method::POST,
+                format!("{prefix}/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields={fields}"),
+                json!({"name": name, "parents": [Self::need_id(parent)?], "mimeType": content_type}),
+            ),
+        };
+        let start = Request::new(method, target)
+            .header("content-type", "application/json; charset=UTF-8")
+            .header("x-upload-content-type", content_type)
+            .header("x-upload-content-length", &size.to_string())
+            .body(meta.to_string());
+        let r = self.call_req(start, MAX_LISTING).await?;
+        if !r.ok() {
+            return Err(Self::fail(&r, &format!("upload {name}")));
+        }
+        let session = r
+            .header("location")
+            .ok_or_else(|| Error::Refused(format!("upload {name}: no session URL")))?;
+        let session = self.same_origin(session)?;
+        let mut offset = 0u64;
+        loop {
+            let len = self.chunk.min(size - offset);
+            let req = Request::new(Method::PUT, session.clone())
+                .header(
+                    "content-range",
+                    &format!("bytes {offset}-{}/{size}", offset + len - 1),
+                )
+                .file_body(src, offset, len);
+            let r = self.call_req(req, MAX_LISTING).await?;
+            match r.status {
+                200 | 201 => {
+                    let path_seg = existing
+                        .and_then(|e| e.path.rsplit('/').next().map(str::to_owned))
+                        .unwrap_or_else(|| segment(name));
+                    return Ok(entry(&parent.path, &path_seg, &Self::json(&r, "upload")?));
+                }
+                // more to send: from where Drive says it has the bytes
+                308 => {
+                    let got = r
+                        .header("range")
+                        .and_then(|h| h.strip_prefix("bytes=0-"))
+                        .and_then(|n| n.parse::<u64>().ok())
+                        .map_or(0, |n| n + 1);
+                    if got <= offset || got > size {
+                        return Err(Error::Refused(format!(
+                            "upload {name}: Drive took no bytes of the chunk at {offset}"
+                        )));
+                    }
+                    offset = got;
+                    if offset >= size {
+                        return Err(Error::Refused(format!(
+                            "upload {name}: Drive has every byte but did not finish"
+                        )));
+                    }
+                }
+                _ => return Err(Self::fail(&r, &format!("upload {name}"))),
+            }
+        }
+    }
+
+    async fn get_range(&self, file: &Entry, offset: u64, len: usize) -> Result<Bytes, Error> {
+        if file
+            .content_type
+            .as_deref()
+            .is_some_and(|m| m.starts_with("application/vnd.google-apps."))
+        {
+            return Err(Error::Refused(format!(
+                "{}: a Google Docs file has no bytes to download",
+                file.name
+            )));
+        }
+        let id = Self::need_id(file)?;
+        let range = format!("bytes={offset}-{}", offset + len as u64 - 1);
+        let req =
+            Request::new(Method::GET, self.file_target(id, "&alt=media")).header("range", &range);
+        let r = self.call_req(req, len + 1024).await?;
+        match r.status {
+            206 => Ok(r.body),
+            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
+            200 => Err(Error::Refused(format!(
+                "download {}: Drive ignored Range",
+                file.path
+            ))),
+            416 => Ok(Bytes::new()),
+            _ => Err(Self::fail(&r, &format!("download {}", file.path))),
+        }
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {

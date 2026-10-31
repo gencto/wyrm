@@ -192,3 +192,22 @@ async fn bad_key_is_a_config_error() {
     assert!(e.contains("service_account_json"), "{e}");
     h.stop().await;
 }
+
+/// A file in parts: a resumable upload in chunks of 256 KiB.
+#[tokio::test(flavor = "multi_thread")]
+async fn large_files_in_parts() {
+    let (h, st, _t) = setup(&[
+        (
+            "service_account_json",
+            Value::Str(key_json("sim@wyrm.iam.gserviceaccount.com")),
+        ),
+        ("upload_chunk_kib", Value::UInt(256)),
+    ])
+    .await;
+    wyrm_filestore::testkit::parts_scenario(&h, 3 * 1024 * 1024 + 5).await;
+    assert!(
+        st.lock().unwrap().sessions.is_empty(),
+        "no session left open"
+    );
+    h.stop().await;
+}

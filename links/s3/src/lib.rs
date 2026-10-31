@@ -99,6 +99,14 @@ pub struct S3Params {
     #[param(default = 10000, min = 500, max = 120000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
     #[param(
+        default = 16,
+        min = 5,
+        max = 512,
+        display = "Multipart Part (MiB)",
+        desc = "a file received in parts goes to the bucket in parts of this size (S3: at least 5 MiB)"
+    )]
+    pub multipart_mib: u32,
+    #[param(
         default = "",
         editor = "textarea",
         display = "CA Certificates (PEM)",
@@ -134,6 +142,8 @@ pub struct S3Store {
     secret: zeroize::Zeroizing<String>,
     token: zeroize::Zeroizing<String>,
     timeout: Duration,
+    /// Part size of a multipart upload (bytes).
+    multipart: u64,
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -315,6 +325,112 @@ impl S3Store {
     }
 }
 
+/// `len` bytes of `src` from `offset`, read on the blocking pool.
+async fn read_part(src: &std::path::Path, offset: u64, len: u64) -> Result<Bytes, Error> {
+    use std::io::{Read, Seek, SeekFrom};
+    let p = src.to_path_buf();
+    tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
+        let mut f = std::fs::File::open(&p)?;
+        f.seek(SeekFrom::Start(offset))?;
+        let mut buf = vec![0u8; len as usize];
+        f.read_exact(&mut buf)?;
+        Ok(buf)
+    })
+    .await
+    .map_err(|e| Error::Refused(e.to_string()))?
+    .map(Bytes::from)
+    .map_err(|e| Error::Refused(format!("the received parts: {e}")))
+}
+
+impl S3Store {
+    /// CreateMultipartUpload: the upload id.
+    async fn multipart_begin(&self, key: &str, content_type: &str) -> Result<String, Error> {
+        let q = [("uploads".to_owned(), String::new())];
+        let r = self
+            .send(
+                Method::POST,
+                key,
+                &q,
+                &[("content-type", content_type)],
+                Bytes::new(),
+                MAX_LISTING,
+            )
+            .await?;
+        if !r.ok() {
+            return Err(Self::fail(&r, &format!("upload {key}")));
+        }
+        let doc = xml::parse(&r.text()).map_err(|e| Error::Refused(format!("upload: {e}")))?;
+        doc.text_of("UploadId")
+            .filter(|u| !u.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| Error::Refused("upload: no UploadId in the answer".into()))
+    }
+
+    /// UploadPart for each part (one in memory at a time), then
+    /// CompleteMultipartUpload; the object's ETag.
+    async fn multipart_send(
+        &self,
+        key: &str,
+        upload: &str,
+        src: &std::path::Path,
+        size: u64,
+        part: u64,
+        new_only: bool,
+    ) -> Result<Option<String>, Error> {
+        let mut done = String::from("<CompleteMultipartUpload>");
+        let mut offset = 0u64;
+        let mut n = 1u32;
+        while offset < size {
+            let len = part.min(size - offset);
+            let data = read_part(src, offset, len).await?;
+            let q = [
+                ("partNumber".to_owned(), n.to_string()),
+                ("uploadId".to_owned(), upload.to_owned()),
+            ];
+            let r = self
+                .send(Method::PUT, key, &q, &[], data, MAX_LISTING)
+                .await?;
+            if !r.ok() {
+                return Err(Self::fail(&r, &format!("upload {key} part {n}")));
+            }
+            let etag = r
+                .header("etag")
+                .ok_or_else(|| Error::Refused(format!("upload {key} part {n}: no ETag")))?;
+            done.push_str(&format!(
+                "<Part><PartNumber>{n}</PartNumber><ETag>{}</ETag></Part>",
+                xml::escape(etag)
+            ));
+            offset += len;
+            n += 1;
+        }
+        done.push_str("</CompleteMultipartUpload>");
+        let q = [("uploadId".to_owned(), upload.to_owned())];
+        let mut extra = vec![("content-type", "application/xml")];
+        if new_only {
+            extra.push(("if-none-match", "*"));
+        }
+        let r = self
+            .send(
+                Method::POST,
+                key,
+                &q,
+                &extra,
+                Bytes::from(done),
+                MAX_LISTING,
+            )
+            .await?;
+        // a 200 may carry an error (S3 reports late failures so)
+        let doc = xml::parse(&r.text()).ok();
+        if !r.ok() || doc.as_ref().is_some_and(|d| d.name == "Error") {
+            return Err(Self::fail(&r, &format!("upload {key}")));
+        }
+        Ok(doc
+            .as_ref()
+            .and_then(|d| d.text_of("ETag"))
+            .map(|t| t.trim_matches('"').to_owned()))
+    }
+}
+
 impl Backend for S3Store {
     const NAME: &'static str = "s3";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -399,6 +515,7 @@ impl Backend for S3Store {
             secret: zeroize::Zeroizing::new(p.secret_access_key.clone()),
             token: zeroize::Zeroizing::new(p.session_token.clone()),
             timeout: Duration::from_millis(p.timeout_ms.into()),
+            multipart: u64::from(p.multipart_mib) * 1024 * 1024,
         })
     }
 
@@ -564,6 +681,74 @@ impl Backend for S3Store {
         e.etag = r.header("etag").map(|t| t.trim_matches('"').to_owned());
         e.content_type = Some(content_type.to_owned());
         Ok(e)
+    }
+
+    async fn get_range(&self, file: &Entry, offset: u64, len: usize) -> Result<Bytes, Error> {
+        let range = format!("bytes={offset}-{}", offset + len as u64 - 1);
+        let r = self
+            .send(
+                Method::GET,
+                &self.key(&file.path),
+                &[],
+                &[("range", &range)],
+                Bytes::new(),
+                len + 1024,
+            )
+            .await?;
+        match r.status {
+            206 => Ok(r.body),
+            // a store that sends the whole file for a range: only when it is
+            // that range
+            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
+            200 => Err(Error::Refused(format!(
+                "download {}: the store ignores Range",
+                file.path
+            ))),
+            416 => Ok(Bytes::new()),
+            _ => Err(Self::fail(&r, &format!("download {}", file.path))),
+        }
+    }
+
+    async fn put_file(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: &std::path::Path,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> Result<Entry, Error> {
+        if size <= self.multipart {
+            let data = read_part(src, 0, size).await?;
+            return self.put(parent, name, data, content_type, existing).await;
+        }
+        let path = join(&parent.path, name);
+        let key = self.key(&path);
+        // at most 10 000 parts: a larger file takes larger parts
+        let part = self
+            .multipart
+            .max(size.div_ceil(10_000).next_multiple_of(1024 * 1024));
+        let upload = self.multipart_begin(&key, content_type).await?;
+        match self
+            .multipart_send(&key, &upload, src, size, part, existing.is_none())
+            .await
+        {
+            Ok(etag) => {
+                let mut e = Entry::file(path, size);
+                e.modified = Some(wyrm_filestore::util::now_us());
+                e.etag = etag;
+                e.content_type = Some(content_type.to_owned());
+                Ok(e)
+            }
+            Err(err) => {
+                // the parts sent must not stay (they cost storage)
+                let q = [("uploadId".to_owned(), upload)];
+                let _ = self
+                    .send(Method::DELETE, &key, &q, &[], Bytes::new(), MAX_LISTING)
+                    .await;
+                Err(err)
+            }
+        }
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {
