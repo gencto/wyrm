@@ -100,11 +100,23 @@ pub fn check_server_final(server_final: &str, expected: &str) -> Result<(), Stri
     }
 }
 
-/// A client nonce: 18 bytes hashed from the clock, a counter and the connection, never from the
-/// secret (the nonce goes to the server: anything derived from the password would let it, or
-/// whoever sees the exchange, test guesses offline). It only needs to be unique; the host offers
-/// no randomness to a WASM component yet (ADR 0026), and TLS carries the exchange.
-pub fn nonce(now_us: u64, conn: u32) -> String {
+/// A client nonce: 18 bytes from the host's random source (`Host::random_bytes`, ADR 0030: the
+/// native and process hosts and a WASM component of `wyrm:app@0.3.0`), as base64 (no `,`, so it
+/// fits a SCRAM attribute). A host without one (an older world, a test host) gets
+/// [`nonce_from_clock`].
+pub fn nonce(host: &mut dyn wyrm_link_api::Host, conn: u32) -> String {
+    match host.random_bytes(18) {
+        Ok(b) if b.len() == 18 => B64.encode(b),
+        _ => nonce_from_clock(host.now_us(), conn),
+    }
+}
+
+/// The fallback nonce: 18 bytes hashed from the clock, a counter and the connection, never from
+/// the secret (the nonce goes to the server: anything derived from the password would let it, or
+/// whoever sees the exchange, test guesses offline). It is unique, not unpredictable; it is used
+/// only when the host offers no random source (a component of `wyrm:app@0.2.0` or older), and
+/// TLS carries the exchange.
+pub fn nonce_from_clock(now_us: u64, conn: u32) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNT: AtomicU64 = AtomicU64::new(0);
     let n = COUNT.fetch_add(1, Ordering::Relaxed);
@@ -150,6 +162,18 @@ mod tests {
         assert!(bad("r=abcd,s=AAAA,i=99999999").contains("iteration"));
         assert!(bad("r=abcd,s=!!,i=4096").contains("salt"));
         assert!(bad("m=x,r=abcd,s=AAAA,i=1").contains("extension"));
-        assert_ne!(nonce(1, 1), nonce(1, 1), "unique");
+        assert_ne!(nonce_from_clock(1, 1), nonce_from_clock(1, 1), "unique");
+    }
+
+    /// The nonce comes from the host's random source when it has one, else from the clock.
+    #[test]
+    fn nonce_takes_the_hosts_random_bytes() {
+        use crate::testkit::TcpHost;
+        let mut h = TcpHost::default();
+        let a = nonce(&mut h, 1);
+        assert_eq!(B64.decode(&a).unwrap().len(), 18);
+        assert_ne!(a, nonce(&mut h, 1), "unique without a random source");
+        h.random = Some(0xab);
+        assert_eq!(nonce(&mut h, 1), B64.encode([0xab; 18]));
     }
 }

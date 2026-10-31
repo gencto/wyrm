@@ -13,6 +13,11 @@
 //! `set` and `slow` do not run a fixed time: each connects to `127.0.0.1:<port>` and returns
 //! when one byte arrives there, so a test knows the call is in flight (it accepted) and decides
 //! when it ends (it sends).
+//!
+//! The actions `random {n}` and `tls {host, port, ca?, upgrade?}` use the host imports of
+//! `wyrm:app@0.3.0` (ADR 0030): `random` answers `n` random bytes; `tls` opens a TLS connection
+//! (`tls_connect`, or `tcp_connect` then `tls_upgrade` with `upgrade: true`), sends `hello` and
+//! answers the reply as text.
 
 use wyrm_core::meta::{ParamMeta, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
@@ -74,6 +79,23 @@ impl App for Echo {
         for a in ["ping", "slow", "trap", "spin", "grow"] {
             host.declare_action("", a, ActionMeta::new().level(Perm::Write));
         }
+        host.declare_action(
+            "",
+            "random",
+            ActionMeta::new()
+                .level(Perm::Write)
+                .param("n", ParamMeta::of(TypeCode::Number)),
+        );
+        host.declare_action(
+            "",
+            "tls",
+            ActionMeta::new()
+                .level(Perm::Write)
+                .param("host", ParamMeta::of(TypeCode::String))
+                .param("port", ParamMeta::of(TypeCode::Number))
+                .param("ca", ParamMeta::of(TypeCode::String))
+                .param("upgrade", ParamMeta::of(TypeCode::Bool)),
+        );
         host.declare_action(
             "",
             "call",
@@ -162,6 +184,46 @@ impl App for Echo {
             "grow" => {
                 let v = std::hint::black_box(vec![1u8; 100 << 20]);
                 Ok(Value::UInt(v.iter().map(|b| u64::from(*b)).sum()))
+            }
+            "random" => {
+                let n = match &args {
+                    Value::Map(m) => m.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    _ => 0.0,
+                };
+                let b = host.random_bytes(n as u32)?;
+                Ok(Value::Bytes(b))
+            }
+            "tls" => {
+                let m = match &args {
+                    Value::Map(m) => m,
+                    _ => return Err(AppError::new(Status::InvalidParameter, "args")),
+                };
+                let name = match m.get("host") {
+                    Some(Value::Str(h)) => h.clone(),
+                    _ => return Err(AppError::new(Status::InvalidParameter, "host")),
+                };
+                let port = m
+                    .get("port")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|p| u16::try_from(p as u64).ok())
+                    .ok_or_else(|| AppError::new(Status::InvalidParameter, "port"))?;
+                let ca = match m.get("ca") {
+                    Some(Value::Str(c)) => Some(c.as_str()),
+                    _ => None,
+                };
+                let c = if m.get("upgrade") == Some(&Value::Bool(true)) {
+                    let c = host.tcp_connect(&name, port, 2_000)?;
+                    // on an error the host has closed the connection
+                    host.tls_upgrade(c, &name, 2_000, ca)?;
+                    c
+                } else {
+                    host.tls_connect(&name, port, 2_000, ca)?
+                };
+                let r = host
+                    .tcp_send(c, b"hello")
+                    .and_then(|()| host.tcp_recv(c, 64, 2_000));
+                host.tcp_close(c);
+                Ok(Value::Str(String::from_utf8_lossy(&r?).into_owned()))
             }
             "call" => {
                 let m = match &args {

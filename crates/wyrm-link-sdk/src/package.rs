@@ -40,9 +40,11 @@ pub struct Manifest {
     /// Grants the link needs as a requester (ADR 0013).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requester: Vec<Grant>,
-    /// `wasm`: the component's world, `app` (`wyrm:app`, ADR 0023), `driver` or `point`.
-    /// Informational: the broker reads the world from the component and refuses a package
-    /// whose `world` says otherwise.
+    /// `wasm`: the component's world, `app` (`wyrm:app`, ADR 0023), `driver` or `point`, or
+    /// an app world with its version, `wyrm:app@0.3.0` ([`APP_WORLDS`], ADR 0030; `wyr link
+    /// pack` writes it). Informational: the broker reads the world (and an app's version) from
+    /// the component and refuses a package whose `world` says otherwise; plain `app` takes any
+    /// version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world: Option<String>,
     /// A portable app (`wasm` app component or `process`): what its link may use, granted at
@@ -63,8 +65,15 @@ pub const MAX_MEMORY_MB: u32 = 512;
 pub const DEFAULT_CALL_MS: u32 = 2000;
 /// Longest time of one app call, ms.
 pub const MAX_CALL_MS: u32 = 10_000;
-/// Worlds a `wasm` package may name.
+/// Worlds a `wasm` package may name without a version.
 pub const WORLDS: [&str; 3] = ["app", "driver", "point"];
+/// App worlds with their version that a `wasm` package may name (ADR 0025, 0030).
+pub const APP_WORLDS: [&str; 3] = ["wyrm:app@0.1.0", "wyrm:app@0.2.0", "wyrm:app@0.3.0"];
+
+/// `world` names an app: `app` or one of [`APP_WORLDS`].
+pub fn is_app_world(world: &str) -> bool {
+    world == "app" || APP_WORLDS.contains(&world)
+}
 
 /// What an app link may use (ADR 0023 "Capabilities, granted at install"); absent fields take
 /// the defaults. `requester` grants stay [`Manifest::requester`].
@@ -175,14 +184,17 @@ impl Manifest {
             if self.kind != "wasm" {
                 return Err("world: only a wasm package has one".into());
             }
-            if !WORLDS.contains(&w.as_str()) {
-                return Err(format!("world {w:?}: app, driver or point"));
+            if !WORLDS.contains(&w.as_str()) && !APP_WORLDS.contains(&w.as_str()) {
+                return Err(format!(
+                    "world {w:?}: app, driver, point or one of {}",
+                    APP_WORLDS.join(", ")
+                ));
             }
         }
         // a process package may carry them too: a portable app run as a process takes the
         // same params as its WASM twin (ADR 0023, one source for all modes)
         if let Some(c) = &self.capabilities {
-            if let Some(w) = self.world.as_deref().filter(|w| *w != "app") {
+            if let Some(w) = self.world.as_deref().filter(|w| !is_app_world(w)) {
                 return Err(format!(
                     "capabilities: only an app component has them, world is {w:?}"
                 ));
@@ -538,7 +550,15 @@ mod tests {
         m.capabilities = None;
         assert!(m.check().is_ok());
         m.world = Some("flow".into());
-        assert!(m.check().unwrap_err().contains("app, driver or point"));
+        assert!(m.check().unwrap_err().contains("app, driver, point"));
+        // an app world with its version (ADR 0030), and capabilities with it
+        let mut m = app(Capabilities::default());
+        for w in APP_WORLDS {
+            m.world = Some(w.into());
+            assert!(m.check().is_ok(), "{w}");
+        }
+        m.world = Some("wyrm:app@9.9.9".into());
+        assert!(m.check().unwrap_err().contains("wyrm:app@0.3.0"));
         // unknown capability fields are refused (`limits` is flat here)
         let text = r#"{"name":"a","version":"1","wyrm_link":1,"kind":"wasm","entry":"a.wasm",
             "capabilities":{"limits":{"call_ms":5}}}"#;

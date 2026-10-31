@@ -25,3 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "ne
 wat.workspace = true
 ed25519-dalek.workspace = true
 wit-component.workspace = true
+# a TLS server for the app's `tls` action (ADR 0030): ring only, never aws-lc
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+rcgen.workspace = true

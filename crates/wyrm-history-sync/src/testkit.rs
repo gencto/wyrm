@@ -19,6 +19,9 @@ pub struct TcpHost {
     pub store: HashMap<String, Vec<u8>>,
     pub timers: Vec<TimerId>,
     pub invokes: Vec<(ReqId, String, String, Value)>,
+    /// `Some(b)`: `random_bytes(n)` answers `n` times `b`; `None`: the host has no random
+    /// source (`not_supported`, as a component of `wyrm:app@0.2.0` sees it).
+    pub random: Option<u8>,
     ids: u64,
 }
 
@@ -97,6 +100,12 @@ impl Host for TcpHost {
     }
     fn tcp_close(&mut self, c: ConnId) {
         self.conns.remove(&c.0);
+    }
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        match self.random {
+            Some(b) => Ok(vec![b; n as usize]),
+            None => unsupported(),
+        }
     }
     fn log(&mut self, _l: Level, _m: &str) {}
 }

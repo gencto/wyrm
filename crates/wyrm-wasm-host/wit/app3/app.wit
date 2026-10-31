@@ -1,0 +1,51 @@
+// WYRM portable link as a WebAssembly component (ADR 0023; ADR 0025: `list` and `on-list`;
+// ADR 0030: `tls-connect`, `tls-upgrade` and `random-bytes`). A superset of `wyrm:app@0.2.0`;
+// 0.1.0 and 0.2.0 stay frozen and the host runs all three. No WASI: the one import is `host`.
+// All data on the boundary is canonical CBOR (principle 5).
+package wyrm:app@0.3.0;
+
+interface host {
+  declare-node: func(path: string, meta: list<u8>);            // CBOR ~meta
+  declare-action: func(path: string, name: string, action: list<u8>);
+  remove-node: func(path: string);
+  update: func(path: string, sample: list<u8>);                 // CBOR ~val {0:v,1:q,2:t}
+  now-us: func() -> u64;
+  cancel-timer: func(id: u64);
+  store-get: func(key: string) -> option<list<u8>>;
+  // errors are CBOR {status, msg}, as the exports' (no status lost on the boundary)
+  set-timer: func(after-ms: u64) -> result<u64, list<u8>>;
+  store-put: func(key: string, value: list<u8>) -> result<_, list<u8>>;
+  store-delete: func(key: string);
+  // a node key, or `<prefix>/**` for a subtree
+  subscribe: func(key: string) -> result<u64, list<u8>>;
+  unsubscribe: func(id: u64);
+  // the children of a node, reactive: `on-list` gets CBOR list changes (ADR 0025);
+  // `full`: each child's whole ~meta, not its view=list summary
+  %list: func(key: string, full: bool) -> result<u64, list<u8>>;
+  set: func(key: string, value: list<u8>) -> result<u64, list<u8>>;
+  invoke: func(key: string, action: string, args: list<u8>) -> result<u64, list<u8>>;
+  tcp-connect: func(addr: string, port: u16, timeout-ms: u32) -> result<u32, list<u8>>;
+  tcp-send: func(conn: u32, data: list<u8>) -> result<_, list<u8>>;
+  tcp-recv: func(conn: u32, max: u32, timeout-ms: u32) -> result<list<u8>, list<u8>>;
+  tcp-close: func(conn: u32);
+  // TLS within the `net` allowlist (ADR 0026, 0030): `host` is a DNS name or an IP literal; the
+  // certificate is verified for it against the system roots, or only against `ca-pem`. The
+  // connection then takes tcp-send / tcp-recv / tcp-close; the keys stay in the host.
+  tls-connect: func(host: string, port: u16, timeout-ms: u32, ca-pem: option<string>) -> result<u32, list<u8>>;
+  // TLS on an open plain connection (`SSLRequest`); on an error the connection is closed
+  tls-upgrade: func(conn: u32, host: string, timeout-ms: u32, ca-pem: option<string>) -> result<_, list<u8>>;
+  // `n` bytes from the host's random source, at most 1024 per call
+  random-bytes: func(n: u32) -> result<list<u8>, list<u8>>;
+  log: func(level: u8, msg: string);
+}
+world app {
+  import host;   // always linked; a capability not granted fails its calls with permission_denied
+  export start: func(config: list<u8>) -> result<_, list<u8>>;            // errors: CBOR {status, msg}
+  export on-set: func(path: string, value: list<u8>, who: list<u8>) -> result<_, list<u8>>;
+  export on-invoke: func(path: string, action: string, args: list<u8>, who: list<u8>) -> result<list<u8>, list<u8>>;
+  export on-timer: func(id: u64);
+  export on-value: func(sub: u64, key: string, sample: list<u8>);
+  export on-reply: func(req: u64, %result: result<list<u8>, list<u8>>);
+  export on-list: func(sub: u64, key: string, change: list<u8>);
+  export stop: func();
+}

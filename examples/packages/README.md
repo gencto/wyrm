@@ -19,7 +19,7 @@ repository in `out/` with `wyr repo add` (ADR 0021; not in git):
 | `out/modbus/<version>/…`, `out/mqtt/<version>/…`, `out/mockdev/<version>/…` | The protocol links of `links/` as process packages (`links/modbus`, `links/mqtt`, `links/mock`). | from Repository |
 | `out/register/1.0.0/register-1.0.0.zip` | A WASM package (no network; one writable register per point, initially 7). | from Zip, or from Repository, Package `register` |
 | `out/register.wasm` | The same component alone. | from WASM |
-| `out/portable-echo/1.0.0/portable-echo-1.0.0.zip` | Portable link (ADR 0023, `examples/links/portable`) as a WASM package: the crate built for wasm32 and made a component (world `app`, capabilities `store 1 MiB`). | from Repository, Package `portable-echo` |
+| `out/portable-echo/1.0.0/portable-echo-1.0.0.zip` | Portable link (ADR 0023, `examples/links/portable`) as a WASM package: the crate built for wasm32 and made a component (world `wyrm:app@0.3.0`, capabilities `store 1 MiB`). | from Repository, Package `portable-echo` |
 | `out/portable-echo-process/1.0.0/portable-echo-process-1.0.0-<os>-<arch>.zip` | The same app as a process package (`wyr link pack --kind process --name portable-echo-process`). | from Repository, Package `portable-echo-process` |
 | `out/tcp-ping.wasm` | `init` takes a port (Config `5020`); `read` sends `ping` to `127.0.0.1:<port>` and returns the reply (needs `127.0.0.1:<port>` in Network). | from WASM |
 

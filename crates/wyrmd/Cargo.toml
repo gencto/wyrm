@@ -67,3 +67,8 @@ sha2.workspace = true
 wat.workspace = true
 wit-component.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["package"] }
+# a TLS server for an installed app's `tls` action (ADR 0030): ring only, never aws-lc
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+rcgen.workspace = true
+wyrm-wasm-host.workspace = true

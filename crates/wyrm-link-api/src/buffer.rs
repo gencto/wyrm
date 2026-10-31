@@ -120,6 +120,15 @@ pub trait Services {
             "tls_upgrade: this host has no TLS",
         ))
     }
+    /// [`Host::random_bytes`]: `n` (at most [`crate::MAX_RANDOM_BYTES`], checked by the buffer)
+    /// bytes from the host's random source; a host without one refuses it.
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        let _ = n;
+        Err(AppError::new(
+            Status::NotSupported,
+            "random_bytes: this host has no random source",
+        ))
+    }
     /// The instance is gone: close every connection it opened.
     fn close_all(&mut self) {}
 }
@@ -534,6 +543,19 @@ impl Host for BufferHost {
         self.services.tls_upgrade(c, host, timeout_ms, ca_pem)
     }
 
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        if n > crate::MAX_RANDOM_BYTES {
+            return Err(AppError::new(
+                Status::InvalidParameter,
+                format!(
+                    "random_bytes: at most {} bytes at a time",
+                    crate::MAX_RANDOM_BYTES
+                ),
+            ));
+        }
+        self.services.random_bytes(n)
+    }
+
     fn log(&mut self, level: Level, msg: &str) {
         self.push(Command::Log(level, msg.to_owned()));
     }
@@ -582,6 +604,9 @@ mod tests {
             Ok(vec![])
         }
         fn tcp_close(&mut self, _c: ConnId) {}
+        fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+            Ok(vec![7; n as usize])
+        }
     }
 
     fn host(used: u64, allow: bool, limits: Limits) -> BufferHost {
@@ -608,6 +633,60 @@ mod tests {
 
     fn exhausted(e: &AppError) -> bool {
         e.status == Status::ResourceExhausted
+    }
+
+    /// ADR 0030: the buffer bounds a request before the services see it; a host without a
+    /// random source answers `not_supported`.
+    #[test]
+    fn random_bytes_are_bounded_by_the_buffer() {
+        let mut h = host(0, true, Limits::default());
+        assert_eq!(h.random_bytes(0).unwrap(), Vec::<u8>::new());
+        assert_eq!(h.random_bytes(crate::MAX_RANDOM_BYTES).unwrap().len(), 1024);
+        let e = h.random_bytes(crate::MAX_RANDOM_BYTES + 1).unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter, "{e}");
+        assert!(h.finish().unwrap().is_empty());
+        let mut none = BufferHost::new(
+            Box::new(NoServices),
+            Limits::default(),
+            Counts::default(),
+            1,
+            "wy/s/".into(),
+        );
+        assert_eq!(
+            none.random_bytes(18).unwrap_err().status,
+            Status::NotSupported
+        );
+    }
+
+    /// Services that keep every default.
+    struct NoServices;
+
+    impl Services for NoServices {
+        fn now_us(&self) -> u64 {
+            0
+        }
+        fn store_get(&self, _key: &str) -> Option<Vec<u8>> {
+            None
+        }
+        fn store_used(&self) -> u64 {
+            0
+        }
+        fn store_keys(&self) -> usize {
+            0
+        }
+        fn may(&self, _key: &str, _perm: Perm) -> bool {
+            false
+        }
+        fn tcp_connect(&mut self, _a: &str, _p: u16, _t: u32) -> Result<ConnId, AppError> {
+            Err(AppError::new(Status::NotSupported, "tcp"))
+        }
+        fn tcp_send(&mut self, _c: ConnId, _d: &[u8]) -> Result<(), AppError> {
+            Err(AppError::new(Status::NotSupported, "tcp"))
+        }
+        fn tcp_recv(&mut self, _c: ConnId, _m: u32, _t: u32) -> Result<Vec<u8>, AppError> {
+            Err(AppError::new(Status::NotSupported, "tcp"))
+        }
+        fn tcp_close(&mut self, _c: ConnId) {}
     }
 
     #[test]

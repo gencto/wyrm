@@ -299,7 +299,7 @@ impl Mongo {
     /// SCRAM-SHA-256 through saslStart and saslContinue.
     fn login(&mut self, net: &mut dyn Host, user: &str, password: &str) -> Result<(), TargetError> {
         let db = self.cfg.auth_source.clone();
-        let nonce = scram::nonce(net.now_us(), self.conn.0);
+        let nonce = scram::nonce(net, self.conn.0);
         let (first, bare) = scram::client_first(user, &nonce);
         let r = self.command(
             net,

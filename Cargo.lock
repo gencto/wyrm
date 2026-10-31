@@ -6907,6 +6907,7 @@ name = "wyrm-link-portable"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "getrandom 0.3.4",
  "hex",
  "rcgen",
  "rustls",
@@ -7076,6 +7077,9 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "minicbor",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
  "serde_json",
  "tokio",
  "tracing",
@@ -7193,6 +7197,9 @@ dependencies = [
  "hex",
  "jiff",
  "json5",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sha2",
@@ -7231,6 +7238,7 @@ dependencies = [
  "wyrm-link-webdav",
  "wyrm-state",
  "wyrm-storage",
+ "wyrm-wasm-host",
  "zenoh",
  "zenoh-plugin-rest",
  "zenoh-plugin-storage-manager",

@@ -1,6 +1,6 @@
 //! What the runtime gives the command buffer on the engine thread: the clock, the store, the
-//! link's grants and blocking TCP, plain or TLS, within the `net` allowlist (ADR 0012 rules,
-//! host names and TLS: ADR 0026).
+//! link's grants, blocking TCP, plain or TLS, within the `net` allowlist (ADR 0012 rules,
+//! host names and TLS: ADR 0026), and the OS random source (ADR 0030).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -492,6 +492,14 @@ impl Services for RuntimeServices {
         self.conns.remove(&c.0);
     }
 
+    /// From the OS (`getrandom`); the buffer has bounded `n` (ADR 0030).
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        let mut b = vec![0u8; n.min(wyrm_link_api::MAX_RANDOM_BYTES) as usize];
+        getrandom::fill(&mut b)
+            .map_err(|e| AppError::new(Status::InternalError, format!("random_bytes: {e}")))?;
+        Ok(b)
+    }
+
     fn close_all(&mut self) {
         self.conns.clear();
     }
@@ -634,6 +642,16 @@ mod tests {
         let c = s.tcp_connect("127.0.0.1", port, 2000).unwrap();
         assert!(s.tls_upgrade(c, "other.example", 2000, Some(&ca)).is_err());
         assert_eq!(s.tcp_send(c, b"x").unwrap_err().status, Status::NotFound);
+    }
+
+    #[test]
+    fn random_bytes_come_from_the_os() {
+        let mut s = services("");
+        let a = s.random_bytes(32).unwrap();
+        let b = s.random_bytes(32).unwrap();
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b);
+        assert!(s.random_bytes(0).unwrap().is_empty());
     }
 
     #[test]

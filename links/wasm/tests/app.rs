@@ -432,7 +432,7 @@ async fn same_scenario_as_native() {
     let expect: &[&[&str]] = &[
         &[
             r#"children ["n", "reply", "seen", "starts", "stopped", "ticks"]"#,
-            r#"actions ["call", "grow", "ping", "slow", "spin", "trap"]"#,
+            r#"actions ["call", "grow", "ping", "random", "slow", "spin", "tls", "trap"]"#,
             r#"status Some(Str("running"))"#,
             "set n=5 Ok",
             "n Some(5.0)",
@@ -475,6 +475,122 @@ async fn same_scenario_as_native() {
     for (i, want) in expect.iter().enumerate() {
         assert_eq!(native[i], *want, "native scenario {i}");
     }
+    assert_eq!(wasm, native, "the WASM engine differs from the native one");
+}
+
+// ---------- TLS and random bytes (wyrm:app@0.3.0, ADR 0030) ----------
+
+/// A TLS server on loopback whose certificate is for the IP `127.0.0.1` (a name would not reach
+/// loopback by itself, ADR 0026): it answers each read in capitals. Returns its port and CA.
+fn tls_server() -> (u16, String) {
+    use std::io::{Read, Write};
+    let ck = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    let ca = ck.cert.pem();
+    let key = rustls_pki_types::PrivateKeyDer::Pkcs8(ck.signing_key.serialize_der().into());
+    let cfg = Arc::new(
+        rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![ck.cert.der().clone()], key)
+        .unwrap(),
+    );
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for sock in l.incoming().flatten() {
+            let cfg = cfg.clone();
+            std::thread::spawn(move || {
+                let conn = rustls::ServerConnection::new(cfg).unwrap();
+                let mut t = rustls::StreamOwned::new(conn, sock);
+                let mut b = [0u8; 64];
+                while let Ok(n) = t.read(&mut b) {
+                    if n == 0 || t.write_all(&b[..n].to_ascii_uppercase()).is_err() {
+                        break;
+                    }
+                    let _ = t.flush();
+                }
+            });
+        }
+    });
+    (port, ca)
+}
+
+fn map(pairs: &[(&str, Value)]) -> Value {
+    Value::Map(
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
+}
+
+/// The app's `random` and `tls` actions through the host: the bytes, the bound on `n`, TLS by
+/// `tls_connect` and by `tls_upgrade`, a CA that does not match, an address the `net` list does
+/// not allow.
+async fn tls_and_random<L: Link<Config = PortableConfig>>(port: u16, ca: &str) -> Transcript {
+    let mut t = Vec::new();
+    let dir = data_dir("tls");
+    let net = ("net", Value::Str(format!("127.0.0.1:{port}")));
+    let h = start::<L>(config("echo", &[net]), &dir, Vec::new()).await;
+    let random = |n: u64| map(&[("n", Value::UInt(n))]);
+    let (s, a) = invoke(&h, "random", random(16)).await;
+    let (_, b) = invoke(&h, "random", random(16)).await;
+    let len = |v: &Option<Value>| match v {
+        Some(Value::Bytes(b)) => b.len(),
+        _ => 0,
+    };
+    t.push(format!("random {s:?} {} bytes, differ {}", len(&a), a != b));
+    let (s, _) = invoke(&h, "random", random(1025)).await;
+    t.push(format!("random 1025 {s:?}"));
+    let tls = |upgrade: bool, port: u16, ca: &str| {
+        map(&[
+            ("host", Value::Str("127.0.0.1".into())),
+            ("port", Value::UInt(port.into())),
+            ("ca", Value::Str(ca.into())),
+            ("upgrade", Value::Bool(upgrade)),
+        ])
+    };
+    for upgrade in [false, true] {
+        let r = invoke(&h, "tls", tls(upgrade, port, ca)).await;
+        t.push(format!("tls upgrade={upgrade} {r:?}"));
+    }
+    let (_, other) = tls_server();
+    let (s, _) = invoke(&h, "tls", tls(false, port, &other)).await;
+    t.push(format!("tls other CA {s:?}"));
+    let (s, _) = invoke(&h, "tls", tls(false, port.wrapping_add(1), ca)).await;
+    t.push(format!("tls outside net {s:?}"));
+    let (s, _) = invoke(&h, "tls", tls(true, port.wrapping_add(1), ca)).await;
+    t.push(format!("upgrade outside net {s:?}"));
+    h.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    t
+}
+
+/// ADR 0030: a component of `wyrm:app@0.3.0` gets TLS and random bytes from the same services
+/// as the native engine, with the same `net` allowlist and bounds.
+#[tokio::test(flavor = "multi_thread")]
+async fn tls_and_random_as_native() {
+    if component("tls_and_random_as_native").is_none() {
+        return;
+    }
+    let (port, ca) = tls_server();
+    let (native, wasm) = tokio::join!(
+        tls_and_random::<Native>(port, &ca),
+        tls_and_random::<Wasm>(port, &ca)
+    );
+    let want = [
+        "random Ok 16 bytes, differ true".to_owned(),
+        "random 1025 InvalidParameter".to_owned(),
+        r#"tls upgrade=false (Ok, Some(Str("HELLO")))"#.to_owned(),
+        r#"tls upgrade=true (Ok, Some(Str("HELLO")))"#.to_owned(),
+        "tls other CA Disconnected".to_owned(),
+        "tls outside net PermissionDenied".to_owned(),
+        "upgrade outside net PermissionDenied".to_owned(),
+    ];
+    assert_eq!(native, want, "native");
     assert_eq!(wasm, native, "the WASM engine differs from the native one");
 }
 
@@ -713,6 +829,8 @@ fn an_app_component_is_told_by_its_exports() {
         return;
     };
     assert_eq!(component_world(c).unwrap(), ComponentWorld::App);
+    // built by wyrm-link-guest: the newest world (ADR 0030)
+    assert_eq!(wyrm_wasm_host::app_version(c).unwrap(), "0.3.0");
     assert_eq!(
         wyrm_link_wasm::package_world("echo"),
         Some(ComponentWorld::App)

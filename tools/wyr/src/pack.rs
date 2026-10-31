@@ -4,7 +4,8 @@
 //!
 //! `kind = "wasm"` (ADR 0023): the crate's cdylib built for
 //! `wasm32-unknown-unknown` with feature `wasm`, made a component of world
-//! `wyrm:app` in-process (`wit-component`), packed with its `capabilities`.
+//! `wyrm:app` in-process (`wit-component`), packed with its `capabilities` and its world with
+//! the version the component was built for (`wyrm:app@0.3.0`, ADR 0030).
 
 use crate::Error;
 use clap::Subcommand;
@@ -262,6 +263,15 @@ fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
     })
 }
 
+/// The manifest `world` of a component: `wyrm:app@<v>` for an app (ADR 0030), else `driver` or
+/// `point`.
+fn manifest_world(component: &[u8]) -> Result<String, Error> {
+    Ok(match wyrm_wasm_host::component_world(component)? {
+        ComponentWorld::App => format!("wyrm:app@{}", wyrm_wasm_host::app_version(component)?),
+        w => w.name().to_owned(),
+    })
+}
+
 /// A core module built with `wyrm-link-guest` as a component, which must be of world `wyrm:app`.
 fn componentize(core: &[u8]) -> Result<Vec<u8>, Error> {
     let component = wit_component::ComponentEncoder::default()
@@ -311,7 +321,10 @@ fn pack_component(
         .join(format!("{lib}.wasm"));
     let core = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
     let component = componentize(&core).map_err(|e| format!("{}: {e}", wasm.display()))?;
-    let m = &plan.manifest;
+    // the version the component was built for, not just `app`
+    let mut m = plan.manifest.clone();
+    m.world = Some(manifest_world(&component).map_err(|e| format!("{}: {e}", wasm.display()))?);
+    let m = &m;
     let zip = package::pack(
         m,
         &[PackFile {
@@ -392,8 +405,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
         let (name, version) = (name.unwrap_or_default(), version.unwrap_or_default());
         let file = format!("{name}.wasm");
         let data = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
-        let world = wyrm_wasm_host::component_world(&data)
-            .map_err(|e| format!("{}: {e}", wasm.display()))?;
+        let world = manifest_world(&data).map_err(|e| format!("{}: {e}", wasm.display()))?;
         let m = Manifest {
             name: name.clone(),
             version: version.clone(),
@@ -404,7 +416,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
             args: Vec::new(),
             entry: Some(file.clone()),
             requester: Vec::new(),
-            world: Some(world.name().into()),
+            world: Some(world),
             capabilities: None,
         };
         let zip = package::pack(

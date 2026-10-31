@@ -375,9 +375,6 @@ Work that is known and not done. The decisions around it are in ADR 0029.
   `poll_period` that sees connection and device params, the sample time
   from the driver, `~meta` from device data, a driver-owned connection
   leaf.
-- Portable apps: the `wyrm:app` world after 0.2.0 (TLS imports, a host
-  random source), so WASM history sync can reach TLS databases; an e2e
-  through an installed package; flows that define DQL queries (they have
-  no `auth`).
+- Portable apps: flows that define DQL queries (they have no `auth`).
 - Audit: an acknowledged path so that records put during a reconnect are
   sent again (ADR 0029, decision 7).

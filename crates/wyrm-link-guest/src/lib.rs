@@ -1,6 +1,6 @@
 //! Guest side of the portable link API (ADR 0023): runs an [`App`] inside a WebAssembly component
-//! of world `wyrm:app/app@0.2.0` (`crates/wyrm-wasm-host/wit/app2/app.wit`; ADR 0023, lists by
-//! ADR 0025).
+//! of world `wyrm:app/app@0.3.0` (`crates/wyrm-wasm-host/wit/app3/app.wit`; ADR 0023, lists by
+//! ADR 0025, TLS and random bytes by ADR 0030).
 //!
 //! An app crate builds as a `cdylib` for `wasm32-unknown-unknown` and names its app once:
 //!
@@ -24,7 +24,7 @@ extern crate self as wyrm_link_guest;
 #[allow(unsafe_code, clippy::all, missing_docs)]
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "../wyrm-wasm-host/wit/app2",
+        path: "../wyrm-wasm-host/wit/app3",
         world: "wyrm:app/app",
         pub_export_macro: true,
         export_macro_name: "export",
@@ -218,6 +218,32 @@ impl Host for GuestHost {
 
     fn tcp_close(&mut self, c: ConnId) {
         imports::tcp_close(c.0);
+    }
+
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        imports::tls_connect(host, port, timeout_ms, ca_pem)
+            .map(ConnId)
+            .map_err(|e| AppError::from_cbor(&e))
+    }
+
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        imports::tls_upgrade(c.0, host, timeout_ms, ca_pem).map_err(|e| AppError::from_cbor(&e))
+    }
+
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        imports::random_bytes(n).map_err(|e| AppError::from_cbor(&e))
     }
 
     fn log(&mut self, level: Level, msg: &str) {

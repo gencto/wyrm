@@ -4,6 +4,8 @@
 
 **Amended** 2026-10-30 by ADR 0025: `Host::list(key, full)` and `App::on_list` (bound `max_lists` 2 000), `subscribe` of `<prefix>/**`, reads (`subscribe`, `list`) of other sites under an explicit grant, `Who` grants capped at the effective level, and the world `wyrm:app@0.2.0` (`wit/app2`) beside the frozen 0.1.0, which the host still runs.
 
+**Amended** 2026-11-01 by ADR 0030: the world `wyrm:app@0.3.0` (`wit/app3`) adds the imports `tls-connect`, `tls-upgrade` and `random-bytes` (`Host::random_bytes`); 0.1.0 and 0.2.0 stay frozen and run beside it.
+
 ## Context
 A WASM link today (ADR 0010, 0012) is a polled point driver: `init`, `read`, `write`, plus outbound TCP to an allowlist. It has no node tree of its own, no actions, no clock, no timers, no storage and cannot write other points. That fits a third-party protocol driver in a sandbox, not the owner's goal: install a link (a scheduler, a calculation, a gateway to some protocol) so that whatever happens to it, the broker keeps running, and replace it without restarting the broker.
 

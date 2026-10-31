@@ -187,7 +187,10 @@ same code. Install it, then:
    `idle_s` (wait when nothing is new, default 5), `retry_s` (longest wait after
    an error, default 60), and the database's own params (below). Put the
    database's host in the link's `net` list (a host name is allowed for TLS:
-   `db.example.com:443`).
+   `db.example.com:443`). A WASM package reaches TLS only when it is built for
+   the world `wyrm:app@0.3.0` (every `wyr link pack` since 2026-11-01, ADR
+   0030); one built for 0.2.0 answers `not_supported` to TLS: rebuild it or
+   use the process package.
 2. ▸ **Set Password**: the password or token, kept in the link's sealed store
    (never a param: the registry keeps params in the clear).
 3. Add the sink for this link (section above), then ▸ **Test Connection**.

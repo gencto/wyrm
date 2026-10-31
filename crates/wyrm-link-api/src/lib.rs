@@ -415,8 +415,20 @@ pub trait Host {
             "tls_upgrade: this host has no TLS",
         ))
     }
+    /// `n` bytes from the host's random source (the OS), at most [`MAX_RANDOM_BYTES`]; more is
+    /// `invalid_parameter` (ADR 0030). A host without one answers `not_supported`.
+    fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        let _ = n;
+        Err(AppError::new(
+            Status::NotSupported,
+            "random_bytes: this host has no random source",
+        ))
+    }
     fn log(&mut self, level: Level, msg: &str);
 }
+
+/// Largest [`Host::random_bytes`] request.
+pub const MAX_RANDOM_BYTES: u32 = 1024;
 
 #[cfg(test)]
 mod tests {

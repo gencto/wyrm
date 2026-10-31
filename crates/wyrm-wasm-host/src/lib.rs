@@ -17,14 +17,17 @@
 //!   import, `wyrm:app/host`, records the app's effects in a
 //!   [`BufferHost`] that the caller lends the instance for each call
 //!   ([`AppRunner`]). [`component_world`] tells the worlds apart by their
-//!   exports.
+//!   exports. Three versions run side by side: `0.1.0` (`wit/app`, frozen),
+//!   `0.2.0` (`wit/app2`, frozen; `list` / `on-list`, ADR 0025) and `0.3.0`
+//!   (`wit/app3`; `tls-connect`, `tls-upgrade`, `random-bytes`, ADR 0030);
+//!   [`app_version`] tells which.
 //!
 //! # Sandbox
 //! - **No imports** but `wyrm:link/tcp` for the `driver` world and
-//!   `wyrm:app/host` for the `app` world. The linker
-//!   defines nothing else: no WASI, no files, no clocks, no random. A
-//!   component that imports anything else is rejected at load with
-//!   [`Error::Denied`] naming the import.
+//!   `wyrm:app/host` for the `app` world (whose clock, TLS and random bytes
+//!   are the host's, under the link's grants). The linker defines nothing
+//!   else: no WASI, no files. A component that imports anything else is
+//!   rejected at load with [`Error::Denied`] naming the import.
 //! - **Fuel** ([`Limits::fuel`]): the store gets a fresh budget before each
 //!   call; exhaustion is [`Error::Fuel`].
 //! - **Memory** ([`Limits::memory_bytes`]): a resource limiter turns any
@@ -80,6 +83,15 @@ mod app_world {
 mod app2_world {
     wasmtime::component::bindgen!({
         path: "wit/app2",
+        world: "app",
+        imports: { default: trappable },
+    });
+}
+
+/// `wyrm:app@0.3.0` (ADR 0030): 0.2.0 plus `tls-connect`, `tls-upgrade` and `random-bytes`.
+mod app3_world {
+    wasmtime::component::bindgen!({
+        path: "wit/app3",
         world: "app",
         imports: { default: trappable },
     });
@@ -565,11 +577,13 @@ impl<W: World> Clone for Artifact<W> {
 }
 
 impl Artifact<AppWorld> {
-    /// The `wyrm:app` version the component was built for: `"0.1.0"` or `"0.2.0"` (ADR 0025).
+    /// The `wyrm:app` version the component was built for: `"0.1.0"`, `"0.2.0"` (ADR 0025) or
+    /// `"0.3.0"` (ADR 0030), as [`app_version`] tells it.
     pub fn app_version(&self) -> &'static str {
         match self.pre {
             AppPre::V1(_) => "0.1.0",
             AppPre::V2(_) => "0.2.0",
+            AppPre::V3(_) => "0.3.0",
         }
     }
 }
@@ -852,11 +866,13 @@ impl LinkDriver {
 
 // ---------- world `wyrm:app/app` (ADR 0023) ----------
 
-/// `wyrm:app/app`: a portable link, of world `wyrm:app@0.1.0` or `@0.2.0` (ADR 0025). Its import
-/// `wyrm:app/host` delegates to the [`BufferHost`] the caller lends the instance for a call.
+/// `wyrm:app/app`: a portable link, of world `wyrm:app@0.1.0`, `@0.2.0` (ADR 0025) or `@0.3.0`
+/// (ADR 0030). Its import `wyrm:app/host` delegates to the [`BufferHost`] the caller lends the
+/// instance for a call.
 pub enum AppWorld {
     V1(app_world::App),
     V2(app2_world::App),
+    V3(app3_world::App),
 }
 
 #[doc(hidden)]
@@ -864,21 +880,27 @@ pub enum AppWorld {
 pub enum AppPre {
     V1(app_world::AppPre<Ctx>),
     V2(app2_world::AppPre<Ctx>),
+    V3(app3_world::AppPre<Ctx>),
 }
 
-/// The same call on either world version (the generated types differ, the calls do not).
+/// The same call on any world version (the generated types differ, the calls do not).
 macro_rules! on_world {
     ($w:expr, $s:expr, |$x:ident| $call:expr) => {
         match $w {
             AppWorld::V1($x) => $call,
             AppWorld::V2($x) => $call,
+            AppWorld::V3($x) => $call,
         }
     };
 }
 
 impl World for AppWorld {
     type Pre = AppPre;
-    const IMPORTS: &'static [&'static str] = &["wyrm:app/host@0.1.0", "wyrm:app/host@0.2.0"];
+    const IMPORTS: &'static [&'static str] = &[
+        "wyrm:app/host@0.1.0",
+        "wyrm:app/host@0.2.0",
+        "wyrm:app/host@0.3.0",
+    ];
     fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
         let mut l = Linker::new(engine);
         app_world::wyrm::app::host::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
@@ -889,11 +911,24 @@ impl World for AppWorld {
             &mut l,
             |c| c,
         )?;
+        app3_world::wyrm::app::host::add_to_linker::<Ctx, wasmtime::component::HasSelf<Ctx>>(
+            &mut l,
+            |c| c,
+        )?;
         Ok(l)
     }
-    /// A component that exports `on-list` is a 0.2.0 one; anything else must be 0.1.0.
+    /// 0.3.0 has the exports of 0.2.0, so the imports come first: a component that imports
+    /// `wyrm:app/host@0.3.0` is a 0.3.0 one; else one that exports `on-list` is 0.2.0; anything
+    /// else must be 0.1.0 (the rule of [`app_version`]).
     fn pre(linker: &Linker<Ctx>, c: &Component) -> wasmtime::Result<Self::Pre> {
+        let v3 = c
+            .component_type()
+            .imports(linker.engine())
+            .any(|(name, _)| name == HOST_V3);
         let ipre = linker.instantiate_pre(c)?;
+        if v3 {
+            return app3_world::AppPre::new(ipre).map(AppPre::V3);
+        }
         match app2_world::AppPre::new(ipre.clone()) {
             Ok(p) => Ok(AppPre::V2(p)),
             Err(_) => app_world::AppPre::new(ipre).map(AppPre::V1),
@@ -903,6 +938,7 @@ impl World for AppWorld {
         match pre {
             AppPre::V1(p) => p.instantiate(store).map(AppWorld::V1),
             AppPre::V2(p) => p.instantiate(store).map(AppWorld::V2),
+            AppPre::V3(p) => p.instantiate(store).map(AppWorld::V3),
         }
     }
     /// Apps start through [`AppRunner::start`], with a buffer for their effects.
@@ -932,7 +968,7 @@ impl Ctx {
     }
 }
 
-/// The import functions of both world versions; `$extra` adds those of the newer one.
+/// The import functions of every world version; `$extra` adds those of the newer ones.
 macro_rules! app_host_impl {
     ($tr:path, { $($extra:tt)* }) => {
         impl $tr for Ctx {
@@ -1076,6 +1112,54 @@ app_host_impl!(app2_world::wyrm::app::host::Host, {
         Ok(wyrm_link_api::Host::list(self.app()?, &key, full)
             .map(|s| s.0)
             .map_err(|e| e.to_cbor()))
+    }
+});
+// 0.3.0 (ADR 0030): TLS and random bytes go to the same services as the native host, so the
+// `net` allowlist, the call's time budget and the bound on `n` are the same in every mode.
+app_host_impl!(app3_world::wyrm::app::host::Host, {
+    fn list(&mut self, key: String, full: bool) -> wasmtime::Result<Result<u64, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::list(self.app()?, &key, full)
+            .map(|s| s.0)
+            .map_err(|e| e.to_cbor()))
+    }
+
+    fn tls_connect(
+        &mut self,
+        host: String,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<String>,
+    ) -> wasmtime::Result<Result<u32, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::tls_connect(
+            self.app()?,
+            &host,
+            port,
+            timeout_ms,
+            ca_pem.as_deref(),
+        )
+        .map(|c| c.0)
+        .map_err(|e| e.to_cbor()))
+    }
+
+    fn tls_upgrade(
+        &mut self,
+        conn: u32,
+        host: String,
+        timeout_ms: u32,
+        ca_pem: Option<String>,
+    ) -> wasmtime::Result<Result<(), Vec<u8>>> {
+        Ok(wyrm_link_api::Host::tls_upgrade(
+            self.app()?,
+            ConnId(conn),
+            &host,
+            timeout_ms,
+            ca_pem.as_deref(),
+        )
+        .map_err(|e| e.to_cbor()))
+    }
+
+    fn random_bytes(&mut self, n: u32) -> wasmtime::Result<Result<Vec<u8>, Vec<u8>>> {
+        Ok(wyrm_link_api::Host::random_bytes(self.app()?, n).map_err(|e| e.to_cbor()))
     }
 });
 
@@ -1278,15 +1362,17 @@ impl AppRunner {
         }
         self.call(host, |w, s| match w {
             AppWorld::V2(x) => x.call_on_list(s, sub, key, change),
+            AppWorld::V3(x) => x.call_on_list(s, sub, key, change),
             AppWorld::V1(_) => Ok(()),
         })
     }
 
-    /// The world version of the live instance: `"0.1.0"` or `"0.2.0"`.
+    /// The world version of the live instance: `"0.1.0"`, `"0.2.0"` or `"0.3.0"`.
     pub fn world_version(&self) -> Option<&'static str> {
         self.live.as_ref().map(|l| match l.world {
             AppWorld::V1(_) => "0.1.0",
             AppWorld::V2(_) => "0.2.0",
+            AppWorld::V3(_) => "0.3.0",
         })
     }
 
@@ -1393,6 +1479,48 @@ const POINT_EXPORTS: [&str; 3] = ["init", "read", "write"];
 /// `init`, `read` and `write`; a `driver` is a `point` that imports `wyrm:link/tcp@0.1.0`.
 /// Anything else is [`Error::Invalid`].
 pub fn component_world(bytes: &[u8]) -> Result<ComponentWorld, Error> {
+    let (exports, imports) = top_level(bytes)?;
+    world_of(&exports, &imports)
+}
+
+/// The `wyrm:app` versions this host runs (ADR 0023, 0025, 0030).
+pub const APP_VERSIONS: [&str; 3] = ["0.1.0", "0.2.0", "0.3.0"];
+
+const HOST_V3: &str = "wyrm:app/host@0.3.0";
+
+/// The `wyrm:app` version of an app component, by the rule the host loads it with: one that
+/// imports `wyrm:app/host@<v>` is of `<v>`; one that imports no host function (wit-component
+/// leaves out an interface the module never calls) is `0.2.0` when it exports `on-list`, else
+/// `0.1.0` (it runs the same either way). A `wyrm:app/host` version this host does not run, and
+/// a component that is not an app, are [`Error::Invalid`].
+pub fn app_version(bytes: &[u8]) -> Result<&'static str, Error> {
+    let (exports, imports) = top_level(bytes)?;
+    if world_of(&exports, &imports)? != ComponentWorld::App {
+        return Err(Error::Invalid("not an app (wyrm:app/app)".into()));
+    }
+    let mut hosts = imports
+        .iter()
+        .filter_map(|i| i.strip_prefix("wyrm:app/host@"));
+    match (hosts.next(), hosts.next()) {
+        (Some(v), None) => APP_VERSIONS
+            .iter()
+            .copied()
+            .find(|k| *k == v)
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "world wyrm:app@{v}: this host runs {APP_VERSIONS:?}"
+                ))
+            }),
+        (Some(_), Some(_)) => Err(Error::Invalid(
+            "imports more than one wyrm:app/host version".into(),
+        )),
+        (None, _) if exports.contains("on-list") => Ok("0.2.0"),
+        (None, _) => Ok("0.1.0"),
+    }
+}
+
+/// The component's top-level export and import names.
+fn top_level(bytes: &[u8]) -> Result<(HashSet<String>, HashSet<String>), Error> {
     use wasmparser::{Encoding, Parser, Payload};
     if bytes.len() > MAX_ARTIFACT_BYTES {
         return Err(Error::Invalid(format!(
@@ -1427,6 +1555,10 @@ pub fn component_world(bytes: &[u8]) -> Result<ComponentWorld, Error> {
             _ => {}
         }
     }
+    Ok((exports, imports))
+}
+
+fn world_of(exports: &HashSet<String>, imports: &HashSet<String>) -> Result<ComponentWorld, Error> {
     let has = |names: &[&str]| names.iter().all(|n| exports.contains(*n));
     if has(&APP_EXPORTS) {
         Ok(ComponentWorld::App)

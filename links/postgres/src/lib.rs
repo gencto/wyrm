@@ -361,7 +361,7 @@ impl Pg {
                             }
                             // no password: stop here, before any SASL message goes out
                             password.ok_or_else(need)?;
-                            let nonce = scram::nonce(net.now_us(), self.conn.0);
+                            let nonce = scram::nonce(net, self.conn.0);
                             let (first, bare) = scram::client_first("", &nonce);
                             let mut b = Vec::new();
                             cstr(&mut b, "SCRAM-SHA-256");

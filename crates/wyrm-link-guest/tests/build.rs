@@ -1,12 +1,12 @@
 //! Builds the fixture app for `wasm32-unknown-unknown` and checks that the core module carries the
-//! component type of world `wyrm:app/app@0.2.0`, which `wit-component` needs to make it a component.
+//! component type of world `wyrm:app/app@0.3.0`, which `wit-component` needs to make it a component.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// wit-bindgen names the section `component-type:wit-bindgen:<version>:<package>:<world>:<kind>`.
 const SECTION_PREFIX: &str = "component-type:wit-bindgen:";
-const WORLD: &str = ":wyrm:app@0.2.0:app:";
+const WORLD: &str = ":wyrm:app@0.3.0:app:";
 
 fn wasm32_installed() -> bool {
     Command::new("rustc")

@@ -22,6 +22,8 @@ zeroize.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
 rustls-native-certs.workspace = true
+# random_bytes (ADR 0030): the OS source
+getrandom.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true

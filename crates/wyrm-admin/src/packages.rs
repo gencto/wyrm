@@ -146,12 +146,23 @@ impl Drop for Unpacked {
 
 /// The world of a `wasm` package's component, against the manifest: `Some`
 /// capabilities for an app, `None` for a driver or point component. A world
-/// in the manifest must be the component's; capabilities belong to an app
-/// and their `net` must parse as the link will parse it.
+/// in the manifest must be the component's (`wyrm:app@<v>`: also its version,
+/// ADR 0030; plain `app`: any version); capabilities belong to an app and
+/// their `net` must parse as the link will parse it.
 fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilities>, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{entry}: {e}"))?;
     let world = wyrm_wasm_host::component_world(&bytes).map_err(|e| format!("{entry}: {e}"))?;
-    let actual = world.name();
+    let actual = match world {
+        // a `wyrm:app/host` version this broker does not run is refused here
+        ComponentWorld::App => {
+            let v = wyrm_wasm_host::app_version(&bytes).map_err(|e| format!("{entry}: {e}"))?;
+            match m.world.as_deref() {
+                Some(w) if w.starts_with("wyrm:app@") => format!("wyrm:app@{v}"),
+                _ => world.name().to_owned(),
+            }
+        }
+        _ => world.name().to_owned(),
+    };
     if let Some(w) = m.world.as_deref().filter(|w| *w != actual) {
         return Err(format!(
             "invalid_parameter: the manifest says world {w:?}, the component is {actual:?}"
@@ -446,7 +457,7 @@ pub(crate) mod tests {
         );
         // an app component (the manifest's world is optional): driver `app` params from its
         // capabilities, defaults for the rest
-        for world in ["", r#", "world": "app""#] {
+        for world in ["", r#", "world": "app""#, r#", "world": "wyrm:app@0.1.0""#] {
             let extra = format!(
                 r#"{world}, "capabilities": {{ "store_mb": 4, "net": ["127.0.0.1:502"] }}"#
             );
@@ -477,6 +488,15 @@ pub(crate) mod tests {
             (
                 wasm_zip(&app_component(), r#", "world": "point""#),
                 r#"world "point", the component is "app""#,
+            ),
+            // a versioned app world must be the component's version (ADR 0030)
+            (
+                wasm_zip(&app_component(), r#", "world": "wyrm:app@0.3.0""#),
+                r#"world "wyrm:app@0.3.0", the component is "wyrm:app@0.1.0""#,
+            ),
+            (
+                wasm_zip(&driver_component(), r#", "world": "wyrm:app@0.3.0""#),
+                r#"world "wyrm:app@0.3.0", the component is "driver""#,
             ),
             (
                 wasm_zip(&driver_component(), r#", "capabilities": {}"#),

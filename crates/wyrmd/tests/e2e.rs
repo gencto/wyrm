@@ -1524,6 +1524,17 @@ fn echo_app_zip(
     component: &[u8],
     capabilities: wyrm_link_sdk::package::Capabilities,
 ) -> Vec<u8> {
+    echo_app_zip_of_world(name, version, component, capabilities, "app")
+}
+
+/// [`echo_app_zip`] with the manifest's `world`.
+fn echo_app_zip_of_world(
+    name: &str,
+    version: &str,
+    component: &[u8],
+    capabilities: wyrm_link_sdk::package::Capabilities,
+    world: &str,
+) -> Vec<u8> {
     use wyrm_link_sdk::package::{self, Manifest, PackFile};
     let entry = format!("{name}.wasm");
     let m = Manifest {
@@ -1536,7 +1547,7 @@ fn echo_app_zip(
         args: Vec::new(),
         entry: Some(entry.clone()),
         requester: Vec::new(),
-        world: Some("app".into()),
+        world: Some(world.into()),
         capabilities: Some(capabilities),
     };
     let files = [PackFile {
@@ -1574,6 +1585,134 @@ fn status_of(e: &wyrm_client::ClientError) -> Option<wyrm_core::Status> {
         wyrm_core::status::StatusCode::Known(s) => Some(s),
         _ => None,
     }
+}
+
+/// A TLS server on loopback with a certificate for the IP `127.0.0.1`: it answers each read in
+/// capitals. Returns its port and CA.
+fn tls_echo_server() -> (u16, String) {
+    use std::io::{Read, Write};
+    let ck = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    let ca = ck.cert.pem();
+    let key = rustls_pki_types::PrivateKeyDer::Pkcs8(ck.signing_key.serialize_der().into());
+    let cfg = std::sync::Arc::new(
+        rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![ck.cert.der().clone()], key)
+        .unwrap(),
+    );
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for sock in l.incoming().flatten() {
+            let cfg = cfg.clone();
+            std::thread::spawn(move || {
+                let conn = rustls::ServerConnection::new(cfg).unwrap();
+                let mut t = rustls::StreamOwned::new(conn, sock);
+                let mut b = [0u8; 64];
+                while let Ok(n) = t.read(&mut b) {
+                    if n == 0 || t.write_all(&b[..n].to_ascii_uppercase()).is_err() {
+                        break;
+                    }
+                    let _ = t.flush();
+                }
+            });
+        }
+    });
+    (port, ca)
+}
+
+/// ADR 0030: an app package of world `wyrm:app@0.3.0`, built from source and installed from
+/// Zip, runs through the broker with TLS and random bytes from the host: its tree appears, the
+/// `random` action answers bytes, `tls` reaches a TLS server inside its `net` list (by
+/// `tls_connect` and by `tls_upgrade`) and is refused outside it. A manifest that names another
+/// app world version than the component's is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn wasm_app_world_0_3_0_has_tls_and_random() {
+    use wyrm_link_sdk::package::Capabilities;
+    let Some(component) = echo_app_component() else {
+        eprintln!("SKIP wasm_app_world_0_3_0_has_tls_and_random: no wasm32-unknown-unknown target");
+        return;
+    };
+    assert_eq!(wyrm_wasm_host::app_version(&component).unwrap(), "0.3.0");
+    let (port, ca) = tls_echo_server();
+    let env = Env::start("app030", "").await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    let caps = || Capabilities {
+        net: vec![format!("127.0.0.1:{port}")],
+        ..Capabilities::default()
+    };
+    let (ok, msg) = install_zip(
+        &c,
+        "t1",
+        echo_app_zip_of_world("echotls", "1.0.0", &component, caps(), "wyrm:app@0.2.0"),
+    )
+    .await;
+    assert!(
+        !ok && msg.contains(r#"the component is "wyrm:app@0.3.0""#),
+        "{msg}"
+    );
+    let (ok, msg) = install_zip(
+        &c,
+        "t1",
+        echo_app_zip_of_world("echotls", "1.0.0", &component, caps(), "wyrm:app@0.3.0"),
+    )
+    .await;
+    assert!(ok, "{msg}");
+    assert!(msg.contains(&format!("net 127.0.0.1:{port}")), "{msg}");
+    let root = format!("wy/{SITE}/downstream/t1");
+    let m = |pairs: &[(&str, Value)]| {
+        Value::Map(
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    // the tree: the app's own nodes under the link
+    let children = eventually("the app's tree", 20, || async {
+        let ch = c.meta(&root).await.ok()?.children.unwrap_or_default();
+        ch.iter().any(|n| n == "starts").then_some(ch)
+    })
+    .await;
+    assert!(children.iter().any(|n| n == "reply"), "{children:?}");
+    let random = c
+        .invoke_one(&root, "random", m(&[("n", Value::UInt(16))]))
+        .await
+        .unwrap();
+    assert!(
+        matches!(&random, Some(Value::Bytes(b)) if b.len() == 16),
+        "{random:?}"
+    );
+    let e = c
+        .invoke_one(&root, "random", m(&[("n", Value::UInt(1025))]))
+        .await
+        .expect_err("more than 1024 bytes");
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    let tls = |port: u16, upgrade: bool| {
+        m(&[
+            ("host", Value::from("127.0.0.1")),
+            ("port", Value::UInt(port.into())),
+            ("ca", Value::from(ca.as_str())),
+            ("upgrade", Value::Bool(upgrade)),
+        ])
+    };
+    for upgrade in [false, true] {
+        let r = c
+            .invoke_one(&root, "tls", tls(port, upgrade))
+            .await
+            .unwrap();
+        assert_eq!(r, Some(Value::Str("HELLO".into())), "upgrade={upgrade}");
+    }
+    let e = c
+        .invoke_one(&root, "tls", tls(port.wrapping_add(1), false))
+        .await
+        .expect_err("outside the net list");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    env.stop().await;
 }
 
 /// I1: `update` and `rollback` of an app package link (`pkg:<name>`) are checked by the driver

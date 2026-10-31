@@ -8,7 +8,8 @@ does with it, what goes in a package, and what the limits are.
 Decisions behind this page: ADR 0004 (driver framework), ADR 0006 (ACL and
 quarantine), ADR 0010 (WASM host), ADR 0011 (installing links at runtime),
 ADR 0012 (network for WASM links), ADR 0013 (links as requesters), ADR 0021
-(packaging with `wyr`), ADR 0023 (portable links).
+(packaging with `wyr`), ADR 0023 (portable links), ADR 0030 (TLS and random
+bytes for WASM apps, world `wyrm:app@0.3.0`).
 
 ## 1. How a link runs
 
@@ -187,7 +188,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `args` | no | Arguments for the executable. |
 | `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 10). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
 | `entry` | `wasm` | The component file. |
-| `world` | no | `wasm`: `app`, `driver` or `point`. Informational: the broker reads the world from the component's exports and refuses a package whose `world` says otherwise. |
+| `world` | no | `wasm`: `app`, `driver` or `point`, or an app world with its version: `wyrm:app@0.1.0`, `wyrm:app@0.2.0` or `wyrm:app@0.3.0` (`wyr link pack` writes the version). Informational: the broker reads the world (and an app's version) from the component and refuses a package whose `world` says otherwise; plain `app` takes any version. |
 | `capabilities` | no | A portable app (`wasm` app component or `process`): `{"net": ["10.0.5.0/24:502"], "store_mb": 4, "memory_mb": 64, "call_ms": 2000}` (section 9). |
 
 Unknown fields are refused, so a typo does not pass silently.
@@ -302,8 +303,8 @@ separated by commas or spaces: `10.0.5.0/24:502, 192.168.1.20:1502,
 [fd00::]/64:502`.
 
 - A WASM driver (`wyrm:link/tcp`): IP literals only, in the list and in `connect`.
-- A portable app (ADR 0026; native and process forms today, WASM with the next world version)
-  may also name hosts: `db.example.com:5432`, `*.example.com:443`, in `tcp_connect`,
+- A portable app (ADR 0026; native and process forms, and WASM components of world
+  `wyrm:app@0.3.0`, ADR 0030) may also name hosts: `db.example.com:5432`, `*.example.com:443`, in `tcp_connect`,
   `tls_connect`, and `tls_upgrade` (TLS on an open connection, as PostgreSQL's and MySQL's
   `SSLRequest`). The host resolves the name and connects only to an address that an IP entry
   allows, or to an ordinary address when the name is listed: a listed name never reaches
@@ -322,9 +323,10 @@ separated by commas or spaces: `10.0.5.0/24:502, 192.168.1.20:1502,
 per `recv`. Past a limit the call fails, the instance is dropped with its
 connections, and the next call starts a new one.
 
-**Not available to a component:** TLS, DNS, UDP, serial ports, files,
-clocks, random numbers, other processes. The component implements its
-protocol itself (for example Modbus TCP framing).
+**Not available to a driver component** (`wyrm:link/driver`): TLS, DNS,
+UDP, serial ports, files, clocks, random numbers, other processes. The
+component implements its protocol itself (for example Modbus TCP framing).
+A portable app (section 9) gets more from its host.
 
 **Building a component.** Any toolchain that produces a component for the
 world above works (for example Rust with `wit-bindgen` and `wasm-tools
@@ -348,7 +350,22 @@ The app declares its nodes and actions in `start`, answers `on_set` and
 `on_invoke`, and keeps its state in the host: the tree and a sealed store
 in the link's data directory. The host restarts a crashed instance with
 backoff; the store stays. `wyrm-link-guest` (`export!`) makes the WASM
-glue; `crates/wyrm-wasm-host/wit/app/app.wit` is the world.
+glue for the world `wyrm:app@0.3.0` (`crates/wyrm-wasm-host/wit/app3/app.wit`).
+
+**What a WASM app may call** (the one import `wyrm:app/host`; no WASI):
+
+| World | Adds |
+|---|---|
+| `wyrm:app@0.1.0` (`wit/app`, frozen) | the tree (`declare-node`, `declare-action`, `remove-node`, `update`), the clock, timers, the store, `subscribe`, `set`, `invoke`, plain TCP (`tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`), `log` |
+| `wyrm:app@0.2.0` (`wit/app2`, frozen) | `list` and the export `on-list` (ADR 0025); `subscribe` of `<prefix>/**` |
+| `wyrm:app@0.3.0` (`wit/app3`) | `tls-connect`, `tls-upgrade` (TLS within `net`, the certificate verified against the system roots or a given CA; the keys stay in the host) and `random-bytes` (at most 1024 bytes per call, from the OS) (ADR 0030) |
+
+A broker runs all three. The calls go to the same host code as the native
+and process forms, under the same `net` list, call time and bounds; a
+capability not granted fails with `permission_denied`. A package needs
+`wyrm:app@0.3.0` for TLS (a history sync link to a cloud database, for
+example): one built for 0.2.0 still runs, but answers `not_supported` to
+TLS and gets no random bytes. Rebuild it with `wyr link pack`.
 
 **The reference link** is `examples/links/portable` (`wyrm-example-portable`,
 app `Echo`). `wyrmd` runs it embedded as the driver `portable-echo`;
@@ -402,7 +419,8 @@ For `kind = "wasm"`, `wyr link pack`:
 2. makes the module a component in-process (`wit-component`) and checks
    that its world is `app`;
 3. writes one zip for every host, `<name>-<version>.zip`, with
-   `world: "app"` and the `capabilities` in `wyrm-link.json`.
+   `world: "wyrm:app@0.3.0"` (the version the component was built for) and
+   the `capabilities` in `wyrm-link.json`.
 
 Add the target first: `rustup target add wasm32-unknown-unknown`.
 
@@ -413,7 +431,7 @@ become the link's params:
 
 | Capability | Default | Bounds | Meaning |
 |---|---|---|---|
-| `net` | none | entries as in section 8 | Where the app may connect (`tcp_connect`). |
+| `net` | none | entries as in section 8 | Where the app may connect (`tcp_connect`, `tls_connect`). |
 | `store_mb` | 1 | 0–64 | Size of the store; 0 refuses every write. |
 | `memory_mb` | 64 | 1–512 | Linear memory of one instance (all its memories together). |
 | `call_ms` | 2000 | 1–10000 | Time of one call (also caps network waits). |
@@ -454,8 +472,10 @@ caller a longer timeout, or it sees `timeout` for a call that still runs.
 
 The broker tells the world from the component's exports: an `app`
 component runs on the driver `app`; a `driver` or `point` component on the
-framework `wasm` driver (section 8). A manifest whose `world` is not the
-component's, and capabilities on a driver or point component, are refused.
+framework `wasm` driver (section 8). An app's version comes from its import
+`wyrm:app/host@<version>`. A manifest whose `world` is not the component's
+(with a version: not its version), an app world version the broker does not
+run, and capabilities on a driver or point component, are refused.
 
 ## 10. Requester links
 
