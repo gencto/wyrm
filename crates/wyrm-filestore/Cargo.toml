@@ -1,0 +1,37 @@
+[package]
+name = "wyrm-filestore"
+description = "WYRM file store links toolkit: one raw-layer link over a Backend (buckets, drives, WebDAV) with a browsed tree, folders, uploads and downloads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# A tiny HTTP/1.1 server the links' simulators answer with.
+sim = ["hyper/server"]
+# The end-to-end scenario every store link runs against its simulator.
+testkit = ["sim", "wyrm-link-sdk/harness"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+# HTTP/1.1 client as links/http: hyper over tokio-rustls (ring provider, never aws-lc).
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+bytes.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+# System CA roots, then the Mozilla roots (containers without a CA bundle).
+rustls-native-certs.workspace = true
+webpki-roots.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

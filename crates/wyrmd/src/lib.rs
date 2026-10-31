@@ -25,13 +25,16 @@ use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
 use wyrm_link_agent::{Agent, AgentConfig};
 use wyrm_link_dql::Dql;
+use wyrm_link_gdrive::GDrive;
 use wyrm_link_http::Http;
+use wyrm_link_localfs::LocalFs;
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_portable::{Portable, PortableConfig};
 use wyrm_link_prometheus::Prometheus;
+use wyrm_link_s3::S3;
 use wyrm_link_s7::S7;
 use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
@@ -39,6 +42,7 @@ use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, Verifyi
 use wyrm_link_snmp::Snmp;
 use wyrm_link_wasm::ComponentWorld;
 use wyrm_link_wasm::Wasm;
+use wyrm_link_webdav::WebDav;
 use wyrm_storage::{Storage, StorageStart};
 use zenoh::internal::plugins::PluginsManager;
 use zenoh::internal::runtime::{Runtime, RuntimeBuilder};
@@ -722,6 +726,8 @@ where
 /// `bacnet` (BACnet/IP client, `links/bacnet`) embedded or as `wyrmd link bacnet`.
 /// `opcua` (OPC UA client, `links/opcua`) embedded or as a process.
 /// `prometheus` (scrape connector), embedded or as `wyrmd link prometheus`.
+/// `s3`, `gdrive`, `webdav` and `localfs` (file stores, `wyrm-filestore`), embedded or as
+/// processes.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -737,6 +743,10 @@ impl EmbeddedHost for Drivers {
             wyrm_link_bacnet::Bacnet::NAME,
             wyrm_link_opcua::Opcua::NAME,
             Prometheus::NAME,
+            S3::NAME,
+            GDrive::NAME,
+            WebDav::NAME,
+            LocalFs::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
             wyrm_link_wasm::App::NAME,
@@ -756,6 +766,10 @@ impl EmbeddedHost for Drivers {
             "bacnet" => Tree::from_params(params).map(|_| ()),
             "opcua" => Tree::from_params(params).map(|_| ()),
             "prometheus" => Tree::from_params(params).map(|_| ()),
+            "s3" => wyrm_filestore::store::validate::<wyrm_link_s3::S3Store>(params),
+            "gdrive" => wyrm_filestore::store::validate::<wyrm_link_gdrive::GDriveStore>(params),
+            "webdav" => wyrm_filestore::store::validate::<wyrm_link_webdav::WebDavStore>(params),
+            "localfs" => wyrm_filestore::store::validate::<wyrm_link_localfs::LocalStore>(params),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
@@ -817,6 +831,10 @@ impl EmbeddedHost for Drivers {
                 "bacnet" => start_boxed::<wyrm_link_bacnet::Bacnet>(session, cfg, params).await,
                 "opcua" => start_boxed::<wyrm_link_opcua::Opcua>(session, cfg, params).await,
                 "prometheus" => start_boxed::<Prometheus>(session, cfg, params).await,
+                "s3" => start_boxed::<S3>(session, cfg, params).await,
+                "gdrive" => start_boxed::<GDrive>(session, cfg, params).await,
+                "webdav" => start_boxed::<WebDav>(session, cfg, params).await,
+                "localfs" => start_boxed::<LocalFs>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 // a portable link on a WASM component (ADR 0023)
                 "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
@@ -876,6 +894,10 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "bacnet" => wyrm_link_sdk::process::run::<wyrm_link_bacnet::Bacnet>().await?,
         "opcua" => wyrm_link_sdk::process::run::<wyrm_link_opcua::Opcua>().await?,
         "prometheus" => wyrm_link_sdk::process::run::<Prometheus>().await?,
+        "s3" => wyrm_link_sdk::process::run::<S3>().await?,
+        "gdrive" => wyrm_link_sdk::process::run::<GDrive>().await?,
+        "webdav" => wyrm_link_sdk::process::run::<WebDav>().await?,
+        "localfs" => wyrm_link_sdk::process::run::<LocalFs>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
         // the scheduler as a process link (ADR 0022 run modes)
