@@ -107,6 +107,12 @@ async fn delete_without_recursive_fails_closed() {
     assert_eq!(status(&a), Status::InvalidParameter, "{:?}", a.err);
     assert!(st.lock().unwrap().nodes.contains_key("box"));
     st.lock().unwrap().odd_href = None;
+    // a 207 without any response says nothing about the content
+    st.lock().unwrap().empty_depth1 = true;
+    let (a, _) = act(&h, "c1/files/box", "delete", map(&[])).await;
+    assert_eq!(status(&a), Status::InvalidParameter, "{:?}", a.err);
+    assert!(st.lock().unwrap().nodes.contains_key("box"));
+    st.lock().unwrap().empty_depth1 = false;
     ok(&h, "c1/files/box", "delete", map(&[])).await;
     assert!(!st.lock().unwrap().nodes.contains_key("box"));
     h.stop().await;

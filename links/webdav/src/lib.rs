@@ -526,15 +526,21 @@ impl Backend for WebDavStore {
             }
             let doc = xml::parse(&r.text())
                 .map_err(|x| Error::Refused(format!("PROPFIND /{}: {x}", e.path)))?;
-            // exactly one response, and it is the collection
-            for (n, resp) in doc.all("response").enumerate() {
+            // exactly one response, and it is the collection (none at all
+            // says nothing about the content either)
+            let mut seen = 0usize;
+            for resp in doc.all("response") {
                 let me = resp
                     .text_of("href")
                     .and_then(href_path)
                     .is_some_and(|h| self.rel(h.trim_end_matches('/')) == Some(e.path.as_str()));
-                if !me || n > 0 {
+                seen += 1;
+                if !me || seen > 1 {
                     return Err(not_empty(&e.path));
                 }
+            }
+            if seen != 1 {
+                return Err(not_empty(&e.path));
             }
         }
         let r = self

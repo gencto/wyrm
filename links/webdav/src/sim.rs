@@ -44,6 +44,9 @@ pub struct State {
     /// An href added to every `Depth: 1` answer (a server that answers
     /// with a path the client cannot map).
     pub odd_href: Option<String>,
+    /// Every `Depth: 1` answer is an empty multistatus (no response, not
+    /// even the collection itself).
+    pub empty_depth1: bool,
 }
 
 impl State {
@@ -164,8 +167,11 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             let mut body = String::from(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:multistatus xmlns:d=\"DAV:\">",
             );
-            body.push_str(&response(&path, &n, false, &host));
-            if n.dir && r.header("depth") == Some("1") {
+            let depth1 = r.header("depth") == Some("1");
+            if !(depth1 && s.empty_depth1) {
+                body.push_str(&response(&path, &n, false, &host));
+            }
+            if n.dir && depth1 && !s.empty_depth1 {
                 for (i, (p, c)) in s
                     .nodes
                     .iter()
