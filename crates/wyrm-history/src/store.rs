@@ -5,6 +5,14 @@
 //! files, so the disk gets the space back at once (redb reuses freed pages
 //! but does not shrink a file).
 //!
+//! Each day file also keeps a change journal (ADR 0026): `seq → (series,
+//! t)` for every row written, in the same transaction as the row, so sinks
+//! read what was written after their cursor, late rows and rows written
+//! again included. `seq` is one counter for the store, reserved in blocks in
+//! `index.redb` before use: a crash leaves gaps, never repeats. Writes are
+//! serialised and take their numbers in day order, so a reader never sees a
+//! number while a lower one is still to commit.
+//!
 //! All calls block (file I/O and fsync): run them off the async runtime.
 
 use crate::time::{day_name, parse_day, US_PER_DAY};
@@ -19,6 +27,14 @@ use wyrm_core::{codec, Quality, Value};
 
 const ROWS: TableDefinition<(u32, u64), &[u8]> = TableDefinition::new("rows");
 const SERIES: TableDefinition<&str, u32> = TableDefinition::new("series");
+/// Day file: change journal, `seq → (series, t)`.
+const CHANGES: TableDefinition<u64, (u32, u64)> = TableDefinition::new("changes");
+/// Index: `seq` numbers reserved so far (`"seq_end"`, exclusive).
+const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
+/// Index: the `seq` range of each day file, `day → (first, last)`.
+const DAY_SEQ: TableDefinition<i64, (u64, u64)> = TableDefinition::new("day_seq");
+/// `seq` numbers reserved per index transaction.
+const SEQ_BLOCK: u64 = 4096;
 /// Page cache of each open file. redb's default (1 GiB) does not fit the
 /// 2 GB reference board.
 const CACHE_BYTES: usize = 8 << 20;
@@ -50,6 +66,22 @@ pub struct Row {
     pub q: Quality,
 }
 
+/// One journal entry with its row, as a sink reads it (ADR 0026).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Change {
+    pub seq: u64,
+    pub series: u32,
+    pub row: Row,
+}
+
+/// Bounds of one [`Store::changes`] read.
+#[derive(Debug, Clone, Copy)]
+pub struct ChangeLimit {
+    pub rows: usize,
+    /// Stored bytes of the rows' values; at least one row is returned.
+    pub bytes: usize,
+}
+
 /// The stored bytes of one sample: canonical CBOR `[v, q]`.
 pub fn encode_row(v: &Value, q: Quality) -> Vec<u8> {
     // Encoding a Value into a Vec cannot fail.
@@ -77,6 +109,18 @@ pub struct Store {
     index: Database,
     series: Mutex<HashMap<String, u32>>,
     days: Mutex<OpenDays>,
+    /// Held for a whole [`write`](Self::write): numbers become visible in order.
+    journal: Mutex<Journal>,
+}
+
+/// The `seq` counter and the range of each day.
+#[derive(Default)]
+struct Journal {
+    /// The next number to hand out.
+    next: u64,
+    /// Numbers below this are reserved in the index.
+    end: u64,
+    ranges: BTreeMap<i64, (u64, u64)>,
 }
 
 #[derive(Default)]
@@ -105,8 +149,21 @@ impl Store {
                 e => db(e),
             })?;
         let mut series = HashMap::new();
+        let mut journal = Journal::default();
         {
             let txn = index.begin_write().map_err(db)?;
+            {
+                let meta = txn.open_table(META).map_err(db)?;
+                let end = meta.get("seq_end").map_err(db)?.map_or(1, |v| v.value());
+                // unused numbers of the last block are skipped: gaps, no repeats
+                journal.next = end;
+                journal.end = end;
+                let ranges = txn.open_table(DAY_SEQ).map_err(db)?;
+                for item in ranges.iter().map_err(db)? {
+                    let (k, v) = item.map_err(db)?;
+                    journal.ranges.insert(k.value(), v.value());
+                }
+            }
             {
                 let mut t = txn.open_table(SERIES).map_err(db)?;
                 for item in t.iter().map_err(db)? {
@@ -138,7 +195,18 @@ impl Store {
             index,
             series: Mutex::new(series),
             days: Mutex::default(),
+            journal: Mutex::new(journal),
         })
+    }
+
+    /// The highest `seq` handed out so far (0: none).
+    pub fn last_seq(&self) -> u64 {
+        lock(&self.journal).next - 1
+    }
+
+    /// The `seq` range `(first, last)` of `day`, if it has a journal.
+    pub fn day_seq(&self, day: i64) -> Option<(u64, u64)> {
+        lock(&self.journal).ranges.get(&day).copied()
     }
 
     pub fn dir(&self) -> &Path {
@@ -214,13 +282,48 @@ impl Store {
         Ok(Some(h))
     }
 
-    /// Store rows `(series, t, encode_row(..))`; one transaction per day.
-    /// A row with the same series and time replaces the stored one.
+    /// Store rows `(series, t, encode_row(..))`; one transaction per day,
+    /// each row with its journal entry. A row with the same series and time
+    /// replaces the stored one and gets a new `seq`.
     pub fn write(&self, rows: &[NewRow]) -> Result<usize> {
         let mut by_day: BTreeMap<i64, Vec<&NewRow>> = BTreeMap::new();
         for r in rows {
             by_day.entry((r.1 / US_PER_DAY) as i64).or_default().push(r);
         }
+        let mut j = lock(&self.journal);
+        // Number the rows in day order, then record the numbers and the
+        // ranges in the index before any day commits: a crash after this
+        // leaves a range wider than its file, never a row outside its range.
+        let first = j.next;
+        let mut next = first;
+        let mut ranges = Vec::with_capacity(by_day.len());
+        for (day, rows) in &by_day {
+            let n = rows.len() as u64;
+            let (lo, hi) = j.ranges.get(day).copied().unwrap_or((next, next));
+            ranges.push((*day, (lo.min(next), hi.max(next + n - 1))));
+            next += n;
+        }
+        if !by_day.is_empty() {
+            let end = if next > j.end {
+                next.div_ceil(SEQ_BLOCK) * SEQ_BLOCK
+            } else {
+                j.end
+            };
+            let txn = self.index.begin_write().map_err(db)?;
+            {
+                let mut meta = txn.open_table(META).map_err(db)?;
+                meta.insert("seq_end", end).map_err(db)?;
+                let mut t = txn.open_table(DAY_SEQ).map_err(db)?;
+                for (day, r) in &ranges {
+                    t.insert(*day, *r).map_err(db)?;
+                }
+            }
+            txn.commit().map_err(db)?;
+            j.end = end;
+            j.next = next;
+            j.ranges.extend(ranges);
+        }
+        let mut seq = first;
         for (day, rows) in by_day {
             let Some(h) = self.day(day, true)? else {
                 continue;
@@ -228,13 +331,84 @@ impl Store {
             let txn = h.begin_write().map_err(db)?;
             {
                 let mut t = txn.open_table(ROWS).map_err(db)?;
+                let mut c = txn.open_table(CHANGES).map_err(db)?;
                 for (s, ts, v) in rows {
                     t.insert((*s, *ts), v.as_slice()).map_err(db)?;
+                    c.insert(seq, (*s, *ts)).map_err(db)?;
+                    seq += 1;
                 }
             }
             txn.commit().map_err(db)?;
         }
         Ok(rows.len())
+    }
+
+    /// Rows written after `after`, lowest `seq` first, of the series `want`
+    /// accepts, within `limit`. An entry whose row is gone (purged) is
+    /// skipped; a row written twice comes once per write.
+    pub fn changes(
+        &self,
+        after: u64,
+        limit: ChangeLimit,
+        mut want: impl FnMut(u32) -> bool,
+    ) -> Result<Vec<Change>> {
+        let days: Vec<i64> = lock(&self.journal)
+            .ranges
+            .iter()
+            .filter(|(_, (_, hi))| *hi > after)
+            .map(|(d, _)| *d)
+            .collect();
+        // each day's first entries above `after`, merged by seq
+        let mut all: Vec<(Change, usize)> = Vec::new();
+        for day in days {
+            let Some(h) = self.day(day, false)? else {
+                continue;
+            };
+            let r = h.begin_read().map_err(db)?;
+            let (c, t) = match (r.open_table(CHANGES), r.open_table(ROWS)) {
+                (Ok(c), Ok(t)) => (c, t),
+                (Err(TableError::TableDoesNotExist(_)), _)
+                | (_, Err(TableError::TableDoesNotExist(_))) => continue,
+                (Err(e), _) | (_, Err(e)) => return Err(db(e)),
+            };
+            let mut taken = 0;
+            for item in c.range(after + 1..).map_err(db)? {
+                let (k, v) = item.map_err(db)?;
+                let (series, ts) = v.value();
+                if !want(series) {
+                    continue;
+                }
+                let Some(bytes) = t.get((series, ts)).map_err(db)? else {
+                    continue;
+                };
+                let bytes = bytes.value();
+                if let Some(row) = decode_row(ts, bytes) {
+                    all.push((
+                        Change {
+                            seq: k.value(),
+                            series,
+                            row,
+                        },
+                        bytes.len(),
+                    ));
+                    taken += 1;
+                    if taken >= limit.rows {
+                        break;
+                    }
+                }
+            }
+        }
+        all.sort_by_key(|(c, _)| c.seq);
+        let mut out = Vec::new();
+        let mut bytes = 0;
+        for (c, n) in all {
+            if out.len() >= limit.rows || (!out.is_empty() && bytes + n > limit.bytes) {
+                break;
+            }
+            bytes += n;
+            out.push(c);
+        }
+        Ok(out)
     }
 
     /// Call `f` for each row of `series` in `[from, to]`, oldest first,
@@ -395,9 +569,19 @@ impl Store {
             d.order.retain(|x| *x != day);
         }
         match std::fs::remove_file(self.day_path(day)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
         }
+        let mut j = lock(&self.journal);
+        if j.ranges.remove(&day).is_some() {
+            let txn = self.index.begin_write().map_err(db)?;
+            txn.open_table(DAY_SEQ)
+                .map_err(db)?
+                .remove(day)
+                .map_err(db)?;
+            txn.commit().map_err(db)?;
+        }
+        Ok(())
     }
 
     /// Bytes of every store file.
@@ -420,6 +604,10 @@ impl Store {
             .len()
             + 1
     }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 #[cfg(test)]
@@ -500,6 +688,95 @@ mod tests {
         );
         assert_eq!(st.read(b, 0, u64::MAX, 10).unwrap().len(), 1);
         assert!(st.size_bytes() > 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn seqs(st: &Store, after: u64) -> Vec<(u64, u32, u64)> {
+        let all = ChangeLimit {
+            rows: 1000,
+            bytes: usize::MAX,
+        };
+        st.changes(after, all, |_| true)
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.seq, c.series, c.row.t))
+            .collect()
+    }
+
+    #[test]
+    fn journal_numbers_every_write_in_order() {
+        let dir = temp("journal");
+        let st = Store::open(&dir).unwrap();
+        assert_eq!(st.last_seq(), 0);
+        let (a, b) = (1, 2);
+        let d1 = parse_iso("2026-10-21T10:00:00Z").unwrap();
+        let d2 = parse_iso("2026-10-22T10:00:00Z").unwrap();
+        st.write(&[row(a, d2, 1.0), row(a, d1, 2.0), row(b, d2, 3.0)])
+            .unwrap();
+        // day order first: the earlier day's row has the lower number
+        assert_eq!(seqs(&st, 0), [(1, a, d1), (2, a, d2), (3, b, d2)]);
+        assert_eq!(st.last_seq(), 3);
+        let day1 = (d1 / US_PER_DAY) as i64;
+        assert_eq!(st.day_seq(day1), Some((1, 1)));
+        // a cursor at the end sees nothing
+        assert!(seqs(&st, 3).is_empty());
+        // a late row into the earlier day, and a row written again: both
+        // come after the cursor
+        st.write(&[row(b, d1, 4.0)]).unwrap();
+        st.write(&[row(a, d2, 5.0)]).unwrap();
+        assert_eq!(seqs(&st, 3), [(4, b, d1), (5, a, d2)]);
+        assert_eq!(st.day_seq(day1), Some((1, 4)));
+        // the row written again carries its new value under both numbers
+        let v = |after| {
+            st.changes(
+                after,
+                ChangeLimit {
+                    rows: 10,
+                    bytes: usize::MAX,
+                },
+                |s| s == a,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.seq, c.row.v))
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            v(0),
+            [
+                (1, Value::Float(2.0)),
+                (2, Value::Float(5.0)),
+                (5, Value::Float(5.0))
+            ]
+        );
+        // bounds: rows, and bytes (at least one row)
+        let one = ChangeLimit {
+            rows: 2,
+            bytes: usize::MAX,
+        };
+        assert_eq!(st.changes(0, one, |_| true).unwrap().len(), 2);
+        let tiny = ChangeLimit { rows: 10, bytes: 1 };
+        assert_eq!(st.changes(0, tiny, |_| true).unwrap().len(), 1);
+        // reopen: numbers go on above the last one, ranges stay
+        drop(st);
+        let st = Store::open(&dir).unwrap();
+        assert!(st.last_seq() >= 5);
+        assert_eq!(st.day_seq(day1), Some((1, 4)));
+        st.write(&[row(b, d2, 6.0)]).unwrap();
+        let after = seqs(&st, 5);
+        assert_eq!(after.len(), 1);
+        assert!(after[0].0 > 5, "{after:?}");
+        // a purged row is skipped; a removed day loses its range
+        st.purge(Some(b), d1, d1).unwrap();
+        assert_eq!(seqs(&st, 3), [(5, a, d2), (after[0].0, b, d2)]);
+        st.purge(
+            None,
+            day1 as u64 * US_PER_DAY,
+            (day1 as u64 + 1) * US_PER_DAY - 1,
+        )
+        .unwrap();
+        assert_eq!(st.day_seq(day1), None);
+        assert_eq!(seqs(&st, 0).first().map(|c| c.0), Some(2));
         let _ = std::fs::remove_dir_all(dir);
     }
 
