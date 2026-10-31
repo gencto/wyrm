@@ -100,16 +100,19 @@ pub fn check_server_final(server_final: &str, expected: &str) -> Result<(), Stri
     }
 }
 
-/// A client nonce: 18 bytes from the clock, a counter and the secret, hashed. It only needs to
-/// be unique (the host offers no randomness to a WASM component); TLS carries the exchange.
-pub fn nonce(now_us: u64, password: &str) -> String {
+/// A client nonce: 18 bytes hashed from the clock, a counter and the connection, never from the
+/// secret (the nonce goes to the server: anything derived from the password would let it, or
+/// whoever sees the exchange, test guesses offline). It only needs to be unique; the host offers
+/// no randomness to a WASM component yet (ADR 0026), and TLS carries the exchange.
+pub fn nonce(now_us: u64, conn: u32) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNT: AtomicU64 = AtomicU64::new(0);
     let n = COUNT.fetch_add(1, Ordering::Relaxed);
     let mut h = Sha256::new();
+    h.update(b"wyrm-scram-nonce");
     h.update(now_us.to_le_bytes());
     h.update(n.to_le_bytes());
-    h.update(password.as_bytes());
+    h.update(conn.to_le_bytes());
     B64.encode(&h.finalize()[..18])
 }
 
@@ -147,6 +150,6 @@ mod tests {
         assert!(bad("r=abcd,s=AAAA,i=99999999").contains("iteration"));
         assert!(bad("r=abcd,s=!!,i=4096").contains("salt"));
         assert!(bad("m=x,r=abcd,s=AAAA,i=1").contains("extension"));
-        assert_ne!(nonce(1, "p"), nonce(1, "p"), "unique");
+        assert_ne!(nonce(1, 1), nonce(1, 1), "unique");
     }
 }
