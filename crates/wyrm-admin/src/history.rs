@@ -18,6 +18,10 @@ use wyrm_history::time::{iso_us, parse_interval, parse_range, US_PER_DAY};
 use wyrm_history::{GroupCfg, HistoryQuery, Logging, Rollup, WatchCfg};
 use wyrm_link_sdk::{now_us, LinkCtx, LinkError};
 
+mod sinks;
+pub use sinks::sink_key;
+use sinks::SINKS;
+
 type Result<T> = wyrm_link_sdk::Result<T>;
 
 const ROOT: &str = "history";
@@ -83,11 +87,17 @@ const OPTIONS: [(&str, TypeCode, &str, &str); 3] = [
     ),
 ];
 
+const KEEP_AFTER_SYNC: &str = "keep_after_sync_days";
+
 /// Node names under `history` that a group cannot take.
 fn reserved(name: &str) -> bool {
     DB_VALUES.iter().any(|v| v.0 == name)
         || OPTIONS.iter().any(|o| o.0 == name)
-        || name == "oldest_day"
+        || ["oldest_day", KEEP_AFTER_SYNC, SINKS].contains(&name)
+}
+
+fn keep_after_sync_value(days: Option<u32>) -> Value {
+    days.map_or(Value::Null, |d| Value::UInt(d.into()))
 }
 
 /// The engine settings of the registry's watch groups.
@@ -245,6 +255,26 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
         ctx.declare_node(&path, m).await?;
         ctx.update(&path, v, Quality::Good, now_us()).await?;
     }
+    let path = format!("{ROOT}/{KEEP_AFTER_SYNC}");
+    ctx.declare_node(
+        &path,
+        NodeMeta::number()
+            .writable(Writable::Config)
+            .unit("d")
+            .attr(
+                "description",
+                "With sinks: delete a day once every sink confirmed it and it is older than this; \
+                 0 keeps only what is not sent; empty: no such rule (ADR 0026).",
+            ),
+    )
+    .await?;
+    ctx.update(
+        &path,
+        keep_after_sync_value(h.keep_after_sync_days),
+        Quality::Good,
+        now_us(),
+    )
+    .await?;
     ctx.declare_action(
         ROOT,
         "add_watch_group",
@@ -278,7 +308,7 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
     for (name, g) in &h.groups {
         declare_group(ctx, name, g).await?;
     }
-    Ok(())
+    sinks::declare(ctx, ctl).await
 }
 
 async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()> {
@@ -625,6 +655,37 @@ pub(crate) async fn set(
                 .ok_or_else(|| LinkError::invalid_parameter("retention_days: 0 to 36500"))?
                 as u32
         }
+        [KEEP_AFTER_SYNC] => {
+            let days = match value {
+                Value::Null => None,
+                Value::Str(s) if s.trim().is_empty() => None,
+                v => Some(
+                    v.as_f64()
+                        .filter(|v| v.is_finite() && (0.0..=36_500.0).contains(v))
+                        .ok_or_else(|| {
+                            LinkError::invalid_parameter(
+                                "keep_after_sync_days: 0 to 36500, or empty",
+                            )
+                        })? as u32,
+                ),
+            };
+            ctl.apply(Op::SetKeepAfterSync(days)).map_err(rejected)?;
+            ctl.record(
+                sub,
+                "history_options",
+                ROOT,
+                Status::Ok,
+                &format!("keep_after_sync_days {days:?}"),
+            );
+            return ctx
+                .update(
+                    &format!("{ROOT}/{KEEP_AFTER_SYNC}"),
+                    keep_after_sync_value(days),
+                    Quality::Good,
+                    now_us(),
+                )
+                .await;
+        }
         [group, id, "enabled"] => {
             let Value::Bool(on) = value else {
                 return Err(LinkError::invalid_parameter("enabled: true or false"));
@@ -690,6 +751,7 @@ pub(crate) async fn invoke(
     sub: &str,
 ) -> Result<Option<Value>> {
     match (rest, action) {
+        ([SINKS, rest @ ..], _) => sinks::invoke(ctl, ctx, rest, action, args, sub).await,
         ([], "add_watch_group") => {
             let name = arg_str(args, "name").ok_or_else(|| LinkError::invalid_parameter("name"))?;
             if reserved(name) {
@@ -1004,6 +1066,7 @@ pub(crate) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
                     .await;
             }
         }
+        sinks::refresh(&ctx, &ctl).await;
         if last_purge.elapsed() >= PURGE_EVERY {
             last_purge = Instant::now();
             if auto_purge(&ctl).await {
@@ -1014,27 +1077,86 @@ pub(crate) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
-/// Retention, then free space: delete the oldest days (never the current
-/// one). `true` if a day went.
+/// Why [`auto_purge`] deleted a day.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Why {
+    Retention,
+    Disk,
+    Synced,
+}
+
+/// What the purge rules say of the oldest day, `oldest`: retention first,
+/// then free space, then the synced rule (`keep_synced` days, a day whose
+/// whole journal `day_seq` every sink confirmed: `synced_upto` is the
+/// slowest sink's cursor). Never the current day; a day with no journal
+/// (written before ADR 0026) is never synced.
+fn purge_reason(
+    oldest: i64,
+    today: i64,
+    retention: i64,
+    disk_low: bool,
+    keep_synced: Option<u32>,
+    day_seq: Option<(u64, u64)>,
+    synced_upto: Option<u64>,
+) -> Option<Why> {
+    if oldest >= today {
+        None
+    } else if retention > 0 && oldest < today - retention {
+        Some(Why::Retention)
+    } else if disk_low {
+        Some(Why::Disk)
+    } else if keep_synced.is_some_and(|k| oldest < today - i64::from(k))
+        && day_seq
+            .zip(synced_upto)
+            .is_some_and(|((_, hi), upto)| hi <= upto)
+    {
+        Some(Why::Synced)
+    } else {
+        None
+    }
+}
+
+/// Retention, then free space, then days every sink confirmed (ADR 0026):
+/// delete the oldest days (never the current one). Retention and free
+/// space never wait for a sink (owner decision 1): the rows of a sink's
+/// groups it had not confirmed are counted as dropped. `true` if a day went.
 async fn auto_purge(ctl: &Control) -> bool {
     let h = ctl.registry().historian;
     let st = ctl.history.store().clone();
     let today = (now_us() / US_PER_DAY) as i64;
     let keep_free = h.keep_free_mib as f64;
     let (auto, retention) = (h.auto_purge, i64::from(h.retention_days));
-    let dropped = tokio::task::spawn_blocking(move || {
+    let cursors = sinks::cursors(ctl);
+    // the synced rule needs a sink, and counts the slowest one
+    let synced_upto = cursors.iter().map(|c| c.1).min();
+    let keep_synced = h.keep_after_sync_days.filter(|_| synced_upto.is_some());
+    let (dropped, unsent) = tokio::task::spawn_blocking(move || {
         let mut dropped = Vec::new();
+        let mut unsent: HashMap<String, u64> = HashMap::new();
         while let Some(oldest) = st.days().first().copied() {
-            if oldest >= today {
+            let disk_low = auto && disk_free_mib(st.dir()).is_some_and(|f| f < keep_free);
+            let Some(why) = purge_reason(
+                oldest,
+                today,
+                retention,
+                disk_low,
+                keep_synced,
+                st.day_seq(oldest),
+                synced_upto,
+            ) else {
                 break;
-            }
-            let old = retention > 0 && oldest < today - retention;
-            let full = auto && disk_free_mib(st.dir()).is_some_and(|f| f < keep_free);
-            if !old && !full {
-                break;
+            };
+            if !matches!(why, Why::Synced) {
+                for (name, after, series) in &cursors {
+                    match st.count_changes(oldest, *after, |s| series.contains(&s)) {
+                        Ok(0) => {}
+                        Ok(n) => *unsent.entry(name.clone()).or_default() += n,
+                        Err(e) => warn!(sink = %name, "history purge: {e}"),
+                    }
+                }
             }
             match st.drop_oldest_day() {
-                Ok(Some((day, rows))) => dropped.push((day, rows, old)),
+                Ok(Some((day, rows))) => dropped.push((day, rows, why)),
                 Ok(None) => break,
                 Err(e) => {
                     warn!("history purge: {e}");
@@ -1042,15 +1164,19 @@ async fn auto_purge(ctl: &Control) -> bool {
                 }
             }
         }
-        dropped
+        (dropped, unsent)
     })
     .await
     .unwrap_or_default();
-    for (day, rows, old) in &dropped {
-        let why = if *old {
-            "older than retention_days"
-        } else {
-            "disk free below disk_space_remaining"
+    for (name, n) in unsent {
+        warn!(sink = %name, rows = n, "history: rows deleted before the sink confirmed them");
+        ctl.history.sink_stats(&name, |s| s.dropped_unsent += n);
+    }
+    for (day, rows, why) in &dropped {
+        let why = match why {
+            Why::Retention => "older than retention_days",
+            Why::Disk => "disk free below disk_space_remaining",
+            Why::Synced => "every sink confirmed it, older than keep_after_sync_days",
         };
         info!(
             day = %wyrm_history::time::day_name(*day),
@@ -1075,4 +1201,51 @@ async fn auto_purge(ctl: &Control) -> bool {
         }
     }
     !dropped.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn purge_rules_in_order() {
+        let r = |oldest, retention, disk_low, keep, seq, upto| {
+            purge_reason(oldest, 1000, retention, disk_low, keep, seq, upto)
+        };
+        let synced = Some((10, 20));
+        // never the current day
+        assert_eq!(r(1000, 1, true, Some(0), synced, Some(99)), None);
+        // retention first, sent or not
+        assert_eq!(
+            r(800, 100, false, None, synced, Some(0)),
+            Some(Why::Retention)
+        );
+        assert_eq!(r(950, 100, false, None, synced, None), None);
+        // free space, sent or not (owner decision 1)
+        assert_eq!(r(950, 0, true, None, synced, Some(0)), Some(Why::Disk));
+        // synced: older than keep, every sink past the day's last entry
+        assert_eq!(
+            r(900, 0, false, Some(90), synced, Some(20)),
+            Some(Why::Synced)
+        );
+        assert_eq!(
+            r(900, 0, false, Some(90), synced, Some(19)),
+            None,
+            "one entry not confirmed"
+        );
+        assert_eq!(
+            r(950, 0, false, Some(90), synced, Some(99)),
+            None,
+            "younger than keep"
+        );
+        assert_eq!(
+            r(999, 0, false, Some(0), synced, Some(20)),
+            Some(Why::Synced),
+            "0 keeps only unsent"
+        );
+        // no sink, no rule, or a day with no journal: kept
+        assert_eq!(r(900, 0, false, Some(90), synced, None), None);
+        assert_eq!(r(900, 0, false, None, synced, Some(99)), None);
+        assert_eq!(r(900, 0, false, Some(90), None, Some(99)), None);
+    }
 }

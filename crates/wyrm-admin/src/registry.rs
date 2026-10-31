@@ -435,6 +435,22 @@ pub enum Op {
         #[n(2)]
         key: String,
     },
+    /// Add a history sink or change it (ADR 0026): the link that reads its
+    /// feed and the watch groups it takes (empty = all).
+    #[n(36)]
+    PutSink {
+        #[n(0)]
+        name: String,
+        #[n(1)]
+        link: String,
+        #[n(2)]
+        groups: Vec<String>,
+    },
+    #[n(37)]
+    RemoveSink(#[n(0)] String),
+    /// Days kept after every sink confirmed them; `None` = no such rule.
+    #[n(38)]
+    SetKeepAfterSync(#[n(0)] Option<u32>),
 }
 
 /// At most this many signing sites per upstream site, and keys per site.
@@ -530,6 +546,13 @@ pub struct HistorianDef {
     pub keep_free_mib: u64,
     /// Delete days older than this many days; 0 keeps them.
     pub retention_days: u32,
+    /// Links that read the history to send it on (ADR 0026), by name.
+    #[serde(default)]
+    pub sinks: BTreeMap<String, SinkDef>,
+    /// With at least one sink: delete a day every sink confirmed once it is
+    /// older than this many days (ADR 0026, owner decision 2: 90).
+    #[serde(default)]
+    pub keep_after_sync_days: Option<u32>,
 }
 
 impl Default for HistorianDef {
@@ -539,9 +562,24 @@ impl Default for HistorianDef {
             auto_purge: true,
             keep_free_mib: 1024,
             retention_days: 0,
+            sinks: BTreeMap::new(),
+            keep_after_sync_days: Some(DEFAULT_KEEP_AFTER_SYNC_DAYS),
         }
     }
 }
+
+/// A history sink (ADR 0026). Its cursor lives in the history store, not
+/// here: it moves with every batch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SinkDef {
+    /// The link that reads the feed, signing as `link:<link>`.
+    pub link: String,
+    /// Watch groups it takes; empty = all.
+    pub groups: Vec<String>,
+}
+
+pub const DEFAULT_KEEP_AFTER_SYNC_DAYS: u32 = 90;
+pub const MAX_SINKS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchGroupDef {
@@ -847,8 +885,9 @@ fn renamed_keys(op: &Op) -> Option<Op> {
 impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
     // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015);
-    // 17: `PeerDef::allow_config`, `signers`; 18: `config_signers` (ADR 0018)
-    const SCHEMA: u32 = 18;
+    // 17: `PeerDef::allow_config`, `signers`; 18: `config_signers` (ADR 0018);
+    // 19: history sinks and `keep_after_sync_days` (ADR 0026)
+    const SCHEMA: u32 = 19;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -886,6 +925,8 @@ impl wyrm_state::State for Registry {
             }
             Op::Remove(id) => {
                 self.history.remove(id);
+                // its sinks read for a link that is gone
+                self.historian.sinks.retain(|_, s| s.link != *id);
                 let def = self
                     .links
                     .remove(id)
@@ -1011,6 +1052,44 @@ impl wyrm_state::State for Registry {
                     .remove(name)
                     .ok_or_else(|| format!("no watch group {name}"))?;
             }
+            Op::PutSink { name, link, groups } => {
+                validate_segment(name).map_err(|e| format!("sink: {e}"))?;
+                if name.starts_with('.') || name.starts_with('~') {
+                    return Err(format!("sink {name:?}: starts with a letter or digit"));
+                }
+                if !self.links.contains_key(link) {
+                    return Err(format!("no link {link}"));
+                }
+                let h = &mut self.historian;
+                if let Some(g) = groups.iter().find(|g| !h.groups.contains_key(*g)) {
+                    return Err(format!("no watch group {g}"));
+                }
+                if !h.sinks.contains_key(name) && h.sinks.len() >= MAX_SINKS {
+                    return Err(format!("at most {MAX_SINKS} sinks"));
+                }
+                let mut groups = groups.clone();
+                groups.sort();
+                groups.dedup();
+                h.sinks.insert(
+                    name.clone(),
+                    SinkDef {
+                        link: link.clone(),
+                        groups,
+                    },
+                );
+            }
+            Op::RemoveSink(name) => {
+                self.historian
+                    .sinks
+                    .remove(name)
+                    .ok_or_else(|| format!("no sink {name}"))?;
+            }
+            Op::SetKeepAfterSync(days) => {
+                if days.is_some_and(|d| d > 36_500) {
+                    return Err("keep_after_sync_days: 0 to 36500".into());
+                }
+                self.historian.keep_after_sync_days = *days;
+            }
             Op::SetWatchKey { group, id, key } => {
                 check_watch_key(key)?;
                 let g = self
@@ -1123,6 +1202,8 @@ impl wyrm_state::State for Registry {
                 }
                 self.links.remove(id);
                 self.history.remove(id);
+                // a link that is no longer admitted reads no history
+                self.historian.sinks.retain(|_, s| s.link != *id);
                 self.quarantine.insert(
                     id.clone(),
                     QuarantineEntry {
@@ -1969,6 +2050,62 @@ mod tests {
         })
         .unwrap();
         assert_eq!(r.historian.retention_days, 30);
+    }
+
+    #[test]
+    fn history_sinks() {
+        let mut r = Registry::default();
+        assert_eq!(
+            r.historian.keep_after_sync_days,
+            Some(90),
+            "owner decision 2"
+        );
+        r.links.insert("rec".into(), def("rec", Mode::External));
+        r.apply(&Op::PutWatchGroup {
+            name: "g".into(),
+            logging: 2,
+            interval_ms: 60_000,
+            flush_ms: 1000,
+        })
+        .unwrap();
+        let sink = |name: &str, link: &str, groups: &[&str]| Op::PutSink {
+            name: name.into(),
+            link: link.into(),
+            groups: groups.iter().map(|g| (*g).to_owned()).collect(),
+        };
+        r.apply(&sink("cloud", "rec", &["g", "g"])).unwrap();
+        assert_eq!(r.historian.sinks["cloud"].groups, ["g"], "deduplicated");
+        assert!(r.apply(&sink("x", "nope", &[])).is_err(), "no such link");
+        assert!(
+            r.apply(&sink("x", "rec", &["nope"])).is_err(),
+            "no such group"
+        );
+        assert!(r.apply(&sink("~x", "rec", &[])).is_err(), "name");
+        for i in 1..MAX_SINKS {
+            r.apply(&sink(&format!("s{i}"), "rec", &[])).unwrap();
+        }
+        assert!(
+            r.apply(&sink("one_more", "rec", &[])).is_err(),
+            "at most {MAX_SINKS}"
+        );
+        // an edit of an existing one is not one more
+        r.apply(&sink("cloud", "rec", &[])).unwrap();
+        r.apply(&Op::RemoveSink("s1".into())).unwrap();
+        assert!(r.apply(&Op::RemoveSink("s1".into())).is_err());
+        r.apply(&Op::SetKeepAfterSync(None)).unwrap();
+        assert_eq!(r.historian.keep_after_sync_days, None);
+        assert!(r.apply(&Op::SetKeepAfterSync(Some(40_000))).is_err());
+        // deauthorizing the link removes its sinks, so does removing it
+        let mut held = r.clone();
+        held.links.get_mut("rec").unwrap().origin = Origin::Runtime;
+        held.apply(&Op::Deauthorize {
+            id: "rec".into(),
+            seen: 1,
+        })
+        .unwrap();
+        assert!(held.historian.sinks.is_empty());
+        r.apply(&Op::Remove("rec".into())).unwrap();
+        assert!(r.historian.sinks.is_empty());
     }
 
     #[test]

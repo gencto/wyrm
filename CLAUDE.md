@@ -24,7 +24,7 @@ crates/wyrm-core        ✅ types + codec + fixture test
 crates/wyrm-link-sdk    ✅ trait Link, LinkCtx, NodeTree, one queryable per link, liveliness, TestHarness
 crates/wyrm-client      ✅ list()/subscribe()/set()/invoke() as Streams
 crates/wyrm-state       ✅ WAL (CBOR, HMAC-chain, CRC/record) + postcard snapshot
-crates/wyrm-history     ✅ embedded historian: watch groups, redb store (one file per UTC day), Get History + rollups (ADR 0014)
+crates/wyrm-history     ✅ embedded historian: watch groups, redb store (one file per UTC day), Get History + rollups (ADR 0014); change journal per day file (`seq`, reserved in blocks in `index.redb`), sinks `sys/history/sinks/<name>` with `next {after, max}` for the sink's link only, `keep_after_sync_days` (90) (ADR 0026, step 1 of 4)
 crates/wyrm-storage     ✅ broker storage `wy/<site>/storage` as DSA `/data`: folders, typed values, publish, export/import JSON, one redb file (ADR 0017)
 crates/wyrm-schedule    ✅ schedule model (ADR 0022): events (windows, moments), RRULE subset, priorities, special days; `state_at`/`next_transition`/`occurrences` in local wall time per IANA zone (bundled tzdb, DST gap → after, fold → earlier); export `wyrm-schedule/1`, DSA localschedule import; pure, no clock, builds for wasm32
 crates/wyrm-flow        ✅ engine: compiler, node registry, rhai, runtime (deploy proofs per target)

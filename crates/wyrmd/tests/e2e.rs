@@ -1500,10 +1500,11 @@ async fn portable_app_installs_as_wasm() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
@@ -1740,10 +1741,11 @@ async fn portable_app_upgrade_is_a_hot_start() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
@@ -2297,6 +2299,162 @@ async fn hello_grants(s: &zenoh::Session, id: &str, token: &str) -> Option<Vec<(
             _ => None,
         })
         .collect()
+}
+
+/// ADR 0026: a history sink hands its link the rows of its groups in
+/// batches. Only the link (its requester key, subject `link:<id>`) may ask,
+/// over the ACL rule of its own sink; `after` confirms; a person cannot move
+/// the cursor; a removed sink answers no more.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_sink_feeds_its_link() {
+    let env = Env::start(
+        "sinks",
+        &format!(r#"{MOCK} links: {{ rec: {{ driver: "x", mode: "external" }} }},"#)
+            .replace("}, links: {", ","),
+    )
+    .await;
+    let token = std::fs::read_to_string(env.ctl.config().data_dir.join("links/rec/token")).unwrap();
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let hist = format!("wy/{SITE}/sys/history");
+    let p0 = format!("wy/{SITE}/downstream/mock/g0/p0");
+    eventually("mock up", 20, || async { c.meta(&p0).await.ok() }).await;
+    // group g goes to the sink, group other does not
+    for (group, point) in [("g", "g0/p0"), ("other", "g0/p1")] {
+        c.invoke_one(
+            &hist,
+            "add_watch_group",
+            m(&[
+                ("name", Value::from(group)),
+                ("logging_type", Value::from("All Data")),
+                ("buffer_flush_time", Value::UInt(0)),
+            ]),
+        )
+        .await
+        .unwrap();
+        c.invoke_one(
+            &format!("{hist}/{group}"),
+            "add_watch_path",
+            m(&[("path", Value::from(format!("downstream/mock/{point}")))]),
+        )
+        .await
+        .unwrap();
+    }
+    c.invoke_one(
+        &format!("{hist}/sinks"),
+        "add_sink",
+        m(&[
+            ("name", Value::from("cloud")),
+            ("link", Value::from("rec")),
+            ("groups", Value::from("g")),
+        ]),
+    )
+    .await
+    .unwrap();
+    let sink = format!("{hist}/sinks/cloud");
+    // a person (admin key) cannot take batches: that would confirm rows
+    let e = c
+        .invoke_one(&sink, "next", m(&[]))
+        .await
+        .expect_err("a person moving the cursor");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // the link, with its requester key (after the rebuild), over TLS
+    let as_rec = |key: ed25519_dalek::SigningKey| {
+        let env = &env;
+        async move {
+            let s = env.tls_session("rec").await;
+            WyrmClient::new(s)
+                .with_timeout(Duration::from_secs(3))
+                .with_tokens(Arc::new(
+                    SigningTokens::new(key, SITE).subject("link:rec".to_owned()),
+                ))
+        }
+    };
+    let rows_of = |v: &Value| -> (Vec<(u64, String)>, u64) {
+        let Value::Map(r) = v else {
+            panic!("not a map: {v:?}")
+        };
+        let Some(Value::Array(rows)) = r.get("rows") else {
+            panic!("no rows: {r:?}")
+        };
+        let rows = rows
+            .iter()
+            .map(|row| {
+                let Value::Map(row) = row else {
+                    panic!("row {row:?}")
+                };
+                let (Some(Value::UInt(seq)), Some(Value::Str(key))) =
+                    (row.get("seq"), row.get("key"))
+                else {
+                    panic!("row {row:?}")
+                };
+                (*seq, key.clone())
+            })
+            .collect();
+        let Some(Value::UInt(next)) = r.get("next") else {
+            panic!("no next: {r:?}")
+        };
+        (rows, *next)
+    };
+    let (key, first) = eventually("the link reads its first rows", 30, || async {
+        let s = env.tls_session("rec").await;
+        let secrets = hello_secrets(&s, "rec", &token).await?;
+        let Some(Value::Bytes(seed)) = secrets.get(wyrm_link_sdk::REQUESTER_KEY) else {
+            return None;
+        };
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed[..].try_into().ok()?);
+        let rec = as_rec(key.clone()).await;
+        let v = rec.invoke_one(&sink, "next", m(&[])).await.ok()??;
+        (!rows_of(&v).0.is_empty()).then_some((key, v))
+    })
+    .await;
+    let (rows, next) = rows_of(&first);
+    assert!(rows.iter().all(|(_, k)| *k == p0), "only group g: {rows:?}");
+    assert!(
+        rows.windows(2).all(|w| w[0].0 < w[1].0),
+        "in order: {rows:?}"
+    );
+    assert!(next >= rows.last().unwrap().0);
+    // confirm, and get what came after
+    let rec = as_rec(key).await;
+    let v = eventually("rows after the confirmed ones", 20, || async {
+        let v = rec
+            .invoke_one(&sink, "next", m(&[("after", Value::UInt(next))]))
+            .await
+            .ok()??;
+        (!rows_of(&v).0.is_empty()).then_some(v)
+    })
+    .await;
+    let (later, _) = rows_of(&v);
+    assert!(later.iter().all(|(seq, _)| *seq > next), "{later:?}");
+    let mut confirmed = c.subscribe(&format!("{sink}/confirmed_seq")).await.unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(ev) = confirmed.next().await {
+            if let ValEvent::Sample { sample, .. } = ev {
+                return Some(sample.v);
+            }
+        }
+        None
+    })
+    .await;
+    assert_eq!(got, Ok(Some(Value::UInt(next))), "confirmed_seq");
+    drop(confirmed);
+    let e = rec
+        .invoke_one(&sink, "next", m(&[("after", Value::UInt(u64::MAX >> 12))]))
+        .await
+        .expect_err("after beyond the journal");
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    // removed: no more batches
+    c.invoke_one(&sink, "remove", m(&[])).await.unwrap();
+    assert!(rec.invoke_one(&sink, "next", m(&[])).await.is_err());
+    assert!(env.ctl.registry().historian.sinks.is_empty());
+    env.stop().await;
 }
 
 /// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):

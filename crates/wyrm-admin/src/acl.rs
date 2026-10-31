@@ -313,6 +313,30 @@ pub fn access_control_with_peers(
             json!("pub-in"),
             json!("pub-out"),
         ];
+        // The batches of its history sinks (ADR 0026): `next` on each one.
+        let sinks: Vec<String> = reg
+            .historian
+            .sinks
+            .iter()
+            .filter(|(_, s)| s.link == *id)
+            .map(|(name, _)| format!("{}/~act/next", crate::history::sink_key(site, name)))
+            .collect();
+        if !sinks.is_empty() {
+            rules.push(rule(
+                &format!("sinks-{id}-in"),
+                &["ingress"],
+                &["query"],
+                &sinks,
+            ));
+            rules.push(rule(
+                &format!("sinks-{id}-out"),
+                &["egress"],
+                &["reply"],
+                &sinks,
+            ));
+            link_rules.push(json!(format!("sinks-{id}-in")));
+            link_rules.push(json!(format!("sinks-{id}-out")));
+        }
         // As a requester (link grants): read and command other branches.
         for (rid, r) in grant_rules(site, id, &def.grants) {
             rules.push(r);
@@ -586,6 +610,47 @@ mod tests {
             log_level: None,
             grants: Vec::new(),
         }
+    }
+
+    #[test]
+    fn history_sink_links_reach_their_next_only() {
+        let mut reg = Registry::default();
+        reg.links.insert("rec".into(), def("rec", Mode::External));
+        reg.links
+            .insert("other".into(), def("other", Mode::External));
+        reg.historian.sinks.insert(
+            "cloud".into(),
+            crate::registry::SinkDef {
+                link: "rec".into(),
+                groups: Vec::new(),
+            },
+        );
+        let acl = access_control("s", &reg, &[], false);
+        let rule = |id: &str| {
+            acl["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == id)
+                .cloned()
+        };
+        let keys = rule("sinks-rec-in").expect("rule")["key_exprs"].clone();
+        assert_eq!(
+            keys,
+            serde_json::json!(["wy/s/sys/history/sinks/cloud/~act/next"])
+        );
+        assert!(rule("sinks-other-in").is_none());
+        let policy = acl["policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["subjects"] == serde_json::json!(["cn-rec"]))
+            .cloned()
+            .unwrap();
+        assert!(policy["rules"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("sinks-rec-out")));
     }
 
     #[test]

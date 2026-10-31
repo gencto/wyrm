@@ -143,6 +143,17 @@ impl Counters {
     }
 }
 
+/// Counters of one history sink since start (ADR 0026).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct SinkStats {
+    /// Rows handed out in batches.
+    pub rows_sent: u64,
+    /// Rows of its groups deleted before it confirmed them.
+    pub dropped_unsent: u64,
+    /// Time of its last batch request (µs), 0 = none.
+    pub last_request_us: u64,
+}
+
 struct Running {
     cfg: GroupCfg,
     stop: watch::Sender<bool>,
@@ -165,6 +176,7 @@ pub struct Historian {
     run: Mutex<Run>,
     /// Reads at the same time ([`crate::query::MAX_QUERIES`]).
     pub(crate) reads: tokio::sync::Semaphore,
+    sinks: Mutex<HashMap<String, SinkStats>>,
 }
 
 pub fn now_us() -> u64 {
@@ -182,7 +194,22 @@ impl Historian {
             last: Arc::default(),
             run: Mutex::default(),
             reads: tokio::sync::Semaphore::new(crate::query::MAX_QUERIES),
+            sinks: Mutex::default(),
         }))
+    }
+
+    /// Change the counters of sink `name` (created at zero).
+    pub fn sink_stats<T>(&self, name: &str, f: impl FnOnce(&mut SinkStats) -> T) -> T {
+        let mut m = self.sinks.lock().unwrap_or_else(|p| p.into_inner());
+        f(m.entry(name.to_owned()).or_default())
+    }
+
+    /// Forget the counters of a removed sink.
+    pub fn forget_sink(&self, name: &str) {
+        self.sinks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(name);
     }
 
     pub fn store(&self) -> &Arc<Store> {

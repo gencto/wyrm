@@ -824,6 +824,27 @@ impl Control {
         out
     }
 
+    /// The requester key of each history sink's link, trusted at `read` on
+    /// its sink's node only (`next`, ADR 0026), for the subject `link:<id>`.
+    fn sink_limited_keys(&self) -> Vec<wyrm_link_sdk::LimitedKey> {
+        let reg = self.registry();
+        reg.historian
+            .sinks
+            .iter()
+            // only an installed link's key (the registry drops the sinks of a
+            // removed or deauthorized link; this is the last line)
+            .filter(|(_, def)| reg.links.contains_key(&def.link))
+            .filter_map(|(name, def)| {
+                Some(wyrm_link_sdk::LimitedKey {
+                    key: self.requester_key_of(&def.link)?,
+                    cap: Perm::Read,
+                    scopes: vec![crate::history::sink_key(&self.cfg.site, name)],
+                    subject: Some(format!("link:{}", def.link)),
+                })
+            })
+            .collect()
+    }
+
     /// The grants of a link for the link itself: `(path, permission)`, the
     /// `{site}` placeholder expanded. Grants with an unknown code are left
     /// out, as in the router ACL.
@@ -1579,6 +1600,8 @@ impl Control {
             .extend(self.cfg.control_keys.iter().copied());
         // upstream sites with `allow_config` (ADR 0018)
         lcfg.limited_keys = self.upstream_trust("sys");
+        // each history sink's link, on its sink's node alone (ADR 0026)
+        lcfg.limited_keys.extend(self.sink_limited_keys());
         lcfg.open_actions = vec!["hello".into(), "enroll".into()];
         // the admin publishes overlays; it lays none over itself
         lcfg.overlays = false;
@@ -3598,7 +3621,15 @@ impl Link for Admin {
                 )))
             }
             (["history", rest @ ..], _) => {
-                crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await
+                let r =
+                    crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await;
+                if r.is_ok()
+                    && rest.first() == Some(&"sinks")
+                    && matches!(action, "add_sink" | "edit" | "remove")
+                {
+                    self.sinks_changed(&sub).await?;
+                }
+                r
             }
             _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
         };
@@ -5080,6 +5111,32 @@ impl Admin {
             &format!("{path} {}", level.name()),
         );
         Ok(sorted(def.grants) != before)
+    }
+
+    /// A sink was added, edited or removed (ADR 0026): its link needs a
+    /// requester key (a process link takes a new one only in its first
+    /// `hello`, so it starts again), and the trust lists and the ACL follow
+    /// with a rebuild.
+    async fn sinks_changed(&self, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let links: BTreeSet<String> = self
+            .ctl
+            .registry()
+            .historian
+            .sinks
+            .values()
+            .map(|s| s.link.clone())
+            .collect();
+        for id in links {
+            let had = self.ctl.requester_key_of(&id).is_some();
+            self.ctl
+                .ensure_requester_seed(&id)
+                .map_err(|e| LinkError::internal(e.to_string()))?;
+            if !had {
+                self.restart_for_grants(&id, sub).await?;
+            }
+        }
+        self.ctl.schedule_reload();
+        Ok(())
     }
 
     /// New grants of a running process link: it takes them (and its requester key) only in its
