@@ -10,6 +10,7 @@
 
 pub mod backend;
 pub mod http;
+pub mod parts;
 pub mod persist;
 #[cfg(feature = "sim")]
 pub mod sim;

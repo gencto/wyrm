@@ -44,7 +44,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -408,6 +408,73 @@ impl LocalStore {
         Ok(d)
     }
 
+    /// Write `src` as the file `name` in `parent` (see [`Backend::put`]).
+    async fn store(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: Src,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> Result<Entry, Error> {
+        self.writable()?;
+        self.new_name(name)?;
+        let (root, ppath, name_s) = (self.root.clone(), parent.path.clone(), name.to_owned());
+        let (overwrite, fsync, ctype) = (existing.is_some(), self.fsync, content_type.to_owned());
+        let path = join(&parent.path, name);
+        // large files: time to write them too (at 4 MiB/s at least)
+        let t = self.timeout + Duration::from_secs(size / (4 * 1024 * 1024));
+        let what = format!("upload {path}");
+        let w = what.clone();
+        let pin = lock(&self.pinned).clone();
+        let job = move || -> Result<Entry, Error> {
+            let p = LocalStore::host_path(&root, &ppath)?;
+            let dir = LocalStore::confined(&pin, &root, &p)?;
+            let target = dir.join(&name_s);
+            if overwrite {
+                let old = match fs::symlink_metadata(&target) {
+                    Ok(m) if !m.is_file() => {
+                        return Err(Error::Refused(format!("{w}: not a regular file")))
+                    }
+                    Ok(m) => Some(m),
+                    Err(_) => None,
+                };
+                // a short name nobody can guess: any file name fits beside it,
+                // and `create_new` fails rather than take another's file
+                let tmp = dir.join(format!(".wyrm-{:016x}.tmp", unguessable(&name_s)));
+                // `write_new` removes a temporary file it made and could not
+                // finish; one it could not make is not ours
+                write_new(&tmp, &src, fsync).map_err(|e| io_error(e, &w))?;
+                // the old file's permission bits stay, never setuid, setgid
+                // or sticky (owner and xattrs do not stay)
+                if let Some(m) = &old {
+                    let _ = fs::set_permissions(&tmp, plain_permissions(m));
+                }
+                if let Err(e) = fs::rename(&tmp, &target) {
+                    // ours: made above
+                    let _ = fs::remove_file(&tmp);
+                    return Err(io_error(e, &w));
+                }
+            } else {
+                write_new(&target, &src, fsync).map_err(|e| io_error(e, &w))?;
+            }
+            if fsync {
+                // the folder entry too (not possible on every system)
+                if let Ok(d) = fs::File::open(&dir) {
+                    let _ = d.sync_all();
+                }
+            }
+            let m = fs::metadata(&target).map_err(|e| io_error(e, &w))?;
+            let mut e = Entry::file(join(&ppath, &name_s), m.len());
+            e.modified = modified(&m);
+            e.etag = Some(tag(&m));
+            e.content_type = Some(ctype);
+            Ok(e)
+        };
+        self.gate.run(&what, t, job).await
+    }
+
     fn writable(&self) -> Result<(), Error> {
         if self.read_only {
             Err(Error::Refused("read only (read_only)".into()))
@@ -484,6 +551,12 @@ fn read_folder(
     Ok(out)
 }
 
+/// What an upload writes: bytes, or a file the link spooled.
+enum Src {
+    Bytes(Bytes),
+    File(PathBuf),
+}
+
 /// A value nobody outside this process can predict (std's per-process
 /// random hash keys, the time, a counter).
 fn unguessable(name: &str) -> u64 {
@@ -514,15 +587,20 @@ fn plain_permissions(m: &fs::Metadata) -> fs::Permissions {
 /// Write `data` to `target`, which must not exist. A file this call made
 /// and could not finish is removed; a file someone else made is never
 /// touched.
-fn write_new(target: &Path, data: &[u8], fsync: bool) -> std::io::Result<()> {
+fn write_new(target: &Path, src: &Src, fsync: bool) -> std::io::Result<()> {
     let mut f = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(target)?;
     // from here the file is ours
-    let written = f
-        .write_all(data)
-        .and_then(|()| if fsync { f.sync_all() } else { Ok(()) });
+    let written = match src {
+        Src::Bytes(b) => f.write_all(b),
+        // a file received in parts: copied as it is read
+        Src::File(p) => {
+            fs::File::open(p).and_then(|mut r| std::io::copy(&mut r, &mut f).map(|_| ()))
+        }
+    }
+    .and_then(|()| if fsync { f.sync_all() } else { Ok(()) });
     if written.is_err() {
         drop(f);
         let _ = fs::remove_file(target);
@@ -729,61 +807,51 @@ impl Backend for LocalStore {
         content_type: &str,
         existing: Option<&Entry>,
     ) -> Result<Entry, Error> {
-        self.writable()?;
-        self.new_name(name)?;
-        let (root, ppath, name_s) = (self.root.clone(), parent.path.clone(), name.to_owned());
-        let (overwrite, fsync, ctype) = (existing.is_some(), self.fsync, content_type.to_owned());
-        let path = join(&parent.path, name);
-        // large files: time to write them too (at 4 MiB/s at least)
-        let t = self.timeout + Duration::from_secs(data.len() as u64 / (4 * 1024 * 1024));
-        let what = format!("upload {path}");
-        let w = what.clone();
+        let size = data.len() as u64;
+        self.store(parent, name, Src::Bytes(data), size, content_type, existing)
+            .await
+    }
+
+    async fn put_file(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: &Path,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> Result<Entry, Error> {
+        self.store(
+            parent,
+            name,
+            Src::File(src.to_path_buf()),
+            size,
+            content_type,
+            existing,
+        )
+        .await
+    }
+
+    async fn get_range(&self, file: &Entry, offset: u64, len: usize) -> Result<Bytes, Error> {
+        let (root, path) = (self.root.clone(), file.path.clone());
         let pin = lock(&self.pinned).clone();
-        let job = move || -> Result<Entry, Error> {
-            let p = LocalStore::host_path(&root, &ppath)?;
-            let dir = LocalStore::confined(&pin, &root, &p)?;
-            let target = dir.join(&name_s);
-            if overwrite {
-                let old = match fs::symlink_metadata(&target) {
-                    Ok(m) if !m.is_file() => {
-                        return Err(Error::Refused(format!("{w}: not a regular file")))
-                    }
-                    Ok(m) => Some(m),
-                    Err(_) => None,
-                };
-                // a short name nobody can guess: any file name fits beside it,
-                // and `create_new` fails rather than take another's file
-                let tmp = dir.join(format!(".wyrm-{:016x}.tmp", unguessable(&name_s)));
-                // `write_new` removes a temporary file it made and could not
-                // finish; one it could not make is not ours
-                write_new(&tmp, &data, fsync).map_err(|e| io_error(e, &w))?;
-                // the old file's permission bits stay, never setuid, setgid
-                // or sticky (owner and xattrs do not stay)
-                if let Some(m) = &old {
-                    let _ = fs::set_permissions(&tmp, plain_permissions(m));
-                }
-                if let Err(e) = fs::rename(&tmp, &target) {
-                    // ours: made above
-                    let _ = fs::remove_file(&tmp);
-                    return Err(io_error(e, &w));
-                }
-            } else {
-                write_new(&target, &data, fsync).map_err(|e| io_error(e, &w))?;
+        self.blocking(&format!("download {}", file.path), move || {
+            let what = format!("download {path}");
+            let p = LocalStore::host_path(&root, &path)?;
+            let real = LocalStore::confined(&pin, &root, &p)?;
+            let mut f = fs::File::open(&real).map_err(|e| io_error(e, &what))?;
+            if !f.metadata().map_err(|e| io_error(e, &what))?.is_file() {
+                return Err(Error::Refused(format!("{what}: not a regular file")));
             }
-            if fsync {
-                // the folder entry too (not possible on every system)
-                if let Ok(d) = fs::File::open(&dir) {
-                    let _ = d.sync_all();
-                }
-            }
-            let m = fs::metadata(&target).map_err(|e| io_error(e, &w))?;
-            let mut e = Entry::file(join(&ppath, &name_s), m.len());
-            e.modified = modified(&m);
-            e.etag = Some(tag(&m));
-            e.content_type = Some(ctype);
-            Ok(e)
-        };
-        self.gate.run(&what, t, job).await
+            f.seek(SeekFrom::Start(offset))
+                .map_err(|e| io_error(e, &what))?;
+            let mut buf = Vec::with_capacity(len);
+            f.take(len as u64)
+                .read_to_end(&mut buf)
+                .map_err(|e| io_error(e, &what))?;
+            Ok(Bytes::from(buf))
+        })
+        .await
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {

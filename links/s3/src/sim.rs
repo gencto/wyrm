@@ -47,6 +47,8 @@ pub struct State {
     pub page: usize,
     /// `METHOD path?query` of each request.
     pub seen: Vec<String>,
+    /// Multipart uploads in progress: id → (key, parts by number).
+    pub multipart: BTreeMap<String, (String, BTreeMap<u32, Bytes>)>,
 }
 
 impl Default for State {
@@ -60,6 +62,7 @@ impl Default for State {
             mode: Mode::Normal,
             page: 1000,
             seen: Vec::new(),
+            multipart: BTreeMap::new(),
         }
     }
 }
@@ -230,13 +233,22 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             "The specified bucket does not exist",
         ));
     }
+    if let Some(resp) = multipart(&mut s, &r, &key) {
+        return Some(resp);
+    }
     Some(match (r.method.as_str(), key.is_empty()) {
         ("GET", true) if r.param("list-type").as_deref() == Some("2") => list(&s, &r),
         ("GET", false) => match s.objects.get(&key) {
-            Some(o) => SimResponse::new(200)
-                .header("content-type", o.content_type.clone())
-                .header("etag", format!("\"{}\"", o.etag))
-                .body(o.data.clone()),
+            Some(o) => match r.header("range").and_then(|h| range(h, o.data.len())) {
+                Some((a, b)) => SimResponse::new(206)
+                    .header("content-type", o.content_type.clone())
+                    .header("content-range", format!("bytes {a}-{b}/{}", o.data.len()))
+                    .body(o.data.slice(a..=b)),
+                None => SimResponse::new(200)
+                    .header("content-type", o.content_type.clone())
+                    .header("etag", format!("\"{}\"", o.etag))
+                    .body(o.data.clone()),
+            },
             None => error(404, "NoSuchKey", "The specified key does not exist."),
         },
         ("PUT", false) => {
@@ -264,6 +276,80 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             SimResponse::new(204)
         }
         _ => error(400, "InvalidRequest", "not supported by the simulator"),
+    })
+}
+
+/// `bytes=a-b` within a body of `len` bytes.
+pub fn range(h: &str, len: usize) -> Option<(usize, usize)> {
+    let (a, b) = h.strip_prefix("bytes=")?.split_once('-')?;
+    let a: usize = a.parse().ok()?;
+    let b: usize = b.parse::<usize>().ok()?.min(len.checked_sub(1)?);
+    (a <= b).then_some((a, b))
+}
+
+/// CreateMultipartUpload, UploadPart, CompleteMultipartUpload and
+/// AbortMultipartUpload; `None` for other requests.
+fn multipart(s: &mut State, r: &SimRequest, key: &str) -> Option<SimResponse> {
+    let upload = r.param("uploadId");
+    Some(match (r.method.as_str(), upload) {
+        ("POST", None)
+            if r.query
+                .split('&')
+                .any(|kv| kv == "uploads" || kv == "uploads=") =>
+        {
+            let id = format!("mpu{}", s.multipart.len() + 1);
+            s.multipart
+                .insert(id.clone(), (key.to_owned(), BTreeMap::new()));
+            SimResponse::new(200).body(format!(
+                "<InitiateMultipartUploadResult><Key>{}</Key><UploadId>{id}</UploadId></InitiateMultipartUploadResult>",
+                escape(key)
+            ))
+        }
+        ("PUT", Some(id)) => {
+            let n: u32 = r.param("partNumber")?.parse().ok()?;
+            let Some((_, parts)) = s.multipart.get_mut(&id) else {
+                return Some(error(404, "NoSuchUpload", "no such upload"));
+            };
+            parts.insert(n, r.body.clone());
+            SimResponse::new(200)
+                .header("etag", format!("\"{}\"", &sigv4::sha256_hex(&r.body)[..32]))
+        }
+        ("POST", Some(id)) => {
+            let Some((k, parts)) = s.multipart.remove(&id) else {
+                return Some(error(404, "NoSuchUpload", "no such upload"));
+            };
+            let doc = wyrm_filestore::xml::parse(&String::from_utf8_lossy(&r.body)).ok()?;
+            let mut data = Vec::new();
+            let listed: Vec<&wyrm_filestore::xml::Element> = doc.all("Part").collect();
+            for (i, p) in listed.iter().enumerate() {
+                let n: u32 = p.text_of("PartNumber")?.parse().ok()?;
+                let Some(b) = parts.get(&n) else {
+                    return Some(error(400, "InvalidPart", "a part is missing"));
+                };
+                let want = format!("\"{}\"", &sigv4::sha256_hex(b)[..32]);
+                if p.text_of("ETag") != Some(want.as_str()) {
+                    return Some(error(400, "InvalidPart", "an ETag does not match"));
+                }
+                if i + 1 < listed.len() && b.len() < 5 * 1024 * 1024 {
+                    return Some(error(400, "EntityTooSmall", "a part under 5 MiB"));
+                }
+                data.extend_from_slice(b);
+            }
+            if r.header("if-none-match") == Some("*") && s.objects.contains_key(&k) {
+                return Some(error(412, "PreconditionFailed", "the object exists"));
+            }
+            s.put(&k, &data);
+            let etag = s.objects[&k].etag.clone();
+            SimResponse::new(200).body(format!(
+                "<CompleteMultipartUploadResult><Key>{}</Key><ETag>&quot;{etag}&quot;</ETag></CompleteMultipartUploadResult>",
+                escape(&k)
+            ))
+        }
+        ("DELETE", Some(id)) => {
+            s.multipart.remove(&id);
+            SimResponse::new(204)
+        }
+        _ => return None,
     })
 }
 

@@ -220,9 +220,14 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
             SimResponse::new(201).header("etag", format!("\"{m}\""))
         }
         "GET" => match s.nodes.get(&path) {
-            Some(n) if !n.dir => SimResponse::new(200)
-                .header("content-type", n.content_type.clone())
-                .body(n.data.clone()),
+            Some(n) if !n.dir => match r.header("range").and_then(|h| range(h, n.data.len())) {
+                Some((a, b)) => SimResponse::new(206)
+                    .header("content-type", n.content_type.clone())
+                    .body(n.data.slice(a..=b)),
+                None => SimResponse::new(200)
+                    .header("content-type", n.content_type.clone())
+                    .body(n.data.clone()),
+            },
             _ => SimResponse::new(404),
         },
         "DELETE" => {
@@ -234,6 +239,14 @@ fn handle(st: &Shared, r: SimRequest) -> Option<SimResponse> {
         }
         _ => SimResponse::new(405),
     })
+}
+
+/// `bytes=a-b` within a body of `len` bytes.
+fn range(h: &str, len: usize) -> Option<(usize, usize)> {
+    let (a, b) = h.strip_prefix("bytes=")?.split_once('-')?;
+    let a: usize = a.parse().ok()?;
+    let b: usize = b.parse::<usize>().ok()?.min(len.checked_sub(1)?);
+    (a <= b).then_some((a, b))
 }
 
 /// Serve on `addr`; the tree is shared with the caller.

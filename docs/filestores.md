@@ -81,7 +81,8 @@ Common connection params (all four links):
 | `refresh_s` | 300 | 0, 5–86 400 | 0 = only on Refresh |
 | `max_entries` | 2000 | 1–9000 | more are left out; the connection says `truncated` |
 | `max_depth` | 8 | 1–12 | folder levels shown |
-| `max_upload_mib` | 32 | 1–64 | |
+| `max_upload_mib` | 32 | 1–64 | Upload File in one request |
+| `max_file_mib` | 4096 | 1–1 048 576 | a file uploaded in parts |
 | `max_download_kib` | 1024 | 1–16 384 | |
 
 Connections and their secrets are kept sealed in the link's `data_dir`
@@ -157,7 +158,41 @@ is not supported).
 The tree is read folder by folder with `PROPFIND Depth: 1` (servers often
 refuse `Depth: infinity`); folders are real collections (`MKCOL`).
 
-## 6. Local directory (`localfs`)
+## 6. Large files: transfers in parts
+
+Upload File and Download carry a file in one request (at most 64 MiB and
+16 MiB). Larger files go in parts (ADR 0028):
+
+| Node | Action | Level | |
+|---|---|---|---|
+| folder (and `files`) | Upload in Parts (`upload_begin {name, size, part_size?, content_type?, overwrite?, sha256?}`) | write | → `{upload, part_size, parts}` |
+| connection | `upload_part {upload, index, data}` | write | one part, from index 0; any order, again after a cut |
+| connection | `upload_status {upload}` | write | `state` (`receiving`, `committing`, `done` with `result`, `failed` with `error`), `missing` parts |
+| connection | `upload_commit {upload}` | write | → `committing`; the file goes to the store in the background |
+| connection | `upload_abort {upload}` | write | drops it and its parts |
+| file | `download_part {offset, length?}` | read | → `{data, offset, size, eof}`, up to 16 MiB a part |
+
+- Parts are 64 KiB … 16 MiB (4 MiB by default); every part but the last
+  has `part_size` bytes. A file is at most `max_file_mib` (4 GiB by
+  default). Send parts through the gateway's `POST /api/invoke`.
+- The link keeps the parts in a spool file on its own disk
+  (`<data_dir>/uploads/`) until the commit, so its disk needs room for the
+  file. The commit sends it to the store as it reads it: S3 multipart
+  (`multipart_mib`, 16 MiB parts), a Drive resumable upload
+  (`upload_chunk_kib`, 8 MiB chunks), one streamed WebDAV `PUT`, a copy for
+  `localfs`. Memory holds one part, not the file.
+- An upload belongs to whoever began it; at most 4 per connection; one
+  idle for an hour is dropped. Stopping or editing the connection, or
+  restarting the link, drops its uploads: begin again.
+- Give `sha256` at begin to have the parts checked before the file goes
+  to the store.
+
+A client loop: `upload_begin`, then `upload_part` for each index (several
+at once is fine, two run at a time), `upload_status` to find what is
+missing after a cut, `upload_commit`, then `upload_status` until `done`.
+A download: `download_part` from offset 0 until `eof`.
+
+## 7. Local directory (`localfs`)
 
 The link's own params (set by the broker's admin in `sys/links` or
 `wyrmd.json5`, not by Add Local Directory) list the directories its
@@ -231,7 +266,7 @@ What it guarantees:
 - Names that are not UTF-8 (possible on Linux) are left out; sockets,
   devices and FIFOs are not shown.
 
-## 7. Failures
+## 8. Failures
 
 - The probe (S3: a list of one key; Drive: the root folder; WebDAV:
   `PROPFIND Depth: 0`) or a tree read failing marks the connection
@@ -243,7 +278,7 @@ What it guarantees:
 - A request refused for one object (403, 404, a name taken) fails that
   action only (`invalid_parameter`, `not_found`).
 
-## 8. Simulators
+## 9. Simulators
 
 The network links have a simulator binary (feature `bin`) for demos; `localfs` needs none (its tests run on temporary directories):
 

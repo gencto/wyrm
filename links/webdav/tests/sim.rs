@@ -111,3 +111,16 @@ async fn delete_without_recursive_fails_closed() {
     assert!(!st.lock().unwrap().nodes.contains_key("box"));
     h.stop().await;
 }
+
+/// A file in parts: one streamed PUT of the spool file.
+#[tokio::test(flavor = "multi_thread")]
+async fn large_files_in_parts() {
+    let (h, st, _t) = setup("app-pass", "/").await;
+    wyrm_filestore::testkit::parts_scenario(&h, 7 * 1024 * 1024 + 99).await;
+    assert_eq!(
+        st.lock().unwrap().nodes["reports/big.bin"].data.len(),
+        200_000,
+        "overwritten last"
+    );
+    h.stop().await;
+}

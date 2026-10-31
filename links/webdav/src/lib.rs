@@ -206,14 +206,25 @@ impl WebDavStore {
     ) -> Result<Response, Error> {
         let m =
             Method::from_bytes(method.as_bytes()).map_err(|_| Error::Refused(method.to_owned()))?;
-        let mut req = Request::new(m, target).body(body.clone());
+        self.send_req(Request::new(m, target).body(body), extra, max)
+            .await
+    }
+
+    /// Send `req` with `extra` headers and the credentials, bounded by the
+    /// timeout and the time its body takes at 512 KiB/s.
+    async fn send_req(
+        &self,
+        mut req: Request,
+        extra: &[(&str, &str)],
+        max: usize,
+    ) -> Result<Response, Error> {
         for (k, v) in extra {
             req = req.header(k, v);
         }
         if let Some(a) = &self.auth {
             req = req.secret_header("authorization", a);
         }
-        let t = self.timeout + Duration::from_secs(body.len() as u64 / (512 * 1024));
+        let t = self.timeout + Duration::from_secs(req.body_len() / (512 * 1024));
         Ok(self.http.send(&req, t, max).await?)
     }
 
@@ -419,6 +430,58 @@ impl Backend for WebDavStore {
             .map(|t| t.trim_start_matches("W/").trim_matches('"').to_owned());
         e.content_type = Some(content_type.to_owned());
         Ok(e)
+    }
+
+    async fn put_file(
+        &self,
+        parent: &Entry,
+        name: &str,
+        src: &std::path::Path,
+        size: u64,
+        content_type: &str,
+        existing: Option<&Entry>,
+    ) -> Result<Entry, Error> {
+        // one PUT, its body read from the spool file as it goes out
+        let path = join(&parent.path, name);
+        let mut extra = vec![("content-type", content_type)];
+        if existing.is_none() {
+            extra.push(("if-none-match", "*"));
+        }
+        let req = Request::new(Method::PUT, self.target(&path, false)).file_body(src, 0, size);
+        let r = self.send_req(req, &extra, MAX_LISTING).await?;
+        if !r.ok() {
+            return Err(status_error(r.status, &format!("upload {path}"), ""));
+        }
+        let mut e = Entry::file(path, size);
+        e.modified = Some(wyrm_filestore::util::now_us());
+        e.etag = r
+            .header("etag")
+            .map(|t| t.trim_start_matches("W/").trim_matches('"').to_owned());
+        e.content_type = Some(content_type.to_owned());
+        Ok(e)
+    }
+
+    async fn get_range(&self, file: &Entry, offset: u64, len: usize) -> Result<Bytes, Error> {
+        let range = format!("bytes={offset}-{}", offset + len as u64 - 1);
+        let r = self
+            .send(
+                "GET",
+                self.target(&file.path, false),
+                &[("range", &range)],
+                Bytes::new(),
+                len + 1024,
+            )
+            .await?;
+        match r.status {
+            206 => Ok(r.body),
+            200 if offset == 0 && r.body.len() <= len => Ok(r.body),
+            200 => Err(Error::Refused(format!(
+                "download {}: the server ignores Range",
+                file.path
+            ))),
+            416 => Ok(Bytes::new()),
+            s => Err(status_error(s, &format!("download {}", file.path), "")),
+        }
     }
 
     async fn get(&self, file: &Entry, max: usize) -> Result<Bytes, Error> {
