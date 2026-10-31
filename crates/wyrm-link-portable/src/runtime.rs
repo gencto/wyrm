@@ -128,6 +128,28 @@ fn from_client(e: ClientError) -> AppError {
     AppError::new(status, e.message)
 }
 
+/// Sets up a list or a subscription until it works: a failure is transient (a request the
+/// router or a busy link dropped, a peer that is reconnecting), and the app is never told, so
+/// giving up would leave its rows waiting for good. Backoff 250 ms, ×2, at most 5 s; the task
+/// ends when the app ends the list or subscription (it is aborted).
+async fn retried<T, F, Fut>(what: &str, key: &str, mut f: F) -> T
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ClientError>>,
+{
+    let mut wait = Duration::from_millis(250);
+    loop {
+        match f().await {
+            Ok(v) => return v,
+            Err(e) => {
+                warn!(%key, "{what}: {e}; again in {} ms", wait.as_millis());
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(Duration::from_secs(5));
+            }
+        }
+    }
+}
+
 fn answer(to: Option<Answer>, r: Result<Option<Value>, AppError>) {
     if let Some(tx) = to {
         let _ = tx.send(r);
@@ -600,13 +622,7 @@ impl Actor {
             }
         };
         let t = tokio::spawn(async move {
-            let mut s = match client.list(&k).await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(key = %k, "list: {e}");
-                    return;
-                }
-            };
+            let mut s = retried("list", &k, || client.list(&k)).await;
             while let Some(ev) = s.next().await {
                 let change = match ev {
                     ListEvent::Refreshed(c) => {
@@ -997,13 +1013,7 @@ impl Actor {
                 Command::Subscribe(SubId(id), key) => {
                     let (client, tx) = (self.client.clone(), self.internal.clone());
                     let t = tokio::spawn(async move {
-                        let mut s = match client.subscribe(&key).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!(%key, "subscribe: {e}");
-                                return;
-                            }
-                        };
+                        let mut s = retried("subscribe", &key, || client.subscribe(&key)).await;
                         while let Some(ev) = s.next().await {
                             if let ValEvent::Sample { key, sample, .. } = ev {
                                 if tx.send(Internal::Value(id, key, sample)).is_err() {

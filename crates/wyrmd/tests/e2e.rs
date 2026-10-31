@@ -6649,9 +6649,13 @@ async fn dql_collect(
     let mut n = 0;
     let full = loop {
         let left = Duration::from_secs(120).saturating_sub(t0.elapsed());
-        let ev = tokio::time::timeout(left, table.next())
-            .await
-            .unwrap_or_else(|_| panic!("{id}: {n} of {want} rows"));
+        let ev = match tokio::time::timeout(left, table.next()).await {
+            Ok(ev) => ev,
+            Err(_) => {
+                let attr = c.meta(&q).await.ok().and_then(|m| m.attr);
+                panic!("{id}: {n} of {want} rows; the query: {attr:?}")
+            }
+        };
         let Some(ValEvent::Sample { sample, .. }) = ev else {
             continue;
         };
