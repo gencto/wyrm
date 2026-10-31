@@ -222,12 +222,7 @@ impl SimHost {
         action: &str,
         args: Value,
     ) -> (Result<Value, AppError>, Vec<Command>) {
-        let who = Who {
-            subject: Some("user:test".into()),
-            grants: vec![],
-            authority: None,
-        };
-        self.invoke_as(&who, path, action, args)
+        self.invoke_as(&engineer("user:test"), path, action, args)
     }
 
     pub fn invoke_as(
@@ -542,6 +537,16 @@ impl SimHost {
 }
 
 /// `Value::Map` from pairs.
+/// A caller with config on the scheduler and the rights of an engineer on site `s` (spec 04
+/// `auth`).
+pub fn engineer(subject: &str) -> Who {
+    Who {
+        subject: Some(subject.into()),
+        grants: vec![("wy/s/downstream/scheduler/**".into(), Perm::Config)],
+        authority: Some(vec![("wy/s/**".into(), Perm::Config)]),
+    }
+}
+
 pub fn map<const N: usize>(entries: [(&str, Value); N]) -> Value {
     Value::Map(
         entries

@@ -8,6 +8,9 @@
 
 pub mod buffer;
 pub mod net;
+mod rights;
+
+pub use rights::Rights;
 
 use minicbor::{Decoder, Encoder};
 use wyrm_core::ptok::Grant;

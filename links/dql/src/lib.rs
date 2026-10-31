@@ -127,25 +127,13 @@ fn guard_sink_query(text: &str, who: &Who, what: &str) -> Result<(), AppError> {
 
 /// The caller's rights, kept with what it defines (ADR 0025 item 4): a query reads and writes
 /// only what its author may. A token without `auth` (spec 04) is refused: its rights are unknown.
-/// The site is the request's own, from the grant that let the call in.
 fn rights_of(who: &Who) -> Result<Rights, AppError> {
-    let refuse = || {
+    Rights::of(who).ok_or_else(|| {
         AppError::new(
             Status::PermissionDenied,
             "the caller's rights are unknown (its token carries no auth): a query runs with its \
              author's rights",
         )
-    };
-    let grants = who.authority.clone().ok_or_else(refuse)?;
-    let site = who
-        .grants
-        .first()
-        .and_then(|(k, _)| k.strip_prefix("wy/")?.split('/').next())
-        .filter(|s| !s.is_empty() && !s.contains('*'))
-        .ok_or_else(refuse)?;
-    Ok(Rights {
-        site: site.to_owned(),
-        grants,
     })
 }
 

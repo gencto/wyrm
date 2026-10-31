@@ -34,7 +34,8 @@ use wyrm_schedule::{
 };
 
 use limits::{
-    Counted, CLOCK_STEP_MS, DEFAULT_ROWS, MAX_ROWS, NODE_BUDGET, RECHECK_DAYS, WATCHDOG_MS,
+    Counted, CLOCK_STEP_MS, DEFAULT_ROWS, HORIZON_DAYS, MAX_ROWS, NODE_BUDGET, RECHECK_DAYS,
+    WATCHDOG_MS,
 };
 use targets::{Probes, Target, TargetDef, Writer, BEGIN_COST, TARGET_COST};
 use wake::{Fired, Timer, Wake, Wakes};
@@ -244,11 +245,34 @@ fn eval_now(c: &Compiled, now: Micros, held: &State) -> State {
             .events
             .iter()
             .any(|e| &e.id == id && e.value == held.value);
-        if still && *at <= now && next_transition(c, *at).is_none_or(|(t, _)| t > now) {
+        if still && *at <= now && first_transition(c, *at, now).is_none_or(|t| t > now) {
             return held.clone();
         }
     }
     state_at(c, now)
+}
+
+/// Horizons [`first_transition`] looks through before it gives up (a moment held this long is
+/// dropped).
+const HELD_HORIZONS: u32 = 64;
+
+/// The first transition after `t`, looked for up to `now`: [`next_transition`] sees one horizon
+/// ahead, so it is asked again from the end of each one (R17: a moment followed by no transition
+/// for longer than the horizon, and a restart after the transition). `Some(t)` past the last
+/// horizon looked through: the moment is too old to keep.
+fn first_transition(c: &Compiled, t: Micros, now: Micros) -> Option<Micros> {
+    let step = HORIZON_DAYS * DAY_US;
+    let mut from = t;
+    for _ in 0..HELD_HORIZONS {
+        if let Some((x, _)) = next_transition(c, from) {
+            return Some(x);
+        }
+        from = from.saturating_add(step);
+        if from >= now {
+            return None;
+        }
+    }
+    Some(from)
 }
 
 /// When a schedule wakes: an enabled one at its next transition, else after [`RECHECK_DAYS`]
@@ -776,7 +800,13 @@ impl Scheduler {
                 validate(&s).map_err(|e| refused(e, None))?;
             }
             let by = who.subject.clone().unwrap_or_default();
-            let targets = targets::defs_from_value(&t, Some(&by))?;
+            let targets = match &t {
+                Value::Array(a) if !a.is_empty() => {
+                    let rights = targets::author_rights(who)?;
+                    targets::defs_from_value(&t, Some((&by, &rights)))?
+                }
+                _ => targets::defs_from_value(&t, None)?,
+            };
             let saved = match &v {
                 Value::Map(m) => m.get("next_target"),
                 _ => None,
@@ -898,7 +928,7 @@ impl Scheduler {
 
     fn export(&self, sid: &str) -> Result<Value, AppError> {
         let s = self.sched(sid)?;
-        let def = store::definition(s.def(), &s.defs(), s.next_target);
+        let def = store::definition(s.def(), &s.defs(), s.next_target, false);
         let json = value_to_json(&def).to_string();
         Ok(Value::Map(BTreeMap::from([(
             "json".to_owned(),
@@ -1031,7 +1061,7 @@ impl Scheduler {
             ([s, "events", e], "edit") => self.edit_event(cx, s, e, m, now),
             ([s, "events", e], "remove") => self.remove_event(cx, s, e, now),
             ([s], "add_target") => self.add_target(cx, s, m, who),
-            ([s, "targets", t], "edit") => self.edit_target(cx, s, t, m),
+            ([s, "targets", t], "edit") => self.edit_target(cx, s, t, m, who),
             ([s, "targets", t], "enable") => self.enable_target(cx, s, t),
             ([s, "targets", t], "disable") => self.disable_target(cx, s, t),
             ([s, "targets", t], "remove") => self.remove_target(cx, s, t),

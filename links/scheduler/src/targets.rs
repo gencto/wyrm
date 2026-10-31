@@ -26,8 +26,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use wyrm_core::{keyspace, Quality, Sample, Status, Value};
-use wyrm_link_api::{AppError, Host, Level, ReqId, SubId, Who};
+use wyrm_core::{keyspace, Perm, Quality, Sample, Status, Value};
+use wyrm_link_api::{AppError, Host, Level, ReqId, Rights, SubId, Who};
 use wyrm_schedule::{finite, value_from_json, Micros, Source, State};
 
 use crate::limits::{
@@ -122,6 +122,9 @@ pub struct TargetDef {
     pub tolerance: Option<f64>,
     pub enabled: bool,
     pub created_by: String,
+    /// What its author may do, kept from the call that defined it (ADR 0029 decision 10). `None`:
+    /// a target from before it was kept; it writes nothing until it is edited.
+    pub rights: Option<Rights>,
 }
 
 impl TargetDef {
@@ -151,7 +154,7 @@ impl TargetDef {
         self.tolerance.unwrap_or(DEFAULT_TOLERANCE)
     }
 
-    /// The target in a definition (and an export).
+    /// The target in an export: without its author's rights (an import takes the importer's).
     pub fn to_value(&self) -> Value {
         let mut m = BTreeMap::new();
         m.insert("id".to_owned(), Value::Str(self.id.clone()));
@@ -179,6 +182,51 @@ impl TargetDef {
         m.insert("created_by".to_owned(), Value::Str(self.created_by.clone()));
         Value::Map(m)
     }
+
+    /// The target in its stored definition: with its author's rights.
+    pub fn to_stored(&self) -> Value {
+        let mut v = self.to_value();
+        if let (Value::Map(m), Some(r)) = (&mut v, &self.rights) {
+            m.insert("rights".to_owned(), r.to_value());
+        }
+        v
+    }
+
+    /// The author may write the point and read the feedback key; `Err` names which not.
+    pub fn check_rights(&self) -> Result<(), AppError> {
+        let Some(r) = &self.rights else {
+            return Err(outside(
+                "its author's rights are unknown: edit the target again",
+            ));
+        };
+        if !r.may(&self.point, Perm::Write) {
+            return Err(outside(&format!("its author may not write {}", self.point)));
+        }
+        if let Some(f) = &self.feedback {
+            if !r.may(f, Perm::Read) {
+                return Err(outside(&format!("its author may not read {f}")));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn outside(why: &str) -> AppError {
+    AppError::new(
+        Status::PermissionDenied,
+        format!("outside the rights of the target's author: {why}"),
+    )
+}
+
+/// The caller's rights for a target it defines; a token without `auth` (spec 04) is refused.
+pub fn author_rights(who: &Who) -> Result<Rights, AppError> {
+    Rights::of(who).ok_or_else(|| {
+        AppError::new(
+            Status::PermissionDenied,
+            "the caller's rights are unknown (its token carries no auth): a target writes with \
+             its author's rights",
+        )
+    })
 }
 
 /// The key of a schedule value in `map` and `feedback_map`: `true`/`false`, a number in its
@@ -299,6 +347,7 @@ pub fn fields(
     m: &Args,
     base: Option<&TargetDef>,
     created_by: String,
+    rights: Option<Rights>,
 ) -> Result<TargetDef, AppError> {
     let point = match (opt_str(m, "point")?, base) {
         (Some(p), _) => p,
@@ -350,6 +399,7 @@ pub fn fields(
         tolerance: tolerance(m)?.unwrap_or_else(|| base.and_then(|b| b.tolerance)),
         enabled: base.is_none_or(|b| b.enabled),
         created_by,
+        rights,
     })
 }
 
@@ -358,8 +408,8 @@ fn within(at: &str) -> impl Fn(AppError) -> AppError + '_ {
 }
 
 /// The `targets` array of a definition or an export (null: none), each checked as by
-/// `add_target`; `created_by` (an import): the importer, else as stored.
-pub fn defs_from_value(v: &Value, created_by: Option<&str>) -> Result<Vec<TargetDef>, AppError> {
+/// `add_target`; `by` (an import): the importer and its rights, else as stored.
+pub fn defs_from_value(v: &Value, by: Option<(&str, &Rights)>) -> Result<Vec<TargetDef>, AppError> {
     let items = match v {
         Value::Null => return Ok(Vec::new()),
         Value::Array(a) => a,
@@ -384,13 +434,19 @@ pub fn defs_from_value(v: &Value, created_by: Option<&str>) -> Result<Vec<Target
         if out.iter().any(|d| d.id == id) {
             return Err(invalid(&format!("{at}id"), format!("{id} twice")));
         }
-        let by = match created_by {
-            Some(b) => b.to_owned(),
-            None => opt_str(m, "created_by")
-                .map_err(within(&at))?
-                .unwrap_or_default(),
+        let (author, rights) = match by {
+            Some((b, r)) => (b.to_owned(), Some(r.clone())),
+            None => (
+                opt_str(m, "created_by")
+                    .map_err(within(&at))?
+                    .unwrap_or_default(),
+                m.get("rights").and_then(Rights::from_value),
+            ),
         };
-        let mut d = fields(id, m, None, by).map_err(within(&at))?;
+        let mut d = fields(id, m, None, author, rights).map_err(within(&at))?;
+        if by.is_some() {
+            d.check_rights().map_err(within(&at))?;
+        }
         d.enabled = opt_bool(m, "enabled").map_err(within(&at))?.unwrap_or(true);
         out.push(d);
     }
@@ -844,7 +900,11 @@ impl Env<'_, '_> {
         t.attempts += 1;
         t.replied = false;
         t.last_write = Some(now_of(self.cx));
-        match self.cx.set(&t.def.point, t.write.clone()) {
+        let sent = t
+            .def
+            .check_rights()
+            .and_then(|()| self.cx.set(&t.def.point, t.write.clone()));
+        match sent {
             Ok(req) => {
                 t.inflight = Some(req);
                 self.w
@@ -1405,7 +1465,9 @@ impl Scheduler {
             m,
             None,
             who.subject.clone().unwrap_or_default(),
+            Some(author_rights(who)?),
         )?;
+        def.check_rights()?;
         self.check_writer(&def.point, None, None)?;
         self.check_nodes(1, 0)?;
         self.check_subs(&[&def], None, None)?;
@@ -1436,10 +1498,19 @@ impl Scheduler {
         sid: &str,
         tid: &str,
         m: &Args,
+        who: &Who,
     ) -> Result<Value, AppError> {
         self.loaded()?;
         let base = self.target(sid, tid)?.def.clone();
-        let def = fields(tid.to_owned(), m, Some(&base), base.created_by.clone())?;
+        // the editor becomes the author: the target writes with its rights from now on
+        let def = fields(
+            tid.to_owned(),
+            m,
+            Some(&base),
+            who.subject.clone().unwrap_or_default(),
+            Some(author_rights(who)?),
+        )?;
+        def.check_rights()?;
         self.check_writer(&def.point, None, Some((sid, tid)))?;
         self.check_subs(&[&def], None, Some((sid, tid)))?;
         let made = self.probe(cx, &[&def])?;

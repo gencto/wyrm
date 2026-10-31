@@ -56,13 +56,19 @@ fn internal(e: impl ToString) -> AppError {
     AppError::new(Status::InternalError, e.to_string())
 }
 
-/// The definition as saved and exported: the schedule with its targets.
-pub fn definition(s: &Schedule, targets: &[TargetDef], next_target: u32) -> Value {
+/// The definition as saved (`stored`: with each target's author rights) and exported: the
+/// schedule with its targets.
+pub fn definition(s: &Schedule, targets: &[TargetDef], next_target: u32, stored: bool) -> Value {
     let mut v = schedule_to_value(s);
     if let Value::Map(m) = &mut v {
         m.insert(
             "targets".to_owned(),
-            Value::Array(targets.iter().map(TargetDef::to_value).collect()),
+            Value::Array(
+                targets
+                    .iter()
+                    .map(|t| if stored { t.to_stored() } else { t.to_value() })
+                    .collect(),
+            ),
         );
         m.insert(
             "next_target".to_owned(),
@@ -73,7 +79,7 @@ pub fn definition(s: &Schedule, targets: &[TargetDef], next_target: u32) -> Valu
 }
 
 pub fn encode(s: &Schedule, targets: &[TargetDef], next_target: u32) -> Result<Vec<u8>, AppError> {
-    wyrm_core::codec::to_vec(&definition(s, targets, next_target)).map_err(internal)
+    wyrm_core::codec::to_vec(&definition(s, targets, next_target, true)).map_err(internal)
 }
 
 /// A stored definition.

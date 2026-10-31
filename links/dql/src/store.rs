@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use wyrm_core::{codec, Perm, Status, Value};
+use wyrm_core::{codec, Status, Value};
 use wyrm_link_api::{AppError, Host};
 
 pub const INDEX: &str = "index";
@@ -31,59 +31,7 @@ pub struct Def {
     pub rights: Option<Rights>,
 }
 
-/// The author's rights (`Who::authority`) and the site they were given on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Rights {
-    pub site: String,
-    pub grants: Vec<(String, Perm)>,
-}
-
-impl Rights {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([
-            ("site".to_owned(), Value::Str(self.site.clone())),
-            (
-                "grants".to_owned(),
-                Value::Array(
-                    self.grants
-                        .iter()
-                        .map(|(k, p)| {
-                            Value::Array(vec![Value::Str(k.clone()), Value::UInt(p.code().into())])
-                        })
-                        .collect(),
-                ),
-            ),
-        ]))
-    }
-
-    /// A grant it cannot read makes the whole thing unreadable: never widened.
-    fn from_value(v: &Value) -> Option<Self> {
-        let Value::Map(m) = v else { return None };
-        let Some(Value::Str(site)) = m.get("site") else {
-            return None;
-        };
-        let Some(Value::Array(gs)) = m.get("grants") else {
-            return None;
-        };
-        let grants = gs
-            .iter()
-            .map(|g| match g {
-                Value::Array(a) => match a.as_slice() {
-                    [Value::Str(k), Value::UInt(p)] => u8::try_from(*p)
-                        .ok()
-                        .and_then(|p| Perm::try_from(p).ok())
-                        .map(|p| (k.clone(), p)),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some(Self {
-            site: site.clone(),
-            grants,
-        })
-    }
-}
+pub use wyrm_link_api::Rights;
 
 impl Def {
     fn to_value(&self) -> Value {
@@ -206,6 +154,7 @@ pub fn from_json(s: &str) -> Result<Def, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wyrm_core::Perm;
 
     #[test]
     fn defs_round_trip() {

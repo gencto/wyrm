@@ -130,10 +130,109 @@ fn target_actions_are_config() {
     assert_eq!(h.attr("lobby/targets/t1", "confirm"), text("read_back"));
 
     // no subject: created_by is empty
-    let anon = Who::default();
+    let anon = Who {
+        subject: None,
+        ..engineer("")
+    };
     let (r, _) = h.invoke_as(&anon, "lobby", "add_target", read_back(PUMP));
     assert_eq!(r.unwrap(), map([("id", text("t2"))]));
     assert_eq!(h.attr("lobby/targets/t2", "created_by"), text(""));
+}
+
+/// ADR 0029 decision 10: a target writes only within its author's rights (spec 04 `auth`), kept
+/// with it; the export leaves them out and an import takes the importer's.
+#[test]
+fn targets_write_within_their_authors_rights() {
+    let mut h = lobby();
+    let narrow = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/plc/fan".into(), Perm::Write),
+            ("wy/s/downstream/plc/fan_status".into(), Perm::Read),
+        ]),
+        ..engineer("user:ann")
+    };
+    let blind = Who {
+        authority: None,
+        ..engineer("user:bob")
+    };
+
+    // no `auth`: refused, nothing stored
+    let (r, _) = h.invoke_as(&blind, "lobby", "add_target", read_back(FAN));
+    assert_eq!(status(r).0, Status::PermissionDenied);
+    // a point or a feedback key outside the author's rights: refused
+    let (r, _) = h.invoke_as(&narrow, "lobby", "add_target", read_back(PUMP));
+    let (st, msg) = status(r);
+    assert_eq!(st, Status::PermissionDenied);
+    assert!(msg.contains("may not write"), "{msg}");
+    let fb = map([
+        ("point", text(FAN)),
+        ("confirm", text("feedback")),
+        ("feedback", text(FREE)),
+    ]);
+    let (r, _) = h.invoke_as(&narrow, "lobby", "add_target", fb);
+    assert!(status(r).1.contains("may not read"));
+    assert!(!h.has("lobby/targets/t1"));
+    // within them: it writes
+    let (r, _) = h.invoke_as(&narrow, "lobby", "add_target", read_back(FAN));
+    assert_eq!(r.unwrap(), map([("id", text("t1"))]));
+    let (_, key, _) = one_set(&h);
+    assert_eq!(key, FAN);
+    h.confirm_all();
+    // editing it to a point outside the editor's rights is refused
+    let (r, _) = h.invoke_as(
+        &narrow,
+        "lobby/targets/t1",
+        "edit",
+        map([("point", text(PUMP))]),
+    );
+    assert_eq!(status(r).0, Status::PermissionDenied);
+
+    // the export has no rights; the stored definition has them
+    let json = export(&mut h, "lobby");
+    assert!(json["targets"][0].get("rights").is_none(), "{json}");
+    let stored = decode(&h.store_get("s/lobby").unwrap());
+    let Value::Map(m) = &stored else { panic!() };
+    let Some(Value::Array(ts)) = m.get("targets") else {
+        panic!()
+    };
+    let Value::Map(t) = &ts[0] else { panic!() };
+    assert!(t.contains_key("rights"));
+
+    // an import with targets needs the importer's rights
+    let mut h2 = started();
+    let (r, _) = h2.invoke_as(
+        &blind,
+        "",
+        "import",
+        map([("json", text(&json.to_string()))]),
+    );
+    assert_eq!(status(r).0, Status::PermissionDenied);
+
+    // a target stored before the rights were kept writes nothing until it is edited
+    let mut old = stored.clone();
+    if let Value::Map(m) = &mut old {
+        if let Some(Value::Array(ts)) = m.get_mut("targets") {
+            if let Value::Map(t) = &mut ts[0] {
+                t.remove("rights");
+            }
+        }
+    }
+    h.store_put("s/lobby", wyrm_core::codec::to_vec(&old).unwrap());
+    h.advance_to(at("2026-10-29T07:59:00Z"));
+    h.restart().unwrap();
+    h.settle();
+    h.take_log();
+    h.advance_to(at("2026-10-29T08:00:00Z"));
+    h.advance(FIRST_SAMPLE_MS + 1_000);
+    assert!(sets_of(&h.take_log()).is_empty(), "nothing written");
+    assert_eq!(state(&h, "lobby/targets/t1"), text("retrying"));
+    let err = h.attr("lobby/targets/t1", "last_error");
+    assert!(
+        matches!(&err, Value::Str(e) if e.contains("rights are unknown")),
+        "{err:?}"
+    );
+    h.invoke("lobby/targets/t1", "edit", map([])).unwrap();
+    assert_eq!(one_set(&h).1, FAN);
 }
 
 /// The responder hands an enum arg as its index (`read_back | feedback | ack`); an import
@@ -735,12 +834,12 @@ fn export(h: &mut SimHost, sid: &str) -> serde_json::Value {
 }
 
 fn import(h: &mut SimHost, json: &serde_json::Value) -> (Result<Value, AppError>, Vec<Command>) {
-    let who = Who {
-        subject: Some("user:importer".into()),
-        grants: vec![],
-        authority: None,
-    };
-    h.invoke_as(&who, "", "import", map([("json", text(&json.to_string()))]))
+    h.invoke_as(
+        &engineer("user:importer"),
+        "",
+        "import",
+        map([("json", text(&json.to_string()))]),
+    )
 }
 
 #[test]
@@ -834,7 +933,7 @@ fn import_with_targets_runs_target_checks() {
 
     // overwrite: the replaced schedule's own points are free
     let (r, _) = h.invoke_as(
-        &Who::default(),
+        &engineer(""),
         "",
         "import",
         map([
@@ -1375,6 +1474,50 @@ fn a_held_moment_survives_a_restart() {
     h.settle();
     assert_eq!(h.value("heat/current"), Some(Value::UInt(17)));
     assert_eq!(h.attr("heat", "source"), text("default"));
+}
+
+/// R17: a held moment whose next transition is further away than the horizon (366 days) is
+/// still dropped on a restart after that transition, and kept on a restart before it.
+#[test]
+fn a_held_moment_ends_at_a_transition_past_the_horizon() {
+    for (gap_days, held) in [(380, true), (410, false)] {
+        let mut h = SimHost::new(at("2026-10-29T05:00:00Z"));
+        h.start(Value::Null).unwrap();
+        h.settle();
+        h.invoke(
+            "",
+            "add_schedule",
+            map([("id", text("heat")), ("default", Value::UInt(17))]),
+        )
+        .unwrap();
+        // a moment at 06:00 gives 21; the next window, 400 days later, gives 25
+        for (v, start, end) in [
+            (21, "2026-10-29T06:00", "2026-10-29T06:00"),
+            (25, "2027-12-03T12:00", "2027-12-03T13:00"),
+        ] {
+            let ev = map([
+                ("value", Value::UInt(v)),
+                ("start", text(start)),
+                ("end", text(end)),
+            ]);
+            h.invoke("heat", "add_event", ev).unwrap();
+        }
+        h.advance_to(at("2026-10-29T06:00:00Z"));
+        assert_eq!(h.value("heat/current"), Some(Value::UInt(21)));
+        assert!(h.store_get("h/heat").is_some(), "the moment is held");
+
+        // the link is down from here, and starts again `gap_days` later
+        h.step_clock(gap_days * 86_400_000);
+        h.restart().unwrap();
+        h.settle();
+        let (v, source) = if held { (21, "e1") } else { (17, "default") };
+        assert_eq!(
+            h.value("heat/current"),
+            Some(Value::UInt(v)),
+            "{gap_days} days"
+        );
+        assert_eq!(h.attr("heat", "source"), text(source), "{gap_days} days");
+    }
 }
 
 /// R19: a record holds only until the next transition after its state. An override of the

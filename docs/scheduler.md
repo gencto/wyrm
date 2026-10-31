@@ -312,12 +312,24 @@ target node.
 | `write` | schedules and events: `add_schedule`, `add_event`, `edit`, `remove` (a schedule without targets), `default`, `enabled` |
 | `config` | targets and import: `add_target`, a target's `edit`/`enable`/`disable`/`remove`, `import` |
 
-**Targets are configuration.** Whoever has `config` on the scheduler may
-point it at any device the scheduler can reach: the embedded one reaches
-all of `wy/<site>/downstream`, a package only the links it has a grant on.
-The request's token carries one grant, for the scheduler's own key, so the
-link cannot check the caller's rights on the point itself (ADR 0022,
-ruling 6; an owner decision is still open).
+**Targets are configuration, within the author's rights.** Adding,
+editing and importing targets needs `config` on the scheduler. A target
+also writes only what its author may write (ADR 0029, decision 10):
+
+1. The scheduler keeps the caller's own rights (the token's `auth`, spec 04)
+   with each target it adds, edits or imports.
+2. It refuses a target whose point the caller may not write, or whose
+   `feedback` key the caller may not read (`permission_denied`, "outside the
+   rights of the target's author").
+3. It checks the point again before every write.
+4. A token without `auth` (an old client, a flow) cannot define targets.
+5. The editor of a target becomes its author: `created_by` and the rights
+   are the editor's from then on.
+6. The export leaves the rights out. An import takes the importer's.
+
+УВАГА: a target made before this rule has no stored rights. It writes
+nothing and stays `retrying` with "its author's rights are unknown" until
+someone with `config` edits it once (an `edit` with no fields is enough).
 
 With the gateway's default roles:
 
@@ -331,8 +343,9 @@ With the gateway's default roles:
   cannot add targets.
 - Users of an upstream site (ADR 0018) write at `write` on this site:
   schedules and events, not targets.
-- A target keeps `created_by` (the subject that added it). A schedule keeps
-  writing after its author loses rights (as flows do).
+- A target keeps `created_by` (the subject that added or last edited it)
+  and that subject's rights at that time. A schedule keeps writing after its
+  author loses rights later (as flows do).
 - **The link's own writes.** The embedded scheduler signs its writes with
   its own key (a link secret made by the admin). Links trust that key at
   `write`, only under `wy/<site>/downstream`, only with the subject
