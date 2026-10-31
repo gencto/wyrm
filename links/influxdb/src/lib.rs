@@ -88,14 +88,13 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
 fn escape(s: &str, also_eq: bool) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
+        // a line break becomes a space first, and that space is escaped like any other: an
+        // unescaped space would end the tag set (line protocol injection)
+        let c = if c == '\n' || c == '\r' { ' ' } else { c };
         if c == ',' || c == ' ' || (also_eq && c == '=') || c == '\\' {
             out.push('\\');
         }
-        if c == '\n' || c == '\r' {
-            out.push(' ');
-        } else {
-            out.push(c);
-        }
+        out.push(c);
     }
     out
 }

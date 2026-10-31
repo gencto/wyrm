@@ -227,6 +227,24 @@ fn line_protocol() {
 }
 
 #[test]
+fn a_key_cannot_add_fields_or_tags() {
+    let mut r = row(1, Value::Float(1.0));
+    r.key = "wy/edge/p\n injected=1,x".into();
+    r.site = "a=b c\\".into();
+    let l = lines("m\nx", &[r]);
+    assert_eq!(
+        l,
+        "m\\ x,site=a\\=b\\ c\\\\,key=wy/edge/p\\ \\ injected\\=1\\,x value=1.0,quality=0i 1700000000000001\n"
+    );
+    // one unescaped space between tags and fields, one before the time
+    let unescaped = l
+        .char_indices()
+        .filter(|(i, c)| *c == ' ' && !l[..*i].ends_with('\\'))
+        .count();
+    assert_eq!(unescaped, 2, "{l}");
+}
+
+#[test]
 fn writes_and_classifies_answers() {
     let (port, got, accepted) = server(vec![
         (204, false),
