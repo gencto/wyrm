@@ -1,0 +1,57 @@
+[package]
+name = "wyrm-link-gdrive"
+description = "WYRM Google Drive link: a folder or shared drive as a tree, folders, uploads, downloads (service account or OAuth refresh token)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process Drive API v3 + OAuth token server for tests and demos.
+sim = ["wyrm-filestore/sim"]
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-gdrive-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-gdrive"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-filestore.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+tracing.workspace = true
+hyper = { workspace = true }
+bytes.workspace = true
+# Service account JWTs: RS256 (RSASSA-PKCS1-v1_5 SHA-256); multipart boundaries.
+ring.workspace = true
+base64.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+# Drive API replies are JSON (store data, not the wire codec).
+serde_json.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-gdrive = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-filestore = { workspace = true, features = ["testkit"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# A service account key made per test run (no private key in the repository).
+rsa = "0.9"
+serde_json.workspace = true
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "gdrive"
+description = "Google Drive: a folder or shared drive as a tree, folders, uploads, downloads"
+bin = "wyrm-link-gdrive"
+features = ["process"]
