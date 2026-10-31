@@ -12,7 +12,9 @@
 //!   every event sees the effects of the one before it.
 //! - The event queue (at most [`QUEUE`] entries) lives in the actor, where it can coalesce: when
 //!   it is full a value waits aside, one per (subscription, key) (the newest wins, at most
-//!   [`OVERFLOW`]; more are dropped and counted) until the queue has room; `set`/`invoke` get `busy`;
+//!   [`OVERFLOW`]; more are dropped and counted, and a subscription that lost values is opened
+//!   again, at most [`RESUBSCRIBE`] times, once the overflow has drained: its first read brings
+//!   the stored values back) until the queue has room; `set`/`invoke` get `busy`;
 //!   timers and replies are always queued (their number is bounded by the limits).
 //! - Store writes are applied on the engine thread right after the call, before the event's other
 //!   commands, so the next event reads them and they are durable before the reply leaves.
@@ -44,7 +46,11 @@ use crate::PortableConfig;
 /// Events waiting for the engine (values of one subscription coalesce beyond this).
 pub const QUEUE: usize = 256;
 /// Values held aside, one per (subscription, key), while the queue is full; more are dropped.
-pub const OVERFLOW: usize = 4096;
+/// Three DQL queries of 5 000 rows (one subscription each) collecting at once fit.
+pub const OVERFLOW: usize = 16_384;
+/// Times one subscription that lost values is opened again (a point that never changes sends
+/// its value only on the first read).
+pub const RESUBSCRIBE: u8 = 3;
 /// Stack of the engine thread (std's default is 2 MiB).
 pub const ENGINE_STACK: usize = 8 << 20;
 /// Nodes of a dead instance that the new `start` does not declare again go after this.
@@ -373,7 +379,12 @@ struct Actor {
     overflow_dropped: u64,
     inflight: Option<InFlight>,
     timers: HashMap<u64, AbortHandle>,
-    subs: HashMap<u64, AbortHandle>,
+    /// Subscriptions: the task and the key.
+    subs: HashMap<u64, (AbortHandle, String)>,
+    /// Subscriptions that lost values to a full overflow, opened again once it drained, and how
+    /// often each was.
+    lossy: BTreeSet<u64>,
+    resubscribed: HashMap<u64, u8>,
     /// Lists (ADR 0025): the task and the listed key, to list again after an overflow.
     lists: HashMap<u64, (AbortHandle, String, bool)>,
     reqs: HashMap<u64, AbortHandle>,
@@ -614,6 +625,7 @@ impl Actor {
                     if self.overflow.len() < OVERFLOW || self.overflow.contains_key(&k) {
                         self.overflow.insert(k, sample);
                     } else {
+                        self.lossy.insert(id);
                         self.overflow_dropped += 1;
                         if self.overflow_dropped.is_power_of_two() {
                             warn!(
@@ -727,6 +739,37 @@ impl Actor {
                 }
             }
         }
+        if self.overflow.is_empty() {
+            for id in std::mem::take(&mut self.lossy) {
+                let n = self.resubscribed.entry(id).or_default();
+                if *n >= RESUBSCRIBE {
+                    continue;
+                }
+                *n += 1;
+                if let Some((h, key)) = self.subs.remove(&id) {
+                    h.abort();
+                    debug!(%key, "values lost to a full queue: subscribing again");
+                    self.spawn_sub(id, key);
+                }
+            }
+        }
+    }
+
+    /// Start the subscription task `id` on `key` (again).
+    fn spawn_sub(&mut self, id: u64, key: String) {
+        let (client, tx) = (self.client.clone(), self.internal.clone());
+        let k = key.clone();
+        let t = tokio::spawn(async move {
+            let mut s = retried("subscribe", &k, || client.subscribe(&k)).await;
+            while let Some(ev) = s.next().await {
+                if let ValEvent::Sample { key, sample, .. } = ev {
+                    if tx.send(Internal::Value(id, key, sample)).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        self.subs.insert(id, (t.abort_handle(), key));
     }
 
     /// Hand the next event to the engine when it is idle.
@@ -884,10 +927,12 @@ impl Actor {
     fn drop_tasks(&mut self) {
         // values aside belong to the old instance's subscriptions; a new one reuses their ids
         self.overflow.clear();
+        self.lossy.clear();
+        self.resubscribed.clear();
         for (_, h) in self
             .timers
             .drain()
-            .chain(self.subs.drain())
+            .chain(self.subs.drain().map(|(id, (h, _))| (id, h)))
             .chain(self.reqs.drain())
             .chain(self.lists.drain().map(|(id, (h, ..))| (id, h)))
         {
@@ -1072,24 +1117,13 @@ impl Actor {
                 }
                 // applied by the engine thread
                 Command::StorePut(..) | Command::StoreDelete(_) => {}
-                Command::Subscribe(SubId(id), key) => {
-                    let (client, tx) = (self.client.clone(), self.internal.clone());
-                    let t = tokio::spawn(async move {
-                        let mut s = retried("subscribe", &key, || client.subscribe(&key)).await;
-                        while let Some(ev) = s.next().await {
-                            if let ValEvent::Sample { key, sample, .. } = ev {
-                                if tx.send(Internal::Value(id, key, sample)).is_err() {
-                                    return;
-                                }
-                            }
-                        }
-                    });
-                    self.subs.insert(id, t.abort_handle());
-                }
+                Command::Subscribe(SubId(id), key) => self.spawn_sub(id, key),
                 Command::List(SubId(id), key, full) => self.spawn_list(id, key, full),
                 Command::Unsubscribe(SubId(id)) => {
-                    if let Some(h) = self.subs.remove(&id) {
+                    if let Some((h, _)) = self.subs.remove(&id) {
                         self.overflow.retain(|(s, _), _| *s != id);
+                        self.lossy.remove(&id);
+                        self.resubscribed.remove(&id);
                         h.abort();
                     }
                     if let Some((h, ..)) = self.lists.remove(&id) {
@@ -1389,6 +1423,8 @@ where
             inflight: None,
             timers: HashMap::new(),
             subs: HashMap::new(),
+            lossy: BTreeSet::new(),
+            resubscribed: HashMap::new(),
             lists: HashMap::new(),
             reqs: HashMap::new(),
             paths: Paths::default(),

@@ -151,6 +151,14 @@ Collecting a table can take time: one `list` round trip per level the pattern re
 - **D5 — after a restart:** wait for a change of state; no sink fires on start.
 - **D6 — WIT world (confirmed: a new `wyrm:app@0.2.0`):** a WASM link is built against a contract (WIT world) that lists what the broker gives it and what it must export. DQL needs one new broker function (`list`) and one new export (`on-list`). The scheduler's WASM package, already installed on sites, is built on `wyrm:app@0.1.0`, which lacks `on-list`. Changing 0.1.0 in place would make the broker expect `on-list` from every component and refuse the installed scheduler until it is rebuilt and reinstalled everywhere. A new `wyrm:app@0.2.0` beside 0.1.0 (proposed) lets old components keep running untouched and new ones (DQL, a rebuilt scheduler) use the new functions; the broker supports both.
 
+## Measured (2026-10-31, Apple M4 Max, loopback, release; `dql_perf_local`, `dql_perf_chain`)
+
+- Collection of 1 000 points (`list …/** | where type == 'number' | subscribe`, `publish_ms` 100): the link's `collect_ms` 29–95 ms at depth 1–4 or fanout ≤ 100; 240 ms at fanout 2, depth 8 (511 lists); 871 ms at fanout 900 (901 lists); 5 000 points, fanout 50: 115 ms. A full table is published 1–2 `publish_ms` later.
+- Across peers (1 000 points, fanout 10, depth 2): `collect_ms` 55 ms here, 61 ms one hop down, 69 ms two hops down.
+- A write on a point → the engine's table: p50 4.9 ms, p99 12.3 ms (two hops down: p50 6.0 ms, p99 7.4 ms); a source write → the sink's write of its target: p50 3.4 ms, p99 10.6 ms.
+- Found by the first run: a 5 000-row subscription lost a value to the portable runtime's overflow bound (256 + 4 096), and the refetch met the same bound. The overflow is now 16 384, and a subscription that lost values is opened again (at most 3 times) once the overflow has drained.
+- Not yet: the reference board (4-core ARM64, 2 GB).
+
 ## Open (owner decision)
 
 - **Who reads the results of a query (review item 4).** Today whoever has `write` on the DQL link may define a query on everything the link reads, and whoever has `read` on the link reads every table; a sink query writes as `link:dql` (within the link's own grants), not as its author. A user's own grants are not checked against the query's roots or targets. Options: (a) keep it, as the guide says (roles that must not see the whole site get no `write` on the link); (b) check the author's grants against the roots at `add_query`/`run` (needs the full-grants claim in `ptok`, the scheduler's open item); (c) one DQL link per role. Not changed until the owner decides.
