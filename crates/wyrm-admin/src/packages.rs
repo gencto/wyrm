@@ -483,10 +483,7 @@ pub(crate) mod tests {
                 "capabilities: only an app component",
             ),
             (
-                wasm_zip(
-                    &app_component(),
-                    r#", "capabilities": { "net": ["host"] }"#,
-                ),
+                wasm_zip(&app_component(), r#", "capabilities": { "net": ["host"] }"#),
                 "capabilities.net",
             ),
             (wasm_zip(b"junk", ""), "demo.wasm:"),
