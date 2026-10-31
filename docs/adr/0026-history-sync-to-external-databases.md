@@ -65,7 +65,7 @@ What a link can do today:
 | MySQL | wire protocol | usually | `INSERT IGNORE`, primary key `(site, key, t)` | handshake, `caching_sha2_password` over TLS only (no RSA exchange), multi-row insert, ping |
 | MongoDB | OP_MSG, BSON (`bson` crate, builds for wasm32), SCRAM-SHA-256 | Atlas: always | unique index `(site, key, t)`, `insert` with `ordered: false`; time-series collection optional | `hello`, auth, insert, ping |
 
-- **Order of work.** 1) journal, sinks and the feed in `wyrm-history` and the admin, with e2e (late row resent, resend after a lost reply, `keep_after_sync_days`); 2) `tls-connect` in world `wyrm:app`; 3) `wyrm-history-sync` and the InfluxDB and PostgreSQL packages; 4) DynamoDB, MySQL, MongoDB. Each client is tested against an in-crate fake server and, in an ignored e2e, against the real database in a container.
+- **Order of work.** 1) journal, sinks and the feed in `wyrm-history` and the admin, with e2e (late row resent, resend after a lost reply, `keep_after_sync_days`); 2) `tls-connect` in world `wyrm:app`; 3) `wyrm-history-sync` and the InfluxDB and PostgreSQL packages; 4) DynamoDB, MySQL, MongoDB. Done 2026-10-31: 1 (journal, sinks, feed, purge rule); 2 in the native host (the WIT import waits for the next world version); 3 core (`wyrm-history-sync`), the sink grant for the link, and InfluxDB. Open: PostgreSQL, then 4. Each client is tested against an in-crate fake server and, in an ignored e2e, against the real database in a container.
 
 ## Consequences
 - The broker grows by the journal and the feed only; targets add nothing to sites that do not use them.
