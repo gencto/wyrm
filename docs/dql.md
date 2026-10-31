@@ -109,7 +109,8 @@ Reading `attr`, `actions` or `meta` makes the query fetch each listed node's who
 
 - A query with a sink needs `config` on the DQL link (the gateway's `engineer`, `admin`); `write`
   (`operator`, the agent, dataflows) may define queries without sinks only. The same holds for
-  switching a sink query on and for removing it; `write` may switch it off (stop its writes).
+  changing a sink query: switching it on, `edit`, `run` with its id and another text, `remove`;
+  `write` may switch it off (stop its writes).
 - **Nothing fires on start**: the first complete arguments of a row (after a start, a restart,
   an edit, `enabled` on, or when the row appears) are its baseline. A call goes out only when
   they change. A row whose arguments hold `null` sends nothing (unless `invoke_allow_null`).

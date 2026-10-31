@@ -111,8 +111,9 @@ fn may_config(who: &Who) -> bool {
     who.grants.iter().any(|(_, p)| *p >= Perm::Config)
 }
 
-/// Switching a sink query on, or removing one, needs `config`, as making it did: an operator
-/// may stop its writes (switch it off), never start them again or drop an engineer's query.
+/// Changing a sink query (switching it on, editing, replacing or removing it) needs `config`, as
+/// making it did: an operator may stop its writes (switch it off), never start them again, change
+/// them or drop an engineer's query.
 fn guard_sink_query(text: &str, who: &Who, what: &str) -> Result<(), AppError> {
     let sinks = parse(text).map(|p| p.has_sinks()).unwrap_or(false);
     if sinks && !may_config(who) {
@@ -655,6 +656,11 @@ impl Dql {
                     format!("run-{}", self.next_run)
                 }),
         };
+        if let Some(q) = self.queries.get(&id) {
+            if q.def.text != text.trim() {
+                guard_sink_query(&q.def.text, who, "replace")?;
+            }
+        }
         match self.queries.get_mut(&id) {
             Some(q) if q.expires_us.is_none() => {
                 return Err(invalid("id", format!("{id} is a stored query")));
@@ -700,6 +706,7 @@ impl Dql {
 
     fn edit(&mut self, cx: &mut Cx<'_>, id: &str, m: &Args, who: &Who) -> Result<Value, AppError> {
         let q = self.queries.get(id).ok_or_else(|| not_found(id))?;
+        guard_sink_query(&q.def.text, who, "edit")?;
         let mut def = q.def.clone();
         if let Some(d) = opt_str(m, "display")? {
             def.display = d;

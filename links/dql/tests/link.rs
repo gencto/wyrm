@@ -116,6 +116,12 @@ fn sink_queries_need_config_and_never_fire_on_start() {
         .invoke("sp", "remove", Value::Null, &writer())
         .unwrap_err();
     assert_eq!(e.status, Status::PermissionDenied);
+    // nor edit it: a text without sinks would drop them, as remove does
+    let plain = "list wy/s/downstream/mock/*/temp | subscribe";
+    for arg in [("text", s(plain)), ("display", s("x"))] {
+        let e = h.invoke("sp", "edit", map(&[arg]), &writer()).unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+    }
     // an engineer may
     h.set_as("sp/enabled", Value::Bool(true), &engineer())
         .unwrap();
@@ -132,6 +138,12 @@ fn sink_queries_need_config_and_never_fire_on_start() {
     h.set("plain/enabled", Value::Bool(false)).unwrap();
     h.set("plain/enabled", Value::Bool(true)).unwrap();
     h.invoke("plain", "remove", Value::Null, &writer()).unwrap();
+    // an engineer's named ad-hoc sink query: a writer cannot replace it with another text
+    let run = |t: &str| map(&[("text", s(t)), ("id", s("adhoc"))]);
+    h.invoke("", "run", run(text), &engineer()).unwrap();
+    let e = h.invoke("", "run", run(plain), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    h.invoke("", "run", run(plain), &engineer()).unwrap();
 }
 
 #[test]
