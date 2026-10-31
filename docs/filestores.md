@@ -1,6 +1,6 @@
-# File store links: S3, Google Drive, WebDAV
+# File store links: S3, Google Drive, WebDAV, local directories
 
-Three links show a file store as a tree of folders and files, keep it
+Four links show a file store as a tree of folders and files, keep it
 fresh, and let people (and flows) create folders, upload, download and
 delete files:
 
@@ -9,8 +9,9 @@ delete files:
 | `s3` | AWS S3, MinIO, Ceph RGW, Cloudflare R2, Wasabi, Backblaze B2, DigitalOcean Spaces, Google Cloud Storage (HMAC keys) | `links/s3` |
 | `gdrive` | Google Drive: My Drive, a folder shared with a service account, a shared drive | `links/gdrive` |
 | `webdav` | Nextcloud, ownCloud, Synology, QNAP, Apache/nginx DAV, rclone serve, pCloud, Yandex Disk, … | `links/webdav` |
+| `localfs` | a directory of the host: a local disk, a USB stick or SD card, an NFS / SMB / sshfs mount, a NAS volume, a sync folder | `links/localfs` |
 
-All three run on `crates/wyrm-filestore` (ADR 0025): the same tree, the
+All four run on `crates/wyrm-filestore` (ADR 0025): the same tree, the
 same actions, the same limits. They run embedded in `wyrmd` or as
 processes (`wyrmd link s3`, or the packages' binaries).
 
@@ -59,7 +60,7 @@ Uploads take a `file` (the explorer's file picker; larger than a WebSocket
 frame goes through the gateway's `POST /api/invoke`) or `text`. The
 content type comes from the name's extension when not given.
 
-Common connection params (all three links):
+Common connection params (all four links):
 
 | Param | Default | Range | |
 |---|---|---|---|
@@ -142,7 +143,48 @@ is not supported).
 The tree is read folder by folder with `PROPFIND Depth: 1` (servers often
 refuse `Depth: infinity`); folders are real collections (`MKCOL`).
 
-## 6. Failures
+## 6. Local directory (`localfs`)
+
+| Param | Default | |
+|---|---|---|
+| `root` | — | an absolute path: `/srv/plant/reports`, `/mnt/usb`, `/Volumes/NAS/share`, `D:\reports`, `\\nas\share` |
+| `create_root` | `false` | create it (and its parents) when missing |
+| `read_only` | `false` | refuse Create Folder, Upload File and Delete |
+| `show_hidden` | `false` | show names starting with `.` |
+| `follow_symlinks` | `false` | show symbolic links that resolve inside `root` (others are never shown) |
+| `fsync` | `true` | sync each upload and its folder (power loss; slower on SD cards) |
+| `timeout_ms` | 10000 | bound on each file system call (a hung network mount) |
+
+Where it runs: `std::fs` only, so the same link on Linux, macOS, Windows
+and the BSDs, on x86-64 and ARM boards, embedded in `wyrmd` or as a process
+link (`wyrm-link-localfs`, package `localfs`). A process link on another
+host shows that host's directory: run it on the machine with the disk.
+Anything the operating system mounts works the same way (NFS, SMB/CIFS,
+sshfs, a USB or SD card, a cloud drive's sync folder).
+
+What it guarantees:
+
+- Nothing outside `root`: paths are built name by name below it, and
+  before every change the folder is resolved and must still be inside the
+  resolved root (a folder swapped for a symlink to elsewhere is refused).
+  Symbolic links out of `root` are never shown or followed; deleting a
+  link deletes the link, not its target.
+- `root` may not overlap the broker's data directory (registry, keys, link
+  data), nor contain it. The link reads and writes with the permissions of
+  its process: for least privilege run it as a process link under its own
+  OS user that may see only the directories it serves.
+- Names for new files and folders are valid on every system: no `/ \ < >
+  : " | ? *`, no `CON`, `NUL`, `COM1` …, no `.` or space at the end.
+- An upload with `overwrite` goes to a hidden temporary file
+  (`.<name>.wyrm-<id>.tmp`) and is renamed over the old file, so readers
+  never see half a file; without it the file is created new and a file
+  made meanwhile is never replaced.
+- A hung mount fails the call after `timeout_ms` (and the connection
+  probes again); the blocking thread stays until the kernel returns.
+- Names that are not UTF-8 (possible on Linux) are left out; sockets,
+  devices and FIFOs are not shown.
+
+## 7. Failures
 
 - The probe (S3: a list of one key; Drive: the root folder; WebDAV:
   `PROPFIND Depth: 0`) or a tree read failing marks the connection
@@ -154,9 +196,9 @@ refuse `Depth: infinity`); folders are real collections (`MKCOL`).
 - A request refused for one object (403, 404, a name taken) fails that
   action only (`invalid_parameter`, `not_found`).
 
-## 7. Simulators
+## 8. Simulators
 
-Each link has a simulator binary (feature `bin`) for demos:
+The network links have a simulator binary (feature `bin`) for demos; `localfs` needs none (its tests run on temporary directories):
 
 ```bash
 cargo run -p wyrm-link-s3 --features bin --bin wyrm-s3-sim -- --listen 127.0.0.1:9100

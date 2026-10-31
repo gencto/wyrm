@@ -6642,6 +6642,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-localfs"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-filestore",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-mock"
 version = "0.1.0"
 dependencies = [
@@ -7003,6 +7015,7 @@ dependencies = [
  "wyrm-link-bacnet",
  "wyrm-link-gdrive",
  "wyrm-link-http",
+ "wyrm-link-localfs",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",

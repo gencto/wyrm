@@ -273,6 +273,13 @@ pub trait Backend: Sized + Send + Sync + 'static {
     /// Delete `e`; for a folder, `below` are the entries the tree knows
     /// under it (a store without folders deletes each).
     fn delete(&self, e: &Entry, below: &[Entry]) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Refuse a connection that would reach the link's own files: called
+    /// with the link's `data_dir` when a connection is added, edited or
+    /// started (a local directory must not overlap the broker's data).
+    fn check_place(&self, _data_dir: Option<&std::path::Path>) -> Result<(), LinkError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-# ADR 0025 — File store links (S3, Google Drive, WebDAV) on the raw layer
+# ADR 0025 — File store links (S3, Google Drive, WebDAV, local directories) on the raw layer
 
 **Status:** accepted · 2026-10-31 (owner request: links to popular file stores — S3, MinIO, Google Drive and other providers — that connect to a bucket, create folders, read the tree of folders and files, build it as nodes, and upload files; separate links where the stores need different code).
 
@@ -27,3 +27,11 @@ The stores differ in protocol, auth and model: S3 has flat keys and Signature V4
 - **The driver framework with devices as folders:** people would add every folder by hand, and files are not polled points.
 - **One link with a `provider` enum:** one package pulls in every store's code and params; the owner asked for separate links.
 - **The AWS and Google SDKs:** large dependency trees, aws-lc (refused, see the rustls pin), and three async runtimes' worth of HTTP stacks for what is a handful of requests.
+
+## Amendment 2026-10-31 — local directories (`links/localfs`)
+Owner request: local storage too, working in as many places as possible.
+- **`std::fs` only**, every call on the blocking pool under `timeout_ms`: one link for Linux, macOS, Windows and the BSDs, embedded or as a process link on the host that has the disk. Mounted storage (NFS, SMB, sshfs, USB/SD, NAS) needs nothing of its own.
+- **Confinement**: names checked one by one (portable names: what Windows refuses is refused everywhere), the parent resolved and checked inside the resolved root before every change, symlinks out of the root never shown or followed, `remove_dir_all` (which does not follow links) for folders.
+- **`Backend::check_place`** (default: nothing): called with the link's `data_dir` on add, edit and start; `localfs` refuses a root that overlaps the broker's data directory (`<data_dir>/links/<id>/data` → `<data_dir>`) in either direction.
+- Atomic overwrite (temporary file + rename), `create_new` otherwise, `fsync` of the file and its folder by default, `read_only`.
+- Not done: Windows ACLs and hidden attributes (only names starting with `.` are hidden); a per-link list of allowed roots set by the broker owner (today the OS user of the link process is the boundary).

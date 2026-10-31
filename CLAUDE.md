@@ -55,7 +55,8 @@ links/prometheus        ✅ Prometheus / OpenMetrics scrape link on the driver f
 crates/wyrm-filestore   ✅ file store links on the raw layer (ADR 0025): `Backend` (probe, scan, mkdir, put, get, delete) run as `FileStore<B>`; `add_connection`/`edit` (secrets kept like the framework's `keep_secrets`)/`remove`/`stop`/`start`, sealed in `data_dir/filestore.conns`; `<conn>/{status,error,entries,total_bytes,last_refresh,files/…}`, file leaf = size (B), keys stable (hash for names that are not segments); Refresh (read), Create Folder / Upload File / Delete (write), Download (read); limits `max_entries` ≤ 9000, `max_depth` ≤ 12, uploads ≤ 64 MiB; I/O of actions on own tasks; hyper+rustls client, small XML reader, `testkit` scenario
 links/s3                ✅ S3 (AWS, MinIO, R2, Wasabi, B2, GCS interop): SigV4 (AWS test vectors), ListObjectsV2 pages, folder markers `<dir>/`, `If-None-Match: *`, prefix as root; sim `wyrm-s3-sim`
 links/gdrive            ✅ Google Drive v3: service account JWT (RS256, ring) or refresh token, folder id / shared drive, BFS listing, duplicate names, multipart upload, trash; sim `wyrm-gdrive-sim`
-links/webdav            ✅ WebDAV (Nextcloud, ownCloud, …): PROPFIND Depth 1 BFS, MKCOL, PUT, basic/bearer; sim `wyrm-webdav-sim`; guide for all three `docs/filestores.md`
+links/webdav            ✅ WebDAV (Nextcloud, ownCloud, …): PROPFIND Depth 1 BFS, MKCOL, PUT, basic/bearer; sim `wyrm-webdav-sim`; guide for all four `docs/filestores.md`
+links/localfs           ✅ a host directory (disk, USB/SD, NFS/SMB/sshfs mount) on `std::fs` only (Linux/macOS/Windows/BSD): blocking calls under `timeout_ms`, confined to the resolved root (symlinks out never shown, swapped folders refused), portable names, atomic overwrite, `fsync`, `read_only`, root may not overlap the broker's `data_dir` (`Backend::check_place`)
 ```
 
 ## Current state

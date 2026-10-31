@@ -968,7 +968,11 @@ impl<B: Backend> FileStore<B> {
                 .declare_node(&format!("{name}/{leaf}"), meta)
                 .await?;
         }
-        let parsed = parse::<B>(&raw).and_then(|(p, c, en)| Ok((B::new(&p)?, c, en)));
+        let parsed = parse::<B>(&raw).and_then(|(p, c, en)| {
+            let b = B::new(&p)?;
+            b.check_place(self.ctx.data_dir())?;
+            Ok((b, c, en))
+        });
         let (backend, common, enabled) = match parsed {
             Ok(v) => v,
             Err(e) => {
@@ -1028,7 +1032,7 @@ impl<B: Backend> FileStore<B> {
             return Err(bad(format!("{name} exists")));
         }
         let raw = normalized::<B>(&args)?;
-        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p).map(|_| ()))?;
+        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir()))?;
         self.conns.insert(name.clone(), Slot { raw, run: None });
         self.save();
         self.bring_up(&name).await
@@ -1042,7 +1046,7 @@ impl<B: Backend> FileStore<B> {
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
         let merged = keep_secrets(&schema::<B>(), &old, &args);
         let mut raw = normalized::<B>(&merged)?;
-        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p).map(|_| ()))?;
+        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir()))?;
         if let Some(e) = old.get(ENABLED) {
             raw.insert(ENABLED.to_owned(), e.clone());
         }
