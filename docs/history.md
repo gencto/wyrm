@@ -105,8 +105,12 @@ and `buffer_flush_time`.
 | `auto_purge` | on | Every minute: while the disk has less free space than `disk_space_remaining`, delete the oldest day. |
 | `disk_space_remaining` | 1024 MiB | The free space `auto_purge` keeps. |
 | `retention_days` | 0 (keep) | Every minute: delete days older than this. |
+| `keep_after_sync_days` | 90 | With at least one sink (section 6): delete a day once every sink confirmed it and it is older than this; 0 keeps only what is not sent; empty: off. |
 
-- The current day is never deleted by these two.
+- The current day is never deleted by these rules.
+- `retention_days` and `auto_purge` never wait for a sink: the equipment
+  keeps recording while the cloud may be down. Rows a sink had not confirmed
+  are counted in its `rows_dropped_unsent`.
 - ▸ **Purge** {Timerange} on `sys/history` deletes every point's rows in the
   range; on a watch, that point's rows only.
 - ▸ **Unsubscribe** stops recording a point and keeps its rows; ▸
@@ -126,15 +130,43 @@ and `buffer_flush_time`.
 | Get History | 10 000 rows per call (`~val?history=`: 100 000) |
 | One read | at most 5 000 000 rows scanned (a longer range is refused: ask for a shorter one); 4 reads at a time, others wait up to 5 s |
 | Gap at a router rebuild | about a second: samples then are not recorded |
+| Sinks | 16; a batch at most 5 000 rows and 1 MiB |
 
-## 6. Other historians
+## 6. Sending the history on: sinks (ADR 0026)
+
+A sink lets one link read what the historian writes, in batches, and send it
+on to another database (InfluxDB, PostgreSQL, MySQL, MongoDB, DynamoDB). The
+historian stays the store on the site; only it deletes.
+
+1. Install the link that sends the rows.
+2. On `sys/history/sinks` ▸ **Add Sink** {Name, Link, Groups, From}: the
+   watch groups it takes, comma separated (empty: all); From `start` sends
+   everything on disk, `now` only what is written from now on. The link gets
+   a requester key and, if it runs as a process, starts again; the broker
+   rebuilds once.
+3. The link asks ▸ **Next Batch** {After, Max} on its sink and gets
+   `{rows: [{seq, key, t, v, q}], next}`; it stores the rows, then asks again
+   with `after` = `next`. That `after` confirms every row up to it (at least
+   once: a lost reply sends the batch again, so the database must replace on
+   `(key, t)`). At most 5 000 rows and 1 MiB per batch.
+
+Only the sink's link may ask (it signs as `link:<id>`); a person who ran
+Next Batch would confirm rows the database never got, so it is refused.
+A sink shows `link`, `groups`, `confirmed_seq`, `lag_entries` (journal
+entries after the cursor; rows of other groups count too), `rows_sent`,
+`rows_dropped_unsent` and `last_request`; actions Edit, Reset Cursor {start |
+now} and Remove. Every row written gets a journal number, so a late row or a
+row written again is sent again. Rows recorded before this version have no
+number and are not sent.
+
+## 7. Other historians
 
 A link can record history itself (another database, a cloud service): give
 it a `read` grant on the points (`requester` in its package, or `sys/links/<id>`
 ▸ Grant Access, ADR 0013). `examples/links/requester` records
 `wy/<site>/downstream/mock` to a CSV file this way.
 
-## 7. Not yet
+## 8. Not yet
 
 - A watch for a whole subtree (`downstream/<link>/**`): today one watch is one
   point.
