@@ -1202,6 +1202,8 @@ impl wyrm_state::State for Registry {
                 }
                 self.links.remove(id);
                 self.history.remove(id);
+                // a link that is no longer admitted reads no history
+                self.historian.sinks.retain(|_, s| s.link != *id);
                 self.quarantine.insert(
                     id.clone(),
                     QuarantineEntry {
@@ -2093,7 +2095,15 @@ mod tests {
         r.apply(&Op::SetKeepAfterSync(None)).unwrap();
         assert_eq!(r.historian.keep_after_sync_days, None);
         assert!(r.apply(&Op::SetKeepAfterSync(Some(40_000))).is_err());
-        // removing the link removes its sinks
+        // deauthorizing the link removes its sinks, so does removing it
+        let mut held = r.clone();
+        held.links.get_mut("rec").unwrap().origin = Origin::Runtime;
+        held.apply(&Op::Deauthorize {
+            id: "rec".into(),
+            seen: 1,
+        })
+        .unwrap();
+        assert!(held.historian.sinks.is_empty());
         r.apply(&Op::Remove("rec".into())).unwrap();
         assert!(r.historian.sinks.is_empty());
     }

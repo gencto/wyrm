@@ -827,10 +827,13 @@ impl Control {
     /// The requester key of each history sink's link, trusted at `read` on
     /// its sink's node only (`next`, ADR 0026), for the subject `link:<id>`.
     fn sink_limited_keys(&self) -> Vec<wyrm_link_sdk::LimitedKey> {
-        self.registry()
-            .historian
+        let reg = self.registry();
+        reg.historian
             .sinks
             .iter()
+            // only an installed link's key (the registry drops the sinks of a
+            // removed or deauthorized link; this is the last line)
+            .filter(|(_, def)| reg.links.contains_key(&def.link))
             .filter_map(|(name, def)| {
                 Some(wyrm_link_sdk::LimitedKey {
                     key: self.requester_key_of(&def.link)?,
