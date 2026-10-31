@@ -307,10 +307,10 @@ async fn list_resolve_set_invoke_over_router() {
     let Some(ListEvent::Refreshed(snap)) = links.next().await else {
         panic!()
     };
-    // and the embedded scheduler (ADR 0022)
+    // and the embedded DQL link and scheduler (ADR 0025, 0022)
     assert_eq!(
         snap.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["mock", "scheduler"]
+        ["dql", "mock", "scheduler"]
     );
     assert_eq!(c.children(&format!("{root}/g1")).await.unwrap().len(), 4);
     // multi-term match: the raw selector survives the router hop
@@ -2927,12 +2927,12 @@ async fn two_brokers_over_quic() {
             let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
-            (names.len() == 4).then_some(names)
+            (names.len() == 5).then_some(names)
         }
     })
     .await;
-    // and edge's embedded scheduler (ADR 0022)
-    assert_eq!(names, ["mock", "pm", "scheduler", "slow"]);
+    // and edge's embedded DQL link and scheduler (ADR 0025, 0022)
+    assert_eq!(names, ["dql", "mock", "pm", "scheduler", "slow"]);
     // Each broker shows its peer: the downstream edge beside central's
     // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
@@ -3202,7 +3202,7 @@ async fn chain_of_three_brokers() {
             .filter(|n| n.contains(&"pm".to_owned()))
     })
     .await;
-    assert_eq!(pm, ["md", "pm", "scheduler"]);
+    assert_eq!(pm, ["dql", "md", "pm", "scheduler"]);
     // edge shows plant beside its links, connected
     eventually(
         "edge's downstream/plant connected, seen from central",
@@ -4946,7 +4946,11 @@ async fn two_brokers_isolation() {
         .into_iter()
         .map(|c| c.name)
         .collect();
-    assert_eq!(names, ["mock", "scheduler"], "rogue link listed at central");
+    assert_eq!(
+        names,
+        ["dql", "mock", "scheduler"],
+        "rogue link listed at central"
+    );
     let _ = rs.close().await;
     let _ = r_stop.send(());
     r_task.await.unwrap().unwrap();
