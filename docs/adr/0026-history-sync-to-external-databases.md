@@ -1,6 +1,6 @@
 # ADR 0026 — History sync to external databases
 
-**Status:** proposed · 2026-10-31 (owner request: send the edge historian's data to MySQL, MongoDB, PostgreSQL, InfluxDB and DynamoDB; not native in the broker, extensions installed as links; three decisions open, see the end).
+**Status:** proposed · 2026-10-31 (owner request: send the edge historian's data to MySQL, MongoDB, PostgreSQL, InfluxDB and DynamoDB; not native in the broker, extensions installed as links; owner decisions 1 and 2 taken 2026-10-31, decision 3 open, see the end).
 
 ## Context
 The embedded historian (ADR 0014) records watched points into day files of redb on the edge. Sites need the same data in a central database. The owner named five targets: MySQL, MongoDB, PostgreSQL, InfluxDB, DynamoDB.
@@ -21,7 +21,7 @@ What a link can do today:
 - **Change journal in each day file.** Table `CHANGES: seq u64 → (series u32, t u64)`, written in the same transaction as the row, so a row and its sequence number commit together. `seq` is one counter for the store, kept in `index.redb` and taken in blocks so a crash leaves gaps, never repeats. A row written again (same key, a late or replaced value) gets a new `seq`, so it is sent again. Each day file records its lowest and highest `seq`; a read from a cursor opens only files whose range is above it. Deleting a day file deletes its journal with it.
 - **Sinks are historian state.** `sys/history/sinks/<name>`: the link id, the watch groups it takes (default all), `confirmed_seq`, and values `rows_sent`, `lag_rows`, `lag_s` (age of the oldest unconfirmed row), `last_batch`, `last_error`. Actions Add Sink, Edit, Remove, Reset Cursor {to start | to now}. Registry ops in the historian section (SCHEMA bump), audited (`history_sink`).
 - **The feed.** The link asks `next {after, max}` on its own feed key `wy/<site>/sys/history/feeds/<link>`; the answer is rows `{seq, key, t, v, q}` with `seq > after`, at most `max` (≤ 5 000) and at most 1 MiB, oldest `seq` first, rows of its watch groups only. `after` confirms every row up to it, so the confirmation is the next request (at least once). The link signs with its requester key (ADR 0013, subject `link:<id>`); the historian trusts that key at `read`, scoped to that one feed key, as the admin trusts upstream keys today. The router ACL lets each link's session query its own feed key only, as with its overlay key (ADR 0016).
-- **Deleting.** The current rules stay: Retention Days, then Auto Purge by Disk Space Remaining (ADR 0014). New: with `keep_after_sync_days` set (default off), a whole day file goes once every sink has confirmed its highest `seq` and the day is older than that many days. `0` keeps only what is not sent yet, as the DSA buffer does.
+- **Deleting.** The current rules stay and never wait for a sink (owner decision 1): Retention Days, then Auto Purge by Disk Space Remaining (ADR 0014) delete the oldest day, sent or not, because the equipment keeps working and recording on the edge while the cloud may be down for long; the unsent rows lost that way are counted (`rows_dropped_unsent` on the historian and on each sink). New: `keep_after_sync_days` (default 90, owner decision 2; empty = off): with at least one sink, a whole day file goes once every sink has confirmed its highest `seq` and the day is older than that many days. `0` keeps only what is not sent yet, as the DSA buffer does. With no sink the rule does nothing.
 - **Delivery is at least once.** A batch can be sent twice after a lost reply or a restart. Every sink writes with the key `(site, point key, t)` and replaces on conflict, so a resend changes nothing.
 - **One package per target, one shared core, one form for all (owner, 2026-10-31).** A crate `wyrm-history-sync` (cursor, batch size, wait between batches, back-off while the target is down, the counters, secrets in the connection parameters, sealed by the framework) and one package per target, so a device installs only what it uses. Every target is a portable App with its own protocol client over the host's `tcp-connect`/`tls-connect`, no native driver crates (`sqlx`, `mongodb`, AWS SDK): the same code ships as a WASM package (the default) and as a process package, and behaves the same in both. A process package is not faster here in any way that matters: a batch is one or two round trips to the database, and encoding 5 000 rows in WASM takes well under a millisecond; what native drivers would save is our own protocol code, at the cost of a build per architecture and a process per sink.
 - **One target interface, as DSA's historian SDK (owner, 2026-10-31).** DSA keeps all common work in `sdk-dslink-java/sdk/historian` (nodes, watch groups, Get History, subscriptions); a database link implements only `DatabaseProvider` (`createDbAction`, `createDb`, `dbPermission`, `deleteRange`) and `Database` (`performConnect`, `write`, `query`, `queryFirst`, `queryLast`, `close`, `initExtensions`). Here `wyrm-history-sync` owns everything but talking to the database: the link's nodes (one per connection: `status`, `error`, the counters; actions Add, Edit, Remove, Test Connection, Pause/Resume), the feed loop (`next`, confirmation), batch sizes, back-off, secrets. A target implements one trait:
@@ -69,7 +69,8 @@ What a link can do today:
 ## Consequences
 - The broker grows by the journal and the feed only; targets add nothing to sites that do not use them.
 - Each row costs about 16 more bytes on disk (the journal entry).
-- A sink that stops confirming holds no data back unless `keep_after_sync_days` is set; with it set, its `lag_rows` grows and its day files stay until Retention Days or Auto Purge remove them.
+- A sink that stops confirming keeps its unsent days on the edge until Retention Days or Auto Purge remove them; its `lag_rows` grows and `rows_dropped_unsent` counts what is lost.
+- Adding the first sink starts deleting days older than 90 days once they are sent. A site that wants a longer local history sets `keep_after_sync_days` higher or empty.
 - The central database keys rows by the point's full key (`wy/<site>/…`), so several sites can share one table without the prefixes DSA needs.
 
 ## Alternatives
@@ -81,6 +82,6 @@ What a link can do today:
 - **TLS inside the component (rustls with RustCrypto):** about a megabyte per component, slower under the fuel limit, and every package would carry its own copy of the roots.
 
 ## Open decisions (owner)
-1. **Disk full with unsent rows.** Proposed: Auto Purge and Retention Days still delete the oldest day, sent or not, as DSA does, and count `rows_dropped_unsent`. The other choice is to stop recording until the sinks catch up.
-2. **`keep_after_sync_days` default.** Proposed: off, so adding a sink deletes nothing by itself.
+1. ~~Disk full with unsent rows~~ — decided 2026-10-31: delete the oldest data, sent or not; local work goes on while the cloud may be stopped.
+2. ~~`keep_after_sync_days` default~~ — decided 2026-10-31: 90 days.
 3. **What a sink takes.** Proposed: a list of watch groups, default all.
