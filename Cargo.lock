@@ -6514,6 +6514,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-history-sync"
+version = "0.1.0"
+dependencies = [
+ "wyrm-core",
+ "wyrm-link-api",
+]
+
+[[package]]
 name = "wyrm-link-agent"
 version = "0.1.0"
 dependencies = [

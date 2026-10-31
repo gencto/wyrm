@@ -28,32 +28,33 @@ What a link can do today:
 
   ```rust
   pub trait Target: Sized {
-      /// Package and node kind: "influxdb", "postgres", "mysql", "mongodb", "dynamodb".
+      /// The package and the link's root: "influxdb", "postgres", "mysql", "mongodb", "dynamodb".
       const KIND: &'static str;
-      /// Connection parameters with their schema; secrets marked, sealed by the core.
-      type Params: Params;
-      /// Open and authenticate (TCP or TLS through `net`).
-      fn connect(net: &mut dyn Net, p: &Self::Params) -> Result<Self, TargetError>;
+      const VERSION: &'static str;
+      /// Check the target's params before anything connects; an unknown key is an error.
+      fn check(cfg: &Map) -> Result<(), String>;
+      /// Open and authenticate (TCP or TLS through the host), with the secret from Set Password.
+      fn connect(net: &mut dyn Host, cfg: &Map, secret: Option<&str>) -> Result<Self, TargetError>;
       /// Create the table, index or bucket if the parameters allow; safe to repeat.
-      fn prepare(&mut self, _net: &mut dyn Net) -> Result<(), TargetError> { Ok(()) }
+      fn prepare(&mut self, _net: &mut dyn Host) -> Result<(), TargetError> { Ok(()) }
       /// Store one batch, replacing on `(key, t)`; `Ok` only when every row is stored.
-      fn write(&mut self, net: &mut dyn Net, rows: &[Row]) -> Result<(), TargetError>;
-      /// A cheap check while there is nothing to send.
-      fn ping(&mut self, net: &mut dyn Net) -> Result<(), TargetError>;
-      /// The largest batch it takes (rows, bytes), e.g. DynamoDB 25 items per request.
+      fn write(&mut self, net: &mut dyn Host, rows: &[Row]) -> Result<(), TargetError>;
+      /// A cheap check of the connection.
+      fn ping(&mut self, net: &mut dyn Host) -> Result<(), TargetError>;
+      /// The largest batch it takes, e.g. DynamoDB 25 items per request.
       fn limits(&self) -> Limits { Limits::default() }
-      fn close(self, _net: &mut dyn Net) {}
+      fn close(self, _net: &mut dyn Host) {}
   }
   /// `key` is the point's full key (`wy/<site>/…`), so `(key, t)` is unique across sites.
   pub struct Row { pub seq: u64, pub site: String, pub key: String, pub t: u64, pub v: Value, pub q: Quality }
   pub enum TargetError {
       Retry(String),     // network, throttling: wait, send the same batch again
       Reconnect(String), // connection lost: connect again, then the same batch
-      Fatal(String),     // auth, schema, a refused row: the sink stops with `error` until Edit
+      Fatal(String),     // auth, schema, a refused row: the link stops with `error` until a change
   }
   ```
 
-  `Net` is the TCP/TLS part of the portable host, the same in WASM and in a process. Shared helpers serve families: `http` (HTTP/1.1 over `Net`: InfluxDB, DynamoDB), `sql` (a dialect: table definition, multi-row insert with the conflict clause, quoting: PostgreSQL, MySQL), `auth` (SCRAM-SHA-256 for PostgreSQL and MongoDB, SigV4). A family member then costs little: TimescaleDB speaks PostgreSQL, MariaDB speaks MySQL, QuestDB and VictoriaMetrics take InfluxDB line protocol. A new target is one crate: the trait, its `Params`, `export!`, package metadata. Not in the trait, unlike DSA: `query`/`queryFirst`/`queryLast` (reads stay on the edge historian; a read-back from the central database would add an optional method that answers `not_supported` by default) and `deleteRange` (the central database keeps its own retention, DynamoDB by TTL).
+  The network is the portable host's TCP/TLS (`tcp_connect`, `tls_connect`), the same in WASM and in a process. `SyncApp<T>` (crate `wyrm-history-sync`, done 2026-10-31) runs a target as an App: params `sink` (the sink's key), `batch` (≤ 5 000), `idle_s`, `retry_s`, the rest the target's; nodes `status`, `error`, `rows_sent`, `last_batch`, `cursor`; actions Set Password (the secret kept in the link's sealed store, never a param), Test Connection, Pause/Resume (kept across restarts). A link param holds no secret: the registry keeps params in the clear. Shared helpers serve families: `http` (HTTP/1.1 over `Net`: InfluxDB, DynamoDB), `sql` (a dialect: table definition, multi-row insert with the conflict clause, quoting: PostgreSQL, MySQL), `auth` (SCRAM-SHA-256 for PostgreSQL and MongoDB, SigV4). A family member then costs little: TimescaleDB speaks PostgreSQL, MariaDB speaks MySQL, QuestDB and VictoriaMetrics take InfluxDB line protocol. A new target is one crate: the trait, its `Params`, `export!`, package metadata. Not in the trait, unlike DSA: `query`/`queryFirst`/`queryLast` (reads stay on the edge historian; a read-back from the central database would add an optional method that answers `not_supported` by default) and `deleteRange` (the central database keeps its own retention, DynamoDB by TTL).
 - **Host: TLS for portable Apps.** `Host::tls_connect(host, port, timeout_ms, ca_pem)` (and the same on `Services`): the host resolves the name on a thread of its own within the call's time, connects to the first address `NetPolicy::allows_named` accepts (an IP entry, or a listed name `db.example.com:5432` / `*.example.com:443` resolving to an ordinary address: a name never reaches loopback, link-local or metadata addresses by itself), and verifies the certificate for `host` against the system roots, or only against `ca_pem`, with rustls (ring) that `wyrmd` already links. The connection then takes `tcp_send`/`tcp_recv`/`tcp_close` like a plain one; the keys never leave the host. Done 2026-10-31 in the native host (`wyrm-link-portable`), so the native and process forms have it. The WIT import `tls-connect` comes with the next `wyrm:app` world version: `wyrm:app@0.2.0` is being defined on the DQL branch (ADR 0025 there), and two different 0.2.0 worlds must not exist; until then a WASM component gets `not_supported`.
 
 | Target | Protocol | TLS | Idempotent write | Our client covers |

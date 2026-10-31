@@ -1,0 +1,14 @@
+[package]
+name = "wyrm-history-sync"
+description = "WYRM history sync (ADR 0026): the Target trait and the portable App that reads a history sink's batches and writes them to another database"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Only crates that build for wasm32-unknown-unknown: a target runs as a WASM component too.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
