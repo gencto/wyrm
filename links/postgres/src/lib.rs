@@ -13,11 +13,10 @@
 //! `disable`: only to loopback unless `insecure_plaintext`), `ca_pem`, `timeout_ms` (10 000),
 //! `create_table` (true). The password goes in with ▸ Set Password.
 
-mod scram;
-
 use std::collections::HashMap;
 use wyrm_core::Value;
 use wyrm_history_sync::http::loopback;
+use wyrm_history_sync::scram;
 use wyrm_history_sync::{Map, Row, SyncApp, Target, TargetError};
 use wyrm_link_api::{ConnId, Host};
 

@@ -14,6 +14,8 @@
 //! link's sealed store.
 
 pub mod http;
+pub mod scram;
+pub mod sigv4;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 

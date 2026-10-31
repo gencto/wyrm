@@ -1,5 +1,5 @@
-//! SCRAM-SHA-256 (RFC 5802, RFC 7677) as PostgreSQL uses it: no channel binding (`n,,`), the
-//! user name taken from the startup message.
+//! SCRAM-SHA-256 (RFC 5802, RFC 7677), shared by the targets that log in with it (PostgreSQL,
+//! MongoDB): no channel binding (`n,,`).
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;

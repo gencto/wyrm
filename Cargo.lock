@@ -6517,6 +6517,9 @@ dependencies = [
 name = "wyrm-history-sync"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "sha2",
  "wyrm-core",
  "wyrm-link-api",
 ]
@@ -6715,9 +6718,6 @@ dependencies = [
 name = "wyrm-link-postgres"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "hmac",
- "sha2",
  "wyrm-core",
  "wyrm-history-sync",
  "wyrm-link-api",

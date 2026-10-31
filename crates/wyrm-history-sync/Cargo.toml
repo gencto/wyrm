@@ -16,3 +16,7 @@ testkit = []
 # Only crates that build for wasm32-unknown-unknown: a target runs as a WASM component too.
 wyrm-core.workspace = true
 wyrm-link-api.workspace = true
+# SCRAM-SHA-256 and SigV4 (pure Rust: build for wasm32)
+sha2.workspace = true
+hmac.workspace = true
+base64.workspace = true
