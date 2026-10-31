@@ -790,6 +790,13 @@ impl Dql {
         let text = opt_str(m, "text")?;
         if let Some(t) = &text {
             refuse_sinks(t, who)?;
+            // a published table is for whoever reads `<id>/table`: what it shows is config
+            if def.publish && t.trim() != def.text && !may_config(who) {
+                return Err(AppError::new(
+                    Status::PermissionDenied,
+                    "to change the text of a query whose table is published needs config",
+                ));
+            }
             def.text = t.trim().to_owned();
             // a new text runs with its editor's rights
             def.rights = Some(rights_of(who)?);

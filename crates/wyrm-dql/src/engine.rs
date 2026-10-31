@@ -1092,17 +1092,20 @@ impl Engine {
     }
 
     /// Rows `from..from+limit` in key order, each a map of its columns.
-    /// Rows `from`… (at most `limit`) of those whose key `keep` admits, and how many it admits.
+    /// Rows `from`… (at most `limit`) of those `keep` admits, and how many it admits. `keep`
+    /// sees every node a row reads: its own key and the value keys of its columns (`./x`, `..`).
     pub fn table_where(
         &self,
         from: usize,
         limit: usize,
         keep: impl Fn(&str) -> bool,
     ) -> (Vec<Value>, usize) {
+        let last = self.plan.segments.len() - 1;
         let mut total = 0;
         let mut rows = Vec::new();
         for (k, cols) in &self.table {
-            if !keep(k) {
+            let reads = self.row_keys.get(&(last, k.clone()));
+            if !keep(k) || reads.is_some_and(|ks| !ks.iter().all(|x| keep(x))) {
                 continue;
             }
             if total >= from && rows.len() < limit {

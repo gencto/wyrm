@@ -404,6 +404,10 @@ fn readers_see_their_own_rows_and_only_published_tables_are_values() {
     h.invoke("q", "edit", on(), &engineer()).unwrap();
     h.advance_ms(600);
     assert_eq!(h.published("q").len(), 2);
+    // the text of a published query is config too: a writer's edit would publish its own rights
+    let other = map(&[("text", s("list wy/s/downstream/mock/** | subscribe"))]);
+    let e = h.invoke("q", "edit", other, &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
     h.invoke(
         "q",
         "edit",
@@ -413,4 +417,13 @@ fn readers_see_their_own_rows_and_only_published_tables_are_values() {
     .unwrap();
     h.advance_ms(600);
     assert!(!h.nodes.contains_key("q/table"));
+    // a row that reads another node (`..`) is the reader's only if that node is too
+    let text = "path wy/s/downstream/mock/d0/temp | subscribe value ../../d1/temp as other";
+    add(&mut h, "x", text, &engineer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.table("x").len(), 1);
+    assert!(
+        h.table_as("x", &d0).is_empty(),
+        "d1's value must not reach a d0 reader"
+    );
 }
