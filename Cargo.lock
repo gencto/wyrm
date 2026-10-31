@@ -6667,6 +6667,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-mongodb"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "sha2",
+ "wyrm-core",
+ "wyrm-history-sync",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+]
+
+[[package]]
 name = "wyrm-link-mqtt"
 version = "0.1.0"
 dependencies = [

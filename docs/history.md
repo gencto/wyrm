@@ -190,7 +190,7 @@ waits for a change: Set Password, Resume or new params.
 
 | `mysql` | `host`, `port` (3306), `database`, `user`, `table` (`wyrm_history`), `ssl` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | MySQL and MariaDB. One table `` site, `key` VARCHAR(700), t DATETIME(6), value DOUBLE, value_text TEXT, quality `` (utf8mb4), primary key `` (`key`, t) ``, `INSERT … ON DUPLICATE KEY UPDATE`; text as hex literals. TLS by `SSLRequest`; `caching_sha2_password` (the full login only over TLS: no RSA) or `mysql_native_password`. A key over 700 characters is skipped. |
 
-MongoDB follows (ADR 0026).
+| `mongodb` | `host` (the primary or a mongos; `mongodb+srv` is not resolved), `port` (27017), `database`, `collection` (`wyrm_history`), `user`, `auth_source` (`admin`), `tls` (true; false only to loopback unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `ttl_days` (0: no TTL index) | OP_MSG; one document per row, `_id: {k, t}`, with `site`, `key`, `t` (µs), `ts` (a date), `value`, `quality`; a batch is one `update` of replace-upserts, `ordered: false`. SCRAM-SHA-256 (an ASCII password: it is not SASLprep-normalised). With `ttl_days`, a TTL index on `ts`. |
 
 ## 7. Other historians
 
