@@ -485,7 +485,7 @@ pub(crate) mod tests {
             (
                 wasm_zip(
                     &app_component(),
-                    r#", "capabilities": { "net": ["host:80"] }"#,
+                    r#", "capabilities": { "net": ["host"] }"#,
                 ),
                 "capabilities.net",
             ),
@@ -530,7 +530,7 @@ pub(crate) mod tests {
             ])
         );
         let err = unpack(
-            &zip(r#", "capabilities": { "net": ["host:80"] }"#),
+            &zip(r#", "capabilities": { "net": ["host"] }"#),
             &root,
             "zip",
             0,
