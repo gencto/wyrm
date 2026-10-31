@@ -1,0 +1,51 @@
+[package]
+name = "wyrm-link-s3"
+description = "WYRM S3 link: AWS S3, MinIO, Cloudflare R2, Wasabi, Backblaze B2, Google Cloud Storage (interop) — bucket tree, folders, uploads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process S3 server (one bucket, SigV4 checked) for tests and demos.
+sim = ["wyrm-filestore/sim"]
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-s3-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-s3"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-filestore.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+tracing.workspace = true
+hyper = { workspace = true }
+bytes.workspace = true
+# SigV4: SHA-256 and HMAC-SHA-256.
+ring.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-s3 = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-filestore = { workspace = true, features = ["testkit"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "s3"
+description = "S3 buckets (AWS, MinIO, R2, Wasabi, B2, GCS interop): the bucket as a tree, folders, uploads, downloads"
+bin = "wyrm-link-s3"
+features = ["process"]

@@ -58,6 +58,7 @@ down. In the broker's own process it runs only as WASM.
 - **BACnet** (`links/bacnet`): BACnet/IP devices (driver `bacnet`, package `bacnet`). Guide: [`docs/bacnet.md`](bacnet.md).
 - **OPC UA client** (`links/opcua`, driver `opcua`, package `opcua`): nodes of OPC UA servers as points, with security and certificates. Guide: [`docs/opcua.md`](opcua.md).
 - **Prometheus** (`links/prometheus`, driver and package `prometheus`): scrapes Prometheus / OpenMetrics endpoints and turns series selectors into points. Guide: [`docs/prometheus.md`](prometheus.md).
+- **File stores** (`links/s3`, `links/gdrive`, `links/webdav`, `links/localfs`; drivers and packages `s3`, `gdrive`, `webdav`, `localfs`): a bucket, a Google Drive folder, a WebDAV collection or a directory of the host (disk, USB/SD, NFS/SMB mount) as a tree of folders and files, with Create Folder, Upload File, Download and Delete. Guide: [`docs/filestores.md`](filestores.md).
 
 ## 3. The Install Link menu
 

@@ -6430,6 +6430,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-filestore"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper 1.12.0",
+ "hyper-util",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "sha2",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "webpki-roots",
+ "wyrm-core",
+ "wyrm-link-sdk",
+ "zeroize",
+]
+
+[[package]]
 name = "wyrm-flow"
 version = "0.1.0"
 dependencies = [
@@ -6589,6 +6610,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-gdrive"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "hex",
+ "hyper 1.12.0",
+ "ring",
+ "rsa",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-filestore",
+ "wyrm-link-gdrive",
+ "wyrm-link-sdk",
+ "zeroize",
+]
+
+[[package]]
 name = "wyrm-link-guest"
 version = "0.1.0"
 dependencies = [
@@ -6631,6 +6673,18 @@ dependencies = [
  "wyrm-link-api",
  "wyrm-link-guest",
  "wyrm-link-portable",
+ "wyrm-link-sdk",
+]
+
+[[package]]
+name = "wyrm-link-localfs"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-filestore",
  "wyrm-link-sdk",
 ]
 
@@ -6803,6 +6857,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-s3"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "hex",
+ "hyper 1.12.0",
+ "ring",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-filestore",
+ "wyrm-link-s3",
+ "wyrm-link-sdk",
+ "zeroize",
+]
+
+[[package]]
 name = "wyrm-link-s7"
 version = "0.1.0"
 dependencies = [
@@ -6898,6 +6970,23 @@ dependencies = [
  "wyrm-link-portable",
  "wyrm-link-sdk",
  "wyrm-wasm-host",
+]
+
+[[package]]
+name = "wyrm-link-webdav"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "hyper 1.12.0",
+ "tokio",
+ "tracing",
+ "wyrm-core",
+ "wyrm-filestore",
+ "wyrm-link-sdk",
+ "wyrm-link-webdav",
+ "zeroize",
 ]
 
 [[package]]
@@ -6998,12 +7087,15 @@ dependencies = [
  "wyrm-client",
  "wyrm-core",
  "wyrm-example-portable",
+ "wyrm-filestore",
  "wyrm-flow",
  "wyrm-gateway",
  "wyrm-gateway-client",
  "wyrm-link-agent",
  "wyrm-link-bacnet",
+ "wyrm-link-gdrive",
  "wyrm-link-http",
+ "wyrm-link-localfs",
  "wyrm-link-mock",
  "wyrm-link-modbus",
  "wyrm-link-mqtt",
@@ -7011,11 +7103,13 @@ dependencies = [
  "wyrm-link-portable",
  "wyrm-link-probe",
  "wyrm-link-prometheus",
+ "wyrm-link-s3",
  "wyrm-link-s7",
  "wyrm-link-scheduler",
  "wyrm-link-sdk",
  "wyrm-link-snmp",
  "wyrm-link-wasm",
+ "wyrm-link-webdav",
  "wyrm-state",
  "wyrm-storage",
  "zenoh",

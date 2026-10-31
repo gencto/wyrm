@@ -1,0 +1,38 @@
+[package]
+name = "wyrm-link-localfs"
+description = "WYRM local file system link: a directory of the host (disk, USB/SD card, NFS/SMB/sshfs mount) as a tree, folders, uploads, downloads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-link-localfs"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+wyrm-filestore.workspace = true
+# std::fs only (Linux, macOS, Windows, BSD), blocking calls off the async workers.
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
+tracing.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-filestore = { workspace = true, features = ["testkit"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "localfs"
+description = "A directory of the host (disk, USB/SD card, NFS/SMB mount) as a tree, folders, uploads, downloads"
+bin = "wyrm-link-localfs"
+features = ["process"]
