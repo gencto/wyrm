@@ -560,7 +560,7 @@ mod tests {
             "in a macro's range",
         );
         refused(
-            &format!("[1].map(a, a).size() > 0 && (l + [1]).exists(a, a > 0)"),
+            "[1].map(a, a).size() > 0 && (l + [1]).exists(a, a > 0)",
             "in a macro's range",
         );
         // a chained macro in a range is fine: its own range is checked
@@ -641,7 +641,7 @@ mod tests {
         let r = Row::new(&BTreeMap::new(), &cols);
         // `l` compared with itself on every item: never true, so `exists` goes through every
         // item, 13 lookups each
-        let pairs = vec!["l == l"; 6].join(" && ");
+        let pairs = ["l == l"; 6].join(" && ");
         let e = Expr::compile(&format!("l.exists(a, {pairs} && s.matches('c'))")).unwrap();
         let t = std::time::Instant::now();
         let err = r.eval(&b, &e).unwrap_err();
