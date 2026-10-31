@@ -1581,12 +1581,19 @@ fn public_of<B: Backend>(raw: &Map) -> Map {
         .collect()
 }
 
-/// Where a connection spools its uploads in parts: `<data_dir>/uploads/<conn>`,
+/// Where a connection spools its uploads in parts: `<data_dir>/uploads/c-<conn>`,
 /// or, without a `data_dir`, a directory of its own in the system's
 /// temporary one (never shared: each start clears its directory).
 fn spool_dir(ctx: &LinkCtx, conn: &str) -> std::path::PathBuf {
-    match ctx.data_dir() {
-        Some(d) => d.join("uploads").join(conn),
+    spool_path(ctx.data_dir(), conn)
+}
+
+fn spool_path(data_dir: Option<&std::path::Path>, conn: &str) -> std::path::PathBuf {
+    match data_dir {
+        // a key segment may be `.` or `..`: the prefix keeps the name one
+        // plain directory below `uploads` (it is removed on every start and
+        // stop, so `..` would remove the link's data)
+        Some(d) => d.join("uploads").join(format!("c-{conn}")),
         None => std::env::temp_dir().join(format!(
             "wyrm-filestore-{}-{}-{conn}",
             std::process::id(),
@@ -1838,6 +1845,31 @@ mod tests {
         assert!(keyspace::validate_segment(&segment_for("~meta", "~meta")).is_ok());
         assert!(keyspace::validate_segment(&segment_for("Звіт", "Звіт")).is_ok());
         assert!(keyspace::validate_segment(&segment_for(&"x".repeat(200), "k")).is_ok());
+    }
+
+    /// A connection name is a key segment, and `.` and `..` are segments:
+    /// its spool directory (cleared on every start and stop) must still be
+    /// one plain directory below `uploads`, never the link's data itself.
+    #[test]
+    fn spool_stays_below_uploads() {
+        let base = std::env::temp_dir().join(format!("wyrm-spool-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("uploads").join("other")).unwrap();
+        let keep = base.join("filestore.conns");
+        std::fs::write(&keep, b"sealed").unwrap();
+        for conn in ["..", ".", "a"] {
+            let p = spool_path(Some(&base), conn);
+            assert_eq!(p.parent(), Some(base.join("uploads").as_path()), "{conn}");
+            let n = p.file_name().and_then(|n| n.to_str()).unwrap();
+            assert!(n != "." && n != "..", "{conn}");
+            crate::parts::Uploads::new(p).clear();
+        }
+        assert!(keep.exists(), "the link's data stays");
+        assert!(
+            base.join("uploads").join("other").exists(),
+            "other spools stay"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
