@@ -259,3 +259,130 @@ pub fn loopback(host: &str) -> bool {
             .parse::<std::net::IpAddr>()
             .is_ok_and(|ip| ip.is_loopback())
 }
+
+/// One HTTP endpoint over a keep-alive connection: opened on first use (TLS with `tls`), opened
+/// again once when the server closed it meanwhile, closed after `Connection: close`.
+pub struct Client {
+    pub tls: bool,
+    pub host: String,
+    pub port: u16,
+    pub ca_pem: Option<String>,
+    pub timeout_ms: u32,
+    conn: Option<ConnId>,
+}
+
+impl Client {
+    pub fn new(
+        tls: bool,
+        host: String,
+        port: u16,
+        ca_pem: Option<String>,
+        timeout_ms: u32,
+    ) -> Self {
+        Self {
+            tls,
+            host,
+            port,
+            ca_pem,
+            timeout_ms,
+            conn: None,
+        }
+    }
+
+    /// Open the connection now (a target's `connect` checks the server is there).
+    pub fn open(&mut self, net: &mut dyn Host) -> Result<ConnId, TargetError> {
+        if let Some(c) = self.conn {
+            return Ok(c);
+        }
+        let r = if self.tls {
+            net.tls_connect(
+                &self.host,
+                self.port,
+                self.timeout_ms,
+                self.ca_pem.as_deref(),
+            )
+        } else {
+            net.tcp_connect(&self.host, self.port, self.timeout_ms)
+        };
+        let c =
+            r.map_err(|e| TargetError::Reconnect(format!("connect {}: {}", self.host, e.msg)))?;
+        self.conn = Some(c);
+        Ok(c)
+    }
+
+    pub fn close(&mut self, net: &mut dyn Host) {
+        if let Some(c) = self.conn.take() {
+            net.tcp_close(c);
+        }
+    }
+
+    /// `Host`: the name, and the port when it is not the scheme's (what SigV4 signs too).
+    pub fn host_header(&self) -> String {
+        let name = if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        match (self.tls, self.port) {
+            (true, 443) | (false, 80) => name,
+            (_, p) => format!("{name}:{p}"),
+        }
+    }
+
+    /// One request (`Host` is added).
+    pub fn request(
+        &mut self,
+        net: &mut dyn Host,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<Response, TargetError> {
+        let host = self.host_header();
+        for attempt in 0..2 {
+            let conn = self.open(net)?;
+            let req = Request {
+                method,
+                path,
+                host: &host,
+                headers,
+                body,
+            };
+            match send(net, conn, &req, self.timeout_ms) {
+                Ok(r) => {
+                    if r.close {
+                        self.close(net);
+                    }
+                    return Ok(r);
+                }
+                Err(TargetError::Reconnect(m)) => {
+                    self.close(net);
+                    if attempt == 1 {
+                        return Err(TargetError::Reconnect(m));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(TargetError::Reconnect("http: no connection".into()))
+    }
+}
+
+/// A JSON string literal (RFC 8259): quotes, backslashes and control characters escaped.
+pub fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}

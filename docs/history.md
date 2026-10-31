@@ -186,7 +186,9 @@ waits for a change: Set Password, Resume or new params.
 
 | `postgres` | `host`, `port` (5432), `database`, `user`, `table` (`wyrm_history` or `schema.table`), `sslmode` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | One table `site, key, t timestamptz, value double precision, value_text text, quality smallint`, primary key `(key, t)`, upsert. TLS by `SSLRequest`; SCRAM-SHA-256, or a cleartext password over TLS or to loopback; MD5 is refused. TimescaleDB too (make the table a hypertable yourself). |
 
-DynamoDB, MySQL and MongoDB follow (ADR 0026).
+| `dynamodb` | `region`, `table`, `access_key_id`, `endpoint` (default the region's; `http://` only to loopback, for DynamoDB Local, unless `insecure_plaintext`), `ttl_days` (0: none), `create_table` (false), `ca_pem`, `timeout_ms` | BatchWriteItem, 25 puts per request, SigV4; partition key `key`, sort key `t` (µs), `site`, `value` (N, BOOL, S or NULL), `quality`, `expiration` (epoch s) with `ttl_days`: switch the table's TTL on in AWS. The secret access key with Set Password. |
+
+MySQL and MongoDB follow (ADR 0026).
 
 ## 7. Other historians
 

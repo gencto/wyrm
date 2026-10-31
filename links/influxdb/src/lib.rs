@@ -11,9 +11,9 @@
 //! A row whose value is not a number, a bool or text (or a number that is not finite) is skipped.
 
 use wyrm_core::{Quality, Value};
-use wyrm_history_sync::http::{self, loopback, parse_url, query_value, Request};
+use wyrm_history_sync::http::{self, loopback, parse_url, query_value, Client};
 use wyrm_history_sync::{Map, Row, SyncApp, Target, TargetError};
-use wyrm_link_api::{ConnId, Host};
+use wyrm_link_api::Host;
 
 /// The app: `Portable<InfluxSync>` embedded or as a process, `export!(InfluxSync)` in WASM.
 pub type InfluxSync = SyncApp<Influx>;
@@ -144,38 +144,10 @@ fn quality_code(q: Quality) -> u8 {
 pub struct Influx {
     cfg: Cfg,
     token: Option<String>,
-    conn: Option<ConnId>,
+    http: Client,
 }
 
 impl Influx {
-    fn open(&mut self, net: &mut dyn Host) -> Result<ConnId, TargetError> {
-        if let Some(c) = self.conn {
-            return Ok(c);
-        }
-        let c = &self.cfg;
-        let r = if c.tls {
-            net.tls_connect(&c.host, c.port, c.timeout_ms, c.ca_pem.as_deref())
-        } else {
-            let ip = if c.host == "localhost" {
-                "127.0.0.1"
-            } else {
-                &c.host
-            };
-            net.tcp_connect(ip, c.port, c.timeout_ms)
-        };
-        let conn = r.map_err(|e| TargetError::Reconnect(format!("influxdb: {}", e.msg)))?;
-        self.conn = Some(conn);
-        Ok(conn)
-    }
-
-    fn shut(&mut self, net: &mut dyn Host) {
-        if let Some(c) = self.conn.take() {
-            net.tcp_close(c);
-        }
-    }
-
-    /// One request; a keep-alive connection the server closed meanwhile is
-    /// opened again once.
     fn request(
         &mut self,
         net: &mut dyn Host,
@@ -188,33 +160,7 @@ impl Influx {
         if let Some(a) = &auth {
             headers.push(("Authorization", a.as_str()));
         }
-        let host = self.cfg.host.clone();
-        for attempt in 0..2 {
-            let conn = self.open(net)?;
-            let req = Request {
-                method,
-                path,
-                host: &host,
-                headers: &headers,
-                body,
-            };
-            match http::send(net, conn, &req, self.cfg.timeout_ms) {
-                Ok(r) => {
-                    if r.close {
-                        self.shut(net);
-                    }
-                    return Ok(r);
-                }
-                Err(TargetError::Reconnect(m)) => {
-                    self.shut(net);
-                    if attempt == 1 {
-                        return Err(TargetError::Reconnect(m));
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Err(TargetError::Reconnect("influxdb: no connection".into()))
+        self.http.request(net, method, path, &headers, body)
     }
 }
 
@@ -238,13 +184,19 @@ impl Target for Influx {
 
     fn connect(net: &mut dyn Host, cfg: &Map, secret: Option<&str>) -> Result<Self, TargetError> {
         let cfg = parse(cfg).map_err(TargetError::Fatal)?;
-        let mut t = Influx {
+        let mut http = Client::new(
+            cfg.tls,
+            cfg.host.clone(),
+            cfg.port,
+            cfg.ca_pem.clone(),
+            cfg.timeout_ms,
+        );
+        http.open(net)?;
+        Ok(Influx {
             cfg,
             token: secret.map(str::to_owned),
-            conn: None,
-        };
-        t.open(net)?;
-        Ok(t)
+            http,
+        })
     }
 
     fn write(&mut self, net: &mut dyn Host, rows: &[Row]) -> Result<(), TargetError> {
@@ -269,7 +221,7 @@ impl Target for Influx {
     }
 
     fn close(mut self, net: &mut dyn Host) {
-        self.shut(net);
+        self.http.close(net);
     }
 }
 
