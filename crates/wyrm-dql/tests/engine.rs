@@ -482,3 +482,42 @@ fn attributes_ask_for_full_meta() {
     e2.start(0, &mut out);
     assert!(matches!(&out[0], Effect::List { full: true, .. }));
 }
+
+#[test]
+fn rows_without_values_refetch_their_subscription() {
+    let mut t = plant();
+    let mut e = t.start("list wy/s/downstream/plc/*/temp | subscribe");
+    let first: Vec<u64> = t.subs.keys().copied().collect();
+    assert_eq!(first.len(), 1);
+    // ahu1's stored value came, ahu2's reply was lost
+    t.value(&mut e, "wy/s/downstream/plc/ahu1/temp", Value::Int(1));
+    let at = e.next_wake_us().expect("a refetch is due");
+    assert_eq!(at, t.now + 2_000_000);
+    t.now = at;
+    let mut out = Vec::new();
+    e.tick(t.now, &mut out);
+    t.run(&mut e, out);
+    assert_eq!(e.progress().refetches, 1);
+    assert_eq!(t.subs.len(), 1);
+    assert_ne!(
+        t.subs.keys().copied().collect::<Vec<_>>(),
+        first,
+        "a new subscription"
+    );
+    // the value comes on the new one: no more refetches
+    t.value(&mut e, "wy/s/downstream/plc/ahu2/temp", Value::Int(2));
+    assert_eq!(e.next_wake_us(), None);
+    // a point that never has a value: three refetches at most (2, 4, 8 s)
+    let mut t = plant();
+    let mut e = t.start("list wy/s/downstream/plc/*/temp | subscribe");
+    for _ in 0..5 {
+        if let Some(at) = e.next_wake_us() {
+            t.now = at;
+            let mut out = Vec::new();
+            e.tick(t.now, &mut out);
+            t.run(&mut e, out);
+        }
+    }
+    assert_eq!(e.progress().refetches, wyrm_dql::engine::MAX_REFETCHES);
+    assert_eq!(e.next_wake_us(), None);
+}

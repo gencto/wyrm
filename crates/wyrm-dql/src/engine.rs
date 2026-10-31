@@ -39,6 +39,12 @@ pub const MAX_CACHE: usize = 20_000;
 /// `option timeout_s` says otherwise.
 pub const DEFAULT_TIMEOUT_S: u64 = 30;
 pub const MAX_TIMEOUT_S: u64 = 600;
+/// Rows still without a value this long after `ready` (then twice as long, …) open their
+/// root's subscription again: its first read of the stored values may have lost replies (a
+/// peer hop), and a point that does not change sends nothing more.
+pub const REFETCH_AFTER_MS: u64 = 2_000;
+/// At most this many refetches per query.
+pub const MAX_REFETCHES: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Limits {
@@ -117,6 +123,8 @@ pub struct Progress {
     /// Expressions that failed on a row, sink calls that failed.
     pub errors: u64,
     pub sink_calls: u64,
+    /// Subscriptions opened again for rows without a value ([`REFETCH_AFTER_MS`]).
+    pub refetches: u32,
     /// Why the table may be incomplete (`max_rows`, `max_lists`, a refused list, a timeout).
     pub error: Option<String>,
 }
@@ -186,6 +194,8 @@ pub struct Engine {
     calls: HashMap<u64, (String, usize)>,
     progress: Progress,
     timed_out: bool,
+    /// When the query became `ready` (µs).
+    ready_us: Option<u64>,
 }
 
 fn site_of(key: &str) -> String {
@@ -310,6 +320,7 @@ impl Engine {
             calls: HashMap::new(),
             progress: Progress::default(),
             timed_out: false,
+            ready_us: None,
         }
     }
 
@@ -924,6 +935,40 @@ impl Engine {
             }
         }
         self.check_ready(now);
+        if self.refetch_at().is_some_and(|t| now >= t) && self.missing_values() {
+            self.progress.refetches += 1;
+            // the new subscription first, then the old one goes: nothing is missed between
+            let subs: Vec<(String, Handle)> =
+                self.subs.iter().map(|(k, h)| (k.clone(), *h)).collect();
+            for (prefix, old) in subs {
+                let h = self.id();
+                self.subs.insert(prefix.clone(), h);
+                out.push(Effect::Subscribe {
+                    h,
+                    key: format!("{prefix}/**"),
+                });
+                out.push(Effect::Unsubscribe { h: old });
+            }
+        }
+    }
+
+    /// When the next refetch is due, while refetches are left.
+    fn refetch_at(&self) -> Option<u64> {
+        let ready = self.ready_us?;
+        if self.subs.is_empty() || self.progress.refetches >= MAX_REFETCHES {
+            return None;
+        }
+        Some(ready + REFETCH_AFTER_MS * 1000 * (1 << self.progress.refetches))
+    }
+
+    /// A row of the table reads a value key no sample came for.
+    fn missing_values(&self) -> bool {
+        let last = self.plan.segments.len() - 1;
+        self.row_keys.iter().any(|((seg, row), keys)| {
+            *seg == last
+                && self.table.contains_key(row)
+                && keys.iter().any(|k| !self.values.contains_key(k))
+        })
     }
 
     /// When [`Engine::tick`] has work: a throttled call or the collection timeout.
@@ -937,7 +982,8 @@ impl Engine {
             .min();
         let timeout =
             (self.status() == Status::Collecting).then_some(self.started_us + self.timeout_us);
-        sinks.into_iter().chain(timeout).min()
+        let refetch = self.refetch_at().filter(|_| self.missing_values());
+        sinks.into_iter().chain(timeout).chain(refetch).min()
     }
 
     fn pending(&self) -> usize {
@@ -953,7 +999,9 @@ impl Engine {
         }
         if pending == 0 {
             self.progress.collect_ms = Some(now.saturating_sub(self.started_us) / 1000);
+            self.ready_us = Some(now);
         } else if now >= self.started_us + self.timeout_us {
+            self.ready_us = Some(now);
             self.timed_out = true;
             self.progress.collect_ms = Some(now.saturating_sub(self.started_us) / 1000);
             self.progress.error = Some(format!(

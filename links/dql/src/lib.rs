@@ -217,6 +217,7 @@ impl Query {
         if let Some(p) = p {
             a.insert("errors".into(), Value::UInt(p.errors));
             a.insert("sink_calls".into(), Value::UInt(p.sink_calls));
+            a.insert("refetches".into(), Value::UInt(p.refetches.into()));
             a.insert("lists".into(), n(p.lists));
             a.insert("lists_pending".into(), n(p.lists_pending));
             a.insert("depth".into(), n(p.depth));
