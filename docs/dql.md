@@ -125,10 +125,15 @@ allows 2 000 per link); 1 000 subscriptions per link; 20 000 cached samples per 
 stages and 4 KiB per query text, 1 KiB per expression. Every event of the link spends at most
 700 commands; the rest goes on in the next events.
 
-An expression's cost per row is bounded before it runs (CEL cannot be stopped halfway): no
-macro (`map`, `filter`, `all`, `exists`, `exists_one`) inside another macro's arguments: chain
-them instead (`list.filter(x, …).map(x, …)`); a list literal holds at most 64 items; a value
-of more than 1 000 items (all levels) is `null` in an expression.
+An expression's cost per row is bounded before it runs, on the parsed expression (CEL cannot
+be stopped halfway):
+- no macro (`map`, `filter`, `all`, `exists`, `exists_one`) inside another macro's body: chain
+  them instead (`list.filter(x, …).map(x, …)`), at most 4 in one expression;
+- no `+` and no list or map literal inside a macro's body, so each step of a chain gives at most
+  what it was given;
+- a list literal holds at most 64 items;
+- a value of more than 1 000 items (all levels), or a text or bytes value over 16 KiB, is `null`
+  in an expression.
 
 ## From DSA
 

@@ -15,102 +15,110 @@ use wyrm_core::Value;
 
 /// Longest expression text, bytes.
 pub const MAX_EXPR: usize = 1024;
-/// Macros (`map`, `filter`, `all`, `exists`, `exists_one`) inside another macro's arguments:
-/// none. cel-rust cannot stop an evaluation halfway, so the cost of one row is bounded before
-/// it runs: a chain of macros is linear in the list, a nest multiplies (5 levels over 30
-/// items took 4.8 s per row).
-pub const MAX_MACRO_NESTING: usize = 0;
+/// Macros (`map`, `filter`, `all`, `exists`, `exists_one`) in one expression, chained.
+pub const MAX_MACROS: usize = 4;
 /// Items in one list literal.
 pub const MAX_LIST_LITERAL: usize = 64;
 /// Items (all levels) of one value a row binds: a larger one is `null` in CEL.
 pub const MAX_VALUE_ITEMS: usize = 1000;
+/// Bytes of one text or bytes value a row binds: a longer one is `null` in CEL.
+pub const MAX_VALUE_BYTES: usize = 16 << 10;
 
-const MACROS: [&str; 5] = ["map", "filter", "all", "exists", "exists_one"];
+/// The accumulator a macro's expansion uses; a user cannot write this name.
+const ACCU: &str = "@result";
 
-/// Refuse an expression whose cost could grow past a row's share: nested macros, long list
-/// literals. A plain scan of the text: string literals are skipped.
-fn check_cost(src: &str) -> Result<(), String> {
-    // one frame per open bracket: a macro call, a list literal (with its items), or other
-    enum Frame {
-        Macro,
-        List(usize),
-        Other,
-    }
-    let b = src.as_bytes();
-    let mut stack: Vec<Frame> = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        let c = b[i];
-        match c {
-            b'\'' | b'"' => {
-                // a string literal, triple-quoted or not, raw or not: skip to its end
-                let triple = b[i..].starts_with(&[c, c, c]);
-                let raw = i > 0 && matches!(b[i - 1], b'r' | b'R');
-                i += if triple { 3 } else { 1 };
-                loop {
-                    if i >= b.len() {
-                        return Ok(()); // unterminated: the parser reports it
-                    }
-                    if b[i] == b'\\' && !raw {
-                        i += 2;
-                        continue;
-                    }
-                    if triple && b[i..].starts_with(&[c, c, c]) {
-                        i += 3;
-                        break;
-                    }
-                    if !triple && b[i] == c {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
+/// Bound the cost of one row before it runs, on the parsed expression (cel-rust cannot stop an
+/// evaluation halfway; nested `map`s over a 30-item list took 4.8 s per row at 5 levels). In the
+/// standard library only `+`, list and map literals and macros make data grow, so:
+/// - no macro inside another macro's body (a chain, `l.filter(…).map(…)`, is allowed: at most
+///   [`MAX_MACROS`]);
+/// - no `+` and no list or map literal inside a macro's body (besides the macro's own
+///   `@result + [x]`): each step of a chain gives at most what it was given;
+/// - a list literal holds at most [`MAX_LIST_LITERAL`] items.
+///
+/// Outside macros, `+` and literals grow the result by what the text (≤ 1 KiB) writes.
+fn check_cost(e: &::cel::IdedExpr) -> Result<(), String> {
+    let mut macros = 0;
+    walk(e, false, &mut macros)
+}
+
+fn walk(e: &::cel::IdedExpr, body: bool, macros: &mut usize) -> Result<(), String> {
+    use ::cel::common::ast::{EntryExpr, Expr};
+    let entries = |es: &[::cel::common::ast::IdedEntryExpr], macros: &mut usize| {
+        for en in es {
+            match &en.expr {
+                EntryExpr::MapEntry(m) => {
+                    walk(&m.key, body, macros)?;
+                    walk(&m.value, body, macros)?;
                 }
-                continue;
+                EntryExpr::StructField(f) => walk(&f.value, body, macros)?,
             }
-            b'(' => {
-                // `.name(`: a macro when the name is one
-                let mut j = i;
-                while j > 0 && (b[j - 1].is_ascii_alphanumeric() || b[j - 1] == b'_') {
-                    j -= 1;
-                }
-                let name = &src[j..i];
-                let is_macro = j > 0 && b[j - 1] == b'.' && MACROS.contains(&name);
-                if is_macro {
-                    let nesting = stack.iter().filter(|f| matches!(f, Frame::Macro)).count();
-                    if nesting > MAX_MACRO_NESTING {
-                        return Err(format!(
-                            "CEL: a macro ({name}) inside another macro: chain them instead \
-                             (list.filter(…).map(…))"
-                        ));
-                    }
-                    stack.push(Frame::Macro);
-                } else {
-                    stack.push(Frame::Other);
-                }
-            }
-            b'[' => stack.push(Frame::List(1)),
-            b',' => {
-                if let Some(Frame::List(n)) = stack.last_mut() {
-                    *n += 1;
-                    if *n > MAX_LIST_LITERAL {
-                        return Err(format!(
-                            "CEL: a list literal of at most {MAX_LIST_LITERAL} items"
-                        ));
-                    }
-                }
-            }
-            b')' | b']' => {
-                stack.pop();
-            }
-            b'{' => stack.push(Frame::Other),
-            b'}' => {
-                stack.pop();
-            }
-            _ => {}
         }
-        i += 1;
+        Ok::<(), String>(())
+    };
+    match &e.expr {
+        Expr::Comprehension(c) => {
+            if body {
+                return Err("CEL: a macro inside another macro: chain them instead \
+                            (list.filter(…).map(…))"
+                    .into());
+            }
+            *macros += 1;
+            if *macros > MAX_MACROS {
+                return Err(format!("CEL: at most {MAX_MACROS} macros in an expression"));
+            }
+            // the range may itself be a macro: a chain, outside this one's body
+            walk(&c.iter_range, false, macros)?;
+            walk(&c.loop_cond, true, macros)?;
+            walk(&c.loop_step, true, macros)?;
+            walk(&c.result, true, macros)
+        }
+        Expr::Call(call) => {
+            if body && call.func_name == "_+_" {
+                // the expansion's own step: `@result + [x]` (map, filter) or `@result + 1`
+                match call.args.as_slice() {
+                    [a, b] if matches!(&a.expr, Expr::Ident(n) if n == ACCU) => match &b.expr {
+                        Expr::List(l) if l.elements.len() == 1 => {
+                            return walk(&l.elements[0], true, macros)
+                        }
+                        Expr::Literal(_) => return Ok(()),
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                return Err("CEL: no + inside a macro (it would grow each item)".into());
+            }
+            if let Some(t) = &call.target {
+                walk(t, body, macros)?;
+            }
+            call.args.iter().try_for_each(|a| walk(a, body, macros))
+        }
+        Expr::List(l) => {
+            if body {
+                return Err("CEL: no list literal inside a macro".into());
+            }
+            if l.elements.len() > MAX_LIST_LITERAL {
+                return Err(format!(
+                    "CEL: a list literal of at most {MAX_LIST_LITERAL} items"
+                ));
+            }
+            l.elements.iter().try_for_each(|x| walk(x, body, macros))
+        }
+        Expr::Map(m) => {
+            if body {
+                return Err("CEL: no map literal inside a macro".into());
+            }
+            entries(&m.entries, macros)
+        }
+        Expr::Struct(st) => {
+            if body {
+                return Err("CEL: no struct literal inside a macro".into());
+            }
+            entries(&st.entries, macros)
+        }
+        Expr::Select(sel) => walk(&sel.operand, body, macros),
+        Expr::Ident(_) | Expr::Literal(_) | Expr::Unspecified => Ok(()),
     }
-    Ok(())
 }
 
 /// Meta fields bound as variables (always, `null` when the node has none).
@@ -140,7 +148,6 @@ impl Expr {
         if src.len() > MAX_EXPR {
             return Err(format!("an expression is at most {MAX_EXPR} bytes"));
         }
-        check_cost(src)?;
         // the parser's report spans lines with a caret; its first line says what is wrong
         let prog = Program::compile(src).map_err(|e| {
             let e = e.to_string();
@@ -149,6 +156,7 @@ impl Expr {
                 e.lines().next().unwrap_or(&e).trim_start_matches("ERROR: ")
             )
         })?;
+        check_cost(prog.expression())?;
         Ok(Self {
             src: src.to_owned(),
             prog: Arc::new(prog),
@@ -288,6 +296,8 @@ fn to_cel_all(v: &Value) -> Cel {
         Value::Int(i) => Cel::Int(*i),
         Value::UInt(u) => Cel::UInt(*u),
         Value::Float(f) => Cel::Float(*f),
+        Value::Str(s) if s.len() > MAX_VALUE_BYTES => Cel::Null,
+        Value::Bytes(b) if b.len() > MAX_VALUE_BYTES => Cel::Null,
         Value::Str(s) => Cel::String(Arc::new(s.clone())),
         Value::Bytes(b) => Cel::Bytes(Arc::new(b.clone())),
         Value::Array(a) => Cel::List(Arc::new(a.iter().map(to_cel_all).collect())),
@@ -386,30 +396,99 @@ mod tests {
 
     #[test]
     fn the_cost_of_a_row_is_bounded() {
+        let refused = |src: &str, why: &str| {
+            let e = Expr::compile(src).unwrap_err();
+            assert!(e.contains(why), "{src}: {e}");
+        };
         // the reviewer's case: nested maps over a 30-item list, 4.8 s per row at 5 levels
         let list: Vec<String> = (0..30).map(|i| i.to_string()).collect();
         let l = format!("[{}]", list.join(","));
-        let nested = format!("{l}.map(a, {l}.map(b, a + b))");
-        let e = Expr::compile(&nested).unwrap_err();
-        assert!(e.contains("inside another macro"), "{e}");
-        assert!(Expr::compile(&format!("{l}.exists(a, {l}.all(b, b < a))")).is_err());
-        // a chain is linear: allowed
-        Expr::compile(&format!("{l}.filter(a, a > 3).map(a, a * 2)")).unwrap();
-        // a macro over a value, and the macro word inside a string, are fine
+        refused(
+            &format!("{l}.map(a, {l}.map(b, a + b))"),
+            "inside another macro",
+        );
+        refused(
+            &format!("{l}.exists(a, {l}.all(b, b < a))"),
+            "inside another macro",
+        );
+        // what fooled a scan of the text: spaces, raw strings, comments
+        refused(
+            &format!("{l}.map (a, {l}. map(b, b))"),
+            "inside another macro",
+        );
+        refused(
+            &format!("r'\\' == '' || {l}.map(a, {l}.map(b, b)).size() > 0 || '' == ''"),
+            "inside another macro",
+        );
+        refused(
+            &format!("{l}.map(a, // note\n {l}.map(b, b)).size() > 0"),
+            "inside another macro",
+        );
+        // a chain that doubles each item every step: exponential
+        refused(
+            &format!("{l}.map(a, [a]).map(b, b + b)"),
+            "no list literal inside a macro",
+        );
+        let doubling = format!("{l}.map(a, a){}", ".map(b, b + b)".repeat(40));
+        refused(&doubling, "at most 4 macros");
+        refused(
+            &format!("{l}.map(a, string(a)).map(b, b + b)"),
+            "no + inside a macro",
+        );
+        refused("['x'].map(b, b + b)", "no + inside a macro");
+        refused(
+            &format!("{l}.map(a, {{'k': a}})"),
+            "no map literal inside a macro",
+        );
+        // a chain without growth is linear: allowed, up to 4 macros
+        Expr::compile(&format!(
+            "{l}.filter(a, a > 3).map(a, a * 2).exists(a, a == 8)"
+        ))
+        .unwrap();
+        refused(
+            &format!("{l}{}.size()", ".filter(a, a > 1)".repeat(5)),
+            "at most 4 macros",
+        );
+        // macros over values, exists_one, has: fine
         Expr::compile("attr.history.exists(h, h.startsWith('wy/'))").unwrap();
-        Expr::compile("name == '.map(x, y.map(z, z))'").unwrap();
-        Expr::compile(r#"name == "a\".map(" && [1].map(x, x) == [1]"#).unwrap();
+        Expr::compile("attr.history.exists_one(h, h.endsWith('/w1'))").unwrap();
+        Expr::compile("has(attr.unit) && name + ' ' + unit != ''").unwrap();
         // list literals
         let big: Vec<String> = (0..65).map(|i| i.to_string()).collect();
-        assert!(Expr::compile(&format!("[{}].size() > 0", big.join(",")))
-            .unwrap_err()
-            .contains("list literal"));
+        refused(&format!("[{}].size() > 0", big.join(",")), "list literal");
         Expr::compile(&format!("[{}].size() > 0", big[..64].join(","))).unwrap();
         // a huge value is null in CEL
         let huge = Value::Array((0..2000).map(Value::Int).collect());
         assert_eq!(to_cel(&huge), Cel::Null);
         let ok = Value::Array((0..10).map(Value::Int).collect());
         assert!(matches!(to_cel(&ok), Cel::List(_)));
+        assert_eq!(to_cel(&Value::Str("x".repeat(17 << 10))), Cel::Null);
+    }
+
+    /// The dearest expression the bounds let through, on the largest values they let in: it
+    /// must stay far below a row's share of an event.
+    #[test]
+    fn the_dearest_allowed_row_is_cheap() {
+        let b = base();
+        let list = Value::Array((0..MAX_VALUE_ITEMS as i64).map(Value::Int).collect());
+        let text = Value::Str("x".repeat(MAX_VALUE_BYTES));
+        let cols = vec![("l".to_owned(), list), ("s".to_owned(), text)];
+        let c = scope(&b, &BTreeMap::new(), &cols);
+        let chain = "l.filter(a, a % 2 == 0).map(a, a * 3).filter(a, a > 10).exists(a, a == 2994)";
+        let concat = vec!["s"; 60].join(" + ");
+        let src = format!("{chain} && size({concat}) > 0");
+        assert!(src.len() <= MAX_EXPR, "{}", src.len());
+        let e = Expr::compile(&src).unwrap();
+        let t = std::time::Instant::now();
+        for _ in 0..10 {
+            assert_eq!(e.eval(&c), Ok(Value::Bool(true)));
+        }
+        let per_row = t.elapsed() / 10;
+        // debug build; a release build is several times faster
+        assert!(
+            per_row < std::time::Duration::from_millis(50),
+            "{per_row:?} per row"
+        );
     }
 
     #[test]
