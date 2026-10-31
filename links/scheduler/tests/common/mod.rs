@@ -225,6 +225,7 @@ impl SimHost {
         let who = Who {
             subject: Some("user:test".into()),
             grants: vec![],
+            authority: None,
         };
         self.invoke_as(&who, path, action, args)
     }

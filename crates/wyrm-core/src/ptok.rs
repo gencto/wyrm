@@ -28,6 +28,21 @@ pub struct PtokClaims {
     pub exp: u64,
     pub jti: [u8; 16],
     pub site: String,
+    /// The caller's full grant set on this site (spec 04 0.2.10), on `~act/*` tokens only. It
+    /// never authorizes the request: a responder acting for the caller checks the keys the caller
+    /// names against it. `None` = not sent (the caller's rights are unknown).
+    pub auth: Option<Vec<Grant>>,
+}
+
+/// A grant of site `own` as it reads on site `site` (ADR 0018): `wy/<own>…` becomes
+/// `wy/<site>…`, any other pattern (`wy/**`) stays. The gateway mints a user's tokens for a
+/// downstream site with it, and a link acting for the user checks that site's keys with it.
+pub fn grant_for_site(k: &str, own: &str, site: &str) -> String {
+    let own = format!("wy/{own}");
+    match k.strip_prefix(&own) {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("wy/{site}{rest}"),
+        _ => k.to_owned(),
+    }
 }
 
 /// Raw parts of a token: `(signed_bytes, claims_bytes, signature)`.
@@ -72,13 +87,19 @@ impl<C> Encode<C> for PtokClaims {
         e: &mut Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), encode::Error<W::Error>> {
-        // canonical order (length first): exp iat jti max sub site roles grants
-        e.map(8)?;
+        // canonical order (length first): exp iat jti max sub auth site roles grants
+        e.map(if self.auth.is_some() { 9 } else { 8 })?;
         e.str("exp")?.u64(self.exp)?;
         e.str("iat")?.u64(self.iat)?;
         e.str("jti")?.bytes(&self.jti)?;
         e.str("max")?.u8(self.max.code())?;
         e.str("sub")?.str(&self.sub)?;
+        if let Some(auth) = &self.auth {
+            e.str("auth")?.array(auth.len() as u64)?;
+            for g in auth {
+                g.encode(e, ctx)?;
+            }
+        }
         e.str("site")?.str(&self.site)?;
         e.str("roles")?.array(self.roles.len() as u64)?;
         for r in &self.roles {
@@ -153,6 +174,13 @@ impl<'b, C> Decode<'b, C> for PtokClaims {
                     seen_jti = true;
                 }
                 "site" => c.site = d.str()?.to_owned(),
+                "auth" => {
+                    let mut auth = Vec::new();
+                    for g in d.array_iter_with::<C, Grant>(ctx)? {
+                        auth.push(g?);
+                    }
+                    c.auth = Some(auth);
+                }
                 _ => d.skip()?,
             }
         }

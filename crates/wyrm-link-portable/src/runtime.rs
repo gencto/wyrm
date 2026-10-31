@@ -1285,6 +1285,12 @@ fn who_of(c: &Caller) -> Who {
                     .collect()
             })
             .unwrap_or_default(),
+        // already capped by the SDK's verifier (spec 04 `auth`)
+        authority: c
+            .claims
+            .as_ref()
+            .and_then(|cl| cl.auth.as_ref())
+            .map(|a| a.iter().map(|g| (g.k.clone(), g.p)).collect()),
     }
 }
 

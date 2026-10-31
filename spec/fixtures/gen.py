@@ -87,6 +87,12 @@ def fixtures():
          "grants": [{"k": "wy/plant-a/downstream/**", "p": 2}, {"k": "wy/plant-a/downstream/bacnet/**", "p": 3},
                     {"k": "wy/plant-a/sys/**", "p": 0}],
          "max": 3, "iat": 1760000000, "exp": 1760000300, "jti": b"\x11" * 16, "site": "plant-a"})
+    add("ptok_claims_auth", "ptok claims токена на дію з \"auth\": усі grants викликача (лише для перевірки від його імені)",
+        {"sub": "user:olena", "roles": [],
+         "grants": [{"k": "wy/plant-a/downstream/**", "p": 3}],
+         "auth": [{"k": "wy/plant-a/downstream/**", "p": 3}, {"k": "wy/plant-a/downstream/plc1/**", "p": 1},
+                  {"k": "wy/plant-a/dataflows/**", "p": 2}],
+         "max": 3, "iat": 1760000000, "exp": 1760000300, "jti": b"\x22" * 16, "site": "plant-a"})
     return fx
 
 

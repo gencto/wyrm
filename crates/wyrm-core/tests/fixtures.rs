@@ -67,7 +67,7 @@ where
 #[test]
 fn all_fixtures_roundtrip() {
     let fx = fixtures();
-    assert_eq!(fx.len(), 26, "fixture count changed — update bindings too");
+    assert_eq!(fx.len(), 27, "fixture count changed — update bindings too");
     for f in &fx {
         let bytes = hex::decode(&f.hex).unwrap();
         let n = f.name.as_str();
@@ -82,7 +82,7 @@ fn all_fixtures_roundtrip() {
             }
             _ if n.starts_with("meta_") => roundtrip::<NodeMeta>(n, &bytes),
             _ if n.starts_with("att_") => roundtrip::<Attachment>(n, &bytes),
-            "ptok_claims_v1" => roundtrip::<Value>(n, &bytes),
+            _ if n.starts_with("ptok_claims_") => roundtrip::<Value>(n, &bytes),
             other => panic!("unclassified fixture {other}"),
         }
     }
@@ -125,6 +125,24 @@ fn ptok_claims_structure_matches_json() {
     assert_eq!(c.grants[1].k, "wy/plant-a/downstream/bacnet/**");
     assert_eq!(c.grants[1].p, wyrm_core::Perm::Write);
     assert_eq!(c.jti, [0x11; 16]);
+    assert_eq!(c.auth, None);
+}
+
+#[test]
+fn ptok_claims_auth_matches_json() {
+    let f = fixtures()
+        .into_iter()
+        .find(|f| f.name == "ptok_claims_auth")
+        .unwrap();
+    let bytes = hex::decode(&f.hex).unwrap();
+    roundtrip::<PtokClaims>(&f.name, &bytes);
+    let c: PtokClaims = from_slice(&bytes).unwrap();
+    assert_eq!(c.grants.len(), 1);
+    let auth = c.auth.expect("auth");
+    assert_eq!(auth.len(), 3);
+    assert_eq!(auth[1].k, "wy/plant-a/downstream/plc1/**");
+    assert_eq!(auth[1].p, wyrm_core::Perm::List);
+    assert_eq!(auth[2].p, wyrm_core::Perm::Read);
 }
 
 #[test]

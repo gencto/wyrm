@@ -548,6 +548,7 @@ mod tests {
         let who = Who {
             subject: Some("user:ann".into()),
             grants: vec![("wy/s/**".into(), Perm::Write)],
+            authority: None,
         };
         run_on_set(&S, &mut h, "p", &cbor(&Value::Bool(true)), &who.to_cbor()).unwrap();
         assert_eq!(probe(&S, |p| p.who.clone()), Some(who));

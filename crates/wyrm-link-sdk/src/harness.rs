@@ -126,6 +126,7 @@ impl<L: Link> TestHarness<L> {
                 })
                 .collect(),
             max: Perm::Config,
+            auth: None,
             iat: now,
             exp: now + 300,
             jti,

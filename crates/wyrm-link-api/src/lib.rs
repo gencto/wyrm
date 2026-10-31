@@ -89,6 +89,10 @@ impl std::error::Error for AppError {}
 pub struct Who {
     pub subject: Option<String>,
     pub grants: Vec<(String, Perm)>,
+    /// The caller's whole grant set on this site (spec 04 `auth`), capped by the responder as its
+    /// effective level: what an app acting for the caller may check the keys it names against.
+    /// It never authorizes the call itself. `None`: the caller's rights are unknown.
+    pub authority: Option<Vec<(String, Perm)>>,
 }
 
 impl Who {
@@ -102,9 +106,20 @@ impl Who {
             .is_some_and(|(_, p)| *p >= need)
     }
 
+    /// The caller's own rights (its `authority`) give at least `need` on `key`; `false` when they
+    /// are unknown. The longest matching grant decides, as in [`Who::may`].
+    pub fn may_for(&self, key: &str, need: Perm) -> bool {
+        self.authority.as_ref().is_some_and(|a| {
+            a.iter()
+                .filter(|(k, _)| covers(k, key))
+                .max_by_key(|(k, _)| k.len())
+                .is_some_and(|(_, p)| *p >= need)
+        })
+    }
+
     pub fn to_cbor(&self) -> Vec<u8> {
         let mut e = Encoder::new(Vec::new());
-        let n = if self.subject.is_some() { 2 } else { 1 };
+        let n = 1 + u64::from(self.subject.is_some()) + u64::from(self.authority.is_some());
         // Writing to a `Vec` does not fail.
         let _ = (|| -> Result<(), minicbor::encode::Error<core::convert::Infallible>> {
             e.map(n)?.str("grants")?.array(self.grants.len() as u64)?;
@@ -113,6 +128,15 @@ impl Who {
                     k: k.clone(),
                     p: *p,
                 })?;
+            }
+            if let Some(a) = &self.authority {
+                e.str("auth")?.array(a.len() as u64)?;
+                for (k, p) in a {
+                    e.encode(Grant {
+                        k: k.clone(),
+                        p: *p,
+                    })?;
+                }
             }
             if let Some(s) = &self.subject {
                 e.str("sub")?.str(s)?;
@@ -137,6 +161,13 @@ impl Who {
                         .array_iter::<Grant>()?
                         .map(|g| g.map(|g| (g.k, g.p)))
                         .collect::<Result<_, _>>()?;
+                }
+                "auth" => {
+                    who.authority = Some(
+                        d.array_iter::<Grant>()?
+                            .map(|g| g.map(|g| (g.k, g.p)))
+                            .collect::<Result<_, _>>()?,
+                    );
                 }
                 _ => d.skip()?,
             }
@@ -407,6 +438,7 @@ mod tests {
                 ("wy/s/downstream/**".into(), Perm::Read),
                 ("wy/s/downstream/plc/**".into(), Perm::Write),
             ],
+            authority: None,
         };
         assert!(who.may("wy/s/downstream/plc/p1/~set", Perm::Write));
         assert!(!who.may("wy/s/downstream/x/~set", Perm::Write));
@@ -417,11 +449,40 @@ mod tests {
         let who = Who {
             subject: Some("user:ann".into()),
             grants: vec![("wy/s/**".into(), Perm::Config)],
+            authority: None,
         };
         assert_eq!(Who::from_cbor(&who.to_cbor()).unwrap(), who);
         let anon = Who::default();
         assert_eq!(Who::from_cbor(&anon.to_cbor()).unwrap(), anon);
         assert!(Who::from_cbor(&[0xff]).is_err());
+    }
+
+    #[test]
+    fn who_authority_travels_and_decides_may_for() {
+        let who = Who {
+            subject: Some("user:op".into()),
+            grants: vec![("wy/s/downstream/dql/~act/run".into(), Perm::Write)],
+            authority: Some(vec![
+                ("wy/s/downstream/**".into(), Perm::List),
+                ("wy/s/downstream/plc1/**".into(), Perm::Write),
+            ]),
+        };
+        let bytes = who.to_cbor();
+        assert_eq!(Who::from_cbor(&bytes).unwrap(), who);
+        assert!(who.may_for("wy/s/downstream/plc1/t", Perm::Write));
+        assert!(!who.may_for("wy/s/downstream/plc2/t", Perm::Read));
+        assert!(!Who::default().may_for("wy/s/downstream/plc1/t", Perm::List));
+        // a decoder from before `auth` (WIT 0.1.0 guests) skips the key it does not know
+        let mut d = minicbor::Decoder::new(&bytes);
+        let n = d.map().unwrap().unwrap();
+        let mut sub = None;
+        for _ in 0..n {
+            match d.str().unwrap() {
+                "sub" => sub = Some(d.str().unwrap().to_owned()),
+                _ => d.skip().unwrap(),
+            }
+        }
+        assert_eq!(sub.as_deref(), Some("user:op"));
     }
 
     #[test]
