@@ -360,7 +360,8 @@ impl Pg {
                                     "postgres: no SCRAM-SHA-256 (channel binding only?)".into(),
                                 ));
                             }
-                            let pw = password.ok_or_else(need)?;
+                            // no password: stop here, before any SASL message goes out
+                            password.ok_or_else(need)?;
                             let nonce = scram::nonce(net.now_us(), self.conn.0);
                             let (first, bare) = scram::client_first("", &nonce);
                             let mut b = Vec::new();
