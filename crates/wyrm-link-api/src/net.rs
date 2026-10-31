@@ -9,10 +9,55 @@ struct Allow {
     port: u16,
 }
 
-/// Where a `driver` instance may connect: `<ip>/<prefix>:<port>` entries,
-/// IP literals only (ADR 0012). Empty: no network.
+/// A host name entry: `db.example.com:5432`, or `*.example.com:443` for
+/// every name below `example.com` (ADR 0026).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NameAllow {
+    /// Lowercase, without the `*.` of a wildcard.
+    name: String,
+    wildcard: bool,
+    port: u16,
+}
+
+impl NameAllow {
+    fn matches(&self, host: &str, port: u16) -> bool {
+        if self.port != port {
+            return false;
+        }
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        if self.wildcard {
+            // `name` keeps its leading dot: `a.example.com`, never `example.com`
+            host.strip_suffix(self.name.as_str())
+                .is_some_and(|rest| !rest.is_empty())
+        } else {
+            host == self.name
+        }
+    }
+}
+
+/// Where a `driver` instance may connect: `<ip>/<prefix>:<port>` entries
+/// (ADR 0012) and host names for TLS connections (`<name>:<port>`,
+/// `*.<domain>:<port>`, ADR 0026). Empty: no network.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct NetPolicy(Vec<Allow>);
+pub struct NetPolicy {
+    ips: Vec<Allow>,
+    names: Vec<NameAllow>,
+}
+
+/// A DNS name: labels of letters, digits and `-`, 1–63 bytes each, 253 in all.
+fn host_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 253
+        && s.split('.').all(|l| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        // not an IPv4 literal written as a name
+        && !s.split('.').all(|l| l.bytes().all(|b| b.is_ascii_digit()))
+}
 
 /// An IPv4-mapped IPv6 address is its IPv4 address.
 fn plain(ip: IpAddr) -> IpAddr {
@@ -69,17 +114,38 @@ fn bits(ip: IpAddr) -> (u128, u8) {
 
 impl NetPolicy {
     /// Entries separated by commas, spaces or new lines:
-    /// `10.0.5.0/24:502`, `192.168.1.20:502` (one address), `[fd00::]/64:502`.
+    /// `10.0.5.0/24:502`, `192.168.1.20:502` (one address), `[fd00::]/64:502`,
+    /// and host names for TLS: `db.example.com:5432`, `*.example.com:443`.
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut out = Vec::new();
+        let mut names = Vec::new();
         for e in text
             .split([',', ' ', '\n', '\r', '\t'])
             .filter(|e| !e.is_empty())
         {
             let (addr, port) = e
                 .rsplit_once(':')
-                .ok_or_else(|| format!("{e}: <ip>[/<prefix>]:<port>"))?;
+                .ok_or_else(|| format!("{e}: <ip>[/<prefix>]:<port> or <host>:<port>"))?;
             let port: u16 = port.parse().map_err(|_| format!("{e}: bad port"))?;
+            let (wildcard, name) = match addr.strip_prefix("*.") {
+                Some(n) => (true, n),
+                None => (false, addr),
+            };
+            if host_name(name) {
+                names.push(NameAllow {
+                    name: if wildcard {
+                        format!(".{}", name.to_ascii_lowercase())
+                    } else {
+                        name.to_ascii_lowercase()
+                    },
+                    wildcard,
+                    port,
+                });
+                continue;
+            }
+            if wildcard {
+                return Err(format!("{e}: *. goes before a host name"));
+            }
             let (ip, prefix) = match addr.split_once('/') {
                 Some((ip, p)) => (ip, Some(p)),
                 None => (addr, None),
@@ -88,7 +154,7 @@ impl NetPolicy {
                 .trim_start_matches('[')
                 .trim_end_matches(']')
                 .parse()
-                .map_err(|_| format!("{e}: an IP literal"))?;
+                .map_err(|_| format!("{e}: an IP literal or a host name"))?;
             let ip = plain(ip);
             let max = bits(ip).1;
             let prefix = match prefix {
@@ -106,11 +172,21 @@ impl NetPolicy {
                 port,
             });
         }
-        Ok(Self(out))
+        Ok(Self { ips: out, names })
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.ips.is_empty() && self.names.is_empty()
+    }
+
+    /// `host` (a name the link asked for), resolved to `ip`, may be reached
+    /// on `port`: `ip` is inside an IP entry, or `host` matches a name entry
+    /// and `ip` is an ordinary address. A name never opens a special address
+    /// (loopback, link-local, metadata, …): a name that resolves there needs
+    /// an IP entry of that class, so DNS cannot point a link at the host.
+    pub fn allows_named(&self, host: &str, ip: IpAddr, port: u16) -> bool {
+        self.allows(ip, port)
+            || (class(plain(ip)).is_none() && self.names.iter().any(|n| n.matches(host, port)))
     }
 
     /// `ip:port` is inside an entry. A special address (loopback,
@@ -120,7 +196,7 @@ impl NetPolicy {
         let ip = plain(ip);
         let (a, n) = bits(ip);
         let cls = class(ip);
-        self.0.iter().any(|e| {
+        self.ips.iter().any(|e| {
             let (b, m) = bits(e.net);
             if n != m || e.port != port {
                 return false;
@@ -182,11 +258,45 @@ mod tests {
         assert!(nat64.allows(ip("64:ff9b::a00:5"), 502));
         for bad in [
             "10.0.0.1",
-            "host.example:502",
             "10.0.0.0/33:502",
             "10.0.0.1:99999",
+            "*.10.0.0.1:443",
+            "bad_name.example:443",
+            "-x.example:443",
         ] {
             assert!(NetPolicy::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn host_names_for_tls() {
+        let ip = |s: &str| s.parse::<core::net::IpAddr>().unwrap();
+        let p = NetPolicy::parse("DB.example.com:5432, *.influx.cloud:443").unwrap();
+        assert!(!p.is_empty());
+        // a listed name, resolved to an ordinary address (private included)
+        assert!(p.allows_named("db.example.com", ip("203.0.113.7"), 5432));
+        assert!(p.allows_named("db.example.com.", ip("10.0.0.7"), 5432));
+        assert!(!p.allows_named("db.example.com", ip("203.0.113.7"), 5433));
+        assert!(!p.allows_named("other.example.com", ip("203.0.113.7"), 5432));
+        // a wildcard covers names below it, not the domain itself
+        assert!(p.allows_named("eu.influx.cloud", ip("203.0.113.8"), 443));
+        assert!(p.allows_named("a.b.influx.cloud", ip("203.0.113.8"), 443));
+        assert!(!p.allows_named("influx.cloud", ip("203.0.113.8"), 443));
+        assert!(!p.allows_named("evilinflux.cloud", ip("203.0.113.8"), 443));
+        // a name never opens a special address (DNS rebinding)
+        for special in ["127.0.0.1", "169.254.169.254", "::1", "fd00:ec2::254"] {
+            assert!(
+                !p.allows_named("db.example.com", ip(special), 5432),
+                "{special}"
+            );
+        }
+        // unless an IP entry of that class allows it
+        let local = NetPolicy::parse("localhost:5432, 127.0.0.1:5432").unwrap();
+        assert!(local.allows_named("localhost", ip("127.0.0.1"), 5432));
+        // an IP entry still works for any name
+        let by_ip = NetPolicy::parse("203.0.113.0/24:443").unwrap();
+        assert!(by_ip.allows_named("anything.example", ip("203.0.113.9"), 443));
+        // names alone open no address for plain TCP
+        assert!(!p.allows(ip("203.0.113.7"), 5432));
     }
 }

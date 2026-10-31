@@ -301,7 +301,13 @@ value. A `write` is not shown at once: the next read shows the result.
 separated by commas or spaces: `10.0.5.0/24:502, 192.168.1.20:1502,
 [fd00::]/64:502`.
 
-- IP literals only, in the list and in `connect`. No host names.
+- A WASM driver (`wyrm:link/tcp`): IP literals only, in the list and in `connect`.
+- A portable app (ADR 0026; native and process forms today, WASM with the next world version)
+  may also name hosts: `db.example.com:5432`, `*.example.com:443`, in `tcp_connect`,
+  `tls_connect`, and `tls_upgrade` (TLS on an open connection, as PostgreSQL's and MySQL's
+  `SSLRequest`). The host resolves the name and connects only to an address that an IP entry
+  allows, or to an ordinary address when the name is listed: a listed name never reaches
+  loopback, link-local or metadata addresses by itself.
 - `connect` passes when the address is inside an entry and the port is that
   entry's port.
 - Loopback, link-local (also `169.254.169.254`), multicast, broadcast,
@@ -579,7 +585,7 @@ network starts as usual: the field then says why the list is empty. Without
 | WASM call, `app` component (section 9) | `call_ms` (2 s, at most 10 s), fuel 1 M per ms of `call_ms`, `memory_mb` per instance (64 MiB, at most 512 MiB) |
 | Portable link (every mode) | 10 000 nodes, 64 actions per node, 1 000 timers, 1 000 subscriptions, 100 requests in flight, 1 000 commands per event; a `set`/`invoke` waits `call_ms` + 1 s |
 | Portable link store | `store_mb` (1 MiB, at most 64 MiB); each entry at least 4 KiB (rounded up to 4 KiB); 10 000 keys; key 1–256 bytes |
-| WASM network | 4 connections, 64 KiB per send or receive, IP literals only |
+| WASM network | 4 connections, 64 KiB per send or receive, IP literals only (host names: TLS of portable apps) |
 
 ## 15. When an install fails
 

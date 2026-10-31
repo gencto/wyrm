@@ -18,8 +18,13 @@ tracing.workspace = true
 sha2.workspace = true
 hex.workspace = true
 zeroize.workspace = true
+# tls_connect (ADR 0026): ring only, never aws-lc; the host's CA certificates
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+rustls-native-certs.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["harness", "package"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 ed25519-dalek.workspace = true

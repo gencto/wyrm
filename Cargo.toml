@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-filestore", "links/s3", "links/gdrive", "links/webdav", "links/localfs", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "links/http", "links/snmp", "links/s7", "links/bacnet", "links/opcua", "links/prometheus"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "links/scheduler", "links/http", "links/snmp", "links/s7", "links/bacnet", "links/opcua", "links/prometheus", "crates/wyrm-history-sync", "links/influxdb", "links/postgres", "links/dynamodb", "links/mysql", "links/mongodb", "crates/wyrm-filestore", "links/s3", "links/gdrive", "links/webdav", "links/localfs"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -23,6 +23,7 @@ hex = "0.4"
 wyrm-core = { path = "crates/wyrm-core" }
 wyrm-link-sdk = { path = "crates/wyrm-link-sdk" }
 wyrm-link-api = { path = "crates/wyrm-link-api" }
+wyrm-history-sync = { path = "crates/wyrm-history-sync" }
 wyrm-link-portable = { path = "crates/wyrm-link-portable" }
 wyrm-link-guest = { path = "crates/wyrm-link-guest" }
 wyrm-schedule = { path = "crates/wyrm-schedule" }

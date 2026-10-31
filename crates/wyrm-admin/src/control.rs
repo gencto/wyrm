@@ -848,8 +848,13 @@ impl Control {
     /// The grants of a link for the link itself: `(path, permission)`, the
     /// `{site}` placeholder expanded. Grants with an unknown code are left
     /// out, as in the router ACL.
+    ///
+    /// A history sink's link also gets `read` on its sink's node (ADR 0026),
+    /// so its host lets `next` out and its token carries the grant; it is
+    /// never stored as a grant (link grants never reach `sys`).
     pub fn link_grants(&self, def: &LinkDef) -> Vec<(String, Perm)> {
-        def.grants
+        let mut out: Vec<(String, Perm)> = def
+            .grants
             .iter()
             .filter_map(|(path, code)| {
                 Some((
@@ -857,7 +862,16 @@ impl Control {
                     Perm::try_from(*code).ok()?,
                 ))
             })
-            .collect()
+            .collect();
+        out.extend(
+            self.registry()
+                .historian
+                .sinks
+                .iter()
+                .filter(|(_, s)| s.link == def.id)
+                .map(|(name, _)| (crate::history::sink_key(&self.cfg.site, name), Perm::Read)),
+        );
+        out
     }
 
     fn requester_key_of(&self, id: &str) -> Option<VerifyingKey> {
@@ -5114,9 +5128,10 @@ impl Admin {
     }
 
     /// A sink was added, edited or removed (ADR 0026): its link needs a
-    /// requester key (a process link takes a new one only in its first
-    /// `hello`, so it starts again), and the trust lists and the ACL follow
-    /// with a rebuild.
+    /// requester key and the grant on its sink's node. A process link takes
+    /// both only in its first `hello`, so the links of every sink start
+    /// again (sinks change rarely); embedded links, the trust lists and the
+    /// ACL follow with a rebuild.
     async fn sinks_changed(&self, sub: &str) -> wyrm_link_sdk::Result<()> {
         let links: BTreeSet<String> = self
             .ctl
@@ -5127,13 +5142,10 @@ impl Admin {
             .map(|s| s.link.clone())
             .collect();
         for id in links {
-            let had = self.ctl.requester_key_of(&id).is_some();
             self.ctl
                 .ensure_requester_seed(&id)
                 .map_err(|e| LinkError::internal(e.to_string()))?;
-            if !had {
-                self.restart_for_grants(&id, sub).await?;
-            }
+            self.restart_for_grants(&id, sub).await?;
         }
         self.ctl.schedule_reload();
         Ok(())

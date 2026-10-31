@@ -236,11 +236,47 @@ pub trait Host {
     /// The reply comes through [`App::on_reply`].
     fn set(&mut self, key: &str, value: Value) -> Result<ReqId, AppError>;
     fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError>;
-    // network, within the link's `net` allowlist
+    // network, within the link's `net` allowlist; `addr` is an IP literal, or a host name the
+    // list names (resolved by the host, ordinary addresses only: ADR 0026)
     fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError>;
     fn tcp_send(&mut self, c: ConnId, data: &[u8]) -> Result<(), AppError>;
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>;
     fn tcp_close(&mut self, c: ConnId);
+    /// TLS over TCP to `host:port` (a DNS name or an IP literal), within the
+    /// `net` allowlist (ADR 0026): the host resolves the name, checks each
+    /// address ([`net::NetPolicy::allows_named`]), and verifies the server's
+    /// certificate for `host` against the system roots, or only against
+    /// `ca_pem` when given. The connection then takes `tcp_send`, `tcp_recv`
+    /// and `tcp_close` as a plain one; the keys stay in the host.
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        let _ = (host, port, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_connect: this host has no TLS",
+        ))
+    }
+    /// Start TLS on an open plain connection (`SSLRequest` of PostgreSQL and MySQL), verifying
+    /// the server's certificate for `host` as [`tls_connect`](Self::tls_connect) does; the
+    /// connection keeps its id. On an error the connection is closed.
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        let _ = (c, host, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_upgrade: this host has no TLS",
+        ))
+    }
     fn log(&mut self, level: Level, msg: &str);
 }
 

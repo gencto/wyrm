@@ -86,6 +86,36 @@ pub trait Services {
     fn tcp_send(&mut self, c: ConnId, d: &[u8]) -> Result<(), AppError>;
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>;
     fn tcp_close(&mut self, c: ConnId);
+    /// [`Host::tls_connect`]; a host without TLS refuses it.
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        let _ = (host, port, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_connect: this host has no TLS",
+        ))
+    }
+    /// Start TLS on an open plain connection (`SSLRequest` of PostgreSQL and MySQL), verifying
+    /// the server's certificate for `host` as [`tls_connect`](Self::tls_connect) does; the
+    /// connection keeps its id. On an error the connection is closed.
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        let _ = (c, host, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_upgrade: this host has no TLS",
+        ))
+    }
     /// The instance is gone: close every connection it opened.
     fn close_all(&mut self) {}
 }
@@ -442,6 +472,26 @@ impl Host for BufferHost {
 
     fn tcp_close(&mut self, c: ConnId) {
         self.services.tcp_close(c);
+    }
+
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        self.services.tls_connect(host, port, timeout_ms, ca_pem)
+    }
+
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        self.services.tls_upgrade(c, host, timeout_ms, ca_pem)
     }
 
     fn log(&mut self, level: Level, msg: &str) {

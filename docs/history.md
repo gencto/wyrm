@@ -159,6 +159,39 @@ now} and Remove. Every row written gets a journal number, so a late row or a
 row written again is sent again. Rows recorded before this version have no
 number and are not sent.
 
+### Sink links
+
+Each database is a link package of its own (ADR 0026), built on
+`wyrm-history-sync`: a WASM package by default, a process package from the
+same code. Install it, then:
+
+1. Give it the params: `sink` (the sink's key, `wy/<site>/sys/history/sinks/<name>`:
+   Copy Path on the sink), `batch` (rows per batch, default 500, at most 5 000),
+   `idle_s` (wait when nothing is new, default 5), `retry_s` (longest wait after
+   an error, default 60), and the database's own params (below). Put the
+   database's host in the link's `net` list (a host name is allowed for TLS:
+   `db.example.com:443`).
+2. ▸ **Set Password**: the password or token, kept in the link's sealed store
+   (never a param: the registry keeps params in the clear).
+3. Add the sink for this link (section above), then ▸ **Test Connection**.
+
+The link shows `status` (connecting, reading, idle, waiting after an error,
+failed, paused), `error`, `rows_sent`, `last_batch` and `cursor`; ▸ Pause and
+▸ Resume (kept across restarts). A failed link (wrong token, a refused row)
+waits for a change: Set Password, Resume or new params.
+
+| Link | Params | Writes |
+|---|---|---|
+| `influxdb` | `url` (`https://host[:port][/base]`; `http://` only to loopback unless `insecure_plaintext`), `org`, `bucket`, `measurement` (default `wyrm`), `ca_pem`, `timeout_ms` | v2 write API (InfluxDB 2.x and 3.x), line protocol at µs: tags `site`, `key`; fields `value`, `quality`. A row that is not a number, a bool or text is skipped. |
+
+| `postgres` | `host`, `port` (5432), `database`, `user`, `table` (`wyrm_history` or `schema.table`), `sslmode` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | One table `site, key, t timestamptz, value double precision, value_text text, quality smallint`, primary key `(key, t)`, upsert. TLS by `SSLRequest`; SCRAM-SHA-256, or a cleartext password over TLS or to loopback; MD5 is refused. TimescaleDB too (make the table a hypertable yourself). |
+
+| `dynamodb` | `region`, `table`, `access_key_id`, `endpoint` (default the region's; `http://` only to loopback, for DynamoDB Local, unless `insecure_plaintext`), `ttl_days` (0: none), `create_table` (false), `ca_pem`, `timeout_ms` | BatchWriteItem, 25 puts per request, SigV4; partition key `key`, sort key `t` (µs), `site`, `value` (N, BOOL, S or NULL), `quality`, `expiration` (epoch s) with `ttl_days`: switch the table's TTL on in AWS. The secret access key with Set Password. |
+
+| `mysql` | `host`, `port` (3306), `database`, `user`, `table` (`wyrm_history`), `ssl` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | MySQL and MariaDB. One table `` site, `key` VARCHAR(700), t DATETIME(6), value DOUBLE, value_text TEXT, quality `` (utf8mb4), primary key `` (`key`, t) ``, `INSERT … ON DUPLICATE KEY UPDATE`; text as hex literals. TLS by `SSLRequest`; `caching_sha2_password` (the full login only over TLS: no RSA) or `mysql_native_password`. A key over 700 characters is skipped. |
+
+| `mongodb` | `host` (the primary or a mongos; `mongodb+srv` is not resolved), `port` (27017), `database`, `collection` (`wyrm_history`), `user`, `auth_source` (`admin`), `tls` (true; false only to loopback unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `ttl_days` (0: no TTL index) | OP_MSG; one document per row, `_id: {k, t}`, with `site`, `key`, `t` (µs), `ts` (a date), `value`, `quality`; a batch is one `update` of replace-upserts, `ordered: false`. SCRAM-SHA-256 (an ASCII password: it is not SASLprep-normalised). With `ttl_days`, a TTL index on `ts`. |
+
 ## 7. Other historians
 
 A link can record history itself (another database, a cloud service): give
