@@ -125,6 +125,11 @@ allows 2 000 per link); 1 000 subscriptions per link; 20 000 cached samples per 
 stages and 4 KiB per query text, 1 KiB per expression. Every event of the link spends at most
 700 commands; the rest goes on in the next events.
 
+An expression's cost per row is bounded before it runs (CEL cannot be stopped halfway): no
+macro (`map`, `filter`, `all`, `exists`, `exists_one`) inside another macro's arguments: chain
+them instead (`list.filter(x, …).map(x, …)`); a list literal holds at most 64 items; a value
+of more than 1 000 items (all levels) is `null` in an expression.
+
 ## From DSA
 
 `convert_dsa {text, site}` (or `wyrm_dql::dsa::convert`) rewrites a DSA text for one site:

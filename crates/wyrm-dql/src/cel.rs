@@ -15,6 +15,103 @@ use wyrm_core::Value;
 
 /// Longest expression text, bytes.
 pub const MAX_EXPR: usize = 1024;
+/// Macros (`map`, `filter`, `all`, `exists`, `exists_one`) inside another macro's arguments:
+/// none. cel-rust cannot stop an evaluation halfway, so the cost of one row is bounded before
+/// it runs: a chain of macros is linear in the list, a nest multiplies (5 levels over 30
+/// items took 4.8 s per row).
+pub const MAX_MACRO_NESTING: usize = 0;
+/// Items in one list literal.
+pub const MAX_LIST_LITERAL: usize = 64;
+/// Items (all levels) of one value a row binds: a larger one is `null` in CEL.
+pub const MAX_VALUE_ITEMS: usize = 1000;
+
+const MACROS: [&str; 5] = ["map", "filter", "all", "exists", "exists_one"];
+
+/// Refuse an expression whose cost could grow past a row's share: nested macros, long list
+/// literals. A plain scan of the text: string literals are skipped.
+fn check_cost(src: &str) -> Result<(), String> {
+    // one frame per open bracket: a macro call, a list literal (with its items), or other
+    enum Frame {
+        Macro,
+        List(usize),
+        Other,
+    }
+    let b = src.as_bytes();
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        match c {
+            b'\'' | b'"' => {
+                // a string literal, triple-quoted or not, raw or not: skip to its end
+                let triple = b[i..].starts_with(&[c, c, c]);
+                let raw = i > 0 && matches!(b[i - 1], b'r' | b'R');
+                i += if triple { 3 } else { 1 };
+                loop {
+                    if i >= b.len() {
+                        return Ok(()); // unterminated: the parser reports it
+                    }
+                    if b[i] == b'\\' && !raw {
+                        i += 2;
+                        continue;
+                    }
+                    if triple && b[i..].starts_with(&[c, c, c]) {
+                        i += 3;
+                        break;
+                    }
+                    if !triple && b[i] == c {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+            b'(' => {
+                // `.name(`: a macro when the name is one
+                let mut j = i;
+                while j > 0 && (b[j - 1].is_ascii_alphanumeric() || b[j - 1] == b'_') {
+                    j -= 1;
+                }
+                let name = &src[j..i];
+                let is_macro = j > 0 && b[j - 1] == b'.' && MACROS.contains(&name);
+                if is_macro {
+                    let nesting = stack.iter().filter(|f| matches!(f, Frame::Macro)).count();
+                    if nesting > MAX_MACRO_NESTING {
+                        return Err(format!(
+                            "CEL: a macro ({name}) inside another macro: chain them instead \
+                             (list.filter(…).map(…))"
+                        ));
+                    }
+                    stack.push(Frame::Macro);
+                } else {
+                    stack.push(Frame::Other);
+                }
+            }
+            b'[' => stack.push(Frame::List(1)),
+            b',' => {
+                if let Some(Frame::List(n)) = stack.last_mut() {
+                    *n += 1;
+                    if *n > MAX_LIST_LITERAL {
+                        return Err(format!(
+                            "CEL: a list literal of at most {MAX_LIST_LITERAL} items"
+                        ));
+                    }
+                }
+            }
+            b')' | b']' => {
+                stack.pop();
+            }
+            b'{' => stack.push(Frame::Other),
+            b'}' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(())
+}
 
 /// Meta fields bound as variables (always, `null` when the node has none).
 pub const META_FIELDS: [&str; 10] = [
@@ -43,6 +140,7 @@ impl Expr {
         if src.len() > MAX_EXPR {
             return Err(format!("an expression is at most {MAX_EXPR} bytes"));
         }
+        check_cost(src)?;
         // the parser's report spans lines with a caret; its first line says what is wrong
         let prog = Program::compile(src).map_err(|e| {
             let e = e.to_string();
@@ -151,7 +249,39 @@ pub fn is_ident(s: &str) -> bool {
         )
 }
 
+/// A value as CEL; one of more than [`MAX_VALUE_ITEMS`] items (all levels) is `null`, so a
+/// macro over it costs nothing.
 pub fn to_cel(v: &Value) -> Cel {
+    if items(v, MAX_VALUE_ITEMS + 1) > MAX_VALUE_ITEMS {
+        return Cel::Null;
+    }
+    to_cel_all(v)
+}
+
+/// Items of `v` at every level, counted up to `stop`.
+fn items(v: &Value, stop: usize) -> usize {
+    let mut n = 0;
+    let mut todo = vec![v];
+    while let Some(v) = todo.pop() {
+        match v {
+            Value::Array(a) => {
+                n += a.len();
+                todo.extend(a.iter());
+            }
+            Value::Map(m) => {
+                n += m.len();
+                todo.extend(m.values());
+            }
+            _ => {}
+        }
+        if n >= stop {
+            break;
+        }
+    }
+    n
+}
+
+fn to_cel_all(v: &Value) -> Cel {
     match v {
         Value::Null => Cel::Null,
         Value::Bool(b) => Cel::Bool(*b),
@@ -160,11 +290,11 @@ pub fn to_cel(v: &Value) -> Cel {
         Value::Float(f) => Cel::Float(*f),
         Value::Str(s) => Cel::String(Arc::new(s.clone())),
         Value::Bytes(b) => Cel::Bytes(Arc::new(b.clone())),
-        Value::Array(a) => Cel::List(Arc::new(a.iter().map(to_cel).collect())),
+        Value::Array(a) => Cel::List(Arc::new(a.iter().map(to_cel_all).collect())),
         Value::Map(m) => Cel::Map(Map {
             map: Arc::new(
                 m.iter()
-                    .map(|(k, v)| (Key::String(Arc::new(k.clone())), to_cel(v)))
+                    .map(|(k, v)| (Key::String(Arc::new(k.clone())), to_cel_all(v)))
                     .collect(),
             ),
         }),
@@ -252,6 +382,34 @@ mod tests {
         assert_eq!(vars, vec!["value".to_owned()]);
         let e = Expr::compile("1 +").unwrap_err();
         assert!(e.starts_with("CEL: ") && !e.contains('\n'), "{e}");
+    }
+
+    #[test]
+    fn the_cost_of_a_row_is_bounded() {
+        // the reviewer's case: nested maps over a 30-item list, 4.8 s per row at 5 levels
+        let list: Vec<String> = (0..30).map(|i| i.to_string()).collect();
+        let l = format!("[{}]", list.join(","));
+        let nested = format!("{l}.map(a, {l}.map(b, a + b))");
+        let e = Expr::compile(&nested).unwrap_err();
+        assert!(e.contains("inside another macro"), "{e}");
+        assert!(Expr::compile(&format!("{l}.exists(a, {l}.all(b, b < a))")).is_err());
+        // a chain is linear: allowed
+        Expr::compile(&format!("{l}.filter(a, a > 3).map(a, a * 2)")).unwrap();
+        // a macro over a value, and the macro word inside a string, are fine
+        Expr::compile("attr.history.exists(h, h.startsWith('wy/'))").unwrap();
+        Expr::compile("name == '.map(x, y.map(z, z))'").unwrap();
+        Expr::compile(r#"name == "a\".map(" && [1].map(x, x) == [1]"#).unwrap();
+        // list literals
+        let big: Vec<String> = (0..65).map(|i| i.to_string()).collect();
+        assert!(Expr::compile(&format!("[{}].size() > 0", big.join(",")))
+            .unwrap_err()
+            .contains("list literal"));
+        Expr::compile(&format!("[{}].size() > 0", big[..64].join(","))).unwrap();
+        // a huge value is null in CEL
+        let huge = Value::Array((0..2000).map(Value::Int).collect());
+        assert_eq!(to_cel(&huge), Cel::Null);
+        let ok = Value::Array((0..10).map(Value::Int).collect());
+        assert!(matches!(to_cel(&ok), Cel::List(_)));
     }
 
     #[test]
