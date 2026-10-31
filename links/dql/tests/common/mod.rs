@@ -95,6 +95,7 @@ pub fn writer() -> Who {
     Who {
         subject: Some("user:op".into()),
         grants: vec![("wy/s/downstream/dql/**".into(), Perm::Write)],
+        authority: Some(vec![("wy/s/**".into(), Perm::Write)]),
     }
 }
 
@@ -102,6 +103,7 @@ pub fn engineer() -> Who {
     Who {
         subject: Some("user:eng".into()),
         grants: vec![("wy/s/downstream/dql/**".into(), Perm::Config)],
+        authority: Some(vec![("wy/s/**".into(), Perm::Config)]),
     }
 }
 

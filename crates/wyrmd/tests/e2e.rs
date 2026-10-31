@@ -6527,6 +6527,127 @@ async fn dql_embedded_queries_the_tree() {
     env.stop().await;
 }
 
+/// ADR 0025 item 4 (owner decision 2026-10-31): a query reads and writes with its author's
+/// rights, carried by the token's `auth` (spec 04 0.2.10) through a real router: an operator who
+/// may read `p0` alone sees one row, and a sink of an engineer limited to `p1` writes nowhere else.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_queries_run_with_their_authors_rights() {
+    let env = Env::start(
+        "dqlauth",
+        r#"links: { m: { driver: "mock", params: { points: 3, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let admin = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(2)).await
+    })
+    .await;
+    eventually("dql up", 60, || async { admin.meta(&dql).await.ok() }).await;
+    let as_user = |sub: &str, grants: Vec<(String, wyrm_core::Perm)>| {
+        let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+        let grants = grants
+            .into_iter()
+            .map(|(k, p)| wyrm_core::ptok::Grant { k, p })
+            .collect();
+        SigningTokens::new(key, SITE).subject(sub).grants(grants)
+    };
+    let session = env.session().await;
+    let op = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(as_user(
+            "user:op",
+            vec![
+                (format!("{dql}/**"), wyrm_core::Perm::Write),
+                (format!("{}/**", point(0)), wyrm_core::Perm::Read),
+            ],
+        )))
+        .with_timeout(Duration::from_secs(30));
+    let text = format!("list wy/{SITE}/downstream/m | where type == 'number' | subscribe");
+    let add = |c: &WyrmClient, id: &str, text: String| {
+        let c = c.clone();
+        let (dql, id) = (dql.clone(), id.to_owned());
+        async move {
+            c.invoke_one(
+                &dql,
+                "add_query",
+                args_map(&[
+                    ("id", Value::from(id.as_str())),
+                    ("text", Value::from(text)),
+                    ("publish_ms", Value::UInt(100)),
+                ]),
+            )
+            .await
+        }
+    };
+    add(&op, "mine", text.clone()).await.expect("add as op");
+    add(&admin, "all", text.clone())
+        .await
+        .expect("add as admin");
+    eventually("the admin's query has 3 rows", 30, || async {
+        dql_rows(&admin, "all").await.filter(|r| r.len() == 3)
+    })
+    .await;
+    let mine = eventually("the operator's query is ready", 30, || async {
+        let m = admin.meta(&format!("{dql}/mine")).await.ok()?;
+        (m.attr?.get("status")? == &Value::from("ready")).then_some(())?;
+        dql_rows(&admin, "mine").await
+    })
+    .await;
+    assert_eq!(mine.keys().collect::<Vec<_>>(), [&point(0)], "{mine:?}");
+
+    // an engineer who may write p1 only: a sink on p2 is refused when it would fire
+    let eng = WyrmClient::new(session)
+        .with_tokens(Arc::new(as_user(
+            "user:eng",
+            vec![
+                (format!("{dql}/**"), wyrm_core::Perm::Config),
+                (format!("{}/**", point(0)), wyrm_core::Perm::Read),
+                (format!("{}/**", point(1)), wyrm_core::Perm::Write),
+            ],
+        )))
+        .with_timeout(Duration::from_secs(30));
+    add(
+        &eng,
+        "sink",
+        format!(
+            "path {} | subscribe | set ../p1 = value * 2.0 | set ../p2 = value * 3.0",
+            point(0)
+        ),
+    )
+    .await
+    .expect("add a sink query as the engineer");
+    eventually("the sink query is ready", 30, || async {
+        admin.meta(&format!("{dql}/sink")).await.ok().filter(|m| {
+            m.attr.as_ref().and_then(|a| a.get("status")) == Some(&Value::from("ready"))
+        })
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let p2_before = last_sample(&env, &point(2)).await.map(|s| s.v);
+    admin
+        .set(&point(0), Value::Float(5.0))
+        .await
+        .expect("set p0");
+    eventually("p1 = 2 × p0", 30, || async {
+        last_sample(&env, &point(1))
+            .await
+            .filter(|s| s.v == Value::Float(10.0))
+    })
+    .await;
+    let err = eventually("the p2 sink is refused", 30, || async {
+        let a = admin.meta(&format!("{dql}/sink")).await.ok()?.attr?;
+        match a.get("error")? {
+            Value::Str(e) if e.contains("outside the rights") => Some(e.clone()),
+            _ => None,
+        }
+    })
+    .await;
+    assert!(err.contains(&point(2)), "{err}");
+    assert_eq!(last_sample(&env, &point(2)).await.map(|s| s.v), p2_before);
+    env.stop().await;
+}
+
 /// What one mode of the DQL link shows in the scenario of `dql_three_modes`.
 #[derive(Debug, PartialEq)]
 struct DqlRun {

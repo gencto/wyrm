@@ -4,7 +4,8 @@
 mod common;
 
 use common::*;
-use wyrm_core::{Status, Value};
+use wyrm_core::{Perm, Status, Value};
+use wyrm_link_api::Who;
 
 fn add(
     h: &mut SimHost,
@@ -320,4 +321,46 @@ fn actions_validate_and_explain() {
         )
         .unwrap_err();
     assert_eq!(e.status, Status::InvalidParameter);
+}
+
+/// ADR 0025 item 4 (owner decision 2026-10-31): a query runs with its author's rights.
+#[test]
+fn queries_run_with_their_authors_rights() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let text = "list wy/s/downstream/mock/*/temp | subscribe";
+    // a token without `auth`: the caller's rights are unknown, nothing is defined
+    let blind = Who {
+        authority: None,
+        ..writer()
+    };
+    let e = add(&mut h, "q0", text, &blind).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let e = h
+        .invoke("", "run", map(&[("text", s(text))]), &blind)
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // an operator who may read d0 only: d1 is no row of their query
+    let d0 = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/dql/**".into(), Perm::Write),
+            ("wy/s/downstream/mock/d0/**".into(), Perm::Read),
+        ]),
+        ..writer()
+    };
+    add(&mut h, "mine", text, &d0).unwrap();
+    add(&mut h, "all", text, &writer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.table("mine").len(), 1);
+    assert_eq!(h.table("all").len(), 2);
+    // the same ad-hoc text with other rights is another query, never the other user's table
+    let a = h.invoke("", "run", map(&[("text", s(text))]), &d0).unwrap();
+    let b = h
+        .invoke("", "run", map(&[("text", s(text))]), &writer())
+        .unwrap();
+    assert_ne!(a, b);
+    // the rights outlive a restart: they are kept with the definition
+    h.restart();
+    h.advance_ms(600);
+    assert_eq!(h.table("mine").len(), 1);
 }

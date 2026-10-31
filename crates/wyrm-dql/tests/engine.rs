@@ -521,3 +521,71 @@ fn rows_without_values_refetch_their_subscription() {
     assert_eq!(e.progress().refetches, wyrm_dql::engine::MAX_REFETCHES);
     assert_eq!(e.next_wake_us(), None);
 }
+
+/// ADR 0025 item 4: a query reads and writes only what its author may.
+#[test]
+fn a_query_stays_within_its_authors_rights() {
+    use wyrm_core::Perm;
+    use wyrm_link_api::Who;
+    let mut t = plant();
+    let author = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/**".into(), Perm::List),
+            ("wy/s/downstream/plc/ahu1/**".into(), Perm::Write),
+        ]),
+        ..Who::default()
+    };
+    let text = "list wy/s/downstream/plc/** | where type == 'number' | subscribe | set ../../sp = value + 1";
+    let mut e = Engine::new(parse(text).unwrap(), Limits::default()).with_rights(author, "s");
+    let mut out = Vec::new();
+    e.start(t.now, &mut out);
+    t.run(&mut e, out);
+    // ahu2 is listed (the link reads it) but is no row: its author may not read it
+    assert_eq!(paths(&e), ["wy/s/downstream/plc/ahu1/temp"]);
+    t.value(&mut e, "wy/s/downstream/plc/ahu2/temp", Value::Int(5));
+    t.value(&mut e, "wy/s/downstream/plc/ahu1/temp", Value::Int(20));
+    assert_eq!(
+        col(&e, "wy/s/downstream/plc/ahu1/temp", "value"),
+        Value::Int(20)
+    );
+    // the sink climbs out of ahu1: refused when it would fire, counted as an error
+    t.value(&mut e, "wy/s/downstream/plc/ahu1/temp", Value::Int(21));
+    assert!(t.calls.is_empty(), "{:?}", t.calls);
+    assert!(e.progress().errors >= 1);
+    assert!(e
+        .progress()
+        .error
+        .as_deref()
+        .is_some_and(|m| m.contains("outside the rights")));
+    // unknown rights: nothing at all
+    let mut e =
+        Engine::new(parse(text).unwrap(), Limits::default()).with_rights(Who::default(), "s");
+    let mut out = Vec::new();
+    e.start(t.now, &mut out);
+    t.run(&mut e, out);
+    assert!(paths(&e).is_empty());
+    // a downstream site's keys: the own-site grants rewritten to it (as the gateway mints them)
+    let mut t = Tree::new(&[
+        ("wy/d/downstream/plc", folder()),
+        ("wy/d/downstream/plc/t", number()),
+        ("wy/d/downstream/other", folder()),
+        ("wy/d/downstream/other/t", number()),
+    ]);
+    let author = Who {
+        authority: Some(vec![("wy/s/downstream/plc/**".into(), Perm::Read)]),
+        ..Who::default()
+    };
+    let mut e = Engine::new(parse("list wy/d/downstream/**").unwrap(), Limits::default())
+        .with_rights(author, "s");
+    let mut out = Vec::new();
+    e.start(t.now, &mut out);
+    t.run(&mut e, out);
+    assert!(
+        paths(&e)
+            .iter()
+            .all(|p| p.starts_with("wy/d/downstream/plc")),
+        "{:?}",
+        paths(&e)
+    );
+    assert!(paths(&e).contains(&"wy/d/downstream/plc/t".to_owned()));
+}

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use wyrm_core::{codec, Status, Value};
+use wyrm_core::{codec, Perm, Status, Value};
 use wyrm_link_api::{AppError, Host};
 
 pub const INDEX: &str = "index";
@@ -23,19 +23,80 @@ pub struct Def {
     pub enabled: bool,
     pub publish_ms: u64,
     pub created_by: String,
+    /// What its author may do, kept from the call that defined it (ADR 0025 item 4). `None`: a
+    /// definition from before it was kept; it does not run.
+    pub rights: Option<Rights>,
+}
+
+/// The author's rights (`Who::authority`) and the site they were given on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rights {
+    pub site: String,
+    pub grants: Vec<(String, Perm)>,
+}
+
+impl Rights {
+    fn to_value(&self) -> Value {
+        Value::Map(BTreeMap::from([
+            ("site".to_owned(), Value::Str(self.site.clone())),
+            (
+                "grants".to_owned(),
+                Value::Array(
+                    self.grants
+                        .iter()
+                        .map(|(k, p)| {
+                            Value::Array(vec![Value::Str(k.clone()), Value::UInt(p.code().into())])
+                        })
+                        .collect(),
+                ),
+            ),
+        ]))
+    }
+
+    /// A grant it cannot read makes the whole thing unreadable: never widened.
+    fn from_value(v: &Value) -> Option<Self> {
+        let Value::Map(m) = v else { return None };
+        let Some(Value::Str(site)) = m.get("site") else {
+            return None;
+        };
+        let Some(Value::Array(gs)) = m.get("grants") else {
+            return None;
+        };
+        let grants = gs
+            .iter()
+            .map(|g| match g {
+                Value::Array(a) => match a.as_slice() {
+                    [Value::Str(k), Value::UInt(p)] => u8::try_from(*p)
+                        .ok()
+                        .and_then(|p| Perm::try_from(p).ok())
+                        .map(|p| (k.clone(), p)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self {
+            site: site.clone(),
+            grants,
+        })
+    }
 }
 
 impl Def {
     fn to_value(&self) -> Value {
         let s = |v: &str| Value::Str(v.to_owned());
-        Value::Map(BTreeMap::from([
+        let mut m = BTreeMap::from([
             ("id".to_owned(), s(&self.id)),
             ("display".to_owned(), s(&self.display)),
             ("text".to_owned(), s(&self.text)),
             ("enabled".to_owned(), Value::Bool(self.enabled)),
             ("publish_ms".to_owned(), Value::UInt(self.publish_ms)),
             ("created_by".to_owned(), s(&self.created_by)),
-        ]))
+        ]);
+        if let Some(r) = &self.rights {
+            m.insert("rights".to_owned(), r.to_value());
+        }
+        Value::Map(m)
     }
 
     fn from_value(v: &Value) -> Result<Self, String> {
@@ -57,6 +118,7 @@ impl Def {
                 _ => crate::DEFAULT_PUBLISH_MS,
             },
             created_by: text("created_by").unwrap_or_default(),
+            rights: m.get("rights").and_then(Rights::from_value),
         })
     }
 }
@@ -130,6 +192,7 @@ pub fn from_json(s: &str) -> Result<Def, String> {
             .and_then(|x| x.as_u64())
             .unwrap_or(crate::DEFAULT_PUBLISH_MS),
         created_by: String::new(),
+        rights: None,
     })
 }
 
@@ -146,13 +209,19 @@ mod tests {
             enabled: false,
             publish_ms: 250,
             created_by: "user:ann".into(),
+            rights: Some(Rights {
+                site: "s".into(),
+                grants: vec![("wy/s/downstream/**".into(), Perm::Read)],
+            }),
         };
         assert_eq!(Def::from_value(&d.to_value()).unwrap(), d);
+        // the export carries neither the author nor their rights: an import takes the importer's
         let j = from_json(&to_json(&d)).unwrap();
         assert_eq!(
             j,
             Def {
                 created_by: String::new(),
+                rights: None,
                 ..d
             }
         );

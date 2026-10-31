@@ -23,7 +23,7 @@ use wyrm_core::{Perm, Quality, Sample, Status, Value};
 use wyrm_dql::{parse, Effect, Engine, Handle, Limits};
 use wyrm_link_api::{App, AppError, Host, Level, ListChange, ReqId, SubId, TimerId, Who};
 
-pub use store::Def;
+pub use store::{Def, Rights};
 
 /// Queries at once, stored and ad-hoc.
 pub const MAX_QUERIES: usize = 200;
@@ -123,6 +123,30 @@ fn guard_sink_query(text: &str, who: &Who, what: &str) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+/// The caller's rights, kept with what it defines (ADR 0025 item 4): a query reads and writes
+/// only what its author may. A token without `auth` (spec 04) is refused: its rights are unknown.
+/// The site is the request's own, from the grant that let the call in.
+fn rights_of(who: &Who) -> Result<Rights, AppError> {
+    let refuse = || {
+        AppError::new(
+            Status::PermissionDenied,
+            "the caller's rights are unknown (its token carries no auth): a query runs with its \
+             author's rights",
+        )
+    };
+    let grants = who.authority.clone().ok_or_else(refuse)?;
+    let site = who
+        .grants
+        .first()
+        .and_then(|(k, _)| k.strip_prefix("wy/")?.split('/').next())
+        .filter(|s| !s.is_empty() && !s.contains('*'))
+        .ok_or_else(refuse)?;
+    Ok(Rights {
+        site: site.to_owned(),
+        grants,
+    })
 }
 
 fn refuse_sinks(text: &str, who: &Who) -> Result<(), AppError> {
@@ -286,9 +310,20 @@ impl Dql {
         if !q.def.enabled {
             return;
         }
+        let Some(r) = &q.def.rights else {
+            q.error = Some(
+                "defined before its author's rights were kept: edit its text or add it again"
+                    .into(),
+            );
+            return;
+        };
+        let author = Who {
+            authority: Some(r.grants.clone()),
+            ..Who::default()
+        };
         match parse(&q.def.text) {
             Ok(plan) => {
-                let mut e = Engine::new(plan, Limits::default());
+                let mut e = Engine::new(plan, Limits::default()).with_rights(author, &r.site);
                 let mut out = Vec::new();
                 e.start(cx.now(), &mut out);
                 q.engine = Some(e);
@@ -605,6 +640,7 @@ impl Dql {
         }
         let text = req_str(m, "text")?;
         refuse_sinks(&text, who)?;
+        let rights = rights_of(who)?;
         let def = Def {
             id: id.clone(),
             display: opt_str(m, "display")?.unwrap_or_else(|| id.clone()),
@@ -612,6 +648,7 @@ impl Dql {
             enabled: opt_bool(m, "enabled")?.unwrap_or(true),
             publish_ms: publish_ms(m)?.unwrap_or(DEFAULT_PUBLISH_MS),
             created_by: who.subject.clone().unwrap_or_default(),
+            rights: Some(rights),
         };
         self.save(cx, &def, true)?;
         self.queries.insert(id.clone(), Query::new(def));
@@ -639,8 +676,10 @@ impl Dql {
             .unwrap_or(DEFAULT_TTL_S)
             .clamp(1, MAX_TTL_S);
         refuse_sinks(&text, who)?;
+        let rights = rights_of(who)?;
         let now = cx.now();
-        // identical text shares one ad-hoc query (DSA's QueryManager)
+        // identical text with the same author rights shares one ad-hoc query (DSA's
+        // QueryManager): a table made with one user's rights is never handed to another
         let id = match opt_str(m, "id")? {
             Some(id) => {
                 check_id(&id)?;
@@ -649,7 +688,11 @@ impl Dql {
             None => self
                 .queries
                 .iter()
-                .find(|(_, q)| q.expires_us.is_some() && q.def.text == text.trim())
+                .find(|(_, q)| {
+                    q.expires_us.is_some()
+                        && q.def.text == text.trim()
+                        && q.def.rights.as_ref() == Some(&rights)
+                })
                 .map(|(id, _)| id.clone())
                 .unwrap_or_else(|| {
                     self.next_run += 1;
@@ -657,7 +700,7 @@ impl Dql {
                 }),
         };
         if let Some(q) = self.queries.get(&id) {
-            if q.def.text != text.trim() {
+            if q.def.text != text.trim() || q.def.rights.as_ref() != Some(&rights) {
                 guard_sink_query(&q.def.text, who, "replace")?;
             }
         }
@@ -665,7 +708,7 @@ impl Dql {
             Some(q) if q.expires_us.is_none() => {
                 return Err(invalid("id", format!("{id} is a stored query")));
             }
-            Some(q) if q.def.text == text.trim() => {
+            Some(q) if q.def.text == text.trim() && q.def.rights.as_ref() == Some(&rights) => {
                 q.ttl_s = ttl_s;
                 q.expires_us = Some(now + ttl_s * 1_000_000);
             }
@@ -683,6 +726,7 @@ impl Dql {
                     enabled: true,
                     publish_ms: publish_ms(m)?.unwrap_or(DEFAULT_PUBLISH_MS),
                     created_by: who.subject.clone().unwrap_or_default(),
+                    rights: Some(rights),
                 };
                 let mut q = Query::new(def);
                 q.ttl_s = ttl_s;
@@ -715,11 +759,14 @@ impl Dql {
         if let Some(t) = &text {
             refuse_sinks(t, who)?;
             def.text = t.trim().to_owned();
+            // a new text runs with its editor's rights
+            def.rights = Some(rights_of(who)?);
+            def.created_by = who.subject.clone().unwrap_or_default();
         }
         if let Some(p) = publish_ms(m)? {
             def.publish_ms = p;
         }
-        let restart = def.text != q.def.text;
+        let restart = def.text != q.def.text || def.rights != q.def.rights;
         if q.expires_us.is_none() {
             self.save(cx, &def, false)?;
         }
@@ -802,6 +849,7 @@ impl Dql {
             ));
         }
         def.created_by = who.subject.clone().unwrap_or_default();
+        def.rights = Some(rights_of(who)?);
         let id = def.id.clone();
         self.save(cx, &def, true)?;
         if self.queries.contains_key(&id) {

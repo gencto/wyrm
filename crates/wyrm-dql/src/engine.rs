@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ::cel::Context;
 use wyrm_core::meta::{Profile, TextOrCode};
-use wyrm_core::{NodeMeta, Quality, Sample, Value};
-use wyrm_link_api::ListChange;
+use wyrm_core::{NodeMeta, Perm, Quality, Sample, Value};
+use wyrm_link_api::{ListChange, Who};
 
 use crate::cel;
 use crate::parse::{Arg, Column, Part, Plan, Sink, Source, Stage};
@@ -171,6 +171,10 @@ struct SinkState {
 pub struct Engine {
     plan: Plan,
     limits: Limits,
+    /// The author's rights and the site the query runs on (ADR 0025 item 4): rows, values and
+    /// sink targets outside them are left out. `None`: no bound (`wyr query`, where the user's
+    /// own token reads and writes).
+    rights: Option<(Who, String)>,
     base: Context<'static, 'static>,
     next: u64,
     started_us: u64,
@@ -300,6 +304,7 @@ impl Engine {
         Self {
             plan,
             limits,
+            rights: None,
             base: cel::base(),
             next: 1,
             started_us: 0,
@@ -326,6 +331,35 @@ impl Engine {
 
     pub fn plan(&self) -> &Plan {
         &self.plan
+    }
+
+    /// Bound the query to what `who` may do (its `authority`, spec 04 `auth`) on site `site`; a
+    /// key of another site is checked with the grants rewritten to it, as the gateway mints them.
+    pub fn with_rights(mut self, who: Who, site: &str) -> Self {
+        self.rights = Some((who, site.to_owned()));
+        self
+    }
+
+    /// The author may `need` on `key`.
+    fn may(&self, key: &str, need: Perm) -> bool {
+        let Some((who, own)) = &self.rights else {
+            return true;
+        };
+        let site = key.strip_prefix("wy/").and_then(|r| r.split('/').next());
+        match site {
+            Some(site) if site != own => {
+                let theirs = Who {
+                    authority: who.authority.as_ref().map(|a| {
+                        a.iter()
+                            .map(|(k, p)| (wyrm_core::ptok::grant_for_site(k, own, site), *p))
+                            .collect()
+                    }),
+                    ..Who::default()
+                };
+                theirs.may_for(key, need)
+            }
+            _ => who.may_for(key, need),
+        }
     }
 
     fn id(&mut self) -> u64 {
@@ -620,6 +654,9 @@ impl Engine {
     }
 
     pub fn on_value(&mut self, key: &str, sample: Sample, now: u64, out: &mut Vec<Effect>) {
+        if !self.may(key, Perm::Read) {
+            return;
+        }
         let wanted = self.deps.contains_key(key);
         if wanted || self.values.contains_key(key) || self.values.len() < self.limits.max_cache {
             self.values.insert(key.to_owned(), sample);
@@ -683,6 +720,10 @@ impl Engine {
         let Some(cand) = self.cands[seg].get(key) else {
             return (None, Vec::new());
         };
+        // a node its author may not read is no row (as the gateway hides it when browsing)
+        if !self.may(key, Perm::Read) {
+            return (None, Vec::new());
+        }
         let meta = meta_map(key, &cand.meta);
         let mut cols: Vec<(String, Value)> = vec![("path".into(), Value::Str(key.to_owned()))];
         let mut sinks = Vec::new();
@@ -842,6 +883,15 @@ impl Engine {
     }
 
     fn sink(&mut self, row: &str, idx: usize, r: SinkReq, now: u64, out: &mut Vec<Effect>) {
+        // a target is checked when it fires: `..` may climb out of the root
+        if !self.may(&r.key, Perm::Write) {
+            self.progress.errors += 1;
+            self.progress.error = Some(format!(
+                "{}: outside the rights of the query's author",
+                r.key
+            ));
+            return;
+        }
         if !self.plan.options.invoke_allow_null && has_null(&r.payload) {
             return;
         }

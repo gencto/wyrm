@@ -105,6 +105,19 @@ not an error). A `where` that fails drops the row.
 Reading `attr`, `actions` or `meta` makes the query fetch each listed node's whole `~meta`
 (one more request per node): use it on narrow patterns.
 
+## Rights: a query runs with its author's
+
+A query reads and writes only what the user who defined it may (ADR 0025 item 4): the action's
+token carries the caller's grants (`auth`, spec 04), and the link keeps them with the query.
+
+- A node the author may not `read` is no row; a value they may not `read` is not taken.
+- A `set` or `invoke` whose target the author may not `write` is refused when it would fire: it
+  counts in `errors` and `error` names the key.
+- An `edit` of the text, an `import` or a `run` takes the caller's rights.
+- A caller whose token has no `auth` (a dataflow, an older client) cannot define a query.
+- Whoever has `read` on the link reads every query's table: give the link's `read` only to roles
+  that may see what its queries show.
+
 ## Sinks: set and invoke
 
 - A query with a sink needs `config` on the DQL link (the gateway's `engineer`, `admin`); `write`

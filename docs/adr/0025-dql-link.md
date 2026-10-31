@@ -159,6 +159,15 @@ Collecting a table can take time: one `list` round trip per level the pattern re
 - Found by the first run: a 5 000-row subscription lost a value to the portable runtime's overflow bound (256 + 4 096), and the refetch met the same bound. The overflow is now 16 384, and a subscription that lost values is opened again (at most 3 times) once the overflow has drained.
 - Not yet: the reference board (4-core ARM64, 2 GB).
 
-## Open (owner decision)
+## Item 4 — a query runs with its author's rights (owner decision 2026-10-31)
 
-- **Who reads the results of a query (review item 4).** Today whoever has `write` on the DQL link may define a query on everything the link reads, and whoever has `read` on the link reads every table; a sink query writes as `link:dql` (within the link's own grants), not as its author. A user's own grants are not checked against the query's roots or targets. Options: (a) keep it, as the guide says (roles that must not see the whole site get no `write` on the link); (b) check the author's grants against the roots at `add_query`/`run` (needs the full-grants claim in `ptok`, the scheduler's open item); (c) one DQL link per role. Not changed until the owner decides.
+Before, whoever had `write` on the DQL link defined a query over everything the link reads, and a sink wrote as `link:dql`: a user with a narrow `read` saw more through DQL (also found by the automated security review). Now:
+
+- **The rights travel in the token.** A `ptok` on `~act/*` carries the optional claim `auth` (spec 04 0.2.10): the caller's whole grant set on the site. It never authorizes the request; the SDK's verifier caps each of its grants as the effective level (`max`, `maxperm`, the key's cap) and to a limited key's scopes (`cap_auth`), and the portable runtime hands it to the app as `Who::authority`. Owner decision: only on action tokens, so a link that is read or written never learns a caller's grants.
+- **Kept with the definition.** `add_query`, `run`, `import` and an `edit` of the text store the caller's rights (`Rights {site, grants}`) with the query, in the link's store (not in the JSON export). The query keeps them after a restart and after its author's grants change (as flows and schedules keep running).
+- **Applied while it runs.** The engine (`Engine::with_rights`) makes no row of a node its author may not `read`, takes no value of a key they may not `read`, and refuses a sink target they may not `write` when it would fire (`..` may climb out of a root): the query's `errors` count it and `error` names the key. Keys of a downstream site are checked with the own-site grants rewritten to it, by the gateway's rule (`wyrm_core::ptok::grant_for_site`).
+- **Unknown rights are refused** (owner decision): a token without `auth` (a flow, an old client) cannot define a query, and a stored query without kept rights shows `status: error` until its text is edited or it is added again.
+- **Ad-hoc queries** are shared only by callers with the same text and the same rights: a table made with one user's rights is never handed to another through `run`.
+- `wyr query` runs the engine without a bound: the user's own token reads and writes there.
+
+Still open: whoever has `read` on the DQL link reads every query's `table` and `get_table`, whatever its author could see. Rights per query node (a reader sees a query's table only if its author's rights are within theirs, or per-query read grants) need an owner decision.
