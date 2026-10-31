@@ -25,7 +25,7 @@ pub mod sim;
 use bytes::Bytes;
 use hyper::Method;
 use std::time::Duration;
-use wyrm_filestore::backend::{join, status_error};
+use wyrm_filestore::backend::{join, not_empty, status_error};
 use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{amz_date, parse_rfc3339, pct_encode};
 use wyrm_filestore::{xml, Backend, Entry, Error, FileStore, Limits, Scan};
@@ -583,8 +583,16 @@ impl Backend for S3Store {
         Ok(r.body)
     }
 
-    async fn delete(&self, e: &Entry, _below: &[Entry]) -> Result<(), Error> {
-        let mut keys = if e.dir {
+    async fn delete(&self, e: &Entry, _below: &[Entry], recursive: bool) -> Result<(), Error> {
+        let mut keys = if e.dir && !recursive {
+            // the bucket says what is below, not the tree: two keys tell
+            let base = format!("{}/", self.key(&e.path));
+            let (page, _) = self.list_page(&base, None, 2).await?;
+            if page.iter().any(|c| c.text_of("Key") != Some(base.as_str())) {
+                return Err(not_empty(&e.path));
+            }
+            vec![base]
+        } else if e.dir {
             let base = format!("{}/", self.key(&e.path));
             let mut k = self.keys_below(&base, MAX_DELETE).await?;
             if !k.contains(&base) {

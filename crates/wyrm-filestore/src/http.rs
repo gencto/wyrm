@@ -238,6 +238,9 @@ pub struct Request {
     pub target: String,
     pub headers: Vec<(HeaderName, HeaderValue)>,
     pub body: Bytes,
+    /// A header that could not be set (its name): the request is refused
+    /// rather than sent without it (an unauthenticated request).
+    pub bad_header: Option<String>,
 }
 
 impl Request {
@@ -247,31 +250,33 @@ impl Request {
             target: target.into(),
             headers: Vec::new(),
             body: Bytes::new(),
+            bad_header: None,
         }
     }
 
-    /// Add a header; a value that is not a valid header value is left out
-    /// (callers build values from checked parts).
-    pub fn header(mut self, name: &str, value: &str) -> Self {
-        if let (Ok(n), Ok(v)) = (
+    fn push(mut self, name: &str, value: &str, sensitive: bool) -> Self {
+        match (
             HeaderName::from_bytes(name.as_bytes()),
             HeaderValue::from_str(value),
         ) {
-            self.headers.push((n, v));
+            (Ok(n), Ok(mut v)) => {
+                v.set_sensitive(sensitive);
+                self.headers.push((n, v));
+            }
+            _ => self.bad_header = Some(name.to_owned()),
         }
         self
+    }
+
+    /// Add a header. A value that is not a valid header value makes
+    /// [`Http::send`] refuse the request.
+    pub fn header(self, name: &str, value: &str) -> Self {
+        self.push(name, value, false)
     }
 
     /// A credential header, kept out of debug output by hyper.
-    pub fn secret_header(mut self, name: &str, value: &str) -> Self {
-        if let (Ok(n), Ok(mut v)) = (
-            HeaderName::from_bytes(name.as_bytes()),
-            HeaderValue::from_str(value),
-        ) {
-            v.set_sensitive(true);
-            self.headers.push((n, v));
-        }
-        self
+    pub fn secret_header(self, name: &str, value: &str) -> Self {
+        self.push(name, value, true)
     }
 
     pub fn body(mut self, b: impl Into<Bytes>) -> Self {
@@ -430,6 +435,12 @@ impl Http {
         max_body: usize,
     ) -> Result<Response, HttpError> {
         let what = req.what();
+        if let Some(h) = &req.bad_header {
+            // never the value: it may be a credential
+            return Err(HttpError::Connect(format!(
+                "{what}: the {h} header has characters a header cannot carry"
+            )));
+        }
         match tokio::time::timeout(timeout, self.exchange(req, max_body, &what)).await {
             Ok(r) => r,
             Err(_) => Err(HttpError::Timeout(format!(

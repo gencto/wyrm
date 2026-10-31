@@ -270,16 +270,45 @@ pub trait Backend: Sized + Send + Sync + 'static {
     /// [`Error::TooLarge`]).
     fn get(&self, file: &Entry, max: usize) -> impl Future<Output = Result<Bytes, Error>> + Send;
 
-    /// Delete `e`; for a folder, `below` are the entries the tree knows
-    /// under it (a store without folders deletes each).
-    fn delete(&self, e: &Entry, below: &[Entry]) -> impl Future<Output = Result<(), Error>> + Send;
+    /// Delete `e`. A folder with `recursive` goes with everything in it
+    /// (`below` are the entries the tree knows under it; a store without
+    /// folders lists its keys again, the tree may miss some). Without
+    /// `recursive` the backend asks the store itself whether the folder
+    /// is empty (the tree misses hidden names, levels below `max_depth`,
+    /// entries over `max_entries`, files added since the last read) and
+    /// answers [`not_empty`] when it is not.
+    fn delete(
+        &self,
+        e: &Entry,
+        below: &[Entry],
+        recursive: bool,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Refuse a connection that would reach the link's own files: called
-    /// with the link's `data_dir` when a connection is added, edited or
-    /// started (a local directory must not overlap the broker's data).
-    fn check_place(&self, _data_dir: Option<&std::path::Path>) -> Result<(), LinkError> {
+    /// Bootstrap params of the link beside `connections` (set by the
+    /// broker's admin in `sys/links`, never by `add_connection`), checked
+    /// as these params; `localfs`: `allowed_roots`.
+    fn link_options() -> Vec<wyrm_link_sdk::driver::ParamSpec> {
+        Vec::new()
+    }
+
+    /// Refuse a connection that would reach what it must not: called with
+    /// the link's `data_dir` and its [`Backend::link_options`] when a
+    /// connection is added, edited or started, and before every probe
+    /// (a local directory must not overlap the broker's data, and must be
+    /// below an allowed root).
+    fn check_place(
+        &self,
+        _data_dir: Option<&std::path::Path>,
+        _options: &std::collections::BTreeMap<String, wyrm_core::Value>,
+    ) -> Result<(), LinkError> {
         Ok(())
     }
+}
+
+/// The answer to a delete of a folder that is not empty without
+/// `recursive`.
+pub fn not_empty(path: &str) -> Error {
+    Error::Refused(format!("{path}: the folder is not empty: set recursive"))
 }
 
 #[cfg(test)]

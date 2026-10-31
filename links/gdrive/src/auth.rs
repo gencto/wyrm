@@ -162,9 +162,11 @@ impl Tokens {
             .as_str()
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Error::Auth("token: no access_token in the reply".into()))?;
-        let life = j["expires_in"].as_u64().unwrap_or(3600).clamp(60, 86_400);
+        let life = j["expires_in"].as_u64().unwrap_or(3600).clamp(1, 86_400);
+        // renew a minute early, or halfway through a short life
+        let keep = life - (life / 2).min(60);
         let t = zeroize::Zeroizing::new(token.to_owned());
-        *c = Some((t.clone(), Instant::now() + Duration::from_secs(life - 60)));
+        *c = Some((t.clone(), Instant::now() + Duration::from_secs(keep)));
         Ok(t)
     }
 }

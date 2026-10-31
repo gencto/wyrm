@@ -1,4 +1,4 @@
-# ADR 0025 — File store links (S3, Google Drive, WebDAV, local directories) on the raw layer
+# ADR 0027 — File store links (S3, Google Drive, WebDAV, local directories) on the raw layer
 
 **Status:** accepted · 2026-10-31 (owner request: links to popular file stores — S3, MinIO, Google Drive and other providers — that connect to a bucket, create folders, read the tree of folders and files, build it as nodes, and upload files; separate links where the stores need different code).
 
@@ -34,4 +34,15 @@ Owner request: local storage too, working in as many places as possible.
 - **Confinement**: names checked one by one (portable names: what Windows refuses is refused everywhere), the parent resolved and checked inside the resolved root before every change, symlinks out of the root never shown or followed, `remove_dir_all` (which does not follow links) for folders.
 - **`Backend::check_place`** (default: nothing): called with the link's `data_dir` on add, edit and start; `localfs` refuses a root that overlaps the broker's data directory (`<data_dir>/links/<id>/data` → `<data_dir>`) in either direction.
 - Atomic overwrite (temporary file + rename), `create_new` otherwise, `fsync` of the file and its folder by default, `read_only`.
-- Not done: Windows ACLs and hidden attributes (only names starting with `.` are hidden); a per-link list of allowed roots set by the broker owner (today the OS user of the link process is the boundary).
+- Not done: Windows ACLs and hidden attributes (only names starting with `.` are hidden).
+
+## Amendment 2026-10-31 — review of gencto/wyrm#7 (owner)
+Renumbered 0025 → 0027 (0025 is the DQL link on another branch, 0026 history sync).
+- **Delete asks the store.** `Backend::delete(e, below, recursive)`: without `recursive` the backend checks the store itself (localfs `remove_dir`, S3 a list of two keys under the prefix, WebDAV `PROPFIND Depth: 1`, Drive the folder's children) and answers "not empty"; the tree may miss hidden names, deep levels, entries over `max_entries` and new files.
+- **`localfs` needs `allowed_roots`** (`Backend::link_options`: bootstrap params beside `connections`, set by the admin; checked by `store::validate::<B>` in `wyrmd` and on start). Empty = no directory; `/proc`, `/sys`, `/dev` never; `Backend::check_place(data_dir, options)` also runs before every probe. Built-in roles with `config` on `downstream/**` (`engineer`) can no longer point it at any host path.
+- **Bounded concurrency.** One tree read per connection (`busy` otherwise), two transfers per connection; upload bytes are taken out of the args, not copied.
+- **One hung call per connection** (`localfs` `Gate`): while a timed-out blocking call still runs, new calls answer `timeout` at once.
+- **Files by their real name** (`View::child_named`): Overwrite never patches another file whose path form is the same (Drive `a/b.txt` vs `a_b.txt`); an entry a request made whose path another id holds gets the id in its path; Drive lists by `name,createdTime` and gives a duplicate of a suffixed path the whole id.
+- **An older read never undoes an action** (`View::gen`/`touched`): entries an action created or deleted after a read started are left as the action made them.
+- Smaller: a failed `create_new` write removes only the file it made; hidden names are not written while not shown; the temporary name is short and keeps the old permissions; more Windows reserved names; `refresh_s` 0 or ≥ 5; a short Drive token life is renewed halfway; a header that cannot be set fails the request (never sent unauthenticated); WebDAV bearer tokens checked; names a store sends that are `.`/`..`/empty/control are left out; a stored connection the link cannot show is skipped, not the link.
+- Still open: action tasks outlive Stop/Remove/Edit (no cancel token yet); `localfs` resolve-then-act races on shared mounts (`openat2(RESOLVE_BENEATH)` / `O_NOFOLLOW` are Linux-only and not used).

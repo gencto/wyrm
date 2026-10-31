@@ -30,7 +30,7 @@ use hyper::Method;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
-use wyrm_filestore::backend::{join, status_error};
+use wyrm_filestore::backend::{join, not_empty, status_error};
 use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{parse_rfc3339, pct_encode};
 use wyrm_filestore::{Backend, Entry, Error, FileStore, Limits, Scan};
@@ -263,7 +263,7 @@ impl GDriveStore {
         }
         let q = pct_encode(&format!("'{id}' in parents and trashed=false"), false);
         let mut target = format!(
-            "{}/drive/v3/files?q={q}&pageSize=1000&orderBy=name&fields={}{}",
+            "{}/drive/v3/files?q={q}&pageSize=1000&orderBy=name%2CcreatedTime&fields={}{}",
             self.api.endpoint.prefix,
             pct_encode(&format!("nextPageToken,files({FIELDS})"), false),
             self.drive_query()
@@ -439,10 +439,18 @@ impl Backend for GDriveStore {
                     if name.is_empty() || !valid_id(fid) {
                         continue;
                     }
-                    let mut seg = segment(name);
+                    // a second file of one name (Drive allows it) and a name
+                    // that is another's path form get the id in the path
+                    let base = segment(name);
+                    let mut seg = base.clone();
+                    if names.contains(&seg) {
+                        seg = format!("{base} ({})", &fid[..fid.len().min(8)]);
+                    }
+                    if names.contains(&seg) {
+                        seg = format!("{base} ({fid})");
+                    }
                     if !names.insert(seg.clone()) {
-                        seg = format!("{seg} ({})", &fid[..fid.len().min(8)]);
-                        names.insert(seg.clone());
+                        continue; // the same id twice in one listing
                     }
                     let e = entry(&path, &seg, f);
                     if e.dir {
@@ -576,8 +584,15 @@ impl Backend for GDriveStore {
         Ok(r.body)
     }
 
-    async fn delete(&self, e: &Entry, _below: &[Entry]) -> Result<(), Error> {
+    async fn delete(&self, e: &Entry, _below: &[Entry], recursive: bool) -> Result<(), Error> {
         let id = Self::need_id(e)?;
+        if e.dir && !recursive {
+            // trash or delete takes the folder's content: ask Drive first
+            let (inside, _) = self.children(id, None).await?;
+            if !inside.is_empty() {
+                return Err(not_empty(&e.path));
+            }
+        }
         let r = if self.trash {
             self.call(
                 Method::PATCH,

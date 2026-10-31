@@ -9,6 +9,16 @@ async fn setup(
     secret: &str,
     extra: &[(&str, Value)],
 ) -> (H<S3Store>, Shared, tokio::task::JoinHandle<()>) {
+    setup_with(secret, extra, |_| {}).await
+}
+
+/// `prepare` changes the bucket before the link starts (with `refresh_s`
+/// 0 the link reads it once).
+async fn setup_with(
+    secret: &str,
+    extra: &[(&str, Value)],
+    prepare: impl FnOnce(&mut sim::State),
+) -> (H<S3Store>, Shared, tokio::task::JoinHandle<()>) {
     let (addr, st, task) = sim::spawn("127.0.0.1:0").await.unwrap();
     {
         let mut s = st.lock().unwrap();
@@ -17,6 +27,7 @@ async fn setup(
         }
         // a key outside the connection's prefix never shows
         s.put("other/x.txt", b"x");
+        prepare(&mut s);
     }
     let mut kv = vec![
         ("endpoint", Value::Str(format!("http://{addr}"))),
@@ -32,11 +43,13 @@ async fn setup(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn bucket_tree_folders_uploads() {
-    let (h, st, _task) = setup("sim-secret-key", &[]).await;
-    // pages of two keys: continuation tokens
-    st.lock().unwrap().page = 2;
-    // the seed holds `other/x.txt` too: one more folder and file
-    st.lock().unwrap().objects.remove("other/x.txt");
+    let (h, st, _task) = setup_with("sim-secret-key", &[], |s| {
+        // pages of two keys: continuation tokens
+        s.page = 2;
+        // the scenario's seed only
+        s.objects.remove("other/x.txt");
+    })
+    .await;
     let ext = |e: Ext<'_>| {
         let mut s = st.lock().unwrap();
         match e {
@@ -107,8 +120,10 @@ async fn store_down_then_back() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn silent_store_times_out() {
-    let (h, st, _task) = setup("sim-secret-key", &[("timeout_ms", Value::UInt(500))]).await;
-    st.lock().unwrap().mode = Mode::Silent;
+    let (h, _st, _task) = setup_with("sim-secret-key", &[("timeout_ms", Value::UInt(500))], |s| {
+        s.mode = Mode::Silent;
+    })
+    .await;
     refused(&h).await;
     assert!(wyrm_filestore::testkit::error(&h, "c1")
         .unwrap()

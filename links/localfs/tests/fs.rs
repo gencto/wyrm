@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use wyrm_core::{Status, Value};
 use wyrm_filestore::testkit::{
-    act, bootstrap, map, ok, refused, scenario, state, status, wait, Ext, H, SEED,
+    act, bootstrap_with, map, ok, refused, scenario, state, status, wait, Ext, H, SEED,
 };
 use wyrm_link_localfs::LocalStore;
 
@@ -37,7 +37,15 @@ async fn start(root: &Path, extra: &[(&str, Value)]) -> H<LocalStore> {
         ("refresh_s", Value::Float(0.0)),
     ];
     kv.extend(extra.iter().cloned());
-    H::<LocalStore>::start(bootstrap(map(&kv))).await
+    H::<LocalStore>::start(bootstrap_with(map(&kv), &allowed())).await
+}
+
+/// The temporary directory as the one allowed root.
+fn allowed() -> Vec<(&'static str, Value)> {
+    vec![(
+        "allowed_roots",
+        Value::Str(std::env::temp_dir().to_str().unwrap().into()),
+    )]
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -196,7 +204,7 @@ async fn the_brokers_data_directory_is_off_limits() {
     let other = Dir::new("other");
     let tune = |c: &mut wyrm_link_sdk::LinkConfig| c.data_dir = Some(link_data.clone());
     let h = TestHarness::<wyrm_link_localfs::LocalFs>::start_with(
-        wyrm_filestore::Bootstrap(Value::Null),
+        wyrm_filestore::Bootstrap(map(&allowed())),
         tune,
     )
     .await;
@@ -224,5 +232,103 @@ async fn the_brokers_data_directory_is_off_limits() {
     )
     .await;
     wait("connected", 10, || state(&h, "y") == Some("connected")).await;
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_allowed_directories() {
+    use wyrm_link_sdk::TestHarness;
+    let d = Dir::new("allowed");
+    d.put("a.txt", b"a");
+    // no allowed_roots: nothing is allowed
+    let conn = map(&[("root", Value::Str(d.0.to_str().unwrap().into()))]);
+    let h = H::<LocalStore>::start(wyrm_filestore::testkit::bootstrap(conn.clone())).await;
+    wait("failed", 10, || state(&h, "c1") == Some("failed")).await;
+    let e = wyrm_filestore::testkit::error(&h, "c1").unwrap();
+    assert!(e.contains("allowed_roots"), "{e}");
+    h.stop().await;
+    // a connection outside the allowed roots is refused; /proc never
+    // two lines: a blank one is ignored
+    let opts = [(
+        "allowed_roots",
+        Value::Str(format!("\n{}\n", d.0.join("sub").to_str().unwrap())),
+    )];
+    let h = TestHarness::<wyrm_link_localfs::LocalFs>::start(wyrm_filestore::Bootstrap(map(&opts)))
+        .await;
+    std::fs::create_dir_all(d.0.join("sub")).unwrap();
+    let (a, _) = act(
+        &h,
+        "",
+        "add_connection",
+        map(&[
+            ("name", "x".into()),
+            ("root", Value::Str(d.0.to_str().unwrap().into())),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        status(&a),
+        Status::InvalidParameter,
+        "the parent of the allowed root"
+    );
+    ok(
+        &h,
+        "",
+        "add_connection",
+        map(&[
+            ("name", "y".into()),
+            ("root", Value::Str(d.0.join("sub").to_str().unwrap().into())),
+        ]),
+    )
+    .await;
+    h.stop().await;
+    let everything = [("allowed_roots", Value::Str("/".into()))];
+    let h = TestHarness::<wyrm_link_localfs::LocalFs>::start(wyrm_filestore::Bootstrap(map(
+        &everything,
+    )))
+    .await;
+    for root in ["/proc/self", "/sys", "/dev"] {
+        let (a, _) = act(
+            &h,
+            "",
+            "add_connection",
+            map(&[("name", "p".into()), ("root", Value::Str(root.into()))]),
+        )
+        .await;
+        assert_eq!(status(&a), Status::InvalidParameter, "{root}");
+    }
+    h.stop().await;
+    // a bad option is refused before the link starts
+    let bad = Value::Map([("unknown".to_owned(), Value::Bool(true))].into());
+    assert!(wyrm_filestore::store::validate::<LocalStore>(&bad).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_names_are_not_written_unless_shown() {
+    let d = Dir::new("hidden");
+    let h = start(&d.0, &[]).await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    for action in ["upload", "create_folder"] {
+        let (a, _) = act(
+            &h,
+            "c1/files",
+            action,
+            map(&[("name", ".bashrc".into()), ("text", "x".into())]),
+        )
+        .await;
+        assert_eq!(status(&a), Status::InvalidParameter, "{action}");
+    }
+    assert!(!d.0.join(".bashrc").exists());
+    h.stop().await;
+    let h = start(&d.0, &[("show_hidden", Value::Bool(true))]).await;
+    wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    ok(
+        &h,
+        "c1/files",
+        "upload",
+        map(&[("name", ".env.example".into()), ("text", "x".into())]),
+    )
+    .await;
+    assert!(d.0.join(".env.example").exists());
     h.stop().await;
 }

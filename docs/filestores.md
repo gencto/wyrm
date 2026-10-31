@@ -11,7 +11,7 @@ delete files:
 | `webdav` | Nextcloud, ownCloud, Synology, QNAP, Apache/nginx DAV, rclone serve, pCloud, Yandex Disk, … | `links/webdav` |
 | `localfs` | a directory of the host: a local disk, a USB stick or SD card, an NFS / SMB / sshfs mount, a NAS volume, a sync folder | `links/localfs` |
 
-All four run on `crates/wyrm-filestore` (ADR 0025): the same tree, the
+All four run on `crates/wyrm-filestore` (ADR 0027): the same tree, the
 same actions, the same limits. They run embedded in `wyrmd` or as
 processes (`wyrmd link s3`, or the packages' binaries).
 
@@ -52,19 +52,31 @@ downstream/<link>/
 | folder (and `files`) | Refresh | read | read this folder again |
 | folder (and `files`) | Create Folder `{name}` | write | → `{path, node}` |
 | folder (and `files`) | Upload File `{name, file \| text, content_type?, overwrite?}` | write | → `{path, node, size}`; without `overwrite` a file of that name is refused |
-| folder | Delete `{recursive?}` | write | a folder that is not empty needs `recursive` |
+| folder | Delete `{recursive?}` | write | without `recursive` the store itself is asked whether the folder is empty (not the tree, which may miss hidden names, deep levels and new files) |
 | file | Download `{text?}` | read | the bytes (or UTF-8 text with `text`) |
 | file | Delete | write | |
 
 Uploads take a `file` (the explorer's file picker; larger than a WebSocket
 frame goes through the gateway's `POST /api/invoke`) or `text`. The
-content type comes from the name's extension when not given.
+content type comes from the name's extension when not given. A file is
+found by its real name (Overwrite replaces the file called that, not
+another whose key looks the same).
+
+Each connection runs one tree read at a time (a Refresh while one runs
+answers `busy`) and two uploads or downloads at a time (a third answers
+`busy`): the bytes of a transfer are held in memory.
+
+Without `overwrite` an upload never replaces a file: S3 and WebDAV send
+`If-None-Match: *`, `localfs` creates the file new. Some servers ignore
+that header (nginx `dav`, some Ceph RGW versions, Wasabi, Backblaze B2,
+the GCS XML API): there a file made by someone else after the last refresh
+can be replaced.
 
 Common connection params (all four links):
 
 | Param | Default | Range | |
 |---|---|---|---|
-| `refresh_s` | 300 | 0–86 400 | 0 = only on Refresh |
+| `refresh_s` | 300 | 0, 5–86 400 | 0 = only on Refresh |
 | `max_entries` | 2000 | 1–9000 | more are left out; the connection says `truncated` |
 | `max_depth` | 8 | 1–12 | folder levels shown |
 | `max_upload_mib` | 32 | 1–64 | |
@@ -145,12 +157,27 @@ refuse `Depth: infinity`); folders are real collections (`MKCOL`).
 
 ## 6. Local directory (`localfs`)
 
+The link's own params (set by the broker's admin in `sys/links` or
+`wyrmd.json5`, not by Add Local Directory) list the directories its
+connections may use:
+
+```json5
+links: [{ id: "files", driver: "localfs", params: {
+  allowed_roots: "/srv/plant\n/mnt/usb" } }]
+```
+
+One absolute path per line; a connection's `root` must be one of them or
+below one. Empty (the default) allows none: an embedded `localfs` reads and
+writes with the broker's permissions, so a user with `config` on the link
+must not choose any path of the host. `/proc`, `/sys` and `/dev` are never
+allowed. The check runs on add, edit, start and before every probe.
+
 | Param | Default | |
 |---|---|---|
 | `root` | — | an absolute path: `/srv/plant/reports`, `/mnt/usb`, `/Volumes/NAS/share`, `D:\reports`, `\\nas\share` |
 | `create_root` | `false` | create it (and its parents) when missing |
 | `read_only` | `false` | refuse Create Folder, Upload File and Delete |
-| `show_hidden` | `false` | show names starting with `.` |
+| `show_hidden` | `false` | show names starting with `.`; while off they are not written either |
 | `follow_symlinks` | `false` | show symbolic links that resolve inside `root` (others are never shown) |
 | `fsync` | `true` | sync each upload and its folder (power loss; slower on SD cards) |
 | `timeout_ms` | 10000 | bound on each file system call (a hung network mount) |
@@ -176,11 +203,16 @@ What it guarantees:
 - Names for new files and folders are valid on every system: no `/ \ < >
   : " | ? *`, no `CON`, `NUL`, `COM1` …, no `.` or space at the end.
 - An upload with `overwrite` goes to a hidden temporary file
-  (`.<name>.wyrm-<id>.tmp`) and is renamed over the old file, so readers
-  never see half a file; without it the file is created new and a file
-  made meanwhile is never replaced.
+  (`.wyrm-<id>.tmp`) and is renamed over the old file, so readers never
+  see half a file; the old file's permissions stay (its owner and extended
+  attributes do not). Without it the file is created new and a file made
+  meanwhile is never replaced; a failed write removes only what it made.
 - A hung mount fails the call after `timeout_ms` (and the connection
-  probes again); the blocking thread stays until the kernel returns.
+  probes again); the blocking thread stays until the kernel returns, and
+  while it does the connection's next calls answer `timeout` at once, so
+  one hung mount holds one thread, not one per retry.
+- Left: the checks resolve a path, then act on it. On a shared NFS/SMB
+  mount another writer could swap a folder for a link between the two.
 - Names that are not UTF-8 (possible on Linux) are left out; sockets,
   devices and FIFOs are not shown.
 

@@ -20,7 +20,7 @@ use bytes::Bytes;
 use hyper::Method;
 use std::collections::VecDeque;
 use std::time::Duration;
-use wyrm_filestore::backend::{join, last_name, status_error};
+use wyrm_filestore::backend::{join, last_name, not_empty, parent_of, status_error};
 use wyrm_filestore::http::{tls_config, Endpoint, Http, Request, Response};
 use wyrm_filestore::util::{parse_http_date, pct_decode, pct_encode};
 use wyrm_filestore::{xml, Backend, Entry, Error, FileStore, Limits, Scan};
@@ -266,6 +266,10 @@ impl Backend for WebDavStore {
                 if p.token.is_empty() {
                     return Err(bad("token", "required with auth bearer"));
                 }
+                // never echo the token
+                if !p.token.bytes().all(|b| b.is_ascii_graphic()) {
+                    return Err(bad("token", "only visible ASCII characters"));
+                }
                 Some(zeroize::Zeroizing::new(format!("Bearer {}", p.token)))
             }
         };
@@ -425,7 +429,17 @@ impl Backend for WebDavStore {
         Ok(r.body)
     }
 
-    async fn delete(&self, e: &Entry, _below: &[Entry]) -> Result<(), Error> {
+    async fn delete(&self, e: &Entry, _below: &[Entry], recursive: bool) -> Result<(), Error> {
+        if e.dir && !recursive {
+            // DELETE of a collection takes all in it: ask the server first
+            let inside = self.propfind(&e.path, "1").await?;
+            if inside.iter().any(|f| {
+                self.rel(&f.href)
+                    .is_some_and(|r| parent_of(r) == Some(e.path.as_str()))
+            }) {
+                return Err(not_empty(&e.path));
+            }
+        }
         let r = self
             .send(
                 "DELETE",

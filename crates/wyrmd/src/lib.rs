@@ -734,9 +734,10 @@ impl EmbeddedHost for Drivers {
             "bacnet" => Tree::from_params(params).map(|_| ()),
             "opcua" => Tree::from_params(params).map(|_| ()),
             "prometheus" => Tree::from_params(params).map(|_| ()),
-            "s3" | "gdrive" | "webdav" | "localfs" => {
-                wyrm_filestore::Bootstrap::from_params(params).map(|_| ())
-            }
+            "s3" => wyrm_filestore::store::validate::<wyrm_link_s3::S3Store>(params),
+            "gdrive" => wyrm_filestore::store::validate::<wyrm_link_gdrive::GDriveStore>(params),
+            "webdav" => wyrm_filestore::store::validate::<wyrm_link_webdav::WebDavStore>(params),
+            "localfs" => wyrm_filestore::store::validate::<wyrm_link_localfs::LocalStore>(params),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`

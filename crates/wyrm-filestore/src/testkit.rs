@@ -41,7 +41,14 @@ pub fn map(kv: &[(&str, Value)]) -> Value {
 
 /// Bootstrap params with one connection `c1`.
 pub fn bootstrap(conn: Value) -> crate::Bootstrap {
-    crate::Bootstrap(map(&[("connections", map(&[("c1", conn)]))]))
+    bootstrap_with(conn, &[])
+}
+
+/// Bootstrap params with one connection `c1` and link options.
+pub fn bootstrap_with(conn: Value, options: &[(&str, Value)]) -> crate::Bootstrap {
+    let mut kv = vec![("connections", map(&[("c1", conn)]))];
+    kv.extend(options.iter().cloned());
+    crate::Bootstrap(map(&kv))
 }
 
 pub fn state<B: Backend>(h: &H<B>, conn: &str) -> Option<&'static str> {
@@ -234,6 +241,45 @@ pub async fn scenario<B: Backend>(h: &H<B>, ext: &dyn Fn(Ext<'_>)) {
     .await;
     assert!(child(h, &files, "top.txt").await.is_some());
     assert_eq!(entries(h), SEED_ENTRIES + 3);
+
+    // a folder the tree shows empty, with a file in it the tree does not
+    // know yet: the store is asked, not the tree
+    ok(
+        h,
+        &reports,
+        "create_folder",
+        map(&[("name", "ghost".into())]),
+    )
+    .await;
+    let (ghost, _) = child(h, &reports, "ghost").await.expect("ghost shown");
+    ext(Ext::Put("reports/ghost/unseen.txt", b"unseen"));
+    let (a, _) = act(h, &ghost, "delete", map(&[])).await;
+    assert_eq!(
+        status(&a),
+        Status::InvalidParameter,
+        "not empty in the store: {:?}",
+        a.err
+    );
+    assert!(h.ctx().has_node(&ghost), "nothing deleted");
+    ok(
+        h,
+        &ghost,
+        "delete",
+        map(&[("recursive", Value::Bool(true))]),
+    )
+    .await;
+    assert!(child(h, &reports, "ghost").await.is_none());
+    // an empty folder goes without recursive
+    ok(
+        h,
+        &reports,
+        "create_folder",
+        map(&[("name", "empty".into())]),
+    )
+    .await;
+    let (empty, _) = child(h, &reports, "empty").await.expect("empty shown");
+    ok(h, &empty, "delete", map(&[])).await;
+    assert!(child(h, &reports, "empty").await.is_none());
 
     // delete: a file, a folder only with recursive
     let (a, _) = act(h, &newdir, "delete", map(&[])).await;

@@ -113,6 +113,8 @@ async fn refresh_token_and_duplicate_names() {
         );
     }
     wait("connected", 10, || state(&h, "c1") == Some("connected")).await;
+    // the files above may have come after the first read
+    ok(&h, "c1", "refresh", map(&[])).await;
     wait("tree", 10, || {
         h.ctx().has_node("c1/files/config/plant.json")
     })
@@ -126,6 +128,34 @@ async fn refresh_token_and_duplicate_names() {
     assert_eq!(
         wyrm_filestore::testkit::status(&a),
         wyrm_core::Status::InvalidParameter
+    );
+    // overwrite goes by the real name: `a_b.txt` is not `a/b.txt`, whose
+    // path form it shares
+    ok(
+        &h,
+        "c1/files/config",
+        "upload",
+        map(&[
+            ("name", "a_b.txt".into()),
+            ("text", "new".into()),
+            ("overwrite", Value::Bool(true)),
+        ]),
+    )
+    .await;
+    {
+        let s = st.lock().unwrap();
+        let slash: Vec<_> = s.files.values().filter(|f| f.name == "a/b.txt").collect();
+        assert_eq!(slash.len(), 1);
+        assert_eq!(&slash[0].data[..], b"slash", "a/b.txt untouched");
+        assert!(s
+            .files
+            .values()
+            .any(|f| f.name == "a_b.txt" && &f.data[..] == b"new"));
+    }
+    assert!(child(&h, "c1/files/config", "a_b.txt").await.is_some());
+    assert!(
+        child(&h, "c1/files/config", "a/b.txt").await.is_some(),
+        "both shown"
     );
     // delete for good
     let (f, _) = child(&h, "c1/files/config", "a/b.txt").await.unwrap();

@@ -27,7 +27,7 @@
 //! the link's other calls. What a store does not report again on a refresh
 //! is removed (principle 3).
 
-use crate::backend::{join, parent_of, under, Backend, Entry, Error, Limits, Scan};
+use crate::backend::{parent_of, under, Backend, Entry, Error, Limits, Scan};
 use crate::persist::Persist;
 use crate::util;
 use bytes::Bytes;
@@ -35,9 +35,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, Semaphore};
 use tokio::task::JoinHandle;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{keyspace, ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{normalize, ParamSpec};
@@ -61,6 +61,11 @@ const ENABLED: &str = "enabled";
 
 /// Bound on reading a whole tree (many requests).
 pub const SCAN_TIMEOUT: Duration = Duration::from_secs(600);
+/// Shortest refresh period (0 = only on Refresh).
+pub const MIN_REFRESH_S: f64 = 5.0;
+/// Uploads and downloads of one connection at a time (each holds its bytes
+/// in memory a few times over).
+pub const TRANSFERS: usize = 2;
 /// Bound of the `refresh` actions.
 const REFRESH_MS: u32 = 300_000;
 /// Bound of `upload` and `download`.
@@ -108,7 +113,9 @@ impl Common {
     }
 }
 
-/// The link's bootstrap params: `{connections: {<name>: {params}}}`.
+/// The link's bootstrap params: `{connections: {<name>: {params}}, …}`;
+/// keys beside `connections` are the backend's [`Backend::link_options`]
+/// (checked by [`validate`] and on start).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bootstrap(pub Value);
 
@@ -116,22 +123,45 @@ impl FromParams for Bootstrap {
     fn from_params(params: &Value) -> Result<Self> {
         match params {
             Value::Null => Ok(Self(Value::Map(Map::new()))),
-            Value::Map(m) => {
-                if let Some(k) = m.keys().find(|k| k.as_str() != "connections") {
-                    return Err(LinkError::invalid_parameter(format!(
-                        "params.{k}: unknown field"
-                    )));
-                }
-                match m.get("connections") {
-                    None | Some(Value::Map(_)) => Ok(Self(params.clone())),
-                    Some(_) => Err(LinkError::invalid_parameter(
-                        "params.connections: expected a map",
-                    )),
-                }
-            }
+            Value::Map(m) => match m.get("connections") {
+                None | Some(Value::Map(_)) => Ok(Self(params.clone())),
+                Some(_) => Err(LinkError::invalid_parameter(
+                    "params.connections: expected a map",
+                )),
+            },
             _ => Err(LinkError::invalid_parameter("params: expected a map")),
         }
     }
+}
+
+impl Bootstrap {
+    fn map(&self) -> Map {
+        match &self.0 {
+            Value::Map(m) => m.clone(),
+            _ => Map::new(),
+        }
+    }
+
+    /// `{connections}` alone: what a runtime edit is kept against (a change
+    /// of the link options never drops the connections added at runtime).
+    fn connections(&self) -> Value {
+        let mut m = self.map();
+        m.retain(|k, _| k == "connections");
+        Value::Map(m)
+    }
+
+    /// The link options of `B`, checked, defaults filled in.
+    pub fn options<B: Backend>(&self) -> Result<Map> {
+        let mut m = self.map();
+        m.remove("connections");
+        normalize(&B::link_options(), &Value::Map(m))
+            .map_err(|e| bad(format!("params.{}", e.message)))
+    }
+}
+
+/// Check the bootstrap params of a `B` link (`wyrmd` before it installs one).
+pub fn validate<B: Backend>(params: &Value) -> Result<()> {
+    Bootstrap::from_params(params)?.options::<B>().map(|_| ())
 }
 
 /// The form schema of a connection: the backend's params, then [`Common`].
@@ -165,6 +195,11 @@ fn parse<B: Backend>(raw: &Map) -> Result<(B::Params, Common, bool)> {
     };
     let p = B::Params::from_value(&pick(&own))?;
     let c = Common::from_value(&pick(&common))?;
+    if c.refresh_s > 0.0 && c.refresh_s < MIN_REFRESH_S {
+        return Err(bad(format!(
+            "refresh_s: 0 (only on Refresh) or at least {MIN_REFRESH_S}"
+        )));
+    }
     Ok((p, c, enabled))
 }
 
@@ -379,6 +414,41 @@ struct View {
     /// Node path → path.
     path: HashMap<String, String>,
     truncated: bool,
+    /// Counts the changes actions made (create, upload, delete).
+    gen: u64,
+    /// The paths actions changed, with the `gen` of their last change: a
+    /// read that started before it never undoes it.
+    touched: HashMap<String, u64>,
+}
+
+impl View {
+    /// An action changed `path` (and what is below it).
+    fn touch(&mut self, path: &str) {
+        self.gen += 1;
+        self.touched.insert(path.to_owned(), self.gen);
+    }
+
+    /// `path` or a folder above it was changed by an action after `since`.
+    fn touched_after(&self, path: &str, since: u64) -> bool {
+        if self.touched.is_empty() {
+            return false;
+        }
+        let mut at = Some(path);
+        while let Some(p) = at {
+            if self.touched.get(p).is_some_and(|g| *g > since) {
+                return true;
+            }
+            at = parent_of(p).filter(|q| !q.is_empty());
+        }
+        false
+    }
+
+    /// The child of the folder `parent` whose real name is `name`.
+    fn child_named(&self, parent: &str, name: &str) -> Option<&Entry> {
+        self.entries
+            .values()
+            .find(|e| e.name == name && parent_of(&e.path) == Some(parent))
+    }
 }
 
 /// One running connection.
@@ -390,6 +460,24 @@ struct Session<B: Backend> {
     view: Mutex<View>,
     closed: AtomicBool,
     wake: Notify,
+    /// One read of the tree at a time: a `refresh` while one runs is busy.
+    scanning: Mutex<()>,
+    /// Uploads and downloads in flight ([`TRANSFERS`]).
+    transfers: Semaphore,
+    data_dir: Option<std::path::PathBuf>,
+    options: Arc<Map>,
+}
+
+fn busy(what: &str) -> LinkError {
+    LinkError::new(Status::Busy, format!("{what}: try again when it is done"))
+}
+
+/// A name a store sent that the tree must not take (`..`, empty parts,
+/// control characters): left out. A `/` in a real name is the store's
+/// (Drive allows it); its path part never has one.
+fn unsafe_entry(e: &Entry) -> bool {
+    let bad = |s: &str| s.is_empty() || s == "." || s == ".." || s.chars().any(char::is_control);
+    bad(&e.name) || e.path.split('/').any(bad)
 }
 
 impl<B: Backend> Session<B> {
@@ -522,10 +610,14 @@ impl<B: Backend> Session<B> {
     }
 
     /// Replace what the view holds below `dir` with `scan`.
-    async fn apply(&self, view: &mut View, dir: &str, scan: Scan) -> Result<()> {
+    async fn apply(&self, view: &mut View, dir: &str, scan: Scan, since: u64) -> Result<()> {
         let mut new: BTreeMap<String, Entry> = BTreeMap::new();
         for e in scan.entries {
             if e.path.is_empty() || !under(&e.path, dir) || e.path == dir {
+                continue;
+            }
+            if unsafe_entry(&e) {
+                debug!(conn = %self.name, "a name the tree cannot take is left out");
                 continue;
             }
             new.insert(e.path.clone(), e);
@@ -557,7 +649,8 @@ impl<B: Backend> Session<B> {
             .collect();
         for p in old {
             let keep = new.get(&p).is_some_and(|n| n.dir == view.entries[&p].dir);
-            if !keep && view.entries.contains_key(&p) {
+            // made by an action after this read started: the read missed it
+            if !keep && view.entries.contains_key(&p) && !view.touched_after(&p, since) {
                 self.hide(view, &p).await;
             }
         }
@@ -570,7 +663,7 @@ impl<B: Backend> Session<B> {
             da.cmp(&db).then_with(|| a.path.cmp(&b.path))
         });
         for e in order {
-            if view.entries.get(&e.path) == Some(&e) {
+            if view.entries.get(&e.path) == Some(&e) || view.touched_after(&e.path, since) {
                 continue;
             }
             let parent = parent_of(&e.path).unwrap_or("");
@@ -585,6 +678,8 @@ impl<B: Backend> Session<B> {
         }
         if dir.is_empty() {
             view.truncated = truncated;
+            // the changes before this read are in it now
+            view.touched.retain(|_, g| *g > since);
         } else {
             view.truncated |= truncated;
         }
@@ -603,8 +698,9 @@ impl<B: Backend> Session<B> {
             .ok_or_else(|| LinkError::not_found(node.to_owned()))
     }
 
-    /// Read the tree below `dir` and show it.
+    /// Read the tree below `dir` and show it. The caller holds `scanning`.
     async fn refresh(&self, dir: &Entry) -> std::result::Result<Value, Error> {
+        let since = self.view.lock().await.gen;
         let scan = tokio::time::timeout(SCAN_TIMEOUT, self.backend.scan(dir, self.common.limits()))
             .await
             .map_err(|_| Error::Timeout(format!("reading {} took too long", shown(&dir.path))))
@@ -614,7 +710,7 @@ impl<B: Backend> Session<B> {
         if self.closed.load(Ordering::Acquire) {
             return Err(Error::Unreachable("connection stopped".into()));
         }
-        self.apply(&mut view, &dir.path, scan)
+        self.apply(&mut view, &dir.path, scan, since)
             .await
             .map_err(|e| Error::Refused(e.message))?;
         self.summary(&view, dir.path.is_empty()).await;
@@ -625,12 +721,32 @@ impl<B: Backend> Session<B> {
         ])))
     }
 
+    /// A refresh action: busy while another read runs.
+    async fn refresh_now(&self, dir: &Entry) -> Result<Value> {
+        let Ok(_g) = self.scanning.try_lock() else {
+            return Err(busy("a refresh is running"));
+        };
+        Ok(self.refresh(dir).await?)
+    }
+
     /// Show an entry a request made (mkdir, upload).
-    async fn added(&self, e: Entry) -> Result<Value> {
+    async fn added(&self, mut e: Entry) -> Result<Value> {
         let mut view = self.view.lock().await;
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::new(Status::Disconnected, "connection stopped"));
         }
+        // a store with two children of one name (Drive): another one's path
+        if let (Some(other), Some(id)) = (view.entries.get(&e.path), e.id.as_deref()) {
+            if other.id.as_deref().is_some_and(|o| o != id) {
+                let short = format!("{} ({})", e.path, &id[..id.len().min(8)]);
+                e.path = if view.entries.contains_key(&short) {
+                    format!("{} ({id})", e.path)
+                } else {
+                    short
+                };
+            }
+        }
+        view.touch(&e.path);
         let path = e.path.clone();
         let size = e.size;
         self.show(&mut view, e).await?;
@@ -655,7 +771,7 @@ impl<B: Backend> Session<B> {
             if !parent.dir {
                 return Err(bad("not a folder"));
             }
-            if view.entries.contains_key(&join(&parent.path, &name)) {
+            if view.child_named(&parent.path, &name).is_some() {
                 return Err(bad(format!("{name} exists")));
             }
             parent
@@ -668,15 +784,22 @@ impl<B: Backend> Session<B> {
         self.added(e).await
     }
 
-    async fn upload(&self, node: &str, args: &Map) -> Result<Value> {
-        let name = arg_str(args, "name")?.unwrap_or_default();
+    async fn upload(&self, node: &str, mut args: Map) -> Result<Value> {
+        let Ok(_slot) = self.transfers.try_acquire() else {
+            return Err(busy(&format!(
+                "{TRANSFERS} uploads or downloads are running"
+            )));
+        };
+        let name = arg_str(&args, "name")?.unwrap_or_default();
         util::check_name(&name).map_err(|e| bad(format!("name: {e}")))?;
-        let data = match (args.get("file"), args.get("text")) {
-            (Some(Value::Bytes(b)), None | Some(Value::Null)) => Bytes::from(b.clone()),
-            (None | Some(Value::Null), Some(Value::Str(s))) => Bytes::from(s.clone().into_bytes()),
+        // taken out of the args, not copied: an upload may be 64 MiB
+        let data = match (args.remove("file"), args.remove("text")) {
+            (Some(Value::Bytes(b)), None | Some(Value::Null)) => Bytes::from(b),
+            (None | Some(Value::Null), Some(Value::Str(s))) => Bytes::from(s.into_bytes()),
             (Some(Value::Bytes(_)), Some(_)) => return Err(bad("give file or text, not both")),
             _ => return Err(bad("file or text: required")),
         };
+        let args = &args;
         let max = self.common.max_upload_mib as usize * 1024 * 1024;
         if data.len() > max {
             return Err(LinkError::new(
@@ -697,7 +820,8 @@ impl<B: Backend> Session<B> {
             if !parent.dir {
                 return Err(bad("not a folder"));
             }
-            let existing = view.entries.get(&join(&parent.path, &name)).cloned();
+            // by its real name: two names may share a path form (Drive)
+            let existing = view.child_named(&parent.path, &name).cloned();
             match &existing {
                 Some(e) if e.dir => return Err(bad(format!("{name} is a folder"))),
                 Some(_) if !overwrite => {
@@ -716,6 +840,11 @@ impl<B: Backend> Session<B> {
     }
 
     async fn download(&self, node: &str, args: &Map) -> Result<Value> {
+        let Ok(_slot) = self.transfers.try_acquire() else {
+            return Err(busy(&format!(
+                "{TRANSFERS} uploads or downloads are running"
+            )));
+        };
         let file = {
             let view = self.view.lock().await;
             self.resolve(&view, node)?
@@ -739,11 +868,11 @@ impl<B: Backend> Session<B> {
             .await
             .map_err(|e| self.seen(e))?;
         if matches!(args.get("text"), Some(Value::Bool(true))) {
-            String::from_utf8(data.to_vec())
+            String::from_utf8(data.into())
                 .map(Value::Str)
                 .map_err(|_| bad("not UTF-8 text: download without text"))
         } else {
-            Ok(Value::Bytes(data.to_vec()))
+            Ok(Value::Bytes(data.into()))
         }
     }
 
@@ -766,12 +895,14 @@ impl<B: Backend> Session<B> {
         if e.dir && !below.is_empty() && !recursive {
             return Err(bad("the folder is not empty: set recursive"));
         }
+        // the store checks again: the tree may not show all that is there
         self.backend
-            .delete(&e, &below)
+            .delete(&e, &below, recursive && e.dir)
             .await
             .map_err(|e| self.seen(e))?;
         let mut view = self.view.lock().await;
         if !self.closed.load(Ordering::Acquire) {
+            view.touch(&e.path);
             self.hide(&mut view, &e.path).await;
             self.summary(&view, false).await;
         }
@@ -795,8 +926,21 @@ fn arg_str(args: &Map, name: &str) -> Result<Option<String>> {
     }
 }
 
-/// Publish the state; the `error` leaf exists while there is an error.
+/// Publish the state; the `error` leaf exists while there is an error. The
+/// error is written before the state, so whoever sees `Failed` finds why.
 async fn set_status(ctx: &LinkCtx, base: &str, state: NodeState, error: Option<&str>) {
+    let ep = format!("{base}/{ERROR}");
+    if let Some(e) = error {
+        if !ctx.has_node(&ep) {
+            let meta = NodeMeta::leaf(TypeCode::String).is("wy:df-error");
+            if ctx.declare_node(&ep, meta).await.is_err() {
+                return;
+            }
+        }
+        let _ = ctx
+            .update(&ep, Value::Str(e.into()), Quality::Good, now_us())
+            .await;
+    }
     let _ = ctx
         .update(
             &format!("{base}/{STATUS}"),
@@ -805,24 +949,8 @@ async fn set_status(ctx: &LinkCtx, base: &str, state: NodeState, error: Option<&
             now_us(),
         )
         .await;
-    let ep = format!("{base}/{ERROR}");
-    match error {
-        Some(e) => {
-            if !ctx.has_node(&ep) {
-                let meta = NodeMeta::leaf(TypeCode::String).is("wy:df-error");
-                if ctx.declare_node(&ep, meta).await.is_err() {
-                    return;
-                }
-            }
-            let _ = ctx
-                .update(&ep, Value::Str(e.into()), Quality::Good, now_us())
-                .await;
-        }
-        None => {
-            if ctx.has_node(&ep) {
-                let _ = ctx.remove_node(&ep).await;
-            }
-        }
+    if error.is_none() && ctx.has_node(&ep) {
+        let _ = ctx.remove_node(&ep).await;
     }
 }
 
@@ -832,16 +960,30 @@ async fn run<B: Backend>(s: Arc<Session<B>>) {
     let mut attempt = 0u32;
     loop {
         s.status(NodeState::Connecting, None).await;
-        let probe = tokio::time::timeout(s.backend.timeout(), s.backend.check()).await;
-        let err = match probe {
-            Err(_) => Some("no answer in time".to_owned()),
-            Ok(Err(e)) => Some(e.to_string()),
-            Ok(Ok(())) => None,
+        let err = match s.backend.check_place(s.data_dir.as_deref(), &s.options) {
+            // a mount point moved, or the allowed roots changed
+            Err(e) => Some(e.message),
+            // a second over the backend's own bound: its error, which says
+            // what did not answer, comes first
+            Ok(()) => match tokio::time::timeout(
+                s.backend.timeout() + Duration::from_secs(1),
+                s.backend.check(),
+            )
+            .await
+            {
+                Err(_) => Some("no answer in time".to_owned()),
+                Ok(Err(e)) => Some(e.to_string()),
+                Ok(Ok(())) => None,
+            },
         };
         if err.is_none() {
             loop {
                 let root = s.backend.root();
-                match s.refresh(&root).await {
+                let read = {
+                    let _g = s.scanning.lock().await;
+                    s.refresh(&root).await
+                };
+                match read {
                     Ok(_) => {
                         attempt = 0;
                         let warn = s.view.lock().await.truncated.then_some(
@@ -890,6 +1032,8 @@ pub struct FileStore<B: Backend> {
     ctx: LinkCtx,
     conns: BTreeMap<String, Slot<B>>,
     persist: Option<Persist>,
+    /// [`Backend::link_options`] from the bootstrap params.
+    options: Arc<Map>,
 }
 
 impl<B: Backend> FileStore<B> {
@@ -970,7 +1114,7 @@ impl<B: Backend> FileStore<B> {
         }
         let parsed = parse::<B>(&raw).and_then(|(p, c, en)| {
             let b = B::new(&p)?;
-            b.check_place(self.ctx.data_dir())?;
+            b.check_place(self.ctx.data_dir(), &self.options)?;
             Ok((b, c, en))
         });
         let (backend, common, enabled) = match parsed {
@@ -997,6 +1141,10 @@ impl<B: Backend> FileStore<B> {
             view: Mutex::new(View::default()),
             closed: AtomicBool::new(false),
             wake: Notify::new(),
+            scanning: Mutex::new(()),
+            transfers: Semaphore::new(TRANSFERS),
+            data_dir: self.ctx.data_dir().map(std::path::Path::to_path_buf),
+            options: self.options.clone(),
         });
         let task = tokio::spawn(run(s.clone()));
         if let Some(slot) = self.conns.get_mut(name) {
@@ -1032,7 +1180,8 @@ impl<B: Backend> FileStore<B> {
             return Err(bad(format!("{name} exists")));
         }
         let raw = normalized::<B>(&args)?;
-        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir()))?;
+        parse::<B>(&raw)
+            .and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir(), &self.options))?;
         self.conns.insert(name.clone(), Slot { raw, run: None });
         self.save();
         self.bring_up(&name).await
@@ -1046,7 +1195,8 @@ impl<B: Backend> FileStore<B> {
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
         let merged = keep_secrets(&schema::<B>(), &old, &args);
         let mut raw = normalized::<B>(&merged)?;
-        parse::<B>(&raw).and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir()))?;
+        parse::<B>(&raw)
+            .and_then(|(p, _, _)| B::new(&p)?.check_place(self.ctx.data_dir(), &self.options))?;
         if let Some(e) = old.get(ENABLED) {
             raw.insert(ENABLED.to_owned(), e.clone());
         }
@@ -1139,7 +1289,8 @@ impl<B: Backend> Link for FileStore<B> {
     type Config = Bootstrap;
 
     async fn start(cfg: Bootstrap, ctx: LinkCtx) -> Result<Self> {
-        let persist = Persist::open(&ctx, &cfg.0);
+        let options = Arc::new(cfg.options::<B>()?);
+        let persist = Persist::open(&ctx, &cfg.connections());
         let conns: Map = match persist.as_ref().and_then(Persist::load) {
             Some(c) => c,
             None => match &cfg.0 {
@@ -1154,15 +1305,19 @@ impl<B: Backend> Link for FileStore<B> {
             ctx,
             conns: BTreeMap::new(),
             persist,
+            options,
         };
         let add = fs.add_form();
         fs.ctx.declare_action("", "add_connection", add).await?;
         for (name, v) in conns {
-            keyspace::validate_segment(&name)
-                .map_err(|e| bad(format!("params.connections.{name}: {e}")))?;
-            let raw = match v {
-                Value::Map(m) => m,
-                _ => return Err(bad(format!("params.connections.{name}: expected a map"))),
+            // a connection the link cannot show is skipped, never the link
+            if let Err(e) = keyspace::validate_segment(&name) {
+                warn!("connections.{name}: {e}: left out");
+                continue;
+            }
+            let Value::Map(raw) = v else {
+                warn!("connections.{name}: not a map: left out");
+                continue;
             };
             // Invalid params keep the connection (Failed, with the error):
             // config is never dropped.
@@ -1204,7 +1359,7 @@ impl<B: Backend> Link for FileStore<B> {
                     let s = self.session(conn)?;
                     spawn_reply(out, async move {
                         let root = s.backend.root();
-                        Ok(s.refresh(&root).await?)
+                        s.refresh_now(&root).await
                     });
                     Ok(())
                 }
@@ -1225,10 +1380,10 @@ impl<B: Backend> Link for FileStore<B> {
                 if !dir.dir {
                     return Err(bad("not a folder"));
                 }
-                Ok(s.refresh(&dir).await?)
+                s.refresh_now(&dir).await
             }),
             "create_folder" => spawn_reply(out, async move { s.mkdir(&node, &args).await }),
-            "upload" => spawn_reply(out, async move { s.upload(&node, &args).await }),
+            "upload" => spawn_reply(out, async move { s.upload(&node, args).await }),
             "download" => spawn_reply(out, async move { s.download(&node, &args).await }),
             "delete" => spawn_reply(out, async move { s.delete(&node, &args).await }),
             _ => return Err(LinkError::not_supported(action.to_owned())),
@@ -1289,7 +1444,11 @@ mod tests {
     #[test]
     fn bootstrap() {
         assert!(Bootstrap::from_params(&Value::Null).is_ok());
-        let bad = Value::Map(Map::from([("x".to_owned(), Value::Null)]));
+        // link options are the backend's, checked by `validate`
+        let opts = Value::Map(Map::from([("x".to_owned(), Value::Null)]));
+        assert!(Bootstrap::from_params(&opts).is_ok());
+        let bad = Value::Map(Map::from([("connections".to_owned(), Value::Bool(true))]));
         assert!(Bootstrap::from_params(&bad).is_err());
+        assert!(Value::Str("x".into()) != Bootstrap::from_params(&opts).unwrap().connections());
     }
 }
