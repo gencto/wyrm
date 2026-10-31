@@ -93,7 +93,8 @@ fn bench(label: &str, text: &str, folders: usize, per: usize) {
 fn main() {
     println!("| query | rows | collect ms | ns per sample | samples/s on one core |");
     println!("|---|---|---|---|---|");
-    let all = "list wy/s/downstream/m/** | where type == 'number' | subscribe | option max_rows=5000";
+    let all =
+        "list wy/s/downstream/m/** | where type == 'number' | subscribe | option max_rows=5000";
     bench("where type + subscribe", all, 1000, 5);
     bench(
         "+ expression f = value * 1.8 + 32.0",

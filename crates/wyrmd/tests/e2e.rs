@@ -6622,8 +6622,9 @@ fn quantile(v: &[f64], q: f64) -> f64 {
     s[((s.len() - 1) as f64 * q).round() as usize]
 }
 
-/// One collection on DQL link `dql`: wall ms until every expected row has a value, the
-/// link's own `collect_ms`, `lists`, `depth`.
+/// One collection on DQL link `dql`: wall ms until the link publishes a table in which every
+/// expected row has a value (watched on a subscription, not polled: polling `get_table` would
+/// load the link it measures), the link's own `collect_ms`, `lists`, `depth`.
 async fn dql_collect(
     c: &WyrmClient,
     dql: &str,
@@ -6631,6 +6632,8 @@ async fn dql_collect(
     text: &str,
     want: usize,
 ) -> (f64, u64, u64, u64) {
+    let q = format!("{dql}/{id}");
+    let mut table = c.subscribe(&format!("{q}/table")).await.unwrap();
     let t0 = std::time::Instant::now();
     c.invoke_one(
         dql,
@@ -6638,37 +6641,32 @@ async fn dql_collect(
         args_map(&[
             ("id", Value::from(id)),
             ("text", Value::from(text)),
-            ("publish_ms", Value::UInt(1000)),
+            ("publish_ms", Value::UInt(100)),
         ]),
     )
     .await
     .unwrap_or_else(|e| panic!("add_query {id}: {e}"));
-    let q = format!("{dql}/{id}");
+    let mut n = 0;
     let full = loop {
-        let t = c
-            .invoke_one(&q, "get_table", args_map(&[("limit", Value::UInt(5000))]))
+        let left = Duration::from_secs(120).saturating_sub(t0.elapsed());
+        let ev = tokio::time::timeout(left, table.next())
             .await
-            .ok()
-            .flatten();
-        let n = match t {
-            Some(Value::Map(m)) => match m.get("rows") {
-                Some(Value::Array(r)) => r
-                    .iter()
-                    .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
-                    .count(),
-                _ => 0,
-            },
+            .unwrap_or_else(|_| panic!("{id}: {n} of {want} rows"));
+        let Some(ValEvent::Sample { sample, .. }) = ev else {
+            continue;
+        };
+        n = match &sample.v {
+            Value::Array(r) => r
+                .iter()
+                .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
+                .count(),
             _ => 0,
         };
         if n >= want {
             break t0.elapsed().as_secs_f64() * 1000.0;
         }
-        assert!(
-            t0.elapsed() < Duration::from_secs(120),
-            "{id}: {n} of {want} rows"
-        );
-        tokio::time::sleep(Duration::from_millis(5)).await;
     };
+    drop(table);
     let attr = c
         .meta(&q)
         .await
@@ -6773,6 +6771,17 @@ async fn dql_perf_local() {
     .await
     .expect("lat");
     let p0 = format!("wy/{SITE}/downstream/d2/g0/g0/p0");
+    // the engine's view through a one-row query: cheap to poll
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("one")),
+            ("text", Value::from(format!("path {p0} | subscribe"))),
+        ]),
+    )
+    .await
+    .expect("one");
     let mut table = c.subscribe(&format!("{dql}/lat/table")).await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
     let has = |v: &Value, want: f64| {
@@ -6787,7 +6796,7 @@ async fn dql_perf_local() {
         loop {
             let t = c
                 .invoke_one(
-                    &format!("{dql}/lat"),
+                    &format!("{dql}/one"),
                     "get_table",
                     Value::Map(BTreeMap::new()),
                 )
@@ -6877,7 +6886,7 @@ async fn dql_perf_local() {
             n += 1;
         }
     }
-    eprintln!("idle, 2 queries ready, 10 s: {n} samples from the DQL link");
+    eprintln!("idle, 3 queries ready, 10 s: {n} samples from the DQL link");
     env.stop().await;
 
     // CPU at 50k samples/s: the broker process (router, mock, DQL in one process) without and
@@ -7040,7 +7049,15 @@ async fn dql_perf_chain() {
 
     eprintln!("\n| tree (1 000 points, fanout 10, depth 2) | rows | depth | lists | collect_ms (link) | table full p50 ms | max ms |");
     eprintln!("|---|---|---|---|---|---|---|");
-    for (s, hops) in [("central", "here"), ("edge", "1 hop"), ("plant", "2 hops")] {
+    // twice, in both orders: the first query to a site also opens its routes
+    for (s, hops) in [
+        ("central", "here"),
+        ("edge", "1 hop"),
+        ("plant", "2 hops"),
+        ("plant", "2 hops, again"),
+        ("edge", "1 hop, again"),
+        ("central", "here, again"),
+    ] {
         let text = format!("list wy/{s}/downstream/t/** | where type == 'number' | subscribe");
         dql_collect_row(&c, dql, &format!("{s} ({hops})"), &text, 1000).await;
     }
@@ -7053,7 +7070,7 @@ async fn dql_perf_chain() {
             ("id", Value::from("far")),
             (
                 "text",
-                Value::from("list wy/plant/downstream/t/** | where type == 'number' | subscribe"),
+                Value::from("path wy/plant/downstream/t/g0/g0/p0 | subscribe"),
             ),
         ]),
     )
@@ -7082,7 +7099,7 @@ async fn dql_perf_chain() {
                 .invoke_one(
                     &format!("{dql}/far"),
                     "get_table",
-                    args_map(&[("limit", Value::UInt(5000))]),
+                    Value::Map(BTreeMap::new()),
                 )
                 .await
                 .ok()
