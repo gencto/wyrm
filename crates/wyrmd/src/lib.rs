@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use wyrm_admin::control::{SCHEDULER_LINK, STORAGE_LINK};
+use wyrm_admin::control::{DQL_LINK, SCHEDULER_LINK, STORAGE_LINK};
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
     UpstreamConf,
@@ -24,13 +24,17 @@ use wyrm_example_portable::Echo;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
 use wyrm_link_agent::{Agent, AgentConfig};
+use wyrm_link_dql::Dql;
+use wyrm_link_gdrive::GDrive;
 use wyrm_link_http::Http;
+use wyrm_link_localfs::LocalFs;
 use wyrm_link_mock::df::MockDev;
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_modbus::Modbus;
 use wyrm_link_mqtt::Mqtt;
 use wyrm_link_portable::{Portable, PortableConfig};
 use wyrm_link_prometheus::Prometheus;
+use wyrm_link_s3::S3;
 use wyrm_link_s7::S7;
 use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
@@ -38,6 +42,7 @@ use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, Verifyi
 use wyrm_link_snmp::Snmp;
 use wyrm_link_wasm::ComponentWorld;
 use wyrm_link_wasm::Wasm;
+use wyrm_link_webdav::WebDav;
 use wyrm_storage::{Storage, StorageStart};
 use zenoh::internal::plugins::PluginsManager;
 use zenoh::internal::runtime::{Runtime, RuntimeBuilder};
@@ -111,6 +116,33 @@ pub struct Config {
     /// The embedded scheduler at `wy/<site>/downstream/scheduler` (ADR 0022).
     #[serde(default)]
     pub scheduler: SchedulerSection,
+    /// The embedded DQL link at `wy/<site>/downstream/dql` (ADR 0025).
+    #[serde(default)]
+    pub dql: DqlSection,
+}
+
+/// `dql` in `wyrmd.json5`: on by default.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DqlSection {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Size of its store (the query definitions) in MiB.
+    #[serde(default = "default_dql_store_mb")]
+    pub store_mb: u32,
+}
+
+impl Default for DqlSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            store_mb: default_dql_store_mb(),
+        }
+    }
+}
+
+fn default_dql_store_mb() -> u32 {
+    16
 }
 
 /// `scheduler` in `wyrmd.json5`: on by default.
@@ -471,20 +503,24 @@ impl Config {
             if cfg.links.contains_key(&d.site) {
                 return Err(format!("links.{}: the name of a downstream site", d.site).into());
             }
-            // `downstream/scheduler` is the embedded scheduler (ADR 0022)
-            if d.site == SCHEDULER_LINK {
+            // `downstream/scheduler` and `downstream/dql` are built-in links (ADR 0022, 0025)
+            if [SCHEDULER_LINK, DQL_LINK].contains(&d.site.as_str()) {
                 return Err(
                     format!("peers.downstream {}: the id belongs to the broker", d.site).into(),
                 );
             }
         }
-        let mb = cfg.scheduler.store_mb;
-        if !(1..=wyrm_link_portable::MAX_STORE_MB).contains(&mb) {
-            return Err(format!(
-                "scheduler.store_mb {mb}: expected 1 to {}",
-                wyrm_link_portable::MAX_STORE_MB
-            )
-            .into());
+        for (name, mb) in [
+            ("scheduler", cfg.scheduler.store_mb),
+            ("dql", cfg.dql.store_mb),
+        ] {
+            if !(1..=wyrm_link_portable::MAX_STORE_MB).contains(&mb) {
+                return Err(format!(
+                    "{name}.store_mb {mb}: expected 1 to {}",
+                    wyrm_link_portable::MAX_STORE_MB
+                )
+                .into());
+            }
         }
         if let Some(addr) = cfg.rest {
             // The REST plugin runs inside the router: the ACL never sees its
@@ -540,8 +576,8 @@ impl Config {
         }
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
-            // ids of the broker's own links (ADR 0017, 0022)
-            if [STORAGE_LINK, SCHEDULER_LINK].contains(&id.as_str()) {
+            // ids of the broker's own links (ADR 0017, 0022, 0025)
+            if [STORAGE_LINK, SCHEDULER_LINK, DQL_LINK].contains(&id.as_str()) {
                 return Err(format!("links.{id}: the id belongs to the broker").into());
             }
             if let Some(m) = &l.mode {
@@ -690,6 +726,8 @@ where
 /// `bacnet` (BACnet/IP client, `links/bacnet`) embedded or as `wyrmd link bacnet`.
 /// `opcua` (OPC UA client, `links/opcua`) embedded or as a process.
 /// `prometheus` (scrape connector), embedded or as `wyrmd link prometheus`.
+/// `s3`, `gdrive`, `webdav` and `localfs` (file stores, `wyrm-filestore`), embedded or as
+/// processes.
 pub struct Drivers;
 
 impl EmbeddedHost for Drivers {
@@ -705,6 +743,10 @@ impl EmbeddedHost for Drivers {
             wyrm_link_bacnet::Bacnet::NAME,
             wyrm_link_opcua::Opcua::NAME,
             Prometheus::NAME,
+            S3::NAME,
+            GDrive::NAME,
+            WebDav::NAME,
+            LocalFs::NAME,
             Agent::NAME,
             Framework::<Wasm>::NAME,
             wyrm_link_wasm::App::NAME,
@@ -724,6 +766,10 @@ impl EmbeddedHost for Drivers {
             "bacnet" => Tree::from_params(params).map(|_| ()),
             "opcua" => Tree::from_params(params).map(|_| ()),
             "prometheus" => Tree::from_params(params).map(|_| ()),
+            "s3" => wyrm_filestore::store::validate::<wyrm_link_s3::S3Store>(params),
+            "gdrive" => wyrm_filestore::store::validate::<wyrm_link_gdrive::GDriveStore>(params),
+            "webdav" => wyrm_filestore::store::validate::<wyrm_link_webdav::WebDavStore>(params),
+            "localfs" => wyrm_filestore::store::validate::<wyrm_link_localfs::LocalStore>(params),
             "agent" => AgentConfig::from_params(params).map(|_| ()),
             "app" => <wyrm_link_wasm::App as Link>::Config::from_params(params).map(|_| ()),
             // the app validates its own params in `start`
@@ -785,6 +831,10 @@ impl EmbeddedHost for Drivers {
                 "bacnet" => start_boxed::<wyrm_link_bacnet::Bacnet>(session, cfg, params).await,
                 "opcua" => start_boxed::<wyrm_link_opcua::Opcua>(session, cfg, params).await,
                 "prometheus" => start_boxed::<Prometheus>(session, cfg, params).await,
+                "s3" => start_boxed::<S3>(session, cfg, params).await,
+                "gdrive" => start_boxed::<GDrive>(session, cfg, params).await,
+                "webdav" => start_boxed::<WebDav>(session, cfg, params).await,
+                "localfs" => start_boxed::<LocalFs>(session, cfg, params).await,
                 "agent" => start_boxed::<Agent>(session, cfg, params).await,
                 // a portable link on a WASM component (ADR 0023)
                 "app" => start_boxed::<wyrm_link_wasm::App>(session, cfg, params).await,
@@ -844,10 +894,16 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "bacnet" => wyrm_link_sdk::process::run::<wyrm_link_bacnet::Bacnet>().await?,
         "opcua" => wyrm_link_sdk::process::run::<wyrm_link_opcua::Opcua>().await?,
         "prometheus" => wyrm_link_sdk::process::run::<Prometheus>().await?,
+        "s3" => wyrm_link_sdk::process::run::<S3>().await?,
+        "gdrive" => wyrm_link_sdk::process::run::<GDrive>().await?,
+        "webdav" => wyrm_link_sdk::process::run::<WebDav>().await?,
+        "localfs" => wyrm_link_sdk::process::run::<LocalFs>().await?,
         "agent" => wyrm_link_sdk::process::run::<Agent>().await?,
         "portable-echo" => wyrm_link_sdk::process::run::<Portable<Echo>>().await?,
         // the scheduler as a process link (ADR 0022 run modes)
         "scheduler" => wyrm_link_sdk::process::run::<Portable<Scheduler>>().await?,
+        // the DQL link as a process link (ADR 0025 run modes)
+        "dql" => wyrm_link_sdk::process::run::<Portable<Dql>>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())
@@ -863,7 +919,31 @@ pub struct Broker {
     flows: Option<LinkHandle<Engine>>,
     storage: Option<LinkHandle<Storage>>,
     scheduler: Option<LinkHandle<Portable<Scheduler>>>,
+    dql: Option<LinkHandle<Portable<Dql>>>,
     gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
+}
+
+/// What the embedded DQL link may reach (ADR 0025): `read` on this site's `downstream`,
+/// `dataflows`, `storage` and `upstream` and on the sections of every downstream site this one
+/// reads (ADR 0007, 0018; D4), `write` on this site's `downstream` for its sinks. Never `sys`.
+fn dql_grants(site: &str, peers: &wyrm_admin::acl::Peers) -> Vec<(String, wyrm_core::Perm)> {
+    use wyrm_core::Perm;
+    // write first: a request token carries the first grant that covers its key
+    let mut g = vec![(format!("wy/{site}/downstream"), Perm::Write)];
+    g.extend(
+        ["dataflows", "storage", "upstream"]
+            .iter()
+            .map(|s| (format!("wy/{site}/{s}"), Perm::Read)),
+    );
+    let mut others: Vec<String> = peers.reachable();
+    others.sort();
+    others.dedup();
+    for o in others.iter().filter(|o| *o != site) {
+        for s in ["downstream", "dataflows", "storage"] {
+            g.push((format!("wy/{o}/{s}"), Perm::Read));
+        }
+    }
+    g
 }
 
 /// The zone of schedules added without one (ruling 3): the system's IANA
@@ -994,6 +1074,36 @@ impl Broker {
         } else {
             None
         };
+        // The DQL link (ADR 0025): as the scheduler. It reads this site's sections and the
+        // sections other sites let this one read (ADR 0018, D4), and writes only its sinks,
+        // signed with its own key, which links trust at write on `downstream`.
+        let dql = if ctl.dql_runs() {
+            let started =
+                match ctl.embedded_link_config(DQL_LINK, dql_grants(&cfg.site, &ctl.peers())) {
+                    Ok(lcfg) => {
+                        let pcfg = PortableConfig {
+                            store_mb: cfg.dql.store_mb,
+                            ..PortableConfig::default()
+                        };
+                        wyrm_link_sdk::spawn::<Portable<Dql>>(session.clone(), lcfg, pcfg).await
+                    }
+                    Err(e) => Err(e),
+                };
+            match started {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    storage.stop().await;
+                    flows.stop().await;
+                    admin.stop().await;
+                    return Err(format!("dql: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
         runtime.start().await?;
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
@@ -1017,6 +1127,7 @@ impl Broker {
             flows: Some(flows),
             storage: Some(storage),
             scheduler,
+            dql,
             gateway,
         })
     }
@@ -1040,7 +1151,10 @@ impl Broker {
             let _ = tx.send(());
             let _ = task.await;
         }
-        // first: it sends requests to the other links
+        // first: they send requests to the other links
+        if let Some(d) = self.dql.take() {
+            d.stop().await;
+        }
         if let Some(s) = self.scheduler.take() {
             s.stop().await;
         }
@@ -1376,6 +1490,7 @@ impl Daemon {
             anchor_init: cfg.init_anchors,
             repository: cfg.packages.repository.clone(),
             scheduler: cfg.scheduler.enabled,
+            dql: cfg.dql.enabled,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -1411,6 +1526,13 @@ impl Daemon {
         if ctl.registry().links.contains_key(SCHEDULER_LINK) {
             return Err(format!(
                 "a link with id {SCHEDULER_LINK:?} exists; the id belongs to the embedded scheduler (ADR 0022): remove the link with the previous wyrmd first"
+            )
+            .into());
+        }
+        // And for the embedded DQL link (ADR 0025): `downstream/dql`.
+        if ctl.registry().links.contains_key(DQL_LINK) {
+            return Err(format!(
+                "a link with id {DQL_LINK:?} exists; the id belongs to the embedded DQL link (ADR 0025): remove the link with the previous wyrmd first"
             )
             .into());
         }
@@ -1547,6 +1669,10 @@ mod tests {
         let d = parse("").unwrap().scheduler;
         assert!(d.enabled);
         assert_eq!(d.store_mb, 64);
+        let q = parse("").unwrap().dql;
+        assert!(q.enabled);
+        assert_eq!(q.store_mb, 16);
+        assert!(!parse("dql: { enabled: false }").unwrap().dql.enabled);
         let off = parse("scheduler: { enabled: false }").unwrap().scheduler;
         assert!(!off.enabled);
         assert_eq!(off.store_mb, 64);
@@ -1555,6 +1681,9 @@ mod tests {
             "scheduler: { store_mb: 65 }",
             "scheduler: { other: 1 }",
             r#"links: { scheduler: { driver: "mock" } }"#,
+            r#"links: { dql: { driver: "mock" } }"#,
+            "dql: { store_mb: 0 }",
+            "dql: { nope: true }",
             r#"links: { storage: { driver: "mock" } }"#,
         ] {
             assert!(parse(bad).is_err(), "{bad}");

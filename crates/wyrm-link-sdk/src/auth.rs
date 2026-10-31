@@ -8,9 +8,9 @@
 use ed25519_dalek::{Signature, VerifyingKey};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use wyrm_core::ptok::{self, PtokClaims};
+use wyrm_core::ptok::{self, Grant, PtokClaims};
 use wyrm_core::Perm;
-use zenoh::key_expr::keyexpr;
+use zenoh::key_expr::{keyexpr, OwnedKeyExpr};
 
 /// Upper bound on remembered `jti`s. When full and nothing has expired,
 /// new tokens are refused (fail closed).
@@ -129,7 +129,7 @@ impl Verifier {
             s
         };
         // Signed: the claims are the signer's, safe to decode now.
-        let claims: PtokClaims =
+        let mut claims: PtokClaims =
             wyrm_core::codec::from_slice(parts.claims).map_err(|_| Denied::Malformed)?;
         let cap = if admin {
             Perm::Config
@@ -142,6 +142,21 @@ impl Verifier {
                 .max()
                 .ok_or(Denied::NoGrant)?
         };
+        // the caller's rights for acting on its behalf: capped as the effective level, and to
+        // what each signer is trusted with (a limited key's scopes)
+        if let Some(auth) = claims.auth.take() {
+            let top = claims.max.min(maxperm.unwrap_or(Perm::Config));
+            let trusted: Vec<(Option<&str>, Perm)> = if admin {
+                vec![(None, Perm::Config)]
+            } else {
+                signers
+                    .iter()
+                    .filter(|l| l.subject.as_ref().is_none_or(|s| *s == claims.sub))
+                    .flat_map(|l| l.scopes.iter().map(|s| (Some(s.as_str()), l.cap)))
+                    .collect()
+            };
+            claims.auth = Some(cap_auth(auth, top, &trusted));
+        }
         drop(trust);
         if claims.exp <= now {
             return Err(Denied::Expired);
@@ -181,5 +196,103 @@ impl Verifier {
         }
         cache.insert(jti, exp);
         Ok(())
+    }
+}
+
+/// The `auth` grants a responder may rely on: each at most `top`, and within what a signer is
+/// trusted with (`(None, cap)` = everywhere; `(Some(scope), cap)` = `scope` and below). A grant
+/// wider than a scope narrows to `<scope>/**`; one that only partly meets a scope is dropped.
+pub fn cap_auth(auth: Vec<Grant>, top: Perm, trusted: &[(Option<&str>, Perm)]) -> Vec<Grant> {
+    let mut out = Vec::new();
+    for g in auth {
+        let Ok(gk) = keyexpr::new(&g.k) else { continue };
+        for (scope, cap) in trusted {
+            let p = g.p.min(top).min(*cap);
+            let k = match scope {
+                None => g.k.clone(),
+                Some(s) => {
+                    let Ok(sub) = OwnedKeyExpr::try_from(format!("{s}/**")) else {
+                        continue;
+                    };
+                    let Ok(own) = keyexpr::new(s) else { continue };
+                    if sub.includes(gk) {
+                        g.k.clone()
+                    } else if gk.includes(&sub) && gk.includes(own) {
+                        sub.to_string()
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            out.push(Grant { k, p });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn g(k: &str, p: Perm) -> Grant {
+        Grant { k: k.into(), p }
+    }
+
+    #[test]
+    fn auth_is_capped_to_the_signer_and_its_scopes() {
+        let auth = vec![
+            g("wy/s/**", Perm::Config),
+            g("wy/s/downstream/plc1/**", Perm::Write),
+            g("wy/s/sys/**", Perm::Config),
+        ];
+        // an admin key: only `max` caps
+        assert_eq!(
+            cap_auth(auth.clone(), Perm::Write, &[(None, Perm::Config)]),
+            [
+                g("wy/s/**", Perm::Write),
+                g("wy/s/downstream/plc1/**", Perm::Write),
+                g("wy/s/sys/**", Perm::Write)
+            ]
+        );
+        // a limited key trusted at write on downstream: wider grants narrow to the scope,
+        // grants outside it go
+        assert_eq!(
+            cap_auth(
+                auth,
+                Perm::Config,
+                &[(Some("wy/s/downstream"), Perm::Write)]
+            ),
+            [
+                g("wy/s/downstream/**", Perm::Write),
+                g("wy/s/downstream/plc1/**", Perm::Write)
+            ]
+        );
+    }
+
+    #[test]
+    fn auth_never_authorizes_the_request() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let v = Verifier::new(vec![key.verifying_key()], "s");
+        let claims = PtokClaims {
+            sub: "user:op".into(),
+            grants: vec![g("wy/s/downstream/dql/~act/run", Perm::Read)],
+            auth: Some(vec![g("wy/s/**", Perm::Config)]),
+            max: Perm::Config,
+            iat: 1,
+            exp: 100,
+            jti: [3; 16],
+            site: "s".into(),
+            ..Default::default()
+        };
+        let mut tok = vec![ptok::PTOK_VERSION];
+        tok.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+        let sig = key.sign(&tok);
+        tok.extend(sig.to_bytes());
+        let k = keyexpr::new("wy/s/downstream/dql/~act/run").unwrap();
+        let (c, perm) = v.verify(&tok, k, Some(Perm::Write), 10).unwrap();
+        assert_eq!(perm, Perm::Read, "only the scoped grant authorizes");
+        // and auth is capped by the request's maxperm
+        assert_eq!(c.auth, Some(vec![g("wy/s/**", Perm::Write)]));
     }
 }

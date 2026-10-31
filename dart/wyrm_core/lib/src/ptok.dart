@@ -25,6 +25,10 @@ class PtokClaims {
   final Uint8List jti;
   final String site;
 
+  /// The caller's full grant set (spec 04 0.2.10), on action tokens only; it never authorizes the
+  /// request. `null` = not sent.
+  final List<Grant>? auth;
+
   const PtokClaims({
     required this.sub,
     required this.roles,
@@ -34,6 +38,7 @@ class PtokClaims {
     required this.exp,
     required this.jti,
     required this.site,
+    this.auth,
   });
 
   Value toValue() => VMap({
@@ -47,6 +52,10 @@ class PtokClaims {
         'exp': VInt(exp),
         'jti': VBytes(jti),
         'site': VStr(site),
+        if (auth case final auth?)
+          'auth': VArray([
+            for (final g in auth) VMap({'k': VStr(g.k), 'p': VInt(g.p.code)})
+          ]),
       });
 
   static PtokClaims fromValue(Value v) {
@@ -61,13 +70,15 @@ class PtokClaims {
       VArray(:final v) => [for (final r in v) r is VStr ? r.v : bad('roles')],
       _ => bad('roles'),
     };
-    final grants = switch (v['grants']) {
-      VArray(:final v) => [
-          for (final g in v)
-            Grant(switch (g['k']) { VStr(:final v) => v, _ => bad('grants.k') }, perm(g['p'], 'grants.p'))
-        ],
-      _ => bad('grants'),
-    };
+    List<Grant> grantList(Value? x, String f) => switch (x) {
+          VArray(:final v) => [
+              for (final g in v)
+                Grant(switch (g['k']) { VStr(:final v) => v, _ => bad('$f.k') }, perm(g['p'], '$f.p'))
+            ],
+          _ => bad(f),
+        };
+    final grants = grantList(v['grants'], 'grants');
+    final auth = v['auth'] == null ? null : grantList(v['auth'], 'auth');
     final jti = switch (v['jti']) { VBytes(:final v) when v.length == 16 => v, _ => bad('jti') };
     return PtokClaims(
       sub: text('sub'),
@@ -78,6 +89,7 @@ class PtokClaims {
       exp: uint('exp'),
       jti: jti,
       site: text('site'),
+      auth: auth,
     );
   }
 

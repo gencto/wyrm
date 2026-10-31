@@ -92,6 +92,7 @@ fn who() -> Who {
     Who {
         subject: Some("bench".into()),
         grants: vec![("wy/bench/downstream/echo/**".into(), Perm::Write)],
+        authority: None,
     }
 }
 

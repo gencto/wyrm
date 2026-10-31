@@ -307,10 +307,10 @@ async fn list_resolve_set_invoke_over_router() {
     let Some(ListEvent::Refreshed(snap)) = links.next().await else {
         panic!()
     };
-    // and the embedded scheduler (ADR 0022)
+    // and the embedded DQL link and scheduler (ADR 0025, 0022)
     assert_eq!(
         snap.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["mock", "scheduler"]
+        ["dql", "mock", "scheduler"]
     );
     assert_eq!(c.children(&format!("{root}/g1")).await.unwrap().len(), 4);
     // multi-term match: the raw selector survives the router hop
@@ -1500,10 +1500,11 @@ async fn portable_app_installs_as_wasm() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
@@ -1740,10 +1741,11 @@ async fn portable_app_upgrade_is_a_hot_start() {
         (last_val(&c, &starts).await == Some(Value::Float(2.0))).then_some(())
     })
     .await;
-    assert_eq!(
-        last_val(&c, &format!("{root}/stopped")).await,
-        Some(Value::Float(1.0))
-    );
+    // `start` publishes `starts`, then `stopped`: read it once it is there
+    eventually("the old instance's stop counted", 10, || async {
+        (last_val(&c, &format!("{root}/stopped")).await == Some(Value::Float(1.0))).then_some(())
+    })
+    .await;
     assert_eq!(
         last_val(&c, &format!("{root}/n")).await,
         Some(Value::UInt(5))
@@ -2299,6 +2301,162 @@ async fn hello_grants(s: &zenoh::Session, id: &str, token: &str) -> Option<Vec<(
         .collect()
 }
 
+/// ADR 0026: a history sink hands its link the rows of its groups in
+/// batches. Only the link (its requester key, subject `link:<id>`) may ask,
+/// over the ACL rule of its own sink; `after` confirms; a person cannot move
+/// the cursor; a removed sink answers no more.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_sink_feeds_its_link() {
+    let env = Env::start(
+        "sinks",
+        &format!(r#"{MOCK} links: {{ rec: {{ driver: "x", mode: "external" }} }},"#)
+            .replace("}, links: {", ","),
+    )
+    .await;
+    let token = std::fs::read_to_string(env.ctl.config().data_dir.join("links/rec/token")).unwrap();
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let hist = format!("wy/{SITE}/sys/history");
+    let p0 = format!("wy/{SITE}/downstream/mock/g0/p0");
+    eventually("mock up", 20, || async { c.meta(&p0).await.ok() }).await;
+    // group g goes to the sink, group other does not
+    for (group, point) in [("g", "g0/p0"), ("other", "g0/p1")] {
+        c.invoke_one(
+            &hist,
+            "add_watch_group",
+            m(&[
+                ("name", Value::from(group)),
+                ("logging_type", Value::from("All Data")),
+                ("buffer_flush_time", Value::UInt(0)),
+            ]),
+        )
+        .await
+        .unwrap();
+        c.invoke_one(
+            &format!("{hist}/{group}"),
+            "add_watch_path",
+            m(&[("path", Value::from(format!("downstream/mock/{point}")))]),
+        )
+        .await
+        .unwrap();
+    }
+    c.invoke_one(
+        &format!("{hist}/sinks"),
+        "add_sink",
+        m(&[
+            ("name", Value::from("cloud")),
+            ("link", Value::from("rec")),
+            ("groups", Value::from("g")),
+        ]),
+    )
+    .await
+    .unwrap();
+    let sink = format!("{hist}/sinks/cloud");
+    // a person (admin key) cannot take batches: that would confirm rows
+    let e = c
+        .invoke_one(&sink, "next", m(&[]))
+        .await
+        .expect_err("a person moving the cursor");
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
+    // the link, with its requester key (after the rebuild), over TLS
+    let as_rec = |key: ed25519_dalek::SigningKey| {
+        let env = &env;
+        async move {
+            let s = env.tls_session("rec").await;
+            WyrmClient::new(s)
+                .with_timeout(Duration::from_secs(3))
+                .with_tokens(Arc::new(
+                    SigningTokens::new(key, SITE).subject("link:rec".to_owned()),
+                ))
+        }
+    };
+    let rows_of = |v: &Value| -> (Vec<(u64, String)>, u64) {
+        let Value::Map(r) = v else {
+            panic!("not a map: {v:?}")
+        };
+        let Some(Value::Array(rows)) = r.get("rows") else {
+            panic!("no rows: {r:?}")
+        };
+        let rows = rows
+            .iter()
+            .map(|row| {
+                let Value::Map(row) = row else {
+                    panic!("row {row:?}")
+                };
+                let (Some(Value::UInt(seq)), Some(Value::Str(key))) =
+                    (row.get("seq"), row.get("key"))
+                else {
+                    panic!("row {row:?}")
+                };
+                (*seq, key.clone())
+            })
+            .collect();
+        let Some(Value::UInt(next)) = r.get("next") else {
+            panic!("no next: {r:?}")
+        };
+        (rows, *next)
+    };
+    let (key, first) = eventually("the link reads its first rows", 30, || async {
+        let s = env.tls_session("rec").await;
+        let secrets = hello_secrets(&s, "rec", &token).await?;
+        let Some(Value::Bytes(seed)) = secrets.get(wyrm_link_sdk::REQUESTER_KEY) else {
+            return None;
+        };
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed[..].try_into().ok()?);
+        let rec = as_rec(key.clone()).await;
+        let v = rec.invoke_one(&sink, "next", m(&[])).await.ok()??;
+        (!rows_of(&v).0.is_empty()).then_some((key, v))
+    })
+    .await;
+    let (rows, next) = rows_of(&first);
+    assert!(rows.iter().all(|(_, k)| *k == p0), "only group g: {rows:?}");
+    assert!(
+        rows.windows(2).all(|w| w[0].0 < w[1].0),
+        "in order: {rows:?}"
+    );
+    assert!(next >= rows.last().unwrap().0);
+    // confirm, and get what came after
+    let rec = as_rec(key).await;
+    let v = eventually("rows after the confirmed ones", 20, || async {
+        let v = rec
+            .invoke_one(&sink, "next", m(&[("after", Value::UInt(next))]))
+            .await
+            .ok()??;
+        (!rows_of(&v).0.is_empty()).then_some(v)
+    })
+    .await;
+    let (later, _) = rows_of(&v);
+    assert!(later.iter().all(|(seq, _)| *seq > next), "{later:?}");
+    let mut confirmed = c.subscribe(&format!("{sink}/confirmed_seq")).await.unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(ev) = confirmed.next().await {
+            if let ValEvent::Sample { sample, .. } = ev {
+                return Some(sample.v);
+            }
+        }
+        None
+    })
+    .await;
+    assert_eq!(got, Ok(Some(Value::UInt(next))), "confirmed_seq");
+    drop(confirmed);
+    let e = rec
+        .invoke_one(&sink, "next", m(&[("after", Value::UInt(u64::MAX >> 12))]))
+        .await
+        .expect_err("after beyond the journal");
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    // removed: no more batches
+    c.invoke_one(&sink, "remove", m(&[])).await.unwrap();
+    assert!(rec.invoke_one(&sink, "next", m(&[])).await.is_err());
+    assert!(env.ctl.registry().historian.sinks.is_empty());
+    env.stop().await;
+}
+
 /// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):
 /// grants open the ACL to other branches and make every link trust its
 /// requester key up to the grant's level and under the grant's path.
@@ -2769,12 +2927,12 @@ async fn two_brokers_over_quic() {
             let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
-            (names.len() == 4).then_some(names)
+            (names.len() == 5).then_some(names)
         }
     })
     .await;
-    // and edge's embedded scheduler (ADR 0022)
-    assert_eq!(names, ["mock", "pm", "scheduler", "slow"]);
+    // and edge's embedded DQL link and scheduler (ADR 0025, 0022)
+    assert_eq!(names, ["dql", "mock", "pm", "scheduler", "slow"]);
     // Each broker shows its peer: the downstream edge beside central's
     // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
@@ -3044,7 +3202,7 @@ async fn chain_of_three_brokers() {
             .filter(|n| n.contains(&"pm".to_owned()))
     })
     .await;
-    assert_eq!(pm, ["md", "pm", "scheduler"]);
+    assert_eq!(pm, ["dql", "md", "pm", "scheduler"]);
     // edge shows plant beside its links, connected
     eventually(
         "edge's downstream/plant connected, seen from central",
@@ -4788,7 +4946,11 @@ async fn two_brokers_isolation() {
         .into_iter()
         .map(|c| c.name)
         .collect();
-    assert_eq!(names, ["mock", "scheduler"], "rogue link listed at central");
+    assert_eq!(
+        names,
+        ["dql", "mock", "scheduler"],
+        "rogue link listed at central"
+    );
     let _ = rs.close().await;
     let _ = r_stop.send(());
     r_task.await.unwrap().unwrap();
@@ -6243,4 +6405,1116 @@ async fn scheduler_three_modes() {
         wasm_store_at_size(&env).await;
     }
     env.stop().await;
+}
+
+/// The `rows` of a DQL query's `get_table`, by `path`.
+async fn dql_rows(c: &WyrmClient, q: &str) -> Option<BTreeMap<String, BTreeMap<String, Value>>> {
+    let t = c
+        .invoke_one(
+            &format!("wy/{SITE}/downstream/dql/{q}"),
+            "get_table",
+            Value::Map(BTreeMap::new()),
+        )
+        .await
+        .ok()??;
+    let Value::Map(m) = t else { return None };
+    let Some(Value::Array(rows)) = m.get("rows") else {
+        return None;
+    };
+    Some(
+        rows.iter()
+            .filter_map(|r| match r {
+                Value::Map(r) => match r.get("path") {
+                    Some(Value::Str(p)) => Some((p.clone(), r.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// ADR 0025: the embedded DQL link lists a link through the router, keeps its table live,
+/// publishes it as a value, and a sink query (config) writes a point only on a change.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_embedded_queries_the_tree() {
+    let env = Env::start(
+        "dql",
+        r#"links: { m: { driver: "mock", params: { points: 5, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(4)).await
+    })
+    .await;
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("pts")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/m | where type == 'number' | subscribe value :name"
+                )),
+            ),
+            ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
+        ]),
+    )
+    .await
+    .expect("add_query");
+    let rows = eventually("5 rows with values", 30, || async {
+        dql_rows(&c, "pts").await.filter(|r| {
+            r.len() == 5
+                && r.values()
+                    .all(|r| r.get("value").is_some_and(|v| *v != Value::Null))
+        })
+    })
+    .await;
+    assert_eq!(rows[&point(0)][":name"], Value::from("p0"));
+    // the table follows a write, and it is a value readers subscribe to
+    c.set(&point(2), Value::Float(7.5)).await.expect("set p2");
+    eventually("the table shows the write", 30, || async {
+        dql_rows(&c, "pts")
+            .await
+            .filter(|r| r[&point(2)]["value"] == Value::Float(7.5))
+    })
+    .await;
+    eventually("the table published as a value", 30, || async {
+        last_sample(&env, &format!("{dql}/pts/table"))
+            .await
+            .filter(|t| matches!(&t.v, Value::Array(a) if a.len() == 5))
+    })
+    .await;
+
+    // a sink: p1 follows p0 doubled, only after a change of p0 (D5)
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("follow")),
+            (
+                "text",
+                Value::from(format!(
+                    "path wy/{SITE}/downstream/m/p0 | subscribe | set ../p1 = value * 2.0"
+                )),
+            ),
+        ]),
+    )
+    .await
+    .expect("add a sink query as admin");
+    eventually("the sink query is ready", 30, || async {
+        c.meta(&format!("{dql}/follow")).await.ok().filter(|m| {
+            m.attr.as_ref().and_then(|a| a.get("status")) == Some(&Value::from("ready"))
+        })
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let before = last_sample(&env, &point(1)).await.map(|s| s.v);
+    assert_ne!(before, Some(Value::Float(42.0)));
+    c.set(&point(0), Value::Float(21.0)).await.expect("set p0");
+    eventually("p1 = 2 × p0", 30, || async {
+        last_sample(&env, &point(1))
+            .await
+            .filter(|s| s.v == Value::Float(42.0))
+    })
+    .await;
+    env.stop().await;
+}
+
+/// ADR 0025 item 4 (owner decision 2026-10-31): a query reads and writes with its author's
+/// rights, carried by the token's `auth` (spec 04 0.2.10) through a real router: an operator who
+/// may read `p0` alone sees one row, and a sink of an engineer limited to `p1` writes nowhere else.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_queries_run_with_their_authors_rights() {
+    let env = Env::start(
+        "dqlauth",
+        r#"links: { m: { driver: "mock", params: { points: 3, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let admin = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(2)).await
+    })
+    .await;
+    eventually("dql up", 60, || async { admin.meta(&dql).await.ok() }).await;
+    let as_user = |sub: &str, grants: Vec<(String, wyrm_core::Perm)>| {
+        let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+        let grants = grants
+            .into_iter()
+            .map(|(k, p)| wyrm_core::ptok::Grant { k, p })
+            .collect();
+        SigningTokens::new(key, SITE).subject(sub).grants(grants)
+    };
+    let session = env.session().await;
+    let op = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(as_user(
+            "user:op",
+            vec![
+                (format!("{dql}/**"), wyrm_core::Perm::Write),
+                (format!("{}/**", point(0)), wyrm_core::Perm::Read),
+            ],
+        )))
+        .with_timeout(Duration::from_secs(30));
+    let text = format!("list wy/{SITE}/downstream/m | where type == 'number' | subscribe");
+    let add = |c: &WyrmClient, id: &str, text: String| {
+        let c = c.clone();
+        let (dql, id) = (dql.clone(), id.to_owned());
+        async move {
+            c.invoke_one(
+                &dql,
+                "add_query",
+                args_map(&[
+                    ("id", Value::from(id.as_str())),
+                    ("text", Value::from(text)),
+                    ("publish_ms", Value::UInt(100)),
+                ]),
+            )
+            .await
+        }
+    };
+    add(&op, "mine", text.clone()).await.expect("add as op");
+    add(&admin, "all", text.clone())
+        .await
+        .expect("add as admin");
+    eventually("the admin's query has 3 rows", 30, || async {
+        dql_rows(&admin, "all").await.filter(|r| r.len() == 3)
+    })
+    .await;
+    let mine = eventually("the operator's query is ready", 30, || async {
+        let m = admin.meta(&format!("{dql}/mine")).await.ok()?;
+        (m.attr?.get("status")? == &Value::from("ready")).then_some(())?;
+        dql_rows(&admin, "mine").await
+    })
+    .await;
+    assert_eq!(mine.keys().collect::<Vec<_>>(), [&point(0)], "{mine:?}");
+
+    // an engineer who may write p1 only: a sink on p2 is refused when it would fire
+    let eng = WyrmClient::new(session)
+        .with_tokens(Arc::new(as_user(
+            "user:eng",
+            vec![
+                (format!("{dql}/**"), wyrm_core::Perm::Config),
+                (format!("{}/**", point(0)), wyrm_core::Perm::Read),
+                (format!("{}/**", point(1)), wyrm_core::Perm::Write),
+            ],
+        )))
+        .with_timeout(Duration::from_secs(30));
+    add(
+        &eng,
+        "sink",
+        format!(
+            "path {} | subscribe | set ../p1 = value * 2.0 | set ../p2 = value * 3.0",
+            point(0)
+        ),
+    )
+    .await
+    .expect("add a sink query as the engineer");
+    eventually("the sink query is ready", 30, || async {
+        admin.meta(&format!("{dql}/sink")).await.ok().filter(|m| {
+            m.attr.as_ref().and_then(|a| a.get("status")) == Some(&Value::from("ready"))
+        })
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let p2_before = last_sample(&env, &point(2)).await.map(|s| s.v);
+    admin
+        .set(&point(0), Value::Float(5.0))
+        .await
+        .expect("set p0");
+    eventually("p1 = 2 × p0", 30, || async {
+        last_sample(&env, &point(1))
+            .await
+            .filter(|s| s.v == Value::Float(10.0))
+    })
+    .await;
+    let err = eventually("the p2 sink is refused", 30, || async {
+        let a = admin.meta(&format!("{dql}/sink")).await.ok()?.attr?;
+        match a.get("error")? {
+            Value::Str(e) if e.contains("outside the rights") => Some(e.clone()),
+            _ => None,
+        }
+    })
+    .await;
+    assert!(err.contains(&point(2)), "{err}");
+    assert_eq!(last_sample(&env, &point(2)).await.map(|s| s.v), p2_before);
+    env.stop().await;
+}
+
+/// What one mode of the DQL link shows in the scenario of `dql_three_modes`.
+#[derive(Debug, PartialEq)]
+struct DqlRun {
+    /// Rows of the query over the mock, each with a value.
+    rows: usize,
+    /// The sink wrote `2 × source` after a change of the source.
+    followed: bool,
+    /// After a stop and start: the stored query is back with its rows, and the sink wrote
+    /// nothing on start (D5). `None`: not restarted (the embedded link).
+    restart: Option<(usize, bool)>,
+}
+
+/// `attr.<a>` of a DQL query node.
+async fn dql_attr(env: &Env, node: &str, a: &str) -> Option<Value> {
+    client_now(env)
+        .await?
+        .meta(node)
+        .await
+        .ok()?
+        .attr?
+        .get(a)
+        .cloned()
+}
+
+/// On DQL link `id`: a query `pts` over the mock with values; a sink query `follow` that
+/// writes `2 × p<src>` to `p<dst>` on a change; with `restart`, `sys/links/<id>` stop and start.
+async fn dql_scenario(env: &Env, id: &str, src: usize, dst: usize, restart: bool) -> DqlRun {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    let c = slow_client(env).await;
+    let add = |qid: &str, text: String| {
+        let (c, root) = (c.clone(), root.clone());
+        let qid = qid.to_owned();
+        async move {
+            c.invoke_one(
+                &root,
+                "add_query",
+                args_map(&[
+                    ("id", Value::from(qid.as_str())),
+                    ("text", Value::from(text)),
+                    ("publish_ms", Value::UInt(100)),
+                ]),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{id}: add_query {qid}: {e}"));
+        }
+    };
+    let rows_with_values = |want: usize| {
+        let root = root.clone();
+        async move {
+            let c = client_now(env).await?;
+            let t = c
+                .invoke_one(
+                    &format!("{root}/pts"),
+                    "get_table",
+                    Value::Map(BTreeMap::new()),
+                )
+                .await
+                .ok()??;
+            let Value::Map(m) = t else { return None };
+            let Some(Value::Array(rows)) = m.get("rows") else {
+                return None;
+            };
+            let n = rows
+                .iter()
+                .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
+                .count();
+            (n == want).then_some(n)
+        }
+    };
+    add(
+        "pts",
+        format!("list wy/{SITE}/downstream/m | where type == 'number' | subscribe value"),
+    )
+    .await;
+    let rows = eventually(&format!("{id}: 9 rows with values"), 60, || {
+        rows_with_values(9)
+    })
+    .await;
+
+    add(
+        "follow",
+        format!(
+            "path {} | subscribe | set ../p{dst} = value * 2.0",
+            point(src)
+        ),
+    )
+    .await;
+    eventually(&format!("{id}: follow ready"), 60, || async {
+        dql_attr(env, &format!("{root}/follow"), "status")
+            .await
+            .filter(|s| *s == Value::from("ready"))
+    })
+    .await;
+    // the first value is the baseline: nothing goes out until it changes
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    c.set(&point(dst), Value::Float(0.0))
+        .await
+        .expect("reset dst");
+    c.set(&point(src), Value::Float(21.0))
+        .await
+        .expect("set src");
+    let followed = eventually(&format!("{id}: p{dst} = 2 × p{src}"), 30, || async {
+        last_sample(env, &point(dst))
+            .await
+            .filter(|s| s.v == Value::Float(42.0))
+            .map(|_| true)
+    })
+    .await;
+
+    let restart = if restart {
+        // a hand-written value the sink must not overwrite on start
+        c.set(&point(dst), Value::Float(7.0))
+            .await
+            .expect("hand-write dst");
+        let link = format!("wy/{SITE}/sys/links/{id}");
+        invoke_retry(env, &link, "stop", Value::Map(BTreeMap::new())).await;
+        invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
+        let rows = eventually(&format!("{id}: pts back after the restart"), 60, || {
+            rows_with_values(9)
+        })
+        .await;
+        eventually(&format!("{id}: follow back"), 60, || async {
+            dql_attr(env, &format!("{root}/follow"), "status")
+                .await
+                .filter(|s| *s == Value::from("ready"))
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let kept = last_sample(env, &point(dst))
+            .await
+            .is_some_and(|s| s.v == Value::Float(7.0));
+        Some((rows, kept))
+    } else {
+        None
+    };
+    DqlRun {
+        rows,
+        followed,
+        restart,
+    }
+}
+
+/// ADR 0025 run modes: the DQL link embedded in `wyrmd`, as a WASM package (`dw`) and as a
+/// process package (`dp`) answer the same scenario alike. A package carries no grants: until
+/// an operator grants it the mock, its queries over it are `ready` with a refused list.
+#[tokio::test(flavor = "multi_thread")]
+async fn dql_three_modes() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    let env = Env::start(
+        "dqlmodes",
+        r#"links: { m: { driver: "mock", params: { points: 9, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    eventually("mock up", 60, || async {
+        last_sample(&env, &format!("wy/{SITE}/downstream/m/p8")).await
+    })
+    .await;
+    eventually("dql up", 60, || async {
+        c.meta(&format!("wy/{SITE}/downstream/dql")).await.ok()
+    })
+    .await;
+    let grant = |id: &str| {
+        let env = &env;
+        let id = id.to_owned();
+        async move {
+            let watch = BrokerWatch::new(env).await;
+            slow_client(env)
+                .await
+                .invoke_one(
+                    &format!("wy/{SITE}/sys/links/{id}"),
+                    "grant",
+                    args_map(&[
+                        ("path", Value::from("wy/{site}/downstream/m")),
+                        ("level", Value::from("write")),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("grant {id}: {e}"));
+            watch
+                .rebuilt(&format!("the rebuild after the grant to {id}"))
+                .await;
+        }
+    };
+    // without a grant the list is refused: the query is ready, empty, and says why
+    let refused = |id: &str| {
+        let env = &env;
+        let root = format!("wy/{SITE}/downstream/{id}");
+        async move {
+            eventually(&format!("{root}: add_query ng"), 60, || async {
+                let r = client_now(env)
+                    .await?
+                    .with_timeout(Duration::from_secs(60))
+                    .invoke_one(
+                        &root,
+                        "add_query",
+                        args_map(&[
+                            ("id", Value::from("ng")),
+                            ("text", Value::from(format!("list wy/{SITE}/downstream/m"))),
+                        ]),
+                    )
+                    .await;
+                match r {
+                    Ok(_) => Some(()),
+                    Err(e) if e.to_string().contains("exists") => Some(()),
+                    Err(_) => None,
+                }
+            })
+            .await;
+            let err = eventually(&format!("{root}/ng: an error"), 60, || async {
+                match dql_attr(env, &format!("{root}/ng"), "error").await {
+                    Some(Value::Str(e)) => Some(e),
+                    _ => None,
+                }
+            })
+            .await;
+            assert!(err.contains("permission_denied"), "{root}/ng: {err}");
+            assert_eq!(
+                dql_attr(env, &format!("{root}/ng"), "rows").await,
+                Some(Value::UInt(0))
+            );
+            slow_client(env)
+                .await
+                .invoke_one(&format!("{root}/ng"), "remove", Value::Map(BTreeMap::new()))
+                .await
+                .expect("remove ng");
+        }
+    };
+
+    let mut runs = vec![("dql", 0, 1, false)];
+    let wasm = portable_component("wyrm-link-dql");
+    match &wasm {
+        Some(component) => {
+            let m = Manifest {
+                name: "dql".into(),
+                version: "1.0.0".into(),
+                description: "the DQL link as a component".into(),
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: Default::default(),
+                args: Vec::new(),
+                entry: Some("dql.wasm".into()),
+                requester: Vec::new(),
+                world: Some("app".into()),
+                capabilities: Some(Capabilities {
+                    store_mb: Some(4),
+                    ..Capabilities::default()
+                }),
+            };
+            let files = [PackFile {
+                path: "dql.wasm".into(),
+                data: component.clone(),
+                mode: 0o644,
+            }];
+            let (ok, msg) = install_zip(&c, "dw", package::pack(&m, &files).unwrap()).await;
+            assert!(ok, "install dw: {msg}");
+            refused("dw").await;
+            grant("dw").await;
+            runs.push(("dw", 2, 3, true));
+        }
+        None => eprintln!(
+            "SKIP dql_three_modes (WASM mode): target wasm32-unknown-unknown is not installed \
+             (rustup target add wasm32-unknown-unknown)"
+        ),
+    }
+    // the process package last: its install rebuilds the router
+    let zip = driver_package_with(
+        "dql-process",
+        "1.0.0",
+        "the DQL link as a process",
+        "dql",
+        Some(serde_json::json!({ "store_mb": 4 })),
+    );
+    let watch = BrokerWatch::new(&env).await;
+    let (ok, msg) = install_zip(&slow_client(&env).await, "dp", zip).await;
+    assert!(ok, "install dp: {msg}");
+    watch.rebuilt("the rebuild after the install of dp").await;
+    refused("dp").await;
+    grant("dp").await;
+    runs.push(("dp", 4, 5, true));
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["dp"].mode, wyrm_admin::Mode::Process);
+    if wasm.is_some() {
+        assert_eq!(reg.links["dw"].driver, "pkg:dql");
+        assert_eq!(reg.links["dw"].mode, wyrm_admin::Mode::Embedded);
+    }
+
+    for (id, src, dst, restart) in runs {
+        let run = dql_scenario(&env, id, src, dst, restart).await;
+        let want = DqlRun {
+            rows: 9,
+            followed: true,
+            restart: restart.then_some((9, true)),
+        };
+        assert_eq!(run, want, "mode of {id}");
+    }
+    env.stop().await;
+}
+
+// ---------- DQL measurements (ADR 0025 D4; `#[ignore]`: run them in release) ----------
+//
+//   cargo test --release -p wyrmd --test e2e dql_perf -- --ignored --nocapture --test-threads 1
+
+/// CPU seconds this process used (user + system), Linux `/proc/self/stat`.
+fn cpu_secs() -> f64 {
+    let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    // fields after the command (in parentheses): utime and stime are the 12th and 13th
+    let rest = s.rsplit_once(')').map(|(_, r)| r).unwrap_or("");
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let tick = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    (tick(11) + tick(12)) / 100.0
+}
+
+fn quantile(v: &[f64], q: f64) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    s[((s.len() - 1) as f64 * q).round() as usize]
+}
+
+/// One collection on DQL link `dql`: wall ms until the link publishes a table in which every
+/// expected row has a value (watched on a subscription, not polled: polling `get_table` would
+/// load the link it measures), the link's own `collect_ms`, `lists`, `depth`.
+async fn dql_collect(
+    c: &WyrmClient,
+    dql: &str,
+    id: &str,
+    text: &str,
+    want: usize,
+) -> (f64, u64, u64, u64) {
+    let q = format!("{dql}/{id}");
+    let mut table = c.subscribe(&format!("{q}/table")).await.unwrap();
+    let t0 = std::time::Instant::now();
+    c.invoke_one(
+        dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from(id)),
+            ("text", Value::from(text)),
+            ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("add_query {id}: {e}"));
+    let mut n = 0;
+    let full = loop {
+        let left = Duration::from_secs(120).saturating_sub(t0.elapsed());
+        let ev = match tokio::time::timeout(left, table.next()).await {
+            Ok(ev) => ev,
+            Err(_) => {
+                let attr = c.meta(&q).await.ok().and_then(|m| m.attr);
+                panic!("{id}: {n} of {want} rows; the query: {attr:?}")
+            }
+        };
+        let Some(ValEvent::Sample { sample, .. }) = ev else {
+            continue;
+        };
+        n = match &sample.v {
+            Value::Array(r) => r
+                .iter()
+                .filter(|r| matches!(r, Value::Map(r) if r.get("value").is_some_and(|v| *v != Value::Null)))
+                .count(),
+            _ => 0,
+        };
+        if n >= want {
+            break t0.elapsed().as_secs_f64() * 1000.0;
+        }
+    };
+    drop(table);
+    let attr = c
+        .meta(&q)
+        .await
+        .ok()
+        .and_then(|m| m.attr)
+        .unwrap_or_default();
+    let n = |k: &str| match attr.get(k) {
+        Some(Value::UInt(v)) => *v,
+        _ => 0,
+    };
+    let out = (full, n("collect_ms"), n("lists"), n("depth"));
+    c.invoke_one(&q, "remove", Value::Map(BTreeMap::new()))
+        .await
+        .expect("remove");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    out
+}
+
+/// Three collections of `text`; prints one row: median and max of the full time, the link's
+/// `collect_ms`, lists and depth.
+async fn dql_collect_row(c: &WyrmClient, dql: &str, label: &str, text: &str, want: usize) {
+    let mut full = Vec::new();
+    let mut last = (0, 0, 0);
+    for i in 0..3 {
+        let (f, cm, lists, depth) = dql_collect(c, dql, &format!("m{i}"), text, want).await;
+        full.push(f);
+        last = (cm, lists, depth);
+    }
+    eprintln!(
+        "| {label} | {want} | {} | {} | {} | {:.0} | {:.0} |",
+        last.2,
+        last.1,
+        last.0,
+        quantile(&full, 0.5),
+        quantile(&full, 1.0)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "measurement: run in release with --ignored --nocapture"]
+async fn dql_perf_local() {
+    let env = Env::start(
+        "dqlperf",
+        r#"links: {
+            d2: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 2, fanout: 2 } },
+            d4: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 4, fanout: 2 } },
+            d8: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 8, fanout: 2 } },
+            w10: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 10 } },
+            w100: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 100 } },
+            w900: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 1, fanout: 900 } },
+            big: { driver: "mock", params: { points: 5000, rate_hz: 0, depth: 1, fanout: 50 } },
+        },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    let dql = format!("wy/{SITE}/downstream/dql");
+    for l in ["d2", "d4", "d8", "w10", "w100", "w900", "big"] {
+        eventually(&format!("{l} up"), 120, || async {
+            c.children(&format!("wy/{SITE}/downstream/{l}"))
+                .await
+                .ok()
+                .filter(|k| !k.is_empty())
+        })
+        .await;
+    }
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    eprintln!("\n| tree | rows | depth | lists | collect_ms (link) | table full p50 ms | max ms |");
+    eprintln!("|---|---|---|---|---|---|---|");
+    for (l, label) in [
+        ("d2", "fanout 2, depth 2"),
+        ("d4", "fanout 2, depth 4"),
+        ("d8", "fanout 2, depth 8"),
+        ("w10", "depth 1, fanout 10"),
+        ("w100", "depth 1, fanout 100"),
+        ("w900", "depth 1, fanout 900"),
+    ] {
+        let text = format!("list wy/{SITE}/downstream/{l}/** | where type == 'number' | subscribe");
+        dql_collect_row(&c, &dql, label, &text, 1000).await;
+    }
+    let text = format!(
+        "list wy/{SITE}/downstream/big/** | where type == 'number' | subscribe | option max_rows=5000"
+    );
+    dql_collect_row(&c, &dql, "5 000 points, fanout 50", &text, 5000).await;
+
+    // latency: a write on a point → the engine's table (get_table) → the published table
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("lat")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/d2/** | where type == 'number' | subscribe"
+                )),
+            ),
+            ("publish_ms", Value::UInt(100)),
+            ("publish", Value::Bool(true)),
+        ]),
+    )
+    .await
+    .expect("lat");
+    let p0 = format!("wy/{SITE}/downstream/d2/g0/g0/p0");
+    // the engine's view through a one-row query: cheap to poll
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("one")),
+            ("text", Value::from(format!("path {p0} | subscribe"))),
+        ]),
+    )
+    .await
+    .expect("one");
+    let mut table = c.subscribe(&format!("{dql}/lat/table")).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let has = |v: &Value, want: f64| {
+        matches!(v, Value::Array(rows) if rows.iter().any(|r| matches!(r, Value::Map(m)
+            if m.get("path") == Some(&Value::from(p0.as_str())) && m.get("value") == Some(&Value::Float(want)))))
+    };
+    let (mut engine_ms, mut pub_ms) = (Vec::new(), Vec::new());
+    for i in 0..20 {
+        let want = 1000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        c.set(&p0, Value::Float(want)).await.expect("set");
+        loop {
+            let t = c
+                .invoke_one(
+                    &format!("{dql}/one"),
+                    "get_table",
+                    Value::Map(BTreeMap::new()),
+                )
+                .await
+                .ok()
+                .flatten();
+            if let Some(Value::Map(m)) = &t {
+                if m.get("rows").is_some_and(|r| has(r, want)) {
+                    engine_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        while let Some(ev) = tokio::time::timeout(Duration::from_secs(5), table.next())
+            .await
+            .expect("a table sample")
+        {
+            if let ValEvent::Sample { sample, .. } = ev {
+                if has(&sample.v, want) {
+                    pub_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    eprintln!(
+        "\nwrite → engine table: p50 {:.1} ms, p99 {:.1} ms; write → published table (publish_ms 100): p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&engine_ms, 0.5),
+        quantile(&engine_ms, 0.99),
+        quantile(&pub_ms, 0.5),
+        quantile(&pub_ms, 0.99)
+    );
+
+    // a sink: p0 → p4 (a sibling), a set of the source to the write of the target
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("sink")),
+            (
+                "text",
+                Value::from(format!("path {p0} | subscribe | set ../p4 = value")),
+            ),
+        ]),
+    )
+    .await
+    .expect("sink");
+    let p4 = format!("wy/{SITE}/downstream/d2/g0/g0/p4");
+    let mut dst = c.subscribe(&p4).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut sink_ms = Vec::new();
+    for i in 0..20 {
+        let want = 2000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        c.set(&p0, Value::Float(want)).await.expect("set");
+        while let Some(ev) = tokio::time::timeout(Duration::from_secs(5), dst.next())
+            .await
+            .expect("a sample of the target")
+        {
+            if matches!(ev, ValEvent::Sample { ref sample, .. } if sample.v == Value::Float(want)) {
+                sink_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    eprintln!(
+        "write of a source → sink write of its target: p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&sink_ms, 0.5),
+        quantile(&sink_ms, 0.99)
+    );
+
+    // idle: two queries ready, nothing changes → no message from the DQL link
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut all = c.subscribe(&format!("{dql}/**")).await.unwrap();
+    // the stored values come first
+    while tokio::time::timeout(Duration::from_millis(500), all.next())
+        .await
+        .is_ok()
+    {}
+    let t0 = std::time::Instant::now();
+    let mut n = 0;
+    while t0.elapsed() < Duration::from_secs(10) {
+        if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), all.next()).await {
+            n += 1;
+        }
+    }
+    eprintln!("idle, 3 queries ready, 10 s: {n} samples from the DQL link");
+    env.stop().await;
+
+    // CPU at 50k samples/s: the broker process (router, mock, DQL in one process) without and
+    // with a query that subscribes all 5 000 points
+    let env = Env::start(
+        "dqlcpu",
+        r#"links: { hot: { driver: "mock", params: { points: 5000, rate_hz: 10, depth: 1, fanout: 50 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    eventually("hot up", 120, || async {
+        c.children(&format!("wy/{SITE}/downstream/hot"))
+            .await
+            .ok()
+            .filter(|k| !k.is_empty())
+    })
+    .await;
+    eventually("dql up", 60, || async { c.meta(&dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let busy = |secs: u64| async move {
+        let (c0, t0) = (cpu_secs(), std::time::Instant::now());
+        tokio::time::sleep(Duration::from_secs(secs)).await;
+        (cpu_secs() - c0) / t0.elapsed().as_secs_f64() * 100.0
+    };
+    // samples per second an independent subscriber sees on the mock
+    let rate = || {
+        let c = c.clone();
+        async move {
+            let mut s = c
+                .subscribe(&format!("wy/{SITE}/downstream/hot/**"))
+                .await
+                .unwrap();
+            // the stored values first
+            while tokio::time::timeout(Duration::from_millis(300), s.next())
+                .await
+                .is_ok_and(|e| e.is_some())
+            {}
+            let (t0, mut n) = (std::time::Instant::now(), 0u64);
+            while t0.elapsed() < Duration::from_secs(3) {
+                if let Ok(Some(_)) =
+                    tokio::time::timeout(Duration::from_millis(100), s.next()).await
+                {
+                    n += 1;
+                }
+            }
+            n as f64 / t0.elapsed().as_secs_f64()
+        }
+    };
+    eprintln!("samples/s seen without the query: {:.0}", rate().await);
+    let without = busy(10).await;
+    c.invoke_one(
+        &dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("hot")),
+            (
+                "text",
+                Value::from(format!(
+                    "list wy/{SITE}/downstream/hot/** | where type == 'number' | subscribe | option max_rows=5000"
+                )),
+            ),
+            ("publish", Value::Bool(true)),
+        ]),
+    )
+    .await
+    .expect("hot");
+    eventually("hot table full", 120, || async {
+        dql_attr(&env, &format!("{dql}/hot"), "rows")
+            .await
+            .filter(|r| *r == Value::UInt(5000))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let with = busy(10).await;
+    eprintln!("samples/s seen with the query: {:.0}", rate().await);
+    let fresh = last_sample(&env, &format!("{dql}/hot/table")).await;
+    eprintln!(
+        "the query's table: last published {:?} ms ago, errors {:?}, refetches {:?}",
+        fresh.map(|s| (wyrm_link_sdk::now_us().saturating_sub(s.t)) / 1000),
+        dql_attr(&env, &format!("{dql}/hot"), "errors").await,
+        dql_attr(&env, &format!("{dql}/hot"), "refetches").await,
+    );
+    eprintln!(
+        "50k samples/s: broker process {without:.0} % of one core without a query, {with:.0} % with a query over all 5 000 points (DQL: {:.0} %), {} cores here",
+        with - without,
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)
+    );
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "measurement: run in release with --ignored --nocapture"]
+async fn dql_perf_chain() {
+    // the topology of `chain_of_three_brokers`, one tree `t` on every site
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let own = |seed: u8| {
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
+                .verifying_key()
+                .to_bytes(),
+        )
+    };
+    let (edge_admin, plant_admin) = (own(11), own(12));
+    let (c_dir, e_dir, p_dir) = (
+        temp_dir("dq-central"),
+        temp_dir("dq-edge"),
+        temp_dir("dq-plant"),
+    );
+    let (c_tcp, c_quic, e_tcp, e_quic, p_tcp) = (
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+        free_port(),
+    );
+    let tree =
+        r#"t: { driver: "mock", params: { points: 1000, rate_hz: 0, depth: 2, fanout: 10 } }"#;
+    let cfg = |text: String| Config::from_json5(&text).unwrap();
+    let central = cfg(format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}",
+                        downstream: [{{ site: "edge", via: ["plant"] }}] }},
+              links: {{ {tree} }} }}"#,
+        c_dir.display(),
+    ));
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
+    let edge = cfg(format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{edge_admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{e_quic}",
+                        upstream: [{up}],
+                        downstream: [{{ site: "plant" }}] }},
+              links: {{ {tree} }} }}"#,
+        e_dir.display(),
+    ));
+    let up = upstream_entry("edge", e_quic, &e_dir, "plant");
+    let plant = cfg(format!(
+        r#"{{ site: "plant", data_dir: "{}", listen: ["tcp/127.0.0.1:{p_tcp}"],
+              admin_keys: ["{plant_admin}"],
+              peers: {{ upstream: [{up}] }},
+              links: {{ {tree} }} }}"#,
+        p_dir.display(),
+    ));
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let mut daemons = Vec::new();
+    for d in [central, edge, plant] {
+        daemons.push(open_daemon(d, exe.clone()).unwrap());
+    }
+    let (mut senders, mut tasks) = (Vec::new(), Vec::new());
+    for d in daemons {
+        let (tx, rx) = oneshot::channel::<()>();
+        senders.push(tx);
+        tasks.push(tokio::spawn(d.run_until(async {
+            let _ = rx.await;
+        })));
+    }
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5(
+        "connect/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{c_tcp}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "5000").unwrap();
+    let session = zenoh::open(zc).await.unwrap();
+    let c = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "central")))
+        .with_timeout(Duration::from_secs(30));
+    let to_plant = WyrmClient::new(session.clone())
+        .with_tokens(Arc::new(SigningTokens::new(key.clone(), "plant")))
+        .with_timeout(Duration::from_secs(10));
+    eventually("plant trusts central's keys", 60, || async {
+        (signer_sites(&to_plant, "plant", "write").await == ["central", "edge", "plant"])
+            .then_some(())
+    })
+    .await;
+    for s in ["central", "edge", "plant"] {
+        eventually(&format!("{s}/t seen from central"), 60, || async {
+            c.children(&format!("wy/{s}/downstream/t"))
+                .await
+                .ok()
+                .filter(|k| k.len() == 10)
+        })
+        .await;
+    }
+    let dql = "wy/central/downstream/dql";
+    // central's DQL rebuilt with the peers it reaches: wait for its first answer
+    eventually("central dql up", 60, || async { c.meta(dql).await.ok() }).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    eprintln!("\n| tree (1 000 points, fanout 10, depth 2) | rows | depth | lists | collect_ms (link) | table full p50 ms | max ms |");
+    eprintln!("|---|---|---|---|---|---|---|");
+    // twice, in both orders: the first query to a site also opens its routes
+    for (s, hops) in [
+        ("central", "here"),
+        ("edge", "1 hop"),
+        ("plant", "2 hops"),
+        ("plant", "2 hops, again"),
+        ("edge", "1 hop, again"),
+        ("central", "here, again"),
+    ] {
+        let text = format!("list wy/{s}/downstream/t/** | where type == 'number' | subscribe");
+        dql_collect_row(&c, dql, &format!("{s} ({hops})"), &text, 1000).await;
+    }
+
+    // a write two hops down → central's engine table
+    c.invoke_one(
+        dql,
+        "add_query",
+        args_map(&[
+            ("id", Value::from("far")),
+            (
+                "text",
+                Value::from("path wy/plant/downstream/t/g0/g0/p0 | subscribe"),
+            ),
+        ]),
+    )
+    .await
+    .expect("far");
+    let p0 = "wy/plant/downstream/t/g0/g0/p0";
+    eventually("far ready", 60, || async {
+        c.meta(&format!("{dql}/far"))
+            .await
+            .ok()
+            .and_then(|m| m.attr)
+            .filter(|a| a.get("status") == Some(&Value::from("ready")))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut ms = Vec::new();
+    for i in 0..20 {
+        let want = 3000.0 + f64::from(i);
+        let t0 = std::time::Instant::now();
+        to_plant
+            .set(p0, Value::Float(want))
+            .await
+            .expect("set on plant");
+        loop {
+            let t = c
+                .invoke_one(
+                    &format!("{dql}/far"),
+                    "get_table",
+                    Value::Map(BTreeMap::new()),
+                )
+                .await
+                .ok()
+                .flatten();
+            let seen = matches!(&t, Some(Value::Map(m)) if matches!(m.get("rows"), Some(Value::Array(rows))
+                if rows.iter().any(|r| matches!(r, Value::Map(r)
+                    if r.get("path") == Some(&Value::from(p0)) && r.get("value") == Some(&Value::Float(want))))));
+            if seen {
+                ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+                break;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the write on plant never reached central's table"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    eprintln!(
+        "\nwrite on plant (2 hops down) → central's engine table: p50 {:.1} ms, p99 {:.1} ms",
+        quantile(&ms, 0.5),
+        quantile(&ms, 0.99)
+    );
+    for tx in senders {
+        let _ = tx.send(());
+    }
+    for t in tasks {
+        let _ = t.await;
+    }
 }

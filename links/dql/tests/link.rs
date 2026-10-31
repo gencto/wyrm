@@ -1,0 +1,433 @@
+//! The DQL link on `SimHost` (ADR 0025): stored and ad-hoc queries, their tables, restarts,
+//! rights of sink queries, bounds per event.
+
+mod common;
+
+use common::*;
+use wyrm_core::{Perm, Status, Value};
+use wyrm_link_api::Who;
+
+fn add(
+    h: &mut SimHost,
+    id: &str,
+    text: &str,
+    who: &wyrm_link_api::Who,
+) -> Result<Value, wyrm_link_api::AppError> {
+    h.invoke(
+        "",
+        "add_query",
+        map(&[
+            ("id", s(id)),
+            ("text", s(text)),
+            ("publish_ms", Value::UInt(100)),
+        ]),
+        who,
+    )
+}
+
+fn temps(h: &mut SimHost, q: &str) -> Vec<Value> {
+    h.table(q)
+        .into_iter()
+        .map(|r| match r {
+            Value::Map(m) => m.get("value").cloned().unwrap_or(Value::Null),
+            r => panic!("{r:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_stored_query_publishes_its_table_and_survives_a_restart() {
+    let mut h = SimHost::new().with_mock(3);
+    h.start();
+    add(
+        &mut h,
+        "temps",
+        "list wy/s/downstream/mock/** | where type == 'number' | subscribe",
+        &writer(),
+    )
+    .unwrap();
+    h.advance_ms(200);
+    assert_eq!(
+        temps(&mut h, "temps"),
+        [Value::Int(0), Value::Int(1), Value::Int(2)]
+    );
+    assert_eq!(h.attr("temps", "status"), s("ready"));
+    assert_eq!(h.attr("temps", "rows"), Value::UInt(3));
+    assert_eq!(h.attr("temps", "created_by"), s("user:op"));
+    assert!(matches!(h.attr("temps", "collect_ms"), Value::UInt(_)));
+    assert_eq!(h.subs.len(), 1, "one subtree subscription");
+    assert!(h.store_has("q/temps") && h.store_has("index"));
+
+    h.put_value("wy/s/downstream/mock/d1/temp", Value::Int(42));
+    h.advance_ms(200);
+    assert_eq!(temps(&mut h, "temps")[1], Value::Int(42));
+
+    h.restart();
+    h.advance_ms(200);
+    assert_eq!(
+        temps(&mut h, "temps"),
+        [Value::Int(0), Value::Int(42), Value::Int(2)]
+    );
+
+    // stats count it
+    assert_eq!(h.nodes["stats/queries"].1, Some(Value::UInt(1)));
+    assert_eq!(h.nodes["stats/rows"].1, Some(Value::UInt(3)));
+}
+
+#[test]
+fn sink_queries_need_config_and_never_fire_on_start() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let text = "list wy/s/downstream/mock/*/temp | subscribe | set ../sp = value * 2";
+    let e = add(&mut h, "sp", text, &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    add(&mut h, "sp", text, &engineer()).unwrap();
+    h.advance_ms(200);
+    assert!(h.calls.is_empty(), "the first values are the baseline");
+    h.put_value("wy/s/downstream/mock/d0/temp", Value::Int(5));
+    assert_eq!(
+        h.calls,
+        [(
+            "wy/s/downstream/mock/d0/sp".to_owned(),
+            None,
+            Value::Int(10)
+        )]
+    );
+    // a restart with the same values writes nothing (D5)
+    h.restart();
+    h.advance_ms(200);
+    assert_eq!(h.calls.len(), 1);
+    // a write-only caller cannot turn a query into a sink query
+    let e = h
+        .invoke(
+            "sp",
+            "edit",
+            map(&[("text", s("list wy/s/downstream/mock | invoke ack()"))]),
+            &writer(),
+        )
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // may stop its writes (switch it off), but not start them again or remove it
+    h.set("sp/enabled", Value::Bool(false)).unwrap();
+    assert_eq!(h.attr("sp", "status"), s("disabled"));
+    assert!(h.subs.is_empty() && h.lists.is_empty());
+    let e = h.set("sp/enabled", Value::Bool(true)).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let e = h
+        .invoke("sp", "remove", Value::Null, &writer())
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // nor edit it: a text without sinks would drop them, as remove does
+    let plain = "list wy/s/downstream/mock/*/temp | subscribe";
+    for arg in [("text", s(plain)), ("display", s("x"))] {
+        let e = h.invoke("sp", "edit", map(&[arg]), &writer()).unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+    }
+    // an engineer may
+    h.set_as("sp/enabled", Value::Bool(true), &engineer())
+        .unwrap();
+    h.invoke("sp", "remove", Value::Null, &engineer()).unwrap();
+    assert!(!h.nodes.contains_key("sp") && !h.store_has("q/sp"));
+    // a query without sinks: the writer switches and removes it as before
+    add(
+        &mut h,
+        "plain",
+        "list wy/s/downstream/mock/*/temp | subscribe",
+        &writer(),
+    )
+    .unwrap();
+    h.set("plain/enabled", Value::Bool(false)).unwrap();
+    h.set("plain/enabled", Value::Bool(true)).unwrap();
+    h.invoke("plain", "remove", Value::Null, &writer()).unwrap();
+    // an engineer's named ad-hoc sink query: a writer cannot replace it with another text
+    let run = |t: &str| map(&[("text", s(t)), ("id", s("adhoc"))]);
+    h.invoke("", "run", run(text), &engineer()).unwrap();
+    let e = h.invoke("", "run", run(plain), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    h.invoke("", "run", run(plain), &engineer()).unwrap();
+}
+
+#[test]
+fn ad_hoc_queries_are_shared_and_expire() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let args = || {
+        map(&[
+            ("text", s("list wy/s/downstream/mock")),
+            ("ttl_s", Value::UInt(10)),
+        ])
+    };
+    let a = h.invoke("", "run", args(), &writer()).unwrap();
+    let b = h.invoke("", "run", args(), &writer()).unwrap();
+    assert_eq!(a, b, "the same text shares one query");
+    let Value::Map(m) = &a else { panic!() };
+    let id = match m.get("id") {
+        Some(Value::Str(s)) => s.clone(),
+        _ => panic!(),
+    };
+    // not published: no table node, get_table answers
+    assert_eq!(m.get("table"), None);
+    h.advance_ms(600);
+    assert_eq!(h.table(&id).len(), 2);
+    assert!(
+        !h.store_has(&format!("q/{id}")),
+        "ad-hoc queries are not stored"
+    );
+    // read again: renewed
+    h.advance_ms(8_000);
+    let t = h.invoke(&id, "get_table", Value::Null, &writer()).unwrap();
+    assert!(matches!(&t, Value::Map(m) if m.get("total") == Some(&Value::UInt(2))));
+    h.advance_ms(8_000);
+    assert!(h.nodes.contains_key(&id));
+    h.advance_ms(3_000);
+    assert!(!h.nodes.contains_key(&id), "expired");
+    assert!(h.lists.is_empty());
+    // a named one with its table published, for a dataflow: an engineer's call
+    let args = || {
+        map(&[
+            ("text", s("list wy/s/downstream/mock")),
+            ("id", s("flowq")),
+            ("publish", Value::Bool(true)),
+        ])
+    };
+    let e = h.invoke("", "run", args(), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let r = h.invoke("", "run", args(), &engineer()).unwrap();
+    assert!(matches!(&r, Value::Map(m) if m.get("table") == Some(&s("flowq/table"))));
+}
+
+#[test]
+fn wide_trees_stay_within_the_event_budget() {
+    let mut h = SimHost::new().with_mock(900);
+    h.start();
+    add(
+        &mut h,
+        "all",
+        "list wy/s/downstream/mock/** | where type == 'number' | subscribe | option max_rows=5000",
+        &writer(),
+    )
+    .unwrap();
+    h.advance_ms(200);
+    assert_eq!(h.table("all").len(), 900);
+    assert!(h.max_cmds <= wyrm_link_dql::BUDGET + 50, "{}", h.max_cmds);
+    assert_eq!(h.attr("all", "lists_pending"), Value::UInt(0));
+    assert_eq!(h.attr("all", "depth"), Value::UInt(2));
+    // removing it ends its 901 lists within the budget too
+    h.invoke("all", "remove", Value::Null, &writer()).unwrap();
+    h.advance_ms(10);
+    assert!(h.lists.is_empty());
+    assert!(h.max_cmds <= wyrm_link_dql::BUDGET + 50);
+
+    // wider than the list bound of one query: the table is incomplete and says why
+    let mut h = SimHost::new().with_mock(1_200);
+    h.start();
+    add(
+        &mut h,
+        "all",
+        "list wy/s/downstream/mock/** | where type == 'number'",
+        &writer(),
+    )
+    .unwrap();
+    h.advance_ms(200);
+    assert!(h.table("all").len() < 1_200);
+    assert!(matches!(h.attr("all", "error"), Value::Str(e) if e.starts_with("max_lists")));
+    assert_eq!(h.attr("all", "status"), s("ready"));
+}
+
+#[test]
+fn rows_appear_as_nodes_appear() {
+    let mut h = SimHost::new().with_mock(1);
+    h.start();
+    add(
+        &mut h,
+        "q",
+        "list wy/s/downstream/mock/** | where name == 'temp'",
+        &writer(),
+    )
+    .unwrap();
+    h.advance_ms(200);
+    assert_eq!(h.table("q").len(), 1);
+    h.add_node("wy/s/downstream/mock/d9", folder());
+    h.add_node("wy/s/downstream/mock/d9/temp", number());
+    h.advance_ms(200);
+    assert_eq!(h.table("q").len(), 2);
+}
+
+#[test]
+fn actions_validate_and_explain() {
+    let mut h = SimHost::new();
+    h.start();
+    let e = add(&mut h, "q", "list x", &writer()).unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert!(e.msg.contains("stage 1"), "{}", e.msg);
+    assert_eq!(
+        add(&mut h, "stats", "list wy/s/downstream", &writer())
+            .unwrap_err()
+            .status,
+        Status::InvalidParameter
+    );
+    add(&mut h, "q", "list wy/s/downstream", &writer()).unwrap();
+    assert_eq!(
+        add(&mut h, "q", "list wy/s/downstream", &writer())
+            .unwrap_err()
+            .status,
+        Status::InvalidParameter
+    );
+    let x = h
+        .invoke(
+            "",
+            "explain",
+            map(&[(
+                "text",
+                s("list wy/s/downstream/m/** | subscribe | set ./x = value"),
+            )]),
+            &writer(),
+        )
+        .unwrap();
+    let Value::Map(m) = x else { panic!() };
+    assert_eq!(m["roots"], Value::Array(vec![s("wy/s/downstream/m")]));
+    assert_eq!(m["sinks"], Value::Array(vec![s("./x/~set")]));
+    let c = h
+        .invoke(
+            "",
+            "convert_dsa",
+            map(&[
+                ("text", s("list /downstream/System/* | filter $type")),
+                ("site", s("s")),
+            ]),
+            &writer(),
+        )
+        .unwrap();
+    assert_eq!(
+        c,
+        map(&[("text", s("list wy/s/downstream/System/** | filter $type"))])
+    );
+    // export, then import under another id
+    let Value::Map(x) = h.invoke("q", "export", Value::Null, &writer()).unwrap() else {
+        panic!()
+    };
+    let json = x["json"].clone();
+    h.invoke(
+        "",
+        "import",
+        map(&[("json", json.clone()), ("id", s("q2"))]),
+        &engineer(),
+    )
+    .unwrap();
+    assert!(h.store_has("q/q2"));
+    let e = h
+        .invoke(
+            "",
+            "import",
+            map(&[("json", json), ("id", s("q2"))]),
+            &engineer(),
+        )
+        .unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter);
+}
+
+/// ADR 0025 item 4 (owner decision 2026-10-31): a query runs with its author's rights.
+#[test]
+fn queries_run_with_their_authors_rights() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let text = "list wy/s/downstream/mock/*/temp | subscribe";
+    // a token without `auth`: the caller's rights are unknown, nothing is defined
+    let blind = Who {
+        authority: None,
+        ..writer()
+    };
+    let e = add(&mut h, "q0", text, &blind).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    let e = h
+        .invoke("", "run", map(&[("text", s(text))]), &blind)
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // an operator who may read d0 only: d1 is no row of their query
+    let d0 = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/dql/**".into(), Perm::Write),
+            ("wy/s/downstream/mock/d0/**".into(), Perm::Read),
+        ]),
+        ..writer()
+    };
+    add(&mut h, "mine", text, &d0).unwrap();
+    add(&mut h, "all", text, &writer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.table("mine").len(), 1);
+    assert_eq!(h.table("all").len(), 2);
+    // the same ad-hoc text with other rights is another query, never the other user's table
+    let a = h.invoke("", "run", map(&[("text", s(text))]), &d0).unwrap();
+    let b = h
+        .invoke("", "run", map(&[("text", s(text))]), &writer())
+        .unwrap();
+    assert_ne!(a, b);
+    // the rights outlive a restart: they are kept with the definition
+    h.restart();
+    h.advance_ms(600);
+    assert_eq!(h.table("mine").len(), 1);
+}
+
+/// ADR 0025 item 4, the tables (owner decision 2026-10-31): get_table gives each caller the rows
+/// it may read itself; only an engineer publishes a whole table as a live value.
+#[test]
+fn readers_see_their_own_rows_and_only_published_tables_are_values() {
+    let mut h = SimHost::new().with_mock(2);
+    h.start();
+    let text = "list wy/s/downstream/mock/*/temp | subscribe";
+    add(&mut h, "q", text, &engineer()).unwrap();
+    h.advance_ms(600);
+    // not published: no table node, nothing to subscribe
+    assert!(!h.nodes.contains_key("q/table"));
+    assert_eq!(h.table("q").len(), 2);
+    // a reader who may read d0 only gets d0's row of the engineer's table
+    let d0 = Who {
+        authority: Some(vec![
+            ("wy/s/downstream/dql/**".into(), Perm::Read),
+            ("wy/s/downstream/mock/d0/**".into(), Perm::Read),
+        ]),
+        ..writer()
+    };
+    let rows = h.table_as("q", &d0);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    // a reader without auth gets nothing
+    let blind = Who {
+        authority: None,
+        ..writer()
+    };
+    let e = h.invoke("q", "get_table", Value::Null, &blind).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // publishing needs config; then the table is a live value, and off again removes it
+    let on = || map(&[("publish", Value::Bool(true))]);
+    let e = h.invoke("q", "edit", on(), &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    h.invoke("q", "edit", on(), &engineer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.published("q").len(), 2);
+    // the text of a published query is config too: a writer's edit would publish its own rights
+    let other = map(&[("text", s("list wy/s/downstream/mock/** | subscribe"))]);
+    let e = h.invoke("q", "edit", other, &writer()).unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    // the same text again changes nothing: the author's rights stay (no rebinding to the writer)
+    let same = map(&[("text", s("list wy/s/downstream/mock/*/temp | subscribe"))]);
+    h.invoke("q", "edit", same, &writer()).unwrap();
+    assert_eq!(h.attr("q", "created_by"), s("user:eng"));
+    h.invoke(
+        "q",
+        "edit",
+        map(&[("publish", Value::Bool(false))]),
+        &engineer(),
+    )
+    .unwrap();
+    h.advance_ms(600);
+    assert!(!h.nodes.contains_key("q/table"));
+    // a row that reads another node (`..`) is the reader's only if that node is too
+    let text = "path wy/s/downstream/mock/d0/temp | subscribe value ../../d1/temp as other";
+    add(&mut h, "x", text, &engineer()).unwrap();
+    h.advance_ms(600);
+    assert_eq!(h.table("x").len(), 1);
+    assert!(
+        h.table_as("x", &d0).is_empty(),
+        "d1's value must not reach a d0 reader"
+    );
+}

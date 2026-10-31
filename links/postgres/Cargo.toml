@@ -1,0 +1,45 @@
+[package]
+name = "wyrm-link-postgres"
+description = "WYRM history sync to PostgreSQL (ADR 0026): a portable App that writes a history sink's batches into a table"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-link-postgres"
+required-features = ["process"]
+
+[features]
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wyrm-history-sync.workspace = true
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-portable.workspace = true
+wyrm-history-sync = { workspace = true, features = ["testkit"] }
+
+# `wyr link pack` (ADR 0021, 0023): a WASM package; the same code packs as a
+# process with `--kind process`. The password goes in with Set Password.
+[package.metadata.wyrm-link]
+name = "postgres"
+description = "History sync to PostgreSQL (TimescaleDB too) (ADR 0026)"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 1 }

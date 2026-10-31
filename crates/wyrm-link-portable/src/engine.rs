@@ -2,7 +2,7 @@
 
 use wyrm_core::{Sample, Value};
 use wyrm_link_api::buffer::BufferHost;
-use wyrm_link_api::{AppError, ReqId, SubId, TimerId, Who};
+use wyrm_link_api::{AppError, ListChange, ReqId, SubId, TimerId, Who};
 use wyrm_link_sdk::{LinkCtx, LinkError};
 
 use crate::PortableConfig;
@@ -25,6 +25,8 @@ pub enum Event {
     /// Subscription, node key (without `~val`), sample.
     Value(SubId, String, Sample),
     Reply(ReqId, Result<Value, AppError>),
+    /// List, listed node key, change (ADR 0025).
+    List(SubId, String, Box<ListChange>),
     Stop,
 }
 

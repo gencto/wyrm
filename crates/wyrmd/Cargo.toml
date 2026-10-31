@@ -28,11 +28,17 @@ wyrm-link-snmp.workspace = true
 wyrm-link-bacnet.workspace = true
 wyrm-link-opcua.workspace = true
 wyrm-link-prometheus.workspace = true
+wyrm-filestore.workspace = true
+wyrm-link-s3.workspace = true
+wyrm-link-gdrive.workspace = true
+wyrm-link-webdav.workspace = true
+wyrm-link-localfs.workspace = true
 wyrm-link-portable.workspace = true
 # the portable example app (ADR 0023): driver `portable-echo`
 wyrm-example-portable.workspace = true
 # the embedded scheduler (ADR 0022) at `downstream/scheduler`
 wyrm-link-scheduler.workspace = true
+wyrm-link-dql.workspace = true
 # the system zone for the scheduler's `default_tz` (ruling 3)
 jiff = { workspace = true, features = ["std", "tz-system"] }
 # Static plugins need the internal runtime API; this crate is the only one

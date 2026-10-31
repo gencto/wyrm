@@ -1,0 +1,49 @@
+[package]
+name = "wyrm-link-dql"
+description = "DQL link (ADR 0025): standing and ad-hoc queries over the tree, as a portable App (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary, the broker and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-link-dql"
+required-features = ["process"]
+
+[features]
+# The process link: `wyrm_link_sdk::process::main::<Portable<Dql>>()`.
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+# The WASM component: `wyrm_link_guest::export!(Dql)`.
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+wyrm-dql.workspace = true
+serde_json.workspace = true
+# RFC 3339 instants in attributes; never the OS clock or zone.
+jiff = { workspace = true, features = ["std"] }
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package (the component, for every
+# host); `examples/packages/build.sh` also packs the binary built with
+# `features` (`--kind process --name dql-process`). No `requester` grants: an
+# operator grants `read` on each root a query lists and `write` on each sink
+# target (`sys/links/<id>/~act/grant`, ADR 0013).
+[package.metadata.wyrm-link]
+name = "dql"
+description = "DQL: standing and ad-hoc queries over the tree (list | where | subscribe | expression | set | invoke)"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 4 }

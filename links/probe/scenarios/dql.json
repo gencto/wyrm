@@ -1,0 +1,28 @@
+{
+  "name": "dql",
+  "description": "DQL (ADR 0025): a stored query (its table published) over the link's own stats appears with its nodes and publishes its table; explain, convert_dsa, an ad-hoc run, export and import, a refused text, enabled off, remove.",
+  "steps": [
+    { "require": "wy/{site}/downstream/dql" },
+    { "watch": "wy/{site}/downstream/dql" },
+    { "sub": "wy/{site}/downstream/dql/pq{run}/table" },
+    { "invoke": "wy/{site}/downstream/dql", "action": "add_query", "args": { "id": "pq{run}", "text": "list wy/{site}/downstream/dql/stats | subscribe value :name", "publish_ms": 100, "publish": true } },
+    { "added": "wy/{site}/downstream/dql", "name": "pq{run}" },
+    { "meta": "wy/{site}/downstream/dql/pq{run}", "has_action": ["get_table", "export", "edit", "remove"], "has_child": ["table", "enabled"] },
+    { "value": "wy/{site}/downstream/dql/pq{run}/table", "within_ms": 5000 },
+    { "invoke": "wy/{site}/downstream/dql/pq{run}", "action": "get_table", "args": { "limit": 10 } },
+    { "invoke": "wy/{site}/downstream/dql", "action": "explain", "args": { "text": "list wy/{site}/downstream/** | where type == 'number' | subscribe" } },
+    { "invoke": "wy/{site}/downstream/dql", "action": "convert_dsa", "args": { "text": "list /downstream/System/* | filter $type | subscribe", "site": "{site}" } },
+    { "invoke": "wy/{site}/downstream/dql", "action": "add_query", "args": { "id": "bad{run}", "text": "list downstream/x" }, "expect": "error", "error": "stage 1" },
+    { "invoke": "wy/{site}/downstream/dql", "action": "run", "args": { "text": "list wy/{site}/downstream/dql/stats", "id": "pr{run}", "ttl_s": 60 } },
+    { "added": "wy/{site}/downstream/dql", "name": "pr{run}" },
+    { "invoke": "wy/{site}/downstream/dql/pq{run}", "action": "export", "save_as": "json", "field": "json" },
+    { "invoke": "wy/{site}/downstream/dql", "action": "import", "args": { "json": "{json}", "id": "pc{run}" } },
+    { "added": "wy/{site}/downstream/dql", "name": "pc{run}" },
+    { "set": "wy/{site}/downstream/dql/pc{run}/enabled", "value": false },
+    { "invoke": "wy/{site}/downstream/dql/pc{run}", "action": "remove", "cleanup": true },
+    { "removed": "wy/{site}/downstream/dql", "name": "pc{run}", "cleanup": true },
+    { "invoke": "wy/{site}/downstream/dql/pr{run}", "action": "remove", "cleanup": true },
+    { "invoke": "wy/{site}/downstream/dql/pq{run}", "action": "remove", "cleanup": true },
+    { "removed": "wy/{site}/downstream/dql", "name": "pq{run}", "cleanup": true }
+  ]
+}

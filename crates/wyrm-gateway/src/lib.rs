@@ -128,18 +128,12 @@ impl UserTokens {
         if site == self.site {
             return tokens.subject(&self.sub).grants(self.grants.clone());
         }
-        let own = format!("wy/{}", self.site);
         let grants = self
             .grants
             .iter()
-            .map(|g| {
-                let k = match g.k.strip_prefix(&own) {
-                    Some(rest) if rest.is_empty() || rest.starts_with('/') => {
-                        format!("wy/{site}{rest}")
-                    }
-                    _ => g.k.clone(),
-                };
-                wyrm_core::ptok::Grant { k, p: g.p }
+            .map(|g| wyrm_core::ptok::Grant {
+                k: wyrm_core::ptok::grant_for_site(&g.k, &self.site, site),
+                p: g.p,
             })
             .collect();
         tokens

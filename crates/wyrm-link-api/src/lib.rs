@@ -89,6 +89,10 @@ impl std::error::Error for AppError {}
 pub struct Who {
     pub subject: Option<String>,
     pub grants: Vec<(String, Perm)>,
+    /// The caller's whole grant set on this site (spec 04 `auth`), capped by the responder as its
+    /// effective level: what an app acting for the caller may check the keys it names against.
+    /// It never authorizes the call itself. `None`: the caller's rights are unknown.
+    pub authority: Option<Vec<(String, Perm)>>,
 }
 
 impl Who {
@@ -102,9 +106,20 @@ impl Who {
             .is_some_and(|(_, p)| *p >= need)
     }
 
+    /// The caller's own rights (its `authority`) give at least `need` on `key`; `false` when they
+    /// are unknown. The longest matching grant decides, as in [`Who::may`].
+    pub fn may_for(&self, key: &str, need: Perm) -> bool {
+        self.authority.as_ref().is_some_and(|a| {
+            a.iter()
+                .filter(|(k, _)| covers(k, key))
+                .max_by_key(|(k, _)| k.len())
+                .is_some_and(|(_, p)| *p >= need)
+        })
+    }
+
     pub fn to_cbor(&self) -> Vec<u8> {
         let mut e = Encoder::new(Vec::new());
-        let n = if self.subject.is_some() { 2 } else { 1 };
+        let n = 1 + u64::from(self.subject.is_some()) + u64::from(self.authority.is_some());
         // Writing to a `Vec` does not fail.
         let _ = (|| -> Result<(), minicbor::encode::Error<core::convert::Infallible>> {
             e.map(n)?.str("grants")?.array(self.grants.len() as u64)?;
@@ -113,6 +128,15 @@ impl Who {
                     k: k.clone(),
                     p: *p,
                 })?;
+            }
+            if let Some(a) = &self.authority {
+                e.str("auth")?.array(a.len() as u64)?;
+                for (k, p) in a {
+                    e.encode(Grant {
+                        k: k.clone(),
+                        p: *p,
+                    })?;
+                }
             }
             if let Some(s) = &self.subject {
                 e.str("sub")?.str(s)?;
@@ -138,6 +162,13 @@ impl Who {
                         .map(|g| g.map(|g| (g.k, g.p)))
                         .collect::<Result<_, _>>()?;
                 }
+                "auth" => {
+                    who.authority = Some(
+                        d.array_iter::<Grant>()?
+                            .map(|g| g.map(|g| (g.k, g.p)))
+                            .collect::<Result<_, _>>()?,
+                    );
+                }
                 _ => d.skip()?,
             }
         }
@@ -151,6 +182,95 @@ fn covers(pattern: &str, key: &str) -> bool {
             key == prefix || key.strip_prefix(prefix).is_some_and(|r| r.starts_with('/'))
         }
         None => pattern == key,
+    }
+}
+
+/// One change of a list made with [`Host::list`] (ADR 0023, amended by ADR 0025): the children of
+/// one node, each a name and its own `~meta` summary.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListChange {
+    /// The whole snapshot: first, and again after the owner reconnects or the queue overflowed.
+    Refreshed(Vec<(String, NodeMeta)>),
+    Added(String, NodeMeta),
+    Changed(String, NodeMeta),
+    Removed(String),
+    /// The node's owner (its link) is gone; its children are gone with it.
+    Disconnected,
+}
+
+impl ListChange {
+    const REFRESHED: u8 = 0;
+    const ADDED: u8 = 1;
+    const CHANGED: u8 = 2;
+    const REMOVED: u8 = 3;
+    const DISCONNECTED: u8 = 4;
+
+    /// CBOR `[kind, ...]`: `[0, [[name, meta]...]]`, `[1|2, name, meta]`, `[3, name]`, `[4]`.
+    pub fn to_cbor(&self) -> Vec<u8> {
+        let mut e = Encoder::new(Vec::new());
+        // Writing to a `Vec` does not fail.
+        let _ = (|| -> Result<(), minicbor::encode::Error<core::convert::Infallible>> {
+            match self {
+                ListChange::Refreshed(children) => {
+                    e.array(2)?
+                        .u8(Self::REFRESHED)?
+                        .array(children.len() as u64)?;
+                    for (n, m) in children {
+                        e.array(2)?.str(n)?.encode(m)?;
+                    }
+                }
+                ListChange::Added(n, m) => {
+                    e.array(3)?.u8(Self::ADDED)?.str(n)?.encode(m)?;
+                }
+                ListChange::Changed(n, m) => {
+                    e.array(3)?.u8(Self::CHANGED)?.str(n)?.encode(m)?;
+                }
+                ListChange::Removed(n) => {
+                    e.array(2)?.u8(Self::REMOVED)?.str(n)?;
+                }
+                ListChange::Disconnected => {
+                    e.array(1)?.u8(Self::DISCONNECTED)?;
+                }
+            }
+            Ok(())
+        })();
+        e.into_writer()
+    }
+
+    pub fn from_cbor(bytes: &[u8]) -> Result<Self, minicbor::decode::Error> {
+        let mut d = Decoder::new(bytes);
+        d.array()?;
+        let child = |d: &mut Decoder<'_>| -> Result<(String, NodeMeta), minicbor::decode::Error> {
+            Ok((d.str()?.to_owned(), d.decode()?))
+        };
+        Ok(match d.u8()? {
+            Self::REFRESHED => {
+                let n = d
+                    .array()?
+                    .ok_or_else(|| minicbor::decode::Error::message("indefinite array"))?;
+                let mut out = Vec::new();
+                for _ in 0..n {
+                    d.array()?;
+                    out.push(child(&mut d)?);
+                }
+                ListChange::Refreshed(out)
+            }
+            Self::ADDED => {
+                let (n, m) = child(&mut d)?;
+                ListChange::Added(n, m)
+            }
+            Self::CHANGED => {
+                let (n, m) = child(&mut d)?;
+                ListChange::Changed(n, m)
+            }
+            Self::REMOVED => ListChange::Removed(d.str()?.to_owned()),
+            Self::DISCONNECTED => ListChange::Disconnected,
+            k => {
+                return Err(minicbor::decode::Error::message(format!(
+                    "unknown list change {k}"
+                )))
+            }
+        })
     }
 }
 
@@ -209,6 +329,8 @@ pub trait App: Sized {
     fn on_timer(&mut self, _host: &mut dyn Host, _timer: TimerId) {}
     fn on_value(&mut self, _host: &mut dyn Host, _sub: SubId, _key: &str, _sample: Sample) {}
     fn on_reply(&mut self, _host: &mut dyn Host, _req: ReqId, _result: Result<Value, AppError>) {}
+    /// A change of a list made with [`Host::list`] (`key`: the listed node).
+    fn on_list(&mut self, _host: &mut dyn Host, _sub: SubId, _key: &str, _change: ListChange) {}
     fn stop(&mut self, _host: &mut dyn Host) {}
 }
 
@@ -231,23 +353,72 @@ pub trait Host {
     fn store_put(&mut self, key: &str, value: &[u8]) -> Result<(), AppError>;
     fn store_delete(&mut self, key: &str);
     // other points, within the link's grants
+    /// Values of `key`, or of every node under `<prefix>` when `key` is `<prefix>/**` (one
+    /// subscription for a subtree); each sample comes with its node key.
     fn subscribe(&mut self, key: &str) -> Result<SubId, AppError>;
+    /// Ends a subscription or a list.
     fn unsubscribe(&mut self, sub: SubId);
+    /// The children of `key`, reactive: [`App::on_list`] gets a [`ListChange::Refreshed`] first,
+    /// then the changes (ADR 0025). Each child comes with its `view=list` summary, or with its
+    /// whole `~meta` (`attr`, `actions`, …) when `full` (one more request per child). A host
+    /// without lists answers `not_supported`.
+    fn list(&mut self, _key: &str, _full: bool) -> Result<SubId, AppError> {
+        Err(AppError::new(
+            Status::NotSupported,
+            "this host has no list (wyrm:app@0.1.0)",
+        ))
+    }
     /// The reply comes through [`App::on_reply`].
     fn set(&mut self, key: &str, value: Value) -> Result<ReqId, AppError>;
     fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError>;
-    // network, within the link's `net` allowlist
+    // network, within the link's `net` allowlist; `addr` is an IP literal, or a host name the
+    // list names (resolved by the host, ordinary addresses only: ADR 0026)
     fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError>;
     fn tcp_send(&mut self, c: ConnId, data: &[u8]) -> Result<(), AppError>;
     fn tcp_recv(&mut self, c: ConnId, max: u32, timeout_ms: u32) -> Result<Vec<u8>, AppError>;
     fn tcp_close(&mut self, c: ConnId);
+    /// TLS over TCP to `host:port` (a DNS name or an IP literal), within the
+    /// `net` allowlist (ADR 0026): the host resolves the name, checks each
+    /// address ([`net::NetPolicy::allows_named`]), and verifies the server's
+    /// certificate for `host` against the system roots, or only against
+    /// `ca_pem` when given. The connection then takes `tcp_send`, `tcp_recv`
+    /// and `tcp_close` as a plain one; the keys stay in the host.
+    fn tls_connect(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<ConnId, AppError> {
+        let _ = (host, port, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_connect: this host has no TLS",
+        ))
+    }
+    /// Start TLS on an open plain connection (`SSLRequest` of PostgreSQL and MySQL), verifying
+    /// the server's certificate for `host` as [`tls_connect`](Self::tls_connect) does; the
+    /// connection keeps its id. On an error the connection is closed.
+    fn tls_upgrade(
+        &mut self,
+        c: ConnId,
+        host: &str,
+        timeout_ms: u32,
+        ca_pem: Option<&str>,
+    ) -> Result<(), AppError> {
+        let _ = (c, host, timeout_ms, ca_pem);
+        Err(AppError::new(
+            Status::NotSupported,
+            "tls_upgrade: this host has no TLS",
+        ))
+    }
     fn log(&mut self, level: Level, msg: &str);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrm_core::{Perm, Status};
+    use wyrm_core::{NodeMeta, Perm, Status};
 
     #[test]
     fn app_error_cbor_roundtrip() {
@@ -267,6 +438,7 @@ mod tests {
                 ("wy/s/downstream/**".into(), Perm::Read),
                 ("wy/s/downstream/plc/**".into(), Perm::Write),
             ],
+            authority: None,
         };
         assert!(who.may("wy/s/downstream/plc/p1/~set", Perm::Write));
         assert!(!who.may("wy/s/downstream/x/~set", Perm::Write));
@@ -277,11 +449,62 @@ mod tests {
         let who = Who {
             subject: Some("user:ann".into()),
             grants: vec![("wy/s/**".into(), Perm::Config)],
+            authority: None,
         };
         assert_eq!(Who::from_cbor(&who.to_cbor()).unwrap(), who);
         let anon = Who::default();
         assert_eq!(Who::from_cbor(&anon.to_cbor()).unwrap(), anon);
         assert!(Who::from_cbor(&[0xff]).is_err());
+    }
+
+    #[test]
+    fn who_authority_travels_and_decides_may_for() {
+        let who = Who {
+            subject: Some("user:op".into()),
+            grants: vec![("wy/s/downstream/dql/~act/run".into(), Perm::Write)],
+            authority: Some(vec![
+                ("wy/s/downstream/**".into(), Perm::List),
+                ("wy/s/downstream/plc1/**".into(), Perm::Write),
+            ]),
+        };
+        let bytes = who.to_cbor();
+        assert_eq!(Who::from_cbor(&bytes).unwrap(), who);
+        assert!(who.may_for("wy/s/downstream/plc1/t", Perm::Write));
+        assert!(!who.may_for("wy/s/downstream/plc2/t", Perm::Read));
+        assert!(!Who::default().may_for("wy/s/downstream/plc1/t", Perm::List));
+        // a decoder from before `auth` (WIT 0.1.0 guests) skips the key it does not know
+        let mut d = minicbor::Decoder::new(&bytes);
+        let n = d.map().unwrap().unwrap();
+        let mut sub = None;
+        for _ in 0..n {
+            match d.str().unwrap() {
+                "sub" => sub = Some(d.str().unwrap().to_owned()),
+                _ => d.skip().unwrap(),
+            }
+        }
+        assert_eq!(sub.as_deref(), Some("user:op"));
+    }
+
+    #[test]
+    fn list_change_cbor_roundtrip() {
+        let meta = NodeMeta {
+            display: Some("Fan".into()),
+            ..NodeMeta::default()
+        };
+        for c in [
+            ListChange::Refreshed(vec![
+                ("a".into(), meta.clone()),
+                ("b".into(), NodeMeta::default()),
+            ]),
+            ListChange::Refreshed(Vec::new()),
+            ListChange::Added("a".into(), meta.clone()),
+            ListChange::Changed("a".into(), meta),
+            ListChange::Removed("a".into()),
+            ListChange::Disconnected,
+        ] {
+            assert_eq!(ListChange::from_cbor(&c.to_cbor()).unwrap(), c);
+        }
+        assert!(ListChange::from_cbor(&[0x81, 0x09]).is_err());
     }
 
     #[test]

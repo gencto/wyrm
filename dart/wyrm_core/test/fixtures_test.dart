@@ -35,7 +35,7 @@ Uint8List _typedRoundTrip(String name, Uint8List bytes) {
   if (name.startsWith('profile_')) return rt(ProfileDef.decode, (w, p) => p.encode(w));
   if (name.startsWith('meta_')) return rt(NodeMeta.decode, (w, m) => m.encode(w));
   if (name.startsWith('att_')) return rt(Attachment.decode, (w, a) => a.encode(w));
-  if (name == 'ptok_claims_v1') {
+  if (name.startsWith('ptok_claims_')) {
     // Generic Value and the typed claims must both be exact.
     final viaClaims = PtokClaims.fromCbor(bytes).toCbor();
     expect(hexOf(viaClaims), hexOf(bytes), reason: '$name: PtokClaims');
@@ -177,6 +177,16 @@ void main() {
     expect(c.grants[1].k, 'wy/plant-a/downstream/bacnet/**');
     expect(c.grants[1].p, Perm.write);
     expect(c.jti, List.filled(16, 0x11));
+    expect(c.auth, isNull);
+  });
+
+  test('ptok claims with auth', () {
+    final f = fixtures.firstWhere((f) => f['name'] == 'ptok_claims_auth');
+    final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
+    expect(c.grants, hasLength(1));
+    expect(c.auth, hasLength(3));
+    expect(c.auth![1].k, 'wy/plant-a/downstream/plc1/**');
+    expect(c.auth![1].p, Perm.list);
   });
 
   test('view=keys expands and compresses', () {

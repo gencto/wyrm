@@ -105,8 +105,12 @@ and `buffer_flush_time`.
 | `auto_purge` | on | Every minute: while the disk has less free space than `disk_space_remaining`, delete the oldest day. |
 | `disk_space_remaining` | 1024 MiB | The free space `auto_purge` keeps. |
 | `retention_days` | 0 (keep) | Every minute: delete days older than this. |
+| `keep_after_sync_days` | 90 | With at least one sink (section 6): delete a day once every sink confirmed it and it is older than this; 0 keeps only what is not sent; empty: off. |
 
-- The current day is never deleted by these two.
+- The current day is never deleted by these rules.
+- `retention_days` and `auto_purge` never wait for a sink: the equipment
+  keeps recording while the cloud may be down. Rows a sink had not confirmed
+  are counted in its `rows_dropped_unsent`.
 - ▸ **Purge** {Timerange} on `sys/history` deletes every point's rows in the
   range; on a watch, that point's rows only.
 - ▸ **Unsubscribe** stops recording a point and keeps its rows; ▸
@@ -126,15 +130,76 @@ and `buffer_flush_time`.
 | Get History | 10 000 rows per call (`~val?history=`: 100 000) |
 | One read | at most 5 000 000 rows scanned (a longer range is refused: ask for a shorter one); 4 reads at a time, others wait up to 5 s |
 | Gap at a router rebuild | about a second: samples then are not recorded |
+| Sinks | 16; a batch at most 5 000 rows and 1 MiB |
 
-## 6. Other historians
+## 6. Sending the history on: sinks (ADR 0026)
+
+A sink lets one link read what the historian writes, in batches, and send it
+on to another database (InfluxDB, PostgreSQL, MySQL, MongoDB, DynamoDB). The
+historian stays the store on the site; only it deletes.
+
+1. Install the link that sends the rows.
+2. On `sys/history/sinks` ▸ **Add Sink** {Name, Link, Groups, From}: the
+   watch groups it takes, comma separated (empty: all); From `start` sends
+   everything on disk, `now` only what is written from now on. The link gets
+   a requester key and, if it runs as a process, starts again; the broker
+   rebuilds once.
+3. The link asks ▸ **Next Batch** {After, Max} on its sink and gets
+   `{rows: [{seq, key, t, v, q}], next}`; it stores the rows, then asks again
+   with `after` = `next`. That `after` confirms every row up to it (at least
+   once: a lost reply sends the batch again, so the database must replace on
+   `(key, t)`). At most 5 000 rows and 1 MiB per batch.
+
+Only the sink's link may ask (it signs as `link:<id>`); a person who ran
+Next Batch would confirm rows the database never got, so it is refused.
+A sink shows `link`, `groups`, `confirmed_seq`, `lag_entries` (journal
+entries after the cursor; rows of other groups count too), `rows_sent`,
+`rows_dropped_unsent` and `last_request`; actions Edit, Reset Cursor {start |
+now} and Remove. Every row written gets a journal number, so a late row or a
+row written again is sent again. Rows recorded before this version have no
+number and are not sent.
+
+### Sink links
+
+Each database is a link package of its own (ADR 0026), built on
+`wyrm-history-sync`: a WASM package by default, a process package from the
+same code. Install it, then:
+
+1. Give it the params: `sink` (the sink's key, `wy/<site>/sys/history/sinks/<name>`:
+   Copy Path on the sink), `batch` (rows per batch, default 500, at most 5 000),
+   `idle_s` (wait when nothing is new, default 5), `retry_s` (longest wait after
+   an error, default 60), and the database's own params (below). Put the
+   database's host in the link's `net` list (a host name is allowed for TLS:
+   `db.example.com:443`).
+2. ▸ **Set Password**: the password or token, kept in the link's sealed store
+   (never a param: the registry keeps params in the clear).
+3. Add the sink for this link (section above), then ▸ **Test Connection**.
+
+The link shows `status` (connecting, reading, idle, waiting after an error,
+failed, paused), `error`, `rows_sent`, `last_batch` and `cursor`; ▸ Pause and
+▸ Resume (kept across restarts). A failed link (wrong token, a refused row)
+waits for a change: Set Password, Resume or new params.
+
+| Link | Params | Writes |
+|---|---|---|
+| `influxdb` | `url` (`https://host[:port][/base]`; `http://` only to loopback unless `insecure_plaintext`), `org`, `bucket`, `measurement` (default `wyrm`), `ca_pem`, `timeout_ms` | v2 write API (InfluxDB 2.x and 3.x), line protocol at µs: tags `site`, `key`; fields `value`, `quality`. A row that is not a number, a bool or text is skipped. |
+
+| `postgres` | `host`, `port` (5432), `database`, `user`, `table` (`wyrm_history` or `schema.table`), `sslmode` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | One table `site, key, t timestamptz, value double precision, value_text text, quality smallint`, primary key `(key, t)`, upsert. TLS by `SSLRequest`; SCRAM-SHA-256, or a cleartext password over TLS or to loopback; MD5 is refused. TimescaleDB too (make the table a hypertable yourself). |
+
+| `dynamodb` | `region`, `table`, `access_key_id`, `endpoint` (default the region's; `http://` only to loopback, for DynamoDB Local, unless `insecure_plaintext`), `ttl_days` (0: none), `create_table` (false), `ca_pem`, `timeout_ms` | BatchWriteItem, 25 puts per request, SigV4; partition key `key`, sort key `t` (µs), `site`, `value` (N, BOOL, S or NULL), `quality`, `expiration` (epoch s) with `ttl_days`: switch the table's TTL on in AWS. The secret access key with Set Password. |
+
+| `mysql` | `host`, `port` (3306), `database`, `user`, `table` (`wyrm_history`), `ssl` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | MySQL and MariaDB. One table `` site, `key` VARCHAR(700), t DATETIME(6), value DOUBLE, value_text TEXT, quality `` (utf8mb4), primary key `` (`key`, t) ``, `INSERT … ON DUPLICATE KEY UPDATE`; text as hex literals. TLS by `SSLRequest`; `caching_sha2_password` (the full login only over TLS: no RSA) or `mysql_native_password`. A key over 700 characters is skipped. |
+
+| `mongodb` | `host` (the primary or a mongos; `mongodb+srv` is not resolved), `port` (27017), `database`, `collection` (`wyrm_history`), `user`, `auth_source` (`admin`), `tls` (true; false only to loopback unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `ttl_days` (0: no TTL index) | OP_MSG; one document per row, `_id: {k, t}`, with `site`, `key`, `t` (µs), `ts` (a date), `value`, `quality`; a batch is one `update` of replace-upserts, `ordered: false`. SCRAM-SHA-256 (an ASCII password: it is not SASLprep-normalised). With `ttl_days`, a TTL index on `ts`. |
+
+## 7. Other historians
 
 A link can record history itself (another database, a cloud service): give
 it a `read` grant on the points (`requester` in its package, or `sys/links/<id>`
 ▸ Grant Access, ADR 0013). `examples/links/requester` records
 `wy/<site>/downstream/mock` to a CSV file this way.
 
-## 7. Not yet
+## 8. Not yet
 
 - A watch for a whole subtree (`downstream/<link>/**`): today one watch is one
   point.

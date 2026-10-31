@@ -33,6 +33,8 @@ const CHANGES: TableDefinition<u64, (u32, u64)> = TableDefinition::new("changes"
 const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 /// Index: the `seq` range of each day file, `day → (first, last)`.
 const DAY_SEQ: TableDefinition<i64, (u64, u64)> = TableDefinition::new("day_seq");
+/// Index: each sink's confirmed `seq` (ADR 0026).
+const SINK_SEQ: TableDefinition<&str, u64> = TableDefinition::new("sink_seq");
 /// `seq` numbers reserved per index transaction.
 const SEQ_BLOCK: u64 = 4096;
 /// Page cache of each open file. redb's default (1 GiB) does not fit the
@@ -72,6 +74,15 @@ pub struct Change {
     pub seq: u64,
     pub series: u32,
     pub row: Row,
+}
+
+/// One [`Store::changes`] read: the rows, and the cursor for the next read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChangeBatch {
+    pub rows: Vec<Change>,
+    /// Every entry up to this one was looked at and is committed: the rows
+    /// above are all of them a sink wants there. Ask again after it.
+    pub next: u64,
 }
 
 /// Bounds of one [`Store::changes`] read.
@@ -345,19 +356,32 @@ impl Store {
 
     /// Rows written after `after`, lowest `seq` first, of the series `want`
     /// accepts, within `limit`. An entry whose row is gone (purged) is
-    /// skipped; a row written twice comes once per write.
+    /// skipped; a row written twice comes once per write. Only numbers
+    /// committed when the read starts are read: a write holds the journal
+    /// until its last day commits, so every number up to `next - 1` then is
+    /// on disk, and a later write's numbers are all above it.
     pub fn changes(
         &self,
         after: u64,
         limit: ChangeLimit,
         mut want: impl FnMut(u32) -> bool,
-    ) -> Result<Vec<Change>> {
-        let days: Vec<i64> = lock(&self.journal)
-            .ranges
-            .iter()
-            .filter(|(_, (_, hi))| *hi > after)
-            .map(|(d, _)| *d)
-            .collect();
+    ) -> Result<ChangeBatch> {
+        let (days, upto) = {
+            let j = lock(&self.journal);
+            let days: Vec<i64> = j
+                .ranges
+                .iter()
+                .filter(|(_, (_, hi))| *hi > after)
+                .map(|(d, _)| *d)
+                .collect();
+            (days, j.next - 1)
+        };
+        if after >= upto {
+            return Ok(ChangeBatch {
+                rows: Vec::new(),
+                next: after,
+            });
+        }
         // each day's first entries above `after`, merged by seq
         let mut all: Vec<(Change, usize)> = Vec::new();
         for day in days {
@@ -372,7 +396,7 @@ impl Store {
                 (Err(e), _) | (_, Err(e)) => return Err(db(e)),
             };
             let mut taken = 0;
-            for item in c.range(after + 1..).map_err(db)? {
+            for item in c.range(after + 1..=upto).map_err(db)? {
                 let (k, v) = item.map_err(db)?;
                 let (series, ts) = v.value();
                 if !want(series) {
@@ -399,16 +423,73 @@ impl Store {
             }
         }
         all.sort_by_key(|(c, _)| c.seq);
-        let mut out = Vec::new();
+        let mut rows = Vec::new();
         let mut bytes = 0;
+        let mut cut = false;
         for (c, n) in all {
-            if out.len() >= limit.rows || (!out.is_empty() && bytes + n > limit.bytes) {
+            if rows.len() >= limit.rows || (!rows.is_empty() && bytes + n > limit.bytes) {
+                cut = true;
                 break;
             }
             bytes += n;
-            out.push(c);
+            rows.push(c);
         }
-        Ok(out)
+        // a cut batch goes on after its last row; a whole one after
+        // everything that was looked at
+        let next = match rows.last() {
+            Some(last) if cut || rows.len() >= limit.rows => last.seq,
+            _ => upto,
+        };
+        Ok(ChangeBatch { rows, next })
+    }
+
+    /// Journal entries of `day` above `after` of the series `want` accepts
+    /// (rows a sink at `after` has not confirmed), counted before the day
+    /// is deleted.
+    pub fn count_changes(
+        &self,
+        day: i64,
+        after: u64,
+        mut want: impl FnMut(u32) -> bool,
+    ) -> Result<u64> {
+        let Some(h) = self.day(day, false)? else {
+            return Ok(0);
+        };
+        let r = h.begin_read().map_err(db)?;
+        let c = match r.open_table(CHANGES) {
+            Ok(c) => c,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(e) => return Err(db(e)),
+        };
+        let mut n = 0;
+        for item in c.range(after.saturating_add(1)..).map_err(db)? {
+            let (_, v) = item.map_err(db)?;
+            n += u64::from(want(v.value().0));
+        }
+        Ok(n)
+    }
+
+    /// The confirmed `seq` of sink `name` (0: nothing confirmed).
+    pub fn sink_seq(&self, name: &str) -> Result<u64> {
+        let r = self.index.begin_read().map_err(db)?;
+        match r.open_table(SINK_SEQ) {
+            Ok(t) => Ok(t.get(name).map_err(db)?.map_or(0, |v| v.value())),
+            Err(TableError::TableDoesNotExist(_)) => Ok(0),
+            Err(e) => Err(db(e)),
+        }
+    }
+
+    /// Store the confirmed `seq` of sink `name`; `None` forgets the sink.
+    pub fn set_sink_seq(&self, name: &str, seq: Option<u64>) -> Result<()> {
+        let txn = self.index.begin_write().map_err(db)?;
+        {
+            let mut t = txn.open_table(SINK_SEQ).map_err(db)?;
+            match seq {
+                Some(s) => t.insert(name, s).map_err(db)?,
+                None => t.remove(name).map_err(db)?,
+            };
+        }
+        txn.commit().map_err(db)
     }
 
     /// Call `f` for each row of `series` in `[from, to]`, oldest first,
@@ -698,6 +779,7 @@ mod tests {
         };
         st.changes(after, all, |_| true)
             .unwrap()
+            .rows
             .into_iter()
             .map(|c| (c.seq, c.series, c.row.t))
             .collect()
@@ -737,6 +819,7 @@ mod tests {
                 |s| s == a,
             )
             .unwrap()
+            .rows
             .into_iter()
             .map(|c| (c.seq, c.row.v))
             .collect::<Vec<_>>()
@@ -754,14 +837,39 @@ mod tests {
             rows: 2,
             bytes: usize::MAX,
         };
-        assert_eq!(st.changes(0, one, |_| true).unwrap().len(), 2);
+        let cut = st.changes(0, one, |_| true).unwrap();
+        assert_eq!(
+            (cut.rows.len(), cut.next),
+            (2, 2),
+            "a cut batch goes on after its last row"
+        );
         let tiny = ChangeLimit { rows: 10, bytes: 1 };
-        assert_eq!(st.changes(0, tiny, |_| true).unwrap().len(), 1);
+        let small = st.changes(0, tiny, |_| true).unwrap();
+        assert_eq!((small.rows.len(), small.next), (1, 1));
+        // a whole batch, and one with nothing wanted: on after everything
+        let all = ChangeLimit {
+            rows: 10,
+            bytes: usize::MAX,
+        };
+        assert_eq!(st.changes(0, all, |_| true).unwrap().next, 5);
+        let none = st.changes(0, all, |_| false).unwrap();
+        assert_eq!((none.rows.len(), none.next), (0, 5));
+        assert_eq!(st.changes(5, all, |_| true).unwrap().next, 5);
+        assert_eq!(st.count_changes(day1, 0, |_| true).unwrap(), 2);
+        assert_eq!(st.count_changes(day1, 0, |s| s == a).unwrap(), 1);
+        assert_eq!(st.count_changes(day1, 1, |_| true).unwrap(), 1);
+        // sink cursors
+        assert_eq!(st.sink_seq("s").unwrap(), 0);
+        st.set_sink_seq("s", Some(4)).unwrap();
+        assert_eq!(st.sink_seq("s").unwrap(), 4);
         // reopen: numbers go on above the last one, ranges stay
         drop(st);
         let st = Store::open(&dir).unwrap();
         assert!(st.last_seq() >= 5);
         assert_eq!(st.day_seq(day1), Some((1, 4)));
+        assert_eq!(st.sink_seq("s").unwrap(), 4);
+        st.set_sink_seq("s", None).unwrap();
+        assert_eq!(st.sink_seq("s").unwrap(), 0);
         st.write(&[row(b, d2, 6.0)]).unwrap();
         let after = seqs(&st, 5);
         assert_eq!(after.len(), 1);

@@ -117,6 +117,8 @@ impl TokenSource for SigningTokens {
             exp: now + self.ttl.as_secs().max(1),
             jti: self.jti(),
             site: self.site.clone(),
+            // an action may act for the caller on keys it names (spec 04 `auth`): only there
+            auth: key.contains("/~act/").then(|| self.grants.clone()),
         };
         Some(sign(&self.key, &claims))
     }
@@ -161,5 +163,10 @@ mod tests {
         let a = claims_of(&src.token("wy/s/downstream/plc1/fan/~set").unwrap());
         let b = claims_of(&src.token("wy/s/downstream/plc1/fan/~set").unwrap());
         assert_ne!(a.jti, b.jti);
+        // the caller's whole grant set travels on an action token only (spec 04 `auth`)
+        assert_eq!(a.auth, None);
+        let c = claims_of(&src.token("wy/s/downstream/dql/~act/run").unwrap());
+        assert_eq!(c.grants.len(), 1);
+        assert_eq!(c.auth.as_deref().map(<[Grant]>::len), Some(2));
     }
 }

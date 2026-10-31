@@ -40,8 +40,10 @@ CBOR map з цілими ключами. Відсутній attachment = `{}`.
 ```
 ptok = version(1 байт = 0x01) || claims(CBOR) || sig(64 байти, Ed25519 над version||claims)
 claims = { "sub": tstr, "roles": [tstr], "grants": [ {"k": key_expr, "p": perm} ],
-           "max": perm, "iat": uint, "exp": uint, "jti": bstr(16), "site": tstr }
+           "max": perm, "iat": uint, "exp": uint, "jti": bstr(16), "site": tstr,
+           ? "auth": [ {"k": key_expr, "p": perm} ] }
 ```
+`auth` (необов'язковий, з 0.2.10): усі grants викликача на цьому сайті. Його несуть лише токени на дії (`~act/*`). Він **ніколи** не дає прав на сам запит — права дає лише `grants`. Responder, який діє від імені викликача (DQL, scheduler), перевіряє за ним ключі, які викликач назвав у аргументах. SDK обмежує кожен grant з `auth` так само, як ефективний рівень: `min(p, max, attachment.maxperm, cap ключа)`, а для обмеженого ключа (`LimitedKey`) лишає тільки ключі в межах його scopes. Токен без `auth` означає, що права викликача невідомі; responder, якому вони потрібні, відмовляє.
 Перевірка responder'ом, у цьому порядку: version == 1 → sig публічним ключем admin'а (kid не потрібен: один активний + один попередній ключ) → `exp > now` → `site` == свій → `jti` не в replay-кеші → перший `grants[i].k`, що збігається з ключем запиту (Zenoh key-expr intersect) → `effective = min(p, max, attachment.maxperm)` → `effective ≥ required`. Будь-яка відмова → `permission_denied`, без деталей у `err`.
 
-Фікстури: `att_*`, `ptok_claims_v1`.
+Фікстури: `att_*`, `ptok_claims_v1`, `ptok_claims_auth`.

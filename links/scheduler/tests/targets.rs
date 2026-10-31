@@ -738,6 +738,7 @@ fn import(h: &mut SimHost, json: &serde_json::Value) -> (Result<Value, AppError>
     let who = Who {
         subject: Some("user:importer".into()),
         grants: vec![],
+        authority: None,
     };
     h.invoke_as(&who, "", "import", map([("json", text(&json.to_string()))]))
 }
