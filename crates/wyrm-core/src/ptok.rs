@@ -54,6 +54,11 @@ pub fn grant_for_site(k: &str, own: &str, site: &str) -> String {
 /// dead everywhere. `key` may be a pattern. Grants with a `$*` sub-segment wildcard are not
 /// evaluated here: one that may touch `key` makes the answer `Perm::None` (never wider).
 pub fn level_on<'a>(grants: impl IntoIterator<Item = (&'a str, Perm)>, key: &str) -> Perm {
+    // a `$*` in the key: which grants it touches is not decided here, so nothing is given
+    // (a deny grant it touches could be skipped otherwise; automated review of f8a5d6c)
+    if key.contains('$') {
+        return Perm::None;
+    }
     let key: Vec<&str> = key.split('/').collect();
     for (k, p) in grants {
         let g: Vec<&str> = k.split('/').collect();
@@ -294,6 +299,9 @@ mod level_tests {
             level_on([("wy/s/a/**", Perm::Read)], "wy/s/*/b"),
             Perm::Read
         );
+        // a `$*` key gets nothing: `plc1` (none) touches `plc$*`, Zenoh says
+        let g = [("wy/s/plc1", Perm::None), ("wy/s/**", Perm::Write)];
+        assert_eq!(level_on(g, "wy/s/plc$*"), Perm::None);
         // `$*` grants never widen
         let g = [("wy/s/plc$*", Perm::None), ("wy/s/**", Perm::Write)];
         assert_eq!(level_on(g, "wy/s/plc1"), Perm::None);
