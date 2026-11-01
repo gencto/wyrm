@@ -378,3 +378,8 @@ Work that is known and not done. The decisions around it are in ADR 0029.
 - Portable apps: flows that define DQL queries (they have no `auth`).
 - Audit: an acknowledged path so that records put during a reconnect are
   sent again (ADR 0029, decision 7).
+- Security review of 2026-10-31 (ADR 0031): one unprivileged uid per
+  process link and a `data_dir` split so a link cannot read `ca.key`,
+  `secrets.key`, `state.key` (ADM-1); an MCP service identity as a limited
+  key instead of an admin key (AI-2); the Low items listed in ADR 0031 as
+  "next"; signed repository indexes.
