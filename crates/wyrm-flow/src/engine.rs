@@ -421,7 +421,7 @@ impl State {
     ) -> Result<(), LinkError> {
         let by = persist.clone().flatten();
         let persist = persist.is_some();
-        let (def, ports) = match compile(&raw, &self.host.artifacts) {
+        let (def, ports) = match compile(&raw, &self.host.artifacts, &self.host.site) {
             Ok(x) => x,
             Err(e) => {
                 // Show the error on the flow if it exists; old version keeps running.
@@ -497,9 +497,15 @@ impl State {
 }
 
 /// [`def::compile`] plus the checks that need the host: every `wasm` node's
-/// artifact loads and its `init` succeeds.
-fn compile(raw: &Value, artifacts: &Artifacts) -> def::Result<(FlowDef, BTreeMap<String, Ports>)> {
+/// artifact loads and its `init` succeeds, and every source reads this site's
+/// `downstream`, `dataflows` or `storage` only.
+fn compile(
+    raw: &Value,
+    artifacts: &Artifacts,
+    site: &str,
+) -> def::Result<(FlowDef, BTreeMap<String, Ports>)> {
     let (d, p) = def::compile(raw)?;
+    check_sources(&d, site)?;
     for (id, n) in d.nodes.iter().filter(|(_, n)| n.ty == "wasm") {
         crate::nodes::WasmCfg::parse(&n.cfg)
             .and_then(|w| w.check(artifacts))
@@ -572,6 +578,38 @@ async fn supervise(
 pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, String> {
     let def = def::parse(raw).map_err(|e| e.0)?;
     Ok(targets(&def, site))
+}
+
+/// The engine reads through the broker's own session, which no ACL sees: a `subscribe` or
+/// `liveliness` source may name only keys under this site's `downstream/`, `dataflows/` or
+/// `storage/`, never `sys/`, `pub/`, `upstream/` or another site (security review FLOW-1: a
+/// `config` user on `dataflows/**` read the audit stream and `sys/**` through a flow). Checked
+/// at deploy, at validate and when a stored flow starts again.
+fn check_sources(def: &FlowDef, site: &str) -> def::Result<()> {
+    let sections = ["downstream", "dataflows", "storage"].map(|s| format!("wy/{site}/{s}"));
+    for (id, n) in &def.nodes {
+        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
+            continue;
+        }
+        let Some(Value::Str(k)) = n.cfg.get("key") else {
+            continue;
+        };
+        let full = if k.starts_with("wy/") {
+            k.clone()
+        } else {
+            format!("wy/{site}/{}", k.trim_start_matches('/'))
+        };
+        let inside = sections.iter().any(|s| {
+            full.strip_prefix(s.as_str())
+                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
+        });
+        if !inside {
+            return Err(def::DefError(format!(
+                "nodes.{id}.key: a source reads this site's downstream, dataflows or storage only                  (wy/{site}/downstream/…), not {full}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn targets(def: &FlowDef, site: &str) -> Vec<String> {
@@ -817,7 +855,7 @@ impl Link for Engine {
             }
             ("", "validate") => {
                 let mut m = BTreeMap::new();
-                match compile(&def_arg()?, &st.host.artifacts) {
+                match compile(&def_arg()?, &st.host.artifacts, &st.host.site) {
                     Ok(_) => {
                         m.insert("ok".into(), Value::Bool(true));
                     }

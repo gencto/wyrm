@@ -15,7 +15,7 @@ description: Write, check, test and deploy a WYRM data flow — a `dataflows/<id
 1. Start from the template: `cargo run -p wyr -- new flow <id> --dir flows` (writes `flows/<id>.json5`, JSON5 with comments). `<id>` is a key segment.
 2. Edit nodes and edges:
    - node ids `[A-Za-z0-9_]+`; edges `["<node>.<port>", "<node>.<port>"]`; expression inputs are `<expr>.in.<input>`; alarm outputs `out` (bool) and `event` (map);
-   - keys without `wy/` are site-relative (`downstream/<link>/<path>`); a `subscribe` key may be a pattern;
+   - keys without `wy/` are site-relative (`downstream/<link>/<path>`); a `subscribe` key may be a pattern; `subscribe`/`liveliness` keys must be under the own site's `downstream`, `dataflows` or `storage` (spec 06 step 9);
    - expressions and filters are rhai: inputs are maps `{v, q, t, age_ms}`, `state` keeps values;
    - cycles only through a `delay` node; `window.max_samples` in total ≤ 100000;
    - `set`/`invoke` need `permissions: { maxperm: "write" }` (never `config`) and exact keys under `wy/<site>/downstream/`;

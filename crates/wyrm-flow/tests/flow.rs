@@ -480,6 +480,28 @@ async fn deploy_needs_proofs_for_targets() {
         let e = env.deploy(d).await.unwrap_err();
         assert!(e.is(wyrm_core::Status::InvalidParameter), "{path}: {e}");
     }
+    // review FLOW-1: sources read this site's downstream, dataflows or storage only
+    for key in [
+        "sys/audit/mock".to_owned(),
+        "pub/x".to_owned(),
+        "upstream/central".to_owned(),
+        "wy/other/downstream/mock/p0".to_owned(),
+        format!("wy/{SITE}/sys/status"),
+        format!("wy/{SITE}/downstreamx/p"),
+        "wy/*/downstream/mock/p0".to_owned(),
+    ] {
+        let mut d = peak(1, "a.v + b.v");
+        if let Value::Map(m) = &mut d {
+            if let Some(Value::Map(nodes)) = m.get_mut("nodes") {
+                if let Some(Value::Map(a)) = nodes.get_mut("a") {
+                    a.insert("key".into(), s(&key));
+                }
+            }
+        }
+        let e = env.deploy(d).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{key}: {e}");
+        assert!(e.to_string().contains("a source reads"), "{key}: {e}");
+    }
     assert!(env.deploy(peak(1, "a.v + b.v")).await.is_ok());
     env.stop().await;
 }

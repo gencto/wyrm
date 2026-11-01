@@ -22,15 +22,15 @@ The table is updated in the commit that changes a status.
 | AI-1 | next (9) | Approval bound to the payload: claim `h` (spec 04), checked by the MCP server and the SDK. |
 | D-1 | fixed (`ae78b65`) | `Pki::issue` keeps a certificate only while it is for the same CN and SANs and has more than 30 days left; an hourly check renews due ones and rebuilds. Enrollment: a downstream asks again with the same key within 30 days, the upstream re-signs (`Op::RenewBroker`, audit `renew`). Files for `peers.downstream` issued by `wyrmd ca` are renewed in place only: copy them again (README). Not yet: a `sys` value with the expiry. |
 | SDK-1 | fixed (`cb9875a`) | Grant before replay check, quarter of the cache per `sub` (spec 04 0.2.12, ADR 0029 item 3 amended). |
-| FLOW-1 | next (8) | Flow sources only under the own site's `downstream`, `dataflows`, `storage`. |
+| FLOW-1 | fixed (this commit) | Spec 06 0.2.13 step 9: `subscribe` and `liveliness` keys only under the own site's `downstream`, `dataflows`, `storage`; checked at deploy, validate and when a stored flow starts (a stored flow that breaks it shows the error and does not run). *If wrong:* a flow that read another site or `upstream` must be deployed on that site instead (ADR 0018 lets an upstream deploy below). |
 | ADM-2 | next (10) | `via = []` on the token and auto paths; relays only through Authorize; `via` ≤ 16. |
-| ADM-3 | next (7) | Audit text fields ≤ 256 B, per-link token bucket with a `suppressed` record. |
+| ADM-3 | fixed (this commit) | `watch_audit` drops a record over 8 KiB unread, cuts `sub`/`op` to 256 B and `key` to 1 KiB, and takes at most 50 records per second per link (burst 200); the next record taken says `dropped_by_broker:<n>`. |
 | GW-1, GW-7 | fixed (`cb9875a`) | A refused login is audited once per `(user, ip)` and window; the limiter runs before a hashing permit. |
 | GW-2 | next (12) | Per-user caps on sockets, stream opens and one-shots; server cap on `history.limit`. |
 | SCH-1 | fixed (`86d5f69`, DQL-2 fix) | Targets write only within their author's rights, read with the first intersecting grant. |
 | WASM-1 | next (11) | Install shows the package's `capabilities` and `requester`; widening them needs `accept: true`. |
 | LNK-1, FS-4, AI-3 | next (13) | One outbound-address policy: loopback, link-local, metadata and private addresses only with `allow_internal`, checked on the resolved address. AI-3 also: `api_base` a `dest` of the API key. |
-| LNK-2 | fixed (this commit) | The owner task runs `open`, `poll`, `ping` and the whole serve loop under `catch_unwind`: a panic is a connection failure (`failed`, error `driver panicked: …`, points `bad`), then the usual backoff and reconnect. Test `driver_panic`. |
+| LNK-2 | fixed (`15f43c8`) | The owner task runs `open`, `poll`, `ping` and the whole serve loop under `catch_unwind`: a panic is a connection failure (`failed`, error `driver panicked: …`, points `bad`), then the usual backoff and reconnect. Test `driver_panic`. |
 | AI-2 | gap | MCP service identity (a `LimitedKey` like agent keys). Until then the guide says `ai.key` is an admin key. |
 | AI-4 | next (14, docs) | The guide calls `config` and `never` modes "autonomous writes from text in the tree". |
 | NET-1 | fixed (`e4a2a43`) | `NetPolicy::allows_named`: a name entry reaches public addresses only; private (RFC 1918, `100.64/10`, `fc00::/7`) and special addresses need an IP entry. Plain TCP by name stays allowed under the same rule. *If wrong:* a link that reached a LAN database by name alone fails to connect until its `net` gets the address. |

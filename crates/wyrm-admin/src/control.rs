@@ -5638,13 +5638,78 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
 
 /// `set`/`invoke` records put by links on `wy/<site>/sys/audit/<link>`; the
 /// ACL lets only CN `<link>` write that key, so the origin is the key.
+/// A link's audit record larger than this is dropped unread (review ADM-3).
+const AUDIT_MAX_RECORD: usize = 8 * 1024;
+/// Bytes kept of a text field of a link's audit record (`sub`, `op`); a key keeps 1 KiB.
+const AUDIT_MAX_TEXT: usize = 256;
+const AUDIT_MAX_KEY: usize = 1024;
+/// Records per second a link may add, and the burst it may send at once; past it records are
+/// counted, and the next one taken says how many were dropped (review ADM-3).
+const AUDIT_RATE: f64 = 50.0;
+const AUDIT_BURST: f64 = 200.0;
+/// Links tracked by the audit limiter.
+const AUDIT_LINKS: usize = 4096;
+
+/// `s` cut to at most `max` bytes on a character boundary, `…` when cut.
+fn cut(mut s: String, max: usize) -> String {
+    if s.len() > max {
+        let mut i = max;
+        while !s.is_char_boundary(i) {
+            i -= 1;
+        }
+        s.truncate(i);
+        s.push('…');
+    }
+    s
+}
+
+/// One token bucket per link for its audit records.
+#[derive(Default)]
+struct AuditLimiter {
+    links: HashMap<String, (f64, std::time::Instant, u64)>,
+}
+
+impl AuditLimiter {
+    /// `Ok(dropped since the last record taken)`, or `Err(())` to drop this one.
+    fn take(&mut self, link: &str, now: std::time::Instant) -> Result<u64, ()> {
+        if !self.links.contains_key(link) && self.links.len() >= AUDIT_LINKS {
+            self.links
+                .retain(|_, (_, t, d)| *d > 0 || now.duration_since(*t).as_secs() < 60);
+            if self.links.len() >= AUDIT_LINKS {
+                return Err(());
+            }
+        }
+        let (tokens, at, dropped) =
+            self.links
+                .entry(link.to_owned())
+                .or_insert((AUDIT_BURST, now, 0));
+        *tokens = (*tokens + now.duration_since(*at).as_secs_f64() * AUDIT_RATE).min(AUDIT_BURST);
+        *at = now;
+        if *tokens < 1.0 {
+            *dropped += 1;
+            return Err(());
+        }
+        *tokens -= 1.0;
+        Ok(std::mem::take(dropped))
+    }
+}
+
 async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
     let key = format!("wy/{}/sys/audit/*", ctl.cfg.site);
     let Ok(sub) = ctx.client().declare_subscriber(&key).await else {
         return;
     };
+    let mut limiter = AuditLimiter::default();
     while let Ok(s) = sub.recv_async().await {
         let Some(link) = s.key_expr().as_str().rsplit('/').next().map(str::to_owned) else {
+            continue;
+        };
+        // a raw Zenoh client with a link's certificate skips the SDK's own flood suppression:
+        // bounded here, before anything is decoded or written (review ADM-3)
+        if s.payload().len() > AUDIT_MAX_RECORD {
+            continue;
+        }
+        let Ok(dropped) = limiter.take(&link, std::time::Instant::now()) else {
             continue;
         };
         let Ok(Value::Map(m)) = wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes())
@@ -5652,7 +5717,7 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             continue;
         };
         let text = |k: &str| match m.get(k) {
-            Some(Value::Str(v)) => v.clone(),
+            Some(Value::Str(v)) => cut(v.clone(), AUDIT_MAX_TEXT),
             _ => String::new(),
         };
         let status = match m.get("status") {
@@ -5665,7 +5730,10 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         };
         // The link's own clock and `sub` are claims; the admin's clock is the
         // record time, and a key outside the link's subtree is flagged.
-        let key = text("key");
+        let key = match m.get("key") {
+            Some(Value::Str(v)) => cut(v.clone(), AUDIT_MAX_KEY),
+            _ => String::new(),
+        };
         let root = if link == FLOWS_LINK {
             format!("wy/{}/dataflows", ctl.cfg.site)
         } else if link == STORAGE_LINK {
@@ -5678,10 +5746,13 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             Some(Value::UInt(t)) => t.to_string(),
             _ => "-".into(),
         };
-        let suppressed = match m.get("suppressed") {
+        let mut suppressed = match m.get("suppressed") {
             Some(Value::UInt(n)) => format!(" suppressed:{n}"),
             _ => String::new(),
         };
+        if dropped > 0 {
+            suppressed.push_str(&format!(" dropped_by_broker:{dropped}"));
+        }
         let rec = AuditRecord {
             t: now_us(),
             sub: format!("claimed:{}", text("sub")),
@@ -6108,6 +6179,25 @@ mod tests {
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
         k.subject.as_deref() == Some("link:scheduler")
+    }
+
+    /// Review ADM-3: a link's audit records are rate limited per link, and text is cut.
+    #[test]
+    fn audit_records_of_a_link_are_bounded() {
+        let mut l = super::AuditLimiter::default();
+        let t = std::time::Instant::now();
+        for _ in 0..super::AUDIT_BURST as usize {
+            assert_eq!(l.take("a", t), Ok(0));
+        }
+        assert_eq!(l.take("a", t), Err(()));
+        assert_eq!(l.take("a", t), Err(()));
+        assert_eq!(l.take("b", t), Ok(0), "per link");
+        // a second later: room again, and the record says how many were dropped
+        let later = t + std::time::Duration::from_secs(1);
+        assert_eq!(l.take("a", later), Ok(2));
+        assert_eq!(l.take("a", later), Ok(0));
+        assert_eq!(super::cut("é".repeat(200), 5), "éé…");
+        assert_eq!(super::cut("short".into(), 256), "short");
     }
 
     /// Review D-1: the broker's certificates are issued again within 30 days of their end, once.
