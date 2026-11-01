@@ -18,6 +18,7 @@ Constraints that shape the answer:
 `wyrm-release.json` (JSON, a user file, `serde_json` as for packages):
 ```
 { "name": "wyrmd", "version": "0.2.0", "released": "2026-11-15T10:00:00Z",
+  "expires": "2027-11-15T10:00:00Z", // a manifest older than this is refused (TUF: no freeze on a stale release)
   "min_from": "0.1.0",          // the oldest running version this one upgrades from
   "schema": 19,                 // registry SCHEMA the binary writes
   "link_protocol": 1,           // LINK_PROTOCOL of its wyrm-link-sdk
@@ -26,10 +27,10 @@ Constraints that shape the answer:
 ```
 - `wyrm-release.sig` = Ed25519 signature over the manifest file's bytes, by a **release key**. The public keys live in `wyrmd.json5` `update.keys` (hex, like `signers`); the private key never touches a broker. `wyr release sign` (a dev command) makes the pair and signs; CI signs with a secret. Without `update.keys` every update answers `success: false, "no release keys"`.
 - The artifact is the bare executable (not a zip): the manifest's `sha256` and `size` pin it. Fetched with `wyrm_admin::fetch` (HTTPS, webpki roots, 3 redirects), at most 256 MiB and 10 min.
-- `update.repository` (optional, like `packages.repository`): an index `[{version, released, manifest, sig}]` fetched in the background every `update.check_h` (default 24 h), never on the start path. It fills `sys/update/available`; nothing is applied on its own (policy `manual`; see open question 2).
+- `update.repository` (optional, like `packages.repository`): an index `{ "version": 42, "expires": "…", "releases": [{version, released, manifest, sig}] }` with its own signature (`index.sig`, by a release key or, later, a separate online index key), fetched in the background every `update.check_h` (default 24 h), never on the start path. The broker keeps the highest index `version` it has seen (`data_dir/update/seen.json`) and refuses a lower or an expired one (TUF's rollback and freeze rules: a replayed or withheld index cannot hide a release or offer an old one). It fills `sys/update/available`; nothing is applied on its own (policy `manual`; see open question 2).
 
 ### 2. Node `sys/update` (admin only, as all of `sys`)
-Values: `version` (running), `previous` (the kept binary, or none), `state` (`idle | downloading | verifying | staged | restarting | settling | failed`), `error`, `staged` (version, sha256, source), `available` (from the repository), `last_check`.
+Values: `version` (running), `previous` (the kept binary, or none), `state` (`idle | downloading | verifying | staged | restarting | test | confirmed | reverted | failed`; `test` is the new binary before its health check passed, as MCUboot's test swap and Android's unconfirmed slot), `error`, `staged` (version, sha256, source), `available` (from the repository), `last_check`.
 
 Actions (level `config`, group "Update", each `{success, message}` as the install actions; `dry_run` as on every `sys/**/~act/*`):
 - `check`: fetch the index now.
@@ -58,15 +59,33 @@ Actions (level `config`, group "Update", each `{success, message}` as the instal
 ### 6. Limits and what is not in this ADR
 - One update at a time per broker (`stage` while `staged`/`restarting`/`settling` answers `busy`); a rebuild waits for a stage in flight as it waits for installs.
 - The configuration file is never edited by an update. A version that refuses the old file fails preflight (`check-config`), not the restart.
-- Not here: RTOS targets and device firmware (a driver-level action per protocol, ADR 0028 parts, later and case by case); signed link packages and repository indexes (ADR 0031 leftover; the same key and signature format fit, a short follow-up); automatic updates (open question 2); Windows.
+- Not here: RTOS targets and device firmware (a driver-level action per protocol, ADR 0028 parts, later and case by case); signed link packages and repository indexes (ADR 0031 leftover; the same key and signature format fit, a short follow-up); automatic updates (open question 2); Windows; delta artifacts (a `zstd --patch-from` of the running binary cuts a 40 MiB transfer to a few MiB through a chain of brokers; the manifest gets a `deltas: [{from_sha256, url, sha256, size}]` list and `stage` picks one when the running binary matches, else the full file: an additive follow-up); rollout groups with thresholds (hawkBit: groups in cascade, a success threshold that starts the next, an error threshold that stops everything) as a `rollout` step of `wyrm-agent` plans; `external` links on other hosts, which the broker does not run (ADR 0011): a shared `wyrm-update` crate (manifest, signature, stage, swap, exec, health) that `wyrm-link-sdk::process` uses too, `~act/update` on the link's root, release keys and the link's version in `hello`, a follow-up ADR.
 
 ## Consequences
 - An operator or central updates a site with one action, and a broken release comes back by itself within `health_s + settle_s`; no visit to the board, no `Restart=` policy to get right.
 - The trust anchor moves: a stolen **release key** is every broker that trusts it (full host compromise, every secret). It is held offline or in CI only; rotation is a `wyrmd.json5` edit on every site (or a `sys/update` config action once the keys may come from above, open question 1). Recorded in `docs/security/threats.md`. A `config` user alone cannot update: the signature is mandatory, and `config` does not add keys.
-- Downgrades are refused by default, so a signed old release cannot be replayed onto a patched site by a `config` user.
+- Downgrades are refused by default, so a signed old release cannot be replayed onto a patched site by a `config` user; an expired manifest or index, or an index older than the one seen, is refused the same way.
 - A rollback restores a copy of the control-plane state: writes made during the failed run (an added link, a token) are lost and the audit says so. History files are never touched (append-only day files; rollback within the pinned redb version).
 - Process links restart on every apply (they do on every rebuild already); their packages keep running unless `link_protocol` changed, which `stage` says in advance.
 - `wyrmd` gains `check-config`, `wyr` gains `release sign`; the admin gains `update.rs` (stage, preflight, swap, exec, health), the registry nothing (the pending state is a file: it must be readable before the stores open).
+
+## Prior art (2026-11-01 survey, at the owner's request)
+What the field settled on, and what this ADR takes from it or leaves out:
+
+| System | What it does | Taken | Left out, and why |
+|---|---|---|---|
+| **TUF / Uptane** (PyPI, Docker, automotive) | Signed metadata with roles, expiry on every document, clients persist the highest version seen; offline root keys, online keys never trusted for installation; Uptane splits a *director* (what each vehicle should install) from an *image repository* (what exists) | `expires` on manifest and index, highest index version persisted, downgrade refused, release keys offline. Uptane's split is ours already: manifest + binary = image repository; a `wyrm-agent` plan or central's `apply` = director; `hello`/`sys/version` = the ECU version report | Root metadata with key thresholds and delegation: in the first version keys are a config file; a signed `keys` document with a threshold can come later without changing the manifest |
+| **MCUboot / Zephyr** (MCUs) | Two slots, a *test* swap that reverts at the next boot unless the application confirms it (`image_ok` in the image trailer), a *permanent* swap, boot counters | The same three states (`test`, `confirmed`, `reverted`), confirmation by the new binary itself after the health check, `attempts` before anything else opens | Slots: a user-space binary is swapped in place with `.prev` kept, which is the two slots without a bootloader |
+| **Android A/B, Virtual A/B** | Two partition sets, the bootloader falls back on its own, `update_verifier` marks a slot successful, post-install program from the new partition, dm-verity before boot | "Verify before you switch" (hash and signature before the swap), preflight from the new binary (`--version`, `check-config`) = the post-install program, a bounded number of boot attempts | Everything below user space |
+| **RAUC** (Yocto, Linux) | A bundle = manifest + images in SquashFS, signed CMS over the whole bundle, a keyring with trust anchors only, `compatible` string, install hooks, casync chunks | `compatible` = `name` + target triple + `min_from`; the hooks are `quiesce` and the health check | CMS/X.509: WYRM already has Ed25519 keys and hex lists (`signers`); one more PKI is a cost without a gain here; SquashFS bundles: the artifact is one file |
+| **SWUpdate** (Linux, C) | `sw-description` signed CMS, update state (`ustate`) kept in the bootloader environment, transaction marker, hawkBit client (suricatta), in-place updates | The transaction marker is `pending.json`, read before the stores; in-place update of one file | Kconfig-level flexibility: one update kind here |
+| **Mender** | Client + server, update modules per artifact type (single file, directory with backup, rootfs), state scripts, rollback declared per module, deltas (paid), delta of root filesystem | "Single file with backup" is the broker's swap with `.prev`; a shared `wyrm-update` crate is the update module that links reuse | A management server: the tree and `wyrm-agent` plans are that; deltas later |
+| **Eclipse hawkBit** (1.0, April 2026) | Rollouts in groups with success and error thresholds, cascade, manual next group, emergency stop, device feedback with progress | Device feedback = `sys/update/state` + audit; rollout = a plan, one site at a time, relays last | Groups and thresholds in the broker: a plan step later, not broker code |
+| **bootc / OSTree** | Image-based OS, previous deployment kept, `rollback` verb, journal record on rollback; automatic updates can undo a manual rollback | `rollback` action, audit records, `refused.json` so an index does not re-offer a version that was rolled back | OS images |
+| **Rugix** (Rust, Linux) | A/B with automatic rollback, streaming and delta updates, signature verified before install, Apache-2.0 | Confirms the shape; nothing to embed, it updates whole systems | — |
+| **Sigstore / cosign** | Keyless signing with OIDC and a transparency log | — | Needs Rekor and an identity provider reachable from the site; most sites are offline or behind the chain. An attestation (in-toto) can be added beside `wyrm-release.sig` later |
+
+The common denominator of all of them: sign before, verify before writing, keep the old one, boot the new one in a *test* state, confirm from inside, revert without help, and never let a stale or replayed document hide or downgrade a release. The ADR follows it with the pieces WYRM has (Ed25519 keys, the tree, actions, ADR 0028 parts, `wyrm-agent` plans).
 
 ## Alternatives
 - **The OS package manager (apt, rpm, a container image) and nothing in the tree.** Right where it exists; the owner's boards and the chain of brokers have no such channel to every site, and it cannot be driven from `central`. Kept as the path for a binary the broker does not own (§3).
