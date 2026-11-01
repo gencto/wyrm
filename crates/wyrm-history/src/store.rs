@@ -368,12 +368,16 @@ impl Store {
     ) -> Result<ChangeBatch> {
         let (days, upto) = {
             let j = lock(&self.journal);
-            let days: Vec<i64> = j
+            // by the first number they hold: once `limit.rows` are taken, a day whose first
+            // number is above the last one kept cannot add a row (security review HS-2: every
+            // day file above the cursor was read for every batch)
+            let mut days: Vec<(i64, u64)> = j
                 .ranges
                 .iter()
                 .filter(|(_, (_, hi))| *hi > after)
-                .map(|(d, _)| *d)
+                .map(|(d, (lo, _))| (*d, *lo))
                 .collect();
+            days.sort_by_key(|(_, lo)| *lo);
             (days, j.next - 1)
         };
         if after >= upto {
@@ -382,9 +386,14 @@ impl Store {
                 next: after,
             });
         }
-        // each day's first entries above `after`, merged by seq
+        // each day's first entries above `after`, merged by seq; `cut` is the highest number
+        // that can still be in the batch
         let mut all: Vec<(Change, usize)> = Vec::new();
-        for day in days {
+        let mut cut = upto;
+        for (day, lo) in days {
+            if lo > cut {
+                break;
+            }
             let Some(h) = self.day(day, false)? else {
                 continue;
             };
@@ -395,8 +404,8 @@ impl Store {
                 | (_, Err(TableError::TableDoesNotExist(_))) => continue,
                 (Err(e), _) | (_, Err(e)) => return Err(db(e)),
             };
-            let mut taken = 0;
-            for item in c.range(after + 1..=upto).map_err(db)? {
+            let (mut taken, mut day_bytes) = (0, 0);
+            for item in c.range(after + 1..=cut).map_err(db)? {
                 let (k, v) = item.map_err(db)?;
                 let (series, ts) = v.value();
                 if !want(series) {
@@ -416,10 +425,18 @@ impl Store {
                         bytes.len(),
                     ));
                     taken += 1;
-                    if taken >= limit.rows {
+                    day_bytes += bytes.len();
+                    // a later row of this day comes after these in the merge: past the byte
+                    // bound it cannot be sent either
+                    if taken >= limit.rows || day_bytes > limit.bytes {
                         break;
                     }
                 }
+            }
+            if all.len() >= limit.rows {
+                all.sort_by_key(|(c, _)| c.seq);
+                all.truncate(limit.rows);
+                cut = all.last().map_or(cut, |(c, _)| c.seq);
             }
         }
         all.sort_by_key(|(c, _)| c.seq);
@@ -783,6 +800,57 @@ mod tests {
             .into_iter()
             .map(|c| (c.seq, c.series, c.row.t))
             .collect()
+    }
+
+    /// Review HS-2: many day files, small batches: the merge with early stops gives the same
+    /// rows as reading every day whole, batch after batch.
+    #[test]
+    fn changes_over_many_days_stop_early_and_stay_in_order() {
+        let dir = temp("manydays");
+        let st = Store::open(&dir).unwrap();
+        let day0 = parse_iso("2026-09-01T10:00:00Z").unwrap();
+        // 30 days, 5 rows each, written day by day, then a late row into every day
+        for d in 0..30u64 {
+            let rows: Vec<_> = (0..5)
+                .map(|i| {
+                    row(
+                        1,
+                        day0 + d * US_PER_DAY + i * 1_000_000,
+                        (d * 10 + i) as f64,
+                    )
+                })
+                .collect();
+            st.write(&rows).unwrap();
+        }
+        let late: Vec<_> = (0..30u64)
+            .map(|d| row(2, day0 + d * US_PER_DAY, 0.0))
+            .collect();
+        st.write(&late).unwrap();
+        let want = seqs(&st, 0);
+        assert_eq!(want.len(), 180);
+        assert!(want.windows(2).all(|w| w[0].0 < w[1].0));
+        let mut got = Vec::new();
+        let mut after = 0;
+        loop {
+            let b = st
+                .changes(
+                    after,
+                    ChangeLimit {
+                        rows: 7,
+                        bytes: usize::MAX,
+                    },
+                    |_| true,
+                )
+                .unwrap();
+            if b.rows.is_empty() {
+                break;
+            }
+            assert!(b.rows.len() <= 7);
+            got.extend(b.rows.into_iter().map(|c| (c.seq, c.series, c.row.t)));
+            after = b.next;
+        }
+        assert_eq!(got, want);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
