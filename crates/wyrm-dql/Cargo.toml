@@ -10,6 +10,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+regex.workspace = true
 wyrm-core.workspace = true
 wyrm-link-api.workspace = true
 cel.workspace = true

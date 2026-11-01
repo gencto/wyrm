@@ -6590,6 +6590,7 @@ name = "wyrm-dql"
 version = "0.1.0"
 dependencies = [
  "cel",
+ "regex",
  "wyrm-core",
  "wyrm-link-api",
 ]

@@ -19,6 +19,10 @@ pub const MAX_EXPR: usize = 1024;
 pub const MAX_MACROS: usize = 4;
 /// Items in one list literal.
 pub const MAX_LIST_LITERAL: usize = 64;
+/// Compiled size of a `matches()` pattern, bytes: cel-rust compiles the pattern again on every
+/// call, so only a small one is allowed (security review DQL-1: `(((a{40}){40}){40})` took
+/// 9–15 ms per evaluation).
+pub const MAX_REGEX: usize = 16 << 10;
 /// Items (all levels) of one value a row binds: a larger one is `null` in CEL.
 pub const MAX_VALUE_ITEMS: usize = 1000;
 /// Bytes of one text or bytes value a row binds: a longer one is `null` in CEL.
@@ -82,6 +86,9 @@ fn walk(e: &::cel::IdedExpr, body: bool, macros: &mut usize) -> Result<(), Strin
             walk(&c.result, true, macros)
         }
         Expr::Call(call) => {
+            if call.func_name == "matches" {
+                check_pattern(call.args.last())?;
+            }
             if body && call.func_name == "_+_" {
                 // the expansion's own step: `@result + [x]` (map, filter) or `@result + 1`
                 match call.args.as_slice() {
@@ -127,6 +134,28 @@ fn walk(e: &::cel::IdedExpr, body: bool, macros: &mut usize) -> Result<(), Strin
         Expr::Select(sel) => walk(&sel.operand, body, macros),
         Expr::Ident(_) | Expr::Literal(_) | Expr::Unspecified => Ok(()),
     }
+}
+
+/// The pattern of `matches()`: literal text that compiles within [`MAX_REGEX`].
+fn check_pattern(p: Option<&::cel::IdedExpr>) -> Result<(), String> {
+    use ::cel::common::ast::{Expr, LiteralValue};
+    let Some(Expr::Literal(LiteralValue::String(s))) = p.map(|p| &p.expr) else {
+        return Err("CEL: matches() takes its pattern as literal text".into());
+    };
+    regex::RegexBuilder::new(s.inner())
+        .size_limit(MAX_REGEX)
+        .dfa_size_limit(MAX_REGEX)
+        .nest_limit(32)
+        .build()
+        .map(|_| ())
+        .map_err(|e| match e {
+            regex::Error::CompiledTooBig(_) => {
+                format!(
+                    "CEL: matches(): the pattern is too large (at most {MAX_REGEX} bytes compiled)"
+                )
+            }
+            e => format!("CEL: matches(): {e}"),
+        })
 }
 
 /// `e` has a `+` outside the macros it holds (their own ranges are checked when they are walked).

@@ -639,3 +639,54 @@ fn a_reader_needs_the_parent_of_a_sublist_row() {
     let with_parent = |k: &str| k.starts_with("wy/s/downstream/plc/ahu1");
     assert_eq!(e.table_where(0, 100, with_parent).1, 2);
 }
+
+/// Review DQL-1: one sample that every row reads runs at most `EVENT_EVALS` evaluations; the
+/// other rows wait for ticks the host runs at once, and all of them get the value.
+#[test]
+fn one_sample_has_a_budget_and_the_rest_waits() {
+    let n = wyrm_dql::engine::EVENT_EVALS as usize; // two evaluations per row
+    let mut nodes: Vec<(String, NodeMeta)> = vec![
+        ("wy/s/downstream/plc".into(), folder()),
+        ("wy/s/downstream/x".into(), folder()),
+        ("wy/s/downstream/x/t0".into(), number()),
+    ];
+    for i in 0..n {
+        nodes.push((format!("wy/s/downstream/plc/n{i}"), number()));
+    }
+    let refs: Vec<(&str, NodeMeta)> = nodes.iter().map(|(k, m)| (k.as_str(), m.clone())).collect();
+    let mut t = Tree::new(&refs);
+    let mut e = t.start(
+        "list wy/s/downstream/plc | subscribe wy/s/downstream/x/t0 as v \
+         | expression a=\"v + 1\" | where a > 0 | option max_rows=5000",
+    );
+    assert_eq!(e.backlog(), 0);
+    t.value(&mut e, "wy/s/downstream/x/t0", Value::Int(1));
+    assert!(e.backlog() > 0, "past the budget the rows wait");
+    assert_eq!(e.next_wake_us(), Some(0), "the host ticks at once");
+    let mut ticks = 0;
+    while e.backlog() > 0 {
+        let mut out = Vec::new();
+        e.tick(t.now, &mut out);
+        t.run(&mut e, out);
+        ticks += 1;
+        assert!(ticks < 100);
+    }
+    assert_eq!(e.rows(), n);
+    let rows = e.table(0, 5000);
+    assert_eq!(rows.len(), n);
+    assert!(rows
+        .iter()
+        .all(|r| matches!(r, Value::Map(m) if m.get("a") == Some(&Value::Int(2)))));
+}
+
+/// Review DQL-1: `matches()` takes literal text, and only a small pattern (cel-rust compiles it
+/// again on every call).
+#[test]
+fn regex_patterns_are_literal_and_small() {
+    assert!(parse("list wy/s/downstream/plc | where name.matches('^ahu[0-9]+$')").is_ok());
+    let e = parse("list wy/s/downstream/plc | where name.matches(unit)").unwrap_err();
+    assert!(e.to_string().contains("literal"), "{e}");
+    let e =
+        parse("list wy/s/downstream/plc | where name.matches('(((a{40}){40}){40})')").unwrap_err();
+    assert!(e.to_string().contains("too large"), "{e}");
+}

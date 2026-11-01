@@ -45,6 +45,14 @@ pub const MAX_TIMEOUT_S: u64 = 600;
 pub const REFETCH_AFTER_MS: u64 = 2_000;
 /// At most this many refetches per query.
 pub const MAX_REFETCHES: u32 = 3;
+/// CEL evaluations one event (a sample, a tick) may run for one query; the rows past it wait
+/// for the next tick, which the host runs at once (security review DQL-1: every row of a query
+/// may read one key, so one sample could cost minutes of the engine's thread).
+pub const EVENT_EVALS: u64 = 2_000;
+/// The time one event may take for one query (native builds; a WASM component has its host's
+/// fuel and call time).
+#[cfg(not(target_arch = "wasm32"))]
+pub const EVENT_TIME: std::time::Duration = std::time::Duration::from_millis(100);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Limits {
@@ -200,6 +208,30 @@ pub struct Engine {
     timed_out: bool,
     /// When the query became `ready` (µs).
     ready_us: Option<u64>,
+    /// CEL evaluations of segment `i`'s stages for one row.
+    costs: Vec<u64>,
+    /// Rows to evaluate again that did not fit the last event's budget.
+    backlog: BTreeSet<(usize, String)>,
+    /// CEL evaluations spent in the current event.
+    spent: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    event_start: std::time::Instant,
+}
+
+/// CEL evaluations one row of `stages` runs.
+fn cost(stages: &[Stage]) -> u64 {
+    let arg = |a: &Arg| u64::from(matches!(a, Arg::Expr(_)));
+    stages
+        .iter()
+        .map(|s| match s {
+            Stage::Where(_) => 1,
+            Stage::Expression(es) => es.len() as u64,
+            Stage::Sink(Sink::Invoke { params, .. }) => params.iter().map(|(_, a)| arg(a)).sum(),
+            Stage::Sink(Sink::Set { value, .. }) => arg(value),
+            _ => 0,
+        })
+        .sum::<u64>()
+        .max(1)
 }
 
 fn site_of(key: &str) -> String {
@@ -320,6 +352,7 @@ impl Engine {
             .unwrap_or(DEFAULT_TIMEOUT_S)
             .clamp(1, MAX_TIMEOUT_S);
         let segs = plan.segments.len();
+        let costs = plan.segments.iter().map(|s| cost(&s.stages)).collect();
         Self {
             plan,
             limits,
@@ -345,7 +378,34 @@ impl Engine {
             progress: Progress::default(),
             timed_out: false,
             ready_us: None,
+            costs,
+            backlog: BTreeSet::new(),
+            spent: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            event_start: std::time::Instant::now(),
         }
+    }
+
+    /// A new event: a fresh budget.
+    fn begin(&mut self) {
+        self.spent = 0;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.event_start = std::time::Instant::now();
+        }
+    }
+
+    fn over_budget(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.event_start.elapsed() >= EVENT_TIME {
+            return true;
+        }
+        self.spent >= EVENT_EVALS
+    }
+
+    /// Rows waiting for budget (from samples that came faster than they could be evaluated).
+    pub fn backlog(&self) -> usize {
+        self.backlog.len()
     }
 
     pub fn plan(&self) -> &Plan {
@@ -667,8 +727,14 @@ impl Engine {
             self.values.insert(key.to_owned(), sample);
         }
         if let Some(rows) = self.deps.get(key).cloned() {
+            self.begin();
             for (seg, row) in rows {
-                self.eval_row(seg, &row, now, out);
+                if self.over_budget() {
+                    self.backlog.insert((seg, row));
+                } else {
+                    self.backlog.remove(&(seg, row.clone()));
+                    self.eval_row(seg, &row, now, out);
+                }
             }
         }
     }
@@ -828,6 +894,7 @@ impl Engine {
         if !self.cands[seg].contains_key(key) {
             return;
         }
+        self.spent += self.costs[seg];
         let rk = (seg, key.to_owned());
         if !self.row_keys.contains_key(&rk) {
             let keys = self.value_keys(seg, key);
@@ -971,8 +1038,15 @@ impl Engine {
         }
     }
 
-    /// Throttled sink calls that are due, and the collection timeout.
+    /// Rows waiting for budget, throttled sink calls that are due, and the collection timeout.
     pub fn tick(&mut self, now: u64, out: &mut Vec<Effect>) {
+        self.begin();
+        while !self.over_budget() {
+            let Some((seg, row)) = self.backlog.pop_first() else {
+                break;
+            };
+            self.eval_row(seg, &row, now, out);
+        }
         let throttle = self.plan.options.throttle_ms * 1000;
         let due: Vec<(String, usize)> = self
             .sinks
@@ -1026,8 +1100,12 @@ impl Engine {
         })
     }
 
-    /// When [`Engine::tick`] has work: a throttled call or the collection timeout.
+    /// When [`Engine::tick`] has work: rows waiting for budget (at once), a throttled call or
+    /// the collection timeout.
     pub fn next_wake_us(&self) -> Option<u64> {
+        if !self.backlog.is_empty() {
+            return Some(0);
+        }
         let throttle = self.plan.options.throttle_ms * 1000;
         let sinks = self
             .sinks

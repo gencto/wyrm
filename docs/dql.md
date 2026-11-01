@@ -155,12 +155,20 @@ be stopped halfway):
 - no `+` in a macro's range (`(l + m).map(…)`): a range is a value, a literal or a chained
   macro, so one expression runs at most 4 × 1 000 steps;
 - a list literal holds at most 64 items;
+- `matches()` takes its pattern as literal text (`name.matches('^ahu[0-9]+$')`, not
+  `name.matches(unit)`), and the pattern compiles to at most 16 KiB: CEL compiles it again on
+  every call (security review DQL-1);
 - a value of more than 1 000 items (all levels; text, bytes and map keys count one item per 16
   bytes) is `null` in an expression, and a result that large is an error.
 
 What only the run can see (a row variable read on every item of a long range) is bounded while
 it runs: one evaluation reads row variables at most 10 000 times and, in a native link, takes
 at most 20 ms; past either it stops with the error `too costly`, and the row counts an error.
+
+One event (a value that came, a tick) runs at most 2 000 evaluations of a query, and in a native
+link at most 100 ms of them. A value that many rows read (a column with a full key) evaluates
+the rows that fit; the others wait and are evaluated in the next ticks, which come at once. The
+table is right after those ticks; other queries run in between (security review DQL-1).
 
 ## From DSA
 
