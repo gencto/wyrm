@@ -27,7 +27,7 @@ The table is updated in the commit that changes a status.
 | ADM-3 | next (7) | Audit text fields ≤ 256 B, per-link token bucket with a `suppressed` record. |
 | GW-1, GW-7 | fixed (this commit) | A refused login is audited once per `(user, ip)` and window; the limiter runs before a hashing permit. |
 | GW-2 | next (12) | Per-user caps on sockets, stream opens and one-shots; server cap on `history.limit`. |
-| SCH-1 | fixed (`86d5f69`) | Targets write only within their author's rights. DQL-2 still applied to it until item 2. |
+| SCH-1 | fixed (`86d5f69`, DQL-2 fix) | Targets write only within their author's rights, read with the first intersecting grant. |
 | WASM-1 | next (11) | Install shows the package's `capabilities` and `requester`; widening them needs `accept: true`. |
 | LNK-1, FS-4, AI-3 | next (13) | One outbound-address policy: loopback, link-local, metadata and private addresses only with `allow_internal`, checked on the resolved address. AI-3 also: `api_base` a `dest` of the API key. |
 | LNK-2 | next (6) | `catch_unwind` around driver calls in the owner task; a panic marks the connection failed, values bad, then reconnects. |
@@ -35,7 +35,7 @@ The table is updated in the commit that changes a status.
 | AI-4 | next (14, docs) | The guide calls `config` and `never` modes "autonomous writes from text in the tree". |
 | NET-1 | next (5) | Private ranges are a class that a name entry does not open. |
 | DQL-1 | next (4) | One evaluation budget per event, regex compiled once, function calls counted. |
-| DQL-2 | next (2) | One grant evaluator (first intersecting grant, as spec 04) in `wyrm_core::ptok`, used by `Rights::may` and DQL; other sites only through peers. |
+| DQL-2 | fixed (this commit) | `wyrm_core::ptok::level_on`: the first intersecting grant decides, as the gateway and the SDK (a test compares it with Zenoh's `intersects`); `Who::may`, `Who::may_for` and so `Rights::may` and DQL use it. A grant with `$*` that may touch the key gives `none`. Accepted: own-site grants are still read for another site's key (as the gateway does for downstream sites); the host admits another site only within the link's grants, which the admin gives for reachable sites only. *If wrong:* a user's own-site grants count on a reachable downstream site in a query, as they do at that site's gateway path. |
 | FS-1 | partly fixed (`e355391`), next (15) | Disk floor 1 GiB done. Open: link-level spool budget, periodic sweep, `max_file_mib` ≤ 65 536. |
 | HS-1 | next (2b) | A refused batch is retried row by row; refused rows are skipped and counted; InfluxDB writes a stable schema. |
 | HS-2 | next (16) | `changes` merges day files by `seq` and stops early. |

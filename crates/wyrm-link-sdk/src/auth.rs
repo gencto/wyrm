@@ -364,6 +364,47 @@ mod tests {
         tok
     }
 
+    /// `wyrm_core::ptok::level_on` (used by apps that act for a caller) reads grants exactly
+    /// as this verifier and the gateway do with Zenoh's `intersects` (review DQL-2).
+    #[test]
+    fn level_on_agrees_with_zenoh() {
+        let pats = [
+            "wy/s/**",
+            "wy/s/downstream/**",
+            "wy/s/downstream/plc/**",
+            "wy/s/downstream/plc",
+            "wy/s/*/plc/**",
+            "wy/s/downstream/*/t",
+            "wy/**/t",
+            "wy/s/**/x/**",
+            "wy/d/**",
+            "**",
+        ];
+        let keys = [
+            "wy/s/downstream/plc",
+            "wy/s/downstream/plc/t",
+            "wy/s/downstream/ahu/t",
+            "wy/s/storage/plc/x/y",
+            "wy/s/a/x/b",
+            "wy/d/downstream/plc/t",
+            "wy/s/downstream/**",
+            "wy/s/*/plc/t",
+        ];
+        for a in pats {
+            for b in pats {
+                let grants = [(a, Perm::Read), (b, Perm::Write)];
+                for k in keys {
+                    let target = keyexpr::new(k).unwrap();
+                    let zenoh = grants
+                        .iter()
+                        .find(|(g, _)| keyexpr::new(g).unwrap().intersects(target))
+                        .map_or(Perm::None, |(_, p)| *p);
+                    assert_eq!(ptok::level_on(grants, k), zenoh, "{grants:?} on {k}");
+                }
+            }
+        }
+    }
+
     /// Review SDK-1: tokens without a grant for the key are never remembered,
     /// and one subject fills only its own share of the replay cache.
     #[test]

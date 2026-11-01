@@ -159,6 +159,17 @@ fn targets_write_within_their_authors_rights() {
     // no `auth`: refused, nothing stored
     let (r, _) = h.invoke_as(&blind, "lobby", "add_target", read_back(FAN));
     assert_eq!(status(r).0, Status::PermissionDenied);
+    // a write grant shadowed by an earlier, wider read grant is dead, as at the gateway and at
+    // the PLC (spec 04: the first intersecting grant decides; review DQL-2)
+    let shadowed = Who {
+        authority: Some(vec![
+            ("wy/s/**".into(), Perm::Read),
+            ("wy/s/downstream/plc/fan".into(), Perm::Write),
+        ]),
+        ..engineer("user:eve")
+    };
+    let (r, _) = h.invoke_as(&shadowed, "lobby", "add_target", read_back(FAN));
+    assert_eq!(status(r).0, Status::PermissionDenied);
     // a point or a feedback key outside the author's rights: refused
     let (r, _) = h.invoke_as(&narrow, "lobby", "add_target", read_back(PUMP));
     let (st, msg) = status(r);

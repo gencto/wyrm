@@ -529,9 +529,10 @@ fn a_query_stays_within_its_authors_rights() {
     use wyrm_link_api::Who;
     let mut t = plant();
     let author = Who {
+        // the first intersecting grant decides (spec 04): the narrow one first
         authority: Some(vec![
-            ("wy/s/downstream/**".into(), Perm::List),
             ("wy/s/downstream/plc/ahu1/**".into(), Perm::Write),
+            ("wy/s/downstream/**".into(), Perm::List),
         ]),
         ..Who::default()
     };
@@ -588,6 +589,40 @@ fn a_query_stays_within_its_authors_rights() {
         paths(&e)
     );
     assert!(paths(&e).contains(&"wy/d/downstream/plc/t".to_owned()));
+}
+
+/// Review DQL-2: a write grant shadowed by an earlier, wider read grant is dead in a query as at
+/// the gateway and the target link (spec 04: the first intersecting grant decides).
+#[test]
+fn a_shadowed_grant_gives_a_query_nothing() {
+    use wyrm_core::Perm;
+    use wyrm_link_api::Who;
+    let mut t = plant();
+    let author = Who {
+        authority: Some(vec![
+            ("wy/s/**".into(), Perm::Read),
+            ("wy/s/downstream/plc/ahu1/**".into(), Perm::Write),
+        ]),
+        ..Who::default()
+    };
+    let text = "list wy/s/downstream/plc/ahu1/** | where type == 'number' | subscribe | set ./ = value + 1";
+    let mut e = Engine::new(parse(text).unwrap(), Limits::default()).with_rights(author, "s");
+    let mut out = Vec::new();
+    e.start(t.now, &mut out);
+    t.run(&mut e, out);
+    assert_eq!(
+        paths(&e),
+        ["wy/s/downstream/plc/ahu1/temp"],
+        "read is still given"
+    );
+    t.value(&mut e, "wy/s/downstream/plc/ahu1/temp", Value::Int(20));
+    t.value(&mut e, "wy/s/downstream/plc/ahu1/temp", Value::Int(21));
+    assert!(t.calls.is_empty(), "{:?}", t.calls);
+    assert!(e
+        .progress()
+        .error
+        .as_deref()
+        .is_some_and(|m| m.contains("outside the rights")));
 }
 
 /// A sublist row exists because its parent passed the parent's stages: a reader sees it only if

@@ -117,6 +117,9 @@ token carries the caller's grants (`auth`, spec 04), and the link keeps them wit
   counts in `errors` and `error` names the key.
 - An `edit` of the text, an `import` or a `run` takes the caller's rights.
 - A caller whose token has no `auth` (a dataflow, an older client) cannot define a query.
+- The rights are read as everywhere else: the first grant of the role list whose key pattern
+  matches the key decides (spec 04). A narrow `write` grant listed after a wider `read` grant
+  gives `read` only, at the gateway, at the target link and in a query alike (ADR 0031, DQL-2).
 - `get_table` gives each caller the rows it may read itself: the row's node and every node its
   columns read (`./x`, `..`). Changing the text of a published query needs `config`. A published table (`publish: true`,
   `config`) is one value for whoever may read `<id>/table`: publish only what those readers may see.

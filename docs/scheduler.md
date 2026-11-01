@@ -326,6 +326,9 @@ also writes only what its author may write (ADR 0029, decision 10):
 5. The editor of a target becomes its author: `created_by` and the rights
    are the editor's from then on.
 6. The export leaves the rights out. An import takes the importer's.
+7. The rights are read as at the gateway: the first grant of the role list
+   whose key pattern matches decides (spec 04). Put a narrow grant before a
+   wider one (ADR 0031, DQL-2).
 
 УВАГА: a target made before this rule has no stored rights. It writes
 nothing and stays `retrying` with "its author's rights are unknown" until

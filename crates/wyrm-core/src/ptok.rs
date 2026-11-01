@@ -45,6 +45,60 @@ pub fn grant_for_site(k: &str, own: &str, site: &str) -> String {
     }
 }
 
+/// The level `grants` give on `key` (spec 04): the first grant whose key expression intersects
+/// `key` decides; none → `Perm::None`. Every evaluator of grants uses this one rule (the SDK, the
+/// gateway and apps that act for a caller, review DQL-2), so a grant shadowed by an earlier one is
+/// dead everywhere. `key` may be a pattern. Grants with a `$*` sub-segment wildcard are not
+/// evaluated here: one that may touch `key` makes the answer `Perm::None` (never wider).
+pub fn level_on<'a>(grants: impl IntoIterator<Item = (&'a str, Perm)>, key: &str) -> Perm {
+    let key: Vec<&str> = key.split('/').collect();
+    for (k, p) in grants {
+        let g: Vec<&str> = k.split('/').collect();
+        if k.contains('$') {
+            if intersects(&g, &key, true) {
+                return Perm::None;
+            }
+        } else if intersects(&g, &key, false) {
+            return p;
+        }
+    }
+    Perm::None
+}
+
+/// Most chunks a key expression may have here; longer ones intersect nothing.
+const MAX_CHUNKS: usize = 64;
+
+/// Zenoh key-expression intersection over chunks: `*` is one chunk, `**` zero or more. `loose`
+/// reads any chunk with `$` as `*` (an over-estimate). A table over the chunk pairs, so many `**`
+/// cost `len(a) × len(b)` steps, never more.
+fn intersects(a: &[&str], b: &[&str], loose: bool) -> bool {
+    if a.len() > MAX_CHUNKS || b.len() > MAX_CHUNKS {
+        return false;
+    }
+    let chunk = |x: &str, y: &str| {
+        x == y || x == "*" || y == "*" || (loose && (x.contains('$') || y.contains('$')))
+    };
+    let (n, m) = (a.len(), b.len());
+    // t[i][j]: a[i..] intersects b[j..]
+    let mut t = vec![vec![false; m + 1]; n + 1];
+    t[n][m] = true;
+    for i in (0..=n).rev() {
+        for j in (0..=m).rev() {
+            if i == n && j == m {
+                continue;
+            }
+            t[i][j] = if i < n && a[i] == "**" {
+                t[i + 1][j] || (j < m && t[i][j + 1])
+            } else if j < m && b[j] == "**" {
+                t[i][j + 1] || (i < n && t[i + 1][j])
+            } else {
+                i < n && j < m && chunk(a[i], b[j]) && t[i + 1][j + 1]
+            };
+        }
+    }
+    t[0][0]
+}
+
 /// Raw parts of a token: `(signed_bytes, claims_bytes, signature)`.
 /// `signed_bytes` = `version || claims`.
 pub struct PtokParts<'a> {
@@ -188,5 +242,65 @@ impl<'b, C> Decode<'b, C> for PtokClaims {
             return Err(decode::Error::message("ptok without jti"));
         }
         Ok(c)
+    }
+}
+
+#[cfg(test)]
+mod level_tests {
+    use super::*;
+
+    #[test]
+    fn the_first_intersecting_grant_decides() {
+        let g = [
+            ("wy/s/**", Perm::Read),
+            ("wy/s/downstream/plc1/**", Perm::Write),
+        ];
+        // shadowed: the wider read grant comes first (review DQL-2)
+        assert_eq!(level_on(g, "wy/s/downstream/plc1/t"), Perm::Read);
+        let g = [
+            ("wy/s/downstream/plc1/secret", Perm::None),
+            ("wy/s/downstream/plc1/**", Perm::Write),
+            ("wy/s/*/ahu/**", Perm::List),
+        ];
+        assert_eq!(level_on(g, "wy/s/downstream/plc1/secret"), Perm::None);
+        assert_eq!(
+            level_on(g, "wy/s/downstream/plc1"),
+            Perm::Write,
+            "`**` is zero chunks too"
+        );
+        assert_eq!(level_on(g, "wy/s/storage/ahu/fan"), Perm::List);
+        assert_eq!(level_on(g, "wy/s/storage/x/ahu"), Perm::None);
+        // patterns intersect too, as for a subscription
+        assert_eq!(
+            level_on(g, "wy/s/downstream/**"),
+            Perm::None,
+            "first: the secret"
+        );
+        assert_eq!(
+            level_on([("wy/s/a/**", Perm::Read)], "wy/s/*/b"),
+            Perm::Read
+        );
+        // `$*` grants never widen
+        let g = [("wy/s/plc$*", Perm::None), ("wy/s/**", Perm::Write)];
+        assert_eq!(level_on(g, "wy/s/plc1"), Perm::None);
+        assert_eq!(level_on([("wy/s/p$*", Perm::Write)], "wy/s/p1"), Perm::None);
+        assert_eq!(
+            level_on(
+                [("wy/s/p$*", Perm::Write), ("wy/s/**", Perm::Read)],
+                "wy/s/q/r"
+            ),
+            Perm::Read
+        );
+        // many `**` stay cheap
+        let deep = vec!["**"; 60].join("/");
+        assert_eq!(
+            level_on([(deep.as_str(), Perm::Read)], &format!("{deep}/x")),
+            Perm::Read
+        );
+        assert_eq!(
+            level_on([("a/**/b/**/c", Perm::Read)], "a/x/**/y/c"),
+            Perm::Read
+        );
+        assert_eq!(level_on([("a/*/c", Perm::Read)], "a/c"), Perm::None);
     }
 }

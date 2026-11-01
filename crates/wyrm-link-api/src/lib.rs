@@ -99,25 +99,19 @@ pub struct Who {
 }
 
 impl Who {
-    /// The caller holds at least `need` on `key`. The longest matching grant decides. A pattern
-    /// `<prefix>/**` covers `<prefix>` and everything below it; any other pattern covers that key only.
+    /// The caller holds at least `need` on `key`: the first grant that intersects `key` decides,
+    /// as at the responder and the gateway (spec 04, `wyrm_core::ptok::level_on`).
     pub fn may(&self, key: &str, need: Perm) -> bool {
-        self.grants
-            .iter()
-            .filter(|(k, _)| covers(k, key))
-            .max_by_key(|(k, _)| k.len())
-            .is_some_and(|(_, p)| *p >= need)
+        level(&self.grants, key) >= need
     }
 
     /// The caller's own rights (its `authority`) give at least `need` on `key`; `false` when they
-    /// are unknown. The longest matching grant decides, as in [`Who::may`].
+    /// are unknown. The first intersecting grant decides, as in [`Who::may`]: a grant shadowed by
+    /// an earlier one is dead here as at the gateway (review DQL-2).
     pub fn may_for(&self, key: &str, need: Perm) -> bool {
-        self.authority.as_ref().is_some_and(|a| {
-            a.iter()
-                .filter(|(k, _)| covers(k, key))
-                .max_by_key(|(k, _)| k.len())
-                .is_some_and(|(_, p)| *p >= need)
-        })
+        self.authority
+            .as_ref()
+            .is_some_and(|a| level(a, key) >= need)
     }
 
     pub fn to_cbor(&self) -> Vec<u8> {
@@ -179,13 +173,8 @@ impl Who {
     }
 }
 
-fn covers(pattern: &str, key: &str) -> bool {
-    match pattern.strip_suffix("/**") {
-        Some(prefix) => {
-            key == prefix || key.strip_prefix(prefix).is_some_and(|r| r.starts_with('/'))
-        }
-        None => pattern == key,
-    }
+fn level(grants: &[(String, Perm)], key: &str) -> Perm {
+    wyrm_core::ptok::level_on(grants.iter().map(|(k, p)| (k.as_str(), *p)), key)
 }
 
 /// One change of a list made with [`Host::list`] (ADR 0023, amended by ADR 0025): the children of
@@ -446,17 +435,21 @@ mod tests {
     }
 
     #[test]
-    fn who_may_uses_longest_prefix() {
-        let who = Who {
+    fn who_may_takes_the_first_intersecting_grant() {
+        let mut who = Who {
             subject: None,
             grants: vec![
-                ("wy/s/downstream/**".into(), Perm::Read),
                 ("wy/s/downstream/plc/**".into(), Perm::Write),
+                ("wy/s/downstream/**".into(), Perm::Read),
             ],
             authority: None,
         };
         assert!(who.may("wy/s/downstream/plc/p1/~set", Perm::Write));
         assert!(!who.may("wy/s/downstream/x/~set", Perm::Write));
+        // the wider grant first shadows the narrower one, as at the gateway
+        who.grants.reverse();
+        assert!(!who.may("wy/s/downstream/plc/p1/~set", Perm::Write));
+        assert!(who.may("wy/s/downstream/plc/p1/~set", Perm::Read));
     }
 
     #[test]
@@ -478,8 +471,8 @@ mod tests {
             subject: Some("user:op".into()),
             grants: vec![("wy/s/downstream/dql/~act/run".into(), Perm::Write)],
             authority: Some(vec![
-                ("wy/s/downstream/**".into(), Perm::List),
                 ("wy/s/downstream/plc1/**".into(), Perm::Write),
+                ("wy/s/downstream/**".into(), Perm::List),
             ]),
         };
         let bytes = who.to_cbor();

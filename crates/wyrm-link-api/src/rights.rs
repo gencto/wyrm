@@ -107,8 +107,8 @@ mod tests {
             subject: Some("user:ann".into()),
             grants: vec![("wy/s/downstream/dql/**".into(), Perm::Config)],
             authority: Some(vec![
-                ("wy/s/downstream/plc/**".into(), Perm::Write),
                 ("wy/s/downstream/plc/secret".into(), Perm::None),
+                ("wy/s/downstream/plc/**".into(), Perm::Write),
             ]),
         };
         let r = Rights::of(&who).unwrap();
@@ -117,6 +117,16 @@ mod tests {
         assert!(r.may("wy/s/downstream/plc/heat", Perm::Write));
         assert!(!r.may("wy/s/downstream/plc/secret", Perm::Read));
         assert!(!r.may("wy/s/downstream/ahu/fan", Perm::Read));
+        // review DQL-2: a grant shadowed by an earlier, wider one is dead, as at the gateway
+        let shadowed = Rights {
+            site: "s".into(),
+            grants: vec![
+                ("wy/s/**".into(), Perm::Read),
+                ("wy/s/downstream/plc/**".into(), Perm::Write),
+            ],
+        };
+        assert!(!shadowed.may("wy/s/downstream/plc/heat", Perm::Write));
+        assert!(shadowed.may("wy/s/downstream/plc/heat", Perm::Read));
         // another site: the grants of `s` read as that site's
         assert!(r.may("wy/d/downstream/plc/heat", Perm::Write));
         // no `auth`: unknown rights
