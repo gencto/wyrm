@@ -390,6 +390,10 @@ const ENROLL_RETRY: Duration = Duration::from_secs(10);
 /// After a refusal, this often; an unreachable endpoint doubles from 2 s
 /// up to this.
 const ENROLL_BACKOFF: Duration = Duration::from_secs(60);
+/// A renewal the upstream site did not grant: ask again this often.
+const RENEW_RETRY: Duration = Duration::from_secs(3600);
+/// How often the broker's own certificates are checked for their end.
+const OWN_CERT_CHECK: Duration = Duration::from_secs(3600);
 
 /// A waiting request leaves quarantine when its broker has not asked again
 /// for this long (it asks every 10 s): junk names cannot fill the 64 places.
@@ -1385,6 +1389,52 @@ impl Control {
             self.broker_cert(site)?;
         }
         Ok(())
+    }
+
+    /// Issue again every certificate of this broker that ends within 30 days (security review
+    /// D-1): its listener and client certificates, process links' and downstream brokers' files.
+    /// The first name renewed, if any: the broker must rebuild to use them (a process link reads
+    /// its files when it starts).
+    pub fn due_certificate(&self) -> Option<String> {
+        let due = |p: &Path| std::fs::read_to_string(p).is_ok_and(|pem| secret::cert_due(&pem));
+        let pki_dir = self.cfg.data_dir.join("pki");
+        let cn = format!("broker:{}", self.cfg.site);
+        let mut renewed = None;
+        let mut note = |name: String, r: Result<CertFiles, Error>| match r {
+            Ok(_) => {
+                renewed.get_or_insert(name);
+            }
+            Err(e) => warn!(cert = %name, "renewing: {e}"),
+        };
+        if due(&pki_dir.join("broker-server.pem")) {
+            let r = self
+                .pki
+                .issue(&cn, &self.cfg.tls_names, true, &pki_dir, "broker-server");
+            note("broker-server".into(), r);
+        }
+        if due(&pki_dir.join("broker-client.pem")) {
+            let r = self.pki.issue(&cn, &[], false, &pki_dir, "broker-client");
+            note("broker-client".into(), r);
+        }
+        for (id, l) in self.registry().links {
+            if l.mode.is_remote()
+                && due(&self.cfg.data_dir.join("links").join(&id).join("link.pem"))
+            {
+                note(format!("link {id}"), self.link_cert(&id));
+            }
+        }
+        for site in &self.peers().downstream {
+            if due(&self
+                .cfg
+                .data_dir
+                .join("peers")
+                .join(site)
+                .join("broker.pem"))
+            {
+                note(format!("broker:{site}"), self.broker_cert(site));
+            }
+        }
+        renewed
     }
 
     /// Every upstream site to connect to: `wyrmd.json5` and enabled runtime
@@ -2749,12 +2799,23 @@ async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<(
 
 /// Runtime upstream sites without our certificate ask for it (ADR 0015):
 /// at once for a new or re-enabled one, every 10 s while it waits for
-/// Authorize, every 60 s after a refusal. The status shows in
-/// `sys/upstream/<site>/status`.
+/// Authorize, every 60 s after a refusal. A certificate that ends within
+/// 30 days is asked for again with the same key (security review D-1). The
+/// status shows in `sys/upstream/<site>/status`. Once an hour the broker's
+/// own certificates are checked too: one that is due rebuilds the broker,
+/// which issues it again.
 async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
     let mut next: HashMap<String, std::time::Instant> = HashMap::new();
     let mut failures: HashMap<String, u32> = HashMap::new();
+    let mut own_check = std::time::Instant::now() + OWN_CERT_CHECK;
     loop {
+        if std::time::Instant::now() >= own_check {
+            own_check = std::time::Instant::now() + OWN_CERT_CHECK;
+            if let Some(name) = ctl.due_certificate() {
+                warn!(cert = %name, "certificate ends within 30 days: rebuilding to renew it");
+                ctl.schedule_reload();
+            }
+        }
         let waiting: Vec<PeerDef> = ctl
             .registry()
             .peers
@@ -2762,7 +2823,7 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
             .filter(|p| {
                 p.dir == PeerDir::Upstream
                     && p.enabled
-                    && p.cert_pem.is_empty()
+                    && (p.cert_pem.is_empty() || secret::cert_due(&p.cert_pem))
                     && !p.enroll.is_empty()
             })
             .collect();
@@ -2778,6 +2839,20 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                 failures.remove(&def.site);
             }
             let (status, wait) = match answer {
+                // asked to renew, and the upstream site answered with the old one (it does not
+                // renew yet): ask again in an hour, keep the one we have
+                Ok(Answer::Issued { cert, .. })
+                    if !def.cert_pem.is_empty() && secret::cert_due(&cert) =>
+                {
+                    (
+                        format!(
+                            "certificate ends soon ({}); {} did not renew it",
+                            cert_summary(&def.cert_pem),
+                            def.site
+                        ),
+                        Some(RENEW_RETRY),
+                    )
+                }
                 Ok(Answer::Issued { cert, port }) => {
                     let endpoint = match host_of(&def.enroll) {
                         Some(h) => format!("quic/{h}:{port}"),
@@ -2792,7 +2867,12 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                         continue;
                     }
                     let _ = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN);
-                    ctl.record("system", "peer_cert", &def.site, Status::Ok, "issued");
+                    let how = if def.cert_pem.is_empty() {
+                        "issued"
+                    } else {
+                        "renewed"
+                    };
+                    ctl.record("system", "peer_cert", &def.site, Status::Ok, how);
                     info!(site = %def.site, "certificate from the upstream site: connecting");
                     let k = format!("upstream/{}/certificate", def.site);
                     let _ = ctx
@@ -4887,9 +4967,27 @@ impl Admin {
         // so it does not tell peers, links or relayed sites apart
         const NOT_HERE: &str = "this name cannot be admitted here";
         if let Some(p) = reg.peers.get(&site) {
-            // asked again (it lost the answer): the same key, the same answer
+            // asked again (it lost the answer): the same key, the same answer, renewed when it
+            // ends soon (security review D-1)
             if p.dir == PeerDir::Downstream && p.key_sha256 == key && !p.cert_pem.is_empty() {
-                return issued(p.cert_pem.clone());
+                if !secret::cert_due(&p.cert_pem) {
+                    return issued(p.cert_pem.clone());
+                }
+                let cert = self
+                    .ctl
+                    .pki
+                    .sign_broker_csr(&site, &csr)
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+                self.ctl
+                    .apply(Op::RenewBroker {
+                        site: site.clone(),
+                        cert_pem: cert.clone(),
+                    })
+                    .map_err(rejected)?;
+                self.ctl
+                    .record(&cn, "renew", &cn, Status::Ok, &cert_summary(&cert));
+                info!(site = %site, "downstream broker certificate renewed");
+                return issued(cert);
             }
             return refused(NOT_HERE);
         }
@@ -6010,6 +6108,21 @@ mod tests {
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
         k.subject.as_deref() == Some("link:scheduler")
+    }
+
+    /// Review D-1: the broker's certificates are issued again within 30 days of their end, once.
+    #[test]
+    fn due_certificates_are_renewed() {
+        let ctl = control("certdue", false, |_| {});
+        let pki_dir = ctl.cfg.data_dir.join("pki");
+        assert_eq!(ctl.due_certificate(), None, "nothing issued yet");
+        ctl.pki
+            .issue_lasting("broker:s", &[], false, &pki_dir, "broker-client", 5)
+            .unwrap();
+        assert_eq!(ctl.due_certificate().as_deref(), Some("broker-client"));
+        assert_eq!(ctl.due_certificate(), None, "renewed: not due again");
+        let pem = std::fs::read_to_string(pki_dir.join("broker-client.pem")).unwrap();
+        assert!(!crate::secret::cert_due(&pem));
     }
 
     /// T5: links trust the embedded scheduler's key at `write`, only on this site's

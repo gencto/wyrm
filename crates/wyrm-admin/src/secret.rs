@@ -122,7 +122,9 @@ impl Pki {
         self.dir.join("ca.pem")
     }
 
-    /// Issue (or keep, if present) a certificate for `cn` into `out/<name>.{pem,key}`.
+    /// Issue a certificate for `cn` into `out/<name>.{pem,key}`, or keep the one there while it
+    /// is for `cn` and `sans` and has more than [`RENEW_BEFORE_S`] left (security review D-1: a
+    /// certificate issued once and never renewed takes the site down after a year).
     /// `server`: TLS server auth with `sans` (IPs and DNS names).
     pub fn issue(
         &self,
@@ -132,15 +134,31 @@ impl Pki {
         out: &Path,
         name: &str,
     ) -> Result<CertFiles, Error> {
+        self.issue_lasting(cn, sans, server, out, name, LEAF_DAYS)
+    }
+
+    pub(crate) fn issue_lasting(
+        &self,
+        cn: &str,
+        sans: &[String],
+        server: bool,
+        out: &Path,
+        name: &str,
+        days: i64,
+    ) -> Result<CertFiles, Error> {
         let files = CertFiles {
             cert: out.join(format!("{name}.pem")),
             key: out.join(format!("{name}.key")),
         };
-        if files.cert.exists() && files.key.exists() {
-            return Ok(files);
+        if files.key.exists() {
+            if let Ok(pem) = std::fs::read_to_string(&files.cert) {
+                if still_good(&pem, cn, sans) {
+                    return Ok(files);
+                }
+            }
         }
         let key = KeyPair::generate()?;
-        let p = leaf_params(cn, sans, server)?;
+        let p = leaf_params(cn, sans, server, days)?;
         let cert = p.signed_by(&key, &self.issuer)?;
         write_private(&files.key, key.serialize_pem().as_bytes())?;
         std::fs::create_dir_all(out)?;
@@ -153,7 +171,7 @@ impl Pki {
     /// (nothing the request asks for besides its key). Returns the PEM.
     pub fn sign_broker_csr(&self, site: &str, csr_pem: &str) -> Result<String, Error> {
         let csr = broker_csr_params(site, csr_pem)?;
-        let p = leaf_params(&format!("broker:{site}"), &[], false)?;
+        let p = leaf_params(&format!("broker:{site}"), &[], false, LEAF_DAYS)?;
         Ok(p.signed_by(&csr.public_key, &self.issuer)?.pem())
     }
 
@@ -164,8 +182,86 @@ impl Pki {
     }
 }
 
-/// Parameters of a leaf certificate for `cn`: one year from today.
-fn leaf_params(cn: &str, sans: &[String], server: bool) -> Result<CertificateParams, Error> {
+/// Days a leaf certificate lasts.
+const LEAF_DAYS: i64 = 365;
+/// A certificate with less than this left is issued again (and an enrolled broker asks again).
+pub const RENEW_BEFORE_S: i64 = 30 * 86_400;
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// `not_after` (Unix seconds) of a PEM certificate; `None` if it does not parse.
+pub fn cert_not_after(pem: &str) -> Option<i64> {
+    let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()).ok()?;
+    let cert = block.parse_x509().ok()?;
+    Some(cert.validity().not_after.timestamp())
+}
+
+/// It has less than [`RENEW_BEFORE_S`] left, or cannot be read: time to issue it again.
+pub fn cert_due(pem: &str) -> bool {
+    cert_not_after(pem).is_none_or(|t| t - now_unix() < RENEW_BEFORE_S)
+}
+
+/// A kept certificate is for `cn`, names every one of `sans` and is not due.
+fn still_good(pem: &str, cn: &str, sans: &[String]) -> bool {
+    use x509_parser::extensions::GeneralName;
+    let Ok((_, block)) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()) else {
+        return false;
+    };
+    let Ok(cert) = block.parse_x509() else {
+        return false;
+    };
+    let named = cert
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|a| a.as_str().ok());
+    if named != Some(cn) || cert_due(pem) {
+        return false;
+    }
+    let have: Vec<String> = cert
+        .subject_alternative_name()
+        .ok()
+        .flatten()
+        .map(|e| {
+            e.value
+                .general_names
+                .iter()
+                .filter_map(|g| match g {
+                    GeneralName::DNSName(d) => Some((*d).to_owned()),
+                    GeneralName::IPAddress(b) => match b.len() {
+                        4 => <[u8; 4]>::try_from(*b)
+                            .ok()
+                            .map(|a| std::net::IpAddr::from(a).to_string()),
+                        16 => <[u8; 16]>::try_from(*b)
+                            .ok()
+                            .map(|a| std::net::IpAddr::from(a).to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    sans.iter().all(|s| {
+        let s = s
+            .parse::<std::net::IpAddr>()
+            .map_or(s.clone(), |ip| ip.to_string());
+        have.contains(&s)
+    })
+}
+
+/// Parameters of a leaf certificate for `cn`: `days` from today.
+fn leaf_params(
+    cn: &str,
+    sans: &[String],
+    server: bool,
+    days: i64,
+) -> Result<CertificateParams, Error> {
     let mut p = CertificateParams::new(sans.to_vec())?;
     p.distinguished_name.push(DnType::CommonName, cn);
     p.extended_key_usages = vec![if server {
@@ -174,12 +270,8 @@ fn leaf_params(cn: &str, sans: &[String], server: bool) -> Result<CertificatePar
         ExtendedKeyUsagePurpose::ClientAuth
     }];
     p.key_usages = vec![KeyUsagePurpose::DigitalSignature];
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
     p.not_before = rcgen::date_time_ymd(1975, 1, 1);
-    let (y, m, d) = civil_from_days(now.div_euclid(86_400) + 365);
+    let (y, m, d) = civil_from_days(now_unix().div_euclid(86_400) + days);
     p.not_after = rcgen::date_time_ymd(y as i32, m as u8, d as u8);
     Ok(p)
 }
@@ -285,6 +377,37 @@ mod tests {
         let mid = bad.len() / 2;
         bad.replace_range(mid..mid + 4, "AAAA");
         assert!(pki.sign_broker_csr("edge", &bad).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review D-1: a certificate close to its end, or for other names, is issued again; a
+    /// fresh one for the same names is kept.
+    #[test]
+    fn certificates_are_renewed_before_they_end() {
+        let dir = std::env::temp_dir().join(format!("wyrm-pki-renew-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pki = Pki::open_or_create(&dir).unwrap();
+        let out = dir.join("out");
+        let sans = vec!["127.0.0.1".to_owned(), "localhost".to_owned()];
+        let read = || std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        pki.issue_lasting("broker:s", &sans, true, &out, "srv", 10)
+            .unwrap();
+        let short = read();
+        assert!(cert_due(&short));
+        pki.issue("broker:s", &sans, true, &out, "srv").unwrap();
+        let renewed = read();
+        assert_ne!(renewed, short, "renewed");
+        assert!(!cert_due(&renewed));
+        assert!(cert_not_after(&renewed).unwrap() - now_unix() > 300 * 86_400);
+        pki.issue("broker:s", &sans, true, &out, "srv").unwrap();
+        assert_eq!(read(), renewed, "kept while fresh");
+        // a new name in the SANs, or another CN: issued again
+        let more = vec!["127.0.0.1".to_owned(), "edge.example".to_owned()];
+        pki.issue("broker:s", &more, true, &out, "srv").unwrap();
+        assert_ne!(read(), renewed);
+        let again = read();
+        pki.issue("broker:t", &more, true, &out, "srv").unwrap();
+        assert_ne!(read(), again);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

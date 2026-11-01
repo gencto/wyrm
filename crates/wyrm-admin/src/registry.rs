@@ -455,6 +455,15 @@ pub enum Op {
     /// Days kept after every sink confirmed them; `None` = no such rule.
     #[n(38)]
     SetKeepAfterSync(#[n(0)] Option<u32>),
+    /// A new certificate for an admitted downstream broker, signed for the key it was admitted
+    /// with, because the old one ends soon (security review D-1).
+    #[n(39)]
+    RenewBroker {
+        #[n(0)]
+        site: String,
+        #[n(1)]
+        cert_pem: String,
+    },
 }
 
 /// At most this many signing sites per upstream site, and keys per site.
@@ -1087,6 +1096,14 @@ impl wyrm_state::State for Registry {
                     .sinks
                     .remove(name)
                     .ok_or_else(|| format!("no sink {name}"))?;
+            }
+            Op::RenewBroker { site, cert_pem } => {
+                let p = self
+                    .peers
+                    .get_mut(site)
+                    .filter(|p| p.dir == PeerDir::Downstream)
+                    .ok_or_else(|| format!("no downstream peer {site}"))?;
+                p.cert_pem = cert_pem.clone();
             }
             Op::SetKeepAfterSync(days) => {
                 if days.is_some_and(|d| d > 36_500) {
@@ -1843,6 +1860,24 @@ mod tests {
         assert!(!r.enrollments.contains_key("edge") && !r.quarantine.contains_key("broker:edge"));
         assert!(r.issued_brokers.contains("edge"));
         assert!(r.apply(&ask("edge", "k1")).is_err(), "a peer does not wait");
+        // a renewed certificate replaces the old one (review D-1); only for a downstream peer
+        r.apply(&Op::RenewBroker {
+            site: "edge".into(),
+            cert_pem: "cert2".into(),
+        })
+        .unwrap();
+        assert_eq!(r.peers["edge"].cert_pem, "cert2");
+        assert!(r
+            .apply(&Op::RenewBroker {
+                site: "nobody".into(),
+                cert_pem: "c".into(),
+            })
+            .is_err());
+        r.apply(&Op::RenewBroker {
+            site: "edge".into(),
+            cert_pem: "cert".into(),
+        })
+        .unwrap();
         r.apply(&Op::HoldBroker {
             site: "edge".into(),
             seen: 3,
