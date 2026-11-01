@@ -241,15 +241,17 @@ pub(crate) struct SocketSlot {
 
 impl Drop for SocketSlot {
     fn drop(&mut self) {
+        // the request bucket stays: a new socket must not start with a full burst (automated
+        // review of aa55e96); idle entries go once their bucket would be full again
         let mut m = self.gw.per_user.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(u) = m.get_mut(&self.user) {
             u.sockets = u.sockets.saturating_sub(1);
-            if u.sockets == 0 {
-                m.remove(&self.user);
-            }
         }
     }
 }
+
+/// Seconds an empty bucket takes to fill.
+const REFILL_S: f64 = REQUEST_BURST / REQUESTS_PER_S;
 
 pub(crate) struct UploadSlot<'a> {
     gw: &'a Gateway,
@@ -320,6 +322,9 @@ impl Gateway {
     /// A place for one more WebSocket of `user`; `None` at [`SOCKETS_PER_USER`].
     pub(crate) fn socket_slot(self: &Arc<Self>, user: &str) -> Option<SocketSlot> {
         let mut m = self.per_user.lock().unwrap_or_else(|p| p.into_inner());
+        if m.len() >= 1024 {
+            m.retain(|_, u| u.sockets > 0 || u.at.elapsed().as_secs_f64() < REFILL_S);
+        }
         let u = m.entry(user.to_owned()).or_insert(UserUse {
             sockets: 0,
             tokens: REQUEST_BURST,
@@ -341,6 +346,9 @@ impl Gateway {
         let Some(u) = m.get_mut(user) else {
             return true; // no socket: not a WebSocket request
         };
+        if u.sockets == 0 {
+            return true;
+        }
         let now = std::time::Instant::now();
         u.tokens =
             (u.tokens + now.duration_since(u.at).as_secs_f64() * REQUESTS_PER_S).min(REQUEST_BURST);

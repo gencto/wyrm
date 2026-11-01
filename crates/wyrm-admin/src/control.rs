@@ -3128,6 +3128,20 @@ fn install_meta(display: &str) -> ActionMeta {
         .result(ActionResult::Type(TypeCode::Map))
         .timeout_ms(INSTALL_TIMEOUT_MS)
         .level(Perm::Config)
+        .param(
+            "accept",
+            ParamMeta::of(TypeCode::Bool)
+                .display("Accept Requested Rights")
+                .description(
+                    "The package's network allowlist and grants: an install without this \
+                     shows them and installs nothing",
+                ),
+        )
+}
+
+/// `accept: true` in an install's arguments (review WASM-1).
+fn accepted(args: &Value) -> bool {
+    matches!(arg(args, "accept"), Some(Value::Bool(true)))
 }
 
 /// "from Repository" (always in the menu, as in DSA): `package` lists the
@@ -3324,9 +3338,7 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_zip",
-            ActionMeta::new()
-                .display("from Zip")
-                .group(INSTALL_GROUP)
+            install_meta("from Zip")
                 .param("name", link_name_param())
                 .param(
                     "zip",
@@ -3335,10 +3347,7 @@ impl Link for Admin {
                         .display("Zip")
                         .editor(EDITOR_FILE)
                         .description("Link package: a zip with wyrm-link.json"),
-                )
-                .result(ActionResult::Type(TypeCode::Map))
-                .timeout_ms(INSTALL_TIMEOUT_MS)
-                .level(Perm::Config),
+                ),
         )
         .await?;
         ctx.declare_action(
@@ -3579,8 +3588,14 @@ impl Link for Admin {
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let r = match arg(&args, "zip") {
                     Some(Value::Bytes(zip)) => {
-                        self.install_package(&name, zip.clone(), "zip".into(), &sub)
-                            .await
+                        self.install_package(
+                            &name,
+                            zip.clone(),
+                            "zip".into(),
+                            &sub,
+                            accepted(&args),
+                        )
+                        .await
                     }
                     _ => Err("zip: required".into()),
                 };
@@ -3591,7 +3606,10 @@ impl Link for Admin {
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let r = match arg(&args, "wasm") {
                     Some(Value::Bytes(wasm)) => match packages::wrap_component(&name, wasm) {
-                        Ok(zip) => self.install_package(&name, zip, "wasm".into(), &sub).await,
+                        Ok(zip) => {
+                            self.install_package(&name, zip, "wasm".into(), &sub, accepted(&args))
+                                .await
+                        }
                         Err(e) => Err(e),
                     },
                     _ => Err("wasm: required".into()),
@@ -3604,8 +3622,14 @@ impl Link for Admin {
                 let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
                 let r = match crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
                     Ok(zip) => {
-                        self.install_package(&name, zip, format!("url {url}"), &sub)
-                            .await
+                        self.install_package(
+                            &name,
+                            zip,
+                            format!("url {url}"),
+                            &sub,
+                            accepted(&args),
+                        )
+                        .await
                     }
                     Err(e) => Err(e),
                 };
@@ -3621,7 +3645,8 @@ impl Link for Admin {
                 let r = match crate::git::clone_zip(&url, &git_ref, self.ctl.cfg.dev, &root).await {
                     Ok((zip, commit)) => {
                         let source = format!("git {url} {git_ref} {commit}");
-                        self.install_package(&name, zip, source, &sub).await
+                        self.install_package(&name, zip, source, &sub, accepted(&args))
+                            .await
                     }
                     Err(e) => Err(e),
                 };
@@ -3632,7 +3657,8 @@ impl Link for Admin {
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let package = arg_str(&args, "package").unwrap_or_default().to_owned();
                 Ok(Some(outcome(
-                    self.install_from_repo(&name, &package, &sub).await,
+                    self.install_from_repo(&name, &package, &sub, accepted(&args))
+                        .await,
                 )))
             }
             (["packages", name], "remove") => self.remove_package(name, &sub).await,
@@ -3963,6 +3989,7 @@ impl Admin {
         zip: Vec<u8>,
         source: String,
         sub: &str,
+        accept: bool,
     ) -> Result<String, String> {
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
@@ -3983,6 +4010,28 @@ impl Admin {
         if let Some(l) = reg.links.get(link) {
             if l.driver != driver {
                 return Err(format!("link {link} exists and runs {}", l.driver));
+            }
+        }
+        // A new link gets the package's network allowlist and grants: only when the installer
+        // saw them and said so (security review WASM-1: a compromised repository or URL could
+        // ship egress and PLC writes that applied unasked). Nothing is installed without it.
+        if !reg.links.contains_key(link) && !accept {
+            let mut asks = Vec::new();
+            if let Some(c) = app.as_ref().filter(|c| !c.net.is_empty()) {
+                asks.push(format!("network {}", c.net.join(", ")));
+            }
+            for (path, code) in &def.requester {
+                let level = Perm::try_from(*code).map_or("?", |p| p.name());
+                asks.push(format!("{level} on {path}"));
+            }
+            if !asks.is_empty() {
+                return Err(format!(
+                    "{} {} asks for: {}. Nothing is installed: read them, then install again \
+                     with Accept Requested Rights",
+                    def.name,
+                    def.version,
+                    asks.join("; ")
+                ));
             }
         }
         let mut message = match reg.packages.get(&def.name) {
@@ -4135,6 +4184,7 @@ impl Admin {
         link: &str,
         package: &str,
         sub: &str,
+        accept: bool,
     ) -> Result<String, String> {
         let index = self
             .ctl
@@ -4168,7 +4218,7 @@ impl Admin {
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }
-        self.install_package(link, zip, format!("repository {index}"), sub)
+        self.install_package(link, zip, format!("repository {index}"), sub, accept)
             .await
     }
 

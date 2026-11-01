@@ -103,12 +103,19 @@ operator certificate.
    - `wasm`: the component's world, read from its exports (`app`, `driver`
      or `point`), matches `world` if the manifest has one; `capabilities`
      only for an `app`, within their bounds (section 9).
-3. **Move into place** with one rename:
+3. **Rights the package asks for.** A new link of the package gets its
+   network allowlist (`capabilities.net`) and its `requester` grants. Without
+   **Accept Requested Rights** (`accept: true`) such an install answers
+   `success: false` with the list (`… asks for: network 10.0.5.0/24:502; read
+   on wy/plant/downstream/mock`) and installs nothing. Read the list, then
+   install again with it on (security review WASM-1, ADR 0031). An upgrade of
+   a package keeps the rights its links already have.
+4. **Move into place** with one rename:
    `<data_dir>/packages/<name>/<version>/`. A failed install leaves nothing.
-4. **Record.** The registry (`<data_dir>/state`, a write-ahead log) stores
+5. **Record.** The registry (`<data_dir>/state`, a write-ahead log) stores
    the package: name, version, kind, entry, SHA-256 of the zip, source. The
    audit journal gets `package_install` with the SHA-256 and the source.
-5. **Start the link** with driver `pkg:<package>`:
+6. **Start the link** with driver `pkg:<package>`:
    - `process` package: a process link. The broker issues a certificate with
      CN = the link id and a link token, rebuilds the router ACL (the router
      restarts for about a second, and open app connections reconnect), and
@@ -118,7 +125,7 @@ operator certificate.
      a `driver` or `point` component on the `wasm` driver with one
      connection `main`; an `app` component on the driver `app` with its
      capabilities as params (section 9).
-6. **Answer** `success: true` and a message such as
+7. **Answer** `success: true` and a message such as
    `package example-link 1.0.0 installed; link ex1 installed` (an app adds
    `; capabilities net none, store 1 MiB, memory 64 MiB, call 2000 ms`).
 

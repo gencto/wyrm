@@ -12,7 +12,7 @@
 //! there. The check runs on the resolved address that is connected, so a name cannot pass it
 //! and then point elsewhere. An IPv6 address that carries an IPv4 one (IPv4-mapped and
 //! -compatible, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`) is judged by the
-//! IPv4 address it carries.
+//! IPv4 address it carries; so is SIIT `::ffff:0:0/96`, and Teredo `2001::/32` is refused.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -30,6 +30,9 @@ fn embedded_v4(a: Ipv6Addr) -> Option<Ipv4Addr> {
     let tail = || Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8);
     if let Some(v4) = a.to_ipv4_mapped() {
         return Some(v4);
+    }
+    if s[..6] == [0, 0, 0, 0, 0xffff, 0] {
+        return Some(tail()); // IPv4-translated (SIIT) ::ffff:0:a.b.c.d
     }
     if s[..6] == [0; 6] && !a.is_loopback() && !a.is_unspecified() {
         return Some(tail()); // IPv4-compatible ::a.b.c.d
@@ -77,7 +80,10 @@ pub fn reachable(ip: IpAddr) -> bool {
             !(a.is_unspecified()
                 || a.is_multicast()
                 || (s[0] & 0xffc0) == 0xfe80
-                || s[..2] == [0xfd00, 0x0ec2])
+                || s[..2] == [0xfd00, 0x0ec2]
+                // Teredo 2001::/32 carries a (masked) IPv4 address of a relay; no link
+                // needs it
+                || s[..2] == [0x2001, 0])
         }
     }
 }
@@ -126,6 +132,8 @@ mod tests {
             "64:ff9b::a9fe:a9fe",
             "64:ff9b:1:a9fe:a9:fe00::",
             "2002:a9fe:a9fe::1",
+            "::ffff:0:a9fe:a9fe",
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
         ] {
             assert!(!reachable(ip(bad)), "{bad}");
         }

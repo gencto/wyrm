@@ -1559,10 +1559,22 @@ fn echo_app_zip_of_world(
 }
 
 /// `install_zip {name, zip}` and its `(success, message)`.
+/// An install that accepts what the package asks for (the tests mean to install it).
 async fn install_zip(c: &WyrmClient, name: &str, zip: Vec<u8>) -> (bool, String) {
+    install_zip_with(c, name, zip, true).await
+}
+
+/// `accept`: the installer accepts the package's network allowlist and grants (review WASM-1).
+async fn install_zip_with(
+    c: &WyrmClient,
+    name: &str,
+    zip: Vec<u8>,
+    accept: bool,
+) -> (bool, String) {
     let args = Value::Map(BTreeMap::from([
         ("name".to_owned(), Value::from(name)),
         ("zip".to_owned(), Value::Bytes(zip)),
+        ("accept".to_owned(), Value::Bool(accept)),
     ]));
     let t = std::time::Instant::now();
     let v = c
@@ -1655,10 +1667,24 @@ async fn wasm_app_world_0_3_0_has_tls_and_random() {
         !ok && msg.contains(r#"the component is "wyrm:app@0.3.0""#),
         "{msg}"
     );
-    let (ok, msg) = install_zip(
+    // review WASM-1: the network it asks for is shown, nothing installed until accepted
+    let (ok, msg) = install_zip_with(
         &c,
         "t1",
         echo_app_zip_of_world("echotls", "1.0.0", &component, caps(), "wyrm:app@0.3.0"),
+        false,
+    )
+    .await;
+    assert!(
+        !ok && msg.contains(&format!("asks for: network 127.0.0.1:{port}")),
+        "{msg}"
+    );
+    assert!(!env.ctl.registry().packages.contains_key("echotls"));
+    let (ok, msg) = install_zip_with(
+        &c,
+        "t1",
+        echo_app_zip_of_world("echotls", "1.0.0", &component, caps(), "wyrm:app@0.3.0"),
+        true,
     )
     .await;
     assert!(ok, "{msg}");
