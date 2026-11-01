@@ -3438,11 +3438,12 @@ async fn chain_of_three_brokers() {
         (
             "nodes".to_owned(),
             Value::Map(BTreeMap::from([
+                // a source too: the deployer's rights on it come with its token's `auth`
                 (
                     "k".to_owned(),
                     Value::Map(BTreeMap::from([
-                        ("type".to_owned(), Value::from("number")),
-                        ("value".to_owned(), Value::UInt(3)),
+                        ("type".to_owned(), Value::from("subscribe")),
+                        ("key".to_owned(), Value::from("downstream/mock/g0/p0")),
                     ])),
                 ),
                 (

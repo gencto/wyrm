@@ -15,4 +15,6 @@ The `agent` driver (ADR 0005) is an LLM inside the broker. The owner wants a too
 ## Found on the way
 A flow deployed from an upstream site with a command target was refused: the deploy request itself was trusted (upstream keys, ADR 0018), but the engine checked the deployer's proofs with the admin keys only. The proofs of targets are now checked with the upstream keys as the links and storage trust them (`EngineStart::proof_keys`). e2e `chain_of_three_brokers` deploys such a flow from central.
 
+A second refusal followed once the flow had a source: the engine knew an upstream key with the scope `dataflows` only, so the deployer's `auth` lost its grants on `downstream` and the source check (ADR 0031, FLOW-1) refused. The engine now knows the upstream keys also with the scopes `downstream` and `storage` give them; a request to the engine is still authorized within `dataflows` only, and only the deployer's rights on sources and targets are kept. The e2e flow has a source too.
+
 *If wrong:* nothing is widened: a proof still has to be a token of the same subject at the flow's `maxperm` on that exact target, from a key the target itself trusts.

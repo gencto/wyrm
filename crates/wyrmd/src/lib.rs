@@ -988,8 +988,16 @@ impl Broker {
         let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
         lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
         lcfg.admin_keys = engine_keys.clone();
-        // upstream sites at write (ADR 0018); deploys need config
-        lcfg.limited_keys = ctl.upstream_trust("dataflows");
+        // upstream sites at write (ADR 0018); deploys need config. Their keys are also known
+        // with the scopes the links and storage give them: a request here is still only
+        // within `dataflows`, but a deployer's rights (`auth`) on the flow's sources and
+        // targets are kept as far as those sections trust the key (ADR 0033).
+        lcfg.limited_keys = [
+            ctl.upstream_trust("dataflows"),
+            ctl.upstream_trust("downstream"),
+            ctl.upstream_trust("storage"),
+        ]
+        .concat();
         let flow_key = flows.verifying_key();
         let flows = match wyrm_link_sdk::spawn::<Engine>(
             session.clone(),
