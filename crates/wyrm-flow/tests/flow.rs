@@ -480,6 +480,27 @@ async fn deploy_needs_proofs_for_targets() {
         let e = env.deploy(d).await.unwrap_err();
         assert!(e.is(wyrm_core::Status::InvalidParameter), "{path}: {e}");
     }
+    // review FLOW-1: the deployer must be able to read every source (its token's `auth`)
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let blind = SigningTokens::new(key, SITE).grants(vec![
+        wyrm_core::ptok::Grant {
+            k: format!("wy/{SITE}/downstream/mock/p0"),
+            p: wyrm_core::Perm::None,
+        },
+        wyrm_core::ptok::Grant {
+            k: format!("wy/{SITE}/**"),
+            p: wyrm_core::Perm::Config,
+        },
+    ]);
+    let c = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(blind))
+        .with_timeout(Duration::from_secs(3));
+    let e = c
+        .invoke_one(&flows, "deploy", deploy_args(&c, peak(1, "a.v + b.v")))
+        .await
+        .unwrap_err();
+    // (the same flow deploys below with the p0 grant gone; the denial carries no detail)
+    assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
     // review FLOW-1: sources read this site's downstream, dataflows or storage only
     for key in [
         "sys/audit/mock".to_owned(),

@@ -390,6 +390,8 @@ const ENROLL_RETRY: Duration = Duration::from_secs(10);
 /// After a refusal, this often; an unreachable endpoint doubles from 2 s
 /// up to this.
 const ENROLL_BACKOFF: Duration = Duration::from_secs(60);
+/// Sites a downstream broker may name as relayed (`via`) in one request.
+const MAX_VIA: usize = 16;
 /// A renewal the upstream site did not grant: ask again this often.
 const RENEW_RETRY: Duration = Duration::from_secs(3600);
 /// How often the broker's own certificates are checked for their end.
@@ -4858,6 +4860,11 @@ impl Admin {
     ) -> wyrm_link_sdk::Result<()> {
         // also on Authorize: peers may have changed since it was quarantined
         self.check_new_site(site)?;
+        if via.len() > MAX_VIA {
+            return Err(LinkError::invalid_parameter(format!(
+                "via: at most {MAX_VIA} sites"
+            )));
+        }
         self.via_free(site, &via)
             .map_err(LinkError::invalid_parameter)?;
         self.ctl
@@ -4941,6 +4948,16 @@ impl Admin {
         let via = via_list(arg(args, "via"));
         wyrm_core::keyspace::validate_segment(&site)
             .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
+        // the request is anonymous: bounded before anything is kept (review ADM-2)
+        if via.len() > MAX_VIA {
+            return Err(LinkError::invalid_parameter(format!(
+                "via: at most {MAX_VIA} sites"
+            )));
+        }
+        for v in &via {
+            wyrm_core::keyspace::validate_segment(v)
+                .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
+        }
         // a refusal is an answer, with its reason, for the asking broker
         let refused = |why: &str| -> wyrm_link_sdk::Result<Option<Value>> {
             Ok(Some(Value::Map(BTreeMap::from([
@@ -5036,7 +5053,10 @@ impl Admin {
             return refused(NOT_HERE);
         }
         let opts = self.ctl.options();
-        if !reg.held.contains(&cn) && self.via_free(&site, &via).is_ok() {
+        // A token or allow_all_links admits the broker itself, never the sites it says it
+        // relays: with `via`, it waits for Authorize, where an administrator sees the names
+        // (review ADM-2: a token was enough to publish a fake `wy/<any site>/**`).
+        if !reg.held.contains(&cn) && via.is_empty() {
             let token = arg_str(args, "token").and_then(|t| self.ctl.token_id(t));
             if token.is_some() || opts.allow_all_links {
                 let cert = self
@@ -5667,6 +5687,8 @@ fn cut(mut s: String, max: usize) -> String {
 #[derive(Default)]
 struct AuditLimiter {
     links: HashMap<String, (f64, std::time::Instant, u64)>,
+    /// Records dropped because the table was full.
+    overflow: u64,
 }
 
 impl AuditLimiter {
@@ -5676,6 +5698,7 @@ impl AuditLimiter {
             self.links
                 .retain(|_, (_, t, d)| *d > 0 || now.duration_since(*t).as_secs() < 60);
             if self.links.len() >= AUDIT_LINKS {
+                self.overflow += 1;
                 return Err(());
             }
         }
@@ -5692,7 +5715,25 @@ impl AuditLimiter {
         *tokens -= 1.0;
         Ok(std::mem::take(dropped))
     }
+
+    /// Links with dropped records not yet reported (and `*` for a full table), reset: the
+    /// count goes to the journal on a timer, not only with the link's next record.
+    fn drain(&mut self) -> Vec<(String, u64)> {
+        let mut out: Vec<(String, u64)> = self
+            .links
+            .iter_mut()
+            .filter(|(_, (_, _, d))| *d > 0)
+            .map(|(k, (_, _, d))| (k.clone(), std::mem::take(d)))
+            .collect();
+        if self.overflow > 0 {
+            out.push(("*".into(), std::mem::take(&mut self.overflow)));
+        }
+        out
+    }
 }
+
+/// How often records the audit limiter dropped are reported.
+const AUDIT_DROP_REPORT: Duration = Duration::from_secs(10);
 
 async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
     let key = format!("wy/{}/sys/audit/*", ctl.cfg.site);
@@ -5700,7 +5741,30 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         return;
     };
     let mut limiter = AuditLimiter::default();
-    while let Ok(s) = sub.recv_async().await {
+    // in-process links (flows, storage, the scheduler, DQL, embedded drivers) write only for
+    // requests their SDK let through; only links over the network are limited
+    let mut remote: HashMap<String, (bool, std::time::Instant)> = HashMap::new();
+    let mut report = tokio::time::interval(AUDIT_DROP_REPORT);
+    report.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        let s = tokio::select! {
+            r = sub.recv_async() => match r {
+                Ok(s) => s,
+                Err(_) => return,
+            },
+            _ = report.tick() => {
+                for (link, n) in limiter.drain() {
+                    ctl.record(
+                        "system",
+                        "audit_dropped",
+                        &format!("wy/{}/sys/audit/{link}", ctl.cfg.site),
+                        Status::RateLimited,
+                        &format!("link:{link} dropped_by_broker:{n}"),
+                    );
+                }
+                continue;
+            }
+        };
         let Some(link) = s.key_expr().as_str().rsplit('/').next().map(str::to_owned) else {
             continue;
         };
@@ -5709,8 +5773,36 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         if s.payload().len() > AUDIT_MAX_RECORD {
             continue;
         }
-        let Ok(dropped) = limiter.take(&link, std::time::Instant::now()) else {
-            continue;
+        let now = std::time::Instant::now();
+        let limited = match remote.get(&link) {
+            Some((r, at)) if now.duration_since(*at) < Duration::from_secs(60) => *r,
+            _ => {
+                let r = if link == FLOWS_LINK
+                    || link == STORAGE_LINK
+                    || BUILTIN_LINKS.contains(&link.as_str())
+                {
+                    false
+                } else {
+                    // unknown ids count as remote
+                    ctl.registry()
+                        .links
+                        .get(&link)
+                        .is_none_or(|l| l.mode.is_remote())
+                };
+                if remote.len() >= AUDIT_LINKS {
+                    remote.clear();
+                }
+                remote.insert(link.clone(), (r, now));
+                r
+            }
+        };
+        let dropped = if limited {
+            match limiter.take(&link, now) {
+                Ok(d) => d,
+                Err(()) => continue,
+            }
+        } else {
+            0
         };
         let Ok(Value::Map(m)) = wyrm_core::codec::from_slice::<Value>(&s.payload().to_bytes())
         else {
@@ -6196,6 +6288,17 @@ mod tests {
         let later = t + std::time::Duration::from_secs(1);
         assert_eq!(l.take("a", later), Ok(2));
         assert_eq!(l.take("a", later), Ok(0));
+        // drops are reported on a timer too, once
+        for _ in 0..super::AUDIT_BURST as usize {
+            let _ = l.take("b", t);
+        }
+        assert_eq!(l.take("b", t), Err(()));
+        assert_eq!(
+            l.drain(),
+            vec![("b".to_owned(), 2)],
+            "one in the loop, one after"
+        );
+        assert!(l.drain().is_empty());
         assert_eq!(super::cut("é".repeat(200), 5), "éé…");
         assert_eq!(super::cut("short".into(), 256), "short");
     }

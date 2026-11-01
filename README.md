@@ -116,9 +116,11 @@ wyr --key admin.key flow stop|start|reload|remove local peak
 peers: { listen: "quic/0.0.0.0:7449", enroll: "quic/0.0.0.0:7450" },
 ```
 As in DSA (ADR 0015), the downstream broker adds the connection itself: on edge, `sys/upstream` ▸ **Add Upstream Connection** {Name `central`, Url `quic/central.example:7450`, CA (central's `data_dir/pki/ca.pem`), Token (optional)}. Edge makes its own key and asks central for a certificate. Central admits it:
-1. at once with a token from its `sys/tokens` ▸ Add Token;
-2. at once with `sys/allow_all_links` on, when the sites edge relays are free;
+1. at once with a token from its `sys/tokens` ▸ Add Token, when edge relays no sites;
+2. at once with `sys/allow_all_links` on, when edge relays no sites;
 3. else edge waits in `sys/quarantine/edge` (`kind: broker`): compare its `key` with edge's `sys/upstream/central/key`, then **Authorize** (Via: the sites edge relays).
+
+A broker that names relayed sites (`via`, at most 16) always waits for Authorize, token or not: only an administrator gives a downstream broker the right to publish under other sites' names (security review ADM-2, ADR 0031).
 
 Edge then connects on 7449 and shows up in `wy/central/downstream/edge`; **Deauthorize** sends it back to quarantine. Central's QUIC listeners trust its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection.
 

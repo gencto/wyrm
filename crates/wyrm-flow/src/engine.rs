@@ -658,6 +658,59 @@ fn caller_covers(raw: &Value, who: &Caller) -> Result<(), LinkError> {
     Ok(())
 }
 
+/// The deployer may read every source of the flow: the engine reads through the broker's own
+/// session, so a source is checked against the deployer's rights (the token's `auth`, spec 04)
+/// when it is deployed. The first grant that touches the key decides, and it must cover all of
+/// a pattern: a deny grant on a part is never skipped (security review FLOW-1). A flow keeps
+/// running after its deployer loses rights (ADR 0008).
+fn reads_sources(raw: &Value, who: &Caller, site: &str) -> Result<(), LinkError> {
+    use zenoh::key_expr::keyexpr;
+    let Ok(def) = def::parse(raw) else {
+        return Ok(()); // the compiler reports it
+    };
+    let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
+    for n in def.nodes.values() {
+        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
+            continue;
+        }
+        let Some(Value::Str(k)) = n.cfg.get("key") else {
+            continue;
+        };
+        let full = if k.starts_with("wy/") {
+            k.clone()
+        } else {
+            format!("wy/{site}/{}", k.trim_start_matches('/'))
+        };
+        // a key outside the site's sections is refused by the compiler, with its reason
+        let inside = ["downstream", "dataflows", "storage"].iter().any(|s| {
+            full.strip_prefix(&format!("wy/{site}/{s}"))
+                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
+        });
+        if !inside {
+            continue;
+        }
+        let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+            return Err(denied(
+                "a flow with sources needs the deployer's rights: a token with `auth` (spec 04)"
+                    .into(),
+            ));
+        };
+        let Ok(target) = keyexpr::new(&full) else {
+            continue; // the compiler reports it
+        };
+        let first = auth
+            .iter()
+            .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)));
+        let ok = first.is_some_and(|g| {
+            g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target))
+        });
+        if !ok {
+            return Err(denied(format!("{full}: the deployer may not read it")));
+        }
+    }
+    Ok(())
+}
+
 /// The deployer's subject: the token-bound `origin`, else the token subject.
 fn deployer(who: &Caller) -> Option<String> {
     who.origin
@@ -826,6 +879,7 @@ impl Link for Engine {
             ("", "deploy") => {
                 let raw = def_arg()?;
                 caller_covers(&raw, who)?;
+                reads_sources(&raw, who, &self.site)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, Some(deployer(who)), &shared).await?
             }
@@ -938,6 +992,7 @@ impl Link for Engine {
                 m.insert("version".into(), Value::UInt(current + 1));
                 let raw = Value::Map(m);
                 caller_covers(&raw, who)?;
+                reads_sources(&raw, who, &self.site)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, Some(deployer(who)), &shared).await?
             }

@@ -336,13 +336,29 @@ fn build(stdout: bool) -> Arc<LogControl> {
     })
 }
 
-/// An `EnvFilter` for `level`: zenoh stays at `warn` unless it is `trace`.
+/// Crates kept at `warn` unless the level is `trace`: zenoh, and the WASM compiler, which logs
+/// every compilation pass at `debug` (thousands of lines per component: they pushed the
+/// broker's own lines out of the log ring).
+const QUIET: &[&str] = &[
+    "zenoh",
+    "cranelift_codegen",
+    "cranelift_frontend",
+    "wasmtime_internal_cranelift",
+    "wasmtime",
+    "regalloc2",
+];
+
+/// An `EnvFilter` for `level`: [`QUIET`] crates stay at `warn` unless it is `trace`.
 /// Also the `RUST_LOG` of a process link.
 pub fn env_directive(level: &str) -> String {
     if level == "trace" {
         level.to_owned()
     } else {
-        format!("{level},zenoh=warn")
+        let mut d = level.to_owned();
+        for c in QUIET {
+            d.push_str(&format!(",{c}=warn"));
+        }
+        d
     }
 }
 
@@ -442,7 +458,7 @@ mod tests {
             strip_ansi("\u{1b}[2m2026\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m x"),
             "2026  INFO x"
         );
-        assert_eq!(env_directive("warn"), "warn,zenoh=warn");
+        assert!(env_directive("warn").starts_with("warn,zenoh=warn,cranelift_codegen=warn"));
         assert_eq!(env_directive("trace"), "trace");
     }
 

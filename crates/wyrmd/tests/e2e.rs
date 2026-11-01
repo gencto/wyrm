@@ -4642,11 +4642,22 @@ async fn runtime_peers_over_quic() {
     assert!(c_ctl.registry().tokens.is_empty(), "used up");
     assert_eq!(status(&ask("cell", Some(token), &[]).await), "pending");
 
-    // 7. allow_all_links admits a broker whose relayed sites are free.
+    // 7. allow_all_links admits a broker by itself; one that names relayed sites waits for
+    //    Authorize, where an administrator sees them (review ADM-2).
     c.set("wy/central/sys/allow_all_links", true).await.unwrap();
-    assert_eq!(status(&ask("cell2", None, &["far"]).await), "issued");
-    assert_eq!(c_ctl.registry().peers["cell2"].via, ["far"]);
+    assert_eq!(status(&ask("cell2", None, &[]).await), "issued");
+    assert!(c_ctl.registry().peers["cell2"].via.is_empty());
+    assert_eq!(status(&ask("cell4", None, &["far"]).await), "pending");
+    assert!(!c_ctl.registry().peers.contains_key("cell4"));
     assert_eq!(status(&ask("cell3", None, &["edge"]).await), "pending");
+    let many: &'static [&'static str] = &[
+        "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13",
+        "v14", "v15", "v16",
+    ];
+    assert!(
+        ask("cell6", None, many).await.is_err(),
+        "at most 16 relayed sites"
+    );
     c.set("wy/central/sys/allow_all_links", false)
         .await
         .unwrap();
