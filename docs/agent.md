@@ -38,8 +38,10 @@ fails.
 
 A plan is `{"steps": [...]}`, run in order. A step is one of:
 
-- `{"invoke": <key>, "action": …, "args": {…}, "unless": <key>}`: runs the action; skipped
-  when `unless` exists, so the same plan runs again;
+- `{"invoke": <key>, "action": …, "args": {…}, "unless": <key>, "ok_if_error": <text>}`: runs
+  the action; skipped when `unless` exists, and done when the action is refused with a message
+  that holds `ok_if_error` (`"is watched"`: it is so already). With these the same plan runs
+  again;
 - `{"set": <key>, "value": …}`;
 - `{"deploy": "wy/<site>/dataflows", "def": {…}}`: deploys a flow one version above the one
   that runs (the gateway signs the proofs of its targets with your rights);

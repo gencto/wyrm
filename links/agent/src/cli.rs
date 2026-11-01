@@ -127,12 +127,14 @@ pub async fn invoke(c: &Conn, key: &str, action: &str, args: Value) -> Result<Js
 /// One step of a plan (`run`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// Run an action; skipped when `unless` already exists.
+    /// Run an action; skipped when `unless` already exists, and done when it is refused with
+    /// a message holding `ok_if_error` (what was asked is already so: "is watched").
     Invoke {
         key: String,
         action: String,
         args: Json,
         unless: Option<String>,
+        ok_if_error: Option<String>,
     },
     Set {
         key: String,
@@ -208,6 +210,11 @@ fn parse_step(s: &Json) -> Result<Step> {
             action: text(o, "action")?.to_owned(),
             args: o.get("args").cloned().unwrap_or(json!({})),
             unless: o.get("unless").and_then(Json::as_str).map(str::to_owned),
+            ok_if_error: o
+                .get("ok_if_error")
+                .and_then(Json::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned),
         });
     }
     if let Some(k) = o.get("set") {
@@ -273,6 +280,7 @@ pub async fn check_step(c: &Conn, step: &Step) -> Json {
             action,
             args,
             unless,
+            ..
         } => {
             if let Some(u) = unless {
                 if meta_of(c, u).await.is_some() {
@@ -363,6 +371,7 @@ pub async fn run_step(c: &Conn, step: &Step) -> Result<Json> {
             action,
             args,
             unless,
+            ok_if_error,
         } => {
             if let Some(u) = unless {
                 if meta_of(c, u).await.is_some() {
@@ -375,7 +384,12 @@ pub async fn run_step(c: &Conn, step: &Step) -> Result<Json> {
                 .await
                 .ok_or_else(|| format!("{key}: no such node"))?;
             let (_, args) = invoke_args(&m, action, args)?;
-            invoke(c, key, action, args).await
+            match invoke(c, key, action, args).await {
+                Err(e) if ok_if_error.as_ref().is_some_and(|o| e.contains(o.as_str())) => Ok(
+                    json!({ "step": "invoke", "key": key, "action": action, "done": "already", "why": e }),
+                ),
+                r => r,
+            }
         }
         Step::Set { key, value } => {
             let m = meta_of(c, key)

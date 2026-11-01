@@ -26,16 +26,16 @@
       "unless": "wy/edge/sys/history/ahu2" },
     { "wait": "wy/edge/sys/history/ahu2", "timeout_s": 10 },
     { "invoke": "wy/edge/sys/history/ahu2", "action": "add_watch_path",
-      "args": { "path": "downstream/modbus/line1/ahu2/count" } },
+      "args": { "path": "downstream/modbus/line1/ahu2/count" }, "ok_if_error": "is watched" },
     { "invoke": "wy/edge/sys/history/ahu2", "action": "add_watch_path",
-      "args": { "path": "downstream/modbus/line1/ahu2/temp" } },
+      "args": { "path": "downstream/modbus/line1/ahu2/temp" }, "ok_if_error": "is watched" },
 
     { "invoke": "wy/central/sys/history", "action": "add_watch_group",
       "args": { "name": "edge_ahu2", "logging_type": "All Data" },
       "unless": "wy/central/sys/history/edge_ahu2" },
     { "wait": "wy/central/sys/history/edge_ahu2", "timeout_s": 10 },
     { "invoke": "wy/central/sys/history/edge_ahu2", "action": "add_watch_path",
-      "args": { "path": "wy/edge/downstream/modbus/line1/ahu2/count" } },
+      "args": { "path": "wy/edge/downstream/modbus/line1/ahu2/count" }, "ok_if_error": "is watched" },
 
     { "deploy": "wy/edge/dataflows",
       "def": {
