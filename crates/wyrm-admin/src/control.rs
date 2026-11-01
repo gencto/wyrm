@@ -138,6 +138,10 @@ pub trait RoleGrants: Send + Sync {
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
 /// secret and every other link trusts it, capped at `write`.
 pub const AGENT_DRIVER: &str = "agent";
+/// The agent link's defaults (`links/agent` `AgentParams`): where its LLM API key goes, and
+/// the secret that holds it.
+const AGENT_API_BASE: &str = "https://api.anthropic.com";
+const AGENT_API_KEY_REF: &str = "anthropic_api_key";
 
 /// Link id of the flow engine (rooted at `wy/<site>/dataflows`); reserved.
 pub const FLOWS_LINK: &str = "dataflows";
@@ -4289,6 +4293,9 @@ impl Admin {
         self.ctl
             .record(sub, op, id, Status::Ok, &format!("rev {rev}"));
         if def.driver == AGENT_DRIVER {
+            self.drop_agent_key_on_new_base(id, &decode_params(&def.params), &params, sub);
+        }
+        if def.driver == AGENT_DRIVER {
             // allowed_prefixes scope its key in every link's trust list
             self.ctl.schedule_reload();
         } else if def.mode != Mode::External {
@@ -4296,6 +4303,39 @@ impl Admin {
             self.start_link(id, sub).await?;
         }
         Ok(Some(Value::UInt(rev.into())))
+    }
+
+    /// The agent's LLM API key is entered for one `api_base`: a new `api_base` drops it until
+    /// someone enters it again with ▸ Set Secret (security review AI-3: a `config` operator who
+    /// cannot read `secrets.bin` pointed `api_base` at a host of their own and received the key).
+    fn drop_agent_key_on_new_base(&self, id: &str, old: &Value, new: &Value, sub: &str) {
+        let text = |v: &Value, k: &str, d: &str| match v {
+            Value::Map(m) => match m.get(k) {
+                Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
+                _ => d.to_owned(),
+            },
+            _ => d.to_owned(),
+        };
+        let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
+        if base(old) == base(new) {
+            return;
+        }
+        let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
+        let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
+        for n in [name, old_name] {
+            if self.ctl.secrets.remove(id, &n).unwrap_or(false) {
+                self.ctl.record(
+                    sub,
+                    "secret_dropped",
+                    id,
+                    Status::Ok,
+                    &format!(
+                        "{n}: api_base changed to {}; enter the key again",
+                        base(new)
+                    ),
+                );
+            }
+        }
     }
 
     /// Previous params (oldest first) and the current one: `[{rev, params}]`.

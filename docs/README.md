@@ -12,6 +12,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [dql.md](dql.md) | collect values from many points into one table, or write them on to a target |
 | [filestores.md](filestores.md) | connect S3, Google Drive, WebDAV or a local directory and move files |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
+| [agent.md](agent.md) | run the AI agent link: tasks in plain words, plans a person approves |
 
 ## Protocol links
 

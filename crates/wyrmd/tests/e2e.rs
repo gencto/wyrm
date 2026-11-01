@@ -4022,6 +4022,64 @@ async fn agent_key_is_trusted_capped_at_write() {
     env.stop().await;
 }
 
+/// Security review AI-3: the agent's LLM API key is dropped when `api_base` changes, so a
+/// `config` operator cannot send the key to a host of their own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_api_base_drops_the_agent_api_key() {
+    let env = Env::start("agentbase", "").await;
+    let c = env.client().await;
+    let links = format!("wy/{SITE}/sys/links");
+    let params = |base: &str| {
+        Value::Map(BTreeMap::from([
+            (
+                "allowed_prefixes".to_owned(),
+                Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+            ),
+            ("api_base".to_owned(), Value::from(base)),
+        ]))
+    };
+    let mut args = BTreeMap::new();
+    args.insert("id".to_owned(), Value::from("ai3"));
+    args.insert("driver".to_owned(), Value::from("agent"));
+    args.insert("params".to_owned(), params("https://api.anthropic.com"));
+    c.invoke_one(&links, "install", Value::Map(args))
+        .await
+        .expect("install the agent");
+    let node = format!("{links}/ai3");
+    let secret = BTreeMap::from([
+        ("name".to_owned(), Value::from("anthropic_api_key")),
+        ("value".to_owned(), Value::Bytes(b"sk-test".to_vec())),
+    ]);
+    c.invoke_one(&node, "set_secret", Value::Map(secret))
+        .await
+        .expect("set the key");
+    let names = |v: Option<Value>| format!("{v:?}");
+    // the same base: the key stays
+    let mut up = BTreeMap::new();
+    up.insert("params".to_owned(), params("https://api.anthropic.com/"));
+    c.invoke_one(&node, "update", Value::Map(up)).await.unwrap();
+    assert!(!env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "secret_dropped"));
+    // another base: dropped, and the audit says so
+    let mut up = BTreeMap::new();
+    up.insert("params".to_owned(), params("https://llm.example"));
+    c.invoke_one(&node, "update", Value::Map(up)).await.unwrap();
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op == "secret_dropped" && r.key == "ai3"));
+    let empty = BTreeMap::from([("name".to_owned(), Value::from("other"))]);
+    let left = c
+        .invoke_one(&node, "delete_secret", Value::Map(empty))
+        .await;
+    assert!(!names(left.ok().flatten()).contains("anthropic_api_key"));
+    env.stop().await;
+}
+
 /// A supervised link process exits when its broker process is gone
 /// (`WYRM_PARENT_PID`), so a crashed wyrmd leaves no orphan links.
 #[tokio::test(flavor = "multi_thread")]
