@@ -105,6 +105,18 @@ fn class(ip: IpAddr) -> Option<(u8, u8)> {
     }
 }
 
+/// A private address: RFC 1918, shared address space (`100.64.0.0/10`), IPv6 unique local
+/// (`fc00::/7`). An IP entry reaches it; a name entry does not (security review NET-1).
+fn private(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(a) => {
+            let o = a.octets();
+            a.is_private() || (o[0] == 100 && (o[1] & 0xc0) == 64)
+        }
+        IpAddr::V6(a) => (a.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
 fn bits(ip: IpAddr) -> (u128, u8) {
     match ip {
         IpAddr::V4(a) => (u32::from(a) as u128, 32),
@@ -180,13 +192,18 @@ impl NetPolicy {
     }
 
     /// `host` (a name the link asked for), resolved to `ip`, may be reached
-    /// on `port`: `ip` is inside an IP entry, or `host` matches a name entry
-    /// and `ip` is an ordinary address. A name never opens a special address
-    /// (loopback, link-local, metadata, …): a name that resolves there needs
-    /// an IP entry of that class, so DNS cannot point a link at the host.
+    /// on `port` (plain TCP or TLS): `ip` is inside an IP entry, or `host`
+    /// matches a name entry and `ip` is a public address. A name never opens
+    /// a special address (loopback, link-local, metadata, …) nor a private
+    /// one (RFC 1918, `100.64/10`, `fc00::/7`): a name that resolves there
+    /// needs an IP entry for that address, so whoever answers for the name in
+    /// DNS cannot point a link at the host or its LAN (security review NET-1).
     pub fn allows_named(&self, host: &str, ip: IpAddr, port: u16) -> bool {
+        let ip = plain(ip);
         self.allows(ip, port)
-            || (class(plain(ip)).is_none() && self.names.iter().any(|n| n.matches(host, port)))
+            || (class(ip).is_none()
+                && !private(ip)
+                && self.names.iter().any(|n| n.matches(host, port)))
     }
 
     /// `ip:port` is inside an entry. A special address (loopback,
@@ -273,9 +290,24 @@ mod tests {
         let ip = |s: &str| s.parse::<core::net::IpAddr>().unwrap();
         let p = NetPolicy::parse("DB.example.com:5432, *.influx.cloud:443").unwrap();
         assert!(!p.is_empty());
-        // a listed name, resolved to an ordinary address (private included)
+        // a listed name, resolved to a public address
         assert!(p.allows_named("db.example.com", ip("203.0.113.7"), 5432));
-        assert!(p.allows_named("db.example.com.", ip("10.0.0.7"), 5432));
+        assert!(p.allows_named("db.example.com.", ip("203.0.113.7"), 5432));
+        // a name never opens a private address (review NET-1): DNS could point it at the LAN
+        for lan in [
+            "10.0.0.7",
+            "172.16.4.1",
+            "192.168.1.9",
+            "100.64.0.1",
+            "fd12::5",
+            "::ffff:10.0.0.7",
+        ] {
+            assert!(!p.allows_named("db.example.com", ip(lan), 5432), "{lan}");
+        }
+        // an IP entry for it does
+        let lan = NetPolicy::parse("db.example.com:5432, 10.0.0.0/24:5432").unwrap();
+        assert!(lan.allows_named("db.example.com", ip("10.0.0.7"), 5432));
+        assert!(!lan.allows_named("db.example.com", ip("10.0.1.7"), 5432));
         assert!(!p.allows_named("db.example.com", ip("203.0.113.7"), 5433));
         assert!(!p.allows_named("other.example.com", ip("203.0.113.7"), 5432));
         // a wildcard covers names below it, not the domain itself
@@ -296,7 +328,7 @@ mod tests {
         // an IP entry still works for any name
         let by_ip = NetPolicy::parse("203.0.113.0/24:443").unwrap();
         assert!(by_ip.allows_named("anything.example", ip("203.0.113.9"), 443));
-        // names alone open no address for plain TCP
+        // a name entry is no IP entry: the address alone, without the name, is not allowed
         assert!(!p.allows(ip("203.0.113.7"), 5432));
     }
 }

@@ -307,15 +307,19 @@ separated by commas or spaces: `10.0.5.0/24:502, 192.168.1.20:1502,
   `wyrm:app@0.3.0`, ADR 0030) may also name hosts: `db.example.com:5432`, `*.example.com:443`, in `tcp_connect`,
   `tls_connect`, and `tls_upgrade` (TLS on an open connection, as PostgreSQL's and MySQL's
   `SSLRequest`). The host resolves the name and connects only to an address that an IP entry
-  allows, or to an ordinary address when the name is listed: a listed name never reaches
-  loopback, link-local or metadata addresses by itself.
+  allows, or to a public address when the name is listed: a listed name never reaches
+  loopback, link-local, metadata or private addresses (`10/8`, `172.16/12`, `192.168/16`,
+  `100.64/10`, `fc00::/7`) by itself. A database on the LAN needs its address or range as an
+  IP entry too (`db.lan:5432, 10.0.5.0/24:5432`): whoever answers for a name in DNS could
+  otherwise point the link at any host of the LAN (security review NET-1).
 - `connect` passes when the address is inside an entry and the port is that
   entry's port.
 - Loopback, link-local (also `169.254.169.254`), multicast, broadcast,
   `0.0.0.0/8`, cloud metadata and IPv6 addresses that carry an IPv4 address
   (NAT64, 6to4, IPv4-compatible) pass only an entry of their own class:
   `0.0.0.0/0` does not reach the broker itself. Private ranges (`10/8`,
-  `172.16/12`, `192.168/16`, `fd00::/8`) are ordinary.
+  `172.16/12`, `192.168/16`, `fd00::/8`) are ordinary for IP entries; a host name
+  entry does not reach them (above).
 - Only users with `config` can change the list.
 
 **Limits per call:** the call time (`call_ms`, also caps every network wait),

@@ -186,8 +186,9 @@ same code. Install it, then:
    Copy Path on the sink), `batch` (rows per batch, default 500, at most 5 000),
    `idle_s` (wait when nothing is new, default 5), `retry_s` (longest wait after
    an error, default 60), and the database's own params (below). Put the
-   database's host in the link's `net` list (a host name is allowed for TLS:
-   `db.example.com:443`). A WASM package reaches TLS only when it is built for
+   database's host in the link's `net` list (a host name is allowed:
+   `db.example.com:443`; a name reaches public addresses only, so a database on
+   the LAN needs its address too: `db.lan:5432, 10.0.5.20:5432`). A WASM package reaches TLS only when it is built for
    the world `wyrm:app@0.3.0` (every `wyr link pack` since 2026-11-01, ADR
    0030); one built for 0.2.0 answers `not_supported` to TLS: rebuild it or
    use the process package.
