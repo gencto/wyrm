@@ -1,6 +1,7 @@
 //! Failed-login limiter: at most `max` failures per `(user, ip)` and
 //! `max * IP_FACTOR` per `ip` over all user names (password spraying) in a
-//! sliding `window`; a success clears the `(user, ip)` record.
+//! sliding `window`; a success clears the `(user, ip)` record. A refusal is
+//! audited once per `(user, ip)` and window, not per attempt (review GW-1).
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
@@ -20,6 +21,8 @@ pub struct LoginLimiter {
     max: usize,
     window: Duration,
     fails: Mutex<HashMap<Key, VecDeque<Instant>>>,
+    /// When a refusal of `(user, ip)` was last audited.
+    noted: Mutex<HashMap<Key, Instant>>,
 }
 
 impl LoginLimiter {
@@ -28,6 +31,7 @@ impl LoginLimiter {
             max: max.max(1),
             window,
             fails: Mutex::new(HashMap::new()),
+            noted: Mutex::new(HashMap::new()),
         }
     }
 
@@ -54,6 +58,29 @@ impl LoginLimiter {
         let mut f = self.lock();
         self.recent(&mut f, &(Some(user.to_owned()), ip), now) < self.max
             && self.recent(&mut f, &(None, ip), now) < self.max * IP_FACTOR
+    }
+
+    /// `true` for the first refusal of `(user, ip)` in a window: the one to
+    /// audit. With the table full, nothing more is audited until records
+    /// expire (the refusal itself still holds).
+    pub fn note_refusal(&self, user: &str, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut n = self.noted.lock().unwrap_or_else(|p| p.into_inner());
+        let k = (Some(user.to_owned()), ip);
+        if n.get(&k)
+            .is_some_and(|t| now.duration_since(*t) < self.window)
+        {
+            return false;
+        }
+        if !n.contains_key(&k) && n.len() >= MAX_RECORDS {
+            let window = self.window;
+            n.retain(|_, t| now.duration_since(*t) < window);
+            if n.len() >= MAX_RECORDS {
+                return false;
+            }
+        }
+        n.insert(k, now);
+        true
     }
 
     pub fn failed(&self, user: &str, ip: IpAddr) {
@@ -105,6 +132,17 @@ mod tests {
         assert!(l.allowed("u", b) && l.allowed("v", a));
         l.succeeded("u", a);
         assert!(l.allowed("u", a));
+    }
+
+    #[test]
+    fn a_refusal_is_noted_once_per_window() {
+        let l = LoginLimiter::new(1, Duration::from_millis(50));
+        let a: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(l.note_refusal("u", a));
+        assert!(!l.note_refusal("u", a));
+        assert!(l.note_refusal("v", a), "per user");
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(l.note_refusal("u", a), "again after the window");
     }
 
     #[test]

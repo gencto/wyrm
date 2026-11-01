@@ -95,9 +95,14 @@ pub fn check_server_final(server_final: &str, expected: &str) -> Result<(), Stri
         return Err(format!("scram: the server refused: {e}"));
     }
     match server_final.split(',').find_map(|p| p.strip_prefix("v=")) {
-        Some(v) if v == expected => Ok(()),
+        Some(v) if same(v.as_bytes(), expected.as_bytes()) => Ok(()),
         _ => Err("scram: the server's signature does not match (not the server we think)".into()),
     }
+}
+
+/// Equal in time that does not depend on where they differ (the length is not secret).
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 /// A client nonce: 18 bytes from the host's random source (`Host::random_bytes`, ADR 0030: the

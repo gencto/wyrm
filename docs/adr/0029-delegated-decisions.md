@@ -17,6 +17,7 @@ A Zenoh reply takes the QoS of its query, so the requester chooses it: `wyrm-cli
 
 ### 3. A `ptok` is used once per responder
 Spec 04 0.2.11 states it: each responder remembers a token's `jti` until its `exp` and refuses it a second time (`permission_denied`). The memory is per process and not kept across a restart, so after a restart a token seen before can be used again until its `exp`. The SDK refuses a token whose `exp` is more than 15 minutes ahead (`MAX_TOKEN_TTL_S`), which bounds that window. A full cache (65 536 tokens that have not expired) refuses new tokens until one expires rather than forgetting one.
+Amended 2026-11-01 (spec 04 0.2.12, security review SDK-1): the responder remembers a `jti` only after it found a grant for the request key, and one `sub` holds at most a quarter of the cache (16 384 tokens). Without this, any caller with a valid signature could fill the cache with tokens for keys it has no rights on and lock every writer out of a link for 15 minutes. A caller that needs more than 16 384 live tokens on one responder (about 270 per second at the default 60 s lifetime) is refused until its tokens expire.
 *If wrong:* a captured token replays once after a responder restart, within 15 minutes. TLS on every non-loopback hop makes capture the hard part.
 
 ### 4. The broker persists its own state with `wyrm-state`, not a Zenoh volume

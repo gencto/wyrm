@@ -326,6 +326,10 @@ async fn login_bad_password_and_rate_limit() {
     let (st, v) = env.login("root", ADMIN_PW).await;
     assert_eq!(st, 429);
     assert_eq!(err_status_body(&v), Some(Status::RateLimited));
+    // More refused attempts add no audit records (one per window).
+    for _ in 0..5 {
+        assert_eq!(env.login("root", "wrong password").await.0, 429);
+    }
     // Unknown users get the same answer as wrong passwords.
     let (st, v) = env.login("nobody", "whatever pw").await;
     assert_eq!(
@@ -337,9 +341,16 @@ async fn login_bad_password_and_rate_limit() {
     assert!(audit
         .iter()
         .any(|e| matches!(e, AuditEvent::LoginOk { user, .. } if user == "root")));
-    assert!(audit
-        .iter()
-        .any(|e| matches!(e, AuditEvent::LoginFailed { reason, .. } if *reason == "rate_limited")));
+    assert_eq!(
+        audit
+            .iter()
+            .filter(
+                |e| matches!(e, AuditEvent::LoginFailed { reason, .. } if *reason == "rate_limited")
+            )
+            .count(),
+        1,
+        "one record per window"
+    );
     assert!(
         !format!("{audit:?}").contains("wrong password"),
         "no passwords in audit"

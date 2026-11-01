@@ -602,6 +602,23 @@ impl Gateway {
         })
     }
 
+    /// Refuse a locked `(user, ip)` before any hashing: callers check it
+    /// before they wait for a hashing permit (review GW-7). The refusal is
+    /// audited once per window, not per attempt (GW-1).
+    fn check_limit(&self, user: &str, ip: IpAddr) -> Result<(), LoginError> {
+        if self.limiter.allowed(user, ip) {
+            return Ok(());
+        }
+        if self.limiter.note_refusal(user, ip) {
+            self.audit(AuditEvent::LoginFailed {
+                user: user.into(),
+                ip,
+                reason: "rate_limited",
+            });
+        }
+        Err(LoginError::RateLimited)
+    }
+
     /// Check `user`/`password` (rate limited per user and address) and mint
     /// a session. The caller runs this on a blocking thread.
     fn login(
@@ -610,14 +627,7 @@ impl Gateway {
         password: Zeroizing<String>,
         ip: IpAddr,
     ) -> Result<(String, u64), LoginError> {
-        if !self.limiter.allowed(user, ip) {
-            self.audit(AuditEvent::LoginFailed {
-                user: user.into(),
-                ip,
-                reason: "rate_limited",
-            });
-            return Err(LoginError::RateLimited);
-        }
+        self.check_limit(user, ip)?;
         let rec = self.user(user);
         let ok = users::verify_password(&password, rec.as_ref().map(|u| u.hash.as_str()));
         let rec = match rec {

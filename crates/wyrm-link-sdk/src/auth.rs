@@ -1,9 +1,11 @@
 //! `ptok v1` verification in the responder. Spec: 04-attachment.
 //!
-//! Order (normative): version → signature → `exp > now` → `site` → `jti` not
-//! replayed → first grant whose key expression intersects the request key →
-//! `effective = min(p, max, maxperm)`. Any failure is `permission_denied`
-//! with no detail; the reason goes to `debug` logs only (never the token).
+//! Order (normative, spec 04 0.2.12): version → signature → `exp > now` →
+//! `site` → first grant whose key expression intersects the request key →
+//! `jti` not replayed → `effective = min(p, max, maxperm)`. A token with no
+//! grant for the key is never remembered (review SDK-1). Any failure is
+//! `permission_denied` with no detail; the reason goes to `debug` logs only
+//! (never the token).
 
 use ed25519_dalek::{Signature, VerifyingKey};
 use std::collections::HashMap;
@@ -15,6 +17,56 @@ use zenoh::key_expr::{keyexpr, OwnedKeyExpr};
 /// Upper bound on remembered `jti`s. When full and nothing has expired,
 /// new tokens are refused (fail closed).
 const REPLAY_CAPACITY: usize = 65_536;
+/// Remembered `jti`s of one subject: one caller fills its own share, never
+/// the whole cache, so it cannot lock everyone else out (review SDK-1).
+const REPLAY_PER_SUBJECT: usize = REPLAY_CAPACITY / 4;
+
+/// `jti` → `exp`, per subject (`sub`).
+#[derive(Debug, Default)]
+struct Replay {
+    by_sub: HashMap<String, HashMap<[u8; 16], u64>>,
+    total: usize,
+}
+
+impl Replay {
+    fn purge(&mut self, now: u64) {
+        let mut total = 0;
+        self.by_sub.retain(|_, m| {
+            m.retain(|_, e| *e > now);
+            total += m.len();
+            !m.is_empty()
+        });
+        self.total = total;
+    }
+
+    fn remember(&mut self, sub: &str, jti: [u8; 16], exp: u64, now: u64) -> Result<(), Denied> {
+        if let Some(m) = self.by_sub.get_mut(sub) {
+            if m.contains_key(&jti) {
+                return Err(Denied::Replayed);
+            }
+            if m.len() >= REPLAY_PER_SUBJECT {
+                let before = m.len();
+                m.retain(|_, e| *e > now);
+                self.total -= before - m.len();
+                if m.len() >= REPLAY_PER_SUBJECT {
+                    return Err(Denied::ReplayCacheFull);
+                }
+            }
+        }
+        if self.total >= REPLAY_CAPACITY {
+            self.purge(now);
+            if self.total >= REPLAY_CAPACITY {
+                return Err(Denied::ReplayCacheFull);
+            }
+        }
+        self.by_sub
+            .entry(sub.to_owned())
+            .or_default()
+            .insert(jti, exp);
+        self.total += 1;
+        Ok(())
+    }
+}
 
 /// Who is calling, as established by the SDK before the driver runs.
 #[derive(Debug, Clone, Default)]
@@ -73,7 +125,7 @@ pub struct Verifier {
     /// as a whole by [`set_trust`](Self::set_trust), the replay cache stays.
     trust: std::sync::RwLock<(Vec<VerifyingKey>, Vec<LimitedKey>)>,
     site: String,
-    replay: Mutex<HashMap<[u8; 16], u64>>,
+    replay: Mutex<Replay>,
 }
 
 impl Verifier {
@@ -82,7 +134,7 @@ impl Verifier {
         Self {
             trust: std::sync::RwLock::new((keys, Vec::new())),
             site: site.into(),
-            replay: Mutex::new(HashMap::new()),
+            replay: Mutex::new(Replay::default()),
         }
     }
 
@@ -169,7 +221,6 @@ impl Verifier {
         if claims.site != self.site {
             return Err(Denied::WrongSite);
         }
-        self.remember(claims.jti, claims.exp, now)?;
         let grant = claims
             .grants
             .iter()
@@ -180,22 +231,12 @@ impl Verifier {
             .min(claims.max)
             .min(maxperm.unwrap_or(Perm::Config))
             .min(cap);
+        // Only a token that grants something here is remembered.
+        self.replay
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remember(&claims.sub, claims.jti, claims.exp, now)?;
         Ok((claims, perm))
-    }
-
-    fn remember(&self, jti: [u8; 16], exp: u64, now: u64) -> Result<(), Denied> {
-        let mut cache = self.replay.lock().unwrap_or_else(|p| p.into_inner());
-        if cache.contains_key(&jti) {
-            return Err(Denied::Replayed);
-        }
-        if cache.len() >= REPLAY_CAPACITY {
-            cache.retain(|_, e| *e > now);
-            if cache.len() >= REPLAY_CAPACITY {
-                return Err(Denied::ReplayCacheFull);
-            }
-        }
-        cache.insert(jti, exp);
-        Ok(())
     }
 }
 
@@ -294,5 +335,73 @@ mod tests {
         assert_eq!(perm, Perm::Read, "only the scoped grant authorizes");
         // and auth is capped by the request's maxperm
         assert_eq!(c.auth, Some(vec![g("wy/s/**", Perm::Write)]));
+    }
+
+    fn signed(
+        key: &ed25519_dalek::SigningKey,
+        sub: &str,
+        grant: &str,
+        jti: u32,
+        exp: u64,
+    ) -> Vec<u8> {
+        use ed25519_dalek::Signer;
+        let mut id = [0u8; 16];
+        id[..4].copy_from_slice(&jti.to_be_bytes());
+        let claims = PtokClaims {
+            sub: sub.into(),
+            grants: vec![g(grant, Perm::Write)],
+            max: Perm::Write,
+            iat: 1,
+            exp,
+            jti: id,
+            site: "s".into(),
+            ..Default::default()
+        };
+        let mut tok = vec![ptok::PTOK_VERSION];
+        tok.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+        let sig = key.sign(&tok);
+        tok.extend(sig.to_bytes());
+        tok
+    }
+
+    /// Review SDK-1: tokens without a grant for the key are never remembered,
+    /// and one subject fills only its own share of the replay cache.
+    #[test]
+    fn one_caller_cannot_fill_the_replay_cache_for_everyone() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let v = Verifier::new(vec![key.verifying_key()], "s");
+        let plc = keyexpr::new("wy/s/downstream/plc/~set").unwrap();
+        for i in 0..100 {
+            let t = signed(&key, "user:mallory", "wy/s/downstream/other/**", i, 100);
+            assert_eq!(v.verify(&t, plc, None, 10), Err(Denied::NoGrant));
+        }
+        assert_eq!(v.replay.lock().unwrap().total, 0, "nothing remembered");
+        let t = signed(&key, "user:ann", "wy/s/downstream/**", 1, 100);
+        assert!(v.verify(&t, plc, None, 10).is_ok());
+        assert_eq!(v.verify(&t, plc, None, 10), Err(Denied::Replayed));
+
+        let mut r = Replay::default();
+        let id = |i: usize| {
+            let mut j = [0u8; 16];
+            j[..8].copy_from_slice(&(i as u64).to_be_bytes());
+            j
+        };
+        for i in 0..REPLAY_PER_SUBJECT {
+            r.remember("user:mallory", id(i), 100, 10).unwrap();
+        }
+        assert_eq!(
+            r.remember("user:mallory", id(usize::MAX), 100, 10),
+            Err(Denied::ReplayCacheFull),
+            "the subject's share is full"
+        );
+        assert!(
+            r.remember("user:ann", id(0), 100, 10).is_ok(),
+            "others still pass"
+        );
+        // expired entries make room again
+        assert!(r
+            .remember("user:mallory", id(usize::MAX), 1000, 500)
+            .is_ok());
+        assert_eq!(r.total, 2);
     }
 }

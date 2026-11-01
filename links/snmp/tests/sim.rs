@@ -995,6 +995,13 @@ async fn a_v3_reply_without_privacy_to_an_authpriv_request_is_never_taken() {
     forged_reply(Forge::NoPriv, false).await;
 }
 
+/// Review LNK-3: an authenticated response that says `FLAG_PRIV` but
+/// carries a plain scopedPDU, to an authPriv request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plain_v3_reply_flagged_private_is_never_taken() {
+    forged_reply(Forge::PlainUnderPrivFlag, false).await;
+}
+
 /// A response from another authoritative engine id.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_v3_reply_from_another_engine_is_never_taken() {

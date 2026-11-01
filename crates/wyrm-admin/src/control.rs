@@ -6068,9 +6068,11 @@ mod tests {
     /// scheduler, and no unsaved key is used later.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_scheduler_key_failure_does_not_fail_attach() {
-        // `secrets.bin` is a directory: every save of the secret store fails
+        // `secrets.tmp` is a directory: every save of the secret store fails
+        // (a `secrets.bin` that cannot be read fails the start instead)
         let ctl = control("schedfail", true, |d| {
-            std::fs::create_dir_all(d.join("secrets.bin").join("x")).unwrap();
+            crate::secrets::SecretStore::open(d).unwrap(); // makes `secrets.key`
+            std::fs::create_dir_all(d.join("secrets.tmp").join("x")).unwrap();
         });
         let mut zc = zenoh::Config::default();
         for (k, v) in [

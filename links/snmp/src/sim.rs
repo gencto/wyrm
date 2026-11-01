@@ -43,6 +43,9 @@ pub enum Forge {
     NoAuth,
     /// Authenticated but not encrypted, to an authPriv request.
     NoPriv,
+    /// Authenticated, `FLAG_PRIV` set, but the scopedPDU is plain (the MAC
+    /// covers the flags, so it verifies).
+    PlainUnderPrivFlag,
     /// Another `msgAuthoritativeEngineID`; the MAC is made with the key
     /// of the real engine, so it verifies: only the engine id check drops
     /// it.
@@ -705,7 +708,7 @@ impl Agent {
         let user = &self.users[ui];
         let (auth, auth_key) = (user.auth, user.auth_key.clone());
         let priv_key = match forge {
-            Some(Forge::NoAuth | Forge::NoPriv) => None,
+            Some(Forge::NoAuth | Forge::NoPriv | Forge::PlainUnderPrivFlag) => None,
             _ => user.priv_key.clone(),
         };
         let name = user.name.clone();
@@ -733,6 +736,9 @@ impl Agent {
             }
             None => (resp, &[], msg::FLAG_AUTH),
         };
+        if forge == Some(Forge::PlainUnderPrivFlag) {
+            flags |= msg::FLAG_PRIV;
+        }
         if !authenticate {
             flags = 0;
         }

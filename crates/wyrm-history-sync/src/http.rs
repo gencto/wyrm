@@ -217,14 +217,14 @@ pub fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
     } else if let Some(r) = url.strip_prefix("http://") {
         (false, r)
     } else {
-        return Err(format!("{url}: http:// or https://"));
+        return Err("the URL must start with http:// or https://".into());
     };
     let (authority, base) = match rest.find('/') {
         Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
         None => (rest, ""),
     };
     if authority.contains('@') {
-        return Err(format!("{url}: no credentials in the URL"));
+        return Err("no credentials in the URL".into());
     }
     let (host, port) = match authority.rsplit_once(':') {
         Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => {

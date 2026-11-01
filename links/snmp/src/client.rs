@@ -639,6 +639,7 @@ impl Session {
                 let Some(e) = &self.engine else {
                     return Ok(Got::Rejected);
                 };
+                let encrypted = matches!(m.data, ScopedData::Encrypted(_));
                 let scoped = match m.data {
                     ScopedData::Plain(s) => s,
                     ScopedData::Encrypted(c) => {
@@ -661,7 +662,9 @@ impl Session {
                 match pdu.ty {
                     msg::RESPONSE => {
                         // A response must be as secure as the request.
-                        let private = m.flags & msg::FLAG_PRIV != 0;
+                        // Judged by what was decrypted, not only by msgFlags
+                        // (review LNK-3).
+                        let private = m.flags & msg::FLAG_PRIV != 0 && encrypted;
                         if !authentic || private != e.priv_key.is_some() {
                             return Ok(Got::Rejected);
                         }

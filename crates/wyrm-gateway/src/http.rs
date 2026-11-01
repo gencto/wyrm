@@ -310,14 +310,19 @@ async fn login(
     if user.len() > 64 || password.len() > MAX_PASSWORD {
         return Err(ApiError::bad("user or password too long"));
     }
-    let _permit =
-        st.gw.hashing.acquire().await.map_err(|_| {
-            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
-        })?;
-    let gw = st.gw.clone();
-    let r = tokio::task::spawn_blocking(move || gw.login(&user, password, peer.ip()))
-        .await
-        .map_err(|_| Error::Rejected("login task failed".into()))?;
+    // A locked caller never waits for (or holds) a hashing permit.
+    let r = match st.gw.check_limit(&user, peer.ip()) {
+        Err(e) => Err(e),
+        Ok(()) => {
+            let _permit = st.gw.hashing.acquire().await.map_err(|_| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
+            })?;
+            let gw = st.gw.clone();
+            tokio::task::spawn_blocking(move || gw.login(&user, password, peer.ip()))
+                .await
+                .map_err(|_| Error::Rejected("login task failed".into()))?
+        }
+    };
     match r {
         Ok((session, exp)) => Ok(cbor(
             StatusCode::OK,

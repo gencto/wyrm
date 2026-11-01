@@ -66,7 +66,10 @@ impl SecretStore {
         );
         let path = dir.join("secrets.bin");
         let db = match std::fs::read(&path) {
-            Err(_) => Db::new(),
+            // Only a missing file is an empty store: any other error would
+            // drop every secret at the next save.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Db::new(),
+            Err(e) => return Err(format!("secrets.bin: {e}").into()),
             Ok(data) => {
                 if data.len() < MAGIC.len() + NONCE_LEN || &data[..MAGIC.len()] != MAGIC {
                     return Err("secrets.bin: not a WYRM secret store".into());
@@ -222,6 +225,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// Review ADM-7: only a missing file is an empty store.
+    #[test]
+    fn an_unreadable_store_fails_the_open() {
+        let d = dir("unreadable");
+        assert!(SecretStore::open(&d).is_ok(), "missing = empty");
+        std::fs::create_dir_all(d.join("secrets.bin")).unwrap();
+        assert!(SecretStore::open(&d).is_err());
     }
 
     #[test]
