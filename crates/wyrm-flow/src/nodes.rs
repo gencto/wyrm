@@ -2,7 +2,8 @@
 //! `timer`, `const`, `liveliness`; operators `expression`, `scale`,
 //! `deadband`, `window`, `alarm`, `latch`, `delay`, `filter`; sinks
 //! `publish`, `invoke`, `set`; `wasm` (a `wyrm:flow/node` component from
-//! the artifact store, iteration 8).
+//! the artifact store, iteration 8). The logic blocks (`add`, `if`, `hub`,
+//! `stopwatch`, …) are in [`crate::blocks`].
 //!
 //! Quality: one-input operators pass `q` through; `expression` uses
 //! `quality: worst|ignore|custom`. Time: an operator's `t` is the max `t` of
@@ -150,7 +151,7 @@ fn one_of<'a>(
         .ok_or_else(|| format!("{k}: one of {allowed:?}"))
 }
 
-fn names(cfg: &Map) -> Result<Vec<String>, String> {
+pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, String> {
     match cfg.get("inputs") {
         Some(Value::Array(a)) if !a.is_empty() => a
             .iter()
@@ -193,9 +194,17 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
     }
 }
 
+/// `scale`'s range parameters: given (in the config or on their ports), `in` is mapped from
+/// `input_min`…`input_max` to `output_min`…`output_max` (defaults 0, 1, 0, 100) before
+/// `k × · + b`.
+const SCALE_RANGE: &[&str] = &["input_min", "input_max", "output_min", "output_max"];
+
 /// Ports and config validation of a node type (compiler step 3).
 pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     use PortType::*;
+    if let Some(r) = crate::blocks::ports(ty, cfg) {
+        return r;
+    }
     Ok(match ty {
         "subscribe" => {
             only(cfg, &["key"])?;
@@ -232,10 +241,23 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             }
         }
         "scale" => {
-            only(cfg, &["k", "b"])?;
-            f(cfg, "k")?;
-            f(cfg, "b")?;
-            Ports::new(&[("in", Number)], &[("out", Number)])
+            only(
+                cfg,
+                &["k", "b"]
+                    .iter()
+                    .chain(SCALE_RANGE)
+                    .copied()
+                    .collect::<Vec<_>>(),
+            )?;
+            for k in ["k", "b"].iter().chain(SCALE_RANGE) {
+                f(cfg, k)?;
+            }
+            let mut ins = vec![("in".to_owned(), Number)];
+            ins.extend(SCALE_RANGE.iter().map(|r| (format!("in.{r}"), Number)));
+            Ports {
+                inputs: ins,
+                outputs: vec![("out".into(), Number), ("input_out_of_range".into(), Bool)],
+            }
         }
         "deadband" => {
             only(cfg, &["abs", "pct"])?;
@@ -645,12 +667,53 @@ impl Node for Expression {
 struct Scale {
     k: f64,
     b: f64,
+    /// `[input_min, input_max, output_min, output_max]` once one is given.
+    range: Option<[f64; 4]>,
+}
+
+impl Scale {
+    fn range_from(cfg: &Map) -> Option<[f64; 4]> {
+        let given: Vec<Option<f64>> = SCALE_RANGE
+            .iter()
+            .map(|k| cfg.get(*k).and_then(Value::as_f64))
+            .collect();
+        given.iter().any(Option::is_some).then(|| {
+            let d = [0.0, 1.0, 0.0, 100.0];
+            std::array::from_fn(|i| given[i].unwrap_or(d[i]))
+        })
+    }
 }
 
 impl Node for Scale {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
-        if let Some(x) = m.v.as_f64() {
-            out.emit("out", Msg::new(Value::Float(x * self.k + self.b), m.q, m.t));
+    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(i) = port
+            .strip_prefix("in.")
+            .and_then(|r| SCALE_RANGE.iter().position(|x| *x == r))
+        {
+            if let Some(x) = m.v.as_f64().filter(|x| x.is_finite()) {
+                let r = self.range.get_or_insert([0.0, 1.0, 0.0, 100.0]);
+                r[i] = x;
+            }
+            return;
+        }
+        let Some(x) = m.v.as_f64() else { return };
+        let x = match self.range {
+            None => x,
+            Some([i0, i1, o0, o1]) => {
+                if i1 == i0 {
+                    return;
+                }
+                let outside = x < i0.min(i1) || x > i0.max(i1);
+                out.emit(
+                    "input_out_of_range",
+                    Msg::new(Value::Bool(outside), m.q, m.t),
+                );
+                o0 + (x - i0) * (o1 - o0) / (i1 - i0)
+            }
+        };
+        let y = x * self.k + self.b;
+        if y.is_finite() {
+            out.emit("out", Msg::new(Value::Float(y), m.q, m.t));
         }
     }
 }
@@ -980,14 +1043,32 @@ impl Node for Filter {
 
 struct Publish {
     path: String,
+    /// One writer task, in order: a task per sample could write an older value last.
+    tx: Option<tokio::sync::mpsc::Sender<Msg>>,
 }
 
+/// Samples a `publish` node holds while its writer is busy; more are dropped (the newest is
+/// what matters, and the next sample brings it).
+const PUBLISH_QUEUE: usize = 256;
+
 impl Node for Publish {
-    fn input(&mut self, _p: &str, m: Msg, io: &Io, _out: &mut Out) {
+    fn start(&mut self, io: &Io) {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(PUBLISH_QUEUE);
         let (ctx, path) = (io.ctx.clone(), self.path.clone());
         tokio::spawn(async move {
-            let _ = ctx.update(&path, m.v, m.q, m.t).await;
+            while let Some(m) = rx.recv().await {
+                let _ = ctx.update(&path, m.v, m.q, m.t).await;
+            }
         });
+        self.tx = Some(tx);
+    }
+
+    fn input(&mut self, _p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if let Some(tx) = &self.tx {
+            if tx.try_send(m).is_err() {
+                debug!(path = %self.path, "publish: writer busy, sample dropped");
+            }
+        }
     }
 }
 
@@ -1009,6 +1090,7 @@ struct Invoke {
     on: String,
     allow_bad: bool,
     last: Option<Value>,
+    tx: Option<tokio::sync::mpsc::Sender<Map>>,
 }
 
 impl Node for Invoke {
@@ -1035,20 +1117,33 @@ impl Node for Invoke {
                 (k.clone(), v)
             })
             .collect();
-        let (io2, node, action) = (io.clone(), io.full_key(&self.path), self.action.clone());
-        tokio::spawn(async move {
-            let r = io2
-                .client
-                .invoke_one(&node, &action, Value::Map(args))
-                .await;
-            let msg = match r {
-                Ok(v) => Msg::new(v.unwrap_or(Value::Null), Quality::Good, now_us()),
-                Err(e) => Msg::new(Value::Str(e.to_string()), Quality::Bad, now_us()),
-            };
-            (io2.inject)("__result", msg);
+        // one caller task, in order: a task per call could run a later call first
+        let tx = self.tx.get_or_insert_with(|| {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<Map>(COMMAND_QUEUE);
+            let (io2, node, action) = (io.clone(), io.full_key(&self.path), self.action.clone());
+            tokio::spawn(async move {
+                while let Some(args) = rx.recv().await {
+                    let r = io2
+                        .client
+                        .invoke_one(&node, &action, Value::Map(args))
+                        .await;
+                    let msg = match r {
+                        Ok(v) => Msg::new(v.unwrap_or(Value::Null), Quality::Good, now_us()),
+                        Err(e) => Msg::new(Value::Str(e.to_string()), Quality::Bad, now_us()),
+                    };
+                    (io2.inject)("__result", msg);
+                }
+            });
+            tx
         });
+        if tx.try_send(args).is_err() {
+            debug!(path = %self.path, "invoke: calls queued to the limit, call dropped");
+        }
     }
 }
+
+/// Calls an `invoke` node holds while its caller is busy; more are dropped.
+const COMMAND_QUEUE: usize = 256;
 
 struct Set {
     path: String,
@@ -1056,6 +1151,9 @@ struct Set {
     deadband: f64,
     allow_bad: bool,
     last: Option<Value>,
+    /// The value to write: one writer task writes the newest, in order (a task per sample
+    /// could write an older value last).
+    tx: Option<tokio::sync::watch::Sender<Option<Value>>>,
 }
 
 impl Node for Set {
@@ -1073,12 +1171,22 @@ impl Node for Set {
             }
         }
         self.last = Some(m.v.clone());
-        let (client, node) = (io.client.clone(), io.full_key(&self.path));
-        tokio::spawn(async move {
-            if let Err(e) = client.set(&node, m.v).await {
-                debug!("flow set {node}: {e}");
-            }
+        let tx = self.tx.get_or_insert_with(|| {
+            let (tx, mut rx) = tokio::sync::watch::channel::<Option<Value>>(None);
+            let (client, node) = (io.client.clone(), io.full_key(&self.path));
+            tokio::spawn(async move {
+                while rx.changed().await.is_ok() {
+                    let Some(v) = rx.borrow_and_update().clone() else {
+                        continue;
+                    };
+                    if let Err(e) = client.set(&node, v).await {
+                        debug!("flow set {node}: {e}");
+                    }
+                }
+            });
+            tx
         });
+        tx.send_replace(Some(m.v));
     }
 }
 
@@ -1095,6 +1203,9 @@ pub fn build_with(
     cfg: &Map,
     artifacts: Option<&Artifacts>,
 ) -> Result<Box<dyn Node>, String> {
+    if let Some(b) = crate::blocks::build(ty, flow, id, cfg) {
+        return b;
+    }
     let num = |k: &str, d: f64| f(cfg, k).map(|x| x.unwrap_or(d));
     Ok(match ty {
         "subscribe" => Box::new(Subscribe {
@@ -1130,6 +1241,7 @@ pub fn build_with(
         "scale" => Box::new(Scale {
             k: num("k", 1.0)?,
             b: num("b", 0.0)?,
+            range: Scale::range_from(cfg),
         }),
         "deadband" => Box::new(Deadband {
             abs: f(cfg, "abs")?,
@@ -1175,6 +1287,7 @@ pub fn build_with(
         }
         "publish" => Box::new(Publish {
             path: format!("{flow}/nodes/{}", req_s(cfg, "node")?),
+            tx: None,
         }),
         "invoke" => Box::new(Invoke {
             path: req_s(cfg, "path")?.to_owned(),
@@ -1186,6 +1299,7 @@ pub fn build_with(
             on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
             allow_bad: b(cfg, "allow_bad", false)?,
             last: None,
+            tx: None,
         }),
         "set" => Box::new(Set {
             path: req_s(cfg, "path")?.to_owned(),
@@ -1193,6 +1307,7 @@ pub fn build_with(
             deadband: num("deadband", 0.0)?,
             allow_bad: b(cfg, "allow_bad", false)?,
             last: None,
+            tx: None,
         }),
         "wasm" => {
             let store = artifacts.ok_or("wasm: no artifact store")?;

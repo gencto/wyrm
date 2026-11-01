@@ -101,6 +101,8 @@ A node's `~meta.is` names a profile; absent fields come from it, through `extend
 ## Flows
 The explorer edits flows (ADR 0019): **Edit Dataflow** on a flow, **New Dataflow** on `dataflows`. A window shows the node types (`dataflows/~act/node_types`) on the left, the blocks with a row per port and their wires in the middle, and the selected block's (or the flow's) properties on the right. Drag a type onto the canvas, drag from an output pin to an input pin to link, double-click an input pin to unlink, drag a block by its header; each edit is checked (`validate`), **Deploy** sends a new version with the blocks' positions (`~def.layout`).
 
+Besides `expression`, `window`, `alarm` and the other node types, a flow has logic blocks (`number`, `add`, `round`, `modulo`, `if`, `hub`, `stopwatch`, `concat`, …; ADR 0032): see [docs/flow-blocks.md](docs/flow-blocks.md).
+
 `wy/<site>/dataflows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/downstream/` or `wy/<site>/storage/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
 ```
 wyr --key admin.key flow validate local peak.json5     # compile only

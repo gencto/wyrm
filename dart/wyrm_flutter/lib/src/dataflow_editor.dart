@@ -126,8 +126,9 @@ class _TypeInfo {
         _ => const [],
       };
 
-  List<String> ins(Map<String, Value> cfg) => dynIn?.of(cfg) ?? inputs;
-  List<String> outs(Map<String, Value> cfg) => dynOut?.of(cfg) ?? outputs;
+  /// The fixed ports, then the ones a parameter names (`if`: `in.then`, `in.else`, `in.0`, …).
+  List<String> ins(Map<String, Value> cfg) => [...inputs, ...?dynIn?.of(cfg)];
+  List<String> outs(Map<String, Value> cfg) => [...outputs, ...?dynOut?.of(cfg)];
 }
 
 class _DfNode {

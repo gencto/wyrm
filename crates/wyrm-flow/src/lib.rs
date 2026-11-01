@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod artifacts;
+pub mod blocks;
 pub mod catalog;
 pub mod def;
 pub mod engine;

@@ -8,6 +8,7 @@ description: Write, check, test and deploy a WYRM data flow — a `dataflows/<id
 ## Read first
 1. `spec/06-flow-def.md` — the schema, the port naming and the compiler order (first error stops; the text starts with the path, e.g. `nodes.sum.expr: …`).
 2. `crates/wyrm-flow/src/nodes.rs`, function `ports` — the node types, their config keys, defaults and ports. This is the source of truth; do not invent keys.
+   The logic blocks (`number`, `string`, `bool`, `add`, `subtract`, `multiply`, `divide`, `max`, `min`, `abs`, `round`, `modulo`, `not`, `if`, `hub`, `stopwatch`, `trace`, `concat`, `length`) are in `crates/wyrm-flow/src/blocks.rs` (guide `docs/flow-blocks.md`): parameters from the config or from ports `in.<param>`, variable inputs from `inputs` (default `0`, `1`), outputs only on a change, operators silent until their first input.
 3. `docs/adr/0008-flow-deploy-proofs.md` — why a deploy carries one proof per command target.
 4. Example definitions: `crates/wyrm-flow/tests/flow.rs` (`peak`), `tools/wyr/templates/flow/flow.json5.tmpl`.
 

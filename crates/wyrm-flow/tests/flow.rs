@@ -740,3 +740,60 @@ async fn history_and_rollback() {
     assert!(e.is(wyrm_core::Status::NotFound), "{e}");
     env.stop().await;
 }
+
+/// ADR 0032: logic blocks run in a deployed flow: a variable at start, an operator on its
+/// inputs, a value published.
+#[tokio::test(flavor = "multi_thread")]
+async fn logic_blocks_in_a_deployed_flow() {
+    let env = Env::start("blocks").await;
+    let def = map(&[
+        ("id", s("calc")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "a",
+                    map(&[("type", s("number")), ("value", Value::UInt(40))]),
+                ),
+                ("b", map(&[("type", s("number")), ("value", s("2"))])),
+                ("sum", map(&[("type", s("add"))])),
+                (
+                    "label",
+                    map(&[
+                        ("type", s("if")),
+                        ("op", s(">")),
+                        ("then", s("big")),
+                        ("else", s("small")),
+                    ]),
+                ),
+                ("show", map(&[("type", s("publish")), ("node", s("total"))])),
+                ("word", map(&[("type", s("publish")), ("node", s("label"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[
+                edge("a.out", "sum.in.0"),
+                edge("b.out", "sum.in.1"),
+                edge("sum.out", "show.in"),
+                edge("sum.out", "label.in.0"),
+                edge("a.out", "label.in.1"),
+                edge("label.out", "word.in"),
+            ]),
+        ),
+    ]);
+    env.deploy(def).await.unwrap();
+    let total = wait("total", || {
+        env.last("calc/nodes/total")
+            .filter(|s| s.v.as_f64() == Some(42.0))
+    })
+    .await;
+    assert_eq!(total.q, wyrm_core::Quality::Good);
+    wait("label", || {
+        env.last("calc/nodes/label")
+            .filter(|s| s.v == Value::from("big"))
+    })
+    .await;
+    env.stop().await;
+}

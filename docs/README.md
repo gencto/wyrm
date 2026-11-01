@@ -13,6 +13,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [filestores.md](filestores.md) | connect S3, Google Drive, WebDAV or a local directory and move files |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | run the AI agent link: tasks in plain words, plans a person approves |
+| [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with blocks: variables, math, if, hub, stopwatch, text |
 
 ## Protocol links
 

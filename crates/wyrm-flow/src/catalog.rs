@@ -169,12 +169,19 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "scale",
         category: "Math",
-        description: "out = k × in + b.",
-        inputs: &["in"],
-        outputs: &["out"],
+        description: "out = k × in + b; with a range, in is first mapped from input_min…input_max to output_min…output_max.",
+        inputs: &["in", "in.input_min", "in.input_max", "in.output_min", "in.output_max"],
+        outputs: &["out", "input_out_of_range"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[p("k", "number", "Factor (default 1)."), p("b", "number", "Offset (default 0).")],
+        params: &[
+            p("k", "number", "Factor (default 1)."),
+            p("b", "number", "Offset (default 0)."),
+            p("input_min", "number", "Range from (default 0 once a range parameter is given)."),
+            p("input_max", "number", "Range to (default 1)."),
+            p("output_min", "number", "Mapped from (default 0)."),
+            p("output_max", "number", "Mapped to (default 100)."),
+        ],
     },
     NodeType {
         ty: "deadband",
@@ -290,7 +297,191 @@ pub const TYPES: &[NodeType] = &[
             p("memory_mb", "number", "Memory limit."),
         ],
     },
+    // ---------- logic blocks (crate::blocks, docs/flow-blocks.md) ----------
+    NodeType {
+        ty: "number",
+        category: "Variables",
+        description: "A number: sent at start, and again when in brings another.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[p("value", "number", "The value at start (default 0).")],
+    },
+    NodeType {
+        ty: "string",
+        category: "Variables",
+        description: "A text: sent at start, and again when in brings another.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ed(p("value", "string", "The text at start (default empty)."), "textarea")],
+    },
+    NodeType {
+        ty: "bool",
+        category: "Variables",
+        description: "A bool: sent at start, and again when in brings another.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[p("value", "bool", "The value at start (default false).")],
+    },
+    reduce("add", "The sum of the inputs (none: 0)."),
+    reduce("subtract", "The first input minus the others."),
+    reduce("multiply", "The product of the inputs."),
+    reduce("divide", "The first input divided by the others (a float; by 0: null)."),
+    reduce("max", "The largest input."),
+    reduce("min", "The smallest input."),
+    NodeType {
+        ty: "abs",
+        category: "Math",
+        description: "The absolute value of in.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "round",
+        category: "Math",
+        description: "in rounded to precision places (0: an integer).",
+        inputs: &["in", "in.precision"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[p("precision", "number", "Places after the point, 0…20 (default 0).")],
+    },
+    NodeType {
+        ty: "modulo",
+        category: "Math",
+        description: "in divided by modulo: the whole quotient and the remainder (never negative).",
+        inputs: &["in", "in.modulo"],
+        outputs: &["quotient", "remainder"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[p("modulo", "number", "The divisor (0 or none: null).")],
+    },
+    NodeType {
+        ty: "not",
+        category: "Logic",
+        description: "The opposite of in as a bool.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "if",
+        category: "Logic",
+        description: "then when the inputs pass op, else otherwise.",
+        inputs: &["in.then", "in.else"],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            pick(
+                p("op", "string", "= all equal; and / or of the inputs; > < >= <= between each input and the next."),
+                &["=", "and", "or", ">", "<", ">=", "<="],
+                "=",
+            ),
+            p("then", "dynamic", "Sent when it passes (default true)."),
+            p("else", "dynamic", "Sent when it does not (default false)."),
+            INPUTS,
+        ],
+    },
+    NodeType {
+        ty: "hub",
+        category: "Logic",
+        description: "The input that changed last: its value, its index and an event.",
+        inputs: &[],
+        outputs: &["out", "index", "on_change"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[p("ignore_null", "bool", "A null on an input is not passed (default true)."), INPUTS],
+    },
+    NodeType {
+        ty: "stopwatch",
+        category: "Logic",
+        description: "Counts by step every interval while enabled; an event when it reaches modulo.",
+        inputs: &["reset", "in.enabled", "in.interval", "in.step", "in.modulo", "in.loop", "in.reset_value"],
+        outputs: &["out", "on_loop"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[
+            p("enabled", "bool", "Counting (default false)."),
+            ed(p("interval", "number", "Seconds between two steps, at least 0.05 (default 0.5)."), "duration"),
+            p("step", "number", "Added each interval (default 1)."),
+            p("modulo", "number", "Above 0: the count wraps (or stops) there (default 0)."),
+            p("loop", "bool", "At modulo: start again from the remainder; false: stop there (default true)."),
+            p("reset_value", "number", "The count at start and after reset (default 0)."),
+        ],
+    },
+    NodeType {
+        ty: "trace",
+        category: "Logic",
+        description: "Writes msg and the inputs to the broker log at level trace.",
+        inputs: &[],
+        outputs: &[],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            p("tracing", "bool", "Writing (default true)."),
+            p("msg", "string", "The line's text (default trace)."),
+            INPUTS,
+        ],
+    },
+    NodeType {
+        ty: "concat",
+        category: "Text",
+        description: "The inputs as one text.",
+        inputs: &[],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[p("strict", "bool", "A missing input gives null (default false: empty text)."), INPUTS],
+    },
+    NodeType {
+        ty: "length",
+        category: "Text",
+        description: "The characters of a text, the items of a list or the entries of a map.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
 ];
+
+/// Variable inputs `in.<name>` of a block (default `in.0`, `in.1`).
+const ITEMS: DynPorts = DynPorts {
+    param: "inputs",
+    prefix: "in.",
+    default: &["0", "1"],
+};
+
+const INPUTS: Param = p(
+    "inputs",
+    "array",
+    "Names of the variable inputs, [A-Za-z0-9_]+, at most 64 (default 0, 1): ports in.<name>.",
+);
+
+/// A block over its variable inputs with one number out.
+const fn reduce(ty: &'static str, description: &'static str) -> NodeType {
+    NodeType {
+        ty,
+        category: "Math",
+        description,
+        inputs: &[],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[INPUTS],
+    }
+}
 
 fn texts(a: &[&str]) -> Value {
     Value::Array(a.iter().map(|s| Value::from(*s)).collect())
@@ -392,13 +583,16 @@ mod tests {
             let outs: Vec<&str> = got.outputs.iter().map(|(n, _)| n.as_str()).collect();
             assert_eq!(outs, t.outputs, "{} outputs", t.ty);
             let ins: Vec<String> = got.inputs.iter().map(|(n, _)| n.clone()).collect();
-            let want: Vec<String> = match &t.dyn_inputs {
-                Some(d) => ["a", "b"]
-                    .iter()
-                    .map(|n| format!("{}{n}", d.prefix))
-                    .collect(),
-                None => t.inputs.iter().map(|s| (*s).to_owned()).collect(),
-            };
+            // the fixed ports, then the ones a parameter names (as the editor draws them)
+            let mut want: Vec<String> = t.inputs.iter().map(|s| (*s).to_owned()).collect();
+            if let Some(d) = &t.dyn_inputs {
+                let names: &[&str] = if cfg.contains_key(d.param) {
+                    &["a", "b"]
+                } else {
+                    d.default
+                };
+                want.extend(names.iter().map(|n| format!("{}{n}", d.prefix)));
+            }
             assert_eq!(ins, want, "{} inputs", t.ty);
             // every listed param is one the type takes
             let mut all = cfg.clone();
@@ -417,6 +611,10 @@ mod tests {
             ports(t.ty, &all).unwrap_or_else(|e| panic!("{} with every param: {e}", t.ty));
         }
         assert!(ports("nope", &BTreeMap::new()).is_err());
-        assert_eq!(TYPES.len(), 16);
+        assert_eq!(TYPES.len(), 35);
+        // every logic block is in the palette
+        for b in crate::blocks::TYPES {
+            assert!(TYPES.iter().any(|t| t.ty == *b), "{b} in the catalog");
+        }
     }
 }
