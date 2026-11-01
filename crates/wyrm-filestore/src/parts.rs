@@ -7,7 +7,8 @@
 //!
 //! An upload belongs to whoever began it (the `ptok` subject): only they
 //! add parts, commit, abort or ask its state. An upload idle for
-//! [`IDLE`] is dropped with its spool file; so is every upload of a
+//! [`IDLE`] is dropped with its spool file at the next upload action of
+//! the connection (begin, part, status, commit, abort); so is every upload of a
 //! connection that stops, and every spool file left by an earlier start.
 //! Spool files are removed on the blocking pool, never on a tokio worker.
 //!
@@ -450,6 +451,7 @@ impl Uploads {
         index: u64,
         data: Vec<u8>,
     ) -> Result<Value, LinkError> {
+        self.sweep();
         let (file, offset, need) = self.with(id, owner, |u| {
             if u.state != State::Receiving {
                 return Err(bad(format!("upload {id} is {}", u.state.name())));
@@ -489,6 +491,7 @@ impl Uploads {
 
     /// Where the upload stands.
     pub fn status(&self, id: &str, owner: &str) -> Result<Value, LinkError> {
+        self.sweep();
         self.with(id, owner, |u| {
             let missing: Vec<Value> = u
                 .got
@@ -521,6 +524,7 @@ impl Uploads {
 
     /// Mark the upload committing when every part is there.
     pub fn commit(&self, id: &str, owner: &str) -> Result<(Commit, Option<[u8; 32]>), LinkError> {
+        self.sweep();
         self.with(id, owner, |u| {
             match &u.state {
                 State::Receiving => {}
@@ -568,6 +572,7 @@ impl Uploads {
     }
 
     pub fn abort(&self, id: &str, owner: &str) -> Result<(), LinkError> {
+        self.sweep();
         self.with(id, owner, |u| {
             if u.state == State::Committing {
                 return Err(bad(format!("upload {id} is committing")));
@@ -816,10 +821,13 @@ mod tests {
         u.abort(&id, "user:a").unwrap();
         wait_removed(&file).await;
         let id = id_of(&u.begin(begin(100, 65_536), 1 << 20).await.unwrap());
+        let other = id_of(&u.begin(begin(100, 65_536), 1 << 20).await.unwrap());
         lock(&u.map).get_mut(&id).unwrap().touched = Instant::now() - IDLE - IDLE;
         let idle = dir.join(format!("{id}.part"));
-        u.sweep();
+        // review FS-1: any upload action sweeps, not only a new begin
+        let _ = u.status(&other, "user:a");
         wait_removed(&idle).await;
+        u.abort(&other, "user:a").unwrap();
         u.clear().wait().await;
         assert!(!dir.exists());
         let seen: Vec<_> = lock(&REMOVED_ON)

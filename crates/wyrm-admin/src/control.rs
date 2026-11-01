@@ -142,6 +142,24 @@ pub const AGENT_DRIVER: &str = "agent";
 /// the secret that holds it.
 const AGENT_API_BASE: &str = "https://api.anthropic.com";
 const AGENT_API_KEY_REF: &str = "anthropic_api_key";
+const AGENT_KEY_REF: &str = "agent_key";
+
+/// The agent's API key secret is never its signing key: the API key leaves the broker.
+fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
+    let name = |k: &str, d: &str| match params {
+        Value::Map(m) => match m.get(k) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => d.to_owned(),
+        },
+        _ => d.to_owned(),
+    };
+    if name("api_key_ref", AGENT_API_KEY_REF) == name("agent_key_ref", AGENT_KEY_REF) {
+        return Err(LinkError::invalid_parameter(
+            "api_key_ref: not the secret of agent_key_ref (the API key is sent out)",
+        ));
+    }
+    Ok(())
+}
 
 /// Link id of the flow engine (rooted at `wy/<site>/dataflows`); reserved.
 pub const FLOWS_LINK: &str = "dataflows";
@@ -3878,6 +3896,9 @@ impl Admin {
                 "an agent link runs embedded or as a supervised process: its key is trusted by every link",
             ));
         }
+        if driver == AGENT_DRIVER {
+            check_agent_refs(&params)?;
+        }
         if ctl.cfg.operators.contains(&id) {
             return Err(LinkError::invalid_parameter("id is an operator CN"));
         }
@@ -4270,6 +4291,9 @@ impl Admin {
             ));
         }
         crate::secrets::lint_params(&params, "params").map_err(LinkError::invalid_parameter)?;
+        if def.driver == AGENT_DRIVER {
+            check_agent_refs(&params)?;
+        }
         // A process package's params are its binary's to parse (at `hello`):
         // the broker cannot know their type, so they are not checked here, as
         // at install. Every other link is checked by the driver it runs on (a
@@ -4305,9 +4329,11 @@ impl Admin {
         Ok(Some(Value::UInt(rev.into())))
     }
 
-    /// The agent's LLM API key is entered for one `api_base`: a new `api_base` drops it until
-    /// someone enters it again with ▸ Set Secret (security review AI-3: a `config` operator who
-    /// cannot read `secrets.bin` pointed `api_base` at a host of their own and received the key).
+    /// The agent's LLM API key is entered for one `api_base` and one `api_key_ref`: a change of
+    /// either drops the secrets both names held until someone enters the key again with
+    /// ▸ Set Secret (security review AI-3: a `config` operator who cannot read `secrets.bin`
+    /// pointed `api_base` at a host of their own and received the key; changing the name first
+    /// and the host next, then the name back, must not keep it either).
     fn drop_agent_key_on_new_base(&self, id: &str, old: &Value, new: &Value, sub: &str) {
         let text = |v: &Value, k: &str, d: &str| match v {
             Value::Map(m) => match m.get(k) {
@@ -4317,11 +4343,11 @@ impl Admin {
             _ => d.to_owned(),
         };
         let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
-        if base(old) == base(new) {
-            return;
-        }
         let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
         let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
+        if base(old) == base(new) && name == old_name {
+            return;
+        }
         for n in [name, old_name] {
             if self.ctl.secrets.remove(id, &n).unwrap_or(false) {
                 self.ctl.record(
@@ -6311,6 +6337,23 @@ mod tests {
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
         k.subject.as_deref() == Some("link:scheduler")
+    }
+
+    /// Review AI-3 (and the automated review of d8ce568): the API key's secret is never the
+    /// agent's signing key.
+    #[test]
+    fn agent_api_key_ref_is_not_the_signing_key() {
+        use wyrm_core::Value;
+        let p = |a: &str, k: &str| {
+            Value::Map(std::collections::BTreeMap::from([
+                ("api_key_ref".to_owned(), Value::from(a)),
+                ("agent_key_ref".to_owned(), Value::from(k)),
+            ]))
+        };
+        assert!(super::check_agent_refs(&p("anthropic_api_key", "agent_key")).is_ok());
+        assert!(super::check_agent_refs(&p("agent_key", "agent_key")).is_err());
+        assert!(super::check_agent_refs(&p("k", "k")).is_err());
+        assert!(super::check_agent_refs(&Value::Map(std::collections::BTreeMap::new())).is_ok());
     }
 
     /// Review ADM-3: a link's audit records are rate limited per link, and text is cut.

@@ -109,7 +109,7 @@ pub struct Common {
     #[param(
         default = 4096,
         min = 1,
-        max = 1048576,
+        max = 65536,
         display = "Max File in Parts (MiB)",
         desc = "a file uploaded in parts (upload_begin … upload_commit), spooled on the link's disk"
     )]

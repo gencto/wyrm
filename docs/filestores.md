@@ -82,7 +82,7 @@ Common connection params (all four links):
 | `max_entries` | 2000 | 1–9000 | more are left out; the connection says `truncated` |
 | `max_depth` | 8 | 1–12 | folder levels shown |
 | `max_upload_mib` | 32 | 1–64 | Upload File in one request |
-| `max_file_mib` | 4096 | 1–1 048 576 | a file uploaded in parts |
+| `max_file_mib` | 4096 | 1–65 536 | a file uploaded in parts (at most 64 GiB since 2026-11-01: a larger stored value makes the connection `failed` until it is edited) |
 | `max_download_kib` | 1024 | 1–16 384 | |
 
 A connection name is one key segment. The names `.` and `..` are

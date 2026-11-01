@@ -4050,7 +4050,7 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         ("name".to_owned(), Value::from("anthropic_api_key")),
         ("value".to_owned(), Value::Bytes(b"sk-test".to_vec())),
     ]);
-    c.invoke_one(&node, "set_secret", Value::Map(secret))
+    c.invoke_one(&node, "set_secret", Value::Map(secret.clone()))
         .await
         .expect("set the key");
     let names = |v: Option<Value>| format!("{v:?}");
@@ -4072,6 +4072,36 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .audit_tail(50)
         .iter()
         .any(|r| r.op == "secret_dropped" && r.key == "ai3"));
+    // the three-step way round it (automated review of d8ce568): another key name at the same
+    // base, then the new base, then the old name back. Each change of either field drops.
+    c.invoke_one(&node, "set_secret", Value::Map(secret.clone()))
+        .await
+        .expect("enter the key again");
+    let with = |base: &str, key_ref: &str| {
+        let mut p = params(base);
+        if let Value::Map(m) = &mut p {
+            m.insert("api_key_ref".into(), Value::from(key_ref));
+        }
+        Value::Map(BTreeMap::from([("params".to_owned(), p)]))
+    };
+    let dropped = || {
+        env.ctl
+            .audit_tail(200)
+            .iter()
+            .filter(|r| r.op == "secret_dropped")
+            .count()
+    };
+    // `api_key_ref` cannot be changed through params at all (it looks like a secret), so the
+    // name cannot move first; the admin also drops on a change of the name and refuses the
+    // signing key's name, should that ever change
+    let before = dropped();
+    for key_ref in ["decoy", "agent_key"] {
+        assert!(c
+            .invoke_one(&node, "update", with("https://llm.example", key_ref))
+            .await
+            .is_err());
+    }
+    assert_eq!(dropped(), before);
     let empty = BTreeMap::from([("name".to_owned(), Value::from("other"))]);
     let left = c
         .invoke_one(&node, "delete_secret", Value::Map(empty))
