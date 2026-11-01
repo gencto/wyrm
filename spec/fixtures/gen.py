@@ -93,6 +93,11 @@ def fixtures():
          "auth": [{"k": "wy/plant-a/downstream/**", "p": 3}, {"k": "wy/plant-a/downstream/plc1/**", "p": 1},
                   {"k": "wy/plant-a/dataflows/**", "p": 2}],
          "max": 3, "iat": 1760000000, "exp": 1760000300, "jti": b"\x22" * 16, "site": "plant-a"})
+    add("ptok_claims_args", "ptok claims погодження, прив'язаного до аргументів: \"args\" = SHA-256 тіла запиту",
+        {"sub": "user:olena", "roles": [],
+         "grants": [{"k": "wy/plant-a/sys/links/~act/install_url", "p": 4}],
+         "args": bytes(range(32)),
+         "max": 4, "iat": 1760000000, "exp": 1760000300, "jti": b"\x33" * 16, "site": "plant-a"})
     return fx
 
 

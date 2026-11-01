@@ -67,7 +67,7 @@ where
 #[test]
 fn all_fixtures_roundtrip() {
     let fx = fixtures();
-    assert_eq!(fx.len(), 27, "fixture count changed — update bindings too");
+    assert_eq!(fx.len(), 28, "fixture count changed — update bindings too");
     for f in &fx {
         let bytes = hex::decode(&f.hex).unwrap();
         let n = f.name.as_str();
@@ -143,6 +143,20 @@ fn ptok_claims_auth_matches_json() {
     assert_eq!(auth[1].k, "wy/plant-a/downstream/plc1/**");
     assert_eq!(auth[1].p, wyrm_core::Perm::List);
     assert_eq!(auth[2].p, wyrm_core::Perm::Read);
+}
+
+#[test]
+fn ptok_claims_args_matches_json() {
+    let f = fixtures()
+        .into_iter()
+        .find(|f| f.name == "ptok_claims_args")
+        .unwrap();
+    let bytes = hex::decode(&f.hex).unwrap();
+    roundtrip::<PtokClaims>(&f.name, &bytes);
+    let c: PtokClaims = from_slice(&bytes).unwrap();
+    let want: Vec<u8> = (0u8..32).collect();
+    assert_eq!(c.args.map(|a| a.to_vec()), Some(want));
+    assert_eq!(c.auth, None);
 }
 
 #[test]

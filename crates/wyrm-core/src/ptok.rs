@@ -32,6 +32,9 @@ pub struct PtokClaims {
     /// never authorizes the request: a responder acting for the caller checks the keys the caller
     /// names against it. `None` = not sent (the caller's rights are unknown).
     pub auth: Option<Vec<Grant>>,
+    /// SHA-256 of the request's payload as sent (spec 04 0.2.14): the token is good only for
+    /// those exact arguments (a human approval of one dry-run payload). `None` = any payload.
+    pub args: Option<[u8; 32]>,
 }
 
 /// A grant of site `own` as it reads on site `site` (ADR 0018): `wy/<own>…` becomes
@@ -142,12 +145,16 @@ impl<C> Encode<C> for PtokClaims {
         ctx: &mut C,
     ) -> Result<(), encode::Error<W::Error>> {
         // canonical order (length first): exp iat jti max sub auth site roles grants
-        e.map(if self.auth.is_some() { 9 } else { 8 })?;
+        e.map(8 + u64::from(self.auth.is_some()) + u64::from(self.args.is_some()))?;
         e.str("exp")?.u64(self.exp)?;
         e.str("iat")?.u64(self.iat)?;
         e.str("jti")?.bytes(&self.jti)?;
         e.str("max")?.u8(self.max.code())?;
         e.str("sub")?.str(&self.sub)?;
+        // canonical order: length first, then bytes ("args" < "auth" < "site")
+        if let Some(h) = &self.args {
+            e.str("args")?.bytes(h)?;
+        }
         if let Some(auth) = &self.auth {
             e.str("auth")?.array(auth.len() as u64)?;
             for g in auth {
@@ -228,6 +235,13 @@ impl<'b, C> Decode<'b, C> for PtokClaims {
                     seen_jti = true;
                 }
                 "site" => c.site = d.str()?.to_owned(),
+                "args" => {
+                    c.args = Some(
+                        d.bytes()?
+                            .try_into()
+                            .map_err(|_| decode::Error::message("args must be 32 bytes"))?,
+                    );
+                }
                 "auth" => {
                     let mut auth = Vec::new();
                     for g in d.array_iter_with::<C, Grant>(ctx)? {

@@ -41,9 +41,11 @@ CBOR map з цілими ключами. Відсутній attachment = `{}`.
 ptok = version(1 байт = 0x01) || claims(CBOR) || sig(64 байти, Ed25519 над version||claims)
 claims = { "sub": tstr, "roles": [tstr], "grants": [ {"k": key_expr, "p": perm} ],
            "max": perm, "iat": uint, "exp": uint, "jti": bstr(16), "site": tstr,
-           ? "auth": [ {"k": key_expr, "p": perm} ] }
+           ? "auth": [ {"k": key_expr, "p": perm} ], ? "args": bstr(32) }
 ```
 `auth` (необов'язковий, з 0.2.10): усі grants викликача на цьому сайті. Його несуть лише токени на дії (`~act/*`). Він **ніколи** не дає прав на сам запит — права дає лише `grants`. Responder, який діє від імені викликача (DQL, scheduler), перевіряє за ним ключі, які викликач назвав у аргументах. SDK обмежує кожен grant з `auth` так само, як ефективний рівень: `min(p, max, attachment.maxperm, cap ключа)`, а для обмеженого ключа (`LimitedKey`) лишає тільки ключі в межах його scopes. Токен без `auth` означає, що права викликача невідомі; responder, якому вони потрібні, відмовляє.
+
+`args` (необов'язковий, з 0.2.14): SHA-256 тіла запиту (payload `~set` або `~act/*` байт у байт, як його надіслано). Токен з `args` дійсний лише для цього тіла: responder SDK рахує SHA-256 отриманого payload і з іншим тілом відповідає `permission_denied`. Так людина погоджує саме ті аргументи, які показав dry run, а не те, що клієнт надішле потім (`wyrm-mcp` приймає погодження лише з `args`; `wyr token --args-sha256`). Без `args` — будь-яке тіло.
 Перевірка responder'ом, у цьому порядку: version == 1 → sig публічним ключем admin'а (kid не потрібен: один активний + один попередній ключ) → `exp > now` → `site` == свій → перший `grants[i].k`, що збігається з ключем запиту (Zenoh key-expr intersect) → `jti` не в replay-кеші → `effective = min(p, max, attachment.maxperm)` → `effective ≥ required`. Будь-яка відмова → `permission_denied`, без деталей у `err`.
 
 `jti` (0.2.11): токен одноразовий для кожного responder'а. Responder пам'ятає `jti` до `exp` і вдруге відмовляє. Пам'ять — у процесі: після перезапуску responder'а токен, який він бачив, проходить знову до свого `exp`. Тому `exp` не може бути далі ніж 15 хв від `now` (інакше `permission_denied`). Коли кеш повний (65 536 токенів, що ще не спливли), responder відмовляє новим токенам, а не забуває старі.

@@ -182,15 +182,25 @@ pub fn decode_token(b64: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "approval is not base64".to_owned())
 }
 
+/// SHA-256 (hex) of a request payload: what an approval binds (claim `args`, spec 04 0.2.14).
+pub fn payload_sha256(payload: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(payload))
+}
+
 /// Readable pre-check of a human approval for exactly `key` at `need`:
 /// every grant is exactly `key`, the site matches, it has not expired, the
-/// effective level reaches `need`, and the subject is not an AI (`ai:*`).
-/// The signature is NOT checked here; the responder does that.
+/// effective level reaches `need`, the subject is not an AI (`ai:*`), and,
+/// with `payload`, the token is bound to exactly those bytes (claim `args`:
+/// the human approved the dry run's arguments, not whatever the client sends
+/// next; security review AI-1). The signature is NOT checked here; the
+/// responder does that, and checks `args` too.
 pub fn precheck_approval(
     tok: &[u8],
     key: &str,
     site: &str,
     need: Perm,
+    payload: Option<&[u8]>,
 ) -> Result<ApprovalInfo, String> {
     let parts = ptok::split(tok).ok_or("approval is not a ptok v1")?;
     let c: PtokClaims = wyrm_core::codec::from_slice(parts.claims)
@@ -216,6 +226,24 @@ pub fn precheck_approval(
         .unwrap_or(0);
     if c.exp <= now {
         return Err("approval has expired".into());
+    }
+    if let Some(payload) = payload {
+        let want = payload_sha256(payload);
+        match c.args {
+            None => {
+                return Err(format!(
+                    "approval is not bound to these arguments: mint it with \
+                     `wyr token {key} --args-sha256 {want}` (the dry run shows the hash)"
+                ))
+            }
+            Some(h) if hex::encode(h) != want => {
+                return Err(format!(
+                    "approval is bound to other arguments (these hash to {want}); look at the \
+                     dry run again"
+                ))
+            }
+            Some(_) => {}
+        }
     }
     let perm = c.grants[0].p.min(c.max);
     if perm < need {

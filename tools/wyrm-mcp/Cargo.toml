@@ -27,6 +27,7 @@ base64.workspace = true
 getrandom.workspace = true
 clap = { workspace = true, features = ["env"] }
 hex.workspace = true
+sha2.workspace = true
 ed25519-dalek.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

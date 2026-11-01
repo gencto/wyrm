@@ -752,3 +752,28 @@ async fn broker_overlays_merge_into_meta() {
     }
     panic!("the overlay was not cleared");
 }
+
+/// Security review AI-1: a token bound to arguments (claim `args`, spec 04 0.2.14) takes only
+/// the payload whose SHA-256 it names.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_token_bound_to_arguments_takes_only_them() {
+    use sha2::Digest;
+    let (h, calls) = harness().await;
+    let k = h.key("ahu1/supply_temp", "~set");
+    let bound = |v: f64| {
+        let mut c = h.claims(&[(&k, Perm::Write)]);
+        let payload =
+            wyrm_core::codec::to_vec(&wyrm_core::SetRequest { v: Value::Float(v) }).unwrap();
+        c.args = Some(sha2::Sha256::digest(&payload).into());
+        h.sign(&c)
+    };
+    let att = h.set("ahu1/supply_temp", 21.5, Some(bound(21.5))).await;
+    assert_eq!(status(&att), Status::Ok);
+    let att = h.set("ahu1/supply_temp", 30.0, Some(bound(21.5))).await;
+    assert_eq!(status(&att), Status::PermissionDenied);
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        [("ahu1/supply_temp".to_owned(), Value::Float(21.5))]
+    );
+    h.stop().await;
+}

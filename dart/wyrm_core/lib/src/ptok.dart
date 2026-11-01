@@ -29,6 +29,10 @@ class PtokClaims {
   /// request. `null` = not sent.
   final List<Grant>? auth;
 
+  /// SHA-256 (32 bytes) of the one request payload the token is good for (spec 04 0.2.14).
+  /// `null` = any payload.
+  final Uint8List? args;
+
   const PtokClaims({
     required this.sub,
     required this.roles,
@@ -39,6 +43,7 @@ class PtokClaims {
     required this.jti,
     required this.site,
     this.auth,
+    this.args,
   });
 
   Value toValue() => VMap({
@@ -52,6 +57,7 @@ class PtokClaims {
         'exp': VInt(exp),
         'jti': VBytes(jti),
         'site': VStr(site),
+        if (args case final args?) 'args': VBytes(args),
         if (auth case final auth?)
           'auth': VArray([
             for (final g in auth) VMap({'k': VStr(g.k), 'p': VInt(g.p.code)})
@@ -80,6 +86,11 @@ class PtokClaims {
     final grants = grantList(v['grants'], 'grants');
     final auth = v['auth'] == null ? null : grantList(v['auth'], 'auth');
     final jti = switch (v['jti']) { VBytes(:final v) when v.length == 16 => v, _ => bad('jti') };
+    final args = switch (v['args']) {
+      null => null,
+      VBytes(:final v) when v.length == 32 => v,
+      _ => bad('args'),
+    };
     return PtokClaims(
       sub: text('sub'),
       roles: roles,
@@ -90,6 +101,7 @@ class PtokClaims {
       jti: jti,
       site: text('site'),
       auth: auth,
+      args: args,
     );
   }
 

@@ -217,9 +217,22 @@ impl Env {
             .unwrap_or_else(|| b.to_string())
     }
 
-    /// A human approval for exactly `key`, base64.
+    /// A human approval for exactly `key`, base64, not bound to arguments (a flow's proof).
     fn approve(&self, key: &str) -> String {
         b64(&self.human.token(key).unwrap())
+    }
+
+    /// A human approval for exactly `key` and the payload a dry run hashed (`args_sha256`).
+    fn approve_args(&self, k: &str, sha: &Json) -> String {
+        let h: [u8; 32] = hex::decode(sha.as_str().expect("args_sha256"))
+            .unwrap()
+            .try_into()
+            .unwrap();
+        b64(&SigningTokens::new(key(), SITE)
+            .subject("user:op")
+            .bound_to(h)
+            .token(k)
+            .unwrap())
     }
 
     async fn value(&self, path: &str) -> Json {
@@ -449,6 +462,10 @@ async fn config_level_needs_a_human_approval() {
     let r = env.ok("node_set", json!({ "path": sp, "value": 50 })).await;
     assert_eq!(r["level"], "config");
     assert_eq!(r["requires_approval"], true);
+    let h50 = r["would_send"]["args_sha256"].clone();
+    let h60 = env.ok("node_set", json!({ "path": sp, "value": 60 })).await["would_send"]
+        ["args_sha256"]
+        .clone();
 
     // refused without approval, nothing sent
     let e = env
@@ -460,8 +477,17 @@ async fn config_level_needs_a_human_approval() {
     assert!(e.contains("config-level") && e.contains("approval"), "{e}");
     assert_eq!(env.value(sp).await, 20.0);
 
+    // review AI-1: an approval not bound to the arguments is refused, with how to mint one
+    let e = env
+        .fails(
+            "node_set",
+            json!({ "path": sp, "value": 50, "dry_run": false, "approval": env.approve(&set_key) }),
+        )
+        .await;
+    assert!(e.contains("--args-sha256"), "{e}");
+
     // a dry run with an approval checks it but does not spend it
-    let tok = env.approve(&set_key);
+    let tok = env.approve_args(&set_key, &h50);
     let r = env
         .ok(
             "node_set",
@@ -470,6 +496,16 @@ async fn config_level_needs_a_human_approval() {
         .await;
     assert_eq!(r["approval"]["sub"], "user:op");
     assert_eq!(r["approval"]["level"], "config");
+    assert_eq!(env.value(sp).await, 20.0);
+
+    // review AI-1: the approval of 50 cannot send 60
+    let e = env
+        .fails(
+            "node_set",
+            json!({ "path": sp, "value": 60, "dry_run": false, "approval": tok }),
+        )
+        .await;
+    assert!(e.contains("other arguments"), "{e}");
     assert_eq!(env.value(sp).await, 20.0);
 
     // the same token now goes out for real
@@ -486,14 +522,14 @@ async fn config_level_needs_a_human_approval() {
     let e = env
         .fails(
             "node_set",
-            json!({ "path": sp, "value": 60, "dry_run": false, "approval": tok }),
+            json!({ "path": sp, "value": 50, "dry_run": false, "approval": tok }),
         )
         .await;
     assert!(e.contains("permission_denied"), "{e}");
     assert_eq!(env.value(sp).await, 50);
 
     // an approval for another key is refused before sending
-    let other = env.approve("wy/test/downstream/plant/mode/~set");
+    let other = env.approve_args("wy/test/downstream/plant/mode/~set", &h60);
     let e = env
         .fails(
             "node_set",
@@ -502,10 +538,15 @@ async fn config_level_needs_a_human_approval() {
         .await;
     assert!(e.contains("exactly"), "{e}");
 
+    let bound60: [u8; 32] = hex::decode(h60.as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
     // an approval capped at write cannot do a config write
     let weak = SigningTokens::new(key(), SITE)
         .subject("user:op")
         .max(Perm::Write)
+        .bound_to(bound60)
         .token(&set_key)
         .unwrap();
     let e = env
@@ -519,6 +560,7 @@ async fn config_level_needs_a_human_approval() {
     // an AI cannot approve itself
     let ai = SigningTokens::new(key(), SITE)
         .subject("ai:test")
+        .bound_to(bound60)
         .token(&set_key)
         .unwrap();
     let e = env
@@ -532,6 +574,7 @@ async fn config_level_needs_a_human_approval() {
     // signed by a key the link does not trust: passes the pre-check, the link refuses
     let rogue = SigningTokens::new(ed25519_dalek::SigningKey::from_bytes(&[9; 32]), SITE)
         .subject("user:op")
+        .bound_to(bound60)
         .token(&set_key)
         .unwrap();
     let e = env
@@ -549,12 +592,19 @@ async fn config_level_needs_a_human_approval() {
         .fails("action_invoke", json!({ "path": "downstream/plant", "action": "reboot", "args": { "delay": 1 }, "dry_run": false }))
         .await;
     assert!(e.contains("config-level"), "{e}");
+    let dry = env
+        .ok(
+            "action_invoke",
+            json!({ "path": "downstream/plant", "action": "reboot", "args": { "delay": 1 } }),
+        )
+        .await;
     let r = env
         .ok(
             "action_invoke",
             json!({
                 "path": "downstream/plant", "action": "reboot", "args": { "delay": 1 },
-                "dry_run": false, "approval": env.approve(act_key)
+                "dry_run": false,
+                "approval": env.approve_args(act_key, &dry["would_send"]["args_sha256"])
             }),
         )
         .await;
@@ -596,33 +646,50 @@ async fn flow_apply_with_operator_proofs() {
         .fails("flow_apply", json!({ "def": flow_def(), "dry_run": false }))
         .await;
     assert!(e.contains("approval"), "{e}");
+    let bare = r["args_sha256"].clone();
     let e = env
         .fails(
             "flow_apply",
-            json!({ "def": flow_def(), "dry_run": false, "approval": env.approve(deploy) }),
+            json!({ "def": flow_def(), "dry_run": false, "approval": env.approve_args(deploy, &bare) }),
         )
         .await;
     assert!(e.contains("missing proofs"), "{e}");
 
     // proofs from another operator than the approval are refused
     let other = SigningTokens::new(key(), SITE).subject("user:eve");
+    let eve = b64(&other.token(target).unwrap());
+    let dry = env
+        .ok(
+            "flow_apply",
+            json!({ "def": flow_def(), "proofs": { target: eve } }),
+        )
+        .await;
     let e = env
         .fails(
             "flow_apply",
             json!({
-                "def": flow_def(), "dry_run": false, "approval": env.approve(deploy),
-                "proofs": { target: b64(&other.token(target).unwrap()) }
+                "def": flow_def(), "dry_run": false,
+                "approval": env.approve_args(deploy, &dry["args_sha256"]),
+                "proofs": { target: eve }
             }),
         )
         .await;
     assert!(e.contains("same operator"), "{e}");
 
+    let proof = env.approve(target);
+    let dry = env
+        .ok(
+            "flow_apply",
+            json!({ "def": flow_def(), "proofs": { target: proof } }),
+        )
+        .await;
     let r = env
         .ok(
             "flow_apply",
             json!({
-                "def": flow_def(), "dry_run": false, "approval": env.approve(deploy),
-                "proofs": { target: env.approve(target) }
+                "def": flow_def(), "dry_run": false,
+                "approval": env.approve_args(deploy, &dry["args_sha256"]),
+                "proofs": { target: proof }
             }),
         )
         .await;

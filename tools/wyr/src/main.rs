@@ -227,6 +227,10 @@ enum Cmd {
         /// Lifetime in seconds (responders refuse more than 900).
         #[arg(long, default_value_t = 300)]
         ttl_s: u64,
+        /// Bind the token to the request's arguments: the `args_sha256` a `wyrm-mcp` dry run
+        /// shows. `wyrm-mcp` takes no approval without it.
+        #[arg(long)]
+        args_sha256: Option<String>,
     },
     Keygen {
         #[arg(long, default_value = "admin.key")]
@@ -277,11 +281,19 @@ async fn run(cli: Cli) -> Result<(), Error> {
             subject,
             perm,
             ttl_s,
+            args_sha256,
         } => {
             let key = cli.key.as_deref().ok_or("--key is required")?;
             println!(
                 "{}",
-                approval_token(load_key(key)?, &key_expr, &subject, &perm, ttl_s)?
+                approval_token(
+                    load_key(key)?,
+                    &key_expr,
+                    &subject,
+                    &perm,
+                    ttl_s,
+                    args_sha256.as_deref()
+                )?
             );
             return Ok(());
         }
@@ -587,6 +599,7 @@ fn approval_token(
     subject: &str,
     perm: &str,
     ttl_s: u64,
+    args_sha256: Option<&str>,
 ) -> Result<String, Error> {
     use base64::Engine;
     use wyrm_client::TokenSource;
@@ -609,12 +622,18 @@ fn approval_token(
         .copied()
         .find(|p| p.name() == perm)
         .ok_or("perm: none|list|read|write|config")?;
-    let tok = SigningTokens::new(key, site)
+    let mut src = SigningTokens::new(key, site)
         .subject(subject)
         .max(perm)
-        .ttl(Duration::from_secs(ttl_s))
-        .token(key_expr)
-        .ok_or("no grant covers this key")?;
+        .ttl(Duration::from_secs(ttl_s));
+    if let Some(h) = args_sha256 {
+        let h: [u8; 32] = hex::decode(h.trim())
+            .ok()
+            .and_then(|b| b.try_into().ok())
+            .ok_or("args-sha256: 64 hex digits")?;
+        src = src.bound_to(h);
+    }
+    let tok = src.token(key_expr).ok_or("no grant covers this key")?;
     Ok(base64::engine::general_purpose::STANDARD.encode(tok))
 }
 
@@ -964,7 +983,7 @@ mod tests {
         use base64::Engine;
         let key = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
         let k = "wy/s/downstream/l/p/~set";
-        let t = approval_token(key.clone(), k, "user:alice", "config", 300).unwrap();
+        let t = approval_token(key.clone(), k, "user:alice", "config", 300, None).unwrap();
         let raw = base64::engine::general_purpose::STANDARD.decode(t).unwrap();
         let parts = wyrm_core::ptok::split(&raw).unwrap();
         let claims: wyrm_core::PtokClaims = wyrm_core::codec::from_slice(parts.claims).unwrap();
@@ -973,9 +992,25 @@ mod tests {
         assert_eq!(claims.grants.len(), 1);
         assert_eq!(claims.grants[0].k, k);
         assert!(claims.exp - claims.iat <= 300);
-        assert!(approval_token(key.clone(), k, "ai:bot", "config", 300).is_err());
-        assert!(approval_token(key.clone(), k, "user:a", "config", 3600).is_err());
-        assert!(approval_token(key.clone(), "wy/s/downstream/**", "user:a", "config", 60).is_err());
-        assert!(approval_token(key, k, "user:a", "root", 60).is_err());
+        assert!(approval_token(key.clone(), k, "ai:bot", "config", 300, None).is_err());
+        assert!(approval_token(key.clone(), k, "user:a", "config", 3600, None).is_err());
+        assert!(approval_token(
+            key.clone(),
+            "wy/s/downstream/**",
+            "user:a",
+            "config",
+            60,
+            None
+        )
+        .is_err());
+        assert!(approval_token(key.clone(), k, "user:a", "root", 60, None).is_err());
+        // bound to arguments (review AI-1)
+        let h = "ab".repeat(32);
+        let t = approval_token(key.clone(), k, "user:a", "config", 60, Some(&h)).unwrap();
+        let raw = base64::engine::general_purpose::STANDARD.decode(t).unwrap();
+        let parts = wyrm_core::ptok::split(&raw).unwrap();
+        let claims: wyrm_core::PtokClaims = wyrm_core::codec::from_slice(parts.claims).unwrap();
+        assert_eq!(claims.args, Some([0xab; 32]));
+        assert!(approval_token(key, k, "user:a", "config", 60, Some("zz")).is_err());
     }
 }

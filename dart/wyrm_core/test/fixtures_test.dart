@@ -189,6 +189,13 @@ void main() {
     expect(c.auth![1].p, Perm.list);
   });
 
+  test('ptok claims bound to arguments', () {
+    final f = fixtures.firstWhere((f) => f['name'] == 'ptok_claims_args');
+    final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
+    expect(c.args, List.generate(32, (i) => i));
+    expect(c.auth, isNull);
+  });
+
   test('view=keys expands and compresses', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_view_keys');
     final compressed = decodeCbor(hexDecode(f['hex'] as String), decodeKeyList);

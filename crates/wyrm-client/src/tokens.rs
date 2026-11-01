@@ -32,6 +32,7 @@ pub struct SigningTokens {
     max: Perm,
     ttl: Duration,
     counter: AtomicU64,
+    args: Option<[u8; 32]>,
 }
 
 impl SigningTokens {
@@ -50,7 +51,15 @@ impl SigningTokens {
             max: Perm::Config,
             ttl: Duration::from_secs(60),
             counter: AtomicU64::new(0),
+            args: None,
         }
+    }
+
+    /// Bind every token to one request payload: its SHA-256 (claim `args`, spec 04 0.2.14).
+    /// For a human approval of exactly the arguments a dry run showed.
+    pub fn bound_to(mut self, sha256: [u8; 32]) -> Self {
+        self.args = Some(sha256);
+        self
     }
 
     pub fn subject(mut self, sub: impl Into<String>) -> Self {
@@ -119,6 +128,7 @@ impl TokenSource for SigningTokens {
             site: self.site.clone(),
             // an action may act for the caller on keys it names (spec 04 `auth`): only there
             auth: key.contains("/~act/").then(|| self.grants.clone()),
+            args: self.args,
         };
         Some(sign(&self.key, &claims))
     }

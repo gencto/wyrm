@@ -347,15 +347,17 @@ impl WyrmMcp {
         }
     }
 
-    /// Decode and pre-check an approval for `key` at `need`.
+    /// Decode and pre-check an approval for `key` at `need`, bound to `payload` (a request's
+    /// approval) or not (a flow's proof of rights on a target).
     fn approval(
         &self,
         b64: &str,
         key: &str,
         need: Perm,
+        payload: Option<&[u8]>,
     ) -> Result<(Vec<u8>, ApprovalInfo), String> {
         let tok = check::decode_token(b64)?;
-        let info = check::precheck_approval(&tok, key, self.site(), need)?;
+        let info = check::precheck_approval(&tok, key, self.site(), need, payload)?;
         Ok((tok, info))
     }
 
@@ -481,8 +483,11 @@ impl WyrmMcp {
         check::validate_value(&meta, &v)?;
         let needs_approval = level >= Perm::Config;
         tracing::debug!(tool = "node_set", %key, dry_run = p.dry_run, "request");
+        // what the client sends for this set (wyrm-client: `SetRequest`), as an approval binds it
+        let payload =
+            wyrm_core::codec::to_vec(&wyrm_core::SetRequest { v: v.clone() }).map_err(err)?;
         let approval = match &p.approval {
-            Some(a) => Some(self.approval(a, &key, level)?),
+            Some(a) => Some(self.approval(a, &key, level, Some(&payload))?),
             None => None,
         };
         if p.dry_run {
@@ -498,6 +503,7 @@ impl WyrmMcp {
                     "op": "set",
                     "key": key,
                     "payload": { "v": value_to_json(&v) },
+                    "args_sha256": check::payload_sha256(&payload),
                     "ptok": self.ptok_label(approval.as_ref().map(|(_, i)| i)),
                 },
             }));
@@ -537,11 +543,12 @@ impl WyrmMcp {
         let args = check::prepare_args(&act.params, given)?;
         let needs_approval = level >= Perm::Config;
         tracing::debug!(tool = "action_invoke", %key, dry_run = p.dry_run, "request");
+        let args = Value::Map(args);
+        let payload = wyrm_core::codec::to_vec(&args).map_err(err)?;
         let approval = match &p.approval {
-            Some(a) => Some(self.approval(a, &key, level)?),
+            Some(a) => Some(self.approval(a, &key, level, Some(&payload))?),
             None => None,
         };
-        let args = Value::Map(args);
         if p.dry_run {
             return Ok(json!({
                 "dry_run": true,
@@ -554,6 +561,7 @@ impl WyrmMcp {
                     "op": "invoke",
                     "key": key,
                     "args": value_to_json(&args),
+                    "args_sha256": check::payload_sha256(&payload),
                     "ptok": self.ptok_label(approval.as_ref().map(|(_, i)| i)),
                 },
             }));
@@ -690,10 +698,6 @@ impl WyrmMcp {
             dry_run = p.dry_run,
             "request"
         );
-        let approval = match &p.approval {
-            Some(a) => Some(self.approval(a, &deploy_key, Perm::Config)?),
-            None => None,
-        };
         // Proofs: exactly the command targets, each for its key at >= write,
         // all from the deployer (ADR 0008: same subject as the deploy caller).
         if let Some(extra) = p.proofs.keys().find(|k| !targets.contains(k)) {
@@ -703,26 +707,38 @@ impl WyrmMcp {
         }
         let mut proofs = BTreeMap::new();
         let mut proof_report = Map::new();
+        let mut proof_subs = Vec::new();
         let mut missing = Vec::new();
         for t in &targets {
             match p.proofs.get(t) {
                 None => missing.push(t.clone()),
                 Some(b64) => {
                     let (tok, info) = self
-                        .approval(b64, t, Perm::Write)
+                        .approval(b64, t, Perm::Write, None)
                         .map_err(|e| format!("proof for {t}: {e}"))?;
-                    if let Some((_, a)) = &approval {
-                        if a.sub != info.sub {
-                            return Err(format!(
-                                "proof for {t} is from {:?}, the approval from {:?}; both must \
-                                 come from the same operator",
-                                info.sub, a.sub
-                            ));
-                        }
-                    }
+                    proof_subs.push((t.clone(), info.sub.clone()));
                     proof_report.insert(t.clone(), Self::approval_json(&info));
                     proofs.insert(t.clone(), Value::Bytes(tok));
                 }
+            }
+        }
+        // the deploy request as it will be sent: the approval binds it, proofs included
+        let mut args = BTreeMap::new();
+        args.insert("def".to_owned(), def.clone());
+        args.insert("proofs".to_owned(), Value::Map(proofs));
+        let args = Value::Map(args);
+        let payload = wyrm_core::codec::to_vec(&args).map_err(err)?;
+        let approval = match &p.approval {
+            Some(a) => Some(self.approval(a, &deploy_key, Perm::Config, Some(&payload))?),
+            None => None,
+        };
+        if let Some((_, a)) = &approval {
+            if let Some((t, sub)) = proof_subs.iter().find(|(_, s)| *s != a.sub) {
+                return Err(format!(
+                    "proof for {t} is from {sub:?}, the approval from {:?}; both must come from \
+                     the same operator",
+                    a.sub
+                ));
             }
         }
         if p.dry_run {
@@ -735,6 +751,7 @@ impl WyrmMcp {
                 "validation": validation,
                 "requires_approval": true,
                 "approval_key": deploy_key,
+                "args_sha256": check::payload_sha256(&payload),
                 "approval": approval.as_ref().map(|(_, i)| Self::approval_json(i)),
                 "command_targets": targets,
                 "proofs": proof_report,
@@ -750,12 +767,9 @@ impl WyrmMcp {
         if !missing.is_empty() {
             return Err(format!("missing proofs for command targets: {missing:?}"));
         }
-        let mut args = BTreeMap::new();
-        args.insert("def".to_owned(), def);
-        args.insert("proofs".to_owned(), Value::Map(proofs));
         let sender = self.sender(Some((tok, deploy_key.clone())))?;
         let r = sender
-            .invoke_one(&root, "deploy", Value::Map(args))
+            .invoke_one(&root, "deploy", args)
             .await
             .map_err(err)?;
         Ok(json!({

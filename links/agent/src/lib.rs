@@ -1199,7 +1199,9 @@ impl Agent {
                 let tok = toks.remove(&op.key).ok_or_else(|| {
                     LinkError::invalid_parameter(format!("missing approval for {}", op.key))
                 })?;
-                let info = wyrm_mcp::check::precheck_approval(&tok, &op.key, &site, op.level)
+                // the plan's arguments were stored at `propose` and run from there: the
+                // approval need not be bound to them (it may be, claim `args`)
+                let info = wyrm_mcp::check::precheck_approval(&tok, &op.key, &site, op.level, None)
                     .map_err(|e| {
                         LinkError::new(Status::PermissionDenied, format!("{}: {e}", op.key))
                     })?;

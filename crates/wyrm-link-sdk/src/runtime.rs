@@ -1078,7 +1078,10 @@ impl<C: Send + 'static> Shared<C> {
                     .clone()
                     .or_else(|| caller.claims.as_ref().map(|c| c.sub.clone()))
                     .unwrap_or_else(|| "anonymous".into());
-                let r = match self.limit(Some(&caller), path) {
+                let r = match self
+                    .limit(Some(&caller), path)
+                    .and_then(|()| bound_args(&caller, &args))
+                {
                     Ok(()) => self.set_authorized(q, path, caller).await,
                     Err(e) => Err(e),
                 };
@@ -1152,7 +1155,10 @@ impl<C: Send + 'static> Shared<C> {
                     .clone()
                     .or_else(|| caller.claims.as_ref().map(|c| c.sub.clone()))
                     .unwrap_or_else(|| "anonymous".into());
-                let r = match self.limit(Some(&caller), path) {
+                let r = match self
+                    .limit(Some(&caller), path)
+                    .and_then(|()| bound_args(&caller, &args))
+                {
                     Ok(()) => self.invoke_authorized(q, path, action, att, caller).await,
                     Err(e) => Err(e),
                 };
@@ -1396,6 +1402,19 @@ fn validate_value(meta: &NodeMeta, v: &Value) -> Result<()> {
         Err(LinkError::invalid_parameter(
             "value type does not match ~meta.type",
         ))
+    }
+}
+
+/// A token bound to arguments (claim `args`, spec 04 0.2.14) is good only for the payload whose
+/// SHA-256 it names: a human approved those exact arguments (security review AI-1).
+fn bound_args(caller: &Caller, payload: &[u8]) -> Result<()> {
+    use sha2::Digest;
+    match caller.claims.as_ref().and_then(|c| c.args) {
+        Some(h) if h[..] != sha2::Sha256::digest(payload)[..] => Err(LinkError::new(
+            Status::PermissionDenied,
+            "the token is bound to other arguments",
+        )),
+        _ => Ok(()),
     }
 }
 
