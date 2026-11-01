@@ -75,7 +75,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
@@ -2325,11 +2325,12 @@ async fn owner<D: Driver>(
     loop {
         set_status(&o.ctx, &o.conn, NodeState::Connecting, None).await;
         let opened = tokio::select! {
-            r = tokio::time::timeout(timeout, D::open(&cfg)) => r,
+            r = tokio::time::timeout(timeout, guarded(D::open(&cfg))) => r,
             _ = stop.changed() => return,
         };
         let failure = match opened {
-            Ok(Ok(mut t)) => {
+            Ok(Err(p)) => p,
+            Ok(Ok(Ok(mut t))) => {
                 attempt = 0;
                 o.record(&mut t, None, false);
                 let note = D::status_note(&t);
@@ -2355,15 +2356,17 @@ async fn owner<D: Driver>(
                         }
                     }
                 }
-                match serve::<D>(&mut o, &mut t, &mut rx, &mut stop, &cfg).await {
-                    None => {
+                // A panic anywhere in serving (a driver's write, action or serve) is a
+                // failure of the connection, as a transport error (security review LNK-2).
+                match guarded(serve::<D>(&mut o, &mut t, &mut rx, &mut stop, &cfg)).await {
+                    Ok(None) => {
                         o.note(None).await;
                         return;
                     }
-                    Some(e) => e,
+                    Ok(Some(e)) | Err(e) => e,
                 }
             }
-            Ok(Err(e)) => e.to_string(),
+            Ok(Ok(Err(e))) => e.to_string(),
             Err(_) => "open timed out".to_owned(),
         };
         warn!(conn = %o.conn, "connection failed: {failure}");
@@ -2403,6 +2406,24 @@ async fn owner<D: Driver>(
             }
         }
     }
+}
+
+/// Run a driver future; a panic in it is `Err` with its message (security review LNK-2: a
+/// panic in the owner task left the connection `Connected` with frozen good values).
+async fn guarded<T>(f: impl std::future::Future<Output = T>) -> Result<T, String> {
+    use futures_util::FutureExt;
+    std::panic::AssertUnwindSafe(f)
+        .catch_unwind()
+        .await
+        .map_err(|p| {
+            let what = p
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| p.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic".into());
+            error!("driver panicked: {what}");
+            format!("driver panicked: {what}")
+        })
 }
 
 /// The first transport error among poll results.
@@ -2499,8 +2520,13 @@ async fn serve<D: Driver>(
                 };
                 inflight.store(POLL_RUNNING, Ordering::Release);
                 let bound = D::poll_timeout(cfg, &g.plan);
-                let r = tokio::time::timeout(bound, D::poll(t, &d.cfg, &g.plan)).await;
+                let r = tokio::time::timeout(bound, guarded(D::poll(t, &d.cfg, &g.plan))).await;
                 inflight.store(POLL_IDLE, Ordering::Release);
+                let r = match r {
+                    Ok(Err(p)) => return Some(p),
+                    Ok(Ok(v)) => Ok(v),
+                    Err(e) => Err(e),
+                };
                 o.record(t, Some(&dev), r.is_err());
                 let current = view.read().await;
                 if current.gen != gen {
@@ -2528,8 +2554,13 @@ async fn serve<D: Driver>(
                     inflight.store(false, Ordering::Release);
                     continue;
                 };
-                let r = tokio::time::timeout(timeout, D::ping(t, &d.cfg)).await;
+                let r = tokio::time::timeout(timeout, guarded(D::ping(t, &d.cfg))).await;
                 inflight.store(false, Ordering::Release);
+                let r = match r {
+                    Ok(Err(p)) => return Some(p),
+                    Ok(Ok(v)) => Ok(v),
+                    Err(e) => Err(e),
+                };
                 o.record(t, Some(&dev), r.is_err());
                 if let Ok(Err(DriverError::Transport(e))) = r {
                     return Some(e);
