@@ -1346,3 +1346,33 @@ async fn history_follows_point_grants() {
     env.stop().await;
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Security review GW-2: one user holds at most `SOCKETS_PER_USER` WebSockets; closing one
+/// frees its place.
+#[tokio::test(flavor = "multi_thread")]
+async fn sockets_per_user_are_bounded() {
+    let env = Env::start("sockets", wyrm_gateway::SESSION_TTL).await;
+    let tok = env.session("root", ADMIN_PW).await;
+    let mut open = Vec::new();
+    for _ in 0..wyrm_gateway::SOCKETS_PER_USER {
+        open.push(env.ws(&tok).await);
+    }
+    let t = env.ticket(&tok).await.unwrap();
+    let url = format!("ws://{}/api/ws?ticket={t}", env.addr);
+    assert!(
+        tokio_tungstenite::connect_async(url).await.is_err(),
+        "one more is refused"
+    );
+    drop(open.pop());
+    let mut again = None;
+    for _ in 0..50 {
+        let t = env.ticket(&tok).await.unwrap();
+        let url = format!("ws://{}/api/ws?ticket={t}", env.addr);
+        if let Ok((s, _)) = tokio_tungstenite::connect_async(url).await {
+            again = Some(s);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(again.is_some(), "a closed socket frees its place");
+}

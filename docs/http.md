@@ -378,8 +378,9 @@ the tree with the `add_*` actions. As a package (ADR 0021):
 ## 9. Known limits
 
 - **Addresses the link never connects to:** link-local (`169.254.0.0/16`, `fe80::/10`,
-  where cloud instance metadata hands out credentials), cloud metadata (`fd00:ec2::254`),
-  unspecified, multicast and broadcast addresses. The check runs on the address the host name
+  where cloud instance metadata hands out credentials), other cloud metadata endpoints
+  (`fd00:ec2::254`, `100.100.100.200`, `168.63.129.16`, `192.0.0.192`), unspecified,
+  multicast and broadcast addresses, also inside IPv6 forms that carry an IPv4 address. The check runs on the address the host name
   resolves to, so DNS cannot lead there either. Loopback and private networks stay
   reachable: devices and simulators live there (security review LNK-1, ADR 0031).
 - **Poll period on the point**, not the device: the framework groups points

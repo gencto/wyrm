@@ -78,9 +78,20 @@ pub(crate) async fn upgrade(
     let Some(p) = p else {
         return ApiError::unauthenticated().into_response();
     };
+    let Some(slot) = st.gw.socket_slot(&p.name) else {
+        return ApiError::new(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            Status::RateLimited,
+            "too many open sockets for this user",
+        )
+        .into_response();
+    };
     ws.max_message_size(MAX_FRAME)
         .max_frame_size(MAX_FRAME)
-        .on_upgrade(move |sock| run(st, p, sock))
+        .on_upgrade(move |sock| async move {
+            run(st, p, sock).await;
+            drop(slot);
+        })
 }
 
 fn query_ticket(uri: &Uri) -> Option<String> {
@@ -263,6 +274,16 @@ impl Conn {
             return false;
         };
         self.update_grants(p.grants.clone());
+        // one budget for all of the user's sockets (review GW-2); closing a stream is free
+        if req.op != "unsubscribe" && !self.gw.request_allowed(&p.name) {
+            self.send(err_frame(
+                req.id,
+                Status::RateLimited.code(),
+                "too many requests",
+            ))
+            .await;
+            return true;
+        }
         if req.op == "unsubscribe" {
             let reply = match req.sub.and_then(|s| streams.remove(&s)) {
                 Some(h) => {
@@ -382,7 +403,13 @@ impl Conn {
                 Err(e) => client_err(id, &e),
             },
             "history" => {
-                let q = wyrm_client::HistoryQuery::from_args(req.args.as_ref());
+                let mut q = wyrm_client::HistoryQuery::from_args(req.args.as_ref());
+                // the server decides how much one request may ask for (review GW-2)
+                q.limit = Some(
+                    q.limit
+                        .unwrap_or(crate::HISTORY_LIMIT)
+                        .min(crate::HISTORY_LIMIT),
+                );
                 match c.history(&req.key, &q).await {
                     Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
                     Err(e) => client_err(id, &e),

@@ -213,6 +213,42 @@ pub struct Gateway {
     /// Other sites' points this site records (ADR 0020), followed while
     /// the gateway serves.
     sites: Arc<watch::Sender<Arc<overlay::Sites>>>,
+    /// Open WebSockets and the request bucket of each user (review GW-2).
+    per_user: Mutex<std::collections::HashMap<String, UserUse>>,
+}
+
+/// What one user holds over all their sockets.
+struct UserUse {
+    sockets: usize,
+    tokens: f64,
+    at: std::time::Instant,
+}
+
+/// WebSockets one user may hold open (review GW-2: tickets bounded only the live ones).
+pub const SOCKETS_PER_USER: usize = 8;
+/// Requests (one-shots and stream opens) per second over all of a user's sockets, and the
+/// burst.
+pub const REQUESTS_PER_S: f64 = 100.0;
+pub const REQUEST_BURST: f64 = 200.0;
+/// Rows one `history` request through the gateway may ask for.
+pub const HISTORY_LIMIT: usize = 10_000;
+
+/// One of a user's open WebSockets; dropping it frees the place.
+pub(crate) struct SocketSlot {
+    gw: Arc<Gateway>,
+    user: String,
+}
+
+impl Drop for SocketSlot {
+    fn drop(&mut self) {
+        let mut m = self.gw.per_user.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(u) = m.get_mut(&self.user) {
+            u.sockets = u.sockets.saturating_sub(1);
+            if u.sockets == 0 {
+                m.remove(&self.user);
+            }
+        }
+    }
 }
 
 pub(crate) struct UploadSlot<'a> {
@@ -276,8 +312,44 @@ impl Gateway {
             tickets: Mutex::new(Default::default()),
             downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
             sites: Arc::new(watch::channel(Arc::default()).0),
+            per_user: Mutex::new(Default::default()),
             cfg,
         }))
+    }
+
+    /// A place for one more WebSocket of `user`; `None` at [`SOCKETS_PER_USER`].
+    pub(crate) fn socket_slot(self: &Arc<Self>, user: &str) -> Option<SocketSlot> {
+        let mut m = self.per_user.lock().unwrap_or_else(|p| p.into_inner());
+        let u = m.entry(user.to_owned()).or_insert(UserUse {
+            sockets: 0,
+            tokens: REQUEST_BURST,
+            at: std::time::Instant::now(),
+        });
+        if u.sockets >= SOCKETS_PER_USER {
+            return None;
+        }
+        u.sockets += 1;
+        Some(SocketSlot {
+            gw: self.clone(),
+            user: user.to_owned(),
+        })
+    }
+
+    /// One request of `user` (over all their sockets): `false` past [`REQUESTS_PER_S`].
+    pub(crate) fn request_allowed(&self, user: &str) -> bool {
+        let mut m = self.per_user.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(u) = m.get_mut(user) else {
+            return true; // no socket: not a WebSocket request
+        };
+        let now = std::time::Instant::now();
+        u.tokens =
+            (u.tokens + now.duration_since(u.at).as_secs_f64() * REQUESTS_PER_S).min(REQUEST_BURST);
+        u.at = now;
+        if u.tokens < 1.0 {
+            return false;
+        }
+        u.tokens -= 1.0;
+        true
     }
 
     /// A single-use WebSocket ticket for a valid `session` token.

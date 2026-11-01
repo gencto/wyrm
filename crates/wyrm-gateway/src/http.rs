@@ -154,7 +154,7 @@ pub(crate) struct ApiError {
 }
 
 impl ApiError {
-    fn new(http: StatusCode, status: Status, message: impl Into<String>) -> Self {
+    pub(crate) fn new(http: StatusCode, status: Status, message: impl Into<String>) -> Self {
         Self {
             http,
             status,
