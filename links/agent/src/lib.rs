@@ -29,6 +29,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "cli")]
+pub mod cli;
 pub mod llm;
 pub mod store;
 pub mod tools;

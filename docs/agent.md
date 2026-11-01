@@ -1,5 +1,80 @@
 # AI agent link (`links/agent`)
 
+`links/agent` has two parts:
+
+1. **`wyrm-agent`, the command line** (below): an operator or an AI assistant (Claude Code)
+   runs it on a workstation and works on the whole broker network through one gateway.
+2. **The `agent` driver**: an LLM inside the broker that plans tasks for people to approve
+   (from "How a task runs" on).
+
+## `wyrm-agent`: the command line
+
+Build it once:
+
+```sh
+cargo build --release -p wyrm-link-agent --features cli --bin wyrm-agent
+```
+
+It logs in to a gateway as one of its users. The password comes from
+`WYR_GATEWAY_PASSWORD`, never from the command line. The user's role decides every read and
+write. The gateway reaches the sites below its own, so central's gateway works on edge and
+plant too (ADR 0007, 0018).
+
+| Command | What it does |
+|---|---|
+| `tree <key> [--depth N]` | The nodes below a key: type, unit, writable. |
+| `meta <key>` | The full `~meta`: actions with their parameters, levels, bounds. |
+| `get <key>…` | Current values. |
+| `watch <pattern> [--seconds N]` | Samples of a key or a pattern for a while. |
+| `set <key> <json>` | Writes a value. |
+| `invoke <key> <action> [<json args>]` | Runs an action. |
+| `history <key> <json args>` | Recorded values (`{"from": "…", "limit": 100}`). |
+| `run <plan.json> [--apply]` | Checks a plan; with `--apply`, runs it. |
+
+Every answer is JSON, one object per line. The exit code is 1 when a plan check or a step
+fails.
+
+### Plans
+
+A plan is `{"steps": [...]}`, run in order. A step is one of:
+
+- `{"invoke": <key>, "action": …, "args": {…}, "unless": <key>}`: runs the action; skipped
+  when `unless` exists, so the same plan runs again;
+- `{"set": <key>, "value": …}`;
+- `{"deploy": "wy/<site>/dataflows", "def": {…}}`: deploys a flow one version above the one
+  that runs (the gateway signs the proofs of its targets with your rights);
+- `{"wait": <key>, "timeout_s": N}`: waits until the node exists;
+- `{"expect": <key>, "equals": …}` or `"min"`/`"max"` or `"changes": true`, with
+  `timeout_s`: waits until the value passes;
+- `{"sleep_s": N}`.
+
+1. Run `run <plan>` first. It checks each step against the live `~meta`: the action exists,
+   its arguments fit its schema, a value fits its point. A step on a node an earlier step
+   makes is checked when it runs (`"check": "later"`).
+2. Read the result, then run `run <plan> --apply`. It stops at the first step that fails and
+   says which.
+
+УВАГА: `--apply` changes the sites at once, with your rights. Read the check first.
+
+### Example: a Modbus device, history, upstream and a dataflow
+
+`examples/agent/modbus-dataflow.json` runs on the demo (`examples/demo/run.sh`) through
+central's gateway:
+
+```sh
+export WYR_GATEWAY_PASSWORD=wyrm-demo-1
+wyrm-agent --gateway http://127.0.0.1:8445 run examples/agent/modbus-dataflow.json
+wyrm-agent --gateway http://127.0.0.1:8445 run examples/agent/modbus-dataflow.json --apply
+```
+
+It adds the device `ahu2` with four points on edge's Modbus link, records two of them on edge
+and one on central (central's historian records a point of the site below), deploys a flow on
+edge that turns the counter into a command (`count mod 10 × 10`) and the temperature into °F
+and a flag, and on each change writes the command to another link (`mockdev/bench/rig1/knob`).
+The last steps check the flow's values and that the knob follows.
+
+## The `agent` driver
+
 The `agent` driver takes a task in plain words, asks an LLM for a plan, and runs the plan
 after a human approves it (ADR 0005). It runs embedded in `wyrmd`
 (`sys/links ▸ Install Link ▸ from Driver`, driver `agent`).

@@ -12,9 +12,16 @@ authors.workspace = true
 # Process-mode binary (`wyrm-link-agent`), started by the admin supervisor.
 bin = ["wyrm-link-sdk/process", "tokio/rt-multi-thread", "dep:tracing-subscriber"]
 
+# `wyrm-agent`: the command line over a gateway (ADR 0033).
+cli = ["dep:wyrm-gateway-client", "dep:clap", "tokio/rt-multi-thread"]
+
 [[bin]]
 name = "wyrm-link-agent"
 required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-agent"
+required-features = ["cli"]
 
 [dependencies]
 wyrm-core.workspace = true
@@ -44,6 +51,8 @@ minicbor.workspace = true
 # `rc`: the persisted state holds `Arc`s (the store clones it per operation).
 serde = { workspace = true, features = ["rc"] }
 getrandom.workspace = true
+wyrm-gateway-client = { workspace = true, optional = true }
+clap = { workspace = true, optional = true, features = ["env"] }
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

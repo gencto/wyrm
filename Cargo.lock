@@ -6776,6 +6776,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "clap",
  "ed25519-dalek",
  "getrandom 0.3.4",
  "hex",
@@ -6794,6 +6795,7 @@ dependencies = [
  "webpki-roots",
  "wyrm-client",
  "wyrm-core",
+ "wyrm-gateway-client",
  "wyrm-link-mock",
  "wyrm-link-sdk",
  "wyrm-mcp",

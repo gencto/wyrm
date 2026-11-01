@@ -258,6 +258,7 @@ async fn run_replay(
         EngineStart {
             host,
             admin_keys: vec![key.verifying_key()],
+            proof_keys: Vec::new(),
         },
     )
     .await?;

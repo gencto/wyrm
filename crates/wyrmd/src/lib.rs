@@ -997,6 +997,12 @@ impl Broker {
             EngineStart {
                 host: flows.clone(),
                 admin_keys: engine_keys,
+                // a target is a link's or storage's: trusted as they trust upstream keys
+                proof_keys: [
+                    ctl.upstream_trust("downstream"),
+                    ctl.upstream_trust("storage"),
+                ]
+                .concat(),
             },
         )
         .await

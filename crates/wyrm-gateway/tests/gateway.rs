@@ -1037,6 +1037,7 @@ async fn flow_deploy_proofs_come_from_the_user() {
         wyrm_flow::EngineStart {
             host,
             admin_keys: vec![env.gw.verifying_key()],
+            proof_keys: Vec::new(),
         },
     )
     .await

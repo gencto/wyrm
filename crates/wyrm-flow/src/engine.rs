@@ -775,6 +775,9 @@ pub struct EngineStart {
     pub host: Arc<FlowHost>,
     /// Keys that sign deployers' proofs (the admin keys).
     pub admin_keys: Vec<VerifyingKey>,
+    /// Upstream sites' keys, as the links they command trust them (ADR 0018): a deployer at
+    /// an upstream site proves its rights on a target here with a token its own site signed.
+    pub proof_keys: Vec<wyrm_link_sdk::LimitedKey>,
 }
 
 /// The `wy/<site>/dataflows/**` responder.
@@ -853,7 +856,7 @@ impl Link for Engine {
         }
         Ok(Engine {
             shared,
-            verifier: Verifier::new(cfg.admin_keys, ctx.site()),
+            verifier: Verifier::new(cfg.admin_keys, ctx.site()).with_limited(cfg.proof_keys),
             site: ctx.site().to_owned(),
         })
     }

@@ -3430,6 +3430,57 @@ async fn chain_of_three_brokers() {
             .ok()
     })
     .await;
+    // a flow deployed from above with a command target: its proof is central's token, and
+    // edge's engine takes it as edge's links take central's key (wyrm-agent run on the demo)
+    let def = Value::Map(BTreeMap::from([
+        ("id".to_owned(), Value::from("from_above")),
+        ("version".to_owned(), Value::UInt(1)),
+        (
+            "nodes".to_owned(),
+            Value::Map(BTreeMap::from([
+                (
+                    "k".to_owned(),
+                    Value::Map(BTreeMap::from([
+                        ("type".to_owned(), Value::from("number")),
+                        ("value".to_owned(), Value::UInt(3)),
+                    ])),
+                ),
+                (
+                    "w".to_owned(),
+                    Value::Map(BTreeMap::from([
+                        ("type".to_owned(), Value::from("set")),
+                        ("path".to_owned(), Value::from("downstream/mock/g0/p1")),
+                    ])),
+                ),
+            ])),
+        ),
+        (
+            "edges".to_owned(),
+            Value::Array(vec![Value::Array(vec![
+                Value::from("k.out"),
+                Value::from("w.in"),
+            ])]),
+        ),
+        (
+            "permissions".to_owned(),
+            Value::Map(BTreeMap::from([(
+                "maxperm".to_owned(),
+                Value::from("write"),
+            )])),
+        ),
+    ]));
+    let target = wyrm_flow::command_targets(&def, "edge").unwrap();
+    let proofs: BTreeMap<String, Value> = target
+        .iter()
+        .map(|t| (t.clone(), Value::Bytes(ce.proof(t).unwrap())))
+        .collect();
+    let args = Value::Map(BTreeMap::from([
+        ("def".to_owned(), def),
+        ("proofs".to_owned(), Value::Map(proofs)),
+    ]));
+    ce.invoke_one("wy/edge/dataflows", "deploy", args)
+        .await
+        .expect("central deploys a flow with a command target on edge");
     let e = c
         .invoke_one("wy/plant/downstream/md", "export", none())
         .await
