@@ -52,7 +52,8 @@ Parameter names are snake_case, as every other node type's.
 | `bool` | `in` | `out` | `value` (default false) |
 
 A variable sends `value` at start. A sample on `in` replaces it, converted to
-the variable's type, and goes out when it differs.
+the variable's type, and goes out when it differs. A `string` longer than 4 KiB
+is `null`.
 
 ### Math
 
@@ -117,7 +118,7 @@ and set it back after.
 
 | Type | Inputs | Outputs | What it gives |
 |---|---|---|---|
-| `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. |
+| `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
 ## Example

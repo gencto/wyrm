@@ -47,6 +47,10 @@ pub const TYPES: &[&str] = &[
 
 /// Variable inputs of one block at most.
 pub const MAX_ITEMS: usize = 64;
+/// Longest text a block makes (`concat`, a `string` variable), bytes: as the expression
+/// engine's strings. A longer one is `null` with quality `bad` (a `concat` in a loop through
+/// a `delay` would grow without end; automated review of e89b1d4).
+pub const MAX_TEXT: usize = 4096;
 /// The stopwatch's clock, and the shortest interval it counts.
 const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
@@ -121,7 +125,56 @@ fn truth(v: &Value, fallback: bool) -> bool {
     }
 }
 
-/// A value as text, for `concat`: `null` is empty.
+/// A value as text within [`MAX_TEXT`]; `None` when it is longer.
+fn bounded_text(v: &Value) -> Option<String> {
+    let mut out = String::new();
+    push_text(&mut out, v).then_some(out)
+}
+
+/// Appends `v` as text; `false` once `out` is past [`MAX_TEXT`] (it stops there).
+fn push_text(out: &mut String, v: &Value) -> bool {
+    let ok = |out: &String| out.len() <= MAX_TEXT;
+    match v {
+        Value::Array(a) => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                if !push_text(out, x) {
+                    return false;
+                }
+            }
+            out.push(']');
+        }
+        Value::Map(m) => {
+            out.push('{');
+            for (i, (k, x)) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(k);
+                out.push_str(": ");
+                if !ok(out) || !push_text(out, x) {
+                    return false;
+                }
+            }
+            out.push('}');
+        }
+        Value::Bytes(b) => {
+            if out.len() + b.len() * 2 > MAX_TEXT {
+                return false;
+            }
+            for x in b {
+                out.push_str(&format!("{x:02x}"));
+            }
+        }
+        v => out.push_str(&text(v)),
+    }
+    ok(out)
+}
+
+/// A scalar as text, for `concat`: `null` is empty.
 fn text(v: &Value) -> String {
     match v {
         Value::Null => String::new(),
@@ -130,15 +183,8 @@ fn text(v: &Value) -> String {
         Value::Int(i) => i.to_string(),
         Value::UInt(u) => u.to_string(),
         Value::Float(x) => format!("{x:?}"),
-        Value::Bytes(b) => b.iter().map(|x| format!("{x:02x}")).collect(),
-        Value::Array(a) => format!("[{}]", a.iter().map(text).collect::<Vec<_>>().join(", ")),
-        Value::Map(m) => format!(
-            "{{{}}}",
-            m.iter()
-                .map(|(k, v)| format!("{k}: {}", text(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        // lists, maps and bytes go through `push_text`, within the bound
+        Value::Bytes(_) | Value::Array(_) | Value::Map(_) => bounded_text(v).unwrap_or_default(),
     }
 }
 
@@ -688,10 +734,15 @@ impl Block {
             }
             Kind::Concat => {
                 let vs = self.item_values();
-                let v = if truth(self.param("strict"), false) && vs.contains(&Value::Null) {
-                    Value::Null
+                let (v, q) = if truth(self.param("strict"), false) && vs.contains(&Value::Null) {
+                    (Value::Null, q)
                 } else {
-                    Value::Str(vs.iter().map(text).collect())
+                    let mut s = String::new();
+                    if vs.iter().all(|v| push_text(&mut s, v)) {
+                        (Value::Str(s), q)
+                    } else {
+                        (Value::Null, Quality::Bad)
+                    }
                 };
                 self.send("out", v, q, t, out);
             }
@@ -714,8 +765,10 @@ impl Block {
             Kind::Number => num(v).map_or(Value::Null, N::value),
             Kind::Bool => Value::Bool(truth(v, false)),
             _ => match v {
-                Value::Str(_) | Value::Null => v.clone(),
-                v => Value::Str(text(v)),
+                Value::Null => Value::Null,
+                Value::Str(s) if s.len() <= MAX_TEXT => v.clone(),
+                Value::Str(_) => Value::Null,
+                v => bounded_text(v).map_or(Value::Null, Value::Str),
             },
         }
     }

@@ -490,3 +490,32 @@ fn config_is_checked() {
     let ins: Vec<&str> = p.inputs.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(ins, ["in.then", "in.else", "in.0", "in.1"]);
 }
+
+/// Automated review of e89b1d4: a text a block makes is bounded (a `concat` in a loop would
+/// grow without end).
+#[tokio::test(flavor = "multi_thread")]
+async fn text_is_bounded() {
+    let e = env().await;
+    let io = &e.io;
+    let long = "x".repeat(wyrm_flow::blocks::MAX_TEXT / 2 + 1);
+    let mut c = build("concat", &[]);
+    feed(&mut *c, io, "in.0", good(long.as_str()));
+    let mut out = Out::default();
+    c.input("in.1", good(long.as_str()), io, &mut out);
+    assert_eq!(out.0[0].1.v, Value::Null);
+    assert_eq!(out.0[0].1.q, Quality::Bad);
+    let mut s = build("string", &[]);
+    let big = "y".repeat(wyrm_flow::blocks::MAX_TEXT + 1);
+    assert_eq!(
+        on(&feed(&mut *s, io, "in", good(big.as_str())), "out"),
+        Some(Value::Null)
+    );
+    // a list whose text is too long: null too (from a variable that held text before)
+    let mut s = build("string", &[("value", Value::from("ok"))]);
+    feed(&mut *s, io, "__start", good(Value::Null));
+    let list = Value::Array(vec![Value::from(long.as_str()); 3]);
+    assert_eq!(
+        on(&feed(&mut *s, io, "in", good(list)), "out"),
+        Some(Value::Null)
+    );
+}

@@ -18,6 +18,7 @@ The prototype binds an input to an output by a path stored on the input. The flo
 8. **`stopwatch`** runs on a 50 ms clock (the runtime reads `tick_every` once), counts at most every 0.05 s, and keeps its count across a hot swap.
 9. **`trace` logs at `trace` only**: its lines hold values.
 10. **The editor draws fixed ports and named ports together** (`if`: `in.then`, `in.else`, then `in.0`, …); `dyn_inputs` adds to `inputs` instead of replacing it.
+11. **Texts a block makes are at most 4 KiB** (`concat`, `string`), as the expression engine's strings; a longer one is `null` (`concat`: quality `bad`). A `concat` in a loop through a `delay` would otherwise grow without end (automated review of `e89b1d4`).
 
 *If wrong:* a flow that expects an operator's value right after deploy must start from a variable or a `const`; a block that should send every sample (not only changes) needs a `filter` or an `expression` in front of its sink.
 
