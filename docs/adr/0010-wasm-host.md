@@ -6,7 +6,7 @@
 Principle 2 forbids dynamic Zenoh plugins; extensions come as data and processes. Iteration 8 adds sandboxed code: a flow node or a driver delivered as a WebAssembly component, loaded without a restart, unable to touch the host beyond what WYRM passes in.
 
 ## Decision
-- `crates/wyrm-wasm-host`: wasmtime `=40.0.4` (newest for MSRV 1.89), component model, no WASI. The linker is empty: a component that imports anything is refused at load (`Error::Denied`).
+- `crates/wyrm-wasm-host`: wasmtime `=36.0.20` (the LTS line with every security fix; was `=40.0.4` until 2026-11-01, ADR 0031), component model, no WASI. The linker is empty: a component that imports anything is refused at load (`Error::Denied`).
 - WIT worlds (`crates/wyrm-wasm-host/wit/`): `wyrm:flow/node` — `init(config)`, `process(port, sample, state) -> (outputs, state)`; `wyrm:link/point` — `init`, `read`, `write`. All data is canonical CBOR (principle 5). The host keeps node state and passes it on every call, so a trap that destroys the instance never loses state.
 - Limits per call: fuel (default 10 M, max 1 G), memory via a resource limiter (default 16 MiB, max 256 MiB), wall time via epoch interruption (100 ms, max 1 s). A trap drops the instance; the next call re-instantiates and re-runs `init`.
 - Components are content-addressed: `put_artifact {bytes}` (flow engine root action, `config`) stores `<flow dir>/artifacts/<sha256>.wasm` (temp file + rename, hash checked on every read) and accepts only `wyrm:flow/node` components without imports. A `~def` node is `{type: "wasm", artifact: "<sha256>", inputs, outputs, config, fuel, memory_mb}`.

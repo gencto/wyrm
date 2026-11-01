@@ -1,0 +1,26 @@
+# `cargo audit` (CI job `audit`). Every ignored advisory says why it does not apply or why it is
+# accepted; ADR 0031 holds the table. Remove an entry when the crate is upgraded.
+[advisories]
+ignore = [
+    # rsa 0.9 (async-opcua): Marvin timing side channel, no fixed release. Accepted: ADR 0029 item 8.
+    "RUSTSEC-2023-0071",
+    # rustls =0.23.45 is pinned (zenoh-link-tls shares one session between tasks; ADR 0029 item 6).
+    # 0346: `Debug` of session values is never formatted; 0347: no ECH; 0348: no brotli
+    # certificate compression; 0349: ring has no post-quantum key share.
+    "RUSTSEC-2026-0346",
+    "RUSTSEC-2026-0347",
+    "RUSTSEC-2026-0348",
+    "RUSTSEC-2026-0349",
+    # rustls-webpki 0.102.8: rumqttc 0.25.1 names only `webpki::Error`; certificates are checked by
+    # rustls 0.23 through webpki 0.103 (already patched). Drop with the next rumqttc release.
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0382",
+    # lz4_flex 0.10 (zenoh-transport): wyrmd never turns on Zenoh compression
+    # (`transport/unicast/compression` is not set), so nothing is decompressed.
+    "RUSTSEC-2026-0041",
+    # lru 0.16 (zenoh-ext): unsound only when a panic happens inside `LruCache::pop`. Accepted.
+    "RUSTSEC-2026-0253",
+]

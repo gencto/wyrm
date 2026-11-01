@@ -16,8 +16,8 @@ The table is updated in the commit that changes a status.
 
 | ID | Disposition | Note |
 |---|---|---|
-| DEP-1 | next (1) | wasmtime `=36.0.20` (LTS, `rust-version` 1.86): fixes every advisory that applies (RUSTSEC-2026-0327 needs `component-model-async`, which is off). `cargo audit` in CI with each ignored ID explained in `.cargo/audit.toml`. |
-| DEP-2 | accepted / next (1) | rsa (Marvin) and the rustls pin: ADR 0029 items 8 and 6. tokio and rustls-webpki 0.103: `cargo update`. webpki 0.102 (rumqttc) and lz4_flex (Zenoh compression is off), lru (panic inside the LRU only), unmaintained crates: accepted, tracked by `cargo audit`. |
+| DEP-1 | fixed (this commit) | wasmtime `=36.0.20` (LTS line, `rust-version` 1.86): `cargo audit` reports no wasmtime advisory. CI job `audit` runs `cargo audit`; each ignored ID has its reason in `.cargo/audit.toml`. |
+| DEP-2 | fixed / accepted (this commit) | tokio 1.54.1 and rustls-webpki 0.103.16 by `cargo update`. Accepted, with reasons in `.cargo/audit.toml`: rsa (Marvin, ADR 0029 item 8), the rustls pin (ADR 0029 item 6), webpki 0.102 (rumqttc names only its error type), lz4_flex (Zenoh compression is off), lru (unsound only on a panic inside it). Unmaintained crates are warnings. *If wrong:* an advisory we judged unreachable is reachable; `cargo audit` keeps listing it until the entry is removed. |
 | ADM-1 | gap | One uid per process link needs a privileged broker or systemd `DynamicUser=`. Until then: run `wyrmd` as its own user, keep process links to trusted packages. |
 | AI-1 | next (9) | Approval bound to the payload: claim `h` (spec 04), checked by the MCP server and the SDK. |
 | D-1 | next (3) | Re-issue a certificate 30 days before `not_after`; enrollment re-signs the stored CSR. |

@@ -15,6 +15,14 @@ jobs:
       - run: cargo build -p wyrm-link-scheduler --features wasm --lib --target wasm32-unknown-unknown
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
+  audit:
+    # RUSTSEC advisories against Cargo.lock; accepted ones are listed with reasons in .cargo/audit.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with: { tool: cargo-audit }
+      - run: cargo audit
   fixtures-in-sync:
     runs-on: ubuntu-latest
     steps:

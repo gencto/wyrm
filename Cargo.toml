@@ -118,8 +118,9 @@ async-opcua = { version = "0.19", default-features = false }
 # The URL parser async-opcua connects with (links/opcua checks endpoints with the same one).
 url = "2.5"
 wyrm-link-agent = { path = "links/agent" }
-# WASM host: no defaults (no cache, wasi, async, gc, profiling); MSRV 1.89 → 40.x.
-wasmtime = { version = "=40.0.4", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
+# WASM host: no defaults (no cache, wasi, async, gc, profiling). 36.x is the LTS line with
+# every security fix (RUSTSEC-2026-0096/0379/0380/0424 …) and `rust-version` 1.86 (ADR 0031).
+wasmtime = { version = "=36.0.20", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
 wat = "1"
 wasmparser = { version = "0.243", default-features = false, features = ["std"] }
 wit-component = { version = "=0.243.0", default-features = false }
