@@ -4,6 +4,11 @@
 //! `key` (the point's full key), fields `value` and `quality`, time `t`. The same series, tags
 //! and time overwrite, so a batch sent twice changes nothing.
 //!
+//! The field types never change for a series (security review HS-1): InfluxDB refuses a field
+//! whose type differs from what the series already holds, so a point that is `5` once and `5.5`
+//! later would stop its rows. A number (integer or not) and a bool (`1.0`/`0.0`) are the float
+//! field `value`; text is the string field `value_text`. Integers beyond 2^53 lose precision.
+//!
 //! Params (besides `sink`, `batch`, `idle_s`, `retry_s` of [`wyrm_history_sync`]): `url`
 //! (`https://host[:port][/base]`, or `http://` to an IP), `org`, `bucket`, `measurement`,
 //! `ca_pem` (trust only this CA), `timeout_ms` (default 10 000), `insecure_plaintext` (send the
@@ -78,7 +83,14 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
         base,
         org: text(cfg, "org")?.ok_or("params.org: the organization")?,
         bucket: text(cfg, "bucket")?.ok_or("params.bucket: the bucket")?,
-        measurement: text(cfg, "measurement")?.unwrap_or_else(|| "wyrm".into()),
+        measurement: match text(cfg, "measurement")? {
+            None => "wyrm".into(),
+            // `#` makes every line a comment (written as nothing, then purged); `_` is reserved
+            Some(m) if m.is_empty() || m.starts_with(['#', '_']) => {
+                return Err("params.measurement: not empty, not starting with # or _".into())
+            }
+            Some(m) => m,
+        },
         ca_pem: text(cfg, "ca_pem")?,
         timeout_ms,
     })
@@ -99,22 +111,24 @@ fn escape(s: &str, also_eq: bool) -> String {
     out
 }
 
-/// The `value` field of a row, or `None` for a value line protocol cannot hold.
+/// The value field of a row (`value=<float>` or `value_text="…"`), or `None` for a value line
+/// protocol cannot hold. One type per field, whatever the value's CBOR type.
 fn field(v: &Value) -> Option<String> {
-    Some(match v {
-        Value::Float(f) if f.is_finite() => format!("{f:?}"),
-        Value::Int(i) => format!("{i}i"),
-        Value::UInt(u) => format!("{u}u"),
-        Value::Bool(b) => b.to_string(),
+    let float = |f: f64| f.is_finite().then(|| format!("value={f:?}"));
+    match v {
+        Value::Float(f) => float(*f),
+        Value::Int(i) => float(*i as f64),
+        Value::UInt(u) => float(*u as f64),
+        Value::Bool(b) => float(if *b { 1.0 } else { 0.0 }),
         Value::Str(s) => {
             let s = s
                 .replace('\\', "\\\\")
                 .replace('"', "\\\"")
                 .replace(['\n', '\r'], " ");
-            format!("\"{s}\"")
+            Some(format!("value_text=\"{s}\""))
         }
-        _ => return None,
-    })
+        _ => None,
+    }
 }
 
 /// The batch as line protocol; rows it cannot hold are left out.
@@ -126,7 +140,7 @@ pub fn lines(measurement: &str, rows: &[Row]) -> String {
             continue;
         };
         out.push_str(&format!(
-            "{m},site={},key={} value={value},quality={}i {}\n",
+            "{m},site={},key={} {value},quality={}i {}\n",
             escape(&r.site, true),
             escape(&r.key, true),
             quality_code(r.q),
@@ -164,12 +178,14 @@ impl Influx {
     }
 }
 
-/// What a status means for the batch.
+/// What a status means for the batch: 400 (a line it cannot parse, a partial write), 413 (too
+/// large) and 422 (a field type conflict) refuse the data, not the connection.
 fn judge(r: &http::Response, what: &str) -> Result<(), TargetError> {
     let msg = || format!("influxdb {what}: {} {}", r.status, r.text(300));
     match r.status {
         200..=299 => Ok(()),
         429 | 500..=599 => Err(TargetError::Retry(msg())),
+        400 | 413 | 422 => Err(TargetError::Refused(msg())),
         _ => Err(TargetError::Fatal(msg())),
     }
 }

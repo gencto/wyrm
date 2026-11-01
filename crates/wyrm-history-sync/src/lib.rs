@@ -61,15 +61,20 @@ pub enum TargetError {
     Retry(String),
     /// The connection is lost: connect again, then the same batch.
     Reconnect(String),
-    /// Credentials, schema, a refused row: stop with the error until the
+    /// Credentials, schema, permissions: stop with the error until the
     /// params, the password or Resume change something.
     Fatal(String),
+    /// The target refused the data itself (a value too long, a type it
+    /// cannot take): the app writes the batch again one row at a time and
+    /// skips the rows refused alone (counted in `rows_refused`), so one bad
+    /// row cannot stop the export (security review HS-1).
+    Refused(String),
 }
 
 impl TargetError {
     pub fn message(&self) -> &str {
         match self {
-            Self::Retry(m) | Self::Reconnect(m) | Self::Fatal(m) => m,
+            Self::Retry(m) | Self::Reconnect(m) | Self::Fatal(m) | Self::Refused(m) => m,
         }
     }
 }
@@ -96,6 +101,8 @@ pub trait Target: Sized {
         Ok(())
     }
     /// Store one batch, replacing on `(key, t)`; `Ok` only when every row is stored.
+    /// [`TargetError::Refused`] only for the data, never for the connection or
+    /// the schema: the app then skips rows.
     fn write(&mut self, net: &mut dyn Host, rows: &[Row]) -> Result<(), TargetError>;
     /// A cheap check of the connection.
     fn ping(&mut self, net: &mut dyn Host) -> Result<(), TargetError>;
@@ -269,6 +276,7 @@ pub struct SyncApp<T: Target> {
     retry_ms: u64,
     state: State,
     rows_sent: u64,
+    rows_refused: u64,
 }
 
 fn good(host: &dyn Host, v: Value) -> Sample {
@@ -337,12 +345,49 @@ impl<T: Target> SyncApp<T> {
                 self.drop_conn(host);
                 self.back_off(host, &m);
             }
-            TargetError::Fatal(m) => {
+            TargetError::Fatal(m) | TargetError::Refused(m) => {
                 self.drop_conn(host);
                 self.show(host, State::Failed, Some(&m));
                 host.log(Level::Error, &format!("{}: {m}", T::KIND));
             }
         }
+    }
+
+    /// The target refused data in `rows`: write them one at a time and skip
+    /// the ones refused alone. `Ok(stored)`, or the first other error. A batch
+    /// refused row by row before anything was ever stored is a stop: the
+    /// target refuses all our data, not one row.
+    fn one_by_one(&mut self, host: &mut dyn Host, rows: &[Row]) -> Result<u64, TargetError> {
+        let (mut stored, mut refused, mut last) = (0u64, 0u64, String::new());
+        for r in rows {
+            let Some(conn) = self.conn.as_mut() else {
+                return Err(TargetError::Reconnect("connection closed".into()));
+            };
+            match conn.write(host, std::slice::from_ref(r)) {
+                Ok(()) => stored += 1,
+                Err(TargetError::Refused(m)) => {
+                    refused += 1;
+                    // the key and time only: never the value
+                    host.log(
+                        Level::Warn,
+                        &format!("{}: row {} at {} refused: {m}", T::KIND, r.key, r.t),
+                    );
+                    last = m;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        if stored == 0 && self.rows_sent == 0 {
+            return Err(TargetError::Fatal(format!("every row refused: {last}")));
+        }
+        if refused > 0 {
+            self.rows_refused += refused;
+            let s = good(host, Value::UInt(self.rows_refused));
+            host.update("rows_refused", s);
+            let s = good(host, Value::from(format!("{refused} rows refused: {last}")));
+            host.update("error", s);
+        }
+        Ok(stored)
     }
 
     /// Connect if needed, then ask the sink for the next batch.
@@ -386,11 +431,16 @@ impl<T: Target> SyncApp<T> {
         let Some(conn) = self.conn.as_mut() else {
             return self.arm(host, 1);
         };
-        match conn.write(host, &rows) {
-            Ok(()) => {
+        let r = match conn.write(host, &rows) {
+            Ok(()) => Ok(rows.len() as u64),
+            Err(TargetError::Refused(_)) => self.one_by_one(host, &rows),
+            Err(e) => Err(e),
+        };
+        match r {
+            Ok(stored) => {
                 self.after = Some(next);
                 self.retry_ms = FIRST_RETRY_MS;
-                self.rows_sent += rows.len() as u64;
+                self.rows_sent += stored;
                 let s = good(host, Value::UInt(self.rows_sent));
                 host.update("rows_sent", s);
                 let s = good(host, Value::UInt(rows.len() as u64));
@@ -431,6 +481,11 @@ impl<T: Target> App for SyncApp<T> {
             (
                 "rows_sent",
                 "Rows written since the link started.",
+                TypeCode::Number,
+            ),
+            (
+                "rows_refused",
+                "Rows the target refused alone (a value it cannot take), skipped since the link started.",
                 TypeCode::Number,
             ),
             (
@@ -492,9 +547,12 @@ impl<T: Target> App for SyncApp<T> {
             retry_ms: FIRST_RETRY_MS,
             state: State::Connecting,
             rows_sent: 0,
+            rows_refused: 0,
         };
-        let s = good(host, Value::UInt(0));
-        host.update("rows_sent", s);
+        for path in ["rows_sent", "rows_refused"] {
+            let s = good(host, Value::UInt(0));
+            host.update(path, s);
+        }
         if paused {
             app.show(host, State::Paused, None);
         } else {

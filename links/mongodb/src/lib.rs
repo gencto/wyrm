@@ -202,6 +202,9 @@ fn class(code: i64, msg: String) -> TargetError {
         }
         // time limits, write conflicts, too busy
         50 | 112 | 262 | 16500 | 462 => TargetError::Retry(msg),
+        // the data: a bad value or type, a document or key too large (the app skips the rows
+        // refused alone; review HS-1)
+        2 | 14 | 10334 | 17280 => TargetError::Refused(msg),
         _ => TargetError::Fatal(msg),
     }
 }

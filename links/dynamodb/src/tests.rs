@@ -160,6 +160,7 @@ fn signs_writes_and_classifies() {
         (200, "{\"UnprocessedItems\": {}}"),
         (400, "{\"__type\":\"com.amazonaws.dynamodb.v20120810#ThrottlingException\",\"message\":\"slow\"}"),
         (400, "{\"__type\":\"com.amazon.coral.service#UnrecognizedClientException\",\"message\":\"bad key\"}"),
+        (400, "{\"__type\":\"com.amazon.coral.validate#ValidationException\",\"message\":\"Item size has exceeded the maximum allowed size\"}"),
         (200, "{\"Table\":{}}"),
     ]);
     let mut h = TcpHost::default();
@@ -180,9 +181,14 @@ fn signs_writes_and_classifies() {
         .write(&mut h, &[row("wy/edge/p", 3, Value::Float(3.0))])
         .unwrap_err();
     assert!(matches!(e, TargetError::Fatal(_)), "bad key: {e}");
+    // an item over the size limit refuses that row (review HS-1)
+    let e = d
+        .write(&mut h, &[row("wy/edge/p", 4, Value::Float(4.0))])
+        .unwrap_err();
+    assert!(matches!(e, TargetError::Refused(_)), "too large: {e}");
     d.ping(&mut h).unwrap();
     let got = got.lock().unwrap();
-    assert_eq!(got.len(), 5);
+    assert_eq!(got.len(), 6);
     let first = &got[0];
     assert!(first.starts_with("POST / HTTP/1.1"), "{first}");
     assert!(
@@ -201,7 +207,7 @@ fn signs_writes_and_classifies() {
         got[1].split("\n\n").nth(1),
         "the same request again"
     );
-    assert!(got[4].contains("DescribeTable"));
+    assert!(got[5].contains("DescribeTable"));
 }
 
 #[test]

@@ -206,6 +206,10 @@ impl PgError {
             TargetError::Reconnect(msg)
         } else if c.starts_with("53") || matches!(c, "40001" | "40P01" | "55P03" | "57014") {
             TargetError::Retry(msg)
+        } else if c.starts_with("22") || c.starts_with("23") || c == "54000" {
+            // data exception, integrity constraint, a value too large: the rows, not the
+            // connection (the app skips the rows refused alone; review HS-1)
+            TargetError::Refused(msg)
         } else {
             TargetError::Fatal(msg)
         }

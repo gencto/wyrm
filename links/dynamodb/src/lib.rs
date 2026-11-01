@@ -215,8 +215,13 @@ fn judge(r: &Response, what: &str) -> Result<(), TargetError> {
                 // a table just made is not active yet; a missing one shows its error meanwhile
                 | "ResourceNotFoundException"
         );
+    // an item over the size limit refuses that row; any other validation error (a key that
+    // does not fit the table) stops (review HS-1)
+    let too_large = kind == "ValidationException" && msg.to_ascii_lowercase().contains("size");
     Err(if wait {
         TargetError::Retry(msg)
+    } else if too_large {
+        TargetError::Refused(msg)
     } else {
         TargetError::Fatal(msg)
     })

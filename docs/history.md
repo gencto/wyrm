@@ -196,13 +196,28 @@ same code. Install it, then:
 3. Add the sink for this link (section above), then ▸ **Test Connection**.
 
 The link shows `status` (connecting, reading, idle, waiting after an error,
-failed, paused), `error`, `rows_sent`, `last_batch` and `cursor`; ▸ Pause and
-▸ Resume (kept across restarts). A failed link (wrong token, a refused row)
-waits for a change: Set Password, Resume or new params.
+failed, paused), `error`, `rows_sent`, `rows_refused`, `last_batch` and
+`cursor`; ▸ Pause and ▸ Resume (kept across restarts). A failed link (wrong
+token, a missing table, no rights) waits for a change: Set Password, Resume
+or new params.
+
+A row the database refuses for its data (a value too long or too large, a
+type it cannot take) does not stop the link (security review HS-1, ADR 0031):
+
+1. The link writes that batch again one row at a time.
+2. It skips each row the database refuses alone, logs its key and time
+   (never the value) at `warn`, and counts it in `rows_refused`; `error`
+   names the reason.
+3. It confirms the batch, so the cursor moves past the skipped rows.
+4. When the very first rows since the link started are all refused, the link
+   stops as `failed` instead: the database refuses everything, not one row.
+
+ОБЕРЕЖНО: a skipped row is not sent again. Read `rows_refused` and `error`
+after a change of schema or of a point's type.
 
 | Link | Params | Writes |
 |---|---|---|
-| `influxdb` | `url` (`https://host[:port][/base]`; `http://` only to loopback unless `insecure_plaintext`), `org`, `bucket`, `measurement` (default `wyrm`), `ca_pem`, `timeout_ms` | v2 write API (InfluxDB 2.x and 3.x), line protocol at µs: tags `site`, `key`; fields `value`, `quality`. A row that is not a number, a bool or text is skipped. |
+| `influxdb` | `url` (`https://host[:port][/base]`; `http://` only to loopback unless `insecure_plaintext`), `org`, `bucket`, `measurement` (default `wyrm`), `ca_pem`, `timeout_ms` | v2 write API (InfluxDB 2.x and 3.x), line protocol at µs: tags `site`, `key`; fields `value` (float: every number, and a bool as `1.0`/`0.0`), `value_text` (text) and `quality`, so a series never changes a field's type. Integers beyond 2^53 lose precision. A row that is not a number, a bool or text is skipped. `measurement` may not start with `#` or `_`. УВАГА: links before 2026-11-01 wrote integers as integer fields, bools as bool fields and text in `value`; InfluxDB refuses a float `value` for such a series until the next shard group (2.x) or for good (3.x). Give the link a new `measurement` after the upgrade, or such rows count in `rows_refused`. |
 
 | `postgres` | `host`, `port` (5432), `database`, `user`, `table` (`wyrm_history` or `schema.table`), `sslmode` (`require`, default, or `disable`: loopback only unless `insecure_plaintext`), `ca_pem`, `timeout_ms`, `create_table` (true) | One table `site, key, t timestamptz, value double precision, value_text text, quality smallint`, primary key `(key, t)`, upsert. TLS by `SSLRequest`; SCRAM-SHA-256, or a cleartext password over TLS or to loopback; MD5 is refused. TimescaleDB too (make the table a hypertable yourself). |
 

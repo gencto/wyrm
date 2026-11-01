@@ -255,6 +255,11 @@ fn err_packet(p: &[u8]) -> TargetError {
         1053 | 1077 | 1152 | 1153 | 1154 | 1156 | 1159 | 1161 => TargetError::Reconnect(m),
         // deadlock, lock wait, too many connections, out of resources
         1040 | 1041 | 1203 | 1205 | 1213 | 1226 => TargetError::Retry(m),
+        // the data: null, out of range, a bad or too long value, a check constraint (the app
+        // skips the rows refused alone; review HS-1)
+        1048 | 1264 | 1265 | 1292 | 1366 | 1406 | 1416 | 3140 | 3819 | 4025 => {
+            TargetError::Refused(m)
+        }
         _ => TargetError::Fatal(m),
     }
 }

@@ -259,7 +259,7 @@ fn logs_in_every_way() {
 
 #[test]
 fn writes_and_classifies_errors() {
-    let (port, got) = server(Login::Native, vec![0, 0, 1213, 1146]);
+    let (port, got) = server(Login::Native, vec![0, 0, 1213, 1146, 1406]);
     let mut h = TcpHost::default();
     let mut my = My::connect(&mut h, &cfg(port), Some("s3cret")).unwrap();
     my.prepare(&mut h).unwrap();
@@ -273,6 +273,11 @@ fn writes_and_classifies_errors() {
         .write(&mut h, &[row("wy/edge/p", 3, Value::Float(3.0))])
         .unwrap_err();
     assert!(matches!(e, TargetError::Fatal(_)), "no table: {e}");
+    // a value too long refuses the row, not the connection (review HS-1)
+    let e = my
+        .write(&mut h, &[row("wy/edge/p", 4, Value::Float(4.0))])
+        .unwrap_err();
+    assert!(matches!(e, TargetError::Refused(_)), "too long: {e}");
     let got = got.lock().unwrap();
     assert!(
         got[1].starts_with("CREATE TABLE IF NOT EXISTS `wyrm_history`"),

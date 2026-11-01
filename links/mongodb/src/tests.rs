@@ -324,3 +324,12 @@ fn a_wrong_password_or_none_stops() {
     m.ping(&mut h).unwrap();
     assert_eq!(got.lock().unwrap().len(), 1, "ping only");
 }
+
+/// Review HS-1: data errors refuse the rows; the rest keeps its class.
+#[test]
+fn data_errors_refuse_rows() {
+    assert!(matches!(class(10334, "m".into()), TargetError::Refused(_)));
+    assert!(matches!(class(2, "m".into()), TargetError::Refused(_)));
+    assert!(matches!(class(13, "m".into()), TargetError::Fatal(_)));
+    assert!(matches!(class(91, "m".into()), TargetError::Reconnect(_)));
+}

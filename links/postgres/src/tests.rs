@@ -225,3 +225,21 @@ fn refuses_unsafe_servers() {
         "{e}"
     );
 }
+
+/// Review HS-1: data errors refuse the rows; the rest keeps its class.
+#[test]
+fn data_errors_refuse_rows() {
+    let class = |c: &str| {
+        PgError {
+            code: c.into(),
+            message: "m".into(),
+        }
+        .class()
+    };
+    assert!(matches!(class("22001"), TargetError::Refused(_)));
+    assert!(matches!(class("23502"), TargetError::Refused(_)));
+    assert!(matches!(class("54000"), TargetError::Refused(_)));
+    assert!(matches!(class("42P01"), TargetError::Fatal(_)));
+    assert!(matches!(class("28P01"), TargetError::Fatal(_)));
+    assert!(matches!(class("08006"), TargetError::Reconnect(_)));
+}

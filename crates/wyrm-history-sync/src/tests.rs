@@ -87,6 +87,8 @@ struct Seen {
     written: Vec<u64>,
     fail: Vec<TargetError>,
     connect_fail: Vec<TargetError>,
+    /// Rows the target refuses (by seq): a write with any of them is `Refused`.
+    refuse: Vec<u64>,
 }
 
 thread_local! {
@@ -123,6 +125,9 @@ impl Target for FakeTarget {
         let mut s = s.borrow_mut();
         if !s.fail.is_empty() {
             return Err(s.fail.remove(0));
+        }
+        if let Some(r) = rows.iter().find(|r| s.refuse.contains(&r.seq)) {
+            return Err(TargetError::Refused(format!("row {}", r.seq)));
         }
         s.written.extend(rows.iter().map(|r| r.seq));
         Ok(())
@@ -291,6 +296,45 @@ fn failures_back_off_reconnect_or_stop() {
     let (id, _) = last_next(&h);
     app.on_reply(&mut h, id, Ok(batch(&[1], 1)));
     assert_eq!(seen().borrow().written, [1]);
+}
+
+/// Review HS-1: one row the target refuses is skipped and counted; the rest
+/// of its batch is stored and the cursor moves on.
+#[test]
+fn a_refused_row_is_skipped_not_a_stop() {
+    let mut h = Fake::default();
+    let mut app = SyncApp::<FakeTarget>::start(&mut h, config(&[])).unwrap();
+    fire(&mut app, &mut h);
+    // before anything was stored, a batch refused row by row is a stop
+    seen().borrow_mut().refuse = vec![1];
+    let (id, _) = last_next(&h);
+    app.on_reply(&mut h, id, Ok(batch(&[1], 1)));
+    assert_eq!(status(&h), "failed");
+    app.on_invoke(&mut h, "", "resume", Value::Null, &Who::default())
+        .unwrap();
+    fire(&mut app, &mut h);
+    seen().borrow_mut().refuse = vec![];
+    let (id, _) = last_next(&h);
+    app.on_reply(&mut h, id, Ok(batch(&[2], 2)));
+    assert_eq!(seen().borrow().written, [2]);
+    // once the target took rows: a refused row is skipped
+    seen().borrow_mut().refuse = vec![4];
+    fire(&mut app, &mut h);
+    let (id, _) = last_next(&h);
+    app.on_reply(&mut h, id, Ok(batch(&[3, 4, 5], 5)));
+    assert_eq!(seen().borrow().written, [2, 3, 5]);
+    assert_eq!(h.values.get("rows_refused"), Some(&Value::UInt(1)));
+    assert_eq!(h.values.get("rows_sent"), Some(&Value::UInt(3)));
+    assert_ne!(status(&h), "failed");
+    fire(&mut app, &mut h);
+    assert_eq!(last_next(&h).1, Some(5), "confirmed past the refused row");
+    // a batch refused entirely, after rows were stored: skipped too
+    seen().borrow_mut().refuse = vec![6, 7];
+    let (id, _) = last_next(&h);
+    app.on_reply(&mut h, id, Ok(batch(&[6, 7], 7)));
+    assert_eq!(h.values.get("rows_refused"), Some(&Value::UInt(3)));
+    fire(&mut app, &mut h);
+    assert_eq!(last_next(&h).1, Some(7));
 }
 
 #[test]

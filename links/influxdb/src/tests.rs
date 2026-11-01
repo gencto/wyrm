@@ -112,6 +112,9 @@ fn params_are_checked() {
     assert!(with("url", Value::from("http://10.0.0.5:8086")).contains("in the clear"));
     assert!(with("url", Value::from("ftp://x")).contains("http"));
     assert!(with("timeout_ms", Value::UInt(5)).contains("timeout_ms"));
+    // review HS-6: a leading `#` would make every line a comment
+    assert!(with("measurement", Value::from("#m")).contains("measurement"));
+    assert!(with("measurement", Value::from("_m")).contains("measurement"));
     let mut c = cfg(8086);
     c.insert("url".into(), Value::from("http://10.0.0.5:8086"));
     c.insert("insecure_plaintext".into(), Value::Bool(true));
@@ -139,13 +142,13 @@ fn line_protocol() {
         l,
         [
             format!("{tags} value=21.5,quality=0i 1700000000000001"),
-            format!("{tags} value=-3i,quality=0i 1700000000000002"),
-            format!("{tags} value=7u,quality=0i 1700000000000003"),
-            format!("{tags} value=true,quality=0i 1700000000000004"),
-            format!("{tags} value=\"a \\\"b\\\" c\",quality=0i 1700000000000005"),
+            format!("{tags} value=-3.0,quality=0i 1700000000000002"),
+            format!("{tags} value=7.0,quality=0i 1700000000000003"),
+            format!("{tags} value=1.0,quality=0i 1700000000000004"),
+            format!("{tags} value_text=\"a \\\"b\\\" c\",quality=0i 1700000000000005"),
             format!("{tags} value=2.0,quality=0i 1700000000000008"),
         ],
-        "null and NaN are left out"
+        "null and NaN are left out; numbers and bools are one float field (review HS-1)"
     );
 }
 
@@ -175,6 +178,7 @@ fn writes_and_classifies_answers() {
         (503, false),
         (401, true),
         (204, false),
+        (422, false),
     ]);
     let mut h = TcpHost::default();
     let mut t = Influx::connect(&mut h, &cfg(port), Some("tok")).unwrap();
@@ -190,8 +194,11 @@ fn writes_and_classifies_answers() {
     assert_eq!(*accepted.lock().unwrap(), 2);
     // nothing to write: no request
     t.write(&mut h, &[row(5, Value::Null)]).unwrap();
+    // a field type conflict refuses the data, not the connection (review HS-1)
+    let e = t.write(&mut h, &[row(6, Value::Float(6.0))]).unwrap_err();
+    assert!(matches!(e, TargetError::Refused(_)), "422: {e}");
     let got = got.lock().unwrap();
-    assert_eq!(got.len(), 5);
+    assert_eq!(got.len(), 6);
     assert_eq!(got[0].line, "GET /ping HTTP/1.1");
     assert_eq!(
         got[1].line,
