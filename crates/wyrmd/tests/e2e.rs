@@ -3274,10 +3274,12 @@ async fn chain_of_three_brokers() {
         free_port(),
         free_port(),
     );
+    let c_gw = free_port();
     let cfg = |text: String| Config::from_json5(&text).unwrap();
     let central = cfg(format!(
         r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
               admin_keys: ["{admin}"],
+              gateway: {{ listen: "127.0.0.1:{c_gw}", admin_user: "root" }},
               peers: {{ listen: "quic/127.0.0.1:{c_quic}",
                         downstream: [{{ site: "edge", via: ["plant"] }}] }} }}"#,
         c_dir.display(),
@@ -3308,10 +3310,13 @@ async fn chain_of_three_brokers() {
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let mut stops = Vec::new();
     let mut tasks = Vec::new();
+    let env_lock = GATEWAY_ENV.lock().await;
+    std::env::set_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV, "chain-root-pw");
     for d in [central, edge, plant] {
         let d = open_daemon(d, exe.clone()).unwrap();
         stops.push(d);
     }
+    drop(env_lock);
     let mut senders = Vec::new();
     for d in stops.drain(..) {
         let (tx, rx) = oneshot::channel::<()>();
@@ -3479,9 +3484,30 @@ async fn chain_of_three_brokers() {
         ("def".to_owned(), def),
         ("proofs".to_owned(), Value::Map(proofs)),
     ]));
-    ce.invoke_one("wy/edge/dataflows", "deploy", args)
+    ce.invoke_one("wy/edge/dataflows", "deploy", args.clone())
         .await
         .expect("central deploys a flow with a command target on edge");
+    // the same through central's gateway, as wyrm-agent does: the gateway signs the proofs
+    // for edge's targets (it signed none for a site below before)
+    let Value::Map(mut a) = args else { panic!() };
+    a.remove("proofs");
+    if let Some(Value::Map(d)) = a.get_mut("def") {
+        d.insert("id".into(), Value::from("via_gateway"));
+    }
+    let gw = wyrm_gateway_client::Gateway::login(
+        &format!("http://127.0.0.1:{c_gw}"),
+        "root",
+        "chain-root-pw",
+    )
+    .await
+    .expect("gateway login");
+    let conn = gw.connect().await.unwrap();
+    eventually("deploy on edge through central's gateway", 20, || async {
+        conn.invoke("wy/edge/dataflows", "deploy", Value::Map(a.clone()))
+            .await
+            .ok()
+    })
+    .await;
     let e = c
         .invoke_one("wy/plant/downstream/md", "export", none())
         .await

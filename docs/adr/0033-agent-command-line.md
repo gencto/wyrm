@@ -17,4 +17,6 @@ A flow deployed from an upstream site with a command target was refused: the dep
 
 A second refusal followed once the flow had a source: the engine knew an upstream key with the scope `dataflows` only, so the deployer's `auth` lost its grants on `downstream` and the source check (ADR 0031, FLOW-1) refused. The engine now knows the upstream keys also with the scopes `downstream` and `storage` give them; a request to the engine is still authorized within `dataflows` only, and only the deployer's rights on sources and targets are kept. The e2e flow has a source too.
 
+The third and last: central's gateway added the proofs of a deploy only for its own site (`wy/central/dataflows`), so a deploy on `wy/edge/dataflows` arrived without proofs. It now adds them for a site below too, with that site's targets. e2e `chain_of_three_brokers` deploys through central's gateway as a user (it timed out before).
+
 *If wrong:* nothing is widened: a proof still has to be a token of the same subject at the flow's `maxperm` on that exact target, from a key the target itself trusts.

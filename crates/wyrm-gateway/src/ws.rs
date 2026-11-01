@@ -106,11 +106,12 @@ impl Conn {
     /// user's own per-target tokens, signed here with the user's grants, so
     /// the engine checks the user's rights on every command target. Proofs
     /// sent by the client are replaced; a target the user has no grant on
-    /// gets no proof and the engine refuses the deploy.
-    fn add_flow_proofs(&self, c: &WyrmClient, args: &mut Value) {
+    /// gets no proof and the engine refuses the deploy. `site` is the site the flow is
+    /// deployed on (this one or a downstream site, ADR 0018): its targets are that site's.
+    fn add_flow_proofs(&self, c: &WyrmClient, site: &str, args: &mut Value) {
         let Value::Map(m) = args else { return };
         let Some(def) = m.get("def") else { return };
-        let Ok(targets) = wyrm_flow::command_targets(def, self.gw.site()) else {
+        let Ok(targets) = wyrm_flow::command_targets(def, site) else {
             return; // the engine's compiler reports it
         };
         let proofs = targets
@@ -444,8 +445,12 @@ impl Conn {
                     Some(t) => c.with_timeout(t),
                     None => c,
                 };
-                if action == "deploy" && req.key == format!("wy/{}/dataflows", self.gw.site()) {
-                    self.add_flow_proofs(&c, &mut args);
+                // a deploy here or on a site below (ADR 0033: a downstream deploy got no proofs)
+                if action == "deploy"
+                    && self.gw.as_own(&req.key) == format!("wy/{}/dataflows", self.gw.site())
+                {
+                    let site = req.key.split('/').nth(1).unwrap_or_default().to_owned();
+                    self.add_flow_proofs(&c, &site, &mut args);
                 }
                 match c.invoke(&req.key, &action, args).await {
                     Err(e) => client_err(id, &e),
