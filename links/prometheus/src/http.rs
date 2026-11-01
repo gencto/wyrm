@@ -423,7 +423,11 @@ impl Client {
 
     async fn connect_and_get(&self) -> Result<Fetched, FetchError> {
         let a = &self.url.authority;
-        let tcp = TcpStream::connect((self.url.host.as_str(), self.url.port))
+        // never link-local or metadata addresses, whatever the name resolves to (review LNK-1)
+        let addrs = wyrm_link_sdk::outbound::resolve(&self.url.host, self.url.port)
+            .await
+            .map_err(FetchError::Io)?;
+        let tcp = TcpStream::connect(&addrs[..])
             .await
             .map_err(|e| FetchError::Io(format!("connect {a}: {e}")))?;
         let _ = tcp.set_nodelay(true);

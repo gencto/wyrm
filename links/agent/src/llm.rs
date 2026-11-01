@@ -106,7 +106,9 @@ impl AnthropicClient {
             }
         }
         let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
-        let tcp = TcpStream::connect((self.host.as_str(), self.port))
+        // never link-local or metadata addresses (review AI-3)
+        let addrs = wyrm_link_sdk::outbound::resolve(&self.host, self.port).await?;
+        let tcp = TcpStream::connect(&addrs[..])
             .await
             .map_err(|e| format!("connect {}: {e}", self.host))?;
         let name = ServerName::try_from(self.host.clone())

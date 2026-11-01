@@ -273,10 +273,8 @@ pub struct Client {
 async fn connect(prep: &Prepared) -> Result<Live, String> {
     let o = &prep.origin;
     let target = (o.host.as_str(), o.port);
-    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(target)
-        .await
-        .map_err(|e| format!("resolve {}: {e}", o.host))?
-        .collect();
+    // never link-local or metadata addresses, whatever the name resolves to (review LNK-1)
+    let addrs: Vec<SocketAddr> = wyrm_link_sdk::outbound::resolve(target.0, target.1).await?;
     let mut last = format!("resolve {}: no address", o.host);
     let mut tcp = None;
     for a in addrs {

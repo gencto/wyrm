@@ -24,7 +24,7 @@ package = ["dep:serde", "dep:zip", "dep:hex"]
 wyrm-core.workspace = true
 zenoh.workspace = true
 futures-util = { workspace = true, features = ["std"] }
-tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net"] }
 ed25519-dalek.workspace = true
 minicbor.workspace = true
 thiserror.workspace = true

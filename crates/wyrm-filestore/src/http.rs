@@ -547,10 +547,8 @@ impl Http {
 
     async fn connect(&self) -> Result<Live, String> {
         let e = &self.endpoint;
-        let addrs: Vec<SocketAddr> = tokio::net::lookup_host((e.host.as_str(), e.port))
-            .await
-            .map_err(|err| format!("resolve {}: {err}", e.host))?
-            .collect();
+        // never link-local or metadata addresses, whatever the name resolves to (review FS-4)
+        let addrs: Vec<SocketAddr> = wyrm_link_sdk::outbound::resolve(&e.host, e.port).await?;
         let mut last = format!("resolve {}: no address", e.host);
         let mut tcp = None;
         for a in addrs {

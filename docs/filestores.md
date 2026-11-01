@@ -292,6 +292,11 @@ What it guarantees:
 
 ## 8. Failures
 
+- **Addresses the link never connects to:** link-local (`169.254.0.0/16`, `fe80::/10`,
+  where cloud instance metadata hands out credentials), cloud metadata (`fd00:ec2::254`),
+  unspecified, multicast and broadcast addresses. The check runs on the address the host name
+  resolves to, so DNS cannot lead there either. Loopback and private networks stay
+  reachable: devices and simulators live there (security review FS-4, ADR 0031).
 - The probe (S3: a list of one key; Drive: the root folder; WebDAV:
   `PROPFIND Depth: 0`) or a tree read failing marks the connection
   `Failed` with the `error` leaf; it reconnects with backoff (1 s … 60 s).
