@@ -10,6 +10,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [history.md](history.md) | record points, read their history, keep broker storage (`storage`) |
 | [scheduler.md](scheduler.md) | switch equipment on a weekly schedule, with special days and overrides |
 | [dql.md](dql.md) | collect values from many points into one table, or write them on to a target |
+| [alarm.md](alarm.md) | raise alarms from points (range, boolean, staleness, quality), acknowledge them, send the records to a central database |
 | [filestores.md](filestores.md) | connect S3, Google Drive, WebDAV or a local directory and move files |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use wyrm_admin::control::{DQL_LINK, SCHEDULER_LINK, STORAGE_LINK};
+use wyrm_admin::control::{ALARM_LINK, DQL_LINK, SCHEDULER_LINK, STORAGE_LINK};
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
     UpstreamConf,
@@ -24,6 +24,7 @@ use wyrm_example_portable::Echo;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_gateway::{AuditEvent, Gateway, GatewayConfig};
 use wyrm_link_agent::{Agent, AgentConfig};
+use wyrm_link_alarm::Alarm;
 use wyrm_link_dql::Dql;
 use wyrm_link_gdrive::GDrive;
 use wyrm_link_http::Http;
@@ -119,6 +120,47 @@ pub struct Config {
     /// The embedded DQL link at `wy/<site>/downstream/dql` (ADR 0025).
     #[serde(default)]
     pub dql: DqlSection,
+    /// The embedded alarm link at `wy/<site>/downstream/alarm` (ADR 0034).
+    #[serde(default)]
+    pub alarm: AlarmSection,
+}
+
+/// `alarm` in `wyrmd.json5`: on by default.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AlarmSection {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Size of its store (classes, records, the journal) in MiB.
+    #[serde(default = "default_alarm_store_mb")]
+    pub store_mb: u32,
+    /// Closed records older than this are purged (by whole pages).
+    #[serde(default = "default_alarm_retention_days")]
+    pub retention_days: u64,
+    /// Records kept at most; the oldest closed ones go beyond it.
+    #[serde(default = "default_alarm_max_records")]
+    pub max_records: u64,
+}
+
+impl Default for AlarmSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            store_mb: default_alarm_store_mb(),
+            retention_days: default_alarm_retention_days(),
+            max_records: default_alarm_max_records(),
+        }
+    }
+}
+
+fn default_alarm_store_mb() -> u32 {
+    64
+}
+fn default_alarm_retention_days() -> u64 {
+    wyrm_link_alarm::limits::DEFAULT_RETENTION_DAYS
+}
+fn default_alarm_max_records() -> u64 {
+    wyrm_link_alarm::limits::DEFAULT_MAX_RECORDS
 }
 
 /// `dql` in `wyrmd.json5`: on by default.
@@ -503,8 +545,9 @@ impl Config {
             if cfg.links.contains_key(&d.site) {
                 return Err(format!("links.{}: the name of a downstream site", d.site).into());
             }
-            // `downstream/scheduler` and `downstream/dql` are built-in links (ADR 0022, 0025)
-            if [SCHEDULER_LINK, DQL_LINK].contains(&d.site.as_str()) {
+            // `downstream/scheduler`, `downstream/dql` and `downstream/alarm` are built-in
+            // links (ADR 0022, 0025, 0034)
+            if [SCHEDULER_LINK, DQL_LINK, ALARM_LINK].contains(&d.site.as_str()) {
                 return Err(
                     format!("peers.downstream {}: the id belongs to the broker", d.site).into(),
                 );
@@ -513,6 +556,7 @@ impl Config {
         for (name, mb) in [
             ("scheduler", cfg.scheduler.store_mb),
             ("dql", cfg.dql.store_mb),
+            ("alarm", cfg.alarm.store_mb),
         ] {
             if !(1..=wyrm_link_portable::MAX_STORE_MB).contains(&mb) {
                 return Err(format!(
@@ -576,8 +620,8 @@ impl Config {
         }
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
-            // ids of the broker's own links (ADR 0017, 0022, 0025)
-            if [STORAGE_LINK, SCHEDULER_LINK, DQL_LINK].contains(&id.as_str()) {
+            // ids of the broker's own links (ADR 0017, 0022, 0025, 0034)
+            if [STORAGE_LINK, SCHEDULER_LINK, DQL_LINK, ALARM_LINK].contains(&id.as_str()) {
                 return Err(format!("links.{id}: the id belongs to the broker").into());
             }
             if let Some(m) = &l.mode {
@@ -904,6 +948,8 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "scheduler" => wyrm_link_sdk::process::run::<Portable<Scheduler>>().await?,
         // the DQL link as a process link (ADR 0025 run modes)
         "dql" => wyrm_link_sdk::process::run::<Portable<Dql>>().await?,
+        // the alarm link as a process link (ADR 0034 run modes)
+        "alarm" => wyrm_link_sdk::process::run::<Portable<Alarm>>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())
@@ -920,7 +966,18 @@ pub struct Broker {
     storage: Option<LinkHandle<Storage>>,
     scheduler: Option<LinkHandle<Portable<Scheduler>>>,
     dql: Option<LinkHandle<Portable<Dql>>>,
+    alarm: Option<LinkHandle<Portable<Alarm>>>,
     gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
+}
+
+/// What the embedded alarm link may reach (ADR 0034): `read` on this site's `downstream`,
+/// `dataflows` and `storage`. It writes nothing. Never `sys`, never other sites (D4 of ADR
+/// 0025 left for later).
+fn alarm_grants(site: &str) -> Vec<(String, wyrm_core::Perm)> {
+    ["downstream", "dataflows", "storage"]
+        .iter()
+        .map(|s| (format!("wy/{site}/{s}"), wyrm_core::Perm::Read))
+        .collect()
 }
 
 /// What the embedded DQL link may reach (ADR 0025): `read` on this site's `downstream`,
@@ -1118,6 +1175,44 @@ impl Broker {
         } else {
             None
         };
+        // The alarm link (ADR 0034): as the scheduler; it only reads, so its key is trusted
+        // by nobody.
+        let alarm = if ctl.alarm_runs() {
+            let started = match ctl.embedded_link_config(ALARM_LINK, alarm_grants(&cfg.site)) {
+                Ok(lcfg) => {
+                    let mut params = BTreeMap::new();
+                    params.insert(
+                        "retention_days".to_owned(),
+                        Value::UInt(cfg.alarm.retention_days),
+                    );
+                    params.insert("max_records".to_owned(), Value::UInt(cfg.alarm.max_records));
+                    let pcfg = PortableConfig {
+                        params: Value::Map(params),
+                        store_mb: cfg.alarm.store_mb,
+                        ..PortableConfig::default()
+                    };
+                    wyrm_link_sdk::spawn::<Portable<Alarm>>(session.clone(), lcfg, pcfg).await
+                }
+                Err(e) => Err(e),
+            };
+            match started {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(d) = dql {
+                        d.stop().await;
+                    }
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    storage.stop().await;
+                    flows.stop().await;
+                    admin.stop().await;
+                    return Err(format!("alarm: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
         runtime.start().await?;
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
@@ -1142,6 +1237,7 @@ impl Broker {
             storage: Some(storage),
             scheduler,
             dql,
+            alarm,
             gateway,
         })
     }
@@ -1166,6 +1262,9 @@ impl Broker {
             let _ = task.await;
         }
         // first: they send requests to the other links
+        if let Some(a) = self.alarm.take() {
+            a.stop().await;
+        }
         if let Some(d) = self.dql.take() {
             d.stop().await;
         }
@@ -1505,6 +1604,7 @@ impl Daemon {
             repository: cfg.packages.repository.clone(),
             scheduler: cfg.scheduler.enabled,
             dql: cfg.dql.enabled,
+            alarm: cfg.alarm.enabled,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -1547,6 +1647,13 @@ impl Daemon {
         if ctl.registry().links.contains_key(DQL_LINK) {
             return Err(format!(
                 "a link with id {DQL_LINK:?} exists; the id belongs to the embedded DQL link (ADR 0025): remove the link with the previous wyrmd first"
+            )
+            .into());
+        }
+        // And for the embedded alarm link (ADR 0034): `downstream/alarm`.
+        if ctl.registry().links.contains_key(ALARM_LINK) {
+            return Err(format!(
+                "a link with id {ALARM_LINK:?} exists; the id belongs to the embedded alarm link (ADR 0034): remove the link with the previous wyrmd first"
             )
             .into());
         }
@@ -1687,6 +1794,17 @@ mod tests {
         assert!(q.enabled);
         assert_eq!(q.store_mb, 16);
         assert!(!parse("dql: { enabled: false }").unwrap().dql.enabled);
+        let a = parse("").unwrap().alarm;
+        assert!(a.enabled);
+        assert_eq!(
+            (a.store_mb, a.retention_days, a.max_records),
+            (64, 365, 100_000)
+        );
+        let a = parse("alarm: { enabled: false, retention_days: 30, max_records: 1000 }")
+            .unwrap()
+            .alarm;
+        assert!(!a.enabled);
+        assert_eq!((a.retention_days, a.max_records), (30, 1000));
         let off = parse("scheduler: { enabled: false }").unwrap().scheduler;
         assert!(!off.enabled);
         assert_eq!(off.store_mb, 64);
@@ -1698,6 +1816,9 @@ mod tests {
             r#"links: { dql: { driver: "mock" } }"#,
             "dql: { store_mb: 0 }",
             "dql: { nope: true }",
+            "alarm: { store_mb: 65 }",
+            "alarm: { other: 1 }",
+            r#"links: { alarm: { driver: "mock" } }"#,
             r#"links: { storage: { driver: "mock" } }"#,
         ] {
             assert!(parse(bad).is_err(), "{bad}");

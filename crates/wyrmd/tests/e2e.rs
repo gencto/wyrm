@@ -7291,6 +7291,375 @@ async fn dql_three_modes() {
     env.stop().await;
 }
 
+/// What one mode of the alarm link shows in the scenario of `alarm_three_modes`.
+#[derive(Debug, PartialEq)]
+struct AlarmRun {
+    /// The watch's state once its point went out of range, and the record's state then.
+    raised: (Value, Value),
+    /// After the point came back and the record was acknowledged: the record's state.
+    closed: Value,
+    /// A manual record raised: its state.
+    manual: Value,
+    /// A person's `next` on a sink is refused.
+    next_refused: bool,
+    /// After a stop and start (a package link): the open records back (the manual one), and
+    /// the point out of range again makes a new record.
+    restart: Option<(usize, Value)>,
+}
+
+/// `get_alarms` rows on alarm link `root`.
+async fn alarm_rows(env: &Env, root: &str, args: Value) -> Option<Vec<BTreeMap<String, Value>>> {
+    let c = client_now(env).await?;
+    let r = c.invoke_one(root, "get_alarms", args).await.ok()??;
+    let Value::Map(m) = r else { return None };
+    let Some(Value::Array(rows)) = m.get("rows") else {
+        return None;
+    };
+    Some(
+        rows.iter()
+            .filter_map(|r| match r {
+                Value::Map(m) => Some(m.clone()),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// On alarm link `id`: a class `c` with an `out_of_range` watch on `point`; the point out of
+/// range raises a record, back in range and acknowledged closes it; a manual record; a sink
+/// whose `next` a person may not run; with `restart`, `sys/links/<id>` stop and start.
+async fn alarm_scenario(env: &Env, id: &str, point: &str, restart: bool) -> AlarmRun {
+    let root = format!("wy/{SITE}/downstream/{id}");
+    let c = slow_client(env).await;
+    c.set(point, Value::Float(0.0))
+        .await
+        .expect("reset the point");
+    c.invoke_one(&root, "add_class", args_map(&[("id", Value::from("c"))]))
+        .await
+        .unwrap_or_else(|e| panic!("{id}: add_class: {e}"));
+    let watch = format!("{root}/c/watches/w1");
+    c.invoke_one(
+        &format!("{root}/c"),
+        "add_watch",
+        args_map(&[
+            ("source", Value::from(point)),
+            // enums by index: `out_of_range`, `fault`
+            ("algorithm", Value::UInt(1)),
+            ("max", Value::Float(0.5)),
+            ("type", Value::UInt(2)),
+        ]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: add_watch: {e}"));
+    eventually(&format!("{id}: w1 normal"), 30, || async {
+        last_val(&c, &watch)
+            .await
+            .filter(|v| *v == Value::from("normal"))
+    })
+    .await;
+    c.set(point, Value::Float(1.0))
+        .await
+        .expect("set the point");
+    let state = eventually(&format!("{id}: w1 alarm"), 30, || async {
+        last_val(&c, &watch)
+            .await
+            .filter(|v| *v == Value::from("alarm"))
+    })
+    .await;
+    let active = args_map(&[("class", Value::from("c")), ("state", Value::UInt(1))]);
+    let rows = eventually(&format!("{id}: one active record"), 30, || async {
+        alarm_rows(env, &root, active.clone())
+            .await
+            .filter(|r| r.len() == 1)
+    })
+    .await;
+    let raised = (state, rows[0]["state"].clone());
+    let Value::UInt(rid) = rows[0]["id"] else {
+        panic!("{id}: record id: {:?}", rows[0])
+    };
+    c.invoke_one(
+        &root,
+        "acknowledge",
+        args_map(&[("id", Value::UInt(rid)), ("note", Value::from("e2e"))]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: acknowledge: {e}"));
+    c.set(point, Value::Float(0.0))
+        .await
+        .expect("reset the point");
+    let closed = eventually(&format!("{id}: record {rid} closed"), 30, || async {
+        let r = client_now(env)
+            .await?
+            .invoke_one(&root, "get_alarm", args_map(&[("id", Value::UInt(rid))]))
+            .await
+            .ok()??;
+        let Value::Map(m) = r else { return None };
+        m.get("state")
+            .cloned()
+            .filter(|s| *s == Value::from("closed"))
+    })
+    .await;
+    let manual = c
+        .invoke_one(
+            &root,
+            "raise",
+            args_map(&[
+                ("class", Value::from("c")),
+                (
+                    "source",
+                    Value::from(format!("wy/{SITE}/downstream/m/manual")),
+                ),
+                ("message", Value::from("by hand")),
+            ]),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{id}: raise: {e}"));
+    let Some(Value::Map(m)) = manual else {
+        panic!("{id}: raise: {manual:?}")
+    };
+    let Value::UInt(mid) = m["id"] else { panic!() };
+    let r = c
+        .invoke_one(&root, "get_alarm", args_map(&[("id", Value::UInt(mid))]))
+        .await
+        .unwrap();
+    let Some(Value::Map(m)) = r else { panic!() };
+    let manual = m["state"].clone();
+    c.invoke_one(
+        &root,
+        "add_sink",
+        args_map(&[("name", Value::from("s")), ("link", Value::from("nobody"))]),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{id}: add_sink: {e}"));
+    let next_refused = c
+        .invoke_one(
+            &format!("{root}/sinks/s"),
+            "next",
+            Value::Map(BTreeMap::new()),
+        )
+        .await
+        .is_err_and(|e| e.is(wyrm_core::Status::PermissionDenied));
+
+    let restart = if restart {
+        let link = format!("wy/{SITE}/sys/links/{id}");
+        invoke_retry(env, &link, "stop", Value::Map(BTreeMap::new())).await;
+        invoke_retry(env, &link, "start", Value::Map(BTreeMap::new())).await;
+        let open = eventually(&format!("{id}: the manual record back"), 60, || async {
+            alarm_rows(env, &root, args_map(&[("class", Value::from("c"))]))
+                .await
+                .filter(|r| r.len() == 1 && r[0]["id"] == Value::UInt(mid))
+                .map(|r| r.len())
+        })
+        .await;
+        eventually(&format!("{id}: w1 back, normal"), 60, || async {
+            last_val(&client_now(env).await?, &watch)
+                .await
+                .filter(|v| *v == Value::from("normal"))
+        })
+        .await;
+        slow_client(env)
+            .await
+            .set(point, Value::Float(1.0))
+            .await
+            .expect("set the point again");
+        let rows = eventually(
+            &format!("{id}: a new record after the restart"),
+            30,
+            || async {
+                alarm_rows(env, &root, active.clone())
+                    .await
+                    .filter(|r| r.iter().any(|x| x["id"] != Value::UInt(mid)))
+            },
+        )
+        .await;
+        let again = rows
+            .iter()
+            .find(|x| x["id"] != Value::UInt(mid))
+            .map(|x| x["state"].clone())
+            .unwrap_or(Value::Null);
+        Some((open, again))
+    } else {
+        None
+    };
+    AlarmRun {
+        raised,
+        closed,
+        manual,
+        next_refused,
+        restart,
+    }
+}
+
+/// ADR 0034 run modes: the alarm link embedded in `wyrmd`, as a WASM package (`aw`) and as a
+/// process package (`ap`) answer the same scenario alike. A package carries no grants: until an
+/// operator grants it `read` on the mock, a watch on it shows `error`.
+#[tokio::test(flavor = "multi_thread")]
+async fn alarm_three_modes() {
+    use wyrm_link_sdk::package::{self, Capabilities, Manifest, PackFile};
+    let env = Env::start(
+        "alarmmodes",
+        r#"links: { m: { driver: "mock", params: { points: 9, rate_hz: 0, depth: 0 } } },"#,
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(60));
+    let point = |k: usize| format!("wy/{SITE}/downstream/m/p{k}");
+    eventually("mock up", 60, || async {
+        last_sample(&env, &point(8)).await
+    })
+    .await;
+    eventually("alarm up", 60, || async {
+        c.meta(&format!("wy/{SITE}/downstream/alarm")).await.ok()
+    })
+    .await;
+    let grant = |id: &str| {
+        let env = &env;
+        let id = id.to_owned();
+        async move {
+            let watch = BrokerWatch::new(env).await;
+            slow_client(env)
+                .await
+                .invoke_one(
+                    &format!("wy/{SITE}/sys/links/{id}"),
+                    "grant",
+                    args_map(&[
+                        ("path", Value::from("wy/{site}/downstream/m")),
+                        ("level", Value::from("read")),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("grant {id}: {e}"));
+            watch
+                .rebuilt(&format!("the rebuild after the grant to {id}"))
+                .await;
+        }
+    };
+    // without a grant the subscription is refused: the watch shows the error
+    let refused = |id: &str, point: String| {
+        let env = &env;
+        let root = format!("wy/{SITE}/downstream/{id}");
+        async move {
+            eventually(&format!("{root}: add_class ng"), 60, || async {
+                let r = client_now(env)
+                    .await?
+                    .with_timeout(Duration::from_secs(60))
+                    .invoke_one(&root, "add_class", args_map(&[("id", Value::from("ng"))]))
+                    .await;
+                match r {
+                    Ok(_) => Some(()),
+                    Err(e) if e.to_string().contains("exists") => Some(()),
+                    Err(_) => None,
+                }
+            })
+            .await;
+            slow_client(env)
+                .await
+                .invoke_one(
+                    &format!("{root}/ng"),
+                    "add_watch",
+                    args_map(&[
+                        ("source", Value::from(point.as_str())),
+                        ("algorithm", Value::UInt(0)),
+                    ]),
+                )
+                .await
+                .unwrap_or_else(|e| panic!("{root}/ng: add_watch: {e}"));
+            let err = eventually(&format!("{root}/ng/watches/w1: an error"), 60, || async {
+                match dql_attr(env, &format!("{root}/ng/watches/w1"), "error").await {
+                    Some(Value::Str(e)) => Some(e),
+                    _ => None,
+                }
+            })
+            .await;
+            assert!(
+                err.contains("no grant") || err.contains("permission"),
+                "{root}/ng: {err}"
+            );
+            let c = slow_client(env).await;
+            c.invoke_one(
+                &format!("{root}/ng/watches/w1"),
+                "remove",
+                Value::Map(BTreeMap::new()),
+            )
+            .await
+            .expect("remove the watch");
+            c.invoke_one(&format!("{root}/ng"), "remove", Value::Map(BTreeMap::new()))
+                .await
+                .expect("remove ng");
+        }
+    };
+
+    let mut runs = vec![("alarm", point(0), false)];
+    let wasm = portable_component("wyrm-link-alarm");
+    match &wasm {
+        Some(component) => {
+            let m = Manifest {
+                name: "alarm".into(),
+                version: "1.0.0".into(),
+                description: "the alarm link as a component".into(),
+                wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
+                kind: "wasm".into(),
+                entries: Default::default(),
+                args: Vec::new(),
+                entry: Some("alarm.wasm".into()),
+                requester: Vec::new(),
+                world: Some("app".into()),
+                capabilities: Some(Capabilities {
+                    store_mb: Some(16),
+                    ..Capabilities::default()
+                }),
+            };
+            let files = [PackFile {
+                path: "alarm.wasm".into(),
+                data: component.clone(),
+                mode: 0o644,
+            }];
+            let (ok, msg) = install_zip(&c, "aw", package::pack(&m, &files).unwrap()).await;
+            assert!(ok, "install aw: {msg}");
+            refused("aw", point(3)).await;
+            grant("aw").await;
+            runs.push(("aw", point(1), true));
+        }
+        None => eprintln!(
+            "SKIP alarm_three_modes (WASM mode): target wasm32-unknown-unknown is not installed \
+             (rustup target add wasm32-unknown-unknown)"
+        ),
+    }
+    // the process package last: its install rebuilds the router
+    let zip = driver_package_with(
+        "alarm-process",
+        "1.0.0",
+        "the alarm link as a process",
+        "alarm",
+        Some(serde_json::json!({ "store_mb": 16 })),
+    );
+    let watch = BrokerWatch::new(&env).await;
+    let (ok, msg) = install_zip(&slow_client(&env).await, "ap", zip).await;
+    assert!(ok, "install ap: {msg}");
+    watch.rebuilt("the rebuild after the install of ap").await;
+    refused("ap", point(4)).await;
+    grant("ap").await;
+    runs.push(("ap", point(2), true));
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["ap"].mode, wyrm_admin::Mode::Process);
+    if wasm.is_some() {
+        assert_eq!(reg.links["aw"].driver, "pkg:alarm");
+        assert_eq!(reg.links["aw"].mode, wyrm_admin::Mode::Embedded);
+    }
+
+    for (id, point, restart) in runs {
+        let run = alarm_scenario(&env, id, &point, restart).await;
+        let want = AlarmRun {
+            raised: (Value::from("alarm"), Value::from("active")),
+            closed: Value::from("closed"),
+            manual: Value::from("active"),
+            next_refused: true,
+            restart: restart.then_some((1, Value::from("active"))),
+        };
+        assert_eq!(run, want, "mode of {id}");
+    }
+    env.stop().await;
+}
+
 // ---------- DQL measurements (ADR 0025 D4; `#[ignore]`: run them in release) ----------
 //
 //   cargo test --release -p wyrmd --test e2e dql_perf -- --ignored --nocapture --test-threads 1

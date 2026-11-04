@@ -205,6 +205,20 @@ fn params_are_checked() {
         (config(&[("batch", Value::UInt(5001))]), "batch"),
         (config(&[("idle_s", Value::UInt(0))]), "idle_s"),
         (config(&[("oops", Value::UInt(1))]), "oops"),
+        (
+            Value::Map(Map::from([(
+                "sink".to_owned(),
+                Value::from("wy/edge/downstream/alarm/other/cloud"),
+            )])),
+            "sink",
+        ),
+        (
+            Value::Map(Map::from([(
+                "sink".to_owned(),
+                Value::from("wy/edge/downstream/*/sinks/cloud"),
+            )])),
+            "sink",
+        ),
     ] {
         let e = SyncApp::<FakeTarget>::start(&mut h, cfg)
             .err()
@@ -212,6 +226,15 @@ fn params_are_checked() {
         assert!(e.msg.contains(why), "{why}: {}", e.msg);
     }
     SyncApp::<FakeTarget>::start(&mut h, config(&[("url", Value::from("x"))])).unwrap();
+    // a link's own sink with the same feed (the alarm link, ADR 0034)
+    let mut cfg = config(&[("url", Value::from("x"))]);
+    if let Value::Map(m) = &mut cfg {
+        m.insert(
+            "sink".to_owned(),
+            Value::from("wy/edge/downstream/alarm/sinks/cloud"),
+        );
+    }
+    SyncApp::<FakeTarget>::start(&mut h, cfg).unwrap();
 }
 
 #[test]
