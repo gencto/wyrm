@@ -47,7 +47,9 @@ uplink/
     url, connected_since, published, dropped, queued, last_publish
     enabled              writable at config (not for a config-file upstream)
     set_password         the one secret, kept in the link's sealed store
-    test_connection      a whole handshake now → {success, message}
+    test_connection      a whole handshake now → {success, message}; a connected MQTT
+                         upstream answers from its live session (a second CONNECT with
+                         its client id would close it and send its will)
     edit, remove         not for a config-file upstream
 ```
 

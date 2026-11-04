@@ -125,7 +125,10 @@ fn credentials_refused_until_set_password() {
         map(&[
             (
                 "message",
-                s(&format!("connected to 127.0.0.1:{}", broker.port))
+                s(&format!(
+                    "connected to 127.0.0.1:{} (the live session)",
+                    broker.port
+                ))
             ),
             ("success", Value::Bool(true))
         ])
@@ -578,4 +581,33 @@ fn every_upstream_gets_the_current_values() {
         .expect("remove");
     h.put_value("wy/s/downstream/mock/d1/temp", Value::Float(10.5));
     h.until("a still sends", |h| h.published("a") == 5);
+}
+
+/// Test Connection on a connected MQTT upstream answers from the live session: a second
+/// CONNECT with the same client id would make the broker close the live one (and publish a
+/// Sparkplug NDEATH will). Found on the demo with Mosquitto.
+#[test]
+fn test_connection_keeps_the_live_session() {
+    let broker = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(1);
+    h.start();
+    h.invoke(
+        "",
+        "add_sparkplug",
+        map(&[
+            ("name", s("spb")),
+            ("url", s(&format!("mqtt://127.0.0.1:{}", broker.port))),
+            ("select", s("wy/s/downstream/mock")),
+        ]),
+    )
+    .expect("add");
+    h.until("connected", |h| h.status("spb") == "connected");
+    let connects = broker.seen().connects.len();
+    let r = h
+        .invoke("spb", "test_connection", Value::Null)
+        .expect("test");
+    let Value::Map(m) = r else { panic!("{r:?}") };
+    assert_eq!(m["success"], Value::Bool(true));
+    assert_eq!(broker.seen().connects.len(), connects, "no second CONNECT");
+    assert_eq!(h.status("spb"), "connected");
 }

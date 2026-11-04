@@ -1154,7 +1154,10 @@ impl Up {
     }
 
     /// ▸ Test Connection: a whole MQTT handshake (or one AWS request) now, on a connection of
-    /// its own, within the call's time.
+    /// its own, within the call's time. A connected MQTT upstream answers from its live session:
+    /// a second CONNECT with the same client id would make the broker close the live one (and
+    /// publish its will, a Sparkplug NDEATH), and another client id is not allowed everywhere
+    /// (Azure: the device id).
     fn test(
         &mut self,
         host: &mut dyn Host,
@@ -1166,6 +1169,12 @@ impl Up {
             return Err("no secret: use Set Password".into());
         }
         let ep = self.def.endpoint();
+        if self.def.kind != Kind::Aws && self.state == State::Connected {
+            return Ok(format!(
+                "connected to {}:{} (the live session)",
+                ep.host, ep.port
+            ));
+        }
         let timeout = self.def.timeout_ms.min(4_000);
         if self.def.kind == Kind::Aws {
             let mut http = HttpClient::new(
