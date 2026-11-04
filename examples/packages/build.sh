@@ -30,6 +30,11 @@
 #     dql-process    the same app as a process package
 #     alarm          the alarm link (ADR 0034, links/alarm) as a WASM package
 #     alarm-process  the same app as a process package
+#     uplink         platform upstreams (ADR 0035, links/uplink) as a WASM
+#                    package: MQTT/UNS, Sparkplug B, ThingsBoard, Azure IoT
+#                    Hub, AWS IoT Core; an operator grants read on each root
+#                    an upstream selects and lists the platforms in net
+#     uplink-process the same app as a process package
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -73,6 +78,10 @@ $WYR link pack --manifest-path "$DQL" --kind process --name dql-process --out "$
 ALARM=$ROOT/links/alarm/Cargo.toml
 $WYR link pack --manifest-path "$ALARM" --out "$ZIPS"
 $WYR link pack --manifest-path "$ALARM" --kind process --name alarm-process --out "$ZIPS"
+# and the uplink (ADR 0035)
+UPLINK=$ROOT/links/uplink/Cargo.toml
+$WYR link pack --manifest-path "$UPLINK" --out "$ZIPS"
+$WYR link pack --manifest-path "$UPLINK" --kind process --name uplink-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \

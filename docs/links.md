@@ -54,6 +54,13 @@ down. In the broker's own process it runs only as WASM.
   history sync links. Every broker runs one at `wy/<site>/downstream/alarm`;
   also the packages `alarm` (WASM) and `alarm-process`. Guide:
   [`docs/alarm.md`](alarm.md).
+- **Uplink** (`links/uplink`, ADR 0035): platform upstreams, the site's live
+  values to an MQTT broker (a Unified Namespace), a Sparkplug B host,
+  ThingsBoard, Azure IoT Hub or AWS IoT Core, added with one action each as
+  an upstream broker is. Every broker runs one at
+  `wy/<site>/downstream/uplink` (`uplink.net` lists the platforms); it is
+  also a portable link in the packages `uplink` (WASM) and
+  `uplink-process`. Guide: [`docs/uplink.md`](uplink.md).
 - **Modbus** (`links/modbus`, built-in driver `modbus`, package `modbus`):
   a master of Modbus TCP, RTU over TCP and serial RTU devices, and a slave
   that serves the tree's values to masters (ADR 0024); `import_dsa` takes

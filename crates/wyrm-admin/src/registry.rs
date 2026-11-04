@@ -21,12 +21,14 @@ pub fn validate_link_id(id: &str) -> Result<(), String> {
 
 /// Ids taken by a later broker version, refused for new links only: a link
 /// stored under one still replays (`storage`: spec 01 0.2.2, ADR 0017;
-/// `scheduler`: the embedded scheduler, ADR 0022; `dql`: ADR 0025; `alarm`: ADR 0034).
-const RESERVED_NEW: [&str; 4] = [
+/// `scheduler`: the embedded scheduler, ADR 0022; `dql`: ADR 0025; `alarm`: ADR 0034;
+/// `uplink`: ADR 0035).
+const RESERVED_NEW: [&str; 5] = [
     crate::control::STORAGE_LINK,
     crate::control::SCHEDULER_LINK,
     crate::control::DQL_LINK,
     crate::control::ALARM_LINK,
+    crate::control::UPLINK_LINK,
 ];
 
 /// [`validate_link_id`] for a link that does not exist yet.
