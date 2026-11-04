@@ -1,0 +1,15 @@
+# docker compose -f examples/docker/compose.yaml up -d --build
+# docker compose -f examples/docker/compose.yaml exec wyrm examples/docker/demo.sh
+services:
+  wyrm:
+    build: .
+    # the repository, read-only: builds go to /target, the demo runs in /work
+    volumes:
+      - ../..:/src:ro
+      - target:/target
+      - registry:/usr/local/cargo/registry
+    command: sleep infinity
+    init: true
+volumes:
+  target:
+  registry:

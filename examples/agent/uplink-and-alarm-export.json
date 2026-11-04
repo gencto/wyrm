@@ -1,0 +1,42 @@
+{
+  "about": "Docker demo (examples/docker: Mosquitto and PostgreSQL on loopback, the postgres-process package in edge's repository). After alarms.json: edge's uplink sends mockdev and ahu1 to MQTT as a UNS, central's uplink sends ahu1 of edge and plant's mock as Sparkplug B, and edge's alarm records go to PostgreSQL through the history sync link pg. Run: wyrm-agent --gateway http://127.0.0.1:8445 run examples/agent/uplink-and-alarm-export.json [--apply]",
+  "steps": [
+    { "invoke": "wy/edge/downstream/uplink", "action": "add_mqtt",
+      "args": { "name": "uns", "url": "mqtt://127.0.0.1:1883",
+                "select": "wy/edge/downstream/mockdev, wy/edge/downstream/modbus/line1/ahu1",
+                "topic_prefix": "plant", "username": "uplink", "qos": 1 },
+      "unless": "wy/edge/downstream/uplink/uns" },
+    { "wait": "wy/edge/downstream/uplink/uns", "timeout_s": 10 },
+    { "invoke": "wy/edge/downstream/uplink/uns", "action": "set_password", "args": { "password": "mq-pass-1" } },
+    { "expect": "wy/edge/downstream/uplink/uns/status", "equals": "connected", "timeout_s": 15 },
+    { "expect": "wy/edge/downstream/uplink/uns/published", "min": 10, "timeout_s": 15 },
+
+    { "invoke": "wy/central/downstream/uplink", "action": "add_sparkplug",
+      "args": { "name": "spb", "url": "mqtt://127.0.0.1:1883",
+                "select": "wy/edge/downstream/modbus/line1/ahu1, wy/plant/downstream/mock",
+                "group_id": "wyrm", "username": "uplink" },
+      "unless": "wy/central/downstream/uplink/spb" },
+    { "wait": "wy/central/downstream/uplink/spb", "timeout_s": 10 },
+    { "invoke": "wy/central/downstream/uplink/spb", "action": "set_password", "args": { "password": "mq-pass-1" } },
+    { "expect": "wy/central/downstream/uplink/spb/status", "equals": "connected", "timeout_s": 15 },
+    { "expect": "wy/central/downstream/uplink/spb/published", "min": 10, "timeout_s": 15 },
+
+    { "invoke": "wy/edge/sys/links", "action": "install_repo",
+      "args": { "name": "pg", "package": "postgres-process", "accept": true },
+      "unless": "wy/edge/sys/links/pg" },
+    { "wait": "wy/edge/sys/links/pg", "timeout_s": 30 },
+    { "invoke": "wy/edge/downstream/alarm", "action": "add_sink",
+      "args": { "name": "cloud", "link": "pg", "from": "start" },
+      "unless": "wy/edge/downstream/alarm/sinks/cloud" },
+    { "invoke": "wy/edge/sys/links/pg", "action": "grant",
+      "args": { "path": "wy/{site}/downstream/alarm/sinks/cloud", "level": "read" } },
+    { "invoke": "wy/edge/sys/links/pg", "action": "update",
+      "args": { "params": { "sink": "wy/edge/downstream/alarm/sinks/cloud", "host": "127.0.0.1", "port": 5432,
+                            "database": "wyrm", "user": "wyrm", "table": "alarms", "sslmode": "disable",
+                            "net": "127.0.0.1:5432", "store_mb": 1, "memory_mb": 64, "call_ms": 2000 } } },
+    { "wait": "wy/edge/downstream/pg/status", "timeout_s": 30 },
+    { "invoke": "wy/edge/downstream/pg", "action": "set_password", "args": { "password": "wyrm-pg-1" } },
+    { "expect": "wy/edge/downstream/pg/rows_sent", "min": 1, "timeout_s": 30 },
+    { "expect": "wy/edge/downstream/alarm/sinks/cloud", "min": 1, "timeout_s": 30 }
+  ]
+}

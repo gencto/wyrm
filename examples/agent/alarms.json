@@ -1,0 +1,47 @@
+{
+  "about": "Demo (examples/demo/run.sh or examples/docker): alarms on edge, set up through central's gateway. Class line1 with three watches: the mockdev knob out of range (> 80, deadband 2), the Modbus fan coil on (a fault) and the quality of every mockdev point. The plan drives both points into alarm and back, checks the counts and acknowledges all. Run: wyrm-agent --gateway http://127.0.0.1:8445 run examples/agent/alarms.json [--apply]",
+  "steps": [
+    { "invoke": "wy/edge/downstream/alarm", "action": "add_class",
+      "args": { "id": "line1", "display": "Line 1", "escalation1_s": 20, "escalation2_s": 40 },
+      "unless": "wy/edge/downstream/alarm/line1" },
+    { "wait": "wy/edge/downstream/alarm/line1", "timeout_s": 10 },
+
+    { "invoke": "wy/edge/downstream/alarm/line1", "action": "add_watch",
+      "args": { "source": "wy/edge/downstream/mockdev/bench/rig1/knob", "algorithm": "out_of_range",
+                "max": 80, "deadband": 2, "type": "warning", "message": "{name} at {value}" },
+      "unless": "wy/edge/downstream/alarm/line1/watches/w1" },
+    { "invoke": "wy/edge/downstream/alarm/line1", "action": "add_watch",
+      "args": { "source": "wy/edge/downstream/modbus/line1/ahu1/fan", "algorithm": "boolean",
+                "type": "fault", "message": "AHU1 fan is on" },
+      "unless": "wy/edge/downstream/alarm/line1/watches/w2" },
+    { "invoke": "wy/edge/downstream/alarm/line1", "action": "add_watch",
+      "args": { "source": "wy/edge/downstream/mockdev/**", "algorithm": "quality",
+                "to_alarm_s": 2, "type": "alert", "message": "{source}: {quality}" },
+      "unless": "wy/edge/downstream/alarm/line1/watches/w3" },
+    { "wait": "wy/edge/downstream/alarm/line1/watches/w3", "timeout_s": 10 },
+
+    { "set": "wy/edge/downstream/mockdev/bench/rig1/knob", "value": 50 },
+    { "set": "wy/edge/downstream/modbus/line1/ahu1/fan", "value": false },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w1", "equals": "normal", "timeout_s": 10 },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w2", "equals": "normal", "timeout_s": 10 },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w3", "equals": "normal", "timeout_s": 10 },
+
+    { "set": "wy/edge/downstream/mockdev/bench/rig1/knob", "value": 90 },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w1", "equals": "alarm", "timeout_s": 10 },
+    { "set": "wy/edge/downstream/modbus/line1/ahu1/fan", "value": true },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w2", "equals": "alarm", "timeout_s": 10 },
+    { "expect": "wy/edge/downstream/alarm/line1/active", "equals": 2, "timeout_s": 10 },
+    { "invoke": "wy/edge/downstream/alarm", "action": "get_alarms", "args": { "class": "line1" } },
+
+    { "set": "wy/edge/downstream/mockdev/bench/rig1/knob", "value": 79 },
+    { "sleep_s": 2 },
+    { "expect": "wy/edge/downstream/alarm/line1/watches/w1", "equals": "alarm", "timeout_s": 5 },
+    { "set": "wy/edge/downstream/mockdev/bench/rig1/knob", "value": 50 },
+    { "set": "wy/edge/downstream/modbus/line1/ahu1/fan", "value": false },
+    { "expect": "wy/edge/downstream/alarm/line1/active", "equals": 0, "timeout_s": 10 },
+    { "expect": "wy/edge/downstream/alarm/line1/unacked", "min": 2, "timeout_s": 10 },
+
+    { "invoke": "wy/edge/downstream/alarm/line1", "action": "ack_all", "args": {} },
+    { "expect": "wy/edge/downstream/alarm/line1/open", "equals": 0, "timeout_s": 10 }
+  ]
+}
