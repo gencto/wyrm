@@ -42,6 +42,11 @@ CARGO_TARGET_DIR=/target/ci cargo test --locked --workspace --all-features
 | PostgreSQL 15 | `127.0.0.1:5432`, database `wyrm` | `wyrm` / `wyrm-pg-1` |
 | Package repository | `http://127.0.0.1:8090/index.json` | `postgres-process` |
 
+The tests that build WASM fixtures (`wyrm-link-guest`, `wyrm-link-wasm`, the `portable_app_*`
+and `wasm_app_*` e2e tests) copy `Cargo.lock` into the repository and fail on the read-only
+mount; GitHub CI runs them. One test binary links at a time in 8 GB: use
+`CARGO_BUILD_JOBS=1` for `cargo test` if `ld` is killed.
+
 `demo.sh stop` stops everything; `demo.sh clean` also deletes `/work`. Right
 after a start, wait about 10 s before you command edge or plant from central:
 a site below polls the keys of the site above every 10 s.
