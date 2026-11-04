@@ -41,7 +41,8 @@ One source runs in three modes (ADR 0023). They behave the same.
   nothing, so no link needs to trust its key.
 - **Grants of a package.** A package has no grants of its own. Before a package can watch a
   point, give it `read` on that point's link: `sys/links/<id>` ▸ Grant Access
-  `{path: wy/<site>/downstream/<link>, level: read}`. A watch added before the grant shows
+  `{path: wy/{site}/downstream/<link>, level: read}` (`{site}` as it is: the broker puts in its
+  own site). A watch added before the grant shows
   `error: permission_denied`; *Disable* and *Enable* it once the grant is there.
 - **Params of a package:** `retention_days` (365, at most 3 650) and `max_records` (100 000,
   at most 1 000 000), beside the capabilities, with the link's `update`.
@@ -167,7 +168,9 @@ the classes it takes (empty: all), and whether it starts from the oldest journal
 `mongodb`, `influxdb`, `dynamodb`, or their `-process` forms) set the param
 `sink: wy/<site>/downstream/alarm/sinks/<name>` beside its own params, and give it
 `read` on the sink's key: `sys/links/<db link>` ▸ Grant Access
-`{path: wy/<site>/downstream/alarm/sinks/<name>, level: read}`. Use a table, measurement or
+`{path: wy/{site}/downstream/alarm/sinks/<name>, level: read}` (`{site}` as it is). With `read`
+the router lets the link call `next` there (actions of level `read`), as a process package
+too. Use a table, measurement or
 collection of its own for alarms.
 
 Each row the database gets is one record: `key` = the record's source point, `t` = when it was
@@ -195,7 +198,7 @@ alarm/line1 ▸ Add Watch {source: wy/plant/downstream/plc1/line1/ahu1/temp,
 alarm/line1 ▸ Add Watch {source: wy/plant/downstream/plc1/**, algorithm: quality,
                          to_alarm_s: 30, message: "{source}: {quality}"}
 alarm ▸ Add Sink {name: cloud, link: pg, from: start}
-sys/links/pg ▸ Grant Access {path: wy/plant/downstream/alarm/sinks/cloud, level: read}
+sys/links/pg ▸ Grant Access {path: wy/{site}/downstream/alarm/sinks/cloud, level: read}
 (on pg: params sink = wy/plant/downstream/alarm/sinks/cloud, table = alarms)
 ```
 

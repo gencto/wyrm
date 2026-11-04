@@ -510,8 +510,8 @@ do both. Give it **grants**, as a role has them:
 | Level | The link can |
 |---|---|
 | `list` | list the nodes under the path (`~meta`) and see them come and go |
-| `read` | also read and subscribe to their values (`~val`) |
-| `write` | also `set` them and invoke their actions |
+| `read` | also read and subscribe to their values (`~val`) and invoke their actions of level `read` (a history sync link's `next` on a sink, an `export`) |
+| `write` | also `set` them and invoke their actions of level `write` |
 
 - **Path:** `wy/{site}/downstream` (every link), `wy/{site}/downstream/<link>[/…]` (one
   link or a part of it), or `wy/{site}/dataflows[/…]` (at most `read`). Plain
