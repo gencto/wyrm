@@ -54,6 +54,8 @@ uplink/
 - **`failed`** means the platform refused the credentials (or a secret is missing): nothing is
   tried again until Edit, Set Password or Enable. **`waiting`** means a network error: the
   link connects again after a back-off (1 s, ×2, up to `retry_s`). The queue stays through both.
+- Every upstream has its own subscriptions: an Add, and every Edit, sends the current value of
+  each selected point first, then the changes, also when another upstream selects the same keys.
 - Definitions come back after a restart; secrets with them.
 
 ## Fields every kind takes

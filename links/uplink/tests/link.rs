@@ -180,9 +180,10 @@ fn rate_and_queue_bounds() {
     for i in 0..12 {
         h.put_value("wy/s/downstream/mock/d0/temp", Value::Int(i));
     }
-    // the counters show on the next tick
+    // the counters show on the next tick; the edit subscribed again, so the current value
+    // came first: 13 values, 5 kept
     h.advance_ms(5_000);
-    assert_eq!(h.leaf("slow", "dropped"), Value::UInt(7));
+    assert_eq!(h.leaf("slow", "dropped"), Value::UInt(8));
     assert_eq!(h.leaf("slow", "queued"), Value::UInt(5));
     *broker.connack.lock().unwrap() = 0;
     h.until("the 5 kept go", |h| h.published("slow") == base + 5);
@@ -527,4 +528,54 @@ fn definitions_survive_restarts_and_config_entries_are_fixed() {
         !h.nodes.contains_key("rt/status") && !h.store_has("u/rt") && !h.store_has("secret/rt")
     );
     assert_eq!(h.leaf("stats", "upstreams"), Value::UInt(1));
+}
+
+/// A second upstream that selects what another one already does gets the current values too,
+/// and so does one whose `select` an edit changes while a prefix stays: every upstream has a
+/// subscription of its own, and the current values come with it (found on the demo: a UNS
+/// added beside another never saw the points that did not change).
+#[test]
+fn every_upstream_gets_the_current_values() {
+    let broker = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(3);
+    h.start();
+    let add = |h: &mut SimHost, name: &str, prefix: &str| {
+        h.invoke(
+            "",
+            "add_mqtt",
+            map(&[
+                ("name", s(name)),
+                ("url", s(&format!("mqtt://127.0.0.1:{}", broker.port))),
+                ("select", s("wy/s/downstream/mock")),
+                ("topic_prefix", s(prefix)),
+                ("flush_ms", Value::UInt(100)),
+            ]),
+        )
+        .expect("add");
+    };
+    add(&mut h, "a", "pa");
+    h.until("a: 3 published", |h| h.published("a") == 3);
+    add(&mut h, "b", "pb");
+    h.until("b: 3 published", |h| h.published("b") == 3);
+    h.until("the broker saw b's", |_| {
+        broker.publishes("pb/s/downstream/mock/").len() == 3
+    });
+    // an edit that keeps the prefix and adds one: the kept prefix comes again
+    h.invoke(
+        "b",
+        "edit",
+        map(&[("select", s("wy/s/downstream/mock, wy/s/storage"))]),
+    )
+    .expect("edit");
+    h.until("b: 3 more", |h| h.published("b") == 6);
+    // a change still goes to both, once each
+    h.put_value("wy/s/downstream/mock/d1/temp", Value::Float(9.5));
+    h.until("both sent it", |h| {
+        h.published("a") == 4 && h.published("b") == 7
+    });
+    // removing one leaves the other subscribed
+    h.invoke("b", "remove", Value::Map(Default::default()))
+        .expect("remove");
+    h.put_value("wy/s/downstream/mock/d1/temp", Value::Float(10.5));
+    h.until("a still sends", |h| h.published("a") == 5);
 }

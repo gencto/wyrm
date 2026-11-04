@@ -1234,9 +1234,12 @@ pub struct Uplink {
     net: Option<String>,
     ups: BTreeMap<String, Up>,
     timers: HashMap<u64, String>,
-    /// Selected prefix → its subscription and how many upstreams use it.
-    subs: BTreeMap<String, (SubId, usize)>,
-    sub_prefix: HashMap<u64, String>,
+    /// `(upstream, selected prefix)` → its subscription. Each upstream has its own, so the
+    /// current values that come with a subscription reach an upstream added or edited after
+    /// another one selected the same prefix.
+    subs: BTreeMap<(String, String), SubId>,
+    /// Subscription → `(upstream, prefix)`.
+    sub_owner: HashMap<u64, (String, String)>,
     total_published: u64,
     total_dropped: u64,
     stats_shown: BTreeMap<&'static str, u64>,
@@ -1328,12 +1331,13 @@ impl Uplink {
             return;
         };
         for p in up.def.select.clone() {
-            match self.subs.get_mut(&p) {
-                Some((_, n)) => *n += 1,
+            let k = (name.to_owned(), p.clone());
+            match self.subs.get(&k) {
+                Some(_) => {}
                 None => match host.subscribe(&format!("{p}/**")) {
                     Ok(id) => {
-                        self.subs.insert(p.clone(), (id, 1));
-                        self.sub_prefix.insert(id.0, p);
+                        self.subs.insert(k.clone(), id);
+                        self.sub_owner.insert(id.0, k);
                     }
                     Err(e) => {
                         host.log(
@@ -1349,15 +1353,11 @@ impl Uplink {
         }
     }
 
-    fn unsubscribe_all(&mut self, host: &mut dyn Host, select: &[String]) {
+    fn unsubscribe_all(&mut self, host: &mut dyn Host, name: &str, select: &[String]) {
         for p in select {
-            if let Some((id, n)) = self.subs.get_mut(p) {
-                *n -= 1;
-                if *n == 0 {
-                    host.unsubscribe(*id);
-                    self.sub_prefix.remove(&id.0);
-                    self.subs.remove(p);
-                }
+            if let Some(id) = self.subs.remove(&(name.to_owned(), p.clone())) {
+                host.unsubscribe(id);
+                self.sub_owner.remove(&id.0);
             }
         }
     }
@@ -1443,7 +1443,7 @@ impl Uplink {
         up.close(host);
         self.total_published += up.published;
         self.total_dropped += up.dropped;
-        self.unsubscribe_all(host, &up.def.select);
+        self.unsubscribe_all(host, name, &up.def.select);
         host.remove_node(name);
         store::delete(host, name);
         let names: Vec<String> = self
@@ -1523,7 +1523,7 @@ impl App for Uplink {
             ups: BTreeMap::new(),
             timers: HashMap::new(),
             subs: BTreeMap::new(),
-            sub_prefix: HashMap::new(),
+            sub_owner: HashMap::new(),
             total_published: 0,
             total_dropped: 0,
             stats_shown: BTreeMap::new(),
@@ -1686,17 +1686,16 @@ impl App for Uplink {
                 let old_select = self.ups[&name].def.select.clone();
                 store::put_def(host, &def)?;
                 let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
-                let select_changed = def.select != old_select;
                 up.def = def;
                 up.sp.known.clear();
                 up.held.clear();
                 up.last_sent.clear();
                 up.restart(host);
                 self.declare(host, &self.ups[&name]);
-                if select_changed {
-                    self.unsubscribe_all(host, &old_select);
-                    self.subscribe_all(host, &name);
-                }
+                // subscribed again even with the same `select`: the current values come with
+                // the new subscriptions, and the edit cleared what the upstream had sent
+                self.unsubscribe_all(host, &name, &old_select);
+                self.subscribe_all(host, &name);
                 let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
                 up.show(host, now);
                 self.arm(host, &name);
@@ -1731,7 +1730,7 @@ impl App for Uplink {
     }
 
     fn on_value(&mut self, host: &mut dyn Host, sub: SubId, key: &str, sample: Sample) {
-        let Some(prefix) = self.sub_prefix.get(&sub.0).cloned() else {
+        let Some((name, _)) = self.sub_owner.get(&sub.0) else {
             return;
         };
         if let Some(own) = &self.own {
@@ -1740,11 +1739,8 @@ impl App for Uplink {
             }
         }
         let now = host.now_us();
-        let site = self.site.clone();
-        for up in self.ups.values_mut() {
-            if up.def.select.contains(&prefix) {
-                up.take(now, key, sample.clone(), site.as_deref());
-            }
+        if let Some(up) = self.ups.get_mut(name) {
+            up.take(now, key, sample, self.site.as_deref());
         }
     }
 
