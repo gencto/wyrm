@@ -132,6 +132,17 @@ topic. MQTT with mTLS is not supported (no client certificates in the host yet).
 Every action and the `enabled` leaf are `config` on the uplink (the built-in roles `engineer`
 and `admin`). The link never writes to other links; its one key is its store key.
 
+- **An upstream sends with its author's rights** (ADR 0029), as a DQL query or an alarm watch
+  reads: the link itself reads the whole site, config on the uplink alone does not. Add and Edit
+  need the caller's `auth` (the gateway, `wyr` and `wyrm-agent` give it); a `select` key the
+  caller may not `read` is refused; under a selected root, points the author may not read never
+  go up. An Edit takes the editor's rights. Entries of `wyrmd.json5` send what they select (the
+  operator wrote them). An upstream kept without rights (made before 2026-11-05) is `failed`
+  until an Edit.
+- **The secret stays with its endpoint.** An Edit that changes the host, the port, TLS,
+  `insecure_plaintext` or `ca_pem` deletes the secret: Set Password again. So a caller with
+  config cannot send the password to a host of its own.
+
 ## Limits
 
 16 upstreams per link; `select` ≤ 32 keys per upstream; one `tcp_send` ≤ 64 KiB and at most 8

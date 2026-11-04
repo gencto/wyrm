@@ -21,6 +21,7 @@ What exists: history sync (ADR 0026) sends the historian's rows to databases in 
 - **Network.** The embedded link's `net` comes from `wyrmd.json5` (`uplink.net`, ADR 0012 syntax: `broker.example:8883, *.azure-devices.net:8883, 10.0.0.5:1883`), as every portable link's does: the app cannot widen it. An Add whose host no name or address entry covers is refused with the entry to add.
 
 ## Consequences
+- Amended 2026-11-05 (automated security review after the merge, decided under ADR 0029): an upstream keeps its author's rights (`rights/<name>` in the store, `wyrm_link_api::Rights`); Add and Edit refuse a token without `auth` and a `select` outside the caller's `read`, and samples the author may not read are dropped, as DQL queries and alarm watches do. An Edit that moves the endpoint (host, port, TLS, `insecure_plaintext`, `ca_pem`) deletes the secret.
 - A site sends its live values to up to 16 platforms at once from one link, each with its own selection and rate; the same point may go to all of them.
 - Values only. Meta (units, names) is not sent; a UNS consumer reads it from the broker or from the topic names. Sparkplug hosts get metric names and types.
 - Live, at most once: a platform down for an hour misses that hour (the queue holds `queue_max` samples, then drops the oldest). History sync (ADR 0026) is the path for complete data.

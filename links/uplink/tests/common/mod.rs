@@ -336,13 +336,22 @@ impl SimHost {
     }
 
     pub fn invoke(&mut self, path: &str, action: &str, args: Value) -> Result<Value, AppError> {
-        let r = self.app.as_mut().expect("started").on_invoke(
-            &mut self.buf,
-            path,
-            action,
-            args,
-            &engineer(),
-        );
+        self.invoke_as(path, action, args, &engineer())
+    }
+
+    /// As [`Self::invoke`], with the caller `who`.
+    pub fn invoke_as(
+        &mut self,
+        path: &str,
+        action: &str,
+        args: Value,
+        who: &Who,
+    ) -> Result<Value, AppError> {
+        let r =
+            self.app
+                .as_mut()
+                .expect("started")
+                .on_invoke(&mut self.buf, path, action, args, who);
         self.apply();
         self.settle();
         r

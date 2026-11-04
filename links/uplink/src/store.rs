@@ -1,9 +1,10 @@
 //! The host store (ADR 0023) of the uplink: `index` (CBOR array of the upstream names; the store
 //! has no key listing), `u/<name>` (the definition, CBOR of a map), `secret/<name>` (the one
-//! secret of an upstream, bytes), `bdseq/<name>` (the Sparkplug birth/death sequence).
+//! secret of an upstream, bytes), `bdseq/<name>` (the Sparkplug birth/death sequence),
+//! `rights/<name>` (the rights of its author, ADR 0029: what it may send).
 
 use wyrm_core::{codec, Status, Value};
-use wyrm_link_api::{AppError, Host};
+use wyrm_link_api::{AppError, Host, Rights};
 
 use crate::platform::Def;
 
@@ -23,6 +24,23 @@ pub fn secret_key(name: &str) -> String {
 
 fn bdseq_key(name: &str) -> String {
     format!("bdseq/{name}")
+}
+
+fn rights_key(name: &str) -> String {
+    format!("rights/{name}")
+}
+
+/// The author's rights of an upstream; `None` when none are kept (or they do not parse).
+pub fn load_rights(host: &dyn Host, name: &str) -> Option<Rights> {
+    let b = host.store_get(&rights_key(name))?;
+    Rights::from_value(&codec::from_slice::<Value>(&b).ok()?)
+}
+
+pub fn put_rights(host: &mut dyn Host, name: &str, rights: &Rights) -> Result<(), AppError> {
+    host.store_put(
+        &rights_key(name),
+        &codec::to_vec(&rights.to_value()).map_err(store_err)?,
+    )
 }
 
 pub fn load_index(host: &dyn Host) -> Result<Vec<String>, String> {
@@ -65,6 +83,7 @@ pub fn delete(host: &mut dyn Host, name: &str) {
     host.store_delete(&def_key(name));
     host.store_delete(&secret_key(name));
     host.store_delete(&bdseq_key(name));
+    host.store_delete(&rights_key(name));
 }
 
 pub fn secret(host: &dyn Host, name: &str) -> Option<String> {

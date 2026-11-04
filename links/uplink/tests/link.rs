@@ -611,3 +611,131 @@ fn test_connection_keeps_the_live_session() {
     assert_eq!(broker.seen().connects.len(), connects, "no second CONNECT");
     assert_eq!(h.status("spb"), "connected");
 }
+
+/// ADR 0029: an upstream sends with its author's rights. The uplink reads the whole site, so
+/// config on the uplink alone must not reach points its author may not read: a `select`
+/// outside them is refused, keys under a selected root that the author may not read are
+/// dropped, and a token without `auth` adds nothing.
+#[test]
+fn an_upstream_sends_only_what_its_author_may_read() {
+    use wyrm_core::Perm;
+    use wyrm_link_api::Who;
+    let broker = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(3);
+    h.start();
+    let who = |authority: Option<Vec<(&str, Perm)>>| Who {
+        subject: Some("user:ops".into()),
+        grants: vec![("wy/s/downstream/uplink/**".into(), Perm::Config)],
+        authority: authority.map(|a| a.into_iter().map(|(k, p)| (k.to_owned(), p)).collect()),
+    };
+    let args = |name: &str, select: &str| {
+        map(&[
+            ("name", s(name)),
+            ("url", s(&format!("mqtt://127.0.0.1:{}", broker.port))),
+            ("select", s(select)),
+            ("flush_ms", Value::UInt(100)),
+        ])
+    };
+    // no `auth`: refused
+    let e = h
+        .invoke_as(
+            "",
+            "add_mqtt",
+            args("x", "wy/s/downstream/mock"),
+            &who(None),
+        )
+        .expect_err("no auth");
+    assert_eq!(e.status, wyrm_core::Status::PermissionDenied, "{}", e.msg);
+    // a select outside the caller's rights: refused
+    let narrow = who(Some(vec![
+        ("wy/s/downstream/uplink/**", Perm::Config),
+        ("wy/s/downstream/mock/d0/**", Perm::Read),
+    ]));
+    let e = h
+        .invoke_as("", "add_mqtt", args("x", "wy/s/downstream/mock"), &narrow)
+        .expect_err("outside");
+    assert!(e.msg.contains("outside the caller's rights"), "{}", e.msg);
+    // a root it may read, with one branch denied below it (the first grant that covers a key
+    // decides, the narrower first, as the gateway orders them): that branch never goes up
+    let holed = who(Some(vec![
+        ("wy/s/downstream/uplink/**", Perm::Config),
+        ("wy/s/downstream/mock/d1/**", Perm::None),
+        ("wy/s/downstream/mock/**", Perm::Read),
+    ]));
+    h.invoke_as("", "add_mqtt", args("x", "wy/s/downstream/mock"), &holed)
+        .expect("add");
+    h.until("2 published", |h| h.published("x") == 2);
+    h.put_value("wy/s/downstream/mock/d1/temp", Value::Int(41));
+    h.put_value("wy/s/downstream/mock/d2/temp", Value::Int(42));
+    h.until("3 published", |h| h.published("x") == 3);
+    h.until("the broker saw 3", |_| {
+        broker.publishes("wyrm/s/downstream/mock/").len() == 3
+    });
+    assert!(
+        broker.publishes("mock/d1/").is_empty(),
+        "d1 is not readable"
+    );
+    // an editor with fewer rights cannot widen what goes up
+    let e = h
+        .invoke_as(
+            "x",
+            "edit",
+            map(&[("select", s("wy/s/downstream/mock"))]),
+            &narrow,
+        )
+        .expect_err("edit outside");
+    assert_eq!(e.status, wyrm_core::Status::PermissionDenied);
+}
+
+/// The secret goes only where it was set for: an Edit that moves the endpoint (or its TLS
+/// setting or CA) drops it, so a caller with config cannot redirect the password to its own
+/// host; other edits keep it.
+#[test]
+fn an_edit_to_another_endpoint_drops_the_secret() {
+    let broker = Broker::start();
+    let other = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(1);
+    h.params = map(&[
+        ("site", s("s")),
+        ("own", s("wy/s/downstream/uplink")),
+        (
+            "net",
+            s(&format!(
+                "127.0.0.1:{}, 127.0.0.1:{}",
+                broker.port, other.port
+            )),
+        ),
+    ]);
+    h.start();
+    h.invoke(
+        "",
+        "add_mqtt",
+        map(&[
+            ("name", s("x")),
+            ("url", s(&format!("mqtt://127.0.0.1:{}", broker.port))),
+            ("username", s("edge")),
+        ]),
+    )
+    .expect("add");
+    h.invoke("x", "set_password", map(&[("password", s("pw"))]))
+        .expect("set_password");
+    h.until("connected", |h| h.status("x") == "connected");
+    // an edit on the same endpoint keeps it
+    h.invoke("x", "edit", map(&[("flush_ms", Value::UInt(200))]))
+        .expect("edit");
+    h.until("connected again", |h| h.status("x") == "connected");
+    let c = broker.seen().connects.last().unwrap().clone();
+    assert_eq!(c.password.as_deref(), Some(b"pw".as_slice()));
+    // another endpoint: the secret is gone, the other broker never sees it
+    h.invoke(
+        "x",
+        "edit",
+        map(&[("url", s(&format!("mqtt://127.0.0.1:{}", other.port)))]),
+    )
+    .expect("edit url");
+    h.advance_ms(5_000);
+    assert!(
+        other.seen().connects.iter().all(|c| c.password.is_none()),
+        "no password to the new endpoint"
+    );
+}

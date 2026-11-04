@@ -27,10 +27,10 @@ pub mod tree;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
-use wyrm_core::{Quality, Sample, Status, Value};
+use wyrm_core::{Perm, Quality, Sample, Status, Value};
 use wyrm_history_sync::http::Client as HttpClient;
 use wyrm_history_sync::{sigv4, TargetError};
-use wyrm_link_api::{App, AppError, ConnId, Host, Level, ReqId, SubId, TimerId, Who};
+use wyrm_link_api::{App, AppError, ConnId, Host, Level, ReqId, Rights, SubId, TimerId, Who};
 
 use platform::{azure_sas, device_and_metric, json_sample, json_value, url_encode, Map, Payload};
 pub use platform::{Def, Kind};
@@ -60,6 +60,25 @@ type Args = BTreeMap<String, Value>;
 
 fn invalid(msg: impl Into<String>) -> AppError {
     AppError::new(Status::InvalidParameter, msg)
+}
+
+/// The rights of whoever adds or edits an upstream (ADR 0029): the uplink reads the whole site,
+/// so an upstream sends only what its author may read. A token without `auth` is refused.
+fn author_rights(who: &Who, select: &[String]) -> Result<Rights, AppError> {
+    let rights = Rights::of(who).ok_or_else(|| {
+        AppError::new(
+            Status::PermissionDenied,
+            "the caller's rights are unknown (its token carries no auth): an upstream sends \
+             with its author's rights",
+        )
+    })?;
+    if let Some(k) = select.iter().find(|k| !rights.may(k, Perm::Read)) {
+        return Err(AppError::new(
+            Status::PermissionDenied,
+            format!("select: {k} is outside the caller's rights"),
+        ));
+    }
+    Ok(rights)
 }
 
 fn args_of(args: Value) -> Result<Args, AppError> {
@@ -186,10 +205,34 @@ struct Up {
     announced: BTreeSet<String>,
     /// What the tree shows, to update only on a change.
     shown: BTreeMap<&'static str, Value>,
+    /// Its author's rights (ADR 0029); `None` for an entry of `wyrmd.json5` (the operator's).
+    rights: Option<Rights>,
+    /// Keys decided against `rights`, so a sample costs one lookup.
+    readable: HashMap<String, bool>,
 }
 
 impl Up {
-    fn new(def: Def) -> Self {
+    /// A sample of `key` may go up: a `wyrmd.json5` entry sends all it selects, a runtime one
+    /// only what its author may read (a runtime one without rights sends nothing).
+    fn may_send(&mut self, key: &str) -> bool {
+        if self.def.from_config {
+            return true;
+        }
+        let Some(r) = &self.rights else {
+            return false;
+        };
+        if let Some(ok) = self.readable.get(key) {
+            return *ok;
+        }
+        let ok = r.may(key, Perm::Read);
+        if self.readable.len() >= 65_536 {
+            self.readable.clear();
+        }
+        self.readable.insert(key.to_owned(), ok);
+        ok
+    }
+
+    fn new(def: Def, rights: Option<Rights>) -> Self {
         let state = if def.enabled {
             State::Connecting
         } else {
@@ -213,6 +256,8 @@ impl Up {
             sp: Sparkplug::default(),
             announced: BTreeSet::new(),
             shown: BTreeMap::new(),
+            rights,
+            readable: HashMap::new(),
         }
     }
 
@@ -1400,7 +1445,12 @@ impl Uplink {
         }
     }
 
-    fn add(&mut self, host: &mut dyn Host, def: Def) -> Result<(), AppError> {
+    fn add(
+        &mut self,
+        host: &mut dyn Host,
+        def: Def,
+        rights: Option<Rights>,
+    ) -> Result<(), AppError> {
         if self.ups.contains_key(&def.name) {
             return Err(invalid(format!("name: {} exists", def.name)));
         }
@@ -1411,6 +1461,9 @@ impl Uplink {
             ));
         }
         if !def.from_config {
+            if let Some(r) = &rights {
+                store::put_rights(host, &def.name, r)?;
+            }
             store::put_def(host, &def)?;
             let names: Vec<String> = self
                 .ups
@@ -1422,7 +1475,7 @@ impl Uplink {
             store::put_index(host, &names)?;
         }
         let name = def.name.clone();
-        let up = Up::new(def);
+        let up = Up::new(def, rights);
         self.declare(host, &up);
         self.ups.insert(name.clone(), up);
         self.subscribe_all(host, &name);
@@ -1547,7 +1600,7 @@ impl App for Uplink {
                 Ok(d)
             }) {
                 Ok(d) => {
-                    if let Err(e) = app.add(host, d) {
+                    if let Err(e) = app.add(host, d, None) {
                         host.log(Level::Error, &format!("uplink.upstreams: {}", e.msg));
                     }
                 }
@@ -1571,8 +1624,21 @@ impl App for Uplink {
             }
             match store::load_def(host, &name, app.site.as_deref()) {
                 Ok(d) => {
-                    if let Err(e) = app.add(host, d) {
+                    let rights = store::load_rights(host, &name);
+                    let none = rights.is_none();
+                    if let Err(e) = app.add(host, d, rights) {
                         host.log(Level::Error, &format!("uplink {name}: {}", e.msg));
+                    } else if none {
+                        // kept before its author's rights were: it sends nothing until an Edit
+                        let msg = "no author rights kept: Edit it";
+                        host.log(Level::Warn, &format!("uplink {name}: {msg}"));
+                        if let Some(up) = app.ups.get_mut(&name) {
+                            up.close(host);
+                            up.state = State::Failed;
+                            up.error = msg.into();
+                            let now = host.now_us();
+                            up.show(host, now);
+                        }
                     }
                 }
                 Err(e) => host.log(Level::Error, &format!("uplink {name}: {e}")),
@@ -1622,7 +1688,7 @@ impl App for Uplink {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Who,
+        who: &Who,
     ) -> Result<Value, AppError> {
         let m = args_of(args)?;
         let now = host.now_us();
@@ -1646,7 +1712,8 @@ impl App for Uplink {
                 false,
             )
             .map_err(invalid)?;
-            self.add(host, def)?;
+            let rights = author_rights(who, &def.select)?;
+            self.add(host, def, Some(rights))?;
             self.show_stats(host, now);
             return Ok(Value::Null);
         }
@@ -1692,10 +1759,24 @@ impl App for Uplink {
                     ));
                 }
                 let def = self.edited(&name, &m)?;
-                let old_select = self.ups[&name].def.select.clone();
+                // the editor's rights from now on: they must cover the new `select`
+                let rights = author_rights(who, &def.select)?;
+                let old = &self.ups[&name].def;
+                let old_select = old.select.clone();
+                // a secret goes only where it was set for: a new endpoint, TLS setting or CA
+                // drops it (Set Password again), so an edit cannot send it elsewhere
+                let moved = old.endpoint() != def.endpoint()
+                    || old.insecure_plaintext != def.insecure_plaintext
+                    || old.ca_pem != def.ca_pem;
+                store::put_rights(host, &name, &rights)?;
                 store::put_def(host, &def)?;
+                if moved {
+                    host.store_delete(&store::secret_key(&name));
+                }
                 let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
                 up.def = def;
+                up.rights = Some(rights);
+                up.readable.clear();
                 up.sp.known.clear();
                 up.held.clear();
                 up.last_sent.clear();
@@ -1749,7 +1830,9 @@ impl App for Uplink {
         }
         let now = host.now_us();
         if let Some(up) = self.ups.get_mut(name) {
-            up.take(now, key, sample, self.site.as_deref());
+            if up.may_send(key) {
+                up.take(now, key, sample, self.site.as_deref());
+            }
         }
     }
 
