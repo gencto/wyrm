@@ -675,6 +675,36 @@ fn an_upstream_sends_only_what_its_author_may_read() {
         broker.publishes("mock/d1/").is_empty(),
         "d1 is not readable"
     );
+    // queued values an editor may not read are dropped, not sent with the editor's edit
+    *broker.connack.lock().unwrap() = 3;
+    h.invoke_as("x", "edit", map(&[("flush_ms", Value::UInt(100))]), &holed)
+        .expect("edit");
+    h.until("waiting", |h| h.status("x") == "waiting");
+    h.put_value("wy/s/downstream/mock/d0/temp", Value::Int(50));
+    h.put_value("wy/s/downstream/mock/d2/temp", Value::Int(52));
+    let d0_only = who(Some(vec![
+        ("wy/s/downstream/uplink/**", Perm::Config),
+        ("wy/s/downstream/mock/d0/**", Perm::Read),
+    ]));
+    let before = h.published("x");
+    h.invoke_as(
+        "x",
+        "edit",
+        map(&[("select", s("wy/s/downstream/mock/d0"))]),
+        &d0_only,
+    )
+    .expect("edit to d0");
+    *broker.connack.lock().unwrap() = 0;
+    h.until("connected again", |h| h.status("x") == "connected");
+    h.advance_ms(2_000);
+    assert!(
+        broker
+            .publishes("mock/d2/")
+            .iter()
+            .all(|(_, p)| json(p)["v"] != 52),
+        "d2's queued value never went up"
+    );
+    assert!(h.published("x") > before, "d0 still goes");
     // an editor with fewer rights cannot widen what goes up
     let e = h
         .invoke_as(

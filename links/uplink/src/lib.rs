@@ -1777,6 +1777,16 @@ impl App for Uplink {
                 up.def = def;
                 up.rights = Some(rights);
                 up.readable.clear();
+                // what is queued was taken with the previous author's rights: only what the
+                // editor may read goes on (to a moved endpoint too), the rest counts as dropped
+                let queue = std::mem::take(&mut up.queue);
+                for item in queue {
+                    if up.may_send(&item.key) {
+                        up.queue.push_back(item);
+                    } else {
+                        up.dropped += 1;
+                    }
+                }
                 up.sp.known.clear();
                 up.held.clear();
                 up.last_sent.clear();
