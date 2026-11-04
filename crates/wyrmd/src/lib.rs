@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use wyrm_admin::control::{DQL_LINK, SCHEDULER_LINK, STORAGE_LINK};
+use wyrm_admin::control::{DQL_LINK, SCHEDULER_LINK, STORAGE_LINK, UPLINK_LINK};
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
     UpstreamConf,
@@ -40,6 +40,7 @@ use wyrm_link_scheduler::Scheduler;
 use wyrm_link_sdk::driver::{Framework, Tree};
 use wyrm_link_sdk::{FromParams, Link, LinkConfig, LinkError, LinkHandle, VerifyingKey};
 use wyrm_link_snmp::Snmp;
+use wyrm_link_uplink::Uplink;
 use wyrm_link_wasm::ComponentWorld;
 use wyrm_link_wasm::Wasm;
 use wyrm_link_webdav::WebDav;
@@ -119,6 +120,43 @@ pub struct Config {
     /// The embedded DQL link at `wy/<site>/downstream/dql` (ADR 0025).
     #[serde(default)]
     pub dql: DqlSection,
+    /// The embedded uplink at `wy/<site>/downstream/uplink` (ADR 0034): platform upstreams.
+    #[serde(default)]
+    pub uplink: UplinkSection,
+}
+
+/// `uplink` in `wyrmd.json5`: on by default. `net` is the link's allowlist (ADR 0012 syntax,
+/// host names allowed: `broker.example:8883, *.azure-devices.net:8883, 10.0.0.5:1883`); without
+/// it no platform is reachable. `upstreams` are definitions as the Add actions take them, with
+/// `kind` and `name` (shown as `origin: config`, read-only; the secret still goes in with Set
+/// Password).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UplinkSection {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Size of its store (definitions and secrets) in MiB.
+    #[serde(default = "default_uplink_store_mb")]
+    pub store_mb: u32,
+    #[serde(default)]
+    pub net: String,
+    #[serde(default)]
+    pub upstreams: Vec<serde_json::Value>,
+}
+
+impl Default for UplinkSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            store_mb: default_uplink_store_mb(),
+            net: String::new(),
+            upstreams: Vec::new(),
+        }
+    }
+}
+
+fn default_uplink_store_mb() -> u32 {
+    2
 }
 
 /// `dql` in `wyrmd.json5`: on by default.
@@ -503,8 +541,9 @@ impl Config {
             if cfg.links.contains_key(&d.site) {
                 return Err(format!("links.{}: the name of a downstream site", d.site).into());
             }
-            // `downstream/scheduler` and `downstream/dql` are built-in links (ADR 0022, 0025)
-            if [SCHEDULER_LINK, DQL_LINK].contains(&d.site.as_str()) {
+            // `downstream/scheduler`, `downstream/dql` and `downstream/uplink` are built-in
+            // links (ADR 0022, 0025, 0034)
+            if [SCHEDULER_LINK, DQL_LINK, UPLINK_LINK].contains(&d.site.as_str()) {
                 return Err(
                     format!("peers.downstream {}: the id belongs to the broker", d.site).into(),
                 );
@@ -513,6 +552,7 @@ impl Config {
         for (name, mb) in [
             ("scheduler", cfg.scheduler.store_mb),
             ("dql", cfg.dql.store_mb),
+            ("uplink", cfg.uplink.store_mb),
         ] {
             if !(1..=wyrm_link_portable::MAX_STORE_MB).contains(&mb) {
                 return Err(format!(
@@ -576,8 +616,8 @@ impl Config {
         }
         for (id, l) in &cfg.links {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
-            // ids of the broker's own links (ADR 0017, 0022, 0025)
-            if [STORAGE_LINK, SCHEDULER_LINK, DQL_LINK].contains(&id.as_str()) {
+            // ids of the broker's own links (ADR 0017, 0022, 0025, 0034)
+            if [STORAGE_LINK, SCHEDULER_LINK, DQL_LINK, UPLINK_LINK].contains(&id.as_str()) {
                 return Err(format!("links.{id}: the id belongs to the broker").into());
             }
             if let Some(m) = &l.mode {
@@ -904,6 +944,8 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "scheduler" => wyrm_link_sdk::process::run::<Portable<Scheduler>>().await?,
         // the DQL link as a process link (ADR 0025 run modes)
         "dql" => wyrm_link_sdk::process::run::<Portable<Dql>>().await?,
+        // the uplink as a process link (ADR 0034)
+        "uplink" => wyrm_link_sdk::process::run::<Portable<Uplink>>().await?,
         d => return Err(format!("unknown driver {d}").into()),
     }
     Ok(())
@@ -920,7 +962,37 @@ pub struct Broker {
     storage: Option<LinkHandle<Storage>>,
     scheduler: Option<LinkHandle<Portable<Scheduler>>>,
     dql: Option<LinkHandle<Portable<Dql>>>,
+    uplink: Option<LinkHandle<Portable<Uplink>>>,
     gateway: Option<(oneshot::Sender<()>, tokio::task::JoinHandle<()>)>,
+}
+
+/// What the embedded uplink may reach (ADR 0034): `read` on this site's `downstream`,
+/// `dataflows` and `storage` and on the sections of every downstream site this one reads (as
+/// the DQL link). Never `sys`, never a write.
+fn uplink_grants(site: &str, peers: &wyrm_admin::acl::Peers) -> Vec<(String, wyrm_core::Perm)> {
+    dql_grants(site, peers)
+        .into_iter()
+        .map(|(k, _)| (k, wyrm_core::Perm::Read))
+        .collect()
+}
+
+/// The embedded uplink's params: the site and its own key (never sent), the allowlist as text
+/// (an Add refuses a host it does not cover) and the definitions from `wyrmd.json5`.
+fn uplink_params(site: &str, section: &UplinkSection) -> Value {
+    let mut m = BTreeMap::new();
+    m.insert("site".to_owned(), Value::Str(site.to_owned()));
+    m.insert(
+        "own".to_owned(),
+        Value::Str(format!("wy/{site}/downstream/{UPLINK_LINK}")),
+    );
+    m.insert("net".to_owned(), Value::Str(section.net.clone()));
+    if !section.upstreams.is_empty() {
+        m.insert(
+            "upstreams".to_owned(),
+            Value::Array(section.upstreams.iter().map(json_to_value).collect()),
+        );
+    }
+    Value::Map(m)
 }
 
 /// What the embedded DQL link may reach (ADR 0025): `read` on this site's `downstream`,
@@ -1118,6 +1190,49 @@ impl Broker {
         } else {
             None
         };
+        // The uplink (ADR 0034): as the DQL link, reads only; its network is `uplink.net`.
+        let uplink = if ctl.uplink_runs() {
+            let started = match ctl
+                .embedded_link_config(UPLINK_LINK, uplink_grants(&cfg.site, &ctl.peers()))
+            {
+                Ok(lcfg) => {
+                    let net = wyrm_link_api::net::NetPolicy::parse(&cfg.uplink.net)
+                        .map_err(|e| format!("uplink.net: {e}"));
+                    match net {
+                        Ok(net) => {
+                            let pcfg = PortableConfig {
+                                params: uplink_params(&cfg.site, &cfg.uplink),
+                                net,
+                                store_mb: cfg.uplink.store_mb,
+                                call_ms: 5_000,
+                                ..PortableConfig::default()
+                            };
+                            wyrm_link_sdk::spawn::<Portable<Uplink>>(session.clone(), lcfg, pcfg)
+                                .await
+                        }
+                        Err(e) => Err(LinkError::invalid_parameter(e)),
+                    }
+                }
+                Err(e) => Err(e),
+            };
+            match started {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(d) = dql {
+                        d.stop().await;
+                    }
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    storage.stop().await;
+                    flows.stop().await;
+                    admin.stop().await;
+                    return Err(format!("uplink: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
         runtime.start().await?;
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
@@ -1142,6 +1257,7 @@ impl Broker {
             storage: Some(storage),
             scheduler,
             dql,
+            uplink,
             gateway,
         })
     }
@@ -1166,6 +1282,9 @@ impl Broker {
             let _ = task.await;
         }
         // first: they send requests to the other links
+        if let Some(u) = self.uplink.take() {
+            u.stop().await;
+        }
         if let Some(d) = self.dql.take() {
             d.stop().await;
         }
@@ -1505,6 +1624,7 @@ impl Daemon {
             repository: cfg.packages.repository.clone(),
             scheduler: cfg.scheduler.enabled,
             dql: cfg.dql.enabled,
+            uplink: cfg.uplink.enabled,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -1547,6 +1667,13 @@ impl Daemon {
         if ctl.registry().links.contains_key(DQL_LINK) {
             return Err(format!(
                 "a link with id {DQL_LINK:?} exists; the id belongs to the embedded DQL link (ADR 0025): remove the link with the previous wyrmd first"
+            )
+            .into());
+        }
+        // And for the embedded uplink (ADR 0034): `downstream/uplink`.
+        if ctl.registry().links.contains_key(UPLINK_LINK) {
+            return Err(format!(
+                "a link with id {UPLINK_LINK:?} exists; the id belongs to the embedded uplink (ADR 0034): remove the link with the previous wyrmd first"
             )
             .into());
         }
@@ -1687,6 +1814,20 @@ mod tests {
         assert!(q.enabled);
         assert_eq!(q.store_mb, 16);
         assert!(!parse("dql: { enabled: false }").unwrap().dql.enabled);
+        let u = parse("").unwrap().uplink;
+        assert!(u.enabled && u.net.is_empty() && u.upstreams.is_empty());
+        assert_eq!(u.store_mb, 2);
+        let u = parse(
+            r#"uplink: { net: "*.example:8883", upstreams: [{ name: "x", kind: "mqtt", url: "mqtts://b.example" }] }"#,
+        )
+        .unwrap()
+        .uplink;
+        assert_eq!(u.upstreams.len(), 1);
+        let p = uplink_params("s", &u);
+        let Value::Map(m) = p else { panic!() };
+        assert_eq!(m["own"], Value::from("wy/s/downstream/uplink"));
+        assert_eq!(m["net"], Value::from("*.example:8883"));
+        assert!(matches!(&m["upstreams"], Value::Array(a) if a.len() == 1));
         let off = parse("scheduler: { enabled: false }").unwrap().scheduler;
         assert!(!off.enabled);
         assert_eq!(off.store_mb, 64);
@@ -1698,6 +1839,9 @@ mod tests {
             r#"links: { dql: { driver: "mock" } }"#,
             "dql: { store_mb: 0 }",
             "dql: { nope: true }",
+            r#"links: { uplink: { driver: "mock" } }"#,
+            "uplink: { store_mb: 0 }",
+            "uplink: { nope: true }",
             r#"links: { storage: { driver: "mock" } }"#,
         ] {
             assert!(parse(bad).is_err(), "{bad}");

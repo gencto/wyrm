@@ -310,7 +310,7 @@ async fn list_resolve_set_invoke_over_router() {
     // and the embedded DQL link and scheduler (ADR 0025, 0022)
     assert_eq!(
         snap.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["dql", "mock", "scheduler"]
+        ["dql", "mock", "scheduler", "uplink"]
     );
     assert_eq!(c.children(&format!("{root}/g1")).await.unwrap().len(), 4);
     // multi-term match: the raw selector survives the router hop
@@ -3092,12 +3092,12 @@ async fn two_brokers_over_quic() {
             let ch = c.children("wy/edge/downstream").await.ok()?;
             let mut names: Vec<String> = ch.into_iter().map(|c| c.name).collect();
             names.sort();
-            (names.len() == 5).then_some(names)
+            (names.len() == 6).then_some(names)
         }
     })
     .await;
     // and edge's embedded DQL link and scheduler (ADR 0025, 0022)
-    assert_eq!(names, ["dql", "mock", "pm", "scheduler", "slow"]);
+    assert_eq!(names, ["dql", "mock", "pm", "scheduler", "slow", "uplink"]);
     // Each broker shows its peer: the downstream edge beside central's
     // links (`downstream/edge`), the upstream central at `upstream/central`, both
     // connected (liveliness of `sys/broker`).
@@ -3372,7 +3372,7 @@ async fn chain_of_three_brokers() {
             .filter(|n| n.contains(&"pm".to_owned()))
     })
     .await;
-    assert_eq!(pm, ["dql", "md", "pm", "scheduler"]);
+    assert_eq!(pm, ["dql", "md", "pm", "scheduler", "uplink"]);
     // edge shows plant beside its links, connected
     eventually(
         "edge's downstream/plant connected, seen from central",
@@ -5290,7 +5290,7 @@ async fn two_brokers_isolation() {
         .collect();
     assert_eq!(
         names,
-        ["dql", "mock", "scheduler"],
+        ["dql", "mock", "scheduler", "uplink"],
         "rogue link listed at central"
     );
     let _ = rs.close().await;
@@ -7859,4 +7859,138 @@ async fn dql_perf_chain() {
     for t in tasks {
         let _ = t.await;
     }
+}
+
+/// A fake MQTT broker on loopback for the uplink (ADR 0034): CONNACK every client, record the
+/// topics published, PUBACK QoS 1.
+type Published = Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+
+fn fake_mqtt_broker() -> (u16, Published) {
+    use std::io::{Read, Write};
+    use wyrm_link_uplink::mqtt::{self, Packet, Parser};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let seen: Published = Arc::default();
+    let s2 = seen.clone();
+    std::thread::spawn(move || {
+        for mut stream in l.incoming().flatten() {
+            let seen = s2.clone();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 65536];
+                let mut parser = Parser::default();
+                let mut first = true;
+                loop {
+                    let n = match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => n,
+                    };
+                    if first {
+                        // the CONNECT: skip it whole (its remaining length is one byte here)
+                        first = false;
+                        let len = usize::from(buf[1]);
+                        stream.write_all(&[0x20, 2, 0, 0]).unwrap();
+                        parser.feed(&buf[2 + len..n]).unwrap();
+                    } else {
+                        parser.feed(&buf[..n]).unwrap();
+                    }
+                    while let Some(p) = parser.packet().unwrap() {
+                        match p {
+                            Packet::Publish {
+                                topic,
+                                payload,
+                                qos,
+                                id,
+                                ..
+                            } => {
+                                seen.lock().unwrap().push((topic, payload));
+                                if let (1, Some(id)) = (qos, id) {
+                                    stream.write_all(&mqtt::puback(id)).unwrap();
+                                }
+                            }
+                            Packet::Other(mqtt::PINGREQ) => stream.write_all(&[0xd0, 0]).unwrap(),
+                            Packet::Other(mqtt::DISCONNECT) => return,
+                            _ => {}
+                        }
+                    }
+                }
+            });
+        }
+    });
+    (port, seen)
+}
+
+/// ADR 0034: the embedded uplink at `downstream/uplink` takes an MQTT upstream with one action,
+/// as `sys/upstream` takes a broker, and the site's values reach the broker as topics; a host
+/// outside `uplink.net` is refused at Add.
+#[tokio::test(flavor = "multi_thread")]
+async fn uplink_embedded_publishes_to_an_mqtt_broker() {
+    let (port, seen) = fake_mqtt_broker();
+    let env = Env::start(
+        "uplink",
+        &format!(
+            r#"links: {{ m: {{ driver: "mock", params: {{ points: 3, rate_hz: 0, depth: 0 }} }} }},
+               uplink: {{ net: "127.0.0.1:{port}" }},"#
+        ),
+    )
+    .await;
+    let c = env.client().await.with_timeout(Duration::from_secs(30));
+    let uplink = format!("wy/{SITE}/downstream/uplink");
+    eventually("uplink up", 60, || async { c.meta(&uplink).await.ok() }).await;
+    // a host the allowlist does not cover is refused
+    let r = c
+        .invoke_one(
+            &uplink,
+            "add_mqtt",
+            args_map(&[
+                ("name", Value::from("far")),
+                ("url", Value::from("mqtts://broker.example")),
+            ]),
+        )
+        .await;
+    assert!(r.is_err(), "not in net: {r:?}");
+    c.invoke_one(
+        &uplink,
+        "add_mqtt",
+        args_map(&[
+            ("name", Value::from("uns")),
+            ("url", Value::from(format!("mqtt://127.0.0.1:{port}"))),
+            ("select", Value::from(format!("wy/{SITE}/downstream/m"))),
+            ("flush_ms", Value::UInt(100)),
+        ]),
+    )
+    .await
+    .expect("add_mqtt");
+    eventually("connected", 60, || async {
+        last_sample(&env, &format!("{uplink}/uns/status"))
+            .await
+            .filter(|s| s.v == Value::from("connected"))
+    })
+    .await;
+    c.set(&format!("wy/{SITE}/downstream/m/p1"), Value::Float(4.5))
+        .await
+        .expect("set p1");
+    let topic = format!("wyrm/{SITE}/downstream/m/p1");
+    eventually("the value is on the broker", 60, || async {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(t, p)| *t == topic && String::from_utf8_lossy(p).contains("4.5"))
+            .cloned()
+    })
+    .await;
+    let published = last_sample(&env, &format!("{uplink}/uns/published"))
+        .await
+        .map(|s| s.v);
+    assert!(
+        matches!(published, Some(Value::UInt(n)) if n >= 3),
+        "{published:?}"
+    );
+    // its own nodes never go up; the definition is in sys/… no: in the link's store
+    assert!(!seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(t, _)| t.contains("/uplink/")));
+    env.stop().await;
 }

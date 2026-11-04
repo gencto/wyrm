@@ -28,6 +28,11 @@
 #                    grants: an operator grants read on each root a query
 #                    lists and write on each sink target
 #     dql-process    the same app as a process package
+#     uplink         platform upstreams (ADR 0034, links/uplink) as a WASM
+#                    package: MQTT/UNS, Sparkplug B, ThingsBoard, Azure IoT
+#                    Hub, AWS IoT Core; an operator grants read on each root
+#                    an upstream selects and lists the platforms in net
+#     uplink-process the same app as a process package
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -67,6 +72,10 @@ $WYR link pack --manifest-path "$SCHEDULER" --kind process --name scheduler-proc
 DQL=$ROOT/links/dql/Cargo.toml
 $WYR link pack --manifest-path "$DQL" --out "$ZIPS"
 $WYR link pack --manifest-path "$DQL" --kind process --name dql-process --out "$ZIPS"
+# and the uplink (ADR 0034)
+UPLINK=$ROOT/links/uplink/Cargo.toml
+$WYR link pack --manifest-path "$UPLINK" --out "$ZIPS"
+$WYR link pack --manifest-path "$UPLINK" --kind process --name uplink-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \

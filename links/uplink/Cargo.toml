@@ -1,0 +1,57 @@
+[package]
+name = "wyrm-link-uplink"
+description = "Platform upstreams (ADR 0034): live values to MQTT/UNS, Sparkplug B, ThingsBoard, Azure IoT Hub and AWS IoT Core, as a portable App (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary, the broker and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-link-uplink"
+required-features = ["process"]
+
+[features]
+# The process link: `wyrm_link_sdk::process::main::<Portable<Uplink>>()`.
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+# The WASM component: `wyrm_link_guest::export!(Uplink)`.
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+# The HTTP/1.1 client and Signature V4 (AWS IoT Core over HTTPS).
+wyrm-history-sync.workspace = true
+# JSON payloads for the platforms (the WYRM wire stays CBOR, principle 5).
+serde_json.workspace = true
+# Azure IoT Hub SAS tokens.
+hmac.workspace = true
+sha2.workspace = true
+base64.workspace = true
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-portable.workspace = true
+serde_json.workspace = true
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package (the component, for every
+# host); `examples/packages/build.sh` also packs the binary built with
+# `features` (`--kind process --name uplink-process`). No `requester` grants: an
+# operator grants `read` on each root an upstream selects
+# (`sys/links/<id>/~act/grant`, ADR 0013) and lists the platforms in `net`.
+[package.metadata.wyrm-link]
+name = "uplink"
+description = "Platform upstreams: live values to MQTT/UNS, Sparkplug B, ThingsBoard, Azure IoT Hub, AWS IoT Core (ADR 0034)"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 2, call_ms = 5000 }

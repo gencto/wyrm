@@ -117,6 +117,8 @@ pub struct ControlConfig {
     pub scheduler: bool,
     /// The embedded DQL link runs ([`DQL_LINK`], ADR 0025), as the scheduler.
     pub dql: bool,
+    /// The embedded uplink runs ([`UPLINK_LINK`], ADR 0034): platform upstreams.
+    pub uplink: bool,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -171,8 +173,11 @@ pub const SCHEDULER_LINK: &str = "scheduler";
 /// Link id of the embedded DQL link (`wy/<site>/downstream/dql`, ADR 0025): a built-in link as
 /// the scheduler, with its own requester key for its sinks.
 pub const DQL_LINK: &str = "dql";
+/// Link id of the embedded uplink (`wy/<site>/downstream/uplink`, ADR 0034): a built-in link
+/// as the scheduler; it only reads, its requester key is never trusted by anyone.
+pub const UPLINK_LINK: &str = "uplink";
 /// Built-in links: not in the registry, ids reserved, own keys made by the admin.
-pub const BUILTIN_LINKS: [&str; 2] = [SCHEDULER_LINK, DQL_LINK];
+pub const BUILTIN_LINKS: [&str; 3] = [SCHEDULER_LINK, DQL_LINK, UPLINK_LINK];
 /// `sys/overlays/.sites`: overlays of downstream sites' points this site
 /// records, by full key, laid on by the gateway (ADR 0020). Never a link
 /// id: those may not start with `.`.
@@ -326,6 +331,8 @@ pub struct Control {
     scheduler_keys: std::sync::atomic::AtomicBool,
     /// The embedded DQL link's keys are saved: it runs ([`Control::dql_runs`]).
     dql_keys: std::sync::atomic::AtomicBool,
+    /// The embedded uplink's keys are saved: it runs ([`Control::uplink_runs`]).
+    uplink_keys: std::sync::atomic::AtomicBool,
     /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
     pub(crate) history: Arc<wyrm_history::Historian>,
     /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
@@ -661,6 +668,7 @@ impl Control {
                 closing: Default::default(),
                 scheduler_keys: Default::default(),
                 dql_keys: Default::default(),
+                uplink_keys: Default::default(),
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
@@ -987,6 +995,25 @@ impl Control {
     /// The embedded DQL link runs: it is on and its keys are saved ([`Self::prepare_dql`]).
     pub fn dql_runs(&self) -> bool {
         self.dql_keys.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The embedded uplink's keys (its store key), made once; as [`Self::prepare_scheduler`].
+    pub fn prepare_uplink(&self) {
+        let ok = self.cfg.uplink
+            && match self.ensure_builtin_keys(UPLINK_LINK) {
+                Ok(()) => true,
+                Err(e) => {
+                    error!("uplink: its keys are not saved ({e}): the broker runs without it");
+                    false
+                }
+            };
+        self.uplink_keys
+            .store(ok, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The embedded uplink runs: it is on and its keys are saved ([`Self::prepare_uplink`]).
+    pub fn uplink_runs(&self) -> bool {
+        self.uplink_keys.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The embedded scheduler runs: it is on and its keys are saved ([`Self::prepare_scheduler`]).
@@ -1698,6 +1725,7 @@ impl Control {
         // link trusts only the keys its `hello` reply carried.
         self.prepare_scheduler();
         self.prepare_dql();
+        self.prepare_uplink();
         // Agent keys first: every link started below trusts them.
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
@@ -2718,6 +2746,9 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     }
     if ctl.cfg.dql {
         links.insert(DQL_LINK.to_owned());
+    }
+    if ctl.cfg.uplink {
+        links.insert(UPLINK_LINK.to_owned());
     }
     links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
@@ -6381,6 +6412,7 @@ mod tests {
             repository: None,
             scheduler,
             dql: scheduler,
+            uplink: scheduler,
         };
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }
