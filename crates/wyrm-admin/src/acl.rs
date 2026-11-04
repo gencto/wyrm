@@ -62,10 +62,10 @@ fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Va
         }
         if level >= Perm::Read {
             val.push(format!("{p}/**/~val"));
-            // actions too, never `~set`: the responder lets through only those of level
-            // `read` (the `ptok` carries the grant's level), as for a role; a history sync
-            // link reads a link's sink with `next` this way (ADR 0034)
-            val.push(format!("{p}/**/~act/*"));
+            // and `next` of a sink under it (a history sync link reading an alarm link's
+            // sink, ADR 0034), as `sinks-<id>-in` opens the historian's; no other action: a
+            // `read` action can still hand out data (a file store's Download)
+            val.push(format!("{p}/**/~act/next"));
             sub.push(format!("{p}/**"));
         }
         if level >= Perm::Write {
@@ -698,8 +698,12 @@ mod tests {
             "read: no ~set"
         );
         assert!(
-            q.contains(&"wy/s/downstream/mock/**/~act/*".into()),
-            "read: actions, of level read only (the responder checks)"
+            q.contains(&"wy/s/downstream/mock/**/~act/next".into()),
+            "read: a sink's next"
+        );
+        assert!(
+            !q.iter().any(|k| k.ends_with("~act/*")),
+            "read: no other action"
         );
         assert!(
             !q.iter().any(|k| k.starts_with("wy/s/dataflows/**/~act")),

@@ -169,7 +169,7 @@ the classes it takes (empty: all), and whether it starts from the oldest journal
 `sink: wy/<site>/downstream/alarm/sinks/<name>` beside its own params, and give it
 `read` on the sink's key: `sys/links/<db link>` ▸ Grant Access
 `{path: wy/{site}/downstream/alarm/sinks/<name>, level: read}` (`{site}` as it is). With `read`
-the router lets the link call `next` there (actions of level `read`), as a process package
+the router lets the link call `next` there (and no other action), as a process package
 too. Use a table, measurement or
 collection of its own for alarms.
 
