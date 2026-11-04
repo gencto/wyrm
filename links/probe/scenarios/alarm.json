@@ -1,0 +1,29 @@
+{
+  "name": "alarm",
+  "description": "Alarm link (ADR 0034): a class appears with its nodes; a watch on the link's own stats/open (max -1: always out of range) raises a record; get_alarms, acknowledge, add_note, get_notes, export; a manual record raised and returned to normal; a refused source; remove.",
+  "steps": [
+    { "require": "wy/{site}/downstream/alarm" },
+    { "watch": "wy/{site}/downstream/alarm" },
+    { "sub": "wy/{site}/downstream/alarm/pa{run}/**" },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "add_class", "args": { "id": "pa{run}", "display": "probe" } },
+    { "added": "wy/{site}/downstream/alarm", "name": "pa{run}" },
+    { "meta": "wy/{site}/downstream/alarm/pa{run}", "has_action": ["add_watch", "edit", "remove", "ack_all", "export"], "has_child": ["open", "active", "unacked", "alarms", "watches"] },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}", "action": "add_watch", "args": { "source": "wy/{site}/downstream/alarm/stats/open", "algorithm": 1, "max": -1, "type": 1, "message": "{name} is {value}" } },
+    { "children": "wy/{site}/downstream/alarm/pa{run}/watches", "contains": ["w1"] },
+    { "value": "wy/{site}/downstream/alarm/pa{run}/watches/w1", "equals": "alarm", "within_ms": 5000 },
+    { "value": "wy/{site}/downstream/alarm/pa{run}/open", "equals": 1, "within_ms": 5000 },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "get_alarms", "args": { "class": "pa{run}", "state": 1 } },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "raise", "args": { "class": "pa{run}", "source": "wy/{site}/downstream/alarm/stats/raised", "type": 0, "message": "probe" }, "save_as": "rid", "field": "id" },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "add_note", "args": { "id": "{rid}", "note": "seen by the probe" } },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "get_notes", "args": { "id": "{rid}" } },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "acknowledge", "args": { "id": "{rid}", "note": "ok" } },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "normal", "args": { "id": "{rid}" } },
+    { "invoke": "wy/{site}/downstream/alarm", "action": "get_alarm", "args": { "id": "{rid}" } },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}", "action": "export" },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}", "action": "add_watch", "args": { "source": "wy/{site}/sys/broker", "algorithm": 0 }, "expect": "error", "error": "source" },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}/watches/w1", "action": "remove", "cleanup": true },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}", "action": "ack_all", "cleanup": true },
+    { "invoke": "wy/{site}/downstream/alarm/pa{run}", "action": "remove", "cleanup": true },
+    { "removed": "wy/{site}/downstream/alarm", "name": "pa{run}", "cleanup": true }
+  ]
+}

@@ -130,15 +130,18 @@ fn short(v: &Value) -> String {
 }
 
 /// What `save_as` keeps of a result: a text as it is, any other value in
-/// short; with `field`, that text field of a map result (whole: `export`'s
-/// `json` for a later `import`).
+/// short; with `field`, that text (or whole number) field of a map result
+/// (whole: `export`'s `json` for a later `import`, a record id).
 fn kept_text(v: &Value, field: Option<&str>) -> Result<String, String> {
     match (field, v) {
         (None, Value::Str(s)) => Ok(s.clone()),
         (None, other) => Ok(short(other)),
         (Some(f), Value::Map(m)) => match m.get(f) {
             Some(Value::Str(s)) => Ok(s.clone()),
-            Some(_) => Err(format!("field {f} of the result is not a text")),
+            // an id (a record of the alarm link): its decimal text
+            Some(Value::UInt(n)) => Ok(n.to_string()),
+            Some(Value::Int(n)) => Ok(n.to_string()),
+            Some(_) => Err(format!("field {f} of the result is not a text or a number")),
             None => Err(format!("no field {f} in the result")),
         },
         (Some(f), _) => Err(format!("field {f}: the result is not a map")),
@@ -500,7 +503,10 @@ mod tests {
             ("n".to_owned(), Value::UInt(1)),
         ]));
         assert_eq!(kept_text(&m, Some("json")), Ok(long), "whole, not cut");
-        assert!(kept_text(&m, Some("n")).is_err());
+        // a whole number (a record id of the alarm link) as its decimal text
+        assert_eq!(kept_text(&m, Some("n")), Ok("1".into()));
+        let f = Value::Map(BTreeMap::from([("f".to_owned(), Value::Float(1.5))]));
+        assert!(kept_text(&f, Some("f")).is_err());
         assert!(kept_text(&m, Some("other")).is_err());
         assert!(kept_text(&Value::from("abc"), Some("json")).is_err());
     }

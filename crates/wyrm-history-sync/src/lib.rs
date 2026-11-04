@@ -7,7 +7,9 @@
 //! once: the target replaces on `(key, t)`). It waits while there is
 //! nothing new and backs off while the target is down.
 //!
-//! The link's params: `sink` (the sink's key, `wy/<site>/sys/history/sinks/<name>`), `batch`
+//! The link's params: `sink` (the sink's key, `wy/<site>/sys/history/sinks/<name>`, or a
+//! link's own sink with the same feed, `wy/<site>/downstream/<link>/sinks/<name>`: the alarm
+//! link's records, ADR 0034), `batch`
 //! (rows per batch, default 500, at most 5 000), `idle_s` (wait when nothing is new, default 5),
 //! `retry_s` (longest wait after an error, default 60); every other key is the target's. The
 //! target's secret (a password or a token) is never a param: ▸ Set Password keeps it in the
@@ -153,7 +155,8 @@ fn split(config: Value) -> Result<(Own, Map), AppError> {
         Some(Value::Str(s)) if sink_key(&s) => s,
         _ => {
             return Err(bad(
-                "params.sink: the sink's key, wy/<site>/sys/history/sinks/<name>",
+                "params.sink: the sink's key, wy/<site>/sys/history/sinks/<name> or \
+                 wy/<site>/downstream/<link>/sinks/<name>",
             ))
         }
     };
@@ -184,15 +187,17 @@ fn split(config: Value) -> Result<(Own, Map), AppError> {
     ))
 }
 
-/// `wy/<site>/sys/history/sinks/<name>`, plain segments.
+/// The historian's `wy/<site>/sys/history/sinks/<name>`, or a link's own sink with the same
+/// `next` (the alarm link, ADR 0034): `wy/<site>/downstream/<link>/sinks/<name>`; plain
+/// segments.
 fn sink_key(s: &str) -> bool {
     let p: Vec<&str> = s.split('/').collect();
+    let plain = |x: &&str| !x.is_empty() && !x.contains(['*', '$', '~']) && *x != "..";
     p.len() == 6
         && p[0] == "wy"
-        && p[2..5] == ["sys", "history", "sinks"]
-        && [p[1], p[5]]
-            .iter()
-            .all(|x| !x.is_empty() && !x.contains(['*', '$', '~']) && *x != "..")
+        && (p[2..5] == ["sys", "history", "sinks"]
+            || (p[2] == "downstream" && p[4] == "sinks" && plain(&p[3])))
+        && [p[1], p[5]].iter().all(plain)
 }
 
 /// A batch as the sink answers it: `{rows: [{seq, key, t, v, q}], next}`.

@@ -48,6 +48,12 @@ down. In the broker's own process it runs only as WASM.
   `wy/<site>/downstream/scheduler`; it is also a portable link in the
   packages `scheduler` (WASM) and `scheduler-process`. Guide:
   [`docs/scheduler.md`](scheduler.md).
+- **Alarms** (`links/alarm`, ADR 0034): watches on points (boolean, out of
+  range, staleness, quality) that raise alarm records, acknowledged, noted,
+  kept in the broker's store and sent to a central database through the
+  history sync links. Every broker runs one at `wy/<site>/downstream/alarm`;
+  also the packages `alarm` (WASM) and `alarm-process`. Guide:
+  [`docs/alarm.md`](alarm.md).
 - **Modbus** (`links/modbus`, built-in driver `modbus`, package `modbus`):
   a master of Modbus TCP, RTU over TCP and serial RTU devices, and a slave
   that serves the tree's values to masters (ADR 0024); `import_dsa` takes

@@ -117,6 +117,8 @@ pub struct ControlConfig {
     pub scheduler: bool,
     /// The embedded DQL link runs ([`DQL_LINK`], ADR 0025), as the scheduler.
     pub dql: bool,
+    /// The embedded alarm link runs ([`ALARM_LINK`], ADR 0034), as the scheduler.
+    pub alarm: bool,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -171,8 +173,11 @@ pub const SCHEDULER_LINK: &str = "scheduler";
 /// Link id of the embedded DQL link (`wy/<site>/downstream/dql`, ADR 0025): a built-in link as
 /// the scheduler, with its own requester key for its sinks.
 pub const DQL_LINK: &str = "dql";
+/// Link id of the embedded alarm link (`wy/<site>/downstream/alarm`, ADR 0034): a built-in
+/// link as the scheduler; it reads the tree and writes nothing, so links need not trust its key.
+pub const ALARM_LINK: &str = "alarm";
 /// Built-in links: not in the registry, ids reserved, own keys made by the admin.
-pub const BUILTIN_LINKS: [&str; 2] = [SCHEDULER_LINK, DQL_LINK];
+pub const BUILTIN_LINKS: [&str; 3] = [SCHEDULER_LINK, DQL_LINK, ALARM_LINK];
 /// `sys/overlays/.sites`: overlays of downstream sites' points this site
 /// records, by full key, laid on by the gateway (ADR 0020). Never a link
 /// id: those may not start with `.`.
@@ -326,6 +331,8 @@ pub struct Control {
     scheduler_keys: std::sync::atomic::AtomicBool,
     /// The embedded DQL link's keys are saved: it runs ([`Control::dql_runs`]).
     dql_keys: std::sync::atomic::AtomicBool,
+    /// The embedded alarm link's keys are saved: it runs ([`Control::alarm_runs`]).
+    alarm_keys: std::sync::atomic::AtomicBool,
     /// The embedded historian (`sys/history`, ADR 0014); outlives rebuilds.
     pub(crate) history: Arc<wyrm_history::Historian>,
     /// Wakes [`enroll_upstreams`] for a new or re-enabled upstream site.
@@ -661,6 +668,7 @@ impl Control {
                 closing: Default::default(),
                 scheduler_keys: Default::default(),
                 dql_keys: Default::default(),
+                alarm_keys: Default::default(),
                 history,
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
@@ -987,6 +995,26 @@ impl Control {
     /// The embedded DQL link runs: it is on and its keys are saved ([`Self::prepare_dql`]).
     pub fn dql_runs(&self) -> bool {
         self.dql_keys.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The embedded alarm link's keys (its store key), made once; as
+    /// [`Self::prepare_scheduler`] (R22).
+    pub fn prepare_alarm(&self) {
+        let ok = self.cfg.alarm
+            && match self.ensure_builtin_keys(ALARM_LINK) {
+                Ok(()) => true,
+                Err(e) => {
+                    error!("alarm: its keys are not saved ({e}): the broker runs without it");
+                    false
+                }
+            };
+        self.alarm_keys
+            .store(ok, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The embedded alarm link runs: it is on and its keys are saved ([`Self::prepare_alarm`]).
+    pub fn alarm_runs(&self) -> bool {
+        self.alarm_keys.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The embedded scheduler runs: it is on and its keys are saved ([`Self::prepare_scheduler`]).
@@ -1698,6 +1726,7 @@ impl Control {
         // link trusts only the keys its `hello` reply carried.
         self.prepare_scheduler();
         self.prepare_dql();
+        self.prepare_alarm();
         // Agent keys first: every link started below trusts them.
         for def in self.registry().links.values() {
             if let Err(e) = self.ensure_agent_key(def) {
@@ -2718,6 +2747,9 @@ pub(crate) async fn publish_overlays(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_
     }
     if ctl.cfg.dql {
         links.insert(DQL_LINK.to_owned());
+    }
+    if ctl.cfg.alarm {
+        links.insert(ALARM_LINK.to_owned());
     }
     links.insert(SITES_OVERLAY.to_owned());
     links.extend(maps.keys().cloned());
@@ -6331,7 +6363,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    use super::{Control, ControlConfig, DQL_LINK, SCHEDULER_LINK};
+    use super::{Control, ControlConfig, ALARM_LINK, DQL_LINK, SCHEDULER_LINK};
     use wyrm_core::Perm;
 
     struct NoDrivers;
@@ -6381,6 +6413,7 @@ mod tests {
             repository: None,
             scheduler,
             dql: scheduler,
+            alarm: scheduler,
         };
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }
@@ -6487,6 +6520,25 @@ mod tests {
         let other = ctl.embedded_link_config("mock", Vec::new()).unwrap();
         assert!(other.limited_keys.iter().any(dql));
         assert!(crate::registry::validate_new_link_id(DQL_LINK).is_err());
+    }
+
+    /// ADR 0034: the embedded alarm link has its keys (its sealed store) but writes nothing, so
+    /// no link trusts its key; its id is reserved.
+    #[test]
+    fn the_alarm_link_has_keys_and_no_trust() {
+        let ctl = control("alarm-key", true, |_| {});
+        ctl.prepare_alarm();
+        assert!(ctl.alarm_runs());
+        assert!(ctl.requester_key_of(ALARM_LINK).is_some());
+        let alarm = |k: &wyrm_link_sdk::LimitedKey| k.subject.as_deref() == Some("link:alarm");
+        let other = ctl.embedded_link_config("mock", Vec::new()).unwrap();
+        assert!(!other.limited_keys.iter().any(alarm));
+        let own = ctl.embedded_link_config(ALARM_LINK, Vec::new()).unwrap();
+        assert!(own.data_dir.is_some());
+        assert!(crate::registry::validate_new_link_id(ALARM_LINK).is_err());
+        let off = control("alarm-off", false, |_| {});
+        off.prepare_alarm();
+        assert!(!off.alarm_runs());
     }
 
     /// R21: the scheduler does not trust its own key (a schedule cannot write the scheduler's
