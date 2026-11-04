@@ -442,10 +442,21 @@ async fn expect(c: &Conn, key: &str, test: &Test, timeout_s: f64) -> Result<Json
     let end = tokio::time::Instant::now() + Duration::from_secs_f64(timeout_s);
     let mut first: Option<Value> = None;
     let mut last = Json::Null;
+    let mut sampled = false;
     let r = loop {
-        let e = match tokio::time::timeout_at(end, s.next()).await {
+        // Until the first sample, subscribe again every second: a node a moment old on a site
+        // below may not have its stored value at this gateway yet, and a point that does not
+        // change sends nothing more (seen on the demo, 2026-11-05).
+        let tick = tokio::time::Instant::now() + Duration::from_secs(1);
+        let wait = if sampled { end } else { end.min(tick) };
+        let e = match tokio::time::timeout_at(wait, s.next()).await {
             Ok(Some(e)) => e,
             Ok(None) => break Err(format!("{key}: the stream ended")),
+            Err(_) if tokio::time::Instant::now() < end => {
+                let _ = c.unsubscribe(s.id).await;
+                s = c.subscribe(key).await.map_err(err)?;
+                continue;
+            }
             Err(_) => {
                 break Err(format!(
                     "{key}: not as expected after {timeout_s} s (last {last})"
@@ -455,6 +466,7 @@ async fn expect(c: &Conn, key: &str, test: &Test, timeout_s: f64) -> Result<Json
         let Event::Sample { v, q, .. } = e else {
             continue;
         };
+        sampled = true;
         last = value_to_json(&v);
         let pass = match test {
             Test::Any => true,
