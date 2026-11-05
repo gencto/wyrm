@@ -134,7 +134,11 @@ impl Env {
 
     /// Like `start`, in `dir` as it is (a restart keeps the state).
     async fn start_in(dir: &std::path::Path, extra: &str) -> Self {
-        let (port, tls) = (free_port(), free_port());
+        Self::start_on(dir, extra, free_port(), free_port()).await
+    }
+
+    /// Like `start_in`, on the given `tcp/` and `tls/` ports (from `free_port`).
+    async fn start_on(dir: &std::path::Path, extra: &str, port: u16, tls: u16) -> Self {
         let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
         let text = format!(
             r#"{{
@@ -8521,4 +8525,84 @@ async fn broker_restart_rto() {
         rto_start < Duration::from_secs(30),
         "recovery took {rto_start:?}"
     );
+}
+
+/// ADR 0036, option 2: a link process with several endpoints serves only a
+/// router where its site's broker is. The list names a port nobody listens
+/// on, a plain Zenoh router (reachable, no broker, so no liveliness token
+/// `wy/<site>/sys/broker`) and the broker; the link walks past the first
+/// two. When the broker stops and another broker of the site (the same
+/// data_dir: the warm standby of option 3) comes up on the first port, the
+/// link leaves the router whose token is gone and serves the new broker.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_process_walks_its_endpoints() {
+    let dir = temp_dir("walk");
+    const LINK: &str = r#"profile: "dev",
+        links: { walk: { driver: "mock", mode: "external", params: { points: 4, rate_hz: 10, depth: 1, fanout: 2 } } },"#;
+    let env = Env::start_in(&dir, LINK).await;
+    let later = free_port(); // nobody listens yet; the second broker will
+    let decoy_port = free_port();
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""router""#).unwrap();
+    zc.insert_json5(
+        "listen/endpoints",
+        &format!(r#"["tcp/127.0.0.1:{decoy_port}"]"#),
+    )
+    .unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let decoy = zenoh::open(zc).await.unwrap();
+    let token = env.ctl.config().data_dir.join("links/walk/token");
+    let mut link = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .args(["link", "mock"])
+        .env("WYRM_SITE", SITE)
+        .env("WYRM_LINK_ID", "walk")
+        .env(
+            "WYRM_ENDPOINT",
+            format!(
+                "tcp/127.0.0.1:{later}, tcp/127.0.0.1:{decoy_port}, tcp/127.0.0.1:{}",
+                env.port
+            ),
+        )
+        .env("WYRM_BROKER_WAIT_S", "2")
+        .env("WYRM_TOKEN_FILE", &token)
+        .env("WYRM_PARENT_PID", std::process::id().to_string())
+        .env("RUST_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+
+    let served_by = |port: u16| async move {
+        let c = eventually("broker listening", 30, || async { client_on(port).await }).await;
+        let state = format!("wy/{SITE}/sys/links/walk/state");
+        eventually("walk connected", 30, || async {
+            (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
+        })
+        .await;
+        let sub = c
+            .session()
+            .declare_subscriber(format!("wy/{SITE}/downstream/walk/**/~val"))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), sub.recv_async())
+            .await
+            .expect("a live sample from the link")
+            .unwrap();
+    };
+    // past the dead port and the decoy, on the broker
+    served_by(env.port).await;
+    assert!(link.try_wait().unwrap().is_none(), "the link runs");
+
+    // the broker goes; its stand-in comes up on the first port of the list
+    let tls = env.tls;
+    env.stop().await;
+    let env = Env::start_on(&dir, LINK, later, tls).await;
+    served_by(later).await;
+    assert!(link.try_wait().unwrap().is_none(), "the link runs");
+
+    let _ = link.kill();
+    let _ = link.wait();
+    decoy.close().await.unwrap();
+    env.stop().await;
 }

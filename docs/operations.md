@@ -119,6 +119,29 @@ a debug build on an x86_64 container). Without a figure from the reference
 board (4-core ARM64, 2 GB) assume ten seconds for the broker and add the
 slowest device's poll period.
 
+### Several endpoints (ADR 0036, option 2)
+
+A client or a link may name several broker endpoints, comma-separated, in
+the order to try. Today a site has one broker, so the list is the one
+broker's addresses; with a standby broker (option 3, not built yet) it is
+both brokers, and nothing on the client side changes at a failover.
+
+- `wyr --connect tls/a:7448,tls/b:7448`, `wyrm_open("tcp/…,tcp/…")` in the
+  C API and Dart FFI: Zenoh's client mode connects to the first endpoint it
+  reaches and tries the list again when the connection drops.
+- Links run by hand (external links, a package on another host):
+  `WYRM_ENDPOINT` takes the list. The link opens one session per endpoint
+  and serves a router only while the site's broker is behind it, told by
+  the liveliness token `wy/<site>/sys/broker`: a router without the token,
+  or whose token has been gone for `WYRM_BROKER_WAIT_S` (15 s), is left for
+  the next endpoint. The token is one key, so two brokers that claim one
+  site are never both served by a link. Links the broker supervises get
+  the broker's own endpoint and die with it, so they need no list.
+- Gateway clients: the Dart `WyrmGateway.loginAny([url1, url2], …)` logs
+  in on the first gateway that answers and keeps the credentials, so its
+  `client()` logs in again on the next gateway when the one in use is gone
+  or does not know the session (each broker holds its own sessions).
+
 ### Several sites
 
 A site does not depend on its upstream: it keeps polling, recording and

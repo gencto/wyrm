@@ -6,14 +6,19 @@
 //! | env | meaning |
 //! |---|---|
 //! | `WYRM_SITE`, `WYRM_LINK_ID` | identity (link id = certificate CN) |
-//! | `WYRM_ENDPOINT` | router endpoint, e.g. `tls/127.0.0.1:7447` |
+//! | `WYRM_ENDPOINT` | router endpoints, comma-separated, tried in that order, e.g. `tls/127.0.0.1:7447` or `tls/10.0.0.1:7448,tls/10.0.0.2:7448` (ADR 0036, option 2) |
+//! | `WYRM_BROKER_WAIT_S` | with several endpoints: how long a router without the site's broker (no liveliness token `wy/<site>/sys/broker`) is kept before the next endpoint is tried (default 15) |
 //! | `WYRM_CA`, `WYRM_CERT`, `WYRM_KEY` | mTLS files (required for `tls/` and `quic/`) |
 //! | `WYRM_TOKEN_FILE` | link token (0600); deleted after reading if `WYRM_TOKEN_DELETE=1` |
 //! | `WYRM_DATA_DIR` | optional private directory of the link ([`LinkConfig::data_dir`]) |
 //!
-//! Start-up: open the session → `hello` with the link token (retried with
-//! backoff of 1 s ×2 up to 5 s while the broker is away) → build `L::Config` from the returned
-//! params → serve until SIGTERM/SIGINT.
+//! Start-up: open the session to one endpoint → with several endpoints, wait
+//! for the broker's liveliness token on that router, or go to the next one →
+//! `hello` with the link token (retried with a backoff of 1 s ×2 up to 5 s
+//! while the broker is away) → build `L::Config` from the returned params →
+//! serve until SIGTERM/SIGINT. A link serves only a router where the
+//! site's broker is: when the token is gone for `WYRM_BROKER_WAIT_S`, the
+//! link leaves that router and tries the next endpoint (ADR 0036, option 2).
 
 use crate::error::{LinkError, Result};
 use crate::link::Link;
@@ -33,10 +38,43 @@ use zeroize::Zeroizing;
 pub struct Env {
     pub site: String,
     pub link: String,
-    pub endpoint: String,
+    /// Broker endpoints in the order to try (`WYRM_ENDPOINT`), at least one.
+    pub endpoints: Vec<String>,
     pub tls: Option<(String, String, String)>,
     pub data_dir: Option<std::path::PathBuf>,
+    /// With several endpoints: how long a router without the site's broker
+    /// is kept before the next endpoint (`WYRM_BROKER_WAIT_S`).
+    pub broker_wait: Duration,
     token: Zeroizing<Vec<u8>>,
+}
+
+/// `WYRM_BROKER_WAIT_S`: seconds a router without the site's broker is kept.
+pub const BROKER_WAIT_ENV: &str = "WYRM_BROKER_WAIT_S";
+/// Default of [`BROKER_WAIT_ENV`]: longer than a router rebuild (ADR 0006),
+/// shorter than an operator's patience.
+pub const DEFAULT_BROKER_WAIT: Duration = Duration::from_secs(15);
+
+/// The endpoints of a `WYRM_ENDPOINT` value: comma-separated, in order,
+/// blanks dropped; none, or one with a character that cannot go into the
+/// Zenoh config, is an error.
+pub fn split_endpoints(value: &str) -> Result<Vec<String>> {
+    let list: Vec<String> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if list.is_empty() {
+        return Err(LinkError::invalid_parameter("WYRM_ENDPOINT: no endpoint"));
+    }
+    for e in &list {
+        if e.chars().any(|c| c == '"' || c == '\\' || c.is_control()) {
+            return Err(LinkError::invalid_parameter(format!(
+                "endpoint {e}: illegal character"
+            )));
+        }
+    }
+    Ok(list)
 }
 
 fn var(name: &str) -> Result<String> {
@@ -49,15 +87,25 @@ impl Env {
         let link = var("WYRM_LINK_ID")?;
         wyrm_core::keyspace::validate_segment(&site)?;
         wyrm_core::keyspace::validate_segment(&link)?;
-        let endpoint = var("WYRM_ENDPOINT")?;
+        let endpoints = split_endpoints(&var("WYRM_ENDPOINT")?)?;
+        let secure = endpoints
+            .iter()
+            .any(|e| e.starts_with("tls/") || e.starts_with("quic/"));
         let tls = match (var("WYRM_CA"), var("WYRM_CERT"), var("WYRM_KEY")) {
             (Ok(ca), Ok(cert), Ok(key)) => Some((ca, cert, key)),
-            _ if endpoint.starts_with("tls/") || endpoint.starts_with("quic/") => {
+            _ if secure => {
                 return Err(LinkError::invalid_parameter(
                     "WYRM_CA, WYRM_CERT and WYRM_KEY are required for tls/quic",
                 ))
             }
             _ => None,
+        };
+        let broker_wait = match std::env::var(BROKER_WAIT_ENV) {
+            Ok(v) => Duration::from_secs(v.trim().parse::<u64>().map_err(|_| {
+                LinkError::invalid_parameter(format!("{BROKER_WAIT_ENV}: whole seconds"))
+            })?)
+            .max(Duration::from_secs(1)),
+            Err(_) => DEFAULT_BROKER_WAIT,
         };
         let path = var("WYRM_TOKEN_FILE")?;
         let text = Zeroizing::new(
@@ -74,25 +122,24 @@ impl Env {
         Ok(Self {
             site,
             link,
-            endpoint,
+            endpoints,
             tls,
             data_dir,
+            broker_wait,
             token,
         })
     }
 
-    pub fn zenoh_config(&self) -> Result<zenoh::Config> {
+    /// Client config for one of [`Env::endpoints`]: one endpoint per
+    /// session, so the link, not Zenoh, chooses which router it serves.
+    pub fn zenoh_config(&self, endpoint: &str) -> Result<zenoh::Config> {
         let mut c = zenoh::Config::default();
         let set = |c: &mut zenoh::Config, k: &str, v: &str| {
             c.insert_json5(k, v)
                 .map_err(|e| LinkError::invalid_parameter(format!("zenoh config {k}: {e}")))
         };
         set(&mut c, "mode", r#""client""#)?;
-        set(
-            &mut c,
-            "connect/endpoints",
-            &format!("[{:?}]", self.endpoint),
-        )?;
+        set(&mut c, "connect/endpoints", &format!("[{endpoint:?}]"))?;
         set(&mut c, "scouting/multicast/enabled", "false")?;
         if let Some((ca, cert, key)) = &self.tls {
             set(
@@ -389,16 +436,100 @@ where
 /// broker, would otherwise set the recovery time (ADR 0036, option 1).
 pub const HELLO_BACKOFF_MAX: Duration = Duration::from_secs(5);
 
+/// What ends one router's service.
+enum Next {
+    /// SIGTERM/SIGINT.
+    Stop,
+    /// The site's broker is not behind this router (any more): the next endpoint.
+    Rotate,
+}
+
 async fn run_inner<L: Link>() -> Result<()>
 where
     L::Config: FromParams,
 {
     let env = Env::from_env()?;
-    let session = zenoh::open(env.zenoh_config()?).await?;
+    let broker = format!("wy/{}/sys/broker", env.site);
+    let several = env.endpoints.len() > 1;
+    let mut turn = 0usize;
     let mut backoff = Duration::from_secs(1);
-    let hello = loop {
-        match hello(&session, &env).await {
-            Ok(h) => break h,
+    loop {
+        let endpoint = &env.endpoints[turn % env.endpoints.len()];
+        let session = match zenoh::open(env.zenoh_config(endpoint)?).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("cannot connect to {endpoint}: {e}");
+                turn += 1;
+                if turn % env.endpoints.len() == 0 {
+                    // a whole round failed: wait before the next
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
+                }
+                continue;
+            }
+        };
+        backoff = Duration::from_secs(1);
+        // Watch before anything else, so no broker restart is missed.
+        let watch = session.liveliness().declare_subscriber(&broker).await?;
+        // Arbitration (ADR 0036, option 2): with several endpoints the link
+        // serves only a router where the site's broker is. The token is one
+        // key, so two brokers of one site are never both served.
+        if several && !broker_present(&session, &broker, env.broker_wait).await {
+            warn!(
+                "no broker of site {} behind {endpoint} within {:?}: next endpoint",
+                env.site, env.broker_wait
+            );
+            let _ = session.close().await;
+            turn += 1;
+            continue;
+        }
+        info!(endpoint, "connected");
+        let next = serve::<L>(&env, &session, watch).await;
+        let _ = session.close().await;
+        match next? {
+            Next::Stop => return Ok(()),
+            Next::Rotate => turn += 1,
+        }
+    }
+}
+
+/// `true` as soon as the liveliness token `key` answers a query on this
+/// session, `false` when it has not within `wait`.
+async fn broker_present(session: &Session, key: &str, wait: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        if let Ok(replies) = session
+            .liveliness()
+            .get(key)
+            .timeout(Duration::from_secs(2))
+            .await
+        {
+            while let Ok(r) = replies.recv_async().await {
+                if r.result().is_ok() {
+                    return true;
+                }
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// `hello` until it succeeds (`Some`), with a backoff from `first` up to
+/// [`HELLO_BACKOFF_MAX`]; `None` once `deadline` has passed. A refused
+/// token is final.
+async fn hello_until(
+    session: &Session,
+    env: &Env,
+    first: Duration,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<Option<Hello>> {
+    let mut backoff = first;
+    loop {
+        match hello(session, env).await {
+            Ok(h) => return Ok(Some(h)),
             Err(e) if e.status == Status::PermissionDenied => {
                 return Err(LinkError::new(
                     Status::PermissionDenied,
@@ -406,11 +537,32 @@ where
                 ))
             }
             Err(e) => {
+                if deadline.is_some_and(|d| tokio::time::Instant::now() >= d) {
+                    warn!("hello failed ({e}); giving this router up");
+                    return Ok(None);
+                }
                 warn!("hello failed ({e}); retry in {backoff:?}");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
             }
         }
+    }
+}
+
+/// Serve the link on one session until a signal, or (with several
+/// endpoints) until the broker has been away for `broker_wait`.
+async fn serve<L: Link>(
+    env: &Env,
+    session: &Session,
+    watch: zenoh::pubsub::Subscriber<zenoh::handlers::FifoChannelHandler<zenoh::sample::Sample>>,
+) -> Result<Next>
+where
+    L::Config: FromParams,
+{
+    let several = env.endpoints.len() > 1;
+    let patience = || several.then(|| tokio::time::Instant::now() + env.broker_wait);
+    let Some(hello) = hello_until(session, env, Duration::from_secs(1), patience()).await? else {
+        return Ok(Next::Rotate);
     };
     let cfg = L::Config::from_params(&hello.params)?;
     let mut lcfg = LinkConfig::new(env.site.clone(), env.link.clone());
@@ -419,58 +571,59 @@ where
     lcfg.grants = hello.grants;
     lcfg.secrets = hello.secrets;
     lcfg.data_dir = env.data_dir.clone();
-    let broker = format!("wy/{}/sys/broker", env.site);
-    lcfg.republish_on = Some(broker.clone());
-    // Watch before the link starts, so no broker restart is missed.
-    let watch = session.liveliness().declare_subscriber(&broker).await?;
+    lcfg.republish_on = Some(format!("wy/{}/sys/broker", env.site));
     let handle = spawn::<L>(session.clone(), lcfg, cfg).await?;
     info!(link = %env.link, driver = L::NAME, "link process up");
     // A broker that comes back may hand out another trust list (ACL rebuild,
     // agent key rotation). Fail closed: while the broker is away the link
     // trusts no key; when it is back, `hello` is retried until it succeeds,
     // and only then are the new keys used. Secrets and params still need a
-    // restart of the link.
+    // restart of the link. With several endpoints a broker away for
+    // `broker_wait` means this router is not the site's any more.
     let refresh = async {
-        while let Ok(s) = watch.recv_async().await {
-            match s.kind() {
-                zenoh::sample::SampleKind::Delete => {
-                    handle.set_trust(Vec::new(), Vec::new());
-                    info!("broker gone: trusting no key until a new hello");
+        let mut gone_since: Option<tokio::time::Instant> = None;
+        loop {
+            let leave = async {
+                match gone_since {
+                    Some(t) if several => tokio::time::sleep_until(t + env.broker_wait).await,
+                    _ => std::future::pending::<()>().await,
                 }
-                zenoh::sample::SampleKind::Put => {
-                    let mut backoff = Duration::from_millis(500);
-                    loop {
-                        match self::hello(&session, &env).await {
-                            Ok(h) => {
-                                handle.set_trust(h.admin_keys, h.limited_keys);
-                                info!("broker back: trust list refreshed");
-                                break;
-                            }
-                            Err(e) if e.status == Status::PermissionDenied => {
-                                return Err(LinkError::new(
-                                    Status::PermissionDenied,
-                                    "hello refused after broker restart",
-                                ));
-                            }
-                            Err(e) => {
-                                warn!("re-hello failed ({e}); retry in {backoff:?}");
-                                tokio::time::sleep(backoff).await;
-                                backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
+            };
+            tokio::select! {
+                s = watch.recv_async() => {
+                    let Ok(s) = s else { break };
+                    match s.kind() {
+                        zenoh::sample::SampleKind::Delete => {
+                            gone_since = Some(tokio::time::Instant::now());
+                            handle.set_trust(Vec::new(), Vec::new());
+                            info!("broker gone: trusting no key until a new hello");
+                        }
+                        zenoh::sample::SampleKind::Put => {
+                            gone_since = None;
+                            match hello_until(session, env, Duration::from_millis(500), patience()).await? {
+                                Some(h) => {
+                                    handle.set_trust(h.admin_keys, h.limited_keys);
+                                    info!("broker back: trust list refreshed");
+                                }
+                                None => return Ok(Next::Rotate),
                             }
                         }
                     }
                 }
+                _ = leave => {
+                    warn!("broker away for {:?}: next endpoint", env.broker_wait);
+                    return Ok(Next::Rotate);
+                }
             }
         }
-        std::future::pending::<Result<()>>().await
+        std::future::pending::<Result<Next>>().await
     };
     let r = tokio::select! {
-        _ = signal() => Ok(()),
+        _ = signal() => Ok(Next::Stop),
         r = refresh => r,
     };
     info!("stopping");
     handle.stop().await;
-    let _ = session.close().await;
     r
 }
 
@@ -530,5 +683,15 @@ mod tests {
             .is_empty());
         assert!(parse_hello(reply(Value::Array(vec![grant("p", 200)]))).is_err());
         assert!(parse_hello(reply(Value::Array(vec![Value::from("p")]))).is_err());
+    }
+    #[test]
+    fn endpoint_lists() {
+        assert_eq!(
+            split_endpoints(" tls/10.0.0.1:7448 ,tls/10.0.0.2:7448,").unwrap(),
+            ["tls/10.0.0.1:7448", "tls/10.0.0.2:7448"]
+        );
+        assert_eq!(split_endpoints("tcp/127.0.0.1:7447").unwrap().len(), 1);
+        assert!(split_endpoints(" , ").is_err());
+        assert!(split_endpoints("tcp/a\"b:1").is_err());
     }
 }

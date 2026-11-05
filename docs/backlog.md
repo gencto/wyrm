@@ -399,9 +399,12 @@ before 1.0. Estimates in person-days, tests included.
   |---|---|---|---|
   | reference board (4-core ARM64, 2 GB) | not measured yet | | |
   | x86_64 cloud container, debug build, 2026-11-05 | 1.6 s | 1.6 s | 97 MiB |
-- Option 2, endpoint lists (5–8): `WYRM_ENDPOINT`, `wyrm_client::endpoint`
-  and the Dart gateway client take lists; a link serves only a router whose
-  `sys/broker` token it sees (the fencing of option 3).
+- Option 2, endpoint lists: done 2026-11-05 (`WYRM_ENDPOINT` list with
+  `WYRM_BROKER_WAIT_S`, `wyr --connect` and FFI lists, Dart
+  `WyrmGateway.loginAny`, e2e `link_process_walks_its_endpoints`). Left:
+  the supervisor passes only the broker's own endpoint to the links it
+  starts (stage A of option 3 adds the standby's); the Flutter explorer's
+  login form takes one URL.
 - Option 3, warm standby, stage A (25–35): role `standby`, the sealed key
   bundle, enrollment as `standby:<site>`, `sys/replication/wal` +
   `secrets` with `next {after, max}`, promotion/demotion, the five e2e

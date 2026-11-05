@@ -29,7 +29,8 @@ extern "C" {
 
 typedef struct WyrmHandle WyrmHandle;
 
-/* Zenoh client session to `endpoint` ("tcp/127.0.0.1:7447"); plaintext on
+/* Zenoh client session to `endpoint` ("tcp/127.0.0.1:7447", or several
+ * comma-separated in the order to try: "tls/a:7448,tls/b:7448"); plaintext on
  * loopback only. `seed`: null or 32-byte Ed25519 seed trusted by the broker;
  * then `site` is required. Null on failure, with *err set (free with
  * wyrm_string_free). */
