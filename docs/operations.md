@@ -114,8 +114,10 @@ cargo test --release -p wyrmd --test e2e broker_restart_rto -- --nocapture
 ```
 
 Measured figures live in `docs/backlog.md` item 13 beside the `wyr bench`
-numbers. Without a figure from the reference board (4-core ARM64, 2 GB)
-assume ten seconds for the broker and add the slowest device's poll period.
+numbers (first figure: 1.6 s from the start command to both links live, in
+a debug build on an x86_64 container). Without a figure from the reference
+board (4-core ARM64, 2 GB) assume ten seconds for the broker and add the
+slowest device's poll period.
 
 ### Several sites
 

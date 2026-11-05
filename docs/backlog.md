@@ -398,6 +398,7 @@ before 1.0. Estimates in person-days, tests included.
   | Host | start → ready | kill → ready | `wyrmd` without links, RSS |
   |---|---|---|---|
   | reference board (4-core ARM64, 2 GB) | not measured yet | | |
+  | x86_64 cloud container, debug build, 2026-11-05 | 1.6 s | 1.6 s | 97 MiB |
 - Option 2, endpoint lists (5–8): `WYRM_ENDPOINT`, `wyrm_client::endpoint`
   and the Dart gateway client take lists; a link serves only a router whose
   `sys/broker` token it sees (the fencing of option 3).
