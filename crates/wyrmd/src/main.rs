@@ -206,8 +206,32 @@ async fn run(args: Args) -> Result<(), Error> {
     let daemon = Daemon::open(cfg, std::env::current_exe()?)?;
     daemon
         .run_until(async {
-            let _ = tokio::signal::ctrl_c().await;
+            stop_signal().await;
             tracing::info!("stopping");
         })
         .await
+}
+
+/// SIGINT (Ctrl-C) or SIGTERM (systemd, docker, `kill`): a clean stop that
+/// flushes the historian and ends the link processes (ADR 0036, option 1).
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(t) => t,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }

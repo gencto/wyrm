@@ -16,6 +16,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |
 | [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with blocks: variables, math, if, hub, stopwatch, text |
+| [operations.md](operations.md) | run `wyrmd` under systemd or a container, know what a restart recovers and how fast, back up and restore `data_dir` |
 
 ## Protocol links
 

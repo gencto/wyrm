@@ -12,7 +12,7 @@
 //! | `WYRM_DATA_DIR` | optional private directory of the link ([`LinkConfig::data_dir`]) |
 //!
 //! Start-up: open the session → `hello` with the link token (retried with
-//! backoff while the broker is away) → build `L::Config` from the returned
+//! backoff of 1 s ×2 up to 5 s while the broker is away) → build `L::Config` from the returned
 //! params → serve until SIGTERM/SIGINT.
 
 use crate::error::{LinkError, Result};
@@ -384,6 +384,11 @@ where
     }
 }
 
+/// Longest wait between two `hello` attempts while the broker is away.
+/// 5 s, not longer: after a broker restart the link's timer, not the
+/// broker, would otherwise set the recovery time (ADR 0036, option 1).
+pub const HELLO_BACKOFF_MAX: Duration = Duration::from_secs(5);
+
 async fn run_inner<L: Link>() -> Result<()>
 where
     L::Config: FromParams,
@@ -403,7 +408,7 @@ where
             Err(e) => {
                 warn!("hello failed ({e}); retry in {backoff:?}");
                 tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(Duration::from_secs(30));
+                backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
             }
         }
     };
@@ -450,7 +455,7 @@ where
                             Err(e) => {
                                 warn!("re-hello failed ({e}); retry in {backoff:?}");
                                 tokio::time::sleep(backoff).await;
-                                backoff = (backoff * 2).min(Duration::from_secs(30));
+                                backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
                             }
                         }
                     }

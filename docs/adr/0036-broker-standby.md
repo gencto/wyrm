@@ -1,6 +1,6 @@
 # ADR 0036 — Broker fault tolerance: supervised restart, endpoint lists with liveliness arbitration, warm standby by WAL replication
 
-**Status:** proposed · 2026-11-05 (owner question: what can WYRM do for broker redundancy, what do the alternatives do, what does each option cost; owner choice: options 1 + 2 + 3 of the assessment below).
+**Status:** proposed · 2026-11-05 (owner question: what can WYRM do for broker redundancy, what do the alternatives do, what does each option cost; owner choice: options 1 + 2 + 3 of the assessment below). Option 1 done 2026-11-05: `docs/operations.md`, `wyrmd` stops cleanly on SIGTERM as on SIGINT, the process link `hello` back-off is capped at 5 s (`process::HELLO_BACKOFF_MAX`), e2e `broker_restart_rto` kills a real `wyrmd` with SIGKILL and prints the recovery time and the base RSS.
 
 ## Context
 

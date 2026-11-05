@@ -8366,3 +8366,159 @@ async fn uplink_embedded_publishes_to_an_mqtt_broker() {
         .any(|(t, _)| t.contains("/uplink/")));
     env.stop().await;
 }
+
+/// A client on a broker's loopback `tcp/` port with the admin's tokens, or
+/// `None` while that broker is not listening (down, or starting).
+async fn client_on(port: u16) -> Option<WyrmClient> {
+    let mut zc = zenoh::Config::default();
+    zc.insert_json5("mode", r#""client""#).unwrap();
+    zc.insert_json5("connect/endpoints", &format!(r#"["tcp/127.0.0.1:{port}"]"#))
+        .unwrap();
+    zc.insert_json5("connect/timeout_ms", "2000").unwrap();
+    zc.insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let session = zenoh::open(zc).await.ok()?;
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    Some(
+        WyrmClient::new(session)
+            .with_tokens(Arc::new(SigningTokens::new(key, SITE)))
+            .with_timeout(Duration::from_secs(3)),
+    )
+}
+
+/// Resident set size of a process in KiB (Linux), or `None`.
+fn rss_kib(pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|v| v.split_whitespace().next())
+        .and_then(|n| n.parse().ok())
+}
+
+/// ADR 0036, option 1: a broker killed with SIGKILL and started again brings
+/// every link back on its own (ADR 0003: links re-declare their subtree).
+/// A real `wyrmd` process, an embedded mock link and a mock link process;
+/// the state lock and the WAL survive a kill (a torn last record is
+/// dropped). Prints the recovery time (RTO) from the start command to the
+/// moment both links are connected and publishing again, and the resident
+/// memory of a broker that runs no link, for `docs/operations.md`.
+#[tokio::test(flavor = "multi_thread")]
+async fn broker_restart_rto() {
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    let root = temp_dir("rto");
+    std::fs::create_dir_all(&root).unwrap();
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let config = |name: &str, port: u16, tls: u16, links: &str| {
+        let path = root.join(format!("{name}.json5"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{
+                    site: "{SITE}",
+                    data_dir: "{}",
+                    listen: ["tcp/127.0.0.1:{port}", "tls/127.0.0.1:{tls}"],
+                    admin_keys: ["{admin}"],
+                    metrics_interval_ms: 200,
+                    links: {{ {links} }},
+                }}"#,
+                root.join(name).display()
+            ),
+        )
+        .unwrap();
+        path
+    };
+    let spawn = |cfg: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+            .arg("-c")
+            .arg(cfg)
+            .env("RUST_LOG", "warn")
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("spawn wyrmd")
+    };
+    let up = |p: u16| std::net::TcpStream::connect(("127.0.0.1", p)).is_ok();
+
+    // Base line: a broker without links, settled for two seconds.
+    let (bp, bt) = (free_port(), free_port());
+    let mut base = spawn(&config("base", bp, bt, ""));
+    eventually("base broker listening", 30, || async {
+        up(bp).then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let base_rss = rss_kib(base.id());
+    base.kill().unwrap();
+    base.wait().unwrap();
+
+    // The broker under test: one embedded and one process mock link.
+    const LINKS: &str = r#"
+        mock: { driver: "mock", params: { points: 8, rate_hz: 20, depth: 1, fanout: 2 } },
+        mockp: { driver: "mock", mode: "process", params: { points: 8, rate_hz: 20, depth: 1, fanout: 2 } },
+    "#;
+    let (port, tls) = (free_port(), free_port());
+    let cfg = config("site", port, tls, LINKS);
+    let states = [
+        format!("wy/{SITE}/sys/links/mock/state"),
+        format!("wy/{SITE}/sys/links/mockp/state"),
+    ];
+    // Both links connected (state 2) and each publishing live samples on a
+    // subscriber opened after the start: the links serve, not the storage.
+    let ready = |port: u16| {
+        let states = states.clone();
+        async move {
+            let c = eventually("broker listening", 30, || async { client_on(port).await }).await;
+            let live = |link: &str| {
+                let c = &c;
+                let key = format!("wy/{SITE}/downstream/{link}/**/~val");
+                async move { c.session().declare_subscriber(key).await.unwrap() }
+            };
+            let subs = (live("mock").await, live("mockp").await);
+            for s in &states {
+                eventually(s, 30, || async {
+                    (last_val(&c, s).await == Some(Value::UInt(2))).then_some(())
+                })
+                .await;
+            }
+            for (name, s) in [("mock", &subs.0), ("mockp", &subs.1)] {
+                tokio::time::timeout(Duration::from_secs(10), s.recv_async())
+                    .await
+                    .unwrap_or_else(|_| panic!("no live sample from {name} in 10 s"))
+                    .unwrap();
+            }
+        }
+    };
+
+    let mut broker = spawn(&cfg);
+    ready(port).await;
+
+    // SIGKILL: no shutdown, no flush; the process links see their parent go.
+    let killed = Instant::now();
+    broker.kill().unwrap();
+    broker.wait().unwrap();
+    let started = Instant::now();
+    let mut broker = spawn(&cfg);
+    ready(port).await;
+    let rto_start = started.elapsed();
+    let rto_kill = killed.elapsed();
+    broker.kill().unwrap();
+    broker.wait().unwrap();
+
+    let base = base_rss
+        .map(|k| format!("{:.1} MiB", k as f64 / 1024.0))
+        .unwrap_or_else(|| "n/a".into());
+    println!(
+        "broker_restart_rto: start→ready {} ms, kill→ready {} ms (started again at once), \
+         wyrmd without links: {base} RSS",
+        rto_start.as_millis(),
+        rto_kill.as_millis()
+    );
+    assert!(
+        rto_start < Duration::from_secs(30),
+        "recovery took {rto_start:?}"
+    );
+}

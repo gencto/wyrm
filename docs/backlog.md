@@ -390,10 +390,14 @@ Owner choice: options 1 + 2 + 3 of the assessment in ADR 0036; options 4
 (a mesh of two routers for direct readers) and 5 (a Raft cluster) refused
 before 1.0. Estimates in person-days, tests included.
 
-- Option 1, supervised restart (2–3): `docs/operations.md` (systemd unit,
-  `data_dir` backup and restore), process link back-off cap 30 s → 5 s,
-  e2e `broker_restart_rto` with the RTO and the base RAM of `wyrmd` without
-  links measured on the reference board.
+- Option 1, supervised restart: done 2026-11-05 (`docs/operations.md`,
+  SIGTERM handled, back-off cap 5 s, e2e `broker_restart_rto`). Figures
+  from `cargo test --release -p wyrmd --test e2e broker_restart_rto --
+  --nocapture`, one embedded and one process mock link, restart at once:
+
+  | Host | start → ready | kill → ready | `wyrmd` without links, RSS |
+  |---|---|---|---|
+  | reference board (4-core ARM64, 2 GB) | not measured yet | | |
 - Option 2, endpoint lists (5–8): `WYRM_ENDPOINT`, `wyrm_client::endpoint`
   and the Dart gateway client take lists; a link serves only a router whose
   `sys/broker` token it sees (the fencing of option 3).
