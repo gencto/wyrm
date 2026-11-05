@@ -860,6 +860,20 @@ impl Control {
             // link itself in a loop); the app cannot tell its own subtree from a point key
             let own = self.requester_key_of(id);
             limited_keys.retain(|k| Some(k.key) != own);
+            // It acts with its callers' rights (a watch, a query, an upstream keeps its author's
+            // `auth`, ADR 0029) on this site's `dataflows` and `storage` too, and the verifier
+            // caps `auth` to what a signer is trusted with: the gateway's and the upstream
+            // brokers' keys (no bound subject) get those sections as well. The link answers only
+            // under `downstream/<id>`, so this widens no request it accepts.
+            let site = &self.cfg.site;
+            let devices = format!("wy/{site}/downstream");
+            for k in limited_keys
+                .iter_mut()
+                .filter(|k| k.subject.is_none() && k.scopes.contains(&devices))
+            {
+                k.scopes.push(format!("wy/{site}/dataflows"));
+                k.scopes.push(format!("wy/{site}/storage"));
+            }
         }
         lcfg.admin_keys = admin_keys;
         lcfg.limited_keys = limited_keys;
@@ -6420,6 +6434,15 @@ mod tests {
 
     /// A control plane in a fresh directory; `prep` runs on it before it opens.
     fn control(name: &str, scheduler: bool, prep: impl FnOnce(&std::path::Path)) -> Arc<Control> {
+        control_with(name, scheduler, prep, Vec::new())
+    }
+
+    fn control_with(
+        name: &str,
+        scheduler: bool,
+        prep: impl FnOnce(&std::path::Path),
+        link_keys: Vec<wyrm_link_sdk::LimitedKey>,
+    ) -> Arc<Control> {
         let dir = std::env::temp_dir().join(format!("wyrm-ctl-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -6429,7 +6452,7 @@ mod tests {
             data_dir: dir,
             admin_keys: Vec::new(),
             control_keys: Vec::new(),
-            link_keys: Vec::new(),
+            link_keys,
             operators: Vec::new(),
             dev: false,
             link_endpoint: None,
@@ -6567,6 +6590,26 @@ mod tests {
         assert!(!other.limited_keys.iter().any(alarm));
         let own = ctl.embedded_link_config(ALARM_LINK, Vec::new()).unwrap();
         assert!(own.data_dir.is_some());
+        // a watch on `storage` or `dataflows` keeps its author's `auth` there: the unbound keys
+        // (the gateway's) cover those sections at the alarm link, not at a device link
+        let unbound = |c: &wyrm_link_sdk::LinkConfig, scope: &str| {
+            c.limited_keys
+                .iter()
+                .filter(|k| k.subject.is_none())
+                .any(|k| k.scopes.iter().any(|s| s == scope))
+        };
+        let gw = wyrm_link_sdk::LimitedKey {
+            key: ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key(),
+            cap: Perm::Config,
+            scopes: vec!["wy/s/downstream".into()],
+            subject: None,
+        };
+        let ctl = control_with("alarm-scopes", true, |_| {}, vec![gw]);
+        ctl.prepare_alarm();
+        let own = ctl.embedded_link_config(ALARM_LINK, Vec::new()).unwrap();
+        assert!(unbound(&own, "wy/s/storage") && unbound(&own, "wy/s/dataflows"));
+        let other = ctl.embedded_link_config("mock", Vec::new()).unwrap();
+        assert!(!unbound(&other, "wy/s/storage"));
         assert!(crate::registry::validate_new_link_id(ALARM_LINK).is_err());
         let off = control("alarm-off", false, |_| {});
         off.prepare_alarm();
