@@ -100,13 +100,13 @@ fn read_key(path: &Path) -> Option<Vec<u8>> {
 /// The standby's own certificate (`standby:<site>`) from the site CA.
 fn standby_cert(cfg: &Config) -> Result<CertFiles, Error> {
     let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
-    Ok(pki.issue(
+    pki.issue(
         &format!("standby:{}", cfg.site),
         &[],
         false,
         &cfg.data_dir.join("standby"),
         "standby",
-    )?)
+    )
 }
 
 /// A client session to the other broker's peer listener, mTLS.
@@ -132,7 +132,7 @@ async fn open_session(cfg: &Config, peer: &str, files: &CertFiles) -> Result<Ses
         })
         .to_string(),
     )?;
-    Ok(zenoh::open(zc).await?)
+    zenoh::open(zc).await
 }
 
 /// One `get` on the active's replication queryable; `None` without an answer.
