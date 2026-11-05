@@ -8637,7 +8637,11 @@ fn registry_lsn(data_dir: &std::path::Path) -> u64 {
         .unwrap_or(0)
 }
 
-async fn install_external_mock(c: &WyrmClient, id: &str) {
+/// Install an external mock link `id` on the broker at `port`. The install
+/// rebuilds the router (an ACL change), which closes every session: each
+/// attempt uses a fresh client, and the link showing under `sys/links` is
+/// the sign that it is done.
+async fn install_external_mock(port: u16, id: &str) {
     let params = Value::Map(BTreeMap::from([
         ("points".to_owned(), Value::UInt(2)),
         ("rate_hz".to_owned(), Value::Float(5.0)),
@@ -8650,9 +8654,33 @@ async fn install_external_mock(c: &WyrmClient, id: &str) {
         ("mode".to_owned(), Value::from("external")),
         ("params".to_owned(), params),
     ]));
-    c.invoke_one(&format!("wy/{SITE}/sys/links"), "install", args)
-        .await
-        .unwrap_or_else(|e| panic!("install {id}: {e}"));
+    let links = format!("wy/{SITE}/sys/links");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+    let mut asked = false;
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "install {id}: timeout"
+        );
+        let Some(c) = client_on(port).await else {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            continue;
+        };
+        if asked {
+            if let Ok(ch) = c.children(&links).await {
+                if ch.iter().any(|n| n.name == id) {
+                    return;
+                }
+            }
+        }
+        if c.invoke_one(&links, "install", args.clone()).await.is_ok() {
+            asked = true;
+        } else if !asked {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
 }
 
 /// ADR 0036, option 3, stage A: a standby follows the active's registry
@@ -8670,9 +8698,8 @@ async fn standby_follows_the_wal() {
         free_port(),
     )
     .await;
-    let c = env.client().await;
     // one change before the standby exists, one while it follows
-    install_external_mock(&c, "ext1").await;
+    install_external_mock(env.port, "ext1").await;
     let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
     std::fs::create_dir_all(&s_dir).unwrap();
     wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
@@ -8684,7 +8711,11 @@ async fn standby_follows_the_wal() {
         })
         .await
     });
-    install_external_mock(&c, "ext2").await;
+    install_external_mock(env.port, "ext2").await;
+    let c = eventually("client after the rebuilds", 30, || async {
+        client_on(env.port).await
+    })
+    .await;
     eventually("standby caught up", 30, || async {
         let (a, s) = (registry_lsn(&a_dir), registry_lsn(&s_dir));
         (a > 0 && a == s).then_some(())
@@ -8696,7 +8727,10 @@ async fn standby_follows_the_wal() {
     })
     .await;
     let lag = format!("wy/{SITE}/sys/standby_lag");
-    assert_eq!(last_val(&c, &lag).await, Some(Value::UInt(0)));
+    eventually("sys/standby_lag 0", 15, || async {
+        (last_val(&c, &lag).await == Some(Value::UInt(0))).then_some(())
+    })
+    .await;
     eventually("files replicated", 30, || async {
         let same = |name: &str| {
             std::fs::read(a_dir.join(name)).ok() == std::fs::read(s_dir.join(name)).ok()
@@ -8806,8 +8840,9 @@ async fn standby_takes_over_and_the_old_active_demotes() {
     })
     .await;
     drop(c);
-    drop(stop);
-    // the active goes; the standby (primary, takeover 2 s) takes over
+    // the active goes; the standby (primary, takeover 2 s) takes over;
+    // `stop` stays: dropping it would end the follower
+    let _keep = stop;
     env.stop().await;
     let outcome = tokio::time::timeout(Duration::from_secs(20), follower)
         .await
@@ -8838,7 +8873,8 @@ async fn standby_takes_over_and_the_old_active_demotes() {
     c.set(&format!("wy/{SITE}/downstream/walk/g0/p0"), 42.0)
         .await
         .expect("a set on the new active");
-    install_external_mock(&c, "ext3").await;
+    drop(c);
+    install_external_mock(s_tcp, "ext3").await;
     // the old active follows the new one and drops its forked history
     let cfg = standby_config(&a_dir, s_quic, a_quic, false);
     let (stop, rx) = oneshot::channel::<()>();
@@ -8860,5 +8896,192 @@ async fn standby_takes_over_and_the_old_active_demotes() {
     );
     let _ = link.kill();
     let _ = link.wait();
+    env.stop().await;
+}
+
+/// ADR 0036, option 3, stage B: the standby also follows the broker
+/// storage (its change journal), the links' private data (a framework
+/// tree edited at runtime, a portable store: an alarm class) and the
+/// installed packages, and removes what the active no longer has. A broker
+/// started on the copy has all of it, and the package's process link runs
+/// there with its replicated token.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_follows_stores() {
+    let (a_dir, s_dir) = (temp_dir("st-active"), temp_dir("st-standby"));
+    let (a_quic, s_quic) = (free_port(), free_port());
+    const LINKS: &str = r#"links: { md: { driver: "mockdev", params: { connections: {} } } },"#;
+    let extra = |quic: u16| format!(r#"peers: {{ listen: "quic/127.0.0.1:{quic}" }}, {LINKS}"#);
+    let env = Env::start_on(&a_dir, &extra(a_quic), free_port(), free_port()).await;
+    let c = slow_client(&env).await;
+    // the broker storage
+    let root = format!("wy/{SITE}/storage");
+    c.invoke_one(&root, "add_node", args_map(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    c.invoke_one(
+        &format!("{root}/plant"),
+        "add_value",
+        args_map(&[("name", "temp".into()), ("type", Value::from("number"))]),
+    )
+    .await
+    .unwrap();
+    c.invoke_one(
+        &format!("{root}/plant"),
+        "add_value",
+        args_map(&[("name", "gone".into()), ("type", Value::from("number"))]),
+    )
+    .await
+    .unwrap();
+    c.set(&format!("{root}/plant/temp"), 21.5).await.unwrap();
+    // a framework edit: sealed in links/md/data/framework.tree
+    let md = format!("wy/{SITE}/downstream/md");
+    eventually("md up", 15, || async { c.meta(&md).await.ok() }).await;
+    c.invoke_one(
+        &md,
+        "add_connection",
+        args_map(&[
+            ("name", "c2".into()),
+            ("need_token", Value::Bool(true)),
+            ("token", "pw-123456".into()),
+        ]),
+    )
+    .await
+    .unwrap();
+    // a portable store: an alarm class
+    let alarm = format!("wy/{SITE}/downstream/alarm");
+    c.invoke_one(&alarm, "add_class", args_map(&[("id", Value::from("c"))]))
+        .await
+        .unwrap();
+    // a package: files under packages/, and a process link (a rebuild)
+    let zip = mock_package("1.0.0");
+    let links = format!("wy/{SITE}/sys/links");
+    let (ok, msg) = eventually("install_zip", 40, || {
+        let zip = zip.clone();
+        let links = links.clone();
+        async move {
+            let c = client_on(env.port).await?;
+            let args = Value::Map(BTreeMap::from([
+                ("name".to_owned(), Value::from("pk1")),
+                ("zip".to_owned(), Value::Bytes(zip)),
+                ("accept".to_owned(), Value::Bool(true)),
+            ]));
+            let Some(Value::Map(m)) = c.invoke_one(&links, "install_zip", args).await.ok()? else {
+                return None;
+            };
+            let msg = match m.get("message") {
+                Some(Value::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            Some((m.get("success") == Some(&Value::Bool(true)), msg))
+        }
+    })
+    .await;
+    assert!(ok, "{msg}");
+    drop(c);
+
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    // a file the active does not have: gone after the first sync
+    std::fs::create_dir_all(s_dir.join("packages/old/0.1")).unwrap();
+    std::fs::write(s_dir.join("packages/old/0.1/run"), b"old").unwrap();
+    let cfg = standby_config(&s_dir, a_quic, s_quic, false);
+    let (stop, rx) = oneshot::channel::<()>();
+    let follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    // a change while it follows: a storage value removed
+    let c = slow_client(&env).await;
+    c.invoke_one(
+        &format!("{root}/plant/gone"),
+        "remove",
+        Value::Map(BTreeMap::new()),
+    )
+    .await
+    .unwrap();
+    drop(c);
+    let same_files = || {
+        let a = wyrm_admin::control::replication::files_of(&a_dir);
+        let s = wyrm_admin::control::replication::files_of(&s_dir);
+        let names = |v: &[wyrm_admin::control::replication::FileEntry]| {
+            v.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        };
+        names(&a) == names(&s)
+            && a.iter().all(|f| {
+                std::fs::read(a_dir.join(&f.name)).ok() == std::fs::read(s_dir.join(&f.name)).ok()
+            })
+    };
+    eventually("files and the registry replicated", 90, || async {
+        (same_files()
+            && registry_lsn(&a_dir) == registry_lsn(&s_dir)
+            && !s_dir.join("packages/old/0.1/run").exists())
+        .then_some(())
+    })
+    .await;
+    assert!(s_dir.join("links/md/data/framework.tree").is_file());
+    assert!(s_dir.join("packages/mockpkg/1.0.0").is_dir());
+    assert!(s_dir.join("links/pk1/token").is_file());
+    tokio::time::sleep(Duration::from_secs(3)).await; // the last storage page
+    let _ = stop.send(());
+    assert_eq!(
+        follower.await.unwrap().unwrap(),
+        wyrmd::standby::Outcome::Stopped
+    );
+    env.stop().await;
+    {
+        let a = wyrm_storage::Store::open(&a_dir.join("storage")).unwrap();
+        let s = wyrm_storage::Store::open(&s_dir.join("storage")).unwrap();
+        let (a, s) = (a.snapshot(), s.snapshot());
+        assert!(a.contains_key("plant/temp") && !a.contains_key("plant/gone"));
+        assert_eq!(a, s, "the storage trees are the same");
+    }
+
+    // a broker on the copy has all of it
+    let env = Env::start_on(&s_dir, &extra(s_quic), free_port(), free_port()).await;
+    let c = slow_client(&env).await;
+    let temp = format!("{root}/plant/temp");
+    let v = eventually("storage value", 15, || async { last_val(&c, &temp).await }).await;
+    assert_eq!(v, Value::Float(21.5));
+    let names = |key: String| {
+        let c = &c;
+        async move {
+            let mut n: Vec<String> = c
+                .children(&key)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| n.name)
+                .collect();
+            n.sort();
+            n
+        }
+    };
+    eventually("md connection c2", 20, || async {
+        names(md.clone())
+            .await
+            .contains(&"c2".to_owned())
+            .then_some(())
+    })
+    .await;
+    eventually("alarm class c", 20, || async {
+        names(alarm.clone())
+            .await
+            .contains(&"c".to_owned())
+            .then_some(())
+    })
+    .await;
+    assert!(names(format!("wy/{SITE}/sys/packages"))
+        .await
+        .contains(&"mockpkg".to_owned()));
+    let state = format!("{links}/pk1/state");
+    eventually(
+        "the package link runs with its replicated token",
+        30,
+        || async { (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(()) },
+    )
+    .await;
     env.stop().await;
 }

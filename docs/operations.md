@@ -146,11 +146,13 @@ both brokers, and nothing on the client side changes at a failover.
 
 Two brokers of one site on two hosts, one active, one following. The
 standby copies the control plane (the registry, flow definitions, gateway
-users), `secrets.bin` and the link tokens as they change, and takes over
-when the active is away. It runs no router and polls no device until then.
-What it does not copy yet: the historian, broker storage, the sealed stores
-of the scheduler, alarm, DQL and uplink links, runtime edits of drivers,
-installed package files (stages B and C of the ADR).
+users), `secrets.bin`, the link tokens, the links' private data (the
+sealed stores of the scheduler, alarm, DQL and uplink links, runtime edits
+of drivers, the agent's store), the installed packages and the broker
+storage as they change, and takes over when the active is away. It runs
+no router and polls no device until then. What it does not copy yet: the
+historian (stage C of the ADR), and files over 64 MiB in a link's data or
+a package (they are logged and skipped).
 
 Set it up once:
 

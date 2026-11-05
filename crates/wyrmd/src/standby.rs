@@ -229,47 +229,165 @@ async fn sync_wals(session: &Session, prefix: &str, stores: &mut [Followed]) -> 
     Ok(())
 }
 
-/// Fetch the non-WAL files whose digest differs from ours.
+/// What the standby holds of the replicated files: the active's listing
+/// of each one it fetched, and the paths it saw locally at start (those
+/// the active does not list are removed at the first sync).
+struct Files {
+    have: BTreeMap<String, (u64, u64)>,
+    local_at_start: Option<Vec<String>>,
+    too_large: std::collections::BTreeSet<String>,
+}
+
+fn sha256(bytes: &[u8]) -> Vec<u8> {
+    replication::sha256(bytes)
+}
+
+/// Copy `entry` from the active in parts into `data_dir`: skipped when the
+/// local file already has the active's digest.
+async fn fetch_file(
+    session: &Session,
+    prefix: &str,
+    data_dir: &Path,
+    file_key: &[u8; 32],
+    entry: &replication::FileEntry,
+) -> Result<(), String> {
+    let path = data_dir.join(&entry.name);
+    let mut buf: Vec<u8> = Vec::with_capacity(entry.len as usize);
+    let mut digest: Option<Vec<u8>> = None;
+    let mut offset = 0u64;
+    loop {
+        let key = format!(
+            "{prefix}/file/{offset}/{}/{}",
+            replication::PART_LEN,
+            entry.name
+        );
+        let part = replication::parse_part(ask(session, &key).await.ok_or("no answer")?)
+            .ok_or("bad part")?;
+        if part.total != entry.len || part.name != entry.name {
+            return Err("changed while copied".into());
+        }
+        if offset == 0 {
+            digest = part.sha256;
+            if let (Some(d), Ok(local)) = (&digest, std::fs::read(&path)) {
+                if local.len() as u64 == part.total && &sha256(&local) == d {
+                    return Ok(()); // the same file already
+                }
+            }
+        }
+        let bytes = wyrm_link_sdk::seal::open(file_key, &part.sealed)
+            .ok_or("cannot open (another secrets.key?)")?;
+        offset += bytes.len() as u64;
+        buf.extend(bytes);
+        if offset >= part.total {
+            break;
+        }
+    }
+    if digest.as_deref() != Some(&sha256(&buf)[..]) {
+        return Err("digest differs".into());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    // a scratch name the listings leave out, then one rename
+    let tmp = path.with_extension("tmp");
+    secret::write_private(&tmp, &buf).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Bring the replicated files in line with the active's list: fetch what
+/// is new or changed, remove what it no longer lists.
 async fn sync_files(
     session: &Session,
     prefix: &str,
     data_dir: &Path,
     file_key: &[u8; 32],
-    have: &mut BTreeMap<String, Vec<u8>>,
+    files: &mut Files,
 ) -> Result<(), String> {
-    let Some(Value::Array(list)) = ask(session, &format!("{prefix}/files")).await else {
-        return Err("no file list".into());
-    };
-    for entry in list {
-        let Value::Map(mut m) = entry else { continue };
-        let (Some(Value::Str(name)), Some(Value::Bytes(sha))) =
-            (m.remove("name"), m.remove("sha256"))
-        else {
-            continue;
-        };
-        if !replication::is_file_name(&name) || have.get(&name) == Some(&sha) {
-            continue;
-        }
-        let Some(Value::Map(mut f)) = ask(session, &format!("{prefix}/file/{name}")).await else {
-            return Err(format!("{name}: no answer"));
-        };
-        let Some(Value::Bytes(sealed)) = f.remove("sealed") else {
-            return Err(format!("{name}: no content"));
-        };
-        let bytes = wyrm_link_sdk::seal::open(file_key, &sealed)
-            .ok_or_else(|| format!("{name}: cannot open (another secrets.key?)"))?;
-        let path = data_dir.join(&name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+    let list = replication::parse_files(
+        ask(session, &format!("{prefix}/files"))
+            .await
+            .ok_or("no file list")?,
+    )
+    .ok_or("bad file list")?;
+    let listed: std::collections::BTreeSet<&str> = list.iter().map(|f| f.name.as_str()).collect();
+    for entry in &list {
+        if entry.len > replication::MAX_FILE_LEN {
+            if files.too_large.insert(entry.name.clone()) {
+                tracing::warn!(file = %entry.name, len = entry.len, "standby: too large to replicate");
             }
+            continue;
         }
-        secret::write_private(&path, &bytes).map_err(|e| format!("{name}: {e}"))?;
-        tracing::info!(file = %name, "replicated");
-        have.insert(name, sha);
+        if files.have.get(&entry.name) == Some(&(entry.len, entry.mtime)) {
+            continue;
+        }
+        fetch_file(session, prefix, data_dir, file_key, entry)
+            .await
+            .map_err(|e| format!("{}: {e}", entry.name))?;
+        tracing::debug!(file = %entry.name, "standby: replicated");
+        files
+            .have
+            .insert(entry.name.clone(), (entry.len, entry.mtime));
+    }
+    let gone: Vec<String> = files
+        .have
+        .keys()
+        .chain(files.local_at_start.iter().flatten())
+        .filter(|n| !listed.contains(n.as_str()))
+        .cloned()
+        .collect();
+    files.local_at_start = None;
+    for name in gone {
+        if replication::is_file_name(&name) {
+            let _ = std::fs::remove_file(data_dir.join(&name));
+            tracing::info!(file = %name, "standby: removed (gone on the active)");
+        }
+        files.have.remove(&name);
+    }
+    Ok(())
+}
+
+/// Bring the broker storage in line with the active's: its changes after
+/// what we hold, or the whole tree after a restart of the active.
+async fn sync_storage(
+    session: &Session,
+    prefix: &str,
+    storage: &wyrm_storage::Store,
+    at: &mut (u64, u64),
+) -> Result<(), String> {
+    for _ in 0..PAGES_PER_POLL {
+        let key = format!(
+            "{prefix}/storage/{}/{}/{}",
+            at.0,
+            at.1,
+            replication::MAX_STORAGE_PATHS
+        );
+        let c = replication::parse_changes(ask(session, &key).await.ok_or("no answer")?)
+            .ok_or("bad changes")?;
+        let paths = c.put.len() + c.delete.len();
+        let delete = if c.full {
+            let keep: std::collections::BTreeSet<&str> =
+                c.put.iter().map(|(p, _)| p.as_str()).collect();
+            storage
+                .snapshot()
+                .into_keys()
+                .filter(|p| !keep.contains(p.as_str()))
+                .collect()
+        } else {
+            c.delete
+        };
+        if !c.put.is_empty() || !delete.is_empty() {
+            storage.apply(c.put, delete)?;
+        }
+        *at = (c.epoch, c.rev);
+        if c.full || paths < replication::MAX_STORAGE_PATHS {
+            break;
+        }
     }
     Ok(())
 }
@@ -279,12 +397,23 @@ async fn sync_files(
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
     let sb = cfg.standby.as_ref().ok_or("no standby section")?;
     let takeover = sb.takeover();
-    let files = standby_cert(cfg)?;
+    let cert = standby_cert(cfg)?;
     let secrets_key = read_key(&cfg.data_dir.join("secrets.key"))
         .ok_or("secrets.key: not found; import the site's key bundle first")?;
     let file_key = replication::file_key(&secrets_key);
     let mut stores = open_followers(cfg)?;
-    let mut have = replication::digests_of(&cfg.data_dir);
+    let mut files = Files {
+        have: BTreeMap::new(),
+        local_at_start: Some(
+            replication::files_of(&cfg.data_dir)
+                .into_iter()
+                .map(|f| f.name)
+                .collect(),
+        ),
+        too_large: Default::default(),
+    };
+    let storage = wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?;
+    let mut storage_at = (0u64, 0u64);
     let prefix = replication::replication_key(&cfg.site);
     let broker = format!("wy/{}/sys/broker", cfg.site);
     tokio::pin!(shutdown);
@@ -297,7 +426,7 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
         let session = tokio::select! {
             _ = &mut shutdown => return Ok(Outcome::Stopped),
             _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => return Ok(Outcome::Takeover),
-            r = open_session(cfg, &sb.peer, &files) => match r {
+            r = open_session(cfg, &sb.peer, &cert) => match r {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::debug!("standby: cannot reach {}: {e}", sb.peer);
@@ -345,7 +474,10 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                 _ = tick.tick() => {
                     polls += 1;
                     let r = match sync_wals(&session, &prefix, &mut stores).await {
-                        Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut have).await,
+                        Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at).await {
+                            Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files).await,
+                            r => r,
+                        },
                         r => r,
                     };
                     match r {

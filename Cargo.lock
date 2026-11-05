@@ -6548,6 +6548,7 @@ dependencies = [
  "wyrm-history",
  "wyrm-link-sdk",
  "wyrm-state",
+ "wyrm-storage",
  "wyrm-wasm-host",
  "x509-parser",
  "zenoh",

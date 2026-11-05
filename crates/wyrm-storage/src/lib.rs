@@ -19,7 +19,7 @@ use wyrm_core::{keyspace, ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode,
 use wyrm_link_sdk::tree::split_parent;
 use wyrm_link_sdk::{now_us, Caller, Link, LinkCtx, LinkError, ReplySink, Result};
 
-pub use store::{Rec, Store};
+pub use store::{Changes, Rec, Store};
 
 /// Types of `add_value`, in the order a UI offers them.
 pub const TYPES: [TypeCode; 7] = [

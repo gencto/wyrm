@@ -412,8 +412,14 @@ before 1.0. Estimates in person-days, tests included.
   a test of two active brokers stepping down; the leader reads its whole
   segment files on every poll (an offset index would spare that on a long
   WAL); the Flutter explorer does not show the standby.
-- Stage B (11–17): journals for the portable stores, `driver::persist` and
-  `wyrm-storage`; package files by SHA-256.
+- Stage B: done 2026-11-05 as file replication (`sys/replication/files`,
+  `file/<offset>/<len>/<name>` in parts of 1 MiB, deletions) plus the
+  storage change journal (`wyrm_storage::Store::changes_since`,
+  `storage/<epoch>/<since>/<max>`); e2e `standby_follows_stores`. Left:
+  files over 64 MiB are skipped; the file list is walked with `stat` every
+  5 s (fine up to a few thousand files, an index would be better beyond);
+  a package or store file written without a rename could be copied torn
+  (every writer in the tree renames today).
 - Stage C (5–8): the standby as a history sink target
   (`wyrm-history-sync` into `wyrm-history`).
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

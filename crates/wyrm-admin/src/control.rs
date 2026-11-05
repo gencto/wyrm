@@ -362,6 +362,9 @@ pub struct Control {
     overlays_shown: Mutex<BTreeSet<String>>,
     /// The warm standby's last registry query (ADR 0036).
     standby_seen: Mutex<Option<replication::StandbySeen>>,
+    /// The broker storage (ADR 0017), set by the daemon, for the standby
+    /// to follow its changes (ADR 0036, stage B).
+    storage: Mutex<Option<Arc<wyrm_storage::Store>>>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -695,6 +698,7 @@ impl Control {
                 enroll_seen: Mutex::default(),
                 overlays_shown: Mutex::default(),
                 standby_seen: Mutex::new(None),
+                storage: Mutex::new(None),
             }),
             rx,
         ))

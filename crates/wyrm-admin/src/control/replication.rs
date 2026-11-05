@@ -1,18 +1,29 @@
-//! Warm standby (ADR 0036, option 3, stage A): what the active broker hands
-//! its standby over the peer link, from one queryable on
+//! Warm standby (ADR 0036, option 3): what the active broker hands its
+//! standby over the peer link, from one queryable on
 //! `wy/<site>/sys/replication/**` that the ACL opens to the CN
 //! `standby:<site>` alone.
 //!
+//! Stage A:
 //! * `wal/<store>/<after>/<max>`: the records of one control-plane WAL
 //!   after LSN `after` (`state`: the registry, `flows`, `users`: the
 //!   gateway's users), with the chain MAC at `after` and the last LSN:
 //!   `{chain, last, records: [[lsn, mac, op], …]}`. The standby checks every
 //!   record against its own chain with the shared key.
-//! * `files`: `[{name, sha256}]` of the files that are not WALs and must
-//!   follow the active: `secrets.bin` and every `links/<id>/token`.
-//! * `file/<name>`: `{name, sha256, sealed}`: the file sealed with a key
-//!   derived from `secrets.key` (both brokers hold it): the peer link is
-//!   mTLS, and still no secret crosses it in clear.
+//!
+//! Stage B, files and the broker storage:
+//! * `files`: `[{name, len, mtime}]` of every replicated file (see
+//!   [`files_of`]): `secrets.bin`, `links/<id>/token`, the links' private
+//!   data (`links/<id>/data/**`: portable stores, framework trees, the
+//!   agent's store) and the installed packages (`packages/**`). The list is
+//!   complete: a file not in it is gone.
+//! * `file/<offset>/<len>/<name>`: one part of a file, `{name, offset,
+//!   total, sha256?, sealed}`; `sha256` of the whole file comes with the
+//!   first part. Every part is sealed with a key derived from
+//!   `secrets.key` (both brokers hold it): the peer link is mTLS, and still
+//!   no secret crosses it in clear.
+//! * `storage/<epoch>/<since>/<max>`: the broker storage's changes after
+//!   revision `since` of `epoch` (`wyrm_storage::Store::changes_since`):
+//!   `{epoch, rev, full, put: [[path, rec]], delete: [path]}`.
 //!
 //! Each `wal/state` query tells how far the standby is: `sys/standby_connected`
 //! and `sys/standby_lag` show it.
@@ -31,6 +42,15 @@ pub const STORES: [(&str, &str, &str); 3] = [
 
 /// Most records in one answer.
 pub const MAX_RECORDS: usize = 512;
+/// Most storage paths in one answer.
+pub const MAX_STORAGE_PATHS: usize = 500;
+/// Longest part of a file in one answer.
+pub const PART_LEN: u64 = 1 << 20;
+/// Files larger than this are not replicated (a package asset, an upload
+/// spool): they are listed with their size and skipped by the standby.
+pub const MAX_FILE_LEN: u64 = 64 << 20;
+/// Most files listed.
+pub const MAX_FILES: usize = 50_000;
 
 /// A standby counts as connected while its last query is younger than this.
 pub const SEEN_FOR: Duration = Duration::from_secs(15);
@@ -59,46 +79,127 @@ pub fn file_key(secrets_key: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
-/// The non-WAL files a standby follows, by name relative to `data_dir`.
-pub fn files_of(data_dir: &Path) -> Vec<String> {
+/// One replicated file as listed: its name relative to `data_dir`, length
+/// and modification time (ns since the epoch, 0 when unknown).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    pub name: String,
+    pub len: u64,
+    pub mtime: u64,
+}
+
+fn mtime_ns(m: &std::fs::Metadata) -> u64 {
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// A directory entry name that is being written or is scratch: left out.
+fn skipped(name: &str) -> bool {
+    name.ends_with(".tmp")
+        || name.starts_with(".tmp")
+        || name == "tmp"
+        || name == "uploads"
+        || name == "agent.next"
+        || name == "LOCK"
+}
+
+fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
+    let Ok(dir) = std::fs::read_dir(root.join(rel)) else {
+        return;
+    };
+    let mut entries: Vec<_> = dir.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        if out.len() >= MAX_FILES {
+            return;
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        if skipped(&name) {
+            continue;
+        }
+        let Ok(meta) = e.metadata() else { continue };
+        let path = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
+        if meta.is_dir() {
+            walk(root, &path, out);
+        } else if meta.is_file() {
+            out.push(FileEntry {
+                name: path,
+                len: meta.len(),
+                mtime: mtime_ns(&meta),
+            });
+        }
+    }
+}
+
+/// The replicated files under `data_dir`, by name relative to it, sorted:
+/// `secrets.bin`, every `links/<id>/token` and `links/<id>/data/**`, and
+/// `packages/**`. Scratch names ([`skipped`]) are left out.
+pub fn files_of(data_dir: &Path) -> Vec<FileEntry> {
     let mut out = Vec::new();
-    if data_dir.join("secrets.bin").is_file() {
-        out.push("secrets.bin".to_owned());
+    if let Ok(meta) = std::fs::metadata(data_dir.join("secrets.bin")) {
+        if meta.is_file() {
+            out.push(FileEntry {
+                name: "secrets.bin".to_owned(),
+                len: meta.len(),
+                mtime: mtime_ns(&meta),
+            });
+        }
     }
     if let Ok(links) = std::fs::read_dir(data_dir.join("links")) {
         let mut ids: Vec<String> = links
             .flatten()
-            .filter(|e| e.path().join("token").is_file())
+            .filter(|e| e.path().is_dir())
             .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|id| wyrm_core::keyspace::validate_segment(id).is_ok())
             .collect();
         ids.sort();
-        out.extend(ids.into_iter().map(|id| format!("links/{id}/token")));
+        for id in ids {
+            let token = format!("links/{id}/token");
+            if let Ok(meta) = std::fs::metadata(data_dir.join(&token)) {
+                if meta.is_file() {
+                    out.push(FileEntry {
+                        name: token,
+                        len: meta.len(),
+                        mtime: mtime_ns(&meta),
+                    });
+                }
+            }
+            walk(data_dir, &format!("links/{id}/data"), &mut out);
+        }
     }
+    walk(data_dir, "packages", &mut out);
     out
 }
 
-/// `true` for a name [`files_of`] may give: no other file is served.
+/// `true` for a name [`files_of`] may give: no other file is served or
+/// written. Every segment is a plain name (no `.`, `..`, separators).
 pub fn is_file_name(name: &str) -> bool {
-    name == "secrets.bin"
-        || name
-            .strip_prefix("links/")
-            .and_then(|r| r.strip_suffix("/token"))
-            .is_some_and(|id| wyrm_core::keyspace::validate_segment(id).is_ok())
+    let segs: Vec<&str> = name.split('/').collect();
+    if segs
+        .iter()
+        .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains('\\') || skipped(s))
+    {
+        return false;
+    }
+    match segs.as_slice() {
+        ["secrets.bin"] => true,
+        ["links", id, "token"] => wyrm_core::keyspace::validate_segment(id).is_ok(),
+        ["links", id, "data", _, ..] => wyrm_core::keyspace::validate_segment(id).is_ok(),
+        ["packages", _, ..] => true,
+        _ => false,
+    }
 }
 
-fn sha256(bytes: &[u8]) -> Vec<u8> {
+/// SHA-256 of `bytes`.
+pub fn sha256(bytes: &[u8]) -> Vec<u8> {
     sha2::Sha256::digest(bytes).to_vec()
-}
-
-/// SHA-256 of each replicated file under `data_dir`, by name.
-pub fn digests_of(data_dir: &Path) -> BTreeMap<String, Vec<u8>> {
-    files_of(data_dir)
-        .into_iter()
-        .filter_map(|name| {
-            let bytes = std::fs::read(data_dir.join(&name)).ok()?;
-            Some((name, sha256(&bytes)))
-        })
-        .collect()
 }
 
 /// A page of one WAL as a value: `{chain, last, records: [[lsn, mac, op], …]}`.
@@ -169,6 +270,151 @@ pub fn parse_page(v: Value) -> Option<wyrm_state::replicate::Page> {
     })
 }
 
+/// The file list as a value: `[{name, len, mtime}]`.
+pub fn files_value(files: &[FileEntry]) -> Value {
+    Value::Array(
+        files
+            .iter()
+            .map(|f| {
+                Value::Map(BTreeMap::from([
+                    ("name".to_owned(), Value::from(f.name.clone())),
+                    ("len".to_owned(), Value::UInt(f.len)),
+                    ("mtime".to_owned(), Value::UInt(f.mtime)),
+                ]))
+            })
+            .collect(),
+    )
+}
+
+/// What [`files_value`] made; entries with a name this side would not
+/// serve are dropped.
+pub fn parse_files(v: Value) -> Option<Vec<FileEntry>> {
+    let Value::Array(list) = v else {
+        return None;
+    };
+    let mut out = Vec::with_capacity(list.len());
+    for e in list {
+        let Value::Map(mut m) = e else {
+            return None;
+        };
+        let (Some(Value::Str(name)), Some(Value::UInt(len)), Some(Value::UInt(mtime))) =
+            (m.remove("name"), m.remove("len"), m.remove("mtime"))
+        else {
+            return None;
+        };
+        if is_file_name(&name) {
+            out.push(FileEntry { name, len, mtime });
+        }
+    }
+    Some(out)
+}
+
+/// One part of a file as a value.
+pub struct FilePart {
+    pub name: String,
+    pub offset: u64,
+    pub total: u64,
+    /// SHA-256 of the whole file, with the first part.
+    pub sha256: Option<Vec<u8>>,
+    pub sealed: Vec<u8>,
+}
+
+pub fn parse_part(v: Value) -> Option<FilePart> {
+    let Value::Map(mut m) = v else {
+        return None;
+    };
+    let (Some(Value::Str(name)), Some(Value::UInt(offset)), Some(Value::UInt(total))) =
+        (m.remove("name"), m.remove("offset"), m.remove("total"))
+    else {
+        return None;
+    };
+    let sha256 = match m.remove("sha256") {
+        Some(Value::Bytes(b)) => Some(b),
+        _ => None,
+    };
+    let Some(Value::Bytes(sealed)) = m.remove("sealed") else {
+        return None;
+    };
+    Some(FilePart {
+        name,
+        offset,
+        total,
+        sha256,
+        sealed,
+    })
+}
+
+/// The storage changes as a value.
+pub fn changes_value(c: &wyrm_storage::Changes) -> Value {
+    Value::Map(BTreeMap::from([
+        ("epoch".to_owned(), Value::UInt(c.epoch)),
+        ("rev".to_owned(), Value::UInt(c.rev)),
+        ("full".to_owned(), Value::Bool(c.full)),
+        (
+            "put".to_owned(),
+            Value::Array(
+                c.put
+                    .iter()
+                    .map(|(p, r)| {
+                        Value::Array(vec![Value::from(p.clone()), Value::Bytes(r.to_bytes())])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "delete".to_owned(),
+            Value::Array(c.delete.iter().map(|p| Value::from(p.clone())).collect()),
+        ),
+    ]))
+}
+
+pub fn parse_changes(v: Value) -> Option<wyrm_storage::Changes> {
+    let Value::Map(mut m) = v else {
+        return None;
+    };
+    let (Some(Value::UInt(epoch)), Some(Value::UInt(rev)), Some(Value::Bool(full))) =
+        (m.remove("epoch"), m.remove("rev"), m.remove("full"))
+    else {
+        return None;
+    };
+    let Some(Value::Array(put)) = m.remove("put") else {
+        return None;
+    };
+    let Some(Value::Array(delete)) = m.remove("delete") else {
+        return None;
+    };
+    let mut puts = Vec::with_capacity(put.len());
+    for e in put {
+        let Value::Array(mut pair) = e else {
+            return None;
+        };
+        if pair.len() != 2 {
+            return None;
+        }
+        let Value::Bytes(rec) = pair.remove(1) else {
+            return None;
+        };
+        let Value::Str(path) = pair.remove(0) else {
+            return None;
+        };
+        puts.push((path, wyrm_storage::Rec::from_bytes(&rec)?));
+    }
+    let mut deletes = Vec::with_capacity(delete.len());
+    for e in delete {
+        let Value::Str(p) = e else {
+            return None;
+        };
+        deletes.push(p);
+    }
+    Some(wyrm_storage::Changes {
+        epoch,
+        rev,
+        full,
+        put: puts,
+        delete: deletes,
+    })
+}
+
 fn error_value(why: &str) -> Value {
     Value::Map(BTreeMap::from([("error".to_owned(), Value::from(why))]))
 }
@@ -185,6 +431,18 @@ impl Control {
             lsn,
             lag: last.saturating_sub(lsn),
         });
+    }
+
+    /// The broker storage, for the standby to follow (set by the daemon).
+    pub fn set_storage(&self, storage: Arc<wyrm_storage::Store>) {
+        *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Some(storage);
+    }
+
+    fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
+        self.storage
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Answer one replication query by its suffix under `sys/replication/`.
@@ -209,33 +467,55 @@ impl Control {
                     Err(e) => error_value(&e.to_string()),
                 }
             }
-            ["files"] => Value::Array(
-                files_of(d)
-                    .into_iter()
-                    .filter_map(|name| {
-                        let bytes = std::fs::read(d.join(&name)).ok()?;
-                        Some(Value::Map(BTreeMap::from([
-                            ("name".to_owned(), Value::from(name)),
-                            ("sha256".to_owned(), Value::Bytes(sha256(&bytes))),
-                        ])))
-                    })
-                    .collect(),
-            ),
-            ["file", rest @ ..] => {
+            ["files"] => files_value(&files_of(d)),
+            ["file", offset, len, rest @ ..] => {
                 let name = rest.join("/");
                 if !is_file_name(&name) {
                     return error_value("not a replicated file");
                 }
-                match std::fs::read(d.join(&name)) {
-                    Ok(bytes) => Value::Map(BTreeMap::from([
-                        ("name".to_owned(), Value::from(name)),
-                        ("sha256".to_owned(), Value::Bytes(sha256(&bytes))),
-                        (
-                            "sealed".to_owned(),
-                            Value::Bytes(wyrm_link_sdk::seal::seal(file_key, &bytes)),
-                        ),
-                    ])),
-                    Err(e) => error_value(&e.to_string()),
+                let (Ok(offset), Ok(len)) = (offset.parse::<u64>(), len.parse::<u64>()) else {
+                    return error_value("offset and len: numbers");
+                };
+                let len = len.clamp(1, PART_LEN);
+                let bytes = match std::fs::read(d.join(&name)) {
+                    Ok(b) => b,
+                    Err(e) => return error_value(&e.to_string()),
+                };
+                let total = bytes.len() as u64;
+                if total > MAX_FILE_LEN {
+                    return error_value("file too large to replicate");
+                }
+                let start = offset.min(total) as usize;
+                let end = (offset.saturating_add(len)).min(total) as usize;
+                let mut m = BTreeMap::from([
+                    ("name".to_owned(), Value::from(name)),
+                    ("offset".to_owned(), Value::UInt(offset)),
+                    ("total".to_owned(), Value::UInt(total)),
+                    (
+                        "sealed".to_owned(),
+                        Value::Bytes(wyrm_link_sdk::seal::seal(file_key, &bytes[start..end])),
+                    ),
+                ]);
+                if offset == 0 {
+                    m.insert("sha256".to_owned(), Value::Bytes(sha256(&bytes)));
+                }
+                Value::Map(m)
+            }
+            ["storage", epoch, since, max] => {
+                let (Ok(epoch), Ok(since), Ok(max)) = (
+                    epoch.parse::<u64>(),
+                    since.parse::<u64>(),
+                    max.parse::<usize>(),
+                ) else {
+                    return error_value("epoch, since and max: numbers");
+                };
+                match self.storage() {
+                    Some(s) => changes_value(&s.changes_since(
+                        epoch,
+                        since,
+                        max.clamp(1, MAX_STORAGE_PATHS),
+                    )),
+                    None => error_value("no storage"),
                 }
             }
             _ => error_value("unknown replication key"),
@@ -273,7 +553,7 @@ pub(super) async fn serve_replication(ctl: Arc<Control>, session: Session) {
         };
         let ctl = ctl.clone();
         let suffix = suffix.to_owned();
-        // Reading a WAL is file I/O: off the session's thread.
+        // Reading a WAL or a file is I/O: off the session's thread.
         let value = tokio::task::spawn_blocking(move || ctl.replication_answer(&suffix, &file_key))
             .await
             .unwrap_or_else(|e| error_value(&e.to_string()));
@@ -310,9 +590,83 @@ mod tests {
         assert!(parse_page(error_value("x")).is_none());
         assert!(is_file_name("secrets.bin"));
         assert!(is_file_name("links/plc1/token"));
+        assert!(is_file_name("links/plc1/data/framework.tree"));
+        assert!(is_file_name("links/alarm/data/store/0a1b"));
+        assert!(is_file_name("packages/demo/1.0.0/bin/run"));
+        assert!(is_file_name("packages/.wasm/demo.wasm"));
         assert!(!is_file_name("links/../token"));
+        assert!(!is_file_name("links/plc1/data"));
+        assert!(!is_file_name("links/plc1/data/uploads/x"));
+        assert!(!is_file_name("links/plc1/data/store/0a1b.tmp"));
+        assert!(!is_file_name("packages/.tmp-abc/x"));
         assert!(!is_file_name("state.key"));
         assert!(!is_file_name("links/plc1/key"));
         assert_ne!(file_key(b"a"), file_key(b"b"));
+    }
+
+    #[test]
+    fn file_lists_walk_the_replicated_roots_only() {
+        let d = std::env::temp_dir().join(format!("wyrm-repl-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        for p in [
+            "secrets.bin",
+            "state.key",
+            "links/a/token",
+            "links/a/cert.pem",
+            "links/a/data/framework.tree",
+            "links/a/data/framework.tmp",
+            "links/a/data/store/00ff",
+            "links/a/data/uploads/c-x/spool",
+            "links/b/data/agent/wal.00000000000000000001.wyw",
+            "links/b/data/agent.next/x",
+            "packages/demo/1.0.0/bin/run",
+            "packages/.wasm/demo.wasm",
+            "packages/.tmp-123/x",
+            "history/days/2026-11-05.redb",
+        ] {
+            let path = d.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, p.as_bytes()).unwrap();
+        }
+        let names: Vec<String> = files_of(&d).into_iter().map(|f| f.name).collect();
+        assert_eq!(
+            names,
+            [
+                "secrets.bin",
+                "links/a/token",
+                "links/a/data/framework.tree",
+                "links/a/data/store/00ff",
+                "links/b/data/agent/wal.00000000000000000001.wyw",
+                "packages/.wasm/demo.wasm",
+                "packages/demo/1.0.0/bin/run",
+            ]
+        );
+        assert!(names.iter().all(|n| is_file_name(n)));
+        let v = files_value(&files_of(&d));
+        let back = parse_files(v).unwrap();
+        assert_eq!(back.len(), 7);
+        assert_eq!(back[0].len, "secrets.bin".len() as u64);
+    }
+
+    #[test]
+    fn storage_changes_roundtrip() {
+        let c = wyrm_storage::Changes {
+            epoch: 5,
+            rev: 7,
+            full: false,
+            put: vec![(
+                "plant/temp".into(),
+                wyrm_storage::Rec {
+                    ty: Some(wyrm_core::TypeCode::Number),
+                    editor: None,
+                    value: Some(Value::Float(21.5)),
+                    t: Some(3),
+                },
+            )],
+            delete: vec!["plant/old".into()],
+        };
+        let bytes = wyrm_core::codec::to_vec(&changes_value(&c)).unwrap();
+        let back = parse_changes(wyrm_core::codec::from_slice(&bytes).unwrap()).unwrap();
+        assert_eq!(back, c);
     }
 }
