@@ -8997,7 +8997,7 @@ async fn standby_follows_stores() {
     let c = slow_client(&env).await;
     c.invoke_one(
         &format!("{root}/plant/gone"),
-        "remove",
+        "delete",
         Value::Map(BTreeMap::new()),
     )
     .await
