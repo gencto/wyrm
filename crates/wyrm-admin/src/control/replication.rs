@@ -86,6 +86,21 @@ pub struct FileEntry {
     pub name: String,
     pub len: u64,
     pub mtime: u64,
+    /// The owner may execute it (a package's entry script or binary).
+    pub exec: bool,
+}
+
+fn is_exec(m: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        m.permissions().mode() & 0o100 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        false
+    }
 }
 
 fn mtime_ns(m: &std::fs::Metadata) -> u64 {
@@ -133,6 +148,7 @@ fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
                 name: path,
                 len: meta.len(),
                 mtime: mtime_ns(&meta),
+                exec: is_exec(&meta),
             });
         }
     }
@@ -149,6 +165,7 @@ pub fn files_of(data_dir: &Path) -> Vec<FileEntry> {
                 name: "secrets.bin".to_owned(),
                 len: meta.len(),
                 mtime: mtime_ns(&meta),
+                exec: false,
             });
         }
     }
@@ -168,6 +185,7 @@ pub fn files_of(data_dir: &Path) -> Vec<FileEntry> {
                         name: token,
                         len: meta.len(),
                         mtime: mtime_ns(&meta),
+                        exec: false,
                     });
                 }
             }
@@ -280,6 +298,7 @@ pub fn files_value(files: &[FileEntry]) -> Value {
                     ("name".to_owned(), Value::from(f.name.clone())),
                     ("len".to_owned(), Value::UInt(f.len)),
                     ("mtime".to_owned(), Value::UInt(f.mtime)),
+                    ("exec".to_owned(), Value::Bool(f.exec)),
                 ]))
             })
             .collect(),
@@ -302,8 +321,14 @@ pub fn parse_files(v: Value) -> Option<Vec<FileEntry>> {
         else {
             return None;
         };
+        let exec = matches!(m.remove("exec"), Some(Value::Bool(true)));
         if is_file_name(&name) {
-            out.push(FileEntry { name, len, mtime });
+            out.push(FileEntry {
+                name,
+                len,
+                mtime,
+                exec,
+            });
         }
     }
     Some(out)
@@ -646,6 +671,24 @@ mod tests {
         let back = parse_files(v).unwrap();
         assert_eq!(back.len(), 7);
         assert_eq!(back[0].len, "secrets.bin".len() as u64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                d.join("packages/demo/1.0.0/bin/run"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+            let again = files_of(&d);
+            assert!(
+                again
+                    .iter()
+                    .find(|f| f.name.ends_with("bin/run"))
+                    .unwrap()
+                    .exec
+            );
+            assert!(!again[0].exec);
+        }
     }
 
     #[test]

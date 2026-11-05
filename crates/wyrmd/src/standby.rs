@@ -296,6 +296,12 @@ async fn fetch_file(
     // a scratch name the listings leave out, then one rename
     let tmp = path.with_extension("tmp");
     secret::write_private(&tmp, &buf).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    if entry.exec {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
     Ok(())
 }
