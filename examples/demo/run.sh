@@ -6,6 +6,10 @@
 #   examples/demo/run.sh            build, start everything, Ctrl+C stops it
 #   examples/demo/run.sh --clean    also delete ./data first (fresh sites)
 #
+# Platforms for the uplink and the alarm export (MQTT, PostgreSQL and two web
+# views): docker compose -f examples/demo/platforms/compose.yaml up -d, then
+# the plans in examples/agent (alarms.json, uplink-and-alarm-export.json).
+#
 # App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8445 (central),
 # :8444 (edge) or :8446 (plant), user admin, password
 # $WYRM_GATEWAY_ADMIN_PASSWORD.

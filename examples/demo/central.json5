@@ -21,4 +21,6 @@
     // A small mock on the central site itself.
     mock: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },
   },
+  // Platform upstreams (ADR 0035): the MQTT broker of examples/demo/platforms.
+  uplink: { net: "127.0.0.1:1883" },
 }

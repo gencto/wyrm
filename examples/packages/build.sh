@@ -35,6 +35,8 @@
 #                    Hub, AWS IoT Core; an operator grants read on each root
 #                    an upstream selects and lists the platforms in net
 #     uplink-process the same app as a process package
+#     postgres-process history sync to PostgreSQL (ADR 0026) as a process
+#                    package: the demo's alarm records (examples/agent)
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
 #
 # Each crate describes its package in [package.metadata.wyrm-link].
@@ -82,6 +84,9 @@ $WYR link pack --manifest-path "$ALARM" --kind process --name alarm-process --ou
 UPLINK=$ROOT/links/uplink/Cargo.toml
 $WYR link pack --manifest-path "$UPLINK" --out "$ZIPS"
 $WYR link pack --manifest-path "$UPLINK" --kind process --name uplink-process --out "$ZIPS"
+# and one history sync link, for the alarm sink of examples/agent/uplink-and-alarm-export.json
+$WYR link pack --manifest-path "$ROOT/links/postgres/Cargo.toml" --kind process \
+  --name postgres-process --out "$ZIPS"
 
 (cd $ROOT && cargo run -q -p wyrm-link-wasm --example components -- examples/packages/$OUT)
 $WYR link pack --component "$OUT/register.wasm" --name register --version 1.0.0 \

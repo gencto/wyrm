@@ -1,0 +1,29 @@
+# Platforms for the demo's upstreams (examples/demo/run.sh), on 127.0.0.1 only:
+#   docker compose -f examples/demo/platforms/compose.yaml up -d
+# MQTT 127.0.0.1:1883 (WebSocket :9001), user uplink / mq-pass-1   ← uplink: UNS, Sparkplug B
+# PostgreSQL 127.0.0.1:5432, database wyrm, user wyrm / wyrm-pg-1  ← alarm records (pg link)
+# MQTTX Web http://127.0.0.1:8081 (connect to ws://127.0.0.1:9001/ with the user above)
+# Adminer   http://127.0.0.1:8082 (PostgreSQL, server postgres, the user above)
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    command: sh -c "mosquitto_passwd -b -c /tmp/passwd uplink mq-pass-1 && chmod 0644 /tmp/passwd && exec mosquitto -c /mosquitto/config/mosquitto.conf"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports: ["127.0.0.1:1883:1883", "127.0.0.1:9001:9001"]
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: wyrm
+      POSTGRES_PASSWORD: wyrm-pg-1
+      POSTGRES_DB: wyrm
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+  mqttx:
+    image: emqx/mqttx-web
+    ports: ["127.0.0.1:8081:80"]
+  adminer:
+    image: adminer
+    ports: ["127.0.0.1:8082:8080"]
+volumes:
+  pg:
