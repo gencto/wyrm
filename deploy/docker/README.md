@@ -33,6 +33,7 @@ Runtime notes:
 ## The example: a broker and two links
 
 ```sh
+export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'   # required: no default
 docker compose -f deploy/docker/compose.yaml up -d --build
 docker compose -f deploy/docker/compose.yaml run --rm tools
 $ wyr probe --gateway http://127.0.0.1:8445 --site site1
@@ -49,8 +50,9 @@ $ wyrm-agent tree wy/site1/downstream --depth 1
 - Every WYRM container runs read-only, as user 65532, with no capabilities and
   `no-new-privileges`.
 - The gateway listens on the broker's loopback (it requires TLS elsewhere). `tools` runs in
-  the broker's network namespace; `gateway-port` forwards it to `127.0.0.1:8445` on this host
-  for the Flutter app. Leave `gateway-port` out in production and give the gateway a
+  the broker's network namespace. For the Flutter app on this host, `--profile dev` adds
+  `gateway-port`, a plaintext forward to `127.0.0.1:8445`; the other containers of the network
+  reach that forward too, so it is for development only. In production give the gateway a
   certificate (`gateway.tls_cert`, `tls_key`) instead.
 
 ## Measured

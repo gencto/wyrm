@@ -1,9 +1,12 @@
 # The broker and two links, each in a minimal `scratch` image (deploy/docker/README.md).
 #
+#   export WYRM_GATEWAY_ADMIN_PASSWORD=…        # required: the gateway's first admin
 #   docker compose -f deploy/docker/compose.yaml up -d --build
 #   docker compose -f deploy/docker/compose.yaml run --rm tools     # wyr, wyrm-agent
 #
-# Gateway for the Flutter app on this host: http://127.0.0.1:8445 (admin / wyrm-demo-1).
+# Gateway for the Flutter app on this host (development only, plaintext):
+#   docker compose -f deploy/docker/compose.yaml --profile dev up -d
+#   → http://127.0.0.1:8445, user admin
 
 x-hardened: &hardened
   read_only: true
@@ -29,22 +32,25 @@ services:
     image: wyrm/wyrmd:local
     build: { <<: *build, target: wyrmd }
     environment:
-      WYRM_GATEWAY_ADMIN_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:-wyrm-demo-1}
+      WYRM_GATEWAY_ADMIN_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:?set the gateway admin password}
       RUST_LOG: info,zenoh=warn
     volumes:
       - wyrm-data:/data
       - ./wyrmd.json5:/etc/wyrm/wyrmd.json5:ro
     ports:
-      # the loopback gateway, forwarded by gateway-port below: this host only
+      # the loopback gateway, forwarded by gateway-port below (profile dev): this host only
       - "127.0.0.1:8445:18445"
     networks:
       wyrm: { ipv4_address: 172.28.0.10 }
     restart: unless-stopped
 
-  # The gateway listens on the broker's loopback (TLS is required elsewhere); this forwards it
-  # to the port published above, for the Flutter app on this host. Leave it out in production.
+  # Development only (profile dev): the gateway listens on the broker's loopback because it
+  # requires TLS elsewhere; this forwards it in plaintext to the port published above, for the
+  # Flutter app on this host. It listens in the broker's namespace, so the other containers of
+  # the network reach it too: never in production (give the gateway tls_cert/tls_key instead).
   gateway-port:
     image: alpine/socat:1.8.0.3
+    profiles: [dev]
     network_mode: service:wyrmd
     command: ["tcp-listen:18445,fork,reuseaddr", "tcp:127.0.0.1:8445"]
     depends_on: [wyrmd]
@@ -138,7 +144,7 @@ services:
     build: { <<: *build, target: tools }
     network_mode: service:wyrmd
     environment:
-      WYR_GATEWAY_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:-wyrm-demo-1}
+      WYR_GATEWAY_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:?set the gateway admin password}
     profiles: [tools]
     stdin_open: true
     tty: true
