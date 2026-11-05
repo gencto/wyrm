@@ -25,6 +25,13 @@ class ActApi implements WyrmApi {
   static final metaM = NodeMeta(hasChildren: true, hasNodes: false, actions: {
     'count': ActionMeta(params: {'n': ParamMeta(ty: TypeCode.number, required: true)}),
     'reset': ActionMeta(),
+    // as the alarm link's Get Alarms: typed enums (spec 02: by index), one optional filter,
+    // and a text param with a list of choices (as the driver framework's)
+    'find': ActionMeta(display: 'Find', params: {
+      'type': ParamMeta(ty: TypeCode.enum_, enumValues: ['alert', 'warning', 'fault']),
+      'state': ParamMeta(ty: TypeCode.enum_, enumValues: ['open', 'all'], defaultValue: const VInt(1)),
+      'table': ParamMeta(ty: TypeCode.string, enumValues: ['coil', 'holding'], required: true),
+    }),
     'history': ActionMeta(display: 'History', result: const ResultType(TypeCode.array)),
     // a list with nothing in it yet (as sys/quarantine Deauthorize)
     'deauthorize': ActionMeta(display: 'Deauthorize', params: {
@@ -1013,5 +1020,44 @@ void main() {
     await t.pumpAndSettle();
     await rightClick(t, find.text('temp').last);
     expect(find.text('View History'), findsOneWidget);
+  });
+
+  testWidgets('typed enum params go by index; an optional one starts empty and clears', (t) async {
+    t.view.physicalSize = const Size(1400, 900);
+    t.view.devicePixelRatio = 1;
+    final api = ActApi();
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: WyExplorer(api: api, rootKey: 'wy/s/downstream'))));
+    await t.pumpAndSettle();
+    final mouse = await t.createGesture(kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.down(t.getCenter(find.text('m')));
+    await mouse.up();
+    await t.pumpAndSettle();
+    await mouse.moveTo(t.getCenter(find.text('Find')));
+    await t.pumpAndSettle();
+    // the optional filter shows its hint, the default index its label, the required list its first
+    expect(find.text('optional'), findsOneWidget);
+    expect(find.text('all'), findsOneWidget);
+    expect(find.text('coil'), findsOneWidget);
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect(api.invoked.last.$3, VMap({'state': const VInt(1), 'table': const VStr('coil')}),
+        reason: 'the empty filter is left out; a typed enum by index, a text choice as text');
+    // pick a type: sent by index; then clear it again with —
+    await t.tap(find.text('optional'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('warning'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect((api.invoked.last.$3! as VMap).v['type'], const VInt(1));
+    await t.tap(find.text('warning'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('—'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Invoke'));
+    await t.pumpAndSettle();
+    expect((api.invoked.last.$3! as VMap).v.containsKey('type'), isFalse);
   });
 }

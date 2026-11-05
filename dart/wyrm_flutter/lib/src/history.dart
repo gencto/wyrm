@@ -211,7 +211,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
                     child: _EnumField(
                       value: _interval.text,
                       options: _historyIntervals,
-                      onChanged: (v) => setState(() => _interval.text = v),
+                      onChanged: (v) => setState(() => _interval.text = v!),
                     ),
                   ),
                 ]),
@@ -226,7 +226,7 @@ class _HistoryWindowState extends State<_HistoryWindow> {
                     child: _EnumField(
                       value: _rollup,
                       options: _rollups,
-                      onChanged: (v) => setState(() => _rollup = v),
+                      onChanged: (v) => setState(() => _rollup = v!),
                     ),
                   ),
                 ]),

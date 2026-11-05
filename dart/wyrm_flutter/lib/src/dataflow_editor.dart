@@ -878,7 +878,7 @@ class _DataflowWindowState extends State<_DataflowWindow> {
       return _EnumField(
         value: cur == null ? p.defaultValue : _text(cur),
         options: p.choices,
-        onChanged: (v) => _setCfg(n, p.name, VStr(v)),
+        onChanged: (v) => _setCfg(n, p.name, VStr(v!)),
       );
     }
     if (p.type == 'bool') {

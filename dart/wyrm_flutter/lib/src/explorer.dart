@@ -772,8 +772,15 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
       } else if (p.ty == TypeCode.bool_) {
         _bool[e.key] = d is VBool && d.v;
       } else if (p.enumValues != null) {
-        // A list, also an empty one (nothing to choose: shown, not typed).
-        _enum[e.key] = d is VStr ? d.v : p.enumValues!.firstOrNull;
+        // A list, also an empty one (nothing to choose: shown, not typed). A default names a
+        // label or, for a typed enum, its index; an optional typed enum without one starts
+        // empty (a filter left out), anything else at the first label.
+        final opts = p.enumValues!;
+        _enum[e.key] = switch (d) {
+          VStr(:final v) => v,
+          VInt(:final v) when v >= 0 && v < opts.length => opts[v],
+          _ => widget.meta != null && _optionalEnum(p) ? null : opts.firstOrNull,
+        };
       } else {
         _text[e.key] = TextEditingController(text: d == null || d is VNull ? '' : editText(d, null));
         if (p.editor == _editorDuration) _units[e.key] = 1;
@@ -786,8 +793,10 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     if (_bool.containsKey(k)) return VBool(_bool[k]!);
     if (_enum.containsKey(k)) {
       final s = _enum[k] ?? '';
-      // An enum node value is its index; an action param travels as text.
-      final i = widget.meta == null ? (p.enumValues ?? const []).indexOf(s) : -1;
+      // A typed enum (a node's value, a param of type enum: spec 02) is its index; a text
+      // param with a list of choices (the driver framework's) travels as the text.
+      final typed = widget.meta == null || p.ty == TypeCode.enum_;
+      final i = typed ? (p.enumValues ?? const []).indexOf(s) : -1;
       return i >= 0 ? VInt(i) : VStr(s);
     }
     final t = _text[k]!.text.trim();
@@ -972,6 +981,10 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
     );
   }
 
+  /// An action param of type enum that may stay out (spec 02: a filter such as Get Alarms'
+  /// `type`): it starts empty and has `—` to clear it.
+  static bool _optionalEnum(ParamMeta p) => p.ty == TypeCode.enum_ && p.required != true;
+
   /// Hint in an empty field: the param's example, and `optional` for a
   /// param that may stay empty (required ones carry no mark).
   static String? _hint(ParamMeta p) {
@@ -1021,6 +1034,9 @@ class _ActionFlyoutState extends State<_ActionFlyout> {
         value: _enum[name],
         options: p.enumValues!,
         empty: p.placeholder ?? 'nothing to choose',
+        hint: _hint(p),
+        // an optional typed enum can be left out again
+        clearable: widget.meta != null && _optionalEnum(p),
         onChanged: (v) => setState(() => _enum[name] = v),
       );
     }
@@ -1090,11 +1106,23 @@ class _ValueBox extends StatelessWidget {
 class _EnumField extends StatefulWidget {
   final String? value;
   final List<String> options;
-  final ValueChanged<String> onChanged;
+  final ValueChanged<String?> onChanged;
 
   /// Shown, dimmed, when there are no options; the field does not open.
   final String empty;
-  const _EnumField({required this.value, required this.options, required this.onChanged, this.empty = '—'});
+
+  /// Shown, dimmed, while nothing is chosen.
+  final String? hint;
+
+  /// The list starts with `—`, which leaves the param out.
+  final bool clearable;
+  const _EnumField(
+      {required this.value,
+      required this.options,
+      required this.onChanged,
+      this.empty = '—',
+      this.hint,
+      this.clearable = false});
 
   @override
   State<_EnumField> createState() => _EnumFieldState();
@@ -1125,6 +1153,14 @@ class _EnumFieldState extends State<_EnumField> {
           top: at.bottom,
           width: at.width,
           child: _MenuPanel(children: [
+            if (widget.clearable)
+              _MenuItem(
+                label: '—',
+                onTap: (_) {
+                  _close();
+                  widget.onChanged(null);
+                },
+              ),
             for (final o in widget.options)
               _MenuItem(
                 label: o,
@@ -1151,8 +1187,10 @@ class _EnumFieldState extends State<_EnumField> {
           child: Row(children: [
             Expanded(
               child: Text(
-                none ? widget.empty : widget.value ?? '',
-                style: none ? WyStyle.input.copyWith(color: WyStyle.disabled) : WyStyle.input,
+                none ? widget.empty : widget.value ?? widget.hint ?? '',
+                style: none || widget.value == null
+                    ? WyStyle.input.copyWith(color: WyStyle.disabled)
+                    : WyStyle.input,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -1653,7 +1691,7 @@ class _MetricRowState extends State<_MetricRow> {
         child: _EnumField(
           value: i >= 0 && i < labels.length ? labels[i] : null,
           options: labels,
-          onChanged: (label) => _set(VInt(labels.indexOf(label))),
+          onChanged: (label) => _set(VInt(labels.indexOf(label!))),
         ),
       );
     }
