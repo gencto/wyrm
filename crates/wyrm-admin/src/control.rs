@@ -862,18 +862,23 @@ impl Control {
             limited_keys.retain(|k| Some(k.key) != own);
             // It acts with its callers' rights (a watch, a query, an upstream keeps its author's
             // `auth`, ADR 0029) on this site's `dataflows` and `storage` too, and the verifier
-            // caps `auth` to what a signer is trusted with: the gateway's and the upstream
-            // brokers' keys (no bound subject) get those sections as well. The link answers only
-            // under `downstream/<id>`, so this widens no request it accepts.
+            // caps `auth` to what a signer is trusted with. So the keys trusted there already
+            // (the storage link and the flow engine trust them: the gateway's at config, the
+            // upstream brokers' as `upstream_trust` says) are trusted on those sections here too;
+            // the flow and agent keys are not. The link answers only under `downstream/<id>`, so
+            // these entries widen no request it accepts, only the `auth` it keeps.
             let site = &self.cfg.site;
-            let devices = format!("wy/{site}/downstream");
-            for k in limited_keys
-                .iter_mut()
-                .filter(|k| k.subject.is_none() && k.scopes.contains(&devices))
-            {
-                k.scopes.push(format!("wy/{site}/dataflows"));
-                k.scopes.push(format!("wy/{site}/storage"));
-            }
+            let sections = [format!("wy/{site}/dataflows"), format!("wy/{site}/storage")];
+            limited_keys.extend(self.cfg.control_keys.iter().map(|&key| {
+                wyrm_link_sdk::LimitedKey {
+                    key,
+                    cap: Perm::Config,
+                    scopes: sections.to_vec(),
+                    subject: None,
+                }
+            }));
+            limited_keys.extend(self.upstream_trust("dataflows"));
+            limited_keys.extend(self.upstream_trust("storage"));
         }
         lcfg.admin_keys = admin_keys;
         lcfg.limited_keys = limited_keys;
@@ -6434,7 +6439,7 @@ mod tests {
 
     /// A control plane in a fresh directory; `prep` runs on it before it opens.
     fn control(name: &str, scheduler: bool, prep: impl FnOnce(&std::path::Path)) -> Arc<Control> {
-        control_with(name, scheduler, prep, Vec::new())
+        control_with(name, scheduler, prep, Vec::new(), Vec::new())
     }
 
     fn control_with(
@@ -6442,6 +6447,7 @@ mod tests {
         scheduler: bool,
         prep: impl FnOnce(&std::path::Path),
         link_keys: Vec<wyrm_link_sdk::LimitedKey>,
+        control_keys: Vec<ed25519_dalek::VerifyingKey>,
     ) -> Arc<Control> {
         let dir = std::env::temp_dir().join(format!("wyrm-ctl-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -6451,7 +6457,7 @@ mod tests {
             site: "s".into(),
             data_dir: dir,
             admin_keys: Vec::new(),
-            control_keys: Vec::new(),
+            control_keys,
             link_keys,
             operators: Vec::new(),
             dev: false,
@@ -6598,16 +6604,27 @@ mod tests {
                 .filter(|k| k.subject.is_none())
                 .any(|k| k.scopes.iter().any(|s| s == scope))
         };
-        let gw = wyrm_link_sdk::LimitedKey {
-            key: ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key(),
-            cap: Perm::Config,
+        let gw = ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key();
+        // a flow key: unbound, on `downstream`; never trusted on the other sections
+        let flow = wyrm_link_sdk::LimitedKey {
+            key: ed25519_dalek::SigningKey::from_bytes(&[8; 32]).verifying_key(),
+            cap: Perm::Write,
             scopes: vec!["wy/s/downstream".into()],
             subject: None,
         };
-        let ctl = control_with("alarm-scopes", true, |_| {}, vec![gw]);
+        let ctl = control_with("alarm-scopes", true, |_| {}, vec![flow.clone()], vec![gw]);
         ctl.prepare_alarm();
         let own = ctl.embedded_link_config(ALARM_LINK, Vec::new()).unwrap();
         assert!(unbound(&own, "wy/s/storage") && unbound(&own, "wy/s/dataflows"));
+        let gateway_scopes = |c: &wyrm_link_sdk::LinkConfig, k: &ed25519_dalek::VerifyingKey| {
+            c.limited_keys
+                .iter()
+                .filter(|l| l.key == *k)
+                .flat_map(|l| l.scopes.clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(gateway_scopes(&own, &gw).contains(&"wy/s/storage".to_owned()));
+        assert_eq!(gateway_scopes(&own, &flow.key), ["wy/s/downstream"]);
         let other = ctl.embedded_link_config("mock", Vec::new()).unwrap();
         assert!(!unbound(&other, "wy/s/storage"));
         assert!(crate::registry::validate_new_link_id(ALARM_LINK).is_err());
