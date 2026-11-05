@@ -460,7 +460,7 @@ where
             Err(e) => {
                 warn!("cannot connect to {endpoint}: {e}");
                 turn += 1;
-                if turn % env.endpoints.len() == 0 {
+                if turn.is_multiple_of(env.endpoints.len()) {
                     // a whole round failed: wait before the next
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(HELLO_BACKOFF_MAX);
