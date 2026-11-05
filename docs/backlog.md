@@ -383,3 +383,26 @@ Work that is known and not done. The decisions around it are in ADR 0029.
   `secrets.key`, `state.key` (ADM-1); an MCP service identity as a limited
   key instead of an admin key (AI-2); the Low items listed in ADR 0031 as
   "next"; signed repository indexes.
+
+## 13. Broker fault tolerance (ADR 0036, 2026-11-05)
+
+Owner choice: options 1 + 2 + 3 of the assessment in ADR 0036; options 4
+(a mesh of two routers for direct readers) and 5 (a Raft cluster) refused
+before 1.0. Estimates in person-days, tests included.
+
+- Option 1, supervised restart (2–3): `docs/operations.md` (systemd unit,
+  `data_dir` backup and restore), process link back-off cap 30 s → 5 s,
+  e2e `broker_restart_rto` with the RTO and the base RAM of `wyrmd` without
+  links measured on the reference board.
+- Option 2, endpoint lists (5–8): `WYRM_ENDPOINT`, `wyrm_client::endpoint`
+  and the Dart gateway client take lists; a link serves only a router whose
+  `sys/broker` token it sees (the fencing of option 3).
+- Option 3, warm standby, stage A (25–35): role `standby`, the sealed key
+  bundle, enrollment as `standby:<site>`, `sys/replication/wal` +
+  `secrets` with `next {after, max}`, promotion/demotion, the five e2e
+  tests of the ADR.
+- Stage B (11–17): journals for the portable stores, `driver::persist` and
+  `wyrm-storage`; package files by SHA-256.
+- Stage C (5–8): the standby as a history sink target
+  (`wyrm-history-sync` into `wyrm-history`).
+- Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

@@ -1,0 +1,95 @@
+# ADR 0036 — Broker fault tolerance: supervised restart, endpoint lists with liveliness arbitration, warm standby by WAL replication
+
+**Status:** proposed · 2026-11-05 (owner question: what can WYRM do for broker redundancy, what do the alternatives do, what does each option cost; owner choice: options 1 + 2 + 3 of the assessment below).
+
+## Context
+
+Today a site is one `wyrmd` on one host. Process links know one `WYRM_ENDPOINT`; `wyr`, the FFI and the Dart packages know one endpoint or one gateway URL. All state sits in that host's `data_dir`: the control plane in the WAL + snapshot of `wyrm-state` (ADR 0003: append-only, HMAC-chained, every append `fsync`ed, the snapshot only a cache), and beside it `secrets.bin` with `secrets.key`, the PKI (the site CA, `link.pem`, `gateway.key`, `flows.key`, `.requester_key`), the historian's redb files (ADR 0014), the storage redb (ADR 0017), the sealed stores of the portable Apps (scheduler, alarm, dql, uplink; ADR 0023) and the sealed runtime edits of framework drivers in `data_dir/links/<id>/data` (ADR 0004, `driver::persist`). `~val` lives only in the router's memory storage (ADR 0029, decision 4). A lost host or disk is a lost site, and a link has nowhere else to connect.
+
+What the design already gives:
+- **Restart is the recovery path.** Links own and re-declare their subtree on every (re)connect; what is not re-declared does not exist (ADR 0003). Every ACL change rebuilds the router runtime (ADR 0006) and links, gateway clients and peers survive it: each rebuild is a rehearsed broker outage.
+- **Links already watch the broker.** A process link subscribes to the liveliness token `wy/<site>/sys/broker` before it starts, trusts no key while the token is gone, and repeats `hello` and the re-publication when it is back (`process.rs`, `LinkConfig.republish_on`).
+- **Journals with a cursor exist.** The historian's change journal with `next {after, max}` (ADR 0026) and the alarm sinks (ADR 0034) replay from a sequence; the WAL is itself such a journal, keyed by `lsn`.
+- **Sites are autonomous.** A downstream site runs without its upstream and catches up through sinks (store-and-forward), as DSA and Sparkplug sites do.
+
+Failure classes used below: F1 process crash, F2 host down, F3 disk lost, F4 network split between the two broker hosts (split brain), F5 network lost between a link and the broker, F6 upstream unreachable.
+
+What the alternatives do (2026-11-05 survey):
+
+| System | Model | What it tells us |
+|---|---|---|
+| IOT-DSA / DGLux | No cluster; upstream/downstream hierarchy, dslinks reconnect, HA at the VM level | Where WYRM is today |
+| Sparkplug B | An edge node holds a list of MQTT servers; the Primary Host publishes `STATE` ONLINE/OFFLINE; the node walks the list until it finds a server where the host is online; store-and-forward meanwhile | Option 2, one to one, with `sys/broker` as `STATE` |
+| Ignition | Master/backup pair, full state sync over its own channel, warm or cold backup, clients and drivers follow the active | Option 3; "warm" = configuration ready, devices not polled |
+| OPC UA Part 4 | Non-transparent redundancy: cold/warm/hot, the client knows the `ServerUriArray` and fails over itself; transparent redundancy at the network level | The cold/warm/hot vocabulary |
+| EMQX, HiveMQ, VerneMQ | Real clusters: metadata in Mnesia/Mria or CRDTs, sessions sharded by consistent hashing, clients behind a load balancer, their own split-brain rules | Option 5, for cloud MQTT, not for a site broker |
+| Mosquitto | No cluster: a bridge, or active/passive with keepalived and a mirrored persistence file | Option 1 plus a VIP |
+| NATS JetStream, Kafka, RabbitMQ quorum queues | Raft-replicated logs, 3 or 5 replicas, leader election | Option 5 |
+| Zenoh itself | A mesh of routers, a client with a list of `connect/endpoints` and retry, storage replication through an aligner (needs timestamping); no consensus, no leader election | Options 2 and 4 without patching Zenoh (principle 2) |
+
+## Options assessed
+
+Effort in person-days of one engineer who knows the code base, tests included (tests dominate). Target platform: the reference board, 4-core ARM64, 2 GB. All figures are estimates.
+
+| | 1. Supervised restart | 2. Endpoint lists + liveliness arbitration | 3. Warm standby, WAL replication | 4. Mesh of two routers | 5. Raft cluster, 3 nodes |
+|---|---|---|---|---|---|
+| Effort, days | 2–3 | 5–8 | 40–60 | +10–15 on top of 3 | 90–130 |
+| Extra hardware | none | none | +1 host of the same board | +1 host (the one of 3) | +2 hosts |
+| CPU/RAM of the standby | 0 | 0 | base `wyrmd` without links, ~1 % CPU | the whole `~val` flow on the second router: a second memory storage, inter-router traffic = every sample | as 4 plus consensus on every write |
+| Network between hosts | 0 | 0 | WAL: bytes per operation, rarely; history ≈ write rate × ~40 B per row | all of `~val`, always | log + heartbeats |
+| Operations | a systemd unit, a `data_dir` backup | nothing new | key sharing, a VIP or arbitration, replication lag monitoring | one more ACL subject, two gateways | quorum, 3 hosts, runbooks |
+| RTO | 5–40 s (restart 1–3 s; link back-off today up to 30 s) | only with 3 or 4 | 10–30 s (detection T + router build + `hello`) | ~0 s for readers, as 3 for commands | 5–15 s |
+| RPO, control plane | 0 (every WAL append `fsync`ed) | 0 | ≈ 0 (asynchronous: the last operation may not have arrived) | as 3 | 0 |
+| RPO, history and `~val` | history rows pending a flush at SIGKILL; `~val` until re-publication | the same | the same plus replication lag | the same | 0 for replicated stores |
+| Covers | F1, F5, F6 | F5 (which router) | F1, F2, F3, F6; F4 only with fencing | F5 for readers | F1–F4, F6 |
+
+Why 4 and 5 are not taken:
+- **Option 4** adds a path for readers connected to Zenoh directly and read scaling. Gateway clients, upstreams and links are covered by 2 + 3 already (same CN, same endpoint list). The price is the whole `~val` flow between routers, always, and a second memory storage, which a 2 GB board feels. Deferred until a real need for reader scaling or "zero seconds for dashboards".
+- **Option 5** does not remove the hard part: links are single-active because of the devices (Modbus TCP connection limits, serial ports, OPC UA sessions), so the link failover of option 3 is needed anyway, and principle 4 (nobody reads another component's state) would put a replicated log into every component that owns state. Its one gain is fencing without an external VIP, which option 2 provides more cheaply. Refused before 1.0.
+
+## Decision
+
+Options 1, 2 and 3 together; 3 in three stages, each useful on its own.
+
+### Option 1 — supervised restart (now)
+
+- `wyrmd` is run under a supervisor (`systemd` `Restart=always`, or the container runtime); `docs/operations.md` documents the unit, the `data_dir` backup (the WAL and the key files are what cannot be regenerated) and the restore.
+- The process link back-off cap goes from 30 s to 5 s (`process.rs`): with 30 s the link's timer, not the broker, sets the RTO. The SDK runtime keeps its own schedule.
+- An e2e test `broker_restart_rto` kills the active broker (SIGKILL, not a rebuild), starts it again and measures the time until every link's liveliness token and last value are back; the number goes to `docs/backlog.md` beside the `wyr bench` figures and is measured on the reference board.
+- The historian's pending rows are lost on a kill (`flush_ms`, pending cap 200 000): accepted as the RPO of history on F1; the flush interval is the knob.
+
+### Option 2 — endpoint lists and liveliness arbitration
+
+- `WYRM_ENDPOINT` takes a comma-separated list; `wyrm_client::endpoint` (shared by `wyr`, the FFI and Dart) takes a list too, and the Dart `WyrmGateway.client()` takes a list of gateway URLs. Zenoh's client mode connects to the first endpoint it reaches and tries the list again when the session drops; nothing in WYRM re-implements that.
+- **Arbitration by the broker's token.** A link declares its tree and answers `hello` only on a router where the liveliness token `wy/<site>/sys/broker` is present (it already waits for it). Two brokers claiming the same site at once are therefore never both served by a link: the token is one key, and Zenoh liveliness shows a link the tokens it can reach. This is Sparkplug's `STATE` rule with a key WYRM already has.
+- Alone, option 2 changes nothing in a one-broker site; it is the fencing of option 3 and the reason no VIP is required.
+
+### Option 3 — warm standby by WAL replication
+
+A second `wyrmd` on a second host, role `standby`, the same site name, with the site's keys. It holds the control plane and the sealed stores current and runs no router, no links, no engines until it is promoted. "Warm" as in Ignition and OPC UA: configuration ready, devices not polled.
+
+- **Role and keys (stage A).** `wyrmd.json5` gets `standby: { of: "quic/<active>:7448", ca, enroll }` on the standby and `peers.standby: { allow }` on the active. The standby needs the site's own keys, or links and upstreams would not trust it after promotion: the site CA, `state.key`, `secrets.key`, `gateway.key`, `flows.key`, the requester keys and the link store keys (the last ones live in `secrets.bin` and come with it). They are shared once, by an operator, as a sealed bundle (`wyrmd keys export --to <file>` with a one-time passphrase, Argon2id + ChaCha20-Poly1305, `wyrmd keys import` on the standby), never over the network. The standby then enrolls on the active's `peers.enroll` listener as ADR 0015 brokers do and gets a certificate with CN `standby:<site>`, a subject of its own in the ACL (QUIC only, read of the replication keys only, nothing else).
+- **WAL replication (stage A).** The active serves one queryable, `wy/<site>/sys/replication/wal`, answering `next {after: lsn, max}` with the raw WAL records from `lsn + 1` (the HMAC chain comes with them: the standby verifies every record with the shared `state.key`, so a tampered or reordered feed is refused as a local tampered WAL is). The standby appends them to its own WAL and applies the `Op`s to its registry with side effects off (no router build, no process start, no audit record of its own). Replication is asynchronous; `sys/replication/{lag_records, lag_ms, standby_connected}` on the active and `sys/standby/{status, lag_records, lag_ms, last_lsn}` on the standby show it. Secrets go the same way: `secrets.bin` records are already ciphertext under `secrets.key`, so the active ships `(seq, name, ciphertext)` from `sys/replication/secrets` and the standby writes them as they are.
+- **Promotion and demotion (stage A).** The standby keeps a liveliness subscriber on `wy/<site>/sys/broker` through its QUIC session to the active. When the token is gone for `standby.takeover_s` (default 10 s; the session loss itself counts), it promotes itself: opens the router with the full configuration, declares `sys/broker`, starts embedded links and engines, and the process links, gateway clients, peers and upstreams come to it through their endpoint lists (option 2). A promoted standby writes a `Promoted {from_lsn}` record into the WAL and the audit journal. The former active, when it comes back, first looks for `sys/broker` on its standby peer; if the token is there it starts as the standby of that host (`Demoted` record) instead of building a router. Two brokers that cannot see each other (F4) each believe they are alone: the links decide, since they serve only one token (option 2), and the upstream refuses a second `broker:<site>` connection while one is up (ADR 0007 peers: one presence token per CN). Roles swap by design; there is no "primary host" fixed in configuration, only `standby.of` as the initial pair.
+- **Sealed stores and driver edits (stage B).** The portable runtime's store already applies writes per job with a `committed` sequence; `store_put`/`store_delete` get a journal `(seq, key, ciphertext)` under the store key, served as `sys/replication/stores/<link>` with `next {after, max}`; the framework's `driver::persist` writes join the same journal for framework links. The standby writes the ciphertext files as they are. Storage (`wyrm-storage`) gets a `seq` per change and the same `next`, served as `sys/replication/storage`.
+- **History (stage C).** The standby is one more history sink reader: a `Target` of `wyrm-history-sync` that writes into the standby's own `wyrm-history` store (`crates/wyrm-history-sync`, ADR 0026), reading `sys/history/sinks/standby` with `next {after, max}`. After promotion the day files continue from what arrived; the gap is the sink lag. Until stage C ships, history is a gap after a failover, by decision.
+- **What is not replicated.** `~val` (links refill it), gateway sessions (users log in again; tokens still verify, the key is shared), the audit journal of the former active (it stays on its disk; the standby's own audit starts at promotion), process link output logs, packages in `data_dir/packages` (stage B copies package files by SHA-256 through `sys/replication/packages`, since a link install is an `Op` that names them; until then an operator keeps the two package directories equal).
+- **Tests.** e2e on two brokers in one process space over QUIC: `standby_follows_the_wal` (installs, ACL change, a secret, a scheduler event; the standby's registry equals the active's), `standby_takes_over` (SIGKILL the active; links, a gateway client and an upstream are back on the standby within the measured RTO; a `set` works), `old_active_demotes` (it comes back and becomes the standby; its stale WAL tail after the fork point is refused and archived as `wal.stale.<lsn>`), `split_brain_links_serve_one_token`, `standby_refuses_a_tampered_feed`.
+
+## Consequences
+
+- **Two hosts hold the site's keys.** Adding a standby is a trust decision of the same weight as adding a downstream CA was (ADR 0007): whoever holds the standby's `data_dir` is the site. The bundle never crosses the network in WYRM's own protocol; the operator carries it.
+- **RPO is not zero and is not meant to be.** Asynchronous replication can lose the operation an administrator was making at the moment of the crash; they will see it. Synchronous replication (waiting for the standby's acknowledgement on every `Op`) would make the active depend on the standby, one more way to fail. Refused.
+- **Exactly one active, always.** Everything that owns state (admin, flow engine, storage, scheduler, alarm, dql, uplink, every link) runs on the active only; a standby is idle. This follows principle 3 (the broker owns only itself) and principle 4 (nobody reads another's state directly: the standby reads journals through `get`, not files).
+- **Links stay single-active.** No link polls a device from two hosts at once; a warm standby cannot be a hot one for devices. OPC UA "hot" is out of reach by the devices' nature, not by design.
+- **A failover costs seconds, not zero.** `takeover_s` plus a router build plus every link's `hello` and re-publication. On F4 the links serve whichever broker they reach; two reachable brokers with two tokens are an operator error visible in `sys/standby/status` and in the audit, not a data corruption: each link serves one.
+- **Base RAM of `wyrmd` without links on the board is not measured yet.** Option 1's test measures it beside the RTO; it decides whether one 2 GB board can be the standby of a site and a working node for something else.
+- `docs/backlog.md` keeps stages B and C and option 4 as items with their estimates.
+
+## Alternatives
+
+- **A VIP (keepalived, VRRP) in front of two brokers.** Needs a shared L2 segment and a privileged daemon, which edge boards and cloud networks often cannot give; still needs the state replication of option 3. Kept as an operator's choice on top of option 2, never required.
+- **Replicating `data_dir` at the block or file level (DRBD, rsync).** Copies redb files mid-write, carries the WAL anyway, and gives no replication lag figure the broker can show. Refused in favour of the journals the components already have.
+- **Zenoh storage replication for `~val`.** The aligner needs timestamping and a storage on both sides; the owners refill `~val` on reconnect anyway. Not needed.
+- **A standby that also runs the links read-only ("hot")** to shorten the RTO. Devices refuse second connections or answer both, and every driver would need a dry mode. Refused; the RTO is spent in `hello` and re-publication, which a hot link would not skip.
+- **Options 4 and 5**, above.
