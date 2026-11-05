@@ -8606,3 +8606,259 @@ async fn link_process_walks_its_endpoints() {
     decoy.close().await.unwrap();
     env.stop().await;
 }
+
+/// Passphrase of the key bundle in the standby tests (ADR 0036).
+const BUNDLE_PASS: &[u8] = b"standby bundle passphrase";
+
+/// `wyrmd.json5` of a broker of a standby pair in `dir`: its own QUIC peer
+/// listener on `own_quic`, following the other broker on `peer_quic`.
+fn standby_config(dir: &std::path::Path, peer_quic: u16, own_quic: u16, primary: bool) -> Config {
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    Config::from_json5(&format!(
+        r#"{{
+            site: "{SITE}",
+            data_dir: "{}",
+            listen: ["tcp/127.0.0.1:{}"],
+            admin_keys: ["{}"],
+            peers: {{ listen: "quic/127.0.0.1:{own_quic}" }},
+            standby: {{ peer: "quic/127.0.0.1:{peer_quic}", takeover_s: 2, primary: {primary} }},
+        }}"#,
+        dir.display(),
+        free_port(),
+        hex::encode(key.verifying_key().to_bytes())
+    ))
+    .unwrap()
+}
+
+/// Last LSN of the registry WAL in `data_dir` (0 when empty).
+fn registry_lsn(data_dir: &std::path::Path) -> u64 {
+    wyrm_state::replicate::records_after(&data_dir.join("state"), 0, 1)
+        .map(|p| p.last)
+        .unwrap_or(0)
+}
+
+async fn install_external_mock(c: &WyrmClient, id: &str) {
+    let params = Value::Map(BTreeMap::from([
+        ("points".to_owned(), Value::UInt(2)),
+        ("rate_hz".to_owned(), Value::Float(5.0)),
+        ("depth".to_owned(), Value::UInt(1)),
+        ("fanout".to_owned(), Value::UInt(1)),
+    ]));
+    let args = Value::Map(BTreeMap::from([
+        ("id".to_owned(), Value::from(id)),
+        ("driver".to_owned(), Value::from("mock")),
+        ("mode".to_owned(), Value::from("external")),
+        ("params".to_owned(), params),
+    ]));
+    c.invoke_one(&format!("wy/{SITE}/sys/links"), "install", args)
+        .await
+        .unwrap_or_else(|e| panic!("install {id}: {e}"));
+}
+
+/// ADR 0036, option 3, stage A: a standby follows the active's registry
+/// WAL, `secrets.bin` and the link tokens over the peer link, from a
+/// `data_dir` that holds only the key bundle; the copy is a `data_dir` a
+/// broker starts from, and the copied token still opens `hello`.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_follows_the_wal() {
+    let (a_dir, s_dir) = (temp_dir("sb-active"), temp_dir("sb-standby"));
+    let (a_quic, s_quic) = (free_port(), free_port());
+    let env = Env::start_on(
+        &a_dir,
+        &format!(r#"peers: {{ listen: "quic/127.0.0.1:{a_quic}" }}, {MOCK}"#),
+        free_port(),
+        free_port(),
+    )
+    .await;
+    let c = env.client().await;
+    // one change before the standby exists, one while it follows
+    install_external_mock(&c, "ext1").await;
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let cfg = standby_config(&s_dir, a_quic, s_quic, false);
+    let (stop, rx) = oneshot::channel::<()>();
+    let follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    install_external_mock(&c, "ext2").await;
+    eventually("standby caught up", 30, || async {
+        let (a, s) = (registry_lsn(&a_dir), registry_lsn(&s_dir));
+        (a > 0 && a == s).then_some(())
+    })
+    .await;
+    let connected = format!("wy/{SITE}/sys/standby_connected");
+    eventually("sys/standby_connected", 15, || async {
+        (last_val(&c, &connected).await == Some(Value::UInt(1))).then_some(())
+    })
+    .await;
+    let lag = format!("wy/{SITE}/sys/standby_lag");
+    assert_eq!(last_val(&c, &lag).await, Some(Value::UInt(0)));
+    eventually("files replicated", 30, || async {
+        let same = |name: &str| {
+            std::fs::read(a_dir.join(name)).ok() == std::fs::read(s_dir.join(name)).ok()
+        };
+        (same("links/ext1/token") && same("links/ext2/token") && same("secrets.bin")).then_some(())
+    })
+    .await;
+    assert!(std::fs::read(s_dir.join("links/ext1/token")).unwrap().len() > 32);
+    let _ = stop.send(());
+    assert_eq!(
+        follower.await.unwrap().unwrap(),
+        wyrmd::standby::Outcome::Stopped
+    );
+    drop(c);
+    env.stop().await;
+
+    // the copy is a working broker: the links, and a token that opens hello
+    let env = Env::start_on(&s_dir, "", free_port(), free_port()).await;
+    let c = env.client().await;
+    let mut ids: Vec<String> = c
+        .children(&format!("wy/{SITE}/sys/links"))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .filter(|n| n.starts_with("ext"))
+        .collect();
+    ids.sort();
+    assert_eq!(ids, ["ext1", "ext2"]);
+    let token = std::fs::read_to_string(s_dir.join("links/ext2/token")).unwrap();
+    let s = env.tls_session("ext2").await;
+    assert_eq!(
+        hello(&s, "ext2", &token).await,
+        Some(wyrm_core::status::StatusCode::Known(wyrm_core::Status::Ok))
+    );
+    env.stop().await;
+}
+
+/// ADR 0036, option 3, stage A: the active goes, the standby takes over
+/// after `takeover_s`, a link with both endpoints comes to the new active
+/// and commands work there; then the old active comes back as the standby
+/// of the new one, finds that its history forked (a record the standby
+/// never got) and starts again from the leader's.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_takes_over_and_the_old_active_demotes() {
+    let (a_dir, s_dir) = (temp_dir("to-active"), temp_dir("to-standby"));
+    let (a_quic, s_quic, a_tcp, s_tcp) = (free_port(), free_port(), free_port(), free_port());
+    const LINK: &str = r#"profile: "dev",
+        links: { walk: { driver: "mock", mode: "external", params: { points: 4, rate_hz: 10, depth: 1, fanout: 2 } } },"#;
+    let extra = |quic: u16| format!(r#"peers: {{ listen: "quic/127.0.0.1:{quic}" }}, {LINK}"#);
+    let env = Env::start_on(&a_dir, &extra(a_quic), a_tcp, free_port()).await;
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let cfg = standby_config(&s_dir, a_quic, s_quic, true);
+    let (stop, rx) = oneshot::channel::<()>();
+    let follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    // the link knows both brokers (option 2)
+    let token = a_dir.join("links/walk/token");
+    let mut link = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .args(["link", "mock"])
+        .env("WYRM_SITE", SITE)
+        .env("WYRM_LINK_ID", "walk")
+        .env(
+            "WYRM_ENDPOINT",
+            format!("tcp/127.0.0.1:{a_tcp},tcp/127.0.0.1:{s_tcp}"),
+        )
+        .env("WYRM_BROKER_WAIT_S", "2")
+        .env("WYRM_TOKEN_FILE", &token)
+        .env("WYRM_PARENT_PID", std::process::id().to_string())
+        .env("RUST_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let served_by = |port: u16| async move {
+        let c = eventually("broker listening", 30, || async { client_on(port).await }).await;
+        let state = format!("wy/{SITE}/sys/links/walk/state");
+        eventually("walk connected", 30, || async {
+            (last_val(&c, &state).await == Some(Value::UInt(2))).then_some(())
+        })
+        .await;
+        let sub = c
+            .session()
+            .declare_subscriber(format!("wy/{SITE}/downstream/walk/**/~val"))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), sub.recv_async())
+            .await
+            .expect("a live sample from the link")
+            .unwrap();
+        c
+    };
+    let c = served_by(a_tcp).await;
+    eventually("standby caught up", 30, || async {
+        let (a, s) = (registry_lsn(&a_dir), registry_lsn(&s_dir));
+        (a > 0
+            && a == s
+            && std::fs::read(a_dir.join("links/walk/token")).ok()
+                == std::fs::read(s_dir.join("links/walk/token")).ok())
+        .then_some(())
+    })
+    .await;
+    drop(c);
+    drop(stop);
+    // the active goes; the standby (primary, takeover 2 s) takes over
+    env.stop().await;
+    let outcome = tokio::time::timeout(Duration::from_secs(20), follower)
+        .await
+        .expect("takeover in time")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
+    // a record the standby never got: the old active's history forks
+    {
+        let key = hex::decode(
+            std::fs::read_to_string(a_dir.join("state.key"))
+                .unwrap()
+                .trim(),
+        )
+        .unwrap();
+        let mut reg: wyrm_state::Store<wyrm_admin::registry::Registry> =
+            wyrm_state::Store::open(a_dir.join("state"), &key).unwrap();
+        reg.apply(wyrm_admin::registry::Op::SetOption {
+            name: "enable_quarantine".into(),
+            on: false,
+        })
+        .unwrap();
+    }
+    // promoted: the followed data_dir, as a broker (what `wyrmd` does after Takeover)
+    let env = Env::start_on(&s_dir, &extra(s_quic), s_tcp, free_port()).await;
+    let c = served_by(s_tcp).await;
+    assert!(link.try_wait().unwrap().is_none(), "the link runs");
+    c.set(&format!("wy/{SITE}/downstream/walk/g0/p0"), 42.0)
+        .await
+        .expect("a set on the new active");
+    install_external_mock(&c, "ext3").await;
+    // the old active follows the new one and drops its forked history
+    let cfg = standby_config(&a_dir, s_quic, a_quic, false);
+    let (stop, rx) = oneshot::channel::<()>();
+    let follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    eventually("old active resynced", 30, || async {
+        let (a, s) = (registry_lsn(&a_dir), registry_lsn(&s_dir));
+        (s > 0 && a == s && a_dir.join("state.stale.1").is_dir()).then_some(())
+    })
+    .await;
+    let _ = stop.send(());
+    assert_eq!(
+        follower.await.unwrap().unwrap(),
+        wyrmd::standby::Outcome::Stopped
+    );
+    let _ = link.kill();
+    let _ = link.wait();
+    env.stop().await;
+}

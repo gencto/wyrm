@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod standby;
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -127,6 +129,11 @@ pub struct Config {
     /// The embedded uplink at `wy/<site>/downstream/uplink` (ADR 0035): platform upstreams.
     #[serde(default)]
     pub uplink: UplinkSection,
+    /// A warm standby pair (ADR 0036): the other broker of this site. With
+    /// it, `wyrmd` follows the other broker until it is away, then opens
+    /// the daemon on the followed `data_dir`.
+    #[serde(default)]
+    pub standby: Option<standby::StandbySection>,
 }
 
 /// `alarm` in `wyrmd.json5`: on by default.
@@ -430,6 +437,7 @@ impl PeersSection {
                     .map(|d| (d.site.clone(), d.via.clone()))
                     .collect(),
                 enroll: self.enroll.is_some(),
+                standby: self.listen.is_some(),
                 config_from: self
                     .upstream
                     .iter()
@@ -633,6 +641,9 @@ impl Config {
             }
         }
         cfg.peers.validate(&cfg.site)?;
+        if let Some(s) = &cfg.standby {
+            s.validate(cfg.peers.listen.is_some())?;
+        }
         if let Some(a) = &cfg.state_anchor_dir {
             if a.starts_with(&cfg.data_dir) {
                 return Err(format!(

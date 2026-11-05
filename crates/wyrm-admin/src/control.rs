@@ -41,6 +41,7 @@ use wyrm_link_sdk::{
 use wyrm_state::{StateError, Store};
 use zenoh::Session;
 
+pub mod replication;
 mod signers;
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -244,7 +245,7 @@ const ACL_DENIED: &str = "acl_denied";
 
 /// Broker status values of `sys`, measured every metrics interval: key,
 /// display name, unit, description.
-const SYS_STATUS: [(&str, &str, &str); 14] = [
+const SYS_STATUS: [(&str, &str, &str); 16] = [
     ("uptime", "s", "Seconds since the broker process started."),
     ("links_total", "", "Installed links."),
     (
@@ -300,6 +301,16 @@ const SYS_STATUS: [(&str, &str, &str); 14] = [
         "Size of data_dir, measured every minute.",
     ),
     ("audit_records", "", "Records in the audit journal."),
+    (
+        "standby_connected",
+        "",
+        "1 while a warm standby follows this broker over the peer link (ADR 0036).",
+    ),
+    (
+        "standby_lag",
+        "",
+        "Records of the registry WAL the standby has not received yet.",
+    ),
 ];
 
 /// Display name and description of the [`Options`] values.
@@ -349,6 +360,8 @@ pub struct Control {
     /// Overlay names published last ([`publish_overlays`]): one that is
     /// gone (its last watch removed, its link removed) loses its node.
     overlays_shown: Mutex<BTreeSet<String>>,
+    /// The warm standby's last registry query (ADR 0036).
+    standby_seen: Mutex<Option<replication::StandbySeen>>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -681,6 +694,7 @@ impl Control {
                 enroll_wake: tokio::sync::Notify::new(),
                 enroll_seen: Mutex::default(),
                 overlays_shown: Mutex::default(),
+                standby_seen: Mutex::new(None),
             }),
             rx,
         ))
@@ -1392,6 +1406,7 @@ impl Control {
         let cfg = self.config_peers();
         let mut p = cfg.peers;
         p.enroll = cfg.enroll;
+        p.standby = cfg.listen;
         for d in &self.runtime_peers() {
             match d.dir {
                 PeerDir::Upstream if d.enabled => {
@@ -1847,6 +1862,10 @@ impl Control {
             tokio::spawn(expire_enrollments(self.clone(), ctx.clone())),
             tokio::spawn(signers::follow_signers(self.clone(), ctx.clone())),
             tokio::spawn(signers::serve_signing_keys(self.clone(), session.clone())),
+            tokio::spawn(replication::serve_replication(
+                self.clone(),
+                session.clone(),
+            )),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -6328,6 +6347,15 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         set("packages_total", reg.packages.len() as f64).await;
         set("upstream_connected", count(&peers.upstream) as f64).await;
         set("downstream_connected", count(&peers.downstream) as f64).await;
+        let standby = ctl
+            .standby_seen()
+            .filter(|s| s.at.elapsed() < replication::SEEN_FOR);
+        set(
+            "standby_connected",
+            if standby.is_some() { 1.0 } else { 0.0 },
+        )
+        .await;
+        set("standby_lag", standby.map_or(0.0, |s| s.lag as f64)).await;
         let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
         set("audit_records", audit as f64).await;
         let now = std::time::Instant::now();

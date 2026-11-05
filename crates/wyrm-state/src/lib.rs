@@ -17,6 +17,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod replicate;
+
 use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;

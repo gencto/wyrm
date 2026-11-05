@@ -405,10 +405,13 @@ before 1.0. Estimates in person-days, tests included.
   the supervisor passes only the broker's own endpoint to the links it
   starts (stage A of option 3 adds the standby's); the Flutter explorer's
   login form takes one URL.
-- Option 3, warm standby, stage A (25–35): role `standby`, the sealed key
-  bundle, enrollment as `standby:<site>`, `sys/replication/wal` +
-  `secrets` with `next {after, max}`, promotion/demotion, the five e2e
-  tests of the ADR.
+- Option 3, warm standby, stage A: done 2026-11-05 (`standby` section,
+  `wyrmd keys export|import`, `sys/replication/**`, `wyrm_state::replicate`,
+  `wyrmd::standby`, e2e `standby_follows_the_wal` and
+  `standby_takes_over_and_the_old_active_demotes`). Left from stage A:
+  a test of two active brokers stepping down; the leader reads its whole
+  segment files on every poll (an offset index would spare that on a long
+  WAL); the Flutter explorer does not show the standby.
 - Stage B (11–17): journals for the portable stores, `driver::persist` and
   `wyrm-storage`; package files by SHA-256.
 - Stage C (5–8): the standby as a history sink target

@@ -8,6 +8,7 @@ pub mod control;
 pub mod fetch;
 pub mod git;
 pub mod history;
+pub mod keys;
 pub mod logs;
 pub mod packages;
 pub mod peers;

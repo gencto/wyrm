@@ -20,6 +20,9 @@
   // (Url = enroll) and ask for a certificate; a token, allow_all_links or
   // quarantine admits them (ADR 0015).
   // peers: { listen: "quic/0.0.0.0:7449", enroll: "quic/0.0.0.0:7450" },
+  // A warm standby pair (ADR 0036, docs/operations.md): both brokers of the
+  // site name each other's peers.listen; the keys come from `wyrmd keys`.
+  // standby: { peer: "quic/10.0.0.2:7449", takeover_s: 10, primary: true },
   // Or with files (wyrmd ca on the upstream issues them):
   // peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "central-ca.pem", cert: "broker.pem", key: "broker.key" }], upstream_val_hz: 1 },
   // User gateway; first admin password from WYRM_GATEWAY_ADMIN_PASSWORD.

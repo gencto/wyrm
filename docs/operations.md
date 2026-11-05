@@ -142,6 +142,67 @@ both brokers, and nothing on the client side changes at a failover.
   `client()` logs in again on the next gateway when the one in use is gone
   or does not know the session (each broker holds its own sessions).
 
+### Warm standby (ADR 0036, option 3, stage A)
+
+Two brokers of one site on two hosts, one active, one following. The
+standby copies the control plane (the registry, flow definitions, gateway
+users), `secrets.bin` and the link tokens as they change, and takes over
+when the active is away. It runs no router and polls no device until then.
+What it does not copy yet: the historian, broker storage, the sealed stores
+of the scheduler, alarm, DQL and uplink links, runtime edits of drivers,
+installed package files (stages B and C of the ADR).
+
+Set it up once:
+
+1. Both `wyrmd.json5` files are the same but for the addresses, and both
+   have a QUIC peer listener and a `standby` section naming the other host
+   (`tls_names` must contain the host name or address the other side uses):
+   ```json5
+   peers: { listen: "quic/0.0.0.0:7449" },
+   standby: { peer: "quic/10.0.0.2:7449", takeover_s: 10, primary: true },   // host A
+   standby: { peer: "quic/10.0.0.1:7449", takeover_s: 10, primary: false },  // host B
+   ```
+   `primary: true` on one host only: it takes over after `takeover_s`,
+   the other after three times that, and when both are active after a
+   network split, the other steps down.
+2. On the broker that has run (host A), export the site's keys with a
+   passphrase of at least 12 characters, and carry the file to host B:
+   ```bash
+   WYRM_KEYS_PASSPHRASE='…' wyrmd -c wyrmd.json5 keys export site-keys.wykb
+   ```
+3. On host B, with an empty `data_dir`:
+   ```bash
+   WYRM_KEYS_PASSPHRASE='…' wyrmd -c wyrmd.json5 keys import site-keys.wykb
+   ```
+   then delete the file on both hosts: it is the site.
+4. Start `wyrmd` on host B as on host A (section 2). It logs
+   `standby: following`; host A shows `sys/standby_connected` 1 and
+   `sys/standby_lag` 0 once it has caught up.
+
+What happens at a failover: host A goes; after `takeover_s` host B logs
+`standby: promoted`, opens the broker on the followed `data_dir`, and the
+links, gateway clients and upstream brokers that know both addresses
+(section "Several endpoints") come to it. When host A is back it follows
+host B (`standby: following`); if host A is the primary and host B is
+not, host B steps down the moment it sees host A's broker token, and host
+A takes over after `takeover_s`: one more short gap, then the primary is
+active again. Each change of role is an audit record, `promoted` or
+`demoted`.
+
+Rules of thumb:
+- Keep the two `wyrmd.json5` files the same. A link named in host A's
+  `links` and not in host B's is gone after a failover.
+- The standby's `data_dir` is as sensitive as the active's: it holds the
+  site's keys.
+- The standby follows asynchronously: the operation made in the second the
+  active died may be lost; the administrator sees it missing.
+- The links the broker supervises (`mode: "process"`) die with it and are
+  started again by the new active; links run by hand and external links
+  need both addresses in `WYRM_ENDPOINT`.
+- With `state_anchor_dir` on the standby, the follower keeps the anchors
+  at its head; a history that forked (a record the standby never got) is
+  moved aside as `state.stale.<n>` and copied again from the active.
+
 ### Several sites
 
 A site does not depend on its upstream: it keeps polling, recording and
