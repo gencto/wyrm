@@ -1,7 +1,7 @@
 # Minimal container images
 
-One static build (musl, the release profile: thin LTO, one codegen unit, stripped; mimalloc
-as the allocator), then one `scratch` image per binary: the binary, the CA roots, `/etc/passwd`
+One static build (musl, the release profile: thin LTO, one codegen unit, stripped), then one
+`scratch` image per binary: the binary, the CA roots, `/etc/passwd`
 with an unprivileged user (65532) and empty directories that user owns. No shell, no libc,
 no package manager: nothing in an image but what the program reads.
 
@@ -24,8 +24,11 @@ release profile. A cold build of everything takes about 90 min on 2 jobs (Apple 
 for Docker); `--build-arg LINKS="modbus snmp"` builds only those.
 
 Runtime notes:
-- mimalloc (feature `wyrmd/mimalloc`, `wyrm-link-sdk/mimalloc`): musl's malloc is slow under
-  many threads.
+- The allocator is musl's own. mimalloc was tried and dropped: it reserves a 1 GiB arena at
+  start, so a process link under its `RLIMIT_DATA` (`link_limits.memory_mb`, 1024 by default)
+  could not start a single thread (Linux CI). The measurements below were taken with the
+  mimalloc builds: binary and image sizes differ by a few hundred KiB at most; idle memory
+  with musl's allocator was not measured again.
 - The runtime runs on a thread with an 8 MiB stack (`wyrm_link_sdk::process::run_on_big_stack`):
   with musl `stacker` cannot tell the main thread's stack bounds, and the JSON5 parser of the
   Zenoh config then refuses every input ("stack limit reached").

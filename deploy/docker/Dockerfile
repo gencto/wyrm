@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # Minimal container images of WYRM (deploy/docker/README.md): one static musl build (the
-# release profile: thin LTO, one codegen unit, stripped; mimalloc), then one `scratch` image per
+# release profile: thin LTO, one codegen unit, stripped), then one `scratch` image per
 # binary: no shell, no libc, no package manager.
 #
 #   docker build -f deploy/docker/Dockerfile --target wyrmd -t wyrm/wyrmd .
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/target,id=wyrm-musl-target \
     set -eu; \
     pkgs="-p wyrmd -p wyr -p wyrm-link-agent"; bins="--bin wyrmd --bin wyr --bin wyrm-agent"; \
-    feats="wyrmd/mimalloc,wyrm-link-agent/cli"; \
+    feats="wyrm-link-agent/cli"; \
     for l in $LINKS; do \
       pkgs="$pkgs -p wyrm-link-$l"; bins="$bins --bin wyrm-link-$l"; feats="$feats,wyrm-link-$l/process"; \
     done; \
