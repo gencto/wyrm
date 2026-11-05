@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# mimalloc as the allocator of wyrmd and of every link binary built with it (the container
+# images, deploy/docker: static musl, whose malloc is slow under many threads).
+mimalloc = ["wyrm-link-sdk/mimalloc"]
+
 [dependencies]
 wyrm-core.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["advanced", "process"] }

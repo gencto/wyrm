@@ -12,6 +12,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [dql.md](dql.md) | collect values from many points into one table, or write them on to a target |
 | [alarm.md](alarm.md) | raise alarms from points (range, boolean, staleness, quality), acknowledge them, send the records to a central database |
 | [uplink.md](uplink.md) | send live values to an MQTT broker (UNS), a Sparkplug B host, ThingsBoard, Azure IoT Hub or AWS IoT Core |
+| [../deploy/docker](../deploy/docker/README.md) | run the broker and links in minimal `scratch` containers; image sizes and memory |
 | [filestores.md](filestores.md) | connect S3, Google Drive, WebDAV or a local directory and move files |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |

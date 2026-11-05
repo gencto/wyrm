@@ -1,0 +1,18 @@
+# Build context of deploy/docker/Dockerfile (the repository root): sources only.
+.git
+# tool state and files the Rust build never reads: a change there would invalidate the build
+.remember
+.superpowers
+.claude
+deploy
+docs
+dart
+**/target
+target
+examples/demo/data
+examples/docker
+examples/packages/out
+dart/**/build
+dart/**/.dart_tool
+**/node_modules
+*.log

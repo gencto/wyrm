@@ -351,12 +351,32 @@ where
             return std::process::ExitCode::FAILURE;
         }
     };
-    match rt.block_on(run::<L>()) {
+    match run_on_big_stack(move || rt.block_on(run::<L>())) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("link: {e}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+/// Stack of the thread [`run_on_big_stack`] makes.
+pub const MAIN_STACK_BYTES: usize = 8 << 20;
+
+/// Runs `f` on a thread of its own with a stack of [`MAIN_STACK_BYTES`], and returns its result
+/// (a panic goes on as one). A binary's runtime runs there, not on the main thread: with musl
+/// (the static container builds, deploy/docker) `stacker` cannot tell the main thread's stack
+/// bounds, and the JSON5 parser of the Zenoh config (pest) then refuses every input with "stack
+/// limit reached". A thread the program made has known bounds on every libc.
+pub fn run_on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let h = std::thread::Builder::new()
+        .name("main-rt".into())
+        .stack_size(MAIN_STACK_BYTES)
+        .spawn(f)
+        .unwrap_or_else(|e| panic!("cannot start the runtime thread: {e}"));
+    match h.join() {
+        Ok(t) => t,
+        Err(p) => std::panic::resume_unwind(p),
     }
 }
 

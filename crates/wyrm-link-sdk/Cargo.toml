@@ -19,8 +19,13 @@ process = ["tokio/signal", "tokio/rt-multi-thread", "zenoh/transport_tls", "zeno
 # Link packages (ADR 0021): manifest, repository index, zip writer; for the
 # broker and `wyr`, not for links.
 package = ["dep:serde", "dep:zip", "dep:hex"]
+# mimalloc as the global allocator of every binary built with it (wyrmd, the link binaries):
+# the container images (deploy/docker) link musl statically, and musl's malloc is slow
+# under many threads.
+mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+mimalloc = { workspace = true, optional = true }
 wyrm-core.workspace = true
 zenoh.workspace = true
 futures-util = { workspace = true, features = ["std"] }

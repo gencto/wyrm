@@ -130,10 +130,11 @@ fn main() -> Result<(), Error> {
         // after it (wyrm_link_sdk::limits).
         wyrm_link_sdk::limits::apply_from_env()?;
     }
-    tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?
-        .block_on(run(args))
+        .build()?;
+    // on a thread with known stack bounds (musl: see `run_on_big_stack`)
+    wyrm_link_sdk::process::run_on_big_stack(move || rt.block_on(run(args)))
 }
 
 async fn run(args: Args) -> Result<(), Error> {

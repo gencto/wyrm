@@ -11,6 +11,11 @@
 
 #![forbid(unsafe_code)]
 
+/// Feature `mimalloc`: the allocator of every binary built with it (deploy/docker).
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod auth;
 pub mod ctx;
 pub mod driver;

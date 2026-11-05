@@ -1,0 +1,67 @@
+// The broker in a container (deploy/docker/compose.yaml). Links run in their own containers
+// as `external` links and reach it over mTLS (tls/wyrmd:7448); the broker issues their
+// certificates and tokens into /data/links/<id>, and the provision step hands each link its own.
+{
+  site: "site1",
+  profile: "prod",
+  data_dir: "/data",
+  // plaintext only on loopback (in-process clients, the tools sidecar), TLS for the links
+  listen: ["tcp/127.0.0.1:7447", "tls/0.0.0.0:7448"],
+  // the names the links dial: the server certificate carries them
+  tls_names: ["wyrmd", "localhost", "127.0.0.1"],
+  admin_keys: [],
+  // The user gateway stays on loopback (TLS is required elsewhere); compose forwards it to
+  // this host and runs the tools in the broker's network namespace.
+  gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },
+  links: {
+    // Modbus TCP against the simulator container (172.28.0.20)
+    modbus: {
+      driver: "modbus",
+      mode: "external",
+      params: {
+        connections: {
+          line1: {
+            host: "172.28.0.20",
+            port: 5020,
+            timeout_ms: 1000,
+            devices: {
+              ahu1: {
+                unit: 1,
+                ping: "probe",
+                probe_table: "holding",
+                probe_addr: 0,
+                points: {
+                  supply_temp: { table: "input", addr: 1, dtype: "i16", scale: 0.1, unit: "°C", poll_s: 1 },
+                  counter: { table: "holding", addr: 0, dtype: "u16", poll_s: 1 },
+                  setpoint: { table: "holding", addr: 10, dtype: "f32", writable: true, unit: "°C", poll_s: 1 },
+                  fan: { table: "coil", addr: 3, dtype: "binary", writable: true, poll_s: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    // SNMP v2c against the simulator container (172.28.0.21)
+    snmp: {
+      driver: "snmp",
+      mode: "external",
+      params: {
+        connections: {
+          sim: {
+            kind: "snmp_v2c", host: "172.28.0.21", port: 1161, community: "public",
+            devices: {
+              agent: {
+                points: {
+                  uptime: { oid: "1.3.6.1.2.1.1.3.0", conv: "timeticks_s", unit: "s" },
+                  eth0_in: { oid: "1.3.6.1.2.1.31.1.1.1.6", kind: "table_column", index: "1",
+                             conv: "rate_per_s", scale: 8, unit: "bit/s", poll_s: 5 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}

@@ -1,0 +1,155 @@
+# The broker and two links, each in a minimal `scratch` image (deploy/docker/README.md).
+#
+#   docker compose -f deploy/docker/compose.yaml up -d --build
+#   docker compose -f deploy/docker/compose.yaml run --rm tools     # wyr, wyrm-agent
+#
+# Gateway for the Flutter app on this host: http://127.0.0.1:8445 (admin / wyrm-demo-1).
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp"]
+
+x-build: &build
+  context: ../..
+  dockerfile: deploy/docker/Dockerfile
+
+x-link-env: &link-env
+  WYRM_SITE: site1
+  WYRM_ENDPOINT: tls/wyrmd:7448
+  WYRM_CA: /link/ca.pem
+  WYRM_CERT: /link/link.pem
+  WYRM_KEY: /link/link.key
+  WYRM_TOKEN_FILE: /link/token
+
+services:
+  wyrmd:
+    <<: *hardened
+    image: wyrm/wyrmd:local
+    build: { <<: *build, target: wyrmd }
+    environment:
+      WYRM_GATEWAY_ADMIN_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:-wyrm-demo-1}
+      RUST_LOG: info,zenoh=warn
+    volumes:
+      - wyrm-data:/data
+      - ./wyrmd.json5:/etc/wyrm/wyrmd.json5:ro
+    ports:
+      # the loopback gateway, forwarded by gateway-port below: this host only
+      - "127.0.0.1:8445:18445"
+    networks:
+      wyrm: { ipv4_address: 172.28.0.10 }
+    restart: unless-stopped
+
+  # The gateway listens on the broker's loopback (TLS is required elsewhere); this forwards it
+  # to the port published above, for the Flutter app on this host. Leave it out in production.
+  gateway-port:
+    image: alpine/socat:1.8.0.3
+    network_mode: service:wyrmd
+    command: ["tcp-listen:18445,fork,reuseaddr", "tcp:127.0.0.1:8445"]
+    depends_on: [wyrmd]
+    restart: unless-stopped
+
+  # Hands each link only its own files (the CA certificate, its certificate, key and token)
+  # from the broker's data once they exist: the links never see the broker's volume or CA key.
+  provision:
+    image: alpine:3.22
+    volumes:
+      - wyrm-data:/wyrm:ro
+      - link-files:/out
+    environment:
+      LINKS: modbus snmp
+    command:
+      - sh
+      - -euc
+      - |
+        for id in $$LINKS; do
+          d=/wyrm/links/$$id
+          for i in $$(seq 120); do
+            [ -s /wyrm/pki/ca.pem ] && [ -s $$d/token ] && [ -s $$d/link.key ] && break
+            sleep 1
+          done
+          mkdir -p /out/$$id
+          cp /wyrm/pki/ca.pem $$d/link.pem $$d/link.key $$d/token /out/$$id/
+          chown -R 65532:65532 /out/$$id
+          chmod 0400 /out/$$id/link.key /out/$$id/token
+          echo "provisioned $$id"
+        done
+    depends_on: [wyrmd]
+    network_mode: none
+
+  link-modbus:
+    <<: *hardened
+    image: wyrm/link-modbus:local
+    build: { <<: *build, target: link, args: { LINK: modbus } }
+    environment: { <<: *link-env, WYRM_LINK_ID: modbus }
+    volumes:
+      - type: volume
+        source: link-files
+        target: /link
+        read_only: true
+        volume: { subpath: modbus }
+      - modbus-state:/state
+    depends_on:
+      provision: { condition: service_completed_successfully }
+    networks: [wyrm]
+    restart: unless-stopped
+
+  link-snmp:
+    <<: *hardened
+    image: wyrm/link-snmp:local
+    build: { <<: *build, target: link, args: { LINK: snmp } }
+    environment: { <<: *link-env, WYRM_LINK_ID: snmp }
+    volumes:
+      - type: volume
+        source: link-files
+        target: /link
+        read_only: true
+        volume: { subpath: snmp }
+      - snmp-state:/state
+    depends_on:
+      provision: { condition: service_completed_successfully }
+    networks: [wyrm]
+    restart: unless-stopped
+
+  modbus-sim:
+    <<: *hardened
+    image: wyrm/sim-modbus:local
+    build: { <<: *build, target: sim, args: { SIM: modbus } }
+    command: ["--listen", "0.0.0.0:5020"]
+    networks:
+      wyrm: { ipv4_address: 172.28.0.20 }
+    restart: unless-stopped
+
+  snmp-sim:
+    <<: *hardened
+    image: wyrm/sim-snmp:local
+    build: { <<: *build, target: sim, args: { SIM: snmp } }
+    command: ["--listen", "0.0.0.0:1161"]
+    networks:
+      wyrm: { ipv4_address: 172.28.0.21 }
+    restart: unless-stopped
+
+  # wyr and wyrm-agent next to the broker's loopback gateway:
+  #   docker compose -f deploy/docker/compose.yaml run --rm tools
+  #   $ wyr probe --gateway http://127.0.0.1:8445 --site site1
+  tools:
+    image: wyrm/tools:local
+    build: { <<: *build, target: tools }
+    network_mode: service:wyrmd
+    environment:
+      WYR_GATEWAY_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:-wyrm-demo-1}
+    profiles: [tools]
+    stdin_open: true
+    tty: true
+
+networks:
+  wyrm:
+    ipam:
+      config: [{ subnet: 172.28.0.0/24 }]
+
+volumes:
+  wyrm-data:
+  link-files:
+  modbus-state:
+  snmp-state:

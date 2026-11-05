@@ -145,6 +145,8 @@ wyrm-link-gdrive = { path = "links/gdrive" }
 wyrm-link-webdav = { path = "links/webdav" }
 wyrm-link-localfs = { path = "links/localfs" }
 wyrm-link-uplink = { path = "links/uplink" }
+# the allocator of the container builds (wyrm-link-sdk feature `mimalloc`, deploy/docker)
+mimalloc = { version = "0.1.52", default-features = false }
 # Label matchers of links/prometheus: linear-time regexes, no backreferences.
 regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
 
