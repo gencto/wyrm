@@ -21,6 +21,11 @@ const SEED: [u8; 32] = [9; 32];
 static GATEWAY_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const SITE: &str = "e2e";
 
+/// Held by the fault-tolerance tests (ADR 0036): each runs several brokers
+/// or link processes and polls on timers, so they take turns instead of
+/// loading the machine together with the other multi-broker tests.
+static HEAVY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A loopback port for a broker listener (`tcp/`, `tls/` or `quic/`): free
 /// for TCP and UDP, never handed out twice in this process.
 ///
@@ -8409,6 +8414,7 @@ fn rss_kib(pid: u32) -> Option<u64> {
 /// memory of a broker that runs no link, for `docs/operations.md`.
 #[tokio::test(flavor = "multi_thread")]
 async fn broker_restart_rto() {
+    let _heavy = HEAVY.lock().await;
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
@@ -8536,6 +8542,7 @@ async fn broker_restart_rto() {
 /// link leaves the router whose token is gone and serves the new broker.
 #[tokio::test(flavor = "multi_thread")]
 async fn link_process_walks_its_endpoints() {
+    let _heavy = HEAVY.lock().await;
     let dir = temp_dir("walk");
     const LINK: &str = r#"profile: "dev",
         links: { walk: { driver: "mock", mode: "external", params: { points: 4, rate_hz: 10, depth: 1, fanout: 2 } } },"#;
@@ -8689,6 +8696,7 @@ async fn install_external_mock(port: u16, id: &str) {
 /// broker starts from, and the copied token still opens `hello`.
 #[tokio::test(flavor = "multi_thread")]
 async fn standby_follows_the_wal() {
+    let _heavy = HEAVY.lock().await;
     let (a_dir, s_dir) = (temp_dir("sb-active"), temp_dir("sb-standby"));
     let (a_quic, s_quic) = (free_port(), free_port());
     let env = Env::start_on(
@@ -8776,6 +8784,7 @@ async fn standby_follows_the_wal() {
 /// never got) and starts again from the leader's.
 #[tokio::test(flavor = "multi_thread")]
 async fn standby_takes_over_and_the_old_active_demotes() {
+    let _heavy = HEAVY.lock().await;
     let (a_dir, s_dir) = (temp_dir("to-active"), temp_dir("to-standby"));
     let (a_quic, s_quic, a_tcp, s_tcp) = (free_port(), free_port(), free_port(), free_port());
     const LINK: &str = r#"profile: "dev",
@@ -8907,6 +8916,7 @@ async fn standby_takes_over_and_the_old_active_demotes() {
 /// there with its replicated token.
 #[tokio::test(flavor = "multi_thread")]
 async fn standby_follows_stores() {
+    let _heavy = HEAVY.lock().await;
     let (a_dir, s_dir) = (temp_dir("st-active"), temp_dir("st-standby"));
     let (a_quic, s_quic) = (free_port(), free_port());
     const LINKS: &str = r#"links: { md: { driver: "mockdev", params: { connections: {} } } },"#;
@@ -9091,6 +9101,7 @@ async fn standby_follows_stores() {
 /// answers Get History with the rows recorded on the active.
 #[tokio::test(flavor = "multi_thread")]
 async fn standby_follows_history() {
+    let _heavy = HEAVY.lock().await;
     let (a_dir, s_dir) = (temp_dir("hi-active"), temp_dir("hi-standby"));
     let (a_quic, s_quic) = (free_port(), free_port());
     let extra = |quic: u16| format!(r#"peers: {{ listen: "quic/127.0.0.1:{quic}" }}, {MOCK}"#);
