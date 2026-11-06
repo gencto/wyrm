@@ -528,6 +528,42 @@ pub fn parse_history(v: Value) -> Option<HistoryPage> {
     })
 }
 
+/// One part of a file: its total length, the bytes `[offset, offset +
+/// len)`, and with the first part the SHA-256 of the whole file (read
+/// through once, in blocks). Later parts read only their own range.
+fn read_part(
+    path: &Path,
+    offset: u64,
+    len: u64,
+) -> Result<(u64, Vec<u8>, Option<Vec<u8>>), String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let total = f.metadata().map_err(|e| e.to_string())?.len();
+    if total > MAX_FILE_LEN {
+        return Err("file too large to replicate".into());
+    }
+    let digest = if offset == 0 {
+        let mut h = sha2::Sha256::new();
+        let mut block = vec![0u8; 64 << 10];
+        loop {
+            let n = f.read(&mut block).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            h.update(&block[..n]);
+        }
+        Some(h.finalize().to_vec())
+    } else {
+        None
+    };
+    let start = offset.min(total);
+    let want = len.min(total - start) as usize;
+    f.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut part = vec![0u8; want];
+    f.read_exact(&mut part).map_err(|e| e.to_string())?;
+    Ok((total, part, digest))
+}
+
 fn error_value(why: &str) -> Value {
     Value::Map(BTreeMap::from([("error".to_owned(), Value::from(why))]))
 }
@@ -590,29 +626,24 @@ impl Control {
                     return error_value("offset and len: numbers");
                 };
                 let len = len.clamp(1, PART_LEN);
-                let bytes = match std::fs::read(d.join(&name)) {
-                    Ok(b) => b,
-                    Err(e) => return error_value(&e.to_string()),
-                };
-                let total = bytes.len() as u64;
-                if total > MAX_FILE_LEN {
-                    return error_value("file too large to replicate");
+                match read_part(&d.join(&name), offset, len) {
+                    Ok((total, part, digest)) => {
+                        let mut m = BTreeMap::from([
+                            ("name".to_owned(), Value::from(name)),
+                            ("offset".to_owned(), Value::UInt(offset)),
+                            ("total".to_owned(), Value::UInt(total)),
+                            (
+                                "sealed".to_owned(),
+                                Value::Bytes(wyrm_link_sdk::seal::seal(file_key, &part)),
+                            ),
+                        ]);
+                        if let Some(d) = digest {
+                            m.insert("sha256".to_owned(), Value::Bytes(d));
+                        }
+                        Value::Map(m)
+                    }
+                    Err(e) => error_value(&e),
                 }
-                let start = offset.min(total) as usize;
-                let end = (offset.saturating_add(len)).min(total) as usize;
-                let mut m = BTreeMap::from([
-                    ("name".to_owned(), Value::from(name)),
-                    ("offset".to_owned(), Value::UInt(offset)),
-                    ("total".to_owned(), Value::UInt(total)),
-                    (
-                        "sealed".to_owned(),
-                        Value::Bytes(wyrm_link_sdk::seal::seal(file_key, &bytes[start..end])),
-                    ),
-                ]);
-                if offset == 0 {
-                    m.insert("sha256".to_owned(), Value::Bytes(sha256(&bytes)));
-                }
-                Value::Map(m)
             }
             ["history", after, max] => {
                 let (Ok(after), Ok(max)) = (after.parse::<u64>(), max.parse::<usize>()) else {
