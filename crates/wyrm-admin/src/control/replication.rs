@@ -531,11 +531,11 @@ pub fn parse_history(v: Value) -> Option<HistoryPage> {
 /// One part of a file: its total length, the bytes `[offset, offset +
 /// len)`, and with the first part the SHA-256 of the whole file (read
 /// through once, in blocks). Later parts read only their own range.
-fn read_part(
-    path: &Path,
-    offset: u64,
-    len: u64,
-) -> Result<(u64, Vec<u8>, Option<Vec<u8>>), String> {
+/// A part as [`read_part`] gives it: the file's total length, the part's
+/// bytes, and the whole file's SHA-256 with the first part.
+type Part = (u64, Vec<u8>, Option<Vec<u8>>);
+
+fn read_part(path: &Path, offset: u64, len: u64) -> Result<Part, String> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let total = f.metadata().map_err(|e| e.to_string())?.len();
