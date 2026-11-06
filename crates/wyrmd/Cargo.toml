@@ -15,6 +15,7 @@ wyrm-admin.workspace = true
 wyrm-state.workspace = true
 wyrm-flow.workspace = true
 wyrm-storage.workspace = true
+wyrm-history.workspace = true
 wyrm-gateway.workspace = true
 zeroize.workspace = true
 wyrm-link-mock.workspace = true

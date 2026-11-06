@@ -25,6 +25,12 @@
 //!   revision `since` of `epoch` (`wyrm_storage::Store::changes_since`):
 //!   `{epoch, rev, full, put: [[path, rec]], delete: [path]}`.
 //!
+//! Stage C, the historian:
+//! * `history/<after>/<max>`: the historian's change journal after `seq`
+//!   `after` (`wyrm_history::Store::changes`, every series), as
+//!   `{id, next, last, rows: [[seq, key, t, v, q], …]}`; `id` is the store's
+//!   identity, so a standby keys its cursor by it.
+//!
 //! Each `wal/state` query tells how far the standby is: `sys/standby_connected`
 //! and `sys/standby_lag` show it.
 
@@ -44,6 +50,9 @@ pub const STORES: [(&str, &str, &str); 3] = [
 pub const MAX_RECORDS: usize = 512;
 /// Most storage paths in one answer.
 pub const MAX_STORAGE_PATHS: usize = 500;
+/// Most history rows in one answer, and their stored bytes.
+pub const MAX_HISTORY_ROWS: usize = 2000;
+pub const MAX_HISTORY_BYTES: usize = 4 << 20;
 /// Longest part of a file in one answer.
 pub const PART_LEN: u64 = 1 << 20;
 /// Files larger than this are not replicated (a package asset, an upload
@@ -440,6 +449,85 @@ pub fn parse_changes(v: Value) -> Option<wyrm_storage::Changes> {
     })
 }
 
+/// One page of the historian's journal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryPage {
+    pub id: u64,
+    pub next: u64,
+    pub last: u64,
+    /// `(seq, key, t, v, q)`.
+    pub rows: Vec<(u64, String, u64, Value, Quality)>,
+}
+
+pub fn history_value(p: &HistoryPage) -> Value {
+    Value::Map(BTreeMap::from([
+        ("id".to_owned(), Value::UInt(p.id)),
+        ("next".to_owned(), Value::UInt(p.next)),
+        ("last".to_owned(), Value::UInt(p.last)),
+        (
+            "rows".to_owned(),
+            Value::Array(
+                p.rows
+                    .iter()
+                    .map(|(seq, key, t, v, q)| {
+                        Value::Array(vec![
+                            Value::UInt(*seq),
+                            Value::from(key.clone()),
+                            Value::UInt(*t),
+                            v.clone(),
+                            Value::UInt(q.code().into()),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ]))
+}
+
+pub fn parse_history(v: Value) -> Option<HistoryPage> {
+    let Value::Map(mut m) = v else {
+        return None;
+    };
+    let (Some(Value::UInt(id)), Some(Value::UInt(next)), Some(Value::UInt(last))) =
+        (m.remove("id"), m.remove("next"), m.remove("last"))
+    else {
+        return None;
+    };
+    let Some(Value::Array(rows)) = m.remove("rows") else {
+        return None;
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let Value::Array(mut parts) = r else {
+            return None;
+        };
+        if parts.len() != 5 {
+            return None;
+        }
+        let Value::UInt(q) = parts.remove(4) else {
+            return None;
+        };
+        let q = Quality::try_from(u8::try_from(q).ok()?).ok()?;
+        let v = parts.remove(3);
+        let Value::UInt(t) = parts.remove(2) else {
+            return None;
+        };
+        let Value::Str(key) = parts.remove(1) else {
+            return None;
+        };
+        let Value::UInt(seq) = parts.remove(0) else {
+            return None;
+        };
+        out.push((seq, key, t, v, q));
+    }
+    Some(HistoryPage {
+        id,
+        next,
+        last,
+        rows: out,
+    })
+}
+
 fn error_value(why: &str) -> Value {
     Value::Map(BTreeMap::from([("error".to_owned(), Value::from(why))]))
 }
@@ -525,6 +613,32 @@ impl Control {
                     m.insert("sha256".to_owned(), Value::Bytes(sha256(&bytes)));
                 }
                 Value::Map(m)
+            }
+            ["history", after, max] => {
+                let (Ok(after), Ok(max)) = (after.parse::<u64>(), max.parse::<usize>()) else {
+                    return error_value("after and max: numbers");
+                };
+                let store = self.history.store();
+                let limit = wyrm_history::ChangeLimit {
+                    rows: max.clamp(1, MAX_HISTORY_ROWS),
+                    bytes: MAX_HISTORY_BYTES,
+                };
+                match store.changes(after, limit, |_| true) {
+                    Ok(batch) => history_value(&HistoryPage {
+                        id: store.id(),
+                        next: batch.next,
+                        last: store.last_seq(),
+                        rows: batch
+                            .rows
+                            .into_iter()
+                            .filter_map(|c| {
+                                let key = store.series_key(c.series)?;
+                                Some((c.seq, key, c.row.t, c.row.v, c.row.q))
+                            })
+                            .collect(),
+                    }),
+                    Err(e) => error_value(&e.to_string()),
+                }
             }
             ["storage", epoch, since, max] => {
                 let (Ok(epoch), Ok(since), Ok(max)) = (
@@ -689,6 +803,27 @@ mod tests {
             );
             assert!(!again[0].exec);
         }
+    }
+
+    #[test]
+    fn history_pages_roundtrip() {
+        let p = HistoryPage {
+            id: 9,
+            next: 12,
+            last: 11,
+            rows: vec![(
+                11,
+                "wy/s/downstream/m/p".into(),
+                5,
+                Value::Float(1.5),
+                Quality::Good,
+            )],
+        };
+        let bytes = wyrm_core::codec::to_vec(&history_value(&p)).unwrap();
+        assert_eq!(
+            parse_history(wyrm_core::codec::from_slice(&bytes).unwrap()).unwrap(),
+            p
+        );
     }
 
     #[test]

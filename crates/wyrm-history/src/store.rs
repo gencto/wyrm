@@ -118,6 +118,10 @@ fn decode_row(t: u64, bytes: &[u8]) -> Option<Row> {
 pub struct Store {
     dir: PathBuf,
     index: Database,
+    /// Identity of this store, made once at creation (`meta/id`): a
+    /// standby keys its cursor by it (ADR 0036, stage C), since the journal
+    /// numbers of another store mean nothing here.
+    id: u64,
     series: Mutex<HashMap<String, u32>>,
     days: Mutex<OpenDays>,
     /// Held for a whole [`write`](Self::write): numbers become visible in order.
@@ -161,14 +165,32 @@ impl Store {
             })?;
         let mut series = HashMap::new();
         let mut journal = Journal::default();
+        let id;
         {
             let txn = index.begin_write().map_err(db)?;
             {
-                let meta = txn.open_table(META).map_err(db)?;
+                let mut meta = txn.open_table(META).map_err(db)?;
                 let end = meta.get("seq_end").map_err(db)?.map_or(1, |v| v.value());
                 // unused numbers of the last block are skipped: gaps, no repeats
                 journal.next = end;
                 journal.end = end;
+                let stored = meta.get("id").map_err(db)?.map(|v| v.value());
+                id = match stored {
+                    Some(id) if id != 0 => id,
+                    _ => {
+                        use std::hash::{BuildHasher, Hasher};
+                        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+                        h.write_u128(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos())
+                                .unwrap_or(0),
+                        );
+                        let id = h.finish().max(1);
+                        meta.insert("id", id).map_err(db)?;
+                        id
+                    }
+                };
                 let ranges = txn.open_table(DAY_SEQ).map_err(db)?;
                 for item in ranges.iter().map_err(db)? {
                     let (k, v) = item.map_err(db)?;
@@ -204,10 +226,26 @@ impl Store {
         Ok(Self {
             dir: dir.to_owned(),
             index,
+            id,
             series: Mutex::new(series),
             days: Mutex::default(),
             journal: Mutex::new(journal),
         })
+    }
+
+    /// Identity of this store (see the `id` field).
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// The point key of a series number.
+    pub fn series_key(&self, id: u32) -> Option<String> {
+        self.series
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .find(|(_, v)| **v == id)
+            .map(|(k, _)| k.clone())
     }
 
     /// The highest `seq` handed out so far (0: none).

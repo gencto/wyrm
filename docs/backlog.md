@@ -420,6 +420,9 @@ before 1.0. Estimates in person-days, tests included.
   5 s (fine up to a few thousand files, an index would be better beyond);
   a package or store file written without a rename could be copied torn
   (every writer in the tree renames today).
-- Stage C (5–8): the standby as a history sink target
-  (`wyrm-history-sync` into `wyrm-history`).
+- Stage C: done 2026-11-06 (`sys/replication/history/<after>/<max>` from
+  the historian's journal, the cursor kept under the sink name
+  `standby-<store id>`; e2e `standby_follows_history`). Left: the
+  standby's own purge follows the registry's retention only after a
+  promotion (it stores what the active sends while it follows).
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

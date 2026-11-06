@@ -9085,3 +9085,97 @@ async fn standby_follows_stores() {
     .await;
     env.stop().await;
 }
+
+/// ADR 0036, option 3, stage C: the standby follows the historian's
+/// change journal into its own day files; a broker started on the copy
+/// answers Get History with the rows recorded on the active.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_follows_history() {
+    let (a_dir, s_dir) = (temp_dir("hi-active"), temp_dir("hi-standby"));
+    let (a_quic, s_quic) = (free_port(), free_port());
+    let extra = |quic: u16| format!(r#"peers: {{ listen: "quic/127.0.0.1:{quic}" }}, {MOCK}"#);
+    let env = Env::start_on(&a_dir, &extra(a_quic), free_port(), free_port()).await;
+    let c = slow_client(&env).await;
+    let hist = format!("wy/{SITE}/sys/history");
+    c.invoke_one(
+        &hist,
+        "add_watch_group",
+        args_map(&[
+            ("name", Value::from("g")),
+            ("logging_type", Value::from("All Data")),
+            ("buffer_flush_time", Value::Float(0.2)),
+        ]),
+    )
+    .await
+    .unwrap();
+    let group = format!("{hist}/g");
+    c.invoke_one(
+        &group,
+        "add_watch_path",
+        args_map(&[("path", Value::from("downstream/mock/g0/p0"))]),
+    )
+    .await
+    .unwrap();
+    let w1 = format!("{group}/w1");
+    let all = || args_map(&[("timerange", Value::from("2020-01-01/"))]);
+    let rows = |c: WyrmClient, w1: String| async move {
+        match c.invoke_one(&w1, "get_history", all()).await {
+            Ok(Some(Value::Array(r))) => Some(r),
+            _ => None,
+        }
+    };
+    eventually("rows recorded on the active", 20, || async {
+        rows(c.clone(), w1.clone()).await.filter(|r| r.len() >= 5)
+    })
+    .await;
+    drop(c);
+
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let cfg = standby_config(&s_dir, a_quic, s_quic, false);
+    let (stop, rx) = oneshot::channel::<()>();
+    let follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    eventually("a day file on the standby", 30, || async {
+        std::fs::read_dir(s_dir.join("history/days"))
+            .ok()
+            .and_then(|d| d.flatten().next())
+            .map(|_| ())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let _ = stop.send(());
+    assert_eq!(
+        follower.await.unwrap().unwrap(),
+        wyrmd::standby::Outcome::Stopped
+    );
+    env.stop().await;
+    let key = format!("wy/{SITE}/downstream/mock/g0/p0");
+    let read = |dir: &std::path::Path| {
+        let st = wyrm_history::Store::open(&dir.join("history")).unwrap();
+        let series = st.series_id(&key, false).unwrap().expect("the series");
+        st.read(series, 0, u64::MAX, 1_000_000).unwrap()
+    };
+    let (a, s) = (read(&a_dir), read(&s_dir));
+    assert!(s.len() >= 5, "{} rows on the standby", s.len());
+    assert!(s.len() <= a.len());
+    assert!(
+        s.iter().all(|r| a.contains(r)),
+        "every standby row was recorded on the active"
+    );
+
+    // a broker on the copy answers Get History from the replicated rows
+    let env = Env::start_on(&s_dir, &extra(s_quic), free_port(), free_port()).await;
+    let c = slow_client(&env).await;
+    let got = eventually("history on the promoted broker", 20, || async {
+        rows(c.clone(), w1.clone()).await.filter(|r| r.len() >= 5)
+    })
+    .await;
+    assert!(got.len() >= s.len(), "{} rows served", got.len());
+    env.stop().await;
+}

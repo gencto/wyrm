@@ -149,10 +149,11 @@ standby copies the control plane (the registry, flow definitions, gateway
 users), `secrets.bin`, the link tokens, the links' private data (the
 sealed stores of the scheduler, alarm, DQL and uplink links, runtime edits
 of drivers, the agent's store), the installed packages and the broker
-storage as they change, and takes over when the active is away. It runs
-no router and polls no device until then. What it does not copy yet: the
-historian (stage C of the ADR), and files over 64 MiB in a link's data or
-a package (they are logged and skipped).
+storage and the historian's rows as they change, and takes over when
+the active is away. It runs no router and polls no device until then.
+What it does not copy: files over 64 MiB in a link's data or a package
+(they are logged and skipped), and the audit journal (it stays on the
+host that wrote it).
 
 Set it up once:
 

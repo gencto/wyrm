@@ -398,6 +398,56 @@ async fn sync_storage(
     Ok(())
 }
 
+/// Bring the historian's rows in line with the active's journal: the
+/// cursor is kept in the standby's own store under a sink name made of
+/// the active store's identity, so a new active (another store) starts a
+/// cursor of its own. Rows are written as the active did (a row with the
+/// same series and time replaces the stored one).
+async fn sync_history(
+    session: &Session,
+    prefix: &str,
+    store: &wyrm_history::Store,
+    cursor: &mut Option<(u64, u64)>,
+) -> Result<(), String> {
+    for _ in 0..PAGES_PER_POLL {
+        let after = cursor.map_or(0, |c| c.1);
+        let key = format!("{prefix}/history/{after}/{}", replication::MAX_HISTORY_ROWS);
+        let page = replication::parse_history(ask(session, &key).await.ok_or("no answer")?)
+            .ok_or("bad history page")?;
+        let sink = format!("standby-{:016x}", page.id);
+        if cursor.map(|c| c.0) != Some(page.id) {
+            // another active store: its own cursor, from what we confirmed
+            // of it before (0 for a new one)
+            let after = store.sink_seq(&sink).map_err(|e| e.to_string())?;
+            *cursor = Some((page.id, after));
+            if after != 0 {
+                continue;
+            }
+        }
+        let mut rows: Vec<wyrm_history::store::NewRow> = Vec::with_capacity(page.rows.len());
+        for (_, key, t, v, q) in &page.rows {
+            let Some(series) = store.series_id(key, true).map_err(|e| e.to_string())? else {
+                continue;
+            };
+            rows.push((series, *t, wyrm_history::encode_row(v, *q)));
+        }
+        if !rows.is_empty() {
+            store.write(&rows).map_err(|e| e.to_string())?;
+        }
+        let full = page.rows.len() >= replication::MAX_HISTORY_ROWS;
+        if page.next != after {
+            store
+                .set_sink_seq(&sink, Some(page.next))
+                .map_err(|e| e.to_string())?;
+            *cursor = Some((page.id, page.next));
+        }
+        if !full {
+            break;
+        }
+    }
+    Ok(())
+}
+
 /// Follow the active broker until it has been away for this host's
 /// takeover time ([`Outcome::Takeover`]) or `shutdown` resolves.
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
@@ -420,6 +470,9 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
     };
     let storage = wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?;
     let mut storage_at = (0u64, 0u64);
+    let history = wyrm_history::Store::open(&cfg.data_dir.join("history"))
+        .map_err(|e| format!("history: {e}"))?;
+    let mut history_at: Option<(u64, u64)> = None;
     let prefix = replication::replication_key(&cfg.site);
     let broker = format!("wy/{}/sys/broker", cfg.site);
     tokio::pin!(shutdown);
@@ -481,7 +534,10 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                     polls += 1;
                     let r = match sync_wals(&session, &prefix, &mut stores).await {
                         Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at).await {
-                            Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files).await,
+                            Ok(()) => match sync_history(&session, &prefix, &history, &mut history_at).await {
+                                Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files).await,
+                                r => r,
+                            },
                             r => r,
                         },
                         r => r,
