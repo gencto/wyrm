@@ -164,7 +164,11 @@ impl Env {
             let cfg = Config::from_json5(&text).unwrap();
             match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
                 Ok(d) => break d,
-                Err(e) if tries < 50 && e.to_string().contains("in use") => {
+                Err(e)
+                    if tries < 50
+                        && (e.to_string().contains("in use")
+                            || e.to_string().contains("already open")) =>
+                {
                     tries += 1;
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -8658,14 +8662,20 @@ fn standby_text(
     )
 }
 
-/// A witness that answers for the whole test process (ADR 0036): a TCP
-/// listener held open, never accepted from (the kernel completes connects).
+/// A witness that answers for the whole test process (ADR 0036).
 fn witness_port() -> u16 {
-    static W: std::sync::OnceLock<std::net::TcpListener> = std::sync::OnceLock::new();
-    W.get_or_init(|| std::net::TcpListener::bind(("127.0.0.1", free_port())).unwrap())
-        .local_addr()
-        .unwrap()
-        .port()
+    static W: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        let l = std::net::TcpListener::bind(("127.0.0.1", free_port())).unwrap();
+        let port = l.local_addr().unwrap().port();
+        // accept and drop, so probes never fill the backlog
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                drop(c)
+            }
+        });
+        port
+    })
 }
 
 /// Last LSN of the registry WAL in `data_dir` (0 when empty).
@@ -9329,7 +9339,7 @@ async fn standby_holds_during_a_rebuild() {
             .is_err(),
         "no takeover while the hold lasts"
     );
-    let outcome = tokio::time::timeout(Duration::from_secs(15), follower)
+    let outcome = tokio::time::timeout(Duration::from_secs(40), follower)
         .await
         .expect("takeover after the hold")
         .unwrap()

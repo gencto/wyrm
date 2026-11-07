@@ -363,8 +363,10 @@ pub struct Control {
     /// The warm standby's last registry query (ADR 0036).
     standby_seen: Mutex<Option<replication::StandbySeen>>,
     /// The broker storage (ADR 0017), set by the daemon, for the standby
-    /// to follow its changes (ADR 0036, stage B).
-    storage: Mutex<Option<Arc<wyrm_storage::Store>>>,
+    /// to follow its changes (ADR 0036, stage B). Weak: the daemon owns the
+    /// database, and a background task that outlives it must not keep the
+    /// file open (a restart or a step-down opens it again).
+    storage: Mutex<std::sync::Weak<wyrm_storage::Store>>,
     /// Until this time (unix ms; 0 = none) the standby waits: the router is
     /// being rebuilt (ADR 0036).
     standby_hold: std::sync::atomic::AtomicU64,
@@ -701,7 +703,7 @@ impl Control {
                 enroll_seen: Mutex::default(),
                 overlays_shown: Mutex::default(),
                 standby_seen: Mutex::new(None),
-                storage: Mutex::new(None),
+                storage: Mutex::new(std::sync::Weak::new()),
                 standby_hold: std::sync::atomic::AtomicU64::new(0),
             }),
             rx,

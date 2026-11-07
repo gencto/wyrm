@@ -1748,7 +1748,7 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
-        ctl.set_storage(storage.clone());
+        ctl.set_storage(&storage);
         ctl.set_peers(cfg.peers.peer_config());
         // a site now in wyrmd.json5 and still in the registry: json5 wins
         ctl.drop_shadowed_peers();

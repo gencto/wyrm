@@ -609,15 +609,15 @@ impl Control {
     }
 
     /// The broker storage, for the standby to follow (set by the daemon).
-    pub fn set_storage(&self, storage: Arc<wyrm_storage::Store>) {
-        *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Some(storage);
+    pub fn set_storage(&self, storage: &Arc<wyrm_storage::Store>) {
+        *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(storage);
     }
 
     fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
         self.storage
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .clone()
+            .upgrade()
     }
 
     /// Answer one replication query by its suffix under `sys/replication/`.

@@ -537,6 +537,30 @@ async fn sync_history(
     Ok(())
 }
 
+/// `open` again while it fails because the store is still held (a daemon
+/// in this process that is closing), for at most [`OPEN_WAIT`].
+async fn retry_open<T>(mut open: impl FnMut() -> Result<T, Error>) -> Result<T, Error> {
+    let deadline = Instant::now() + OPEN_WAIT;
+    loop {
+        match open() {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                let held = {
+                    let m = e.to_string();
+                    m.contains("in use") || m.contains("already open")
+                };
+                if !held || Instant::now() >= deadline {
+                    return Err(e);
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
+/// Longest wait for a store held by a closing daemon.
+const OPEN_WAIT: Duration = Duration::from_secs(30);
+
 /// Follow the active broker until it has been away for this host's
 /// takeover time ([`Outcome::Takeover`]) or `shutdown` resolves.
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
@@ -546,7 +570,9 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
     let secrets_key = read_key(&cfg.data_dir.join("secrets.key"))
         .ok_or("secrets.key: not found; import the site's key bundle first")?;
     let file_key = replication::file_key(&secrets_key);
-    let mut stores = open_followers(cfg)?;
+    // A broker that just stepped down may still close its stores for a
+    // moment (tasks that outlive its daemon): wait for them.
+    let mut stores = retry_open(|| open_followers(cfg)).await?;
     let mut files = Files {
         have: BTreeMap::new(),
         local_at_start: Some(
@@ -557,10 +583,16 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
         ),
         too_large: Default::default(),
     };
-    let storage = wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?;
+    let storage = retry_open(|| {
+        wyrm_storage::Store::open(&cfg.data_dir.join("storage")).map_err(Error::from)
+    })
+    .await?;
     let mut storage_at = (0u64, 0u64);
-    let history = wyrm_history::Store::open(&cfg.data_dir.join("history"))
-        .map_err(|e| format!("history: {e}"))?;
+    let history = retry_open(|| {
+        wyrm_history::Store::open(&cfg.data_dir.join("history"))
+            .map_err(|e| Error::from(format!("history: {e}")))
+    })
+    .await?;
     let mut history_at: Option<(u64, u64)> = None;
     let prefix = replication::replication_key(&cfg.site);
     let broker = format!("wy/{}/sys/broker", cfg.site);
