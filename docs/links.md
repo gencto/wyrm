@@ -61,6 +61,12 @@ down. In the broker's own process it runs only as WASM.
   `wy/<site>/downstream/uplink` (`uplink.net` lists the platforms); it is
   also a portable link in the packages `uplink` (WASM) and
   `uplink-process`. Guide: [`docs/uplink.md`](uplink.md).
+- **Messenger** (`links/messenger`, ADR 0037): Telegram and Slack bots. Recipients and
+  message templates are nodes (text, photo, document, location, buttons, Block Kit, live
+  values escaped for the markup), each template with its own Send action; Telegram users
+  pair their account with a one-time code and get `/get`, `/set`, `/do` within their level,
+  their inviter's rights and the link's grants. Not embedded: packages `messenger` (WASM)
+  and `messenger-process`. Guide: [`docs/messenger.md`](messenger.md).
 - **Modbus** (`links/modbus`, built-in driver `modbus`, package `modbus`):
   a master of Modbus TCP, RTU over TCP and serial RTU devices, and a slave
   that serves the tree's values to masters (ADR 0024); `import_dsa` takes

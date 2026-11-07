@@ -1,0 +1,55 @@
+[package]
+name = "wyrm-link-messenger"
+description = "Messenger bots (ADR 0037): Telegram and Slack notifications from templates, recipients and paired chat users, as a portable App (ADR 0023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-link-messenger"
+required-features = ["process"]
+
+[features]
+# The process link: `wyrm_link_sdk::process::main::<Portable<Messenger>>()`.
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+# The WASM component: `wyrm_link_guest::export!(Messenger)`.
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+# Only these build for wasm32-unknown-unknown: keep the others optional.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+# The bounded HTTP/1.1 client over the host's TCP/TLS.
+wyrm-history-sync.workspace = true
+# JSON bodies of the Telegram Bot API and the Slack Web API (the WYRM wire stays CBOR, principle 5).
+serde_json.workspace = true
+# Pairing codes are kept as SHA-256 only.
+sha2.workspace = true
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package (the component, for every
+# host); `examples/packages/build.sh` also packs the binary built with
+# `features` (`--kind process --name messenger-process`). No `requester` grants:
+# an operator grants `read` (and `write` for /set and /do) on the roots that
+# templates and chat users name (`sys/links/<id>/~act/grant`, ADR 0013) and
+# lists `api.telegram.org:443, slack.com:443` in `net`.
+[package.metadata.wyrm-link]
+name = "messenger"
+description = "Messenger bots: Telegram and Slack messages from templates, recipients, paired chat users (ADR 0037)"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 2, call_ms = 10000 }
