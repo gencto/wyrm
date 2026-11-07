@@ -8939,6 +8939,24 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         (s > 0 && a == s && a_dir.join("state.stale.1").is_dir()).then_some(())
     })
     .await;
+    // the fork is reported once: an audit record and `sys/standby_forks` on the new active
+    eventually("the fork reported to the new active", 20, || async {
+        (env.ctl.standby_forks() == 1 && !a_dir.join("standby/forks").exists()).then_some(())
+    })
+    .await;
+    let forked: Vec<_> = env
+        .ctl
+        .audit_tail(50)
+        .into_iter()
+        .filter(|r| r.op == "standby_forked")
+        .collect();
+    assert_eq!(forked.len(), 1, "{forked:?}");
+    assert_eq!(forked[0].key, "state");
+    assert!(
+        forked[0].detail.contains("state.stale.1"),
+        "{}",
+        forked[0].detail
+    );
     let _ = stop.send(());
     assert_eq!(
         follower.await.unwrap().unwrap(),

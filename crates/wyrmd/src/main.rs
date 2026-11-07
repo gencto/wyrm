@@ -248,6 +248,7 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             Outcome::Takeover => {}
         }
         let daemon = Daemon::open(cfg.clone(), exe.clone())?;
+        wyrmd::standby::mark_active(&cfg.data_dir);
         let ctl = daemon.control();
         ctl.record(
             "system",

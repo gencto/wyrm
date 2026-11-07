@@ -245,7 +245,7 @@ const ACL_DENIED: &str = "acl_denied";
 
 /// Broker status values of `sys`, measured every metrics interval: key,
 /// display name, unit, description.
-const SYS_STATUS: [(&str, &str, &str); 16] = [
+const SYS_STATUS: [(&str, &str, &str); 17] = [
     ("uptime", "s", "Seconds since the broker process started."),
     ("links_total", "", "Installed links."),
     (
@@ -311,6 +311,12 @@ const SYS_STATUS: [(&str, &str, &str); 16] = [
         "",
         "Records of the registry WAL the standby has not received yet.",
     ),
+    (
+        "standby_forks",
+        "",
+        "Sets of records the standby moved aside after a healed split (both brokers were \
+         active) and reported since this broker started; each is an audit record standby_forked.",
+    ),
 ];
 
 /// Display name and description of the [`Options`] values.
@@ -370,6 +376,9 @@ pub struct Control {
     /// Until this time (unix ms; 0 = none) the standby waits: the router is
     /// being rebuilt (ADR 0036).
     standby_hold: std::sync::atomic::AtomicU64,
+    /// Fork reports of the standby: how many, and the last ones (to drop a
+    /// report sent again).
+    standby_forks: Mutex<(u64, std::collections::VecDeque<(u64, String)>)>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -705,6 +714,7 @@ impl Control {
                 standby_seen: Mutex::new(None),
                 storage: Mutex::new(std::sync::Weak::new()),
                 standby_hold: std::sync::atomic::AtomicU64::new(0),
+                standby_forks: Mutex::default(),
             }),
             rx,
         ))
@@ -6385,6 +6395,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         )
         .await;
         set("standby_lag", standby.map_or(0.0, |s| s.lag as f64)).await;
+        set("standby_forks", ctl.standby_forks() as f64).await;
         let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
         set("audit_records", audit as f64).await;
         let now = std::time::Instant::now();

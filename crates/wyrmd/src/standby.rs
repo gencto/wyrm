@@ -283,6 +283,7 @@ async fn sync_wals(
     prefix: &str,
     stores: &mut [Followed],
     hold: &mut Option<Instant>,
+    forks: &mut Forks,
 ) -> Result<(), String> {
     for s in stores.iter_mut() {
         for _ in 0..PAGES_PER_POLL {
@@ -300,8 +301,20 @@ async fn sync_wals(
             if page.chain != s.follower.chain() {
                 // the active's history is not ours (ours has records of a
                 // former active that never reached it): start again
+                let had = s.follower.lsn();
                 let stale = s.follower.reset().map_err(|e| e.to_string())?;
-                tracing::warn!(store = s.name, moved = %stale.display(), "history forked: following from the start");
+                tracing::warn!(store = s.name, records = had, moved = %stale.display(), "history forked: following from the start");
+                let n = stale
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .and_then(|e| e.parse().ok())
+                    .unwrap_or(0);
+                forks.push(Fork {
+                    t_ms: now_ms(),
+                    what: s.name.to_owned(),
+                    count: had,
+                    n,
+                });
                 continue;
             }
             let full = page.records.len() >= replication::MAX_RECORDS;
@@ -327,6 +340,246 @@ struct Files {
     too_large: std::collections::BTreeSet<String>,
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// One set of records moved aside after a healed split, to report to the
+/// active (`sys/replication/forked/<t_ms>/<what>/<count>/<n>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Fork {
+    t_ms: u64,
+    what: String,
+    count: u64,
+    n: u32,
+}
+
+/// The reports not yet answered, kept in `standby/forks` (CBOR) so that a
+/// restart sends them still.
+struct Forks {
+    path: PathBuf,
+    list: Vec<Fork>,
+}
+
+impl Forks {
+    fn load(data_dir: &Path) -> Self {
+        let path = standby_dir(data_dir).join("forks");
+        let list = std::fs::read(&path)
+            .ok()
+            .and_then(|b| wyrm_core::codec::from_slice::<Value>(&b).ok())
+            .map(|v| match v {
+                Value::Array(a) => a
+                    .into_iter()
+                    .filter_map(|f| match f {
+                        Value::Array(f) => match f.as_slice() {
+                            [Value::UInt(t), Value::Str(w), Value::UInt(c), Value::UInt(n)] => {
+                                Some(Fork {
+                                    t_ms: *t,
+                                    what: w.clone(),
+                                    count: *c,
+                                    n: u32::try_from(*n).ok()?,
+                                })
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default();
+        Self { path, list }
+    }
+
+    fn save(&self) {
+        let v = Value::Array(
+            self.list
+                .iter()
+                .map(|f| {
+                    Value::Array(vec![
+                        Value::UInt(f.t_ms),
+                        Value::from(f.what.clone()),
+                        Value::UInt(f.count),
+                        Value::UInt(f.n.into()),
+                    ])
+                })
+                .collect(),
+        );
+        let r = if self.list.is_empty() {
+            match std::fs::remove_file(&self.path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                _ => Ok(()),
+            }
+        } else {
+            wyrm_core::codec::to_vec(&v)
+                .map_err(|e| e.to_string())
+                .and_then(|b| {
+                    if let Some(d) = self.path.parent() {
+                        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+                    }
+                    let tmp = self.path.with_extension("tmp");
+                    secret::write_private(&tmp, &b).map_err(|e| e.to_string())?;
+                    std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+                })
+        };
+        if let Err(e) = r {
+            tracing::warn!("standby: {}: {e}", self.path.display());
+        }
+    }
+
+    fn push(&mut self, f: Fork) {
+        self.list.push(f);
+        self.save();
+    }
+}
+
+/// Send the reports the active has not answered yet. Any answer counts
+/// (an older active answers an unknown key with an error, and will never
+/// know more).
+async fn report_forks(session: &Session, prefix: &str, forks: &mut Forks) {
+    if forks.list.is_empty() {
+        return;
+    }
+    let before = forks.list.len();
+    let mut left = Vec::new();
+    for f in std::mem::take(&mut forks.list) {
+        let key = format!("{prefix}/forked/{}/{}/{}/{}", f.t_ms, f.what, f.count, f.n);
+        if ask(session, &key).await.is_none() {
+            left.push(f);
+        }
+    }
+    forks.list = left;
+    if forks.list.len() != before {
+        forks.save();
+    }
+}
+
+/// A former active's first follow (the mark [`ACTIVE_MARK`] was there):
+/// what the active does not hold is moved into `standby/stale/<t_ms>/`
+/// instead of being removed or overwritten.
+struct Aside {
+    t_ms: u64,
+    dir: PathBuf,
+    files: u64,
+    storage: u64,
+}
+
+impl Aside {
+    fn new(data_dir: &Path) -> Self {
+        let t_ms = now_ms();
+        Self {
+            t_ms,
+            dir: standby_dir(data_dir).join("stale").join(t_ms.to_string()),
+            files: 0,
+            storage: 0,
+        }
+    }
+
+    /// Move the local file `name` (under `data_dir`) aside.
+    fn keep_file(&mut self, data_dir: &Path, name: &str) {
+        let from = data_dir.join(name);
+        if !from.is_file() {
+            return;
+        }
+        let to = self.dir.join("files").join(name);
+        let r = to
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::rename(&from, &to));
+        match r {
+            Ok(()) => {
+                self.files += 1;
+                tracing::warn!(file = %name, to = %to.display(), "standby: moved aside (the active does not hold it)");
+            }
+            Err(e) => tracing::warn!(file = %name, "standby: cannot move aside: {e}"),
+        }
+    }
+
+    /// The reports of this follow's sets, if any were moved.
+    fn forks(&self) -> Vec<Fork> {
+        [("files", self.files), ("storage", self.storage)]
+            .into_iter()
+            .filter(|(_, c)| *c > 0)
+            .map(|(what, count)| Fork {
+                t_ms: self.t_ms,
+                what: what.to_owned(),
+                count,
+                n: 0,
+            })
+            .collect()
+    }
+}
+
+/// The sinks whose cursor a follower must not move, kept in
+/// `standby/own_sinks` until this host is active again: a former active's
+/// sinks that had not confirmed all of its own rows (with `history`, at
+/// the first follow after it was active, they are added).
+fn own_sinks(
+    data_dir: &Path,
+    history: Option<&wyrm_history::Store>,
+) -> Result<BTreeMap<String, u64>, Error> {
+    let path = standby_dir(data_dir).join("own_sinks");
+    let mut own: BTreeMap<String, u64> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| wyrm_core::codec::from_slice::<Value>(&b).ok())
+        .and_then(|v| match v {
+            Value::Map(m) => Some(
+                m.into_iter()
+                    .filter_map(|(k, v)| match v {
+                        Value::UInt(s) => Some((k, s)),
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let Some(h) = history else {
+        return Ok(own);
+    };
+    let last = h.last_seq();
+    let mut added = false;
+    for (n, s) in h
+        .sink_seqs()
+        .map_err(|e| Error::from(format!("history: {e}")))?
+    {
+        if !n.starts_with(replication::STANDBY_SINK) && s < last && !own.contains_key(&n) {
+            tracing::info!(sink = %n, confirmed = s, last, "standby: the sink has rows of this host to send; its cursor stays");
+            own.insert(n, s);
+            added = true;
+        }
+    }
+    if added {
+        let v = Value::Map(
+            own.iter()
+                .map(|(k, s)| (k.clone(), Value::UInt(*s)))
+                .collect(),
+        );
+        let bytes = wyrm_core::codec::to_vec(&v).map_err(|e| Error::from(e.to_string()))?;
+        std::fs::create_dir_all(standby_dir(data_dir))?;
+        secret::write_private(&path, &bytes)?;
+    }
+    Ok(own)
+}
+
+/// Present while this host is (or was last) the active broker of its pair:
+/// written at promotion, removed after the first complete sync of a follow.
+const ACTIVE_MARK: &str = "active";
+
+/// Mark this host as the active one (called after a promotion): its sinks
+/// send from their own cursors again.
+pub fn mark_active(data_dir: &Path) {
+    let dir = standby_dir(data_dir);
+    let _ = std::fs::remove_file(dir.join("own_sinks"));
+    let r = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join(ACTIVE_MARK), b""));
+    if let Err(e) = r {
+        tracing::warn!("standby: {}: {e}", dir.join(ACTIVE_MARK).display());
+    }
+}
+
 fn sha256(bytes: &[u8]) -> Vec<u8> {
     replication::sha256(bytes)
 }
@@ -339,6 +592,7 @@ async fn fetch_file(
     data_dir: &Path,
     file_key: &[u8; 32],
     entry: &replication::FileEntry,
+    aside: Option<&mut Aside>,
 ) -> Result<(), String> {
     let path = data_dir.join(&entry.name);
     let mut buf: Vec<u8> = Vec::with_capacity(entry.len as usize);
@@ -374,6 +628,11 @@ async fn fetch_file(
     if digest.as_deref() != Some(&sha256(&buf)[..]) {
         return Err("digest differs".into());
     }
+    if let Some(a) = aside {
+        // the local file differs (an equal one returned above): written here
+        // while the other side was active too
+        a.keep_file(data_dir, &entry.name);
+    }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         #[cfg(unix)]
@@ -403,6 +662,7 @@ async fn sync_files(
     data_dir: &Path,
     file_key: &[u8; 32],
     files: &mut Files,
+    mut aside: Option<&mut Aside>,
 ) -> Result<(), String> {
     let list = replication::parse_files(
         ask(session, &format!("{prefix}/files"))
@@ -421,9 +681,18 @@ async fn sync_files(
         if files.have.get(&entry.name) == Some(&(entry.len, entry.mtime)) {
             continue;
         }
-        fetch_file(session, prefix, data_dir, file_key, entry)
-            .await
-            .map_err(|e| format!("{}: {e}", entry.name))?;
+        // a former active's own file, before its first copy: kept aside when it differs
+        let first = files.local_at_start.is_some();
+        fetch_file(
+            session,
+            prefix,
+            data_dir,
+            file_key,
+            entry,
+            aside.as_deref_mut().filter(|_| first),
+        )
+        .await
+        .map_err(|e| format!("{}: {e}", entry.name))?;
         tracing::debug!(file = %entry.name, "standby: replicated");
         files
             .have
@@ -436,11 +705,16 @@ async fn sync_files(
         .filter(|n| !listed.contains(n.as_str()))
         .cloned()
         .collect();
-    files.local_at_start = None;
+    let local_at_start = files.local_at_start.take().unwrap_or_default();
     for name in gone {
         if replication::is_file_name(&name) {
-            let _ = std::fs::remove_file(data_dir.join(&name));
-            tracing::info!(file = %name, "standby: removed (gone on the active)");
+            match aside.as_deref_mut() {
+                Some(a) if local_at_start.contains(&name) => a.keep_file(data_dir, &name),
+                _ => {
+                    let _ = std::fs::remove_file(data_dir.join(&name));
+                    tracing::info!(file = %name, "standby: removed (gone on the active)");
+                }
+            }
         }
         files.have.remove(&name);
     }
@@ -454,7 +728,9 @@ async fn sync_storage(
     prefix: &str,
     storage: &wyrm_storage::Store,
     at: &mut (u64, u64),
+    aside: Option<&mut Aside>,
 ) -> Result<(), String> {
+    let mut aside = aside;
     for _ in 0..PAGES_PER_POLL {
         let key = format!(
             "{prefix}/storage/{}/{}/{}",
@@ -465,6 +741,9 @@ async fn sync_storage(
         let c = replication::parse_changes(ask(session, &key).await.ok_or("no answer")?)
             .ok_or("bad changes")?;
         let paths = c.put.len() + c.delete.len();
+        if let (true, Some(a)) = (c.full, aside.take()) {
+            keep_storage(storage, &c.put, a);
+        }
         let delete = if c.full {
             let keep: std::collections::BTreeSet<&str> =
                 c.put.iter().map(|(p, _)| p.as_str()).collect();
@@ -487,28 +766,81 @@ async fn sync_storage(
     Ok(())
 }
 
+/// A former active's first full storage tree from the active: when its own
+/// tree differs, it is exported (`wyrm-storage` JSON) into the aside
+/// directory before it is replaced.
+fn keep_storage(storage: &wyrm_storage::Store, put: &[(String, wyrm_storage::Rec)], a: &mut Aside) {
+    let theirs: BTreeMap<&str, &wyrm_storage::Rec> =
+        put.iter().map(|(p, r)| (p.as_str(), r)).collect();
+    let ours = storage.snapshot();
+    let differs = ours
+        .iter()
+        .filter(|(p, r)| theirs.get(p.as_str()) != Some(r))
+        .count();
+    if differs == 0 {
+        return;
+    }
+    let nodes: Vec<(String, wyrm_storage::Rec)> = ours.into_iter().collect();
+    let Some(text) = wyrm_storage::json::export("", &nodes, usize::MAX) else {
+        return;
+    };
+    let path = a.dir.join("storage.json");
+    let r = std::fs::create_dir_all(&a.dir).and_then(|()| std::fs::write(&path, text));
+    match r {
+        Ok(()) => {
+            a.storage = differs as u64;
+            tracing::warn!(paths = differs, to = %path.display(), "standby: the storage tree differs from the active's: exported");
+        }
+        Err(e) => tracing::warn!("standby: {}: {e}", path.display()),
+    }
+}
+
+/// Where the standby is in an active's history journal, and how the
+/// active's journal numbers map onto its own.
+struct HistoryAt {
+    /// The active store's identity and the last of its numbers copied.
+    id: u64,
+    after: u64,
+    /// `active seq → local last_seq` after each copied page: every active
+    /// row up to the key is a local row up to the value.
+    marks: BTreeMap<u64, u64>,
+}
+
+/// Marks kept per active store (the oldest go first): a sink further
+/// behind than this many pages keeps its local cursor until it catches up.
+const HISTORY_MARKS: usize = 4096;
+
 /// Bring the historian's rows in line with the active's journal: the
 /// cursor is kept in the standby's own store under a sink name made of
 /// the active store's identity, so a new active (another store) starts a
 /// cursor of its own. Rows are written as the active did (a row with the
-/// same series and time replaces the stored one).
+/// same series and time replaces the stored one). The active's sink
+/// cursors are carried over in local numbers ([`carry_sinks`]); `own`
+/// holds the sinks a former active must not move (rows of its own that
+/// they have not confirmed).
 async fn sync_history(
     session: &Session,
     prefix: &str,
     store: &wyrm_history::Store,
-    cursor: &mut Option<(u64, u64)>,
+    at: &mut Option<HistoryAt>,
+    own: &BTreeMap<String, u64>,
 ) -> Result<(), String> {
     for _ in 0..PAGES_PER_POLL {
-        let after = cursor.map_or(0, |c| c.1);
+        let after = at.as_ref().map_or(0, |c| c.after);
         let key = format!("{prefix}/history/{after}/{}", replication::MAX_HISTORY_ROWS);
         let page = replication::parse_history(ask(session, &key).await.ok_or("no answer")?)
             .ok_or("bad history page")?;
-        let sink = format!("standby-{:016x}", page.id);
-        if cursor.map(|c| c.0) != Some(page.id) {
+        let sink = format!("{}{:016x}", replication::STANDBY_SINK, page.id);
+        if at.as_ref().map(|c| c.id) != Some(page.id) {
             // another active store: its own cursor, from what we confirmed
-            // of it before (0 for a new one)
+            // of it before (0 for a new one); every local row so far holds
+            // its rows up to there
             let after = store.sink_seq(&sink).map_err(|e| e.to_string())?;
-            *cursor = Some((page.id, after));
+            *at = Some(HistoryAt {
+                id: page.id,
+                after,
+                marks: BTreeMap::from([(after, store.last_seq())]),
+            });
             if after != 0 {
                 continue;
             }
@@ -524,14 +856,55 @@ async fn sync_history(
             store.write(&rows).map_err(|e| e.to_string())?;
         }
         let full = page.rows.len() >= replication::MAX_HISTORY_ROWS;
+        let c = at.as_mut().expect("set above");
         if page.next != after {
             store
                 .set_sink_seq(&sink, Some(page.next))
                 .map_err(|e| e.to_string())?;
-            *cursor = Some((page.id, page.next));
+            c.after = page.next;
+            c.marks.insert(page.next, store.last_seq());
+            while c.marks.len() > HISTORY_MARKS {
+                c.marks.pop_first();
+            }
+        }
+        if let Some(sinks) = &page.sinks {
+            carry_sinks(store, &c.marks, sinks, own).map_err(|e| e.to_string())?;
         }
         if !full {
             break;
+        }
+    }
+    Ok(())
+}
+
+/// Set the local cursor of every sink of the active to the local number of
+/// the last row it confirmed there (at the mark at or below its cursor:
+/// rows between the mark and the cursor are sent again after a failover,
+/// which the targets take, since they replace on `(key, t)`). A sink below
+/// every mark keeps its cursor; a sink in `own` keeps its own; a local
+/// sink the active no longer has is forgotten. Never a row skipped.
+fn carry_sinks(
+    store: &wyrm_history::Store,
+    marks: &BTreeMap<u64, u64>,
+    sinks: &[(String, u64)],
+    own: &BTreeMap<String, u64>,
+) -> Result<(), wyrm_history::store::Error> {
+    let theirs: BTreeMap<&str, u64> = sinks.iter().map(|(n, s)| (n.as_str(), *s)).collect();
+    for (name, _) in store.sink_seqs()? {
+        let skip = name.starts_with(replication::STANDBY_SINK) || own.contains_key(&name);
+        if !skip && !theirs.contains_key(name.as_str()) {
+            store.set_sink_seq(&name, None)?;
+        }
+    }
+    for (name, seq) in theirs {
+        if own.contains_key(name) {
+            continue;
+        }
+        let Some((_, &local)) = marks.range(..=seq).next_back() else {
+            continue;
+        };
+        if store.sink_seq(name)? != local {
+            store.set_sink_seq(name, Some(local))?;
         }
     }
     Ok(())
@@ -593,7 +966,14 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
             .map_err(|e| Error::from(format!("history: {e}")))
     })
     .await?;
-    let mut history_at: Option<(u64, u64)> = None;
+    let mut history_at: Option<HistoryAt> = None;
+    // A former active (its mark is there) keeps aside what the active does
+    // not hold, and its sinks that have not confirmed its own rows keep
+    // their cursors.
+    let was_active = standby_dir(&cfg.data_dir).join(ACTIVE_MARK).exists();
+    let mut aside = was_active.then(|| Aside::new(&cfg.data_dir));
+    let own = own_sinks(&cfg.data_dir, was_active.then_some(&history))?;
+    let mut forks = Forks::load(&cfg.data_dir);
     let prefix = replication::replication_key(&cfg.site);
     let broker = format!("wy/{}/sys/broker", cfg.site);
     tokio::pin!(shutdown);
@@ -686,10 +1066,10 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                 },
                 _ = tick.tick() => {
                     polls += 1;
-                    let r = match sync_wals(&session, &prefix, &mut stores, &mut hold).await {
-                        Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at).await {
-                            Ok(()) => match sync_history(&session, &prefix, &history, &mut history_at).await {
-                                Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files).await,
+                    let r = match sync_wals(&session, &prefix, &mut stores, &mut hold, &mut forks).await {
+                        Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at, aside.as_mut()).await {
+                            Ok(()) => match sync_history(&session, &prefix, &history, &mut history_at, &own).await {
+                                Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files, aside.as_mut()).await,
                                 r => r,
                             },
                             r => r,
@@ -698,6 +1078,18 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                     };
                     match r {
                         Ok(()) => {
+                            if polls % FILES_EVERY == 1 {
+                                // a complete sync, files included: the
+                                // former active's own sets are reported,
+                                // and it is a standby like any other
+                                if let Some(a) = aside.take() {
+                                    for f in a.forks() {
+                                        forks.push(f);
+                                    }
+                                    let _ = std::fs::remove_file(standby_dir(&cfg.data_dir).join(ACTIVE_MARK));
+                                }
+                            }
+                            report_forks(&session, &prefix, &mut forks).await;
                             failures = 0;
                             retry_at = None;
                             no_witness_said = false;
@@ -837,6 +1229,146 @@ mod tests {
         assert!(witness_reachable(&[closed.clone(), open]).await, "any one");
         assert!(!witness_reachable(&[closed]).await);
         assert!(!witness_reachable(&[]).await);
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "wyrmd-standby-{name}-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn sink_cursors_are_carried_in_local_numbers() {
+        let dir = scratch("carry");
+        let st = wyrm_history::Store::open(&dir).unwrap();
+        let series = st.series_id("wy/s/downstream/m/p", true).unwrap().unwrap();
+        let row = |t: u64| {
+            (
+                series,
+                t,
+                wyrm_history::encode_row(&Value::Float(1.0), wyrm_core::Quality::Good),
+            )
+        };
+        // a page of the active's numbers 1..=10 arrives as local 1..=3
+        // (purged entries and rows written twice make the numbers differ)
+        st.write(&[row(1), row(2), row(3)]).unwrap();
+        let mut marks = BTreeMap::from([(0, 0)]);
+        marks.insert(10, st.last_seq());
+        st.write(&[row(4), row(5)]).unwrap();
+        marks.insert(20, st.last_seq());
+        st.set_sink_seq("gone", Some(1)).unwrap();
+        st.set_sink_seq("standby-00000000000000aa", Some(7))
+            .unwrap();
+        let none = BTreeMap::new();
+        let sinks = vec![
+            ("pg".to_owned(), 15),
+            ("influx".to_owned(), 20),
+            ("new".to_owned(), 0),
+        ];
+        carry_sinks(&st, &marks, &sinks, &none).unwrap();
+        assert_eq!(
+            st.sink_seq("pg").unwrap(),
+            3,
+            "the mark at or below 15: rows 4, 5 again"
+        );
+        assert_eq!(st.sink_seq("influx").unwrap(), 5);
+        assert_eq!(st.sink_seq("new").unwrap(), 0);
+        assert_eq!(
+            st.sink_seq("gone").unwrap(),
+            0,
+            "the active no longer has it"
+        );
+        assert_eq!(
+            st.sink_seq("standby-00000000000000aa").unwrap(),
+            7,
+            "our own cursor"
+        );
+        // a former active's sink with rows of its own keeps its cursor
+        st.set_sink_seq("pg", Some(1)).unwrap();
+        let own = BTreeMap::from([("pg".to_owned(), 1)]);
+        carry_sinks(&st, &marks, &sinks, &own).unwrap();
+        assert_eq!(st.sink_seq("pg").unwrap(), 1);
+        // a sink behind every mark keeps what it has
+        let late = BTreeMap::from([(10, 3)]);
+        st.set_sink_seq("influx", Some(2)).unwrap();
+        carry_sinks(&st, &late, &[("influx".to_owned(), 4)], &none).unwrap();
+        assert_eq!(st.sink_seq("influx").unwrap(), 2);
+        drop(st);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn own_sinks_are_kept_until_this_host_is_active() {
+        let dir = scratch("own");
+        let st = wyrm_history::Store::open(&dir.join("history")).unwrap();
+        let series = st.series_id("k", true).unwrap().unwrap();
+        let row = |t: u64| {
+            (
+                series,
+                t,
+                wyrm_history::encode_row(&Value::Float(1.0), wyrm_core::Quality::Good),
+            )
+        };
+        st.write(&[row(1), row(2), row(3)]).unwrap();
+        st.set_sink_seq("behind", Some(1)).unwrap();
+        st.set_sink_seq("done", Some(3)).unwrap();
+        assert!(own_sinks(&dir, None).unwrap().is_empty());
+        let own = own_sinks(&dir, Some(&st)).unwrap();
+        assert_eq!(own, BTreeMap::from([("behind".to_owned(), 1)]));
+        assert_eq!(own_sinks(&dir, None).unwrap(), own, "kept over a restart");
+        mark_active(&dir);
+        assert!(own_sinks(&dir, None).unwrap().is_empty(), "active again");
+        assert!(standby_dir(&dir).join(ACTIVE_MARK).exists());
+        drop(st);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fork_reports_survive_a_restart() {
+        let dir = scratch("forks");
+        let mut f = Forks::load(&dir);
+        assert!(f.list.is_empty());
+        let one = Fork {
+            t_ms: 5,
+            what: "state".into(),
+            count: 3,
+            n: 2,
+        };
+        f.push(one.clone());
+        assert_eq!(Forks::load(&dir).list, vec![one]);
+        f.list.clear();
+        f.save();
+        assert!(!standby_dir(&dir).join("forks").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_former_actives_files_are_moved_aside() {
+        let dir = scratch("aside");
+        std::fs::create_dir_all(dir.join("links/a/data")).unwrap();
+        std::fs::write(dir.join("links/a/data/p_1"), b"ours").unwrap();
+        let mut a = Aside::new(&dir);
+        a.keep_file(&dir, "links/a/data/p_1");
+        a.keep_file(&dir, "links/a/data/missing");
+        assert!(!dir.join("links/a/data/p_1").exists());
+        assert_eq!(
+            std::fs::read(a.dir.join("files/links/a/data/p_1")).unwrap(),
+            b"ours"
+        );
+        let forks = a.forks();
+        assert_eq!(forks.len(), 1);
+        assert_eq!((forks[0].what.as_str(), forks[0].count), ("files", 1));
+        assert!(replication::fork_detail("files", 1, 0, a.t_ms).is_some());
+        assert!(replication::fork_detail("flows", 4, 1, 0)
+            .unwrap()
+            .contains("flows/state.stale.1"));
+        assert!(replication::fork_detail("secrets", 1, 0, 0).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
