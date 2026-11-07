@@ -1875,12 +1875,20 @@ impl Daemon {
             )
             .await?;
             self.ctl.reopen();
+            self.ctl.release_standby();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = shutdown.as_mut() => false,
                 r = self.reload.recv() => r.is_some(),
             };
             if reload {
+                // A standby (ADR 0036) must not take the closed listeners
+                // for an absence: it waits until the router is back (or the
+                // hold runs out). It reads the hold with its next poll.
+                self.ctl.hold_standby(STANDBY_HOLD);
+                if self.ctl.standby_recent(Duration::from_secs(5)) {
+                    tokio::time::sleep(STANDBY_HOLD_READ).await;
+                }
                 // A package install in flight finishes on this broker; new
                 // ones answer `busy` until the next broker is up.
                 self.ctl.quiesce(Duration::from_secs(180)).await;
@@ -1907,6 +1915,14 @@ impl Daemon {
 /// How long a broker start waits for an old runtime (a rebuild, or a
 /// restart in the same process) to let the QUIC peer port go.
 const QUIC_PORT_WAIT: Duration = Duration::from_secs(30);
+
+/// How long a standby waits for a rebuild (ADR 0036): the QUIC port wait
+/// and the router build, with room to spare. Released as soon as the
+/// router is up.
+const STANDBY_HOLD: Duration = Duration::from_secs(60);
+/// How long the rebuild waits for a connected standby to read the hold (it
+/// polls once a second).
+const STANDBY_HOLD_READ: Duration = Duration::from_millis(2500);
 
 /// Wait until the UDP port of `quic/<host>:<port>` is free. The old
 /// runtime's QUIC endpoint keeps it while its connections drain; Zenoh

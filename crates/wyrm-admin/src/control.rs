@@ -365,6 +365,9 @@ pub struct Control {
     /// The broker storage (ADR 0017), set by the daemon, for the standby
     /// to follow its changes (ADR 0036, stage B).
     storage: Mutex<Option<Arc<wyrm_storage::Store>>>,
+    /// Until this time (unix ms; 0 = none) the standby waits: the router is
+    /// being rebuilt (ADR 0036).
+    standby_hold: std::sync::atomic::AtomicU64,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -699,6 +702,7 @@ impl Control {
                 overlays_shown: Mutex::default(),
                 standby_seen: Mutex::new(None),
                 storage: Mutex::new(None),
+                standby_hold: std::sync::atomic::AtomicU64::new(0),
             }),
             rx,
         ))

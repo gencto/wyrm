@@ -425,4 +425,13 @@ before 1.0. Estimates in person-days, tests included.
   `standby-<store id>`; e2e `standby_follows_history`). Left: the
   standby's own purge follows the registry's retention only after a
   promotion (it stores what the active sends while it follows).
+- Review 2026-11-06, fixed 2026-11-07: a split no longer makes both
+  brokers active when one side is cut off from the plant (required
+  `standby.witness`, the cut-off active steps down); an ACL rebuild holds
+  the standby; no failback (documented as such). Open from that review:
+  history-sync cursors are not carried to the standby (every sink sends
+  its local history again after a failover; the targets replace on
+  `(key, t)`); the records of the losing side of a healed split are moved
+  aside without an audit record or a `sys` value; a split where both hosts
+  still reach a witness gives two actives.
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

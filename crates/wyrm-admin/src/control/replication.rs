@@ -64,6 +64,11 @@ pub const MAX_FILES: usize = 50_000;
 /// A standby counts as connected while its last query is younger than this.
 pub const SEEN_FOR: Duration = Duration::from_secs(15);
 
+/// The key of the registry page that carries the active's hold: until this
+/// time (unix ms) the standby does not count it as away (it rebuilds its
+/// router and its listeners are closed).
+pub const HOLD_UNTIL: &str = "hold_until";
+
 /// When the standby last asked for the registry WAL, and how far behind it was.
 #[derive(Debug, Clone, Copy)]
 pub struct StandbySeen {
@@ -582,6 +587,27 @@ impl Control {
         });
     }
 
+    /// Ask the standby to wait for `d` (the router is about to be rebuilt).
+    pub fn hold_standby(&self, d: Duration) {
+        let until = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|n| (n + d).as_millis() as u64)
+            .unwrap_or(0);
+        self.standby_hold
+            .store(until, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The router is up again: no hold.
+    pub fn release_standby(&self) {
+        self.standby_hold
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A standby asked within the last `d`.
+    pub fn standby_recent(&self, d: Duration) -> bool {
+        self.standby_seen().is_some_and(|s| s.at.elapsed() < d)
+    }
+
     /// The broker storage, for the standby to follow (set by the daemon).
     pub fn set_storage(&self, storage: Arc<wyrm_storage::Store>) {
         *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Some(storage);
@@ -608,10 +634,15 @@ impl Control {
                 };
                 match records_after(&d.join(dir), after, max.clamp(1, MAX_RECORDS)) {
                     Ok(page) => {
+                        let mut v = page_value(&page);
                         if *store == "state" {
                             self.note_standby(after, page.last);
+                            let hold = self.standby_hold.load(std::sync::atomic::Ordering::SeqCst);
+                            if let (Value::Map(m), true) = (&mut v, hold != 0) {
+                                m.insert(HOLD_UNTIL.to_owned(), Value::UInt(hold));
+                            }
                         }
-                        page_value(&page)
+                        v
                     }
                     Err(e) => error_value(&e.to_string()),
                 }

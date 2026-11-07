@@ -10,10 +10,22 @@
 //!
 //! The follower takes over when the active has been away for
 //! `standby.takeover_s` (`primary: true`), or three times that (the other
-//! host, so that a cold start of both ends with the primary active). A
-//! promotion is a plain `Daemon::open` on the followed `data_dir`. When a
-//! non-primary broker is active and sees the primary's broker token, it
-//! steps down and follows again; the primary never steps down.
+//! host, so that a cold start of both ends with the primary active), and
+//! only while it reaches at least one of `standby.witness` (TCP addresses
+//! on the plant network: the gateway, a switch, a PLC). A host that sees
+//! no witness is cut off and must not control the plant. A promotion is a
+//! plain `Daemon::open` on the followed `data_dir`.
+//!
+//! An active broker of a pair steps down and follows again when
+//! * it is not primary and sees the primary's broker token (both became
+//!   active across a split that has healed), or
+//! * it reaches no witness and its standby has stopped asking, for half the
+//!   takeover time ([`isolated`]): it is the cut-off side, and the other
+//!   side takes over only after the full takeover time.
+//!
+//! Before it rebuilds its router (an ACL change closes its listeners), the
+//! active tells the standby to wait (`hold_until` in the registry page);
+//! the standby then counts the active as away only after that time.
 
 use crate::{Config, Error};
 use serde::Deserialize;
@@ -43,6 +55,40 @@ pub struct StandbySection {
     /// steps down when both are active.
     #[serde(default)]
     pub primary: bool,
+    /// TCP addresses (`host:port`) this host must reach to take over, and
+    /// without which an active broker steps down when its standby is gone
+    /// too. At least one; any one reachable is enough.
+    #[serde(default)]
+    pub witness: Vec<String>,
+}
+
+/// One TCP connect to a witness may take this long.
+const WITNESS_TIMEOUT: Duration = Duration::from_secs(1);
+/// The standby asks once a second: quiet for this long, it is gone.
+const STANDBY_QUIET: Duration = Duration::from_secs(3);
+/// Longest hold the active can ask for (a value further out is cut).
+const MAX_HOLD: Duration = Duration::from_secs(120);
+
+/// `true` when at least one of `list` accepts a TCP connection (all are
+/// tried at once, each for at most [`WITNESS_TIMEOUT`]).
+pub async fn witness_reachable(list: &[String]) -> bool {
+    let mut set = tokio::task::JoinSet::new();
+    for w in list {
+        let w = w.clone();
+        set.spawn(async move {
+            matches!(
+                tokio::time::timeout(WITNESS_TIMEOUT, tokio::net::TcpStream::connect(w)).await,
+                Ok(Ok(_))
+            )
+        });
+    }
+    while let Some(r) = set.join_next().await {
+        if r.unwrap_or(false) {
+            set.abort_all();
+            return true;
+        }
+    }
+    false
 }
 
 fn default_takeover_s() -> u64 {
@@ -62,7 +108,26 @@ impl StandbySection {
                 "standby needs peers.listen (the other broker follows this one through it)".into(),
             );
         }
+        if self.witness.is_empty() {
+            return Err("standby.witness: at least one host:port on the plant network (a gateway, a switch, a PLC): without it a network split makes both brokers active".into());
+        }
+        for w in &self.witness {
+            let ok = w
+                .rsplit_once(':')
+                .is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok_and(|p| p > 0))
+                && !w.chars().any(|c| c.is_whitespace() || c == '/');
+            if !ok {
+                return Err(format!("standby.witness {w:?}: expected host:port").into());
+            }
+        }
         Ok(())
+    }
+
+    /// How long an active broker may be cut off (no witness, no standby)
+    /// before it steps down: half the takeover time, so it is gone before
+    /// the other side can take over.
+    pub fn isolation(&self) -> Duration {
+        Duration::from_millis((self.takeover_s * 1000 / 2).max(1000))
     }
 
     /// How long this host waits before it takes over.
@@ -195,9 +260,30 @@ fn open_followers(cfg: &Config) -> Result<Vec<Followed>, Error> {
     Ok(out)
 }
 
+/// The hold the active asks for in its registry page (`hold_until`, unix
+/// ms): the instant until which an absence does not count, or `None`.
+fn hold_of(v: &Value) -> Option<Instant> {
+    let Value::Map(m) = v else { return None };
+    let Some(Value::UInt(until)) = m.get(replication::HOLD_UNTIL) else {
+        return None;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let left = Duration::from_millis(until.checked_sub(now)?).min(MAX_HOLD);
+    Some(Instant::now() + left)
+}
+
 /// Copy what the active has beyond us, store by store. `Err` when the
-/// active did not answer (it is away or this session is dead).
-async fn sync_wals(session: &Session, prefix: &str, stores: &mut [Followed]) -> Result<(), String> {
+/// active did not answer (it is away or this session is dead). `hold` gets
+/// the active's hold from its registry page.
+async fn sync_wals(
+    session: &Session,
+    prefix: &str,
+    stores: &mut [Followed],
+    hold: &mut Option<Instant>,
+) -> Result<(), String> {
     for s in stores.iter_mut() {
         for _ in 0..PAGES_PER_POLL {
             let key = format!(
@@ -206,8 +292,11 @@ async fn sync_wals(session: &Session, prefix: &str, stores: &mut [Followed]) -> 
                 s.follower.lsn(),
                 replication::MAX_RECORDS
             );
-            let page = replication::parse_page(ask(session, &key).await.ok_or("no answer")?)
-                .ok_or("bad page")?;
+            let answer = ask(session, &key).await.ok_or("no answer")?;
+            if s.name == "state" {
+                *hold = hold_of(&answer);
+            }
+            let page = replication::parse_page(answer).ok_or("bad page")?;
             if page.chain != s.follower.chain() {
                 // the active's history is not ours (ours has records of a
                 // former active that never reached it): start again
@@ -477,14 +566,41 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
     let broker = format!("wy/{}/sys/broker", cfg.site);
     tokio::pin!(shutdown);
     // Until the active answers it counts as away: a lone start takes over
-    // after the takeover time.
+    // after the takeover time (with a witness).
     let mut gone_since: Option<Instant> = Some(Instant::now());
+    // The active's hold (it is rebuilding its router), and the next witness
+    // check after one found none.
+    let mut hold: Option<Instant> = None;
+    let mut retry_at: Option<Instant> = None;
+    let mut no_witness_said = false;
+    let due = |gone: Option<Instant>, hold: Option<Instant>, retry: Option<Instant>| {
+        gone.map(|t| {
+            let mut d = t + takeover;
+            if let Some(h) = hold {
+                d = d.max(h);
+            }
+            if let Some(r) = retry {
+                d = d.max(r);
+            }
+            d
+        })
+    };
     tracing::info!(peer = %sb.peer, primary = sb.primary, takeover_s = takeover.as_secs(), "standby: following");
     loop {
-        let deadline = gone_since.map(|t| t + takeover);
+        let deadline = due(gone_since, hold, retry_at);
         let session = tokio::select! {
             _ = &mut shutdown => return Ok(Outcome::Stopped),
-            _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => return Ok(Outcome::Takeover),
+            _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => {
+                if witness_reachable(&sb.witness).await {
+                    tracing::warn!("standby: the active has been away for {takeover:?}: taking over");
+                    return Ok(Outcome::Takeover);
+                }
+                if !std::mem::replace(&mut no_witness_said, true) {
+                    tracing::warn!("standby: the active is away, but no witness answers: this host may be the one cut off; not taking over");
+                }
+                retry_at = Some(Instant::now() + POLL);
+                continue;
+            }
             r = open_session(cfg, &sb.peer, &cert) => match r {
                 Ok(s) => s,
                 Err(e) => {
@@ -509,16 +625,22 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
         let mut polls = 0u32;
         let mut failures = 0u32;
         loop {
-            let deadline = gone_since.map(|t| t + takeover);
+            let deadline = due(gone_since, hold, retry_at);
             tokio::select! {
                 _ = &mut shutdown => {
                     let _ = session.close().await;
                     return Ok(Outcome::Stopped);
                 }
                 _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => {
-                    let _ = session.close().await;
-                    tracing::warn!("standby: the active has been away for {takeover:?}: taking over");
-                    return Ok(Outcome::Takeover);
+                    if witness_reachable(&sb.witness).await {
+                        let _ = session.close().await;
+                        tracing::warn!("standby: the active has been away for {takeover:?}: taking over");
+                        return Ok(Outcome::Takeover);
+                    }
+                    if !std::mem::replace(&mut no_witness_said, true) {
+                        tracing::warn!("standby: the active is away, but no witness answers: this host may be the one cut off; not taking over");
+                    }
+                    retry_at = Some(Instant::now() + POLL);
                 }
                 s = watch.recv_async() => match s {
                     Ok(sample) if sample.kind() == zenoh::sample::SampleKind::Delete => {
@@ -532,7 +654,7 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                 },
                 _ = tick.tick() => {
                     polls += 1;
-                    let r = match sync_wals(&session, &prefix, &mut stores).await {
+                    let r = match sync_wals(&session, &prefix, &mut stores, &mut hold).await {
                         Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at).await {
                             Ok(()) => match sync_history(&session, &prefix, &history, &mut history_at).await {
                                 Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files).await,
@@ -545,6 +667,8 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                     match r {
                         Ok(()) => {
                             failures = 0;
+                            retry_at = None;
+                            no_witness_said = false;
                             if gone_since.take().is_some() {
                                 tracing::info!("standby: the active answers again");
                             }
@@ -595,7 +719,111 @@ pub async fn primary_is_back(cfg: &Config) {
     }
 }
 
+/// For an active broker of a pair: resolves when it has been cut off for
+/// [`StandbySection::isolation`]: no witness answers and its standby has
+/// not asked for [`STANDBY_QUIET`]. The caller steps down: the other side,
+/// which may still reach the plant, takes over only after the full takeover
+/// time, so the two are never active together across a split. Pending for
+/// ever without a standby section.
+pub async fn isolated(cfg: &Config, ctl: &wyrm_admin::Control) {
+    let Some(sb) = cfg.standby.as_ref() else {
+        return std::future::pending().await;
+    };
+    let limit = sb.isolation();
+    let mut since: Option<Instant> = None;
+    loop {
+        tokio::time::sleep(POLL).await;
+        let standby_asks = ctl
+            .standby_seen()
+            .is_some_and(|s| s.at.elapsed() < STANDBY_QUIET);
+        if standby_asks || witness_reachable(&sb.witness).await {
+            if since.take().is_some() {
+                tracing::info!("standby: a witness or the standby answers again");
+            }
+            continue;
+        }
+        let t = *since.get_or_insert_with(|| {
+            tracing::warn!("standby: no witness answers and the standby is quiet");
+            Instant::now()
+        });
+        if t.elapsed() >= limit {
+            return;
+        }
+    }
+}
+
 /// Where the standby keeps its own certificate.
 pub fn standby_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("standby")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn section(witness: &[&str]) -> StandbySection {
+        StandbySection {
+            peer: "quic/10.0.0.2:7449".into(),
+            takeover_s: 10,
+            primary: false,
+            witness: witness.iter().map(|w| w.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn witnesses_are_required_and_checked() {
+        assert!(section(&[]).validate(true).is_err(), "at least one witness");
+        assert!(section(&["10.0.0.254:443"]).validate(true).is_ok());
+        assert!(section(&["gw.plant:443", "[::1]:502"])
+            .validate(true)
+            .is_ok());
+        for bad in [
+            "10.0.0.254",
+            ":443",
+            "host:0",
+            "host:99999",
+            "tcp/host:1",
+            "a b:1",
+        ] {
+            assert!(section(&[bad]).validate(true).is_err(), "{bad}");
+        }
+        assert_eq!(section(&["h:1"]).isolation(), Duration::from_secs(5));
+        let mut s = section(&["h:1"]);
+        s.takeover_s = 1;
+        assert_eq!(s.isolation(), Duration::from_secs(1), "at least a second");
+    }
+
+    #[tokio::test]
+    async fn a_witness_answers_or_not() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let open = format!("127.0.0.1:{}", l.local_addr().unwrap().port());
+        let closed = {
+            let c = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("127.0.0.1:{}", c.local_addr().unwrap().port())
+        };
+        assert!(witness_reachable(std::slice::from_ref(&open)).await);
+        assert!(witness_reachable(&[closed.clone(), open]).await, "any one");
+        assert!(!witness_reachable(&[closed]).await);
+        assert!(!witness_reachable(&[]).await);
+    }
+
+    #[test]
+    fn a_hold_is_read_and_capped() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let page = |until: u64| {
+            Value::Map(BTreeMap::from([(
+                replication::HOLD_UNTIL.to_owned(),
+                Value::UInt(until),
+            )]))
+        };
+        assert!(hold_of(&page(now - 1000)).is_none(), "past");
+        assert!(hold_of(&Value::Map(BTreeMap::new())).is_none());
+        let h = hold_of(&page(now + 30_000)).unwrap();
+        assert!(h > Instant::now() + Duration::from_secs(25));
+        let far = hold_of(&page(now + 3_600_000)).unwrap();
+        assert!(far <= Instant::now() + MAX_HOLD, "capped");
+    }
 }

@@ -234,7 +234,7 @@ async fn run(args: Args) -> Result<(), Error> {
 /// and follows again when the primary is back.
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wyrmd::standby::{follow, primary_is_back, Outcome};
+    use wyrmd::standby::{follow, isolated, primary_is_back, Outcome};
     let exe = std::env::current_exe()?;
     let peer = cfg
         .standby
@@ -267,6 +267,11 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
                         flag.store(true, Ordering::SeqCst);
                         ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "the primary broker is back");
                         tracing::warn!("standby: the primary is back; stepping down to follow it");
+                    }
+                    _ = isolated(&cfg2, &ctl2) => {
+                        flag.store(true, Ordering::SeqCst);
+                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "cut off: no witness and no standby");
+                        tracing::warn!("standby: cut off (no witness answers, the standby is quiet); stepping down");
                     }
                 }
             })

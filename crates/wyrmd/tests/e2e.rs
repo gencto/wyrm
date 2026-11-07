@@ -8620,21 +8620,52 @@ const BUNDLE_PASS: &[u8] = b"standby bundle passphrase";
 /// `wyrmd.json5` of a broker of a standby pair in `dir`: its own QUIC peer
 /// listener on `own_quic`, following the other broker on `peer_quic`.
 fn standby_config(dir: &std::path::Path, peer_quic: u16, own_quic: u16, primary: bool) -> Config {
+    Config::from_json5(&standby_text(
+        dir,
+        free_port(),
+        peer_quic,
+        own_quic,
+        primary,
+        2,
+        witness_port(),
+    ))
+    .unwrap()
+}
+
+/// The `wyrmd.json5` text of a standby pair member: `tcp` its loopback
+/// listener, `witness` the one witness port.
+fn standby_text(
+    dir: &std::path::Path,
+    tcp: u16,
+    peer_quic: u16,
+    own_quic: u16,
+    primary: bool,
+    takeover_s: u64,
+    witness: u16,
+) -> String {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
-    Config::from_json5(&format!(
+    format!(
         r#"{{
             site: "{SITE}",
             data_dir: "{}",
-            listen: ["tcp/127.0.0.1:{}"],
+            listen: ["tcp/127.0.0.1:{tcp}"],
             admin_keys: ["{}"],
             peers: {{ listen: "quic/127.0.0.1:{own_quic}" }},
-            standby: {{ peer: "quic/127.0.0.1:{peer_quic}", takeover_s: 2, primary: {primary} }},
+            standby: {{ peer: "quic/127.0.0.1:{peer_quic}", takeover_s: {takeover_s}, primary: {primary}, witness: ["127.0.0.1:{witness}"] }},
         }}"#,
         dir.display(),
-        free_port(),
         hex::encode(key.verifying_key().to_bytes())
-    ))
-    .unwrap()
+    )
+}
+
+/// A witness that answers for the whole test process (ADR 0036): a TCP
+/// listener held open, never accepted from (the kernel completes connects).
+fn witness_port() -> u16 {
+    static W: std::sync::OnceLock<std::net::TcpListener> = std::sync::OnceLock::new();
+    W.get_or_init(|| std::net::TcpListener::bind(("127.0.0.1", free_port())).unwrap())
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 /// Last LSN of the registry WAL in `data_dir` (0 when empty).
@@ -9189,4 +9220,155 @@ async fn standby_follows_history() {
     .await;
     assert!(got.len() >= s.len(), "{} rows served", got.len());
     env.stop().await;
+}
+
+/// ADR 0036: a standby whose active is away takes over only while it
+/// reaches a witness; without one it may be the side that is cut off.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_waits_for_a_witness() {
+    let _heavy = HEAVY.lock().await;
+    let dir = temp_dir("sb-witness");
+    // a broker ran once here: the keys exist
+    let env = Env::start_in(&dir, "").await;
+    env.stop().await;
+    let witness = free_port(); // nobody listens yet
+    let cfg = Config::from_json5(&standby_text(
+        &dir,
+        free_port(),
+        free_port(), // no active anywhere
+        free_port(),
+        true,
+        1,
+        witness,
+    ))
+    .unwrap();
+    let (stop, rx) = oneshot::channel::<()>();
+    let mut follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    // the active is away (takeover 1 s), but no witness answers
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), &mut follower)
+            .await
+            .is_err(),
+        "no takeover without a witness"
+    );
+    let _listener = std::net::TcpListener::bind(("127.0.0.1", witness)).unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(10), follower)
+        .await
+        .expect("takeover once a witness answers")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
+    drop(stop);
+}
+
+/// ADR 0036: a router rebuild on the active (a link install) closes its
+/// listeners; it asks its standby to wait first, so even a standby with a
+/// takeover time of one second does not take over.
+#[tokio::test(flavor = "multi_thread")]
+async fn standby_holds_during_a_rebuild() {
+    let _heavy = HEAVY.lock().await;
+    let (a_dir, s_dir) = (temp_dir("hold-active"), temp_dir("hold-standby"));
+    let (a_quic, s_quic) = (free_port(), free_port());
+    let env = Env::start_on(
+        &a_dir,
+        &format!(r#"peers: {{ listen: "quic/127.0.0.1:{a_quic}" }},"#),
+        free_port(),
+        free_port(),
+    )
+    .await;
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let cfg = Config::from_json5(&standby_text(
+        &s_dir,
+        free_port(),
+        a_quic,
+        s_quic,
+        true,
+        1,
+        witness_port(),
+    ))
+    .unwrap();
+    let (stop, rx) = oneshot::channel::<()>();
+    let mut follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    eventually("standby connected", 30, || async {
+        env.ctl.standby_recent(Duration::from_secs(2)).then_some(())
+    })
+    .await;
+    for id in ["rb1", "rb2"] {
+        install_external_mock(env.port, id).await;
+    }
+    eventually("standby caught up", 30, || async {
+        let (a, s) = (registry_lsn(&a_dir), registry_lsn(&s_dir));
+        (a > 0 && a == s).then_some(())
+    })
+    .await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(3), &mut follower)
+            .await
+            .is_err(),
+        "the standby kept following through two rebuilds"
+    );
+    let _ = stop.send(());
+    assert_eq!(
+        follower.await.unwrap().unwrap(),
+        wyrmd::standby::Outcome::Stopped
+    );
+    env.stop().await;
+}
+
+/// ADR 0036, the real `wyrmd` process with a `standby` section: alone, it
+/// takes over while the witness answers; cut off (the witness gone, no
+/// standby asking), it steps down and its listener closes; when the
+/// witness is back it takes over again.
+#[tokio::test(flavor = "multi_thread")]
+async fn cut_off_active_steps_down() {
+    let _heavy = HEAVY.lock().await;
+    let dir = temp_dir("cutoff");
+    let env = Env::start_in(&dir, "").await;
+    env.stop().await;
+    let (tcp, witness) = (free_port(), free_port());
+    let cfg = dir.with_extension("json5");
+    std::fs::write(
+        &cfg,
+        standby_text(&dir, tcp, free_port(), free_port(), true, 2, witness),
+    )
+    .unwrap();
+    let mut broker = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .arg("-c")
+        .arg(&cfg)
+        .env("RUST_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let up = || std::net::TcpStream::connect(("127.0.0.1", tcp)).is_ok();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", witness)).unwrap();
+    eventually("active with a witness", 30, || async { up().then_some(()) }).await;
+    drop(listener);
+    eventually("cut off: stepped down", 30, || async {
+        (!up()).then_some(())
+    })
+    .await;
+    assert!(
+        broker.try_wait().unwrap().is_none(),
+        "the process follows on"
+    );
+    let _listener = std::net::TcpListener::bind(("127.0.0.1", witness)).unwrap();
+    eventually("active again with the witness", 30, || async {
+        up().then_some(())
+    })
+    .await;
+    let _ = broker.kill();
+    let _ = broker.wait();
 }

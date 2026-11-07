@@ -162,12 +162,28 @@ Set it up once:
    (`tls_names` must contain the host name or address the other side uses):
    ```json5
    peers: { listen: "quic/0.0.0.0:7449" },
-   standby: { peer: "quic/10.0.0.2:7449", takeover_s: 10, primary: true },   // host A
-   standby: { peer: "quic/10.0.0.1:7449", takeover_s: 10, primary: false },  // host B
+   // host A
+   standby: { peer: "quic/10.0.0.2:7449", takeover_s: 10, primary: true,
+              witness: ["10.0.0.254:443", "10.0.1.10:502"] },
+   // host B
+   standby: { peer: "quic/10.0.0.1:7449", takeover_s: 10, primary: false,
+              witness: ["10.0.0.254:443", "10.0.1.10:502"] },
    ```
    `primary: true` on one host only: it takes over after `takeover_s`,
    the other after three times that, and when both are active after a
    network split, the other steps down.
+
+   `witness` is required: TCP addresses on the plant network that each
+   host must reach to be active, typically the network gateway and one or
+   two PLCs the site polls (any port that accepts a connection: 443 of a
+   router, 502 of a Modbus device). Any one answering is enough. A host
+   that reaches none of them is the side that is cut off: it does not take
+   over, and an active broker that reaches none and no longer hears its
+   standby steps down after half of `takeover_s`, before the other side
+   can take over. Keep `takeover_s` at 10 or more, so that both sides see
+   the split in time. List more than one witness: if every witness is down
+   while the standby is down too, the active steps down and the site has
+   no broker until a witness answers again.
 2. On the broker that has run (host A), export the site's keys with a
    passphrase of at least 12 characters, and carry the file to host B:
    ```bash
@@ -182,15 +198,32 @@ Set it up once:
    `standby: following`; host A shows `sys/standby_connected` 1 and
    `sys/standby_lag` 0 once it has caught up.
 
-What happens at a failover: host A goes; after `takeover_s` host B logs
-`standby: promoted`, opens the broker on the followed `data_dir`, and the
-links, gateway clients and upstream brokers that know both addresses
-(section "Several endpoints") come to it. When host A is back it follows
-host B (`standby: following`); if host A is the primary and host B is
-not, host B steps down the moment it sees host A's broker token, and host
-A takes over after `takeover_s`: one more short gap, then the primary is
-active again. Each change of role is an audit record, `promoted` or
-`demoted`.
+What happens at a failover: host A goes; after `takeover_s` (three
+times that for a host that is not primary), and while a witness answers,
+host B logs `standby: promoted`, opens the broker on the followed
+`data_dir`, and the links, gateway clients and upstream brokers that know
+both addresses (section "Several endpoints") come to it.
+
+There is no automatic failback. When host A comes back it finds host B
+active, follows it (`standby: following`) and stays the standby, primary
+or not: a switch back would cost another gap. To make host A active
+again, stop `wyrmd` on host B at a quiet moment; host A takes over after
+`takeover_s` and host B, started again, follows it.
+
+The primary rule matters only when both hosts became active across a split
+that has healed: the one that is not primary sees the primary's broker
+token, steps down and follows it. Records it made while it was active
+(links installed, settings changed) are moved aside as `state.stale.<n>`
+on that host, not merged.
+
+A router rebuild on the active (a link installed, a peer added, new
+signing keys) closes its listeners for a moment; the active first tells
+its standby to wait (up to 60 s, released as soon as the router is up),
+so a rebuild never looks like a failure. With a standby connected each
+rebuild starts 2.5 s later, for the standby to read that.
+
+Each change of role is an audit record by `system`: `promoted`, or
+`demoted` with the reason (the primary is back; cut off).
 
 Rules of thumb:
 - Keep the two `wyrmd.json5` files the same. A link named in host A's
