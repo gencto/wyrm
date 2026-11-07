@@ -9267,8 +9267,9 @@ async fn standby_waits_for_a_witness() {
 }
 
 /// ADR 0036: a router rebuild on the active (a link install) closes its
-/// listeners; it asks its standby to wait first, so even a standby with a
-/// takeover time of one second does not take over.
+/// listeners; it asks its standby to wait first. Two installs pass without
+/// a takeover; then the active asks for a hold of 8 s and goes away for
+/// good: the standby (takeover 1 s) waits out the hold, then takes over.
 #[tokio::test(flavor = "multi_thread")]
 async fn standby_holds_during_a_rebuild() {
     let _heavy = HEAVY.lock().await;
@@ -9301,10 +9302,8 @@ async fn standby_holds_during_a_rebuild() {
         })
         .await
     });
-    eventually("standby connected", 30, || async {
-        env.ctl.standby_recent(Duration::from_secs(2)).then_some(())
-    })
-    .await;
+    let connected = || async { env.ctl.standby_recent(Duration::from_secs(2)).then_some(()) };
+    eventually("standby connected", 30, connected).await;
     for id in ["rb1", "rb2"] {
         install_external_mock(env.port, id).await;
     }
@@ -9314,17 +9313,34 @@ async fn standby_holds_during_a_rebuild() {
     })
     .await;
     assert!(
-        tokio::time::timeout(Duration::from_secs(3), &mut follower)
+        tokio::time::timeout(Duration::from_secs(2), &mut follower)
             .await
             .is_err(),
         "the standby kept following through two rebuilds"
     );
-    let _ = stop.send(());
-    assert_eq!(
-        follower.await.unwrap().unwrap(),
-        wyrmd::standby::Outcome::Stopped
-    );
+    // a hold of 8 s, read by the standby's next polls, then the active is gone
+    env.ctl.hold_standby(Duration::from_secs(8));
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let gone = std::time::Instant::now();
     env.stop().await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(4), &mut follower)
+            .await
+            .is_err(),
+        "no takeover while the hold lasts"
+    );
+    let outcome = tokio::time::timeout(Duration::from_secs(15), follower)
+        .await
+        .expect("takeover after the hold")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
+    assert!(
+        gone.elapsed() >= Duration::from_secs(5),
+        "took over after {:?}, inside the hold",
+        gone.elapsed()
+    );
+    drop(stop);
 }
 
 /// ADR 0036, the real `wyrmd` process with a `standby` section: alone, it
