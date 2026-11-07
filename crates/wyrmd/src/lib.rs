@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod standby;
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -127,6 +129,11 @@ pub struct Config {
     /// The embedded uplink at `wy/<site>/downstream/uplink` (ADR 0035): platform upstreams.
     #[serde(default)]
     pub uplink: UplinkSection,
+    /// A warm standby pair (ADR 0036): the other broker of this site. With
+    /// it, `wyrmd` follows the other broker until it is away, then opens
+    /// the daemon on the followed `data_dir`.
+    #[serde(default)]
+    pub standby: Option<standby::StandbySection>,
 }
 
 /// `alarm` in `wyrmd.json5`: on by default.
@@ -430,6 +437,7 @@ impl PeersSection {
                     .map(|d| (d.site.clone(), d.via.clone()))
                     .collect(),
                 enroll: self.enroll.is_some(),
+                standby: self.listen.is_some(),
                 config_from: self
                     .upstream
                     .iter()
@@ -633,6 +641,9 @@ impl Config {
             }
         }
         cfg.peers.validate(&cfg.site)?;
+        if let Some(s) = &cfg.standby {
+            s.validate(cfg.peers.listen.is_some())?;
+        }
         if let Some(a) = &cfg.state_anchor_dir {
             if a.starts_with(&cfg.data_dir) {
                 return Err(format!(
@@ -1737,6 +1748,7 @@ impl Daemon {
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
+        ctl.set_storage(&storage);
         ctl.set_peers(cfg.peers.peer_config());
         // a site now in wyrmd.json5 and still in the registry: json5 wins
         ctl.drop_shadowed_peers();
@@ -1863,12 +1875,20 @@ impl Daemon {
             )
             .await?;
             self.ctl.reopen();
+            self.ctl.release_standby();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = shutdown.as_mut() => false,
                 r = self.reload.recv() => r.is_some(),
             };
             if reload {
+                // A standby (ADR 0036) must not take the closed listeners
+                // for an absence: it waits until the router is back (or the
+                // hold runs out). It reads the hold with its next poll.
+                self.ctl.hold_standby(STANDBY_HOLD);
+                if self.ctl.standby_recent(Duration::from_secs(5)) {
+                    tokio::time::sleep(STANDBY_HOLD_READ).await;
+                }
                 // A package install in flight finishes on this broker; new
                 // ones answer `busy` until the next broker is up.
                 self.ctl.quiesce(Duration::from_secs(180)).await;
@@ -1895,6 +1915,14 @@ impl Daemon {
 /// How long a broker start waits for an old runtime (a rebuild, or a
 /// restart in the same process) to let the QUIC peer port go.
 const QUIC_PORT_WAIT: Duration = Duration::from_secs(30);
+
+/// How long a standby waits for a rebuild (ADR 0036): the QUIC port wait
+/// and the router build, with room to spare. Released as soon as the
+/// router is up.
+const STANDBY_HOLD: Duration = Duration::from_secs(60);
+/// How long the rebuild waits for a connected standby to read the hold (it
+/// polls once a second).
+const STANDBY_HOLD_READ: Duration = Duration::from_millis(2500);
 
 /// Wait until the UDP port of `quic/<host>:<port>` is free. The old
 /// runtime's QUIC endpoint keeps it while its connections drain; Zenoh

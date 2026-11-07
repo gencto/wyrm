@@ -121,6 +121,11 @@ pub struct Peers {
     /// sites' `sys`) at `config`; every upstream gets `write` on the other
     /// sections (ADR 0018).
     pub config_from: Vec<String>,
+    /// The QUIC peer listener is open: a warm standby of this site (CN
+    /// `standby:<site>`, a certificate only the site's own CA can issue) may
+    /// query `sys/replication/**` and watch the broker token, nothing else
+    /// (ADR 0036).
+    pub standby: bool,
 }
 
 impl Peers {
@@ -153,6 +158,11 @@ const UP_READ: [(&str, &[&str]); 5] = [
 /// Sections an upstream site may send `~set`/`~act` queries to (ADR 0018);
 /// `sys` only with `allow_config`.
 const UP_WRITE: [&str; 3] = ["downstream", "dataflows", "storage"];
+
+/// The queryable the active broker serves its standby from (ADR 0036).
+pub fn replication_key(site: &str) -> String {
+    format!("wy/{site}/sys/replication")
+}
 
 /// The value a site publishes with the keys it signs requests with, which
 /// its downstream sites read (ADR 0018).
@@ -576,6 +586,23 @@ pub fn access_control_with_peers(
             "subjects": [format!("broker-{d}")],
         }));
     }
+    if peers.standby {
+        let repl = vec![format!("{}/**", replication_key(site))];
+        let own = vec![format!("wy/{site}/sys/broker")];
+        rules.push(rule("standby-in", &["ingress"], &["query"], &repl));
+        rules.push(rule("standby-out", &["egress"], &["reply"], &repl));
+        rules.push(rule("standby-watch-in", &["ingress"], WATCH, &own));
+        rules.push(rule("standby-token-out", &["egress"], TOKEN, &own));
+        subjects.push(json!({
+            "id": "standby",
+            "cert_common_names": [format!("standby:{site}")],
+            "link_protocols": ["quic"],
+        }));
+        policies.push(json!({
+            "rules": ["standby-in", "standby-out", "standby-watch-in", "standby-token-out"],
+            "subjects": ["standby"],
+        }));
+    }
     if peers.enroll {
         // No CN in the subject: it matches sessions without a certificate
         // (and every QUIC broker, which gains nothing it lacks).
@@ -863,6 +890,39 @@ mod tests {
     /// (it would fake our presence); an upstream declares only its own.
     /// The enrollment listener (ADR 0015): any QUIC session, certificate or
     /// not, may query one key and get its reply; nothing else.
+    /// A warm standby (ADR 0036): the CN `standby:<site>` over QUIC may
+    /// query `sys/replication/**` and watch the broker token, nothing else.
+    #[test]
+    fn standby_reads_replication_only() {
+        let peers = Peers {
+            standby: true,
+            ..Default::default()
+        };
+        let acl = access_control_with_peers("hub", &Registry::default(), &[], false, &peers);
+        let text = acl.to_string();
+        assert!(text.contains(r#""cert_common_names":["standby:hub"]"#));
+        let rules = acl["rules"].as_array().unwrap();
+        let keys_of = |id: &str| {
+            rules
+                .iter()
+                .find(|r| r["id"] == id)
+                .map(|r| r["key_exprs"].to_string())
+                .unwrap_or_default()
+        };
+        assert_eq!(keys_of("standby-in"), r#"["wy/hub/sys/replication/**"]"#);
+        assert_eq!(keys_of("standby-watch-in"), r#"["wy/hub/sys/broker"]"#);
+        let policy = acl["policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["subjects"] == serde_json::json!(["standby"]))
+            .unwrap();
+        assert_eq!(policy["rules"].as_array().unwrap().len(), 4);
+        let none =
+            access_control_with_peers("hub", &Registry::default(), &[], false, &Peers::default());
+        assert!(!none.to_string().contains("standby"));
+    }
+
     #[test]
     fn enrollment_reaches_one_key() {
         let peers = Peers {

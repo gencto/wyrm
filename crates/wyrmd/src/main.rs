@@ -32,6 +32,19 @@ enum Cmd {
     /// Gateway users (wyrmd stopped; passwords are read from stdin).
     #[command(subcommand)]
     User(UserCmd),
+    /// The site's key bundle for a warm standby (ADR 0036): export it on
+    /// the active broker, import it into the standby's empty data_dir. The
+    /// passphrase comes from WYRM_KEYS_PASSPHRASE, else from stdin.
+    #[command(subcommand)]
+    Keys(KeysCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum KeysCmd {
+    /// Write the sealed bundle of this broker's keys to a file.
+    Export { out: std::path::PathBuf },
+    /// Read a bundle into this broker's data_dir (none of its files may exist yet).
+    Import { file: std::path::PathBuf },
 }
 
 #[derive(Subcommand, Debug)]
@@ -159,6 +172,7 @@ async fn run(args: Args) -> Result<(), Error> {
             return Ok(());
         }
         Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
+        Some(Cmd::Keys(cmd)) => return keys_cmd(&cfg, cmd),
         Some(Cmd::Verify) => {
             let checks = wyrmd::verify_state(&cfg);
             let mut bad = false;
@@ -204,11 +218,128 @@ async fn run(args: Args) -> Result<(), Error> {
     if cfg.admin_keys.is_empty() {
         tracing::warn!("no admin_keys: every set/invoke will be denied");
     }
+    if cfg.standby.is_some() {
+        return run_with_standby(cfg).await;
+    }
     let daemon = Daemon::open(cfg, std::env::current_exe()?)?;
     daemon
         .run_until(async {
-            let _ = tokio::signal::ctrl_c().await;
+            stop_signal().await;
             tracing::info!("stopping");
         })
         .await
+}
+
+/// A broker of a standby pair (ADR 0036): follow the other broker until it
+/// is away, then run as the active one; a non-primary active steps down
+/// and follows again when the primary is back.
+async fn run_with_standby(cfg: Config) -> Result<(), Error> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use wyrmd::standby::{follow, isolated, primary_is_back, Outcome};
+    let exe = std::env::current_exe()?;
+    let peer = cfg
+        .standby
+        .as_ref()
+        .map(|s| s.peer.clone())
+        .unwrap_or_default();
+    loop {
+        match follow(&cfg, stop_signal()).await? {
+            Outcome::Stopped => return Ok(()),
+            Outcome::Takeover => {}
+        }
+        let daemon = Daemon::open(cfg.clone(), exe.clone())?;
+        let ctl = daemon.control();
+        ctl.record(
+            "system",
+            "promoted",
+            &peer,
+            wyrm_core::Status::Ok,
+            "the other broker was away",
+        );
+        tracing::warn!("standby: promoted; this broker is the active one now");
+        let demoted = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = demoted.clone();
+        let (ctl2, cfg2, peer2) = (ctl.clone(), cfg.clone(), peer.clone());
+        daemon
+            .run_until(async move {
+                tokio::select! {
+                    _ = stop_signal() => tracing::info!("stopping"),
+                    _ = primary_is_back(&cfg2) => {
+                        flag.store(true, Ordering::SeqCst);
+                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "the primary broker is back");
+                        tracing::warn!("standby: the primary is back; stepping down to follow it");
+                    }
+                    _ = isolated(&cfg2, &ctl2) => {
+                        flag.store(true, Ordering::SeqCst);
+                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "cut off: no witness and no standby");
+                        tracing::warn!("standby: cut off (no witness answers, the standby is quiet); stepping down");
+                    }
+                }
+            })
+            .await?;
+        if !demoted.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+    }
+}
+
+fn passphrase() -> Result<zeroize::Zeroizing<Vec<u8>>, Error> {
+    if let Ok(p) = std::env::var("WYRM_KEYS_PASSPHRASE") {
+        return Ok(zeroize::Zeroizing::new(p.into_bytes()));
+    }
+    eprintln!("passphrase (WYRM_KEYS_PASSPHRASE not set; read from stdin):");
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(zeroize::Zeroizing::new(
+        line.trim_end_matches(['\r', '\n']).as_bytes().to_vec(),
+    ))
+}
+
+fn keys_cmd(cfg: &Config, cmd: KeysCmd) -> Result<(), Error> {
+    match cmd {
+        KeysCmd::Export { out } => {
+            let bundle = wyrm_admin::keys::export(&cfg.data_dir, &passphrase()?)?;
+            wyrm_admin::secret::write_private(&out, &bundle)?;
+            println!(
+                "{}: {} bytes (keep it as the site itself)",
+                out.display(),
+                bundle.len()
+            );
+        }
+        KeysCmd::Import { file } => {
+            let bundle = std::fs::read(&file)?;
+            std::fs::create_dir_all(&cfg.data_dir)?;
+            let names = wyrm_admin::keys::import(&cfg.data_dir, &bundle, &passphrase()?)?;
+            println!(
+                "imported into {}: {}",
+                cfg.data_dir.display(),
+                names.join(", ")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// SIGINT (Ctrl-C) or SIGTERM (systemd, docker, `kill`): a clean stop that
+/// flushes the historian and ends the link processes (ADR 0036, option 1).
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(t) => t,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }

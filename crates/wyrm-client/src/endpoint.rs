@@ -1,6 +1,11 @@
-//! Client session configuration for one broker endpoint, shared by `wyr`
+//! Client session configuration for a broker's endpoints, shared by `wyr`
 //! and `wyrm-ffi`. Principle 6: `tls/` and `quic/` endpoints use mTLS with
 //! certificates from the broker CA; plaintext only on loopback.
+//!
+//! An endpoint value may list several endpoints, comma-separated, in the
+//! order to try (ADR 0036, option 2: a site with a standby broker). Zenoh's
+//! client mode connects to the first one it reaches and tries the list
+//! again when the connection drops.
 
 use std::path::PathBuf;
 
@@ -12,13 +17,29 @@ pub struct TlsFiles {
     pub key: PathBuf,
 }
 
-/// `true` for a `tls/` or `quic/` endpoint.
-pub fn is_tls(endpoint: &str) -> bool {
-    endpoint.starts_with("tls/") || endpoint.starts_with("quic/")
+/// The endpoints of a value: comma-separated, in order, blanks dropped.
+pub fn split(endpoints: &str) -> Vec<&str> {
+    endpoints
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .collect()
 }
 
-/// `tcp/`, `udp/` or `ws/` endpoint whose host is not loopback.
-pub fn plaintext_off_loopback(endpoint: &str) -> bool {
+/// `true` when any endpoint of the value is `tls/` or `quic/`.
+pub fn is_tls(endpoints: &str) -> bool {
+    split(endpoints)
+        .iter()
+        .any(|e| e.starts_with("tls/") || e.starts_with("quic/"))
+}
+
+/// `true` when any endpoint of the value is `tcp/`, `udp/` or `ws/` with a
+/// host that is not loopback.
+pub fn plaintext_off_loopback(endpoints: &str) -> bool {
+    split(endpoints).into_iter().any(one_plaintext_off_loopback)
+}
+
+fn one_plaintext_off_loopback(endpoint: &str) -> bool {
     let Some((proto, rest)) = endpoint.split_once('/') else {
         return false;
     };
@@ -65,7 +86,8 @@ pub fn tls_section(endpoint: &str, tls: Option<&TlsFiles>) -> Result<Option<Stri
     )))
 }
 
-/// Client-mode Zenoh config for one `endpoint`, no scouting.
+/// Client-mode Zenoh config for `endpoint` (one, or several comma-separated
+/// in the order to try), no scouting.
 pub fn client_config(endpoint: &str, tls: Option<&TlsFiles>) -> Result<zenoh::Config, String> {
     if endpoint
         .chars()
@@ -73,13 +95,18 @@ pub fn client_config(endpoint: &str, tls: Option<&TlsFiles>) -> Result<zenoh::Co
     {
         return Err("endpoint: illegal character".into());
     }
+    let list = split(endpoint);
+    if list.is_empty() {
+        return Err("endpoint: none given".into());
+    }
+    let quoted: Vec<String> = list.iter().map(|e| format!("\"{e}\"")).collect();
     let mut zc = zenoh::Config::default();
     let mut set = |k: &str, v: &str| {
         zc.insert_json5(k, v)
             .map_err(|e| format!("zenoh config {k}: {e}"))
     };
     set("mode", r#""client""#)?;
-    set("connect/endpoints", &format!("[\"{endpoint}\"]"))?;
+    set("connect/endpoints", &format!("[{}]", quoted.join(",")))?;
     set("scouting/multicast/enabled", "false")?;
     if let Some(t) = tls_section(endpoint, tls)? {
         set("transport/link/tls", &t)?;
@@ -123,5 +150,25 @@ mod tests {
             .unwrap()
             .contains(r"C:\\pki"));
         assert!(client_config("tcp/a\"b:1", None).is_err());
+    }
+
+    #[test]
+    fn several_endpoints_in_order() {
+        assert_eq!(
+            split(" tls/10.0.0.1:7448, tls/10.0.0.2:7448,,"),
+            ["tls/10.0.0.1:7448", "tls/10.0.0.2:7448"]
+        );
+        assert!(is_tls("tcp/127.0.0.1:7447,quic/10.0.0.2:7449"));
+        assert!(plaintext_off_loopback(
+            "tcp/127.0.0.1:7447,tcp/10.0.0.2:7447"
+        ));
+        assert!(!plaintext_off_loopback("tcp/127.0.0.1:7447,tcp/[::1]:7447"));
+        let zc = client_config("tcp/127.0.0.1:7447, tcp/127.0.0.1:7457", None).unwrap();
+        let eps = zc.get_json("connect/endpoints").unwrap();
+        assert!(
+            eps.contains("tcp/127.0.0.1:7447") && eps.contains("tcp/127.0.0.1:7457"),
+            "{eps}"
+        );
+        assert!(client_config(" , ", None).is_err());
     }
 }

@@ -383,3 +383,55 @@ Work that is known and not done. The decisions around it are in ADR 0029.
   `secrets.key`, `state.key` (ADM-1); an MCP service identity as a limited
   key instead of an admin key (AI-2); the Low items listed in ADR 0031 as
   "next"; signed repository indexes.
+
+## 13. Broker fault tolerance (ADR 0036, 2026-11-05)
+
+Owner choice: options 1 + 2 + 3 of the assessment in ADR 0036; options 4
+(a mesh of two routers for direct readers) and 5 (a Raft cluster) refused
+before 1.0. Estimates in person-days, tests included.
+
+- Option 1, supervised restart: done 2026-11-05 (`docs/operations.md`,
+  SIGTERM handled, back-off cap 5 s, e2e `broker_restart_rto`). Figures
+  from `cargo test --release -p wyrmd --test e2e broker_restart_rto --
+  --nocapture`, one embedded and one process mock link, restart at once:
+
+  | Host | start → ready | kill → ready | `wyrmd` without links, RSS |
+  |---|---|---|---|
+  | reference board (4-core ARM64, 2 GB) | not measured yet | | |
+  | x86_64 cloud container, debug build, 2026-11-05 | 1.6 s | 1.6 s | 97 MiB |
+- Option 2, endpoint lists: done 2026-11-05 (`WYRM_ENDPOINT` list with
+  `WYRM_BROKER_WAIT_S`, `wyr --connect` and FFI lists, Dart
+  `WyrmGateway.loginAny`, e2e `link_process_walks_its_endpoints`). Left:
+  the supervisor passes only the broker's own endpoint to the links it
+  starts (stage A of option 3 adds the standby's); the Flutter explorer's
+  login form takes one URL.
+- Option 3, warm standby, stage A: done 2026-11-05 (`standby` section,
+  `wyrmd keys export|import`, `sys/replication/**`, `wyrm_state::replicate`,
+  `wyrmd::standby`, e2e `standby_follows_the_wal` and
+  `standby_takes_over_and_the_old_active_demotes`). Left from stage A:
+  a test of two active brokers stepping down; the leader reads its whole
+  segment files on every poll (an offset index would spare that on a long
+  WAL); the Flutter explorer does not show the standby.
+- Stage B: done 2026-11-05 as file replication (`sys/replication/files`,
+  `file/<offset>/<len>/<name>` in parts of 1 MiB, deletions) plus the
+  storage change journal (`wyrm_storage::Store::changes_since`,
+  `storage/<epoch>/<since>/<max>`); e2e `standby_follows_stores`. Left:
+  files over 64 MiB are skipped; the file list is walked with `stat` every
+  5 s (fine up to a few thousand files, an index would be better beyond);
+  a package or store file written without a rename could be copied torn
+  (every writer in the tree renames today).
+- Stage C: done 2026-11-06 (`sys/replication/history/<after>/<max>` from
+  the historian's journal, the cursor kept under the sink name
+  `standby-<store id>`; e2e `standby_follows_history`). Left: the
+  standby's own purge follows the registry's retention only after a
+  promotion (it stores what the active sends while it follows).
+- Review 2026-11-06, fixed 2026-11-07: a split no longer makes both
+  brokers active when one side is cut off from the plant (required
+  `standby.witness`, the cut-off active steps down); an ACL rebuild holds
+  the standby; no failback (documented as such). Open from that review:
+  history-sync cursors are not carried to the standby (every sink sends
+  its local history again after a failover; the targets replace on
+  `(key, t)`); the records of the losing side of a healed split are moved
+  aside without an audit record or a `sys` value; a split where both hosts
+  still reach a witness gives two actives.
+- Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

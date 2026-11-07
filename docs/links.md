@@ -235,7 +235,8 @@ The broker starts it with a cleared environment (only `RUST_LOG`,
 | Variable | Value |
 |---|---|
 | `WYRM_SITE`, `WYRM_LINK_ID` | Site and link id. |
-| `WYRM_ENDPOINT` | The broker's `tls/` listener on loopback. |
+| `WYRM_ENDPOINT` | The broker's `tls/` listener on loopback. A link started by hand (an external link, a package on another host) may list several endpoints, comma-separated, in the order to try: `tls/10.0.0.1:7448,tls/10.0.0.2:7448` (a site with a standby broker, ADR 0036). One session per endpoint: the link connects to the first that answers, and serves it only when the site's broker is there (the liveliness token `wy/<site>/sys/broker`); a router without it, or whose broker has been gone for `WYRM_BROKER_WAIT_S`, is left for the next endpoint. |
+| `WYRM_BROKER_WAIT_S` | With several endpoints: seconds a router without the site's broker is kept before the next endpoint (15 by default). |
 | `WYRM_CA`, `WYRM_CERT`, `WYRM_KEY` | mTLS files: broker CA, the link's certificate (CN = link id) and key. |
 | `WYRM_TOKEN_FILE` | The link token for `hello`. |
 | `WYRM_DATA_DIR` | The link's private directory (`<data_dir>/links/<id>/data`, mode 0700). |

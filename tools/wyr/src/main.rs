@@ -41,7 +41,8 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 #[derive(Parser, Debug)]
 #[command(version, about = "WYRM command line")]
 struct Cli {
-    /// Router endpoint.
+    /// Router endpoint, or several comma-separated in the order to try
+    /// (a site with a standby broker, ADR 0036).
     #[arg(long, global = true, default_value = "tcp/127.0.0.1:7447")]
     connect: String,
     /// Admin signing key file (from `wyr keygen`); mints a ptok per request.

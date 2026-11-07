@@ -20,36 +20,150 @@ import 'reconnect.dart';
 
 /// A logged-in gateway session. [connect] opens a WebSocket with a fresh
 /// ticket each time (also for a reconnect).
+///
+/// A site with a standby broker (ADR 0036) has one gateway per broker:
+/// [loginAny] takes them all, in the order to try, and keeps the
+/// credentials, so [connect] logs in again on another gateway when the one
+/// in use is gone or does not know this session.
 class WyrmGateway {
-  /// `http://host:port` or `https://host:port`.
-  final Uri base;
-  final String _session;
+  /// The gateways in the order to try; [base] is the one in use.
+  final List<Uri> bases;
+  int _current;
+  String _session;
+  int _expires;
+  final HttpClient _http;
+  final String? _user;
+  final String? _password;
+
+  WyrmGateway._(
+    this.bases,
+    this._current,
+    this._session,
+    this._expires,
+    this._http,
+    this._user,
+    this._password,
+  );
+
+  /// `http://host:port` or `https://host:port` of the gateway in use.
+  Uri get base => bases[_current];
 
   /// Session expiry, seconds since the Unix epoch.
-  final int expires;
-  final HttpClient _http;
-
-  WyrmGateway._(this.base, this._session, this.expires, this._http);
+  int get expires => _expires;
 
   /// Log in with [user] and [password]. Pass [http] for a custom
   /// `SecurityContext` (a private CA for the gateway certificate).
-  static Future<WyrmGateway> login(Uri base,
-      {required String user, required String password, HttpClient? http}) async {
+  static Future<WyrmGateway> login(
+    Uri base, {
+    required String user,
+    required String password,
+    HttpClient? http,
+  }) async {
     final client = http ?? HttpClient();
-    final r = await _post(client, base.resolve('/api/login'),
-        body: {'user': VStr(user), 'password': VStr(password)});
-    final session = switch (r['session']) { VStr(:final v) => v, _ => throw _bad('session') };
-    final exp = switch (r['exp']) { VInt(:final v) => v, _ => 0 };
-    return WyrmGateway._(base, session, exp, client);
+    final (session, exp) = await _login(client, base, user, password);
+    return WyrmGateway._([base], 0, session, exp, client, null, null);
+  }
+
+  /// Log in on the first of [bases] that answers; the credentials are kept
+  /// for a later login on another of them. A refused password ends the
+  /// search at once; any other failure moves on to the next gateway, and
+  /// the last one's error is thrown when none answered.
+  static Future<WyrmGateway> loginAny(
+    List<Uri> bases, {
+    required String user,
+    required String password,
+    HttpClient? http,
+  }) async {
+    if (bases.isEmpty) throw ArgumentError.value(bases, 'bases', 'no gateway');
+    final client = http ?? HttpClient();
+    Object last = StateError('no gateway');
+    for (var i = 0; i < bases.length; i++) {
+      try {
+        final (session, exp) = await _login(client, bases[i], user, password);
+        return WyrmGateway._(List.unmodifiable(bases), i, session, exp, client, user, password);
+      } on WyrmException catch (e) {
+        if (e.status == StatusCode.of(Status.permissionDenied)) rethrow;
+        last = e;
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last;
+  }
+
+  static Future<(String, int)> _login(HttpClient c, Uri base, String user, String password) async {
+    final r = await _post(
+      c,
+      base.resolve('/api/login'),
+      body: {'user': VStr(user), 'password': VStr(password)},
+    );
+    final session = switch (r['session']) {
+      VStr(:final v) => v,
+      _ => throw _bad('session'),
+    };
+    final exp = switch (r['exp']) {
+      VInt(:final v) => v,
+      _ => 0,
+    };
+    return (session, exp);
+  }
+
+  /// Log in again on `bases[at]` with the kept credentials and use it.
+  Future<void> _moveTo(int at) async {
+    final (user, password) = (_user, _password);
+    if (user == null || password == null) {
+      throw WyrmException.of(Status.permissionDenied, 'session unknown; log in again');
+    }
+    final (session, exp) = await _login(_http, bases[at], user, password);
+    _session = session;
+    _expires = exp;
+    _current = at;
   }
 
   /// `GET /api/me`: `{sub, roles, grants, max, exp, site}`.
   Future<Value> me() => _get(_http, base.resolve('/api/me'), bearer: _session);
 
-  /// Open a WebSocket and return the client over it.
+  /// Open a WebSocket and return the client over it: on the gateway in
+  /// use, or, when that one is gone or does not know this session, on the
+  /// next one of [bases] after a new login there. Throws
+  /// `permission_denied` only when the credentials themselves are refused
+  /// (or, without kept credentials, when the session is gone).
   Future<FrameClient> connect() async {
+    Object last = StateError('no gateway');
+    for (var i = 0; i < bases.length; i++) {
+      final at = (_current + i) % bases.length;
+      try {
+        if (at != _current) await _moveTo(at);
+        return await _connectOn(bases[at]);
+      } on WyrmException catch (e) {
+        if (e.status != StatusCode.of(Status.permissionDenied)) {
+          last = e;
+          continue;
+        }
+        // this gateway does not know the session: once more after a new login
+        if (_password == null) rethrow;
+        try {
+          await _moveTo(at);
+          return await _connectOn(bases[at]);
+        } on WyrmException catch (again) {
+          if (again.status == StatusCode.of(Status.permissionDenied)) rethrow;
+          last = again;
+        } catch (again) {
+          last = again;
+        }
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last;
+  }
+
+  Future<FrameClient> _connectOn(Uri base) async {
     final t = await _post(_http, base.resolve('/api/ws-ticket'), bearer: _session);
-    final ticket = switch (t['ticket']) { VStr(:final v) => v, _ => throw _bad('ticket') };
+    final ticket = switch (t['ticket']) {
+      VStr(:final v) => v,
+      _ => throw _bad('ticket'),
+    };
     final ws = base.replace(
       scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: '/api/ws',
@@ -61,14 +175,18 @@ class WyrmGateway {
 
   /// A client that opens a new WebSocket (with a fresh ticket) whenever
   /// its socket closes: the broker closes them all when it rebuilds its
-  /// router on an ACL change (ADR 0006). Ends when the login session does.
+  /// router on an ACL change (ADR 0006), and a standby broker's gateway
+  /// takes over after a failover (ADR 0036, with [loginAny]). Ends when the
+  /// login session does.
   Future<ReconnectingClient> client() => ReconnectingClient.open(connect);
 
   /// `POST /api/invoke`: one invoke of an action with a file parameter
   /// whose arguments are too large for a WebSocket frame; returns its last
   /// result.
   Future<Value> invoke(String key, String action, Value args) async {
-    final url = base.resolve('/api/invoke').replace(queryParameters: {'key': key, 'action': action});
+    final url = base
+        .resolve('/api/invoke')
+        .replace(queryParameters: {'key': key, 'action': action});
     final r = await _post(_http, url, bearer: _session, raw: args.toCbor());
     return r['result'] ?? const VNull();
   }
@@ -76,8 +194,13 @@ class WyrmGateway {
   /// Close the HTTP client (open sockets stay until their clients close).
   void dispose() => _http.close();
 
-  static Future<Value> _post(HttpClient c, Uri url,
-      {Map<String, Value>? body, Uint8List? raw, String? bearer}) async {
+  static Future<Value> _post(
+    HttpClient c,
+    Uri url, {
+    Map<String, Value>? body,
+    Uint8List? raw,
+    String? bearer,
+  }) async {
     final req = await c.postUrl(url);
     req.headers.contentType = ContentType('application', 'cbor');
     if (bearer != null) req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
@@ -106,8 +229,14 @@ class WyrmGateway {
       throw WyrmException.of(Status.invalidMessage, 'HTTP ${resp.statusCode}: $e');
     }
     if (resp.statusCode != 200) {
-      final status = switch (v['status']) { VInt(:final v) => v, _ => Status.internalError.code };
-      final msg = switch (v['message']) { VStr(:final v) => v, _ => 'HTTP ${resp.statusCode}' };
+      final status = switch (v['status']) {
+        VInt(:final v) => v,
+        _ => Status.internalError.code,
+      };
+      final msg = switch (v['message']) {
+        VStr(:final v) => v,
+        _ => 'HTTP ${resp.statusCode}',
+      };
       throw WyrmException(StatusCode(status), msg);
     }
     return v;
@@ -123,11 +252,12 @@ class WebSocketTransport implements FrameTransport {
   late final Stream<Value> _in;
 
   WebSocketTransport(this._ws) {
-    _in = _ws
-        .where((m) => m is List<int>)
-        .map((m) => decodeFrame(m as List<int>))
-        .handleError((Object _) {}, test: (e) => e is CborError)
-        .asBroadcastStream();
+    _in =
+        _ws
+            .where((m) => m is List<int>)
+            .map((m) => decodeFrame(m as List<int>))
+            .handleError((Object _) {}, test: (e) => e is CborError)
+            .asBroadcastStream();
   }
 
   @override
