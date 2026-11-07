@@ -9250,6 +9250,113 @@ async fn standby_follows_history() {
     env.stop().await;
 }
 
+/// ADR 0036, amendment 2026-11-08: both hosts reach a witness but not each
+/// other (here the standby's `standby.peer` is a dead port). Without an
+/// arbiter the standby would take over beside a running active; with one
+/// it waits while the active renews the site's lease, takes over once the
+/// lease runs out, and the former active then learns that another host
+/// holds it.
+#[tokio::test(flavor = "multi_thread")]
+async fn arbiter_keeps_a_split_to_one_active() {
+    let _heavy = HEAVY.lock().await;
+    let (a_dir, s_dir, arb_dir) = (
+        temp_dir("arb-active"),
+        temp_dir("arb-standby"),
+        temp_dir("arb-arbiter"),
+    );
+    let (a_quic, s_quic) = (free_port(), free_port());
+    let env = Env::start_on(
+        &a_dir,
+        &format!(r#"peers: {{ listen: "quic/127.0.0.1:{a_quic}" }}"#),
+        free_port(),
+        free_port(),
+    )
+    .await;
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let arb_port = free_port();
+    let with_arbiter = |dir: &std::path::Path, peer: u16, own: u16| {
+        let text = standby_text(dir, free_port(), peer, own, true, 1, witness_port()).replace(
+            "witness: [",
+            &format!(r#"arbiter: ["127.0.0.1:{arb_port}"], witness: ["#),
+        );
+        Config::from_json5(&text).unwrap()
+    };
+    let a_cfg = with_arbiter(&a_dir, s_quic, a_quic);
+    // the arbiter, from the site CA, on this host
+    wyrmd::arbiter::issue(&a_cfg, "127.0.0.1", &arb_dir).unwrap();
+    let (arb_stop, arb_rx) = oneshot::channel::<()>();
+    let dir = arb_dir.clone();
+    let arbiter = tokio::spawn(async move {
+        wyrmd::arbiter::serve_with(
+            &dir,
+            &format!("127.0.0.1:{arb_port}"),
+            Duration::from_secs(1),
+            async {
+                let _ = arb_rx.await;
+            },
+        )
+        .await
+    });
+    // the active takes the lease and renews it
+    let a_arb = wyrmd::arbiter::Arbiters::of(&a_cfg).unwrap().unwrap();
+    eventually("the active holds the lease", 10, || async {
+        (a_arb.acquire().await == wyrmd::arbiter::Verdict::Granted).then_some(())
+    })
+    .await;
+    let held = std::sync::Arc::new(std::sync::Mutex::new(wyrmd::arbiter::Held::default()));
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(
+        a_arb.clone(),
+        held.clone(),
+        std::time::Instant::now() - Duration::from_secs(1),
+    ));
+
+    // the standby cannot see the active (a dead port), but sees the witness
+    let s_cfg = with_arbiter(&s_dir, free_port(), s_quic);
+    let (stop, rx) = oneshot::channel::<()>();
+    let mut follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&s_cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_secs(12), &mut follower)
+            .await
+            .is_err(),
+        "no takeover while the active holds the lease"
+    );
+    assert!(!held.lock().unwrap().lost);
+
+    // the active hangs (no renewal): the lease runs out, the standby takes over
+    keeper.abort();
+    let outcome = tokio::time::timeout(Duration::from_secs(20), follower)
+        .await
+        .expect("takeover once the lease ran out")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
+    let _keep = stop;
+    // the former active comes back: told that another host has it, it steps down
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(
+        a_arb.clone(),
+        held.clone(),
+        std::time::Instant::now(),
+    ));
+    let why = tokio::time::timeout(
+        Duration::from_secs(10),
+        wyrmd::standby::lease_lost(held.clone(), &env.ctl),
+    )
+    .await
+    .expect("the former active steps down");
+    assert!(why.contains("another broker"), "{why}");
+    keeper.abort();
+    let _ = arb_stop.send(());
+    arbiter.await.unwrap().unwrap();
+    env.stop().await;
+}
+
 /// ADR 0036: a standby whose active is away takes over only while it
 /// reaches a witness; without one it may be the side that is cut off.
 #[tokio::test(flavor = "multi_thread")]

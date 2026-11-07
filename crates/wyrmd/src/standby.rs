@@ -60,6 +60,13 @@ pub struct StandbySection {
     /// too. At least one; any one reachable is enough.
     #[serde(default)]
     pub witness: Vec<String>,
+    /// Lease arbiters (`host:port` of `wyrmd arbiter serve`, on a third
+    /// host): with them, a standby takes over only once a majority grants
+    /// it the site's lease, and an active broker that another host has
+    /// taken it from steps down (a split where both hosts still reach a
+    /// witness). Optional; one or an odd number.
+    #[serde(default)]
+    pub arbiter: Vec<String>,
 }
 
 /// One TCP connect to a witness may take this long.
@@ -111,16 +118,35 @@ impl StandbySection {
         if self.witness.is_empty() {
             return Err("standby.witness: at least one host:port on the plant network (a gateway, a switch, a PLC): without it a network split makes both brokers active".into());
         }
-        for w in &self.witness {
-            let ok = w
-                .rsplit_once(':')
+        let host_port = |w: &str| {
+            w.rsplit_once(':')
                 .is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok_and(|p| p > 0))
-                && !w.chars().any(|c| c.is_whitespace() || c == '/');
-            if !ok {
+                && !w.chars().any(|c| c.is_whitespace() || c == '/')
+        };
+        for w in &self.witness {
+            if !host_port(w) {
                 return Err(format!("standby.witness {w:?}: expected host:port").into());
             }
         }
+        for a in &self.arbiter {
+            if !host_port(a) || a.starts_with('[') {
+                return Err(format!(
+                    "standby.arbiter {a:?}: expected host:port (a host name of its certificate, or an IPv4 address)"
+                )
+                .into());
+            }
+        }
+        if self.arbiter.len() > 9 {
+            return Err("standby.arbiter: at most 9".into());
+        }
         Ok(())
+    }
+
+    /// The lease asked of the arbiters: half the takeover time, within
+    /// [`crate::arbiter::MIN_TTL`]..[`crate::arbiter::MAX_TTL`].
+    pub fn lease_ttl(&self) -> Duration {
+        Duration::from_millis(self.takeover_s * 1000 / 2)
+            .clamp(crate::arbiter::MIN_TTL, crate::arbiter::MAX_TTL)
     }
 
     /// How long an active broker may be cut off (no witness, no standby)
@@ -163,7 +189,7 @@ fn read_key(path: &Path) -> Option<Vec<u8>> {
 }
 
 /// The standby's own certificate (`standby:<site>`) from the site CA.
-fn standby_cert(cfg: &Config) -> Result<CertFiles, Error> {
+pub(crate) fn standby_cert(cfg: &Config) -> Result<CertFiles, Error> {
     let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
     pki.issue(
         &format!("standby:{}", cfg.site),
@@ -273,6 +299,34 @@ fn hold_of(v: &Value) -> Option<Instant> {
         .unwrap_or(0);
     let left = Duration::from_millis(until.checked_sub(now)?).min(MAX_HOLD);
     Some(Instant::now() + left)
+}
+
+/// The active has been away for the takeover time: take over only while a
+/// witness answers (else this host may be the one cut off) and, with
+/// arbiters, once a majority grants this host the site's lease (else the
+/// active may run on, out of this host's sight). `said` keeps the first
+/// refusal's warning from repeating every second.
+async fn may_take_over(
+    sb: &StandbySection,
+    arbiters: Option<&crate::arbiter::Arbiters>,
+    said: &mut bool,
+) -> bool {
+    if !witness_reachable(&sb.witness).await {
+        if !std::mem::replace(said, true) {
+            tracing::warn!("standby: the active is away, but no witness answers: this host may be the one cut off; not taking over");
+        }
+        return false;
+    }
+    let Some(arb) = arbiters else { return true };
+    match arb.acquire().await {
+        crate::arbiter::Verdict::Granted => true,
+        v => {
+            if !std::mem::replace(said, true) {
+                tracing::warn!(?v, "standby: the active is out of sight, but the arbiters do not grant the lease (it may still run): not taking over");
+            }
+            false
+        }
+    }
 }
 
 /// Copy what the active has beyond us, store by store. `Err` when the
@@ -938,8 +992,13 @@ const OPEN_WAIT: Duration = Duration::from_secs(30);
 /// takeover time ([`Outcome::Takeover`]) or `shutdown` resolves.
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
     let sb = cfg.standby.as_ref().ok_or("no standby section")?;
-    let takeover = sb.takeover();
-    let cert = standby_cert(cfg)?;
+    let arbiters = crate::arbiter::Arbiters::of(cfg)?;
+    // With arbiters an active that cannot renew its lease steps down once
+    // its standby has been quiet for STANDBY_QUIET: never take over before.
+    let takeover = match &arbiters {
+        Some(_) => sb.takeover().max(STANDBY_QUIET + POLL * 2),
+        None => sb.takeover(),
+    };
     let secrets_key = read_key(&cfg.data_dir.join("secrets.key"))
         .ok_or("secrets.key: not found; import the site's key bundle first")?;
     let file_key = replication::file_key(&secrets_key);
@@ -1003,17 +1062,15 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
         let session = tokio::select! {
             _ = &mut shutdown => return Ok(Outcome::Stopped),
             _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => {
-                if witness_reachable(&sb.witness).await {
+                if may_take_over(sb, arbiters.as_ref(), &mut no_witness_said).await {
                     tracing::warn!("standby: the active has been away for {takeover:?}: taking over");
                     return Ok(Outcome::Takeover);
-                }
-                if !std::mem::replace(&mut no_witness_said, true) {
-                    tracing::warn!("standby: the active is away, but no witness answers: this host may be the one cut off; not taking over");
                 }
                 retry_at = Some(Instant::now() + POLL);
                 continue;
             }
-            r = open_session(cfg, &sb.peer, &cert) => match r {
+            // issued again when it is due (a long follow outlives a certificate)
+            r = async { open_session(cfg, &sb.peer, &standby_cert(cfg)?).await } => match r {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::debug!("standby: cannot reach {}: {e}", sb.peer);
@@ -1044,13 +1101,10 @@ pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<
                     return Ok(Outcome::Stopped);
                 }
                 _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => {
-                    if witness_reachable(&sb.witness).await {
+                    if may_take_over(sb, arbiters.as_ref(), &mut no_witness_said).await {
                         let _ = session.close().await;
                         tracing::warn!("standby: the active has been away for {takeover:?}: taking over");
                         return Ok(Outcome::Takeover);
-                    }
-                    if !std::mem::replace(&mut no_witness_said, true) {
-                        tracing::warn!("standby: the active is away, but no witness answers: this host may be the one cut off; not taking over");
                     }
                     retry_at = Some(Instant::now() + POLL);
                 }
@@ -1176,6 +1230,40 @@ pub async fn isolated(cfg: &Config, ctl: &wyrm_admin::Control) {
     }
 }
 
+/// For an active broker with arbiters: resolves when another host holds
+/// the lease (at once), or when this host's lease has run out (it could
+/// not renew it) and its standby has not asked for [`STANDBY_QUIET`]: a
+/// standby that asks follows this broker and cannot take over. The
+/// returned text is the audit detail.
+pub async fn lease_lost(
+    held: std::sync::Arc<std::sync::Mutex<crate::arbiter::Held>>,
+    ctl: &wyrm_admin::Control,
+) -> &'static str {
+    let mut said = false;
+    loop {
+        tokio::time::sleep(POLL).await;
+        let (lost, until) = {
+            let h = held.lock().unwrap_or_else(|p| p.into_inner());
+            (h.lost, h.until)
+        };
+        if lost {
+            return "another broker holds the arbiters' lease";
+        }
+        let run_out = until.is_none_or(|u| std::time::Instant::now() >= u);
+        if !run_out {
+            said = false;
+            continue;
+        }
+        if ctl.standby_recent(STANDBY_QUIET) {
+            if !std::mem::replace(&mut said, true) {
+                tracing::warn!("standby: the arbiters' lease ran out (no answer); the standby still follows this broker: running on");
+            }
+            continue;
+        }
+        return "the arbiters' lease ran out and the standby is quiet";
+    }
+}
+
 /// Where the standby keeps its own certificate.
 pub fn standby_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("standby")
@@ -1191,6 +1279,7 @@ mod tests {
             takeover_s: 10,
             primary: false,
             witness: witness.iter().map(|w| w.to_string()).collect(),
+            arbiter: Vec::new(),
         }
     }
 

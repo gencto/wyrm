@@ -52,7 +52,13 @@ jiff = { workspace = true, features = ["std", "tz-system"] }
 zenoh = { workspace = true, features = ["internal", "plugins", "unstable", "stats", "transport_tcp", "transport_tls", "transport_quic", "transport_unixsock-stream"] }
 zenoh-plugin-storage-manager.workspace = true
 zenoh-plugin-rest.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "net", "io-util"] }
+# the lease arbiter of a standby pair (ADR 0036): TLS over TCP, ring only
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+x509-parser.workspace = true
+getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wyrm-client.workspace = true

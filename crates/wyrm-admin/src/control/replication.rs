@@ -616,23 +616,22 @@ fn read_part(path: &Path, offset: u64, len: u64) -> Result<Part, String> {
 
 /// The audit detail of a `forked` report, `None` for an unknown set.
 pub fn fork_detail(what: &str, count: u64, n: u32, t_ms: u64) -> Option<String> {
-    let wal = |dir: &str| {
-        format!(
-            "the standby moved aside {count} records of its {what} WAL to {dir}.stale.{n} in its \
-             data_dir: what it wrote while both brokers were active (a healed split, ADR 0036)"
-        )
-    };
     Some(match what {
         "files" | "storage" => {
             format!(
-            "the standby moved aside {count} {} to standby/stale/{t_ms}/ in its data_dir: what \
-             it wrote while both brokers were active (a healed split, ADR 0036)",
+            "the standby, active before, moved aside {count} {} that differ from this broker's \
+             to standby/stale/{t_ms}/ in its data_dir: its own writes from while it was active, \
+             or older copies (ADR 0036)",
             if what == "files" { "files" } else { "storage paths" }
         )
         }
         _ => {
             let (_, dir, _) = STORES.iter().find(|(name, _, _)| *name == what)?;
-            wal(dir)
+            format!(
+                "the standby moved aside its {what} WAL ({count} records, forked from this \
+                 broker's) to {dir}.stale.{n} in its data_dir: records it wrote while both brokers \
+                 were active (a healed split, ADR 0036)"
+            )
         }
     })
 }

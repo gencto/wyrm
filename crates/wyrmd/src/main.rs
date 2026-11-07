@@ -37,6 +37,31 @@ enum Cmd {
     /// passphrase comes from WYRM_KEYS_PASSPHRASE, else from stdin.
     #[command(subcommand)]
     Keys(KeysCmd),
+    /// The lease arbiter of a standby pair (ADR 0036), on a third host:
+    /// `issue` its files on a broker of the pair, `serve` them there.
+    #[command(subcommand)]
+    Arbiter(ArbiterCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum ArbiterCmd {
+    /// Write an arbiter's directory from this broker's site CA: ca.pem,
+    /// arbiter.{pem,key} for HOST (the name or IPv4 address the brokers
+    /// dial in standby.arbiter) and the site name.
+    Issue {
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// Serve the lease of the site whose files are in DIR (no wyrmd.json5).
+    Serve {
+        #[arg(long)]
+        dir: std::path::PathBuf,
+        /// Address to listen on, e.g. 0.0.0.0:7450.
+        #[arg(long)]
+        listen: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -154,6 +179,13 @@ async fn run(args: Args) -> Result<(), Error> {
     if let Some(Cmd::Link { driver }) = &args.cmd {
         return wyrmd::run_link(driver).await;
     }
+    if let Some(Cmd::Arbiter(ArbiterCmd::Serve { dir, listen })) = &args.cmd {
+        return wyrmd::arbiter::serve(dir, listen, async {
+            stop_signal().await;
+            tracing::info!("stopping");
+        })
+        .await;
+    }
     let text = std::fs::read_to_string(&args.config)
         .map_err(|e| format!("{}: {e}", args.config.display()))?;
     let cfg = Config::from_json5(&text)?;
@@ -173,6 +205,11 @@ async fn run(args: Args) -> Result<(), Error> {
         }
         Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
         Some(Cmd::Keys(cmd)) => return keys_cmd(&cfg, cmd),
+        Some(Cmd::Arbiter(ArbiterCmd::Issue { host, out })) => {
+            wyrmd::arbiter::issue(&cfg, &host, &out)?;
+            println!("{}", out.display());
+            return Ok(());
+        }
         Some(Cmd::Verify) => {
             let checks = wyrmd::verify_state(&cfg);
             let mut bad = false;
@@ -235,8 +272,12 @@ async fn run(args: Args) -> Result<(), Error> {
 /// and follows again when the primary is back.
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wyrmd::standby::{follow, isolated, primary_is_back, Outcome};
+    use wyrmd::standby::{follow, isolated, lease_lost, primary_is_back, Outcome};
     let exe = std::env::current_exe()?;
+    let arbiters = wyrmd::arbiter::Arbiters::of(&cfg)?;
+    if arbiters.is_none() {
+        tracing::warn!("standby: no standby.arbiter: a split where both hosts reach a witness but not each other makes both brokers active (ADR 0036)");
+    }
     let peer = cfg
         .standby
         .as_ref()
@@ -247,6 +288,13 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             Outcome::Stopped => return Ok(()),
             Outcome::Takeover => {}
         }
+        // the lease was granted just now (`follow` took it): renewed from
+        // here on, counted from a second earlier than this
+        let held = std::sync::Arc::new(std::sync::Mutex::new(wyrmd::arbiter::Held::default()));
+        let keeper = arbiters.clone().map(|a| {
+            let since = std::time::Instant::now() - std::time::Duration::from_secs(1);
+            AbortOnDrop(tokio::spawn(wyrmd::arbiter::keep(a, held.clone(), since)))
+        });
         let daemon = Daemon::open(cfg.clone(), exe.clone())?;
         wyrmd::standby::mark_active(&cfg.data_dir);
         let ctl = daemon.control();
@@ -261,9 +309,15 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
         let demoted = std::sync::Arc::new(AtomicBool::new(false));
         let flag = demoted.clone();
         let (ctl2, cfg2, peer2) = (ctl.clone(), cfg.clone(), peer.clone());
+        let (held2, leased) = (held.clone(), keeper.is_some());
         daemon
             .run_until(async move {
                 tokio::select! {
+                    why = async { if leased { lease_lost(held2, &ctl2).await } else { std::future::pending().await } } => {
+                        flag.store(true, Ordering::SeqCst);
+                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, why);
+                        tracing::warn!("standby: {why}; stepping down");
+                    }
                     _ = stop_signal() => tracing::info!("stopping"),
                     _ = primary_is_back(&cfg2) => {
                         flag.store(true, Ordering::SeqCst);
@@ -278,9 +332,24 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
                 }
             })
             .await?;
+        drop(keeper);
+        if let Some(a) = &arbiters {
+            // stopped or stepped down: the lease is free for the other host
+            // (it holds it already if it was taken away)
+            a.release().await;
+        }
         if !demoted.load(Ordering::SeqCst) {
             return Ok(());
         }
+    }
+}
+
+/// Aborts the task when dropped.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
