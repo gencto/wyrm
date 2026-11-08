@@ -1531,6 +1531,758 @@ class S {
   String get whyNew {
     return Intl.message('New', name: 'whyNew', desc: '', args: []);
   }
+
+  /// `A custom package`
+  String get aCustomPackage {
+    return Intl.message(
+      'A custom package',
+      name: 'aCustomPackage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Accept the requested rights first.`
+  String get acceptFirst {
+    return Intl.message(
+      'Accept the requested rights first.',
+      name: 'acceptFirst',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Accept requested rights`
+  String get acceptRequestedRights {
+    return Intl.message(
+      'Accept requested rights',
+      name: 'acceptRequestedRights',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `accepted`
+  String get accepted {
+    return Intl.message('accepted', name: 'accepted', desc: '', args: []);
+  }
+
+  /// `Add another`
+  String get addAnother {
+    return Intl.message('Add another', name: 'addAnother', desc: '', args: []);
+  }
+
+  /// `Broker`
+  String get answerBroker {
+    return Intl.message('Broker', name: 'answerBroker', desc: '', args: []);
+  }
+
+  /// `From`
+  String get answerFrom {
+    return Intl.message('From', name: 'answerFrom', desc: '', args: []);
+  }
+
+  /// `Link`
+  String get answerLink {
+    return Intl.message('Link', name: 'answerLink', desc: '', args: []);
+  }
+
+  /// `Name`
+  String get answerName {
+    return Intl.message('Name', name: 'answerName', desc: '', args: []);
+  }
+
+  /// `Rights`
+  String get answerRights {
+    return Intl.message('Rights', name: 'answerRights', desc: '', args: []);
+  }
+
+  /// `Runs`
+  String get answerRuns {
+    return Intl.message('Runs', name: 'answerRuns', desc: '', args: []);
+  }
+
+  /// `Back`
+  String get back {
+    return Intl.message('Back', name: 'back', desc: '', args: []);
+  }
+
+  /// `Back to Links`
+  String get backToLinks {
+    return Intl.message(
+      'Back to Links',
+      name: 'backToLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `branch or tag`
+  String get branchOrTag {
+    return Intl.message(
+      'branch or tag',
+      name: 'branchOrTag',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose a file or type where the package is.`
+  String get bringOne {
+    return Intl.message(
+      'Choose a file or type where the package is.',
+      name: 'bringOne',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker says`
+  String get brokerSays {
+    return Intl.message(
+      'The broker says',
+      name: 'brokerSays',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `built in`
+  String get builtIn {
+    return Intl.message('built in', name: 'builtIn', desc: '', args: []);
+  }
+
+  /// `Built into wyrmd · nothing to download`
+  String get builtInSummary {
+    return Intl.message(
+      'Built into wyrmd · nothing to download',
+      name: 'builtInSummary',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.`
+  String get catalogNote {
+    return Intl.message(
+      'Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.',
+      name: 'catalogNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Change the answers`
+  String get changeAnswers {
+    return Intl.message(
+      'Change the answers',
+      name: 'changeAnswers',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The package did not pass: bring another one.`
+  String get checkFailed {
+    return Intl.message(
+      'The package did not pass: bring another one.',
+      name: 'checkFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checked here; the broker checks again before it installs.`
+  String get checkedHere {
+    return Intl.message(
+      'Checked here; the broker checks again before it installs.',
+      name: 'checkedHere',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose a .wasm component`
+  String get chooseWasm {
+    return Intl.message(
+      'Choose a .wasm component',
+      name: 'chooseWasm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose a package .zip`
+  String get chooseZip {
+    return Intl.message(
+      'Choose a package .zip',
+      name: 'chooseZip',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `config allowed for this upstream`
+  String get configAllowed {
+    return Intl.message(
+      'config allowed for this upstream',
+      name: 'configAllowed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Continue`
+  String get continueLabel {
+    return Intl.message('Continue', name: 'continueLabel', desc: '', args: []);
+  }
+
+  /// `Custom package`
+  String get customPackage {
+    return Intl.message(
+      'Custom package',
+      name: 'customPackage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A package archive you bring: a zip, a URL, a Git repository or one .wasm. It is checked before install.`
+  String get customPackageNote {
+    return Intl.message(
+      'A package archive you bring: a zip, a URL, a Git repository or one .wasm. It is checked before install.',
+      name: 'customPackageNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `downstream`
+  String get downstream {
+    return Intl.message('downstream', name: 'downstream', desc: '', args: []);
+  }
+
+  /// `failed`
+  String get failed {
+    return Intl.message('failed', name: 'failed', desc: '', args: []);
+  }
+
+  /// `From the official list`
+  String get fromTheOfficialList {
+    return Intl.message(
+      'From the official list',
+      name: 'fromTheOfficialList',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ref`
+  String get gitRef {
+    return Intl.message('Ref', name: 'gitRef', desc: '', args: []);
+  }
+
+  /// `Git repository (HTTPS)`
+  String get gitRepository {
+    return Intl.message(
+      'Git repository (HTTPS)',
+      name: 'gitRepository',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `How it runs there`
+  String get howItRunsThere {
+    return Intl.message(
+      'How it runs there',
+      name: 'howItRunsThere',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Install`
+  String get install {
+    return Intl.message('Install', name: 'install', desc: '', args: []);
+  }
+
+  /// `Installing needs config on sys (the admin role). Nothing is installed before you press Install.`
+  String get installRailNote {
+    return Intl.message(
+      'Installing needs config on sys (the admin role). Nothing is installed before you press Install.',
+      name: 'installRailNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{name} is installed on {broker}.`
+  String installedOn(Object name, Object broker) {
+    return Intl.message(
+      '$name is installed on $broker.',
+      name: 'installedOn',
+      desc: '',
+      args: [name, broker],
+    );
+  }
+
+  /// `Link name`
+  String get linkName {
+    return Intl.message('Link name', name: 'linkName', desc: '', args: []);
+  }
+
+  /// `{n, plural, =1{1 link already} other{{n} links already}}`
+  String linksAlready(num n) {
+    return Intl.plural(
+      n,
+      one: '1 link already',
+      other: '$n links already',
+      name: 'linksAlready',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Manifest`
+  String get manifest {
+    return Intl.message('Manifest', name: 'manifest', desc: '', args: []);
+  }
+
+  /// `Inside the broker: the lightest; it stops when the broker stops.`
+  String get modeEmbeddedNote {
+    return Intl.message(
+      'Inside the broker: the lightest; it stops when the broker stops.',
+      name: 'modeEmbeddedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On another machine: it connects with a certificate from this site.`
+  String get modeExternalNote {
+    return Intl.message(
+      'On another machine: it connects with a certificate from this site.',
+      name: 'modeExternalNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its own process on this host, watched and restarted by the broker.`
+  String get modeProcessNote {
+    return Intl.message(
+      'Its own process on this host, watched and restarted by the broker.',
+      name: 'modeProcessNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Inside the broker, in the sandbox: no files, only the network it is allowed, memory and time limits. Set by the package kind.`
+  String get modeWasmNote {
+    return Intl.message(
+      'Inside the broker, in the sandbox: no files, only the network it is allowed, memory and time limits. Set by the package kind.',
+      name: 'modeWasmNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Give the link a name.`
+  String get nameIt {
+    return Intl.message(
+      'Give the link a name.',
+      name: 'nameIt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Letters, digits, . _ - · not used by another link, a removed link or a site`
+  String get nameRule {
+    return Intl.message(
+      'Letters, digits, . _ - · not used by another link, a removed link or a site',
+      name: 'nameRule',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Another link has this name.`
+  String get nameTaken {
+    return Intl.message(
+      'Another link has this name.',
+      name: 'nameTaken',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needs config on sys`
+  String get needsConfigOnSys {
+    return Intl.message(
+      'Needs config on sys',
+      name: 'needsConfigOnSys',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `none asked`
+  String get noneAsked {
+    return Intl.message('none asked', name: 'noneAsked', desc: '', args: []);
+  }
+
+  /// `The broker did not install it.`
+  String get notInstalled {
+    return Intl.message(
+      'The broker did not install it.',
+      name: 'notInstalled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `now`
+  String get now {
+    return Intl.message('now', name: 'now', desc: '', args: []);
+  }
+
+  /// `Official list`
+  String get officialList {
+    return Intl.message(
+      'Official list',
+      name: 'officialList',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.`
+  String get officialListNote {
+    return Intl.message(
+      'Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.',
+      name: 'officialListNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On which broker`
+  String get onWhichBroker {
+    return Intl.message(
+      'On which broker',
+      name: 'onWhichBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open in Explorer`
+  String get openInExplorer {
+    return Intl.message(
+      'Open in Explorer',
+      name: 'openInExplorer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `package`
+  String get package {
+    return Intl.message('package', name: 'package', desc: '', args: []);
+  }
+
+  /// `Package from your repository · SHA-256 checked against the index on download`
+  String get packageSummary {
+    return Intl.message(
+      'Package from your repository · SHA-256 checked against the index on download',
+      name: 'packageSummary',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Package URL (HTTPS)`
+  String get packageUrl {
+    return Intl.message(
+      'Package URL (HTTPS)',
+      name: 'packageUrl',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `passed`
+  String get passed {
+    return Intl.message('passed', name: 'passed', desc: '', args: []);
+  }
+
+  /// `Pick a link from the list.`
+  String get pickOne {
+    return Intl.message(
+      'Pick a link from the list.',
+      name: 'pickOne',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The package did not pass`
+  String get qCheckFailed {
+    return Intl.message(
+      'The package did not pass',
+      name: 'qCheckFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The package looks right`
+  String get qCheckOk {
+    return Intl.message(
+      'The package looks right',
+      name: 'qCheckOk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What do you want to add?`
+  String get qChoose {
+    return Intl.message(
+      'What do you want to add?',
+      name: 'qChoose',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker did not install it`
+  String get qFailed {
+    return Intl.message(
+      'The broker did not install it',
+      name: 'qFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{name} is installed`
+  String qInstalled(Object name) {
+    return Intl.message(
+      '$name is installed',
+      name: 'qInstalled',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Installing {name}…`
+  String qInstalling(Object name) {
+    return Intl.message(
+      'Installing $name…',
+      name: 'qInstalling',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Where should it run, and under what name?`
+  String get qRun {
+    return Intl.message(
+      'Where should it run, and under what name?',
+      name: 'qRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Without this the broker installs nothing. Grants change later with Grant access; other values with the link's params.`
+  String get rightsNote {
+    return Intl.message(
+      'Without this the broker installs nothing. Grants change later with Grant access; other values with the link\'s params.',
+      name: 'rightsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The package asks for these rights`
+  String get rightsTitle {
+    return Intl.message(
+      'The package asks for these rights',
+      name: 'rightsTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Bring`
+  String get stepBring {
+    return Intl.message('Bring', name: 'stepBring', desc: '', args: []);
+  }
+
+  /// `Check`
+  String get stepCheck {
+    return Intl.message('Check', name: 'stepCheck', desc: '', args: []);
+  }
+
+  /// `Choose`
+  String get stepChoose {
+    return Intl.message('Choose', name: 'stepChoose', desc: '', args: []);
+  }
+
+  /// `Install`
+  String get stepInstall {
+    return Intl.message('Install', name: 'stepInstall', desc: '', args: []);
+  }
+
+  /// `Step {n} of {total}`
+  String stepOf(Object n, Object total) {
+    return Intl.message(
+      'Step $n of $total',
+      name: 'stepOf',
+      desc: '',
+      args: [n, total],
+    );
+  }
+
+  /// `Where it runs`
+  String get stepWhere {
+    return Intl.message('Where it runs', name: 'stepWhere', desc: '', args: []);
+  }
+
+  /// `Studio is signed in here`
+  String get studioSignedInHere {
+    return Intl.message(
+      'Studio is signed in here',
+      name: 'studioSignedInHere',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `to accept`
+  String get toAccept {
+    return Intl.message('to accept', name: 'toAccept', desc: '', args: []);
+  }
+
+  /// `Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.`
+  String get whyBring {
+    return Intl.message(
+      'Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.',
+      name: 'whyBring',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Before anything is installed, the archive and what is in it are checked: size, paths, the manifest and its fields, the protocol version, which hosts it has binaries for.`
+  String get whyCheck {
+    return Intl.message(
+      'Before anything is installed, the archive and what is in it are checked: size, paths, the manifest and its fields, the protocol version, which hosts it has binaries for.',
+      name: 'whyCheck',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Most links come from the official list: a driver built into wyrmd or a package from your repository. Bring your own package only when it is not there.`
+  String get whyChoose {
+    return Intl.message(
+      'Most links come from the official list: a driver built into wyrmd or a package from your repository. Bring your own package only when it is not there.',
+      name: 'whyChoose',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker answered success: false. Its message tells why.`
+  String get whyFailed {
+    return Intl.message(
+      'The broker answered success: false. Its message tells why.',
+      name: 'whyFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It runs, has its own identity and has declared its branch.`
+  String get whyInstalled {
+    return Intl.message(
+      'It runs, has its own identity and has declared its branch.',
+      name: 'whyInstalled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This takes a few seconds. You can leave; it continues.`
+  String get whyInstalling {
+    return Intl.message(
+      'This takes a few seconds. You can leave; it continues.',
+      name: 'whyInstalling',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose the broker. Only brokers whose host the package was built for can take it; how it runs is set by the package kind.`
+  String get whyRunCustom {
+    return Intl.message(
+      'Choose the broker. Only brokers whose host the package was built for can take it; how it runs is set by the package kind.',
+      name: 'whyRunCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose the broker, then how the link runs on it. A built-in driver can run inside the broker, as its own process or on another machine.`
+  String get whyRunOfficial {
+    return Intl.message(
+      'Choose the broker, then how the link runs on it. A built-in driver can run inside the broker, as its own process or on another machine.',
+      name: 'whyRunOfficial',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your answers`
+  String get yourAnswers {
+    return Intl.message(
+      'Your answers',
+      name: 'yourAnswers',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your answers. Click a step on the left to change one.`
+  String get yourAnswersNote {
+    return Intl.message(
+      'Your answers. Click a step on the left to change one.',
+      name: 'yourAnswersNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Zip file`
+  String get zipFile {
+    return Intl.message('Zip file', name: 'zipFile', desc: '', args: []);
+  }
+
+  /// `Search the list`
+  String get searchLinks {
+    return Intl.message(
+      'Search the list',
+      name: 'searchLinks',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

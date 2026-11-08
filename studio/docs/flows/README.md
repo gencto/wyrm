@@ -30,6 +30,9 @@ flowchart LR
     links -->|"onTapLinkInstall"| linkInstall
     links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
+    linkInstall -.->|"onClose"| links
+    linkInstall -.->|"onBack"| links
+    linkInstall -.->|"onResultAction"| links
 
     classDef frxEntry stroke-dasharray: 5 3
     class logIn,gallery,studio frxEntry
@@ -51,5 +54,5 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SitesPage` | `/studio/sites` | no | 0 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 0 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 0 | [system](system.md) |
-| `LinkInstallPage` | `/link-install` | no | 0 | [linkInstall](linkInstall.md) |
+| `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 0 | [flowEditor](flowEditor.md) |

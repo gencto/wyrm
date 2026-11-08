@@ -4,6 +4,323 @@
 
 `app/lib/connectors/link_install_page_connector.dart`
 
-_LinkInstallPageConnector exposes no dispatching callbacks yet._
+## catalog.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetQueryAction
+    participant ST as AppState
+
+    User->>UI: catalog.onChanged
+    UI->>VM: catalog()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.query)
+```
+
+## bring.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetSourceAction
+    participant ST as AppState
+
+    User->>UI: bring.onChanged
+    UI->>VM: bring()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.source)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.source)
+    alt url != null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(linkInstall.source)
+    end
+```
+
+## target.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetNameAction
+    participant A2 as SetAcceptRightsAction
+    participant ST as AppState
+
+    User->>UI: target.onChanged
+    UI->>VM: target()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.name)
+    VM->>A2: dispatch
+    A2->>ST: copyWith(linkInstall.acceptRights)
+```
+
+## onClose
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant NAV as Router
+
+    User->>UI: onClose
+    UI->>VM: onClose()
+    VM->>NAV: GoAction.pop
+```
+
+## onSource
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as ChooseInstallSourceAction
+    participant ST as AppState
+
+    User->>UI: onSource
+    UI->>VM: onSource()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall)
+```
+
+## onCategory
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetCategoryAction
+    participant ST as AppState
+
+    User->>UI: onCategory
+    UI->>VM: onCategory()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.category)
+```
+
+## onItem
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetItemAction
+    participant ST as AppState
+
+    User->>UI: onItem
+    UI->>VM: onItem()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights)
+```
+
+## onMethod
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetMethodAction
+    participant A2 as SetSourceAction
+    participant ST as AppState
+
+    User->>UI: onMethod
+    UI->>VM: onMethod()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(linkInstall.method)
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(linkInstall.source)
+```
+
+## onPickFile
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetSourceAction
+    participant ST as AppState
+
+    User->>UI: onPickFile
+    UI->>VM: onPickFile()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.source)
+```
+
+## onBroker
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetBrokerAction
+    participant ST as AppState
+
+    User->>UI: onBroker
+    UI->>VM: onBroker()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.broker)
+```
+
+## onMode
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetModeAction
+    participant ST as AppState
+
+    User->>UI: onMode
+    UI->>VM: onMode()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.mode)
+```
+
+## onStep
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetStepAction
+    participant ST as AppState
+
+    User->>UI: onStep
+    UI->>VM: onStep()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.step)
+```
+
+## onBack
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetStepAction
+    participant ST as AppState
+    participant NAV as Router
+
+    User->>UI: onBack
+    UI->>VM: onBack()
+    VM->>NAV: GoAction.pop
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.step)
+```
+
+## onNext
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetStepAction
+    participant A2 as InstallLinkAction
+    participant A3 as CheckPackageAction
+    participant ST as AppState
+
+    User->>UI: onNext
+    UI->>VM: onNext()
+    alt key == 'run'
+        VM->>A1: dispatch
+        A1->>ST: copyWith(linkInstall.step)
+        VM->>+A2: dispatchAndWait
+        Note over A2: NonReentrant · WaitingAction · async
+        A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.step)
+        A2--xVM: UserException
+        A2->>ST: dispatch(_Phase)
+        A2->>ST: dispatch(RetrieveLinksAction)
+        A2-->>-VM: ActionStatus
+    end
+    alt !_official && key == 'choose'
+        VM->>+A3: dispatchAndWait
+        Note over A3: async
+        A3->>ST: copyWith(linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode)
+        A3-->>-VM: ActionStatus
+    end
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.step)
+```
+
+## onResultAction
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetSelectedNodeAction
+    participant A2 as ChooseInstallSourceAction
+    participant A3 as SetStepAction
+    participant ST as AppState
+    participant NAV as Router
+
+    User->>UI: onResultAction
+    UI->>VM: onResultAction()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.selectedNode)
+    VM->>NAV: GoAction.pop
+    VM->>NAV: GoAction.pop
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(linkInstall)
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(linkInstall.step)
+```
+
+_Not drawn — these files dispatch outside any interaction:_
+
+- `LinkInstallPageConnector` — 2 dispatches
+
+| Interaction | Dispatches | Writes |
+| --- | --- | --- |
+| `catalog.onChanged` | `SetQueryAction` | `linkInstall.query` |
+| `bring.onChanged` | `SetSourceAction`, `SetSourceAction`, `SetSourceAction` ? | `linkInstall.source` |
+| `target.onChanged` | `SetNameAction`, `SetAcceptRightsAction` | `linkInstall.name`, `linkInstall.acceptRights` |
+| `onClose` | `GoAction.pop` | — |
+| `onSource` | `ChooseInstallSourceAction` | `linkInstall` |
+| `onCategory` | `SetCategoryAction` | `linkInstall.category` |
+| `onItem` | `SetItemAction` | `linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights` |
+| `onMethod` | `SetMethodAction`, `SetSourceAction` | `linkInstall.method`, `linkInstall.source` |
+| `onPickFile` | `SetSourceAction` | `linkInstall.source` |
+| `onBroker` | `SetBrokerAction` | `linkInstall.broker` |
+| `onMode` | `SetModeAction` | `linkInstall.mode` |
+| `onStep` | `SetStepAction` | `linkInstall.step` |
+| `onBack` | `GoAction.pop`, `SetStepAction` | `linkInstall.step` |
+| `onNext` | `SetStepAction` ?, `InstallLinkAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.phase, linkInstall.message, linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
+| `onResultAction` | `SetSelectedNodeAction`, `GoAction.pop`, `GoAction.pop`, `ChooseInstallSourceAction`, `SetStepAction` | `nodes.selectedNode`, `linkInstall`, `linkInstall.step` |
+
+`?` marks a dispatch that only runs under a condition.
 
 [← all flows](README.md)
