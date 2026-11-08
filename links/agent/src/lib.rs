@@ -1050,7 +1050,7 @@ impl Agent {
         let sh = self.shared.clone();
         let Some(llm) = sh.llm.clone() else {
             return Err(LinkError::new(
-                Status::NotAvailable,
+                Status::NotSupported,
                 "no LLM configured (missing API key secret)",
             ));
         };

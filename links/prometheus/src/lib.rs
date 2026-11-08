@@ -1047,13 +1047,12 @@ async fn list_series(t: &mut Transport, args: &Value) -> Result<Value, LinkError
     if let Err(e) = t.ensure(None).await {
         return Err(match e {
             DriverError::Transport(e) => LinkError::new(Status::Disconnected, e),
-            DriverError::Device(e) | DriverError::Point(e) => {
-                LinkError::new(Status::NotAvailable, e)
-            }
+            DriverError::Device(e) => LinkError::timeout(e),
+            DriverError::Point(e) => LinkError::new(Status::InvalidMessage, e),
         });
     }
     let Some(snap) = &t.good else {
-        return Err(LinkError::new(Status::NotAvailable, "no scrape yet"));
+        return Err(LinkError::new(Status::NotFound, "no scrape yet"));
     };
     let s = &snap.scrape;
     let mut total = 0u64;

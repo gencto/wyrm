@@ -1154,7 +1154,7 @@ fn action_err(f: Fail) -> LinkError {
     match f {
         Fail::Transport(e) => LinkError::new(Status::Disconnected, e),
         Fail::Timeout(e) => LinkError::timeout(e),
-        Fail::Bad(e) => LinkError::new(Status::NotAvailable, e),
+        Fail::Bad(e) => LinkError::new(Status::InvalidParameter, e),
     }
 }
 
@@ -1691,13 +1691,13 @@ fn test_selector(
     let aggregate: Aggregate = arg_enum(args, "aggregate")?.unwrap_or(Aggregate::None);
     let kept = t.last(&dev.req.key()).ok_or_else(|| {
         LinkError::new(
-            Status::NotAvailable,
+            Status::NotFound,
             "no JSON reply to this device's request yet: wait for a poll or run try_request",
         )
     })?;
     let body = kept.body.as_ref().ok_or_else(|| {
         LinkError::new(
-            Status::NotAvailable,
+            Status::NotFound,
             format!(
                 "the last reply ({} bytes) is over {} KiB and is not kept",
                 kept.len,
@@ -1706,7 +1706,7 @@ fn test_selector(
         )
     })?;
     let mut json: Json = serde_json::from_slice(body)
-        .map_err(|_| LinkError::new(Status::NotAvailable, "the last reply is not JSON"))?;
+        .map_err(|_| LinkError::new(Status::InvalidMessage, "the last reply is not JSON"))?;
     // Selected from the view with secret values masked (no filter oracle);
     // member names are masked as shown.
     let prep = &t.client.prep;

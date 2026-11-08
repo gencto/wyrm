@@ -1038,7 +1038,7 @@ fn action_err(e: DriverError) -> LinkError {
     match e {
         DriverError::Transport(m) => LinkError::new(Status::Disconnected, m),
         DriverError::Device(m) => LinkError::timeout(m),
-        DriverError::Point(m) => LinkError::new(Status::NotAvailable, m),
+        DriverError::Point(m) => LinkError::invalid_parameter(m),
     }
 }
 
@@ -1049,7 +1049,7 @@ fn exception_err(e: ExceptionCode) -> LinkError {
         ExceptionCode::IllegalDataAddress | ExceptionCode::IllegalDataValue => {
             LinkError::invalid_parameter(m)
         }
-        _ => LinkError::new(Status::NotAvailable, m),
+        _ => LinkError::new(Status::InvalidParameter, m),
     }
 }
 

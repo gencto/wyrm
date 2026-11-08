@@ -24,6 +24,25 @@ New code that arrives while the broker runs never loads into the broker as
 native code: Rust has no stable plugin ABI, and a crash would take the broker
 down. In the broker's own process it runs only as WASM.
 
+### A refusal is an error
+
+Spec 04 puts every status below `0x20` in the success or closed groups, and
+requesters (`wyrm-client`, the gateway, Studio, `wyr`) read those as done. So
+a link never answers a refused `set` or `invoke` with one. `not_available`
+(`0x08`) is the status of a value that has none yet, never of a refused
+request. The SDK enforces it: a `LinkError` with a closed-group status leaves
+as `disconnected`, one with a success-group status as `internal_error` with a
+warning in the log. The built-in drivers use these codes:
+
+| The refusal | Status |
+|---|---|
+| The device answered with an error for this request (a protocol exception, an SZL error, an SNMP `error-status`, a BACnet Error/Reject/Abort, an HTTP error reply) | `invalid_parameter` |
+| The device's reply cannot be read (a value that does not decode, a reply that is not JSON) | `invalid_message` |
+| What the request needs is not there yet (no scrape, no reply kept) | `not_found` |
+| The link cannot do it as configured (the agent without an LLM API key) | `not_supported` |
+| The device does not answer | `timeout` |
+| The connection is broken | `disconnected` |
+
 ## 2. What WYRM ships
 
 - **Built-in drivers** (in `wyrmd`): `mock`, `mockdev` (the mock on the driver
