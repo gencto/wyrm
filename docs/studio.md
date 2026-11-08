@@ -357,28 +357,28 @@ Every string in `localization/lib/l10n/intl_en.arb` and `intl_uk.arb`, read in c
 - `business`: action tests with a fake `WyrmApi` (records calls, replies from fixtures), selector tests, mapper tests.
 - `ui`: golden tests per canvas frame; the Vm of each frame lives in `ui/test/frames/<board>.dart` so a frame is data.
 - `app`: connector tests (`fromStore` → Vm).
-- CI job `studio`: add it to `.github/workflows/ci.yml` under `jobs:` (it is not in the branch: the session that made it could not change workflows). Informational (`continue-on-error`) until its first green run:
+- CI job `studio` in `.github/workflows/ci.yml` (a gate since its first green run, PR #10; the frx installer is pinned to the commit of tag v0.3.7):
 
 ```yaml
   studio:
-    # WYRM Studio (ADR 0037, docs/studio.md §9). Informational until its first
-    # green run on GitHub: the job was written without a Flutter toolchain at
-    # hand. Drop continue-on-error once it passes.
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 25
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: studio
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
       - name: Install frx
         run: |
-          curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/main/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
+          curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/d2bbfaedc6c9710468e8215a063f1430d16ba73a/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
           echo "$HOME/.frx/bin" >> "$GITHUB_PATH"
       - run: flutter pub get
       - run: dart run build_runner build --workspace
