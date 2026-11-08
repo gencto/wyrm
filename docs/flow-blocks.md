@@ -70,7 +70,7 @@ is `null`.
 | `divide` | `in.<inputs>` | `out` | The first divided by the others, as a float. |
 | `max`, `min` | `in.<inputs>` | `out` | The largest or the smallest number. |
 | `abs` | `in` | `out` | The absolute value. |
-| `round` | `in`, `in.precision` | `out` | Rounded to `precision` places (0 to 20, default 0: an integer). Halves round away from 0. |
+| `round` | `in`, `in.precision`, `in.min_precision` | `out`, `text` | Rounded to `precision` places (0 to 20, default 0: an integer). Halves round away from 0. `text` (spec 06 0.2.21): the same number as text with `precision` places, its trailing zeros trimmed down to `min_precision` places (default: `precision`). |
 | `modulo` | `in`, `in.modulo` | `quotient`, `remainder` | The quotient as a whole number toward 0, and a remainder that is never negative (`-7` by `3`: `-2` and `2`). By 0: both `null`. |
 | `scale` | `in`, `in.input_min`, `in.input_max`, `in.output_min`, `in.output_max` | `out`, `input_out_of_range` | See below. |
 
@@ -90,6 +90,7 @@ linear, as before.
 | `hub` | `in.ignore_null`, `in.<inputs>` | `out`, `index`, `on_change` | `ignore_null` (default true), `inputs` |
 | `stopwatch` | `reset`, `in.enabled`, `in.interval`, `in.step`, `in.modulo`, `in.loop`, `in.reset_value` | `out`, `on_loop` | the same names |
 | `trace` | `in.tracing`, `in.msg`, `in.<inputs>` | — | `tracing` (default true), `msg` (default `trace`), `inputs` |
+| `case` | `in`, `in.op`, `in.else`, `in.<inputs>` (pairs) | `out` | `op` (default `=`), `else` (default null), `inputs` |
 
 `if` sends `then` when the inputs pass `op`, else `else`:
 
@@ -97,7 +98,26 @@ linear, as before.
   (`"5"` and `5`);
 - `and`, `or`: of the inputs as bools;
 - `>`, `<`, `>=`, `<=`: between each input and the next (`in.0 > in.1 > in.2`);
-  fewer than two inputs do not pass.
+  fewer than two inputs do not pass;
+- `!=` (spec 06 0.2.21): the first input equals none of the others;
+- `contains`, `starts_with`, `ends_with`: the first input as text with any of
+  the others as text (a `null` other never matches).
+
+`case` (spec 06 0.2.21, as the DGLux block) compares `in` with case values and
+sends the value paired with the first case that matches, else `else`
+(default `null`). Its variable inputs come in pairs: the first of a pair is a
+case, the second what it gives. Give them constants in `values`:
+
+```json5
+{ type: "case", op: ">=", inputs: ["c1", "v1", "c2", "v2"],
+  values: { "in.c1": 90, "in.v1": "high", "in.c2": 10, "in.v2": "normal" },
+  else: "low" }
+```
+
+`op` is `=`, `!=`, `>`, `<`, `>=`, `<=` (as numbers; `=` and `!=` as `if`'s
+`=`), or `contains`, `starts_with`, `ends_with` (as text; an empty case text
+matches nothing). An input left without a pair is not used. DGLux's `regexp`
+is not here: a pattern from a port could take any time to match.
 
 `hub` sends the input that changed last: its value on `out` (also when it is
 the same value as before), its place in `inputs` on `index`, and an event on

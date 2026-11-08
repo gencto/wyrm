@@ -585,6 +585,116 @@ async fn operand_constants() {
     assert!(!wyrm_flow::blocks::takes_values("stopwatch"));
 }
 
+/// Spec 06 0.2.21 (DGLux parity): `if` `!=` and the text operators, `round.min_precision`
+/// with its `text` output, the `case` block over pairs of variable inputs.
+#[tokio::test(flavor = "multi_thread")]
+async fn if_text_ops_round_text_and_case() {
+    let e = env().await;
+    let consts = |kv: &[(&str, Value)]| Value::Map(cfg(kv));
+    // the first input against a constant second one
+    let yes = |op: &str, a: &str, b: &str| {
+        let mut i = build(
+            "if",
+            &[
+                ("op", Value::from(op)),
+                ("values", consts(&[("in.1", Value::from(b))])),
+            ],
+        );
+        on(&feed(i.as_mut(), &e.io, "in.0", good(a)), "out") == Some(Value::Bool(true))
+    };
+    assert!(yes("contains", "pump-12", "p-1"));
+    assert!(!yes("contains", "pump", "x"));
+    assert!(yes("starts_with", "pump-12", "pump"));
+    assert!(yes("ends_with", "pump-12", "12"));
+    assert!(!yes("ends_with", "pump-12", "pump"));
+    assert!(yes("!=", "a", "b"));
+    assert!(!yes("!=", "3", "3.0"), "!= compares numbers as numbers");
+    assert!(nodes::ports("if", &cfg(&[("op", Value::from("startsWith"))])).is_err());
+    // round: text keeps at least min_precision places
+    let mut r = build(
+        "round",
+        &[
+            ("precision", Value::UInt(3)),
+            ("min_precision", Value::UInt(1)),
+        ],
+    );
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.5)));
+    assert_eq!(on(&sent, "out"), Some(Value::Float(2.5)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("2.5")));
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.0)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("2.0")));
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(1.23456)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("1.235")));
+    let mut r = build("round", &[("precision", Value::UInt(2))]);
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.0)));
+    assert_eq!(
+        on(&sent, "text"),
+        Some(Value::from("2.00")),
+        "default: precision"
+    );
+    let mut r = build("round", &[]);
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.6)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("3")));
+    // case: pairs of constants, the first match wins, else otherwise
+    let pairs = consts(&[
+        ("in.a", Value::UInt(1)),
+        ("in.b", Value::from("one")),
+        ("in.c", Value::UInt(2)),
+        ("in.d", Value::from("two")),
+    ]);
+    let mut c = build(
+        "case",
+        &[
+            ("inputs", names(&["a", "b", "c", "d"])),
+            ("values", pairs.clone()),
+            ("else", Value::from("many")),
+        ],
+    );
+    let mut f = |v: Value| on(&feed(c.as_mut(), &e.io, "in", good(v)), "out");
+    assert_eq!(f(Value::UInt(2)), Some(Value::from("two")));
+    assert_eq!(
+        f(Value::from("1")),
+        Some(Value::from("one")),
+        "= as numbers"
+    );
+    assert_eq!(f(Value::UInt(7)), Some(Value::from("many")));
+    let mut c = build(
+        "case",
+        &[
+            ("op", Value::from(">=")),
+            ("inputs", names(&["a", "b", "c", "d"])),
+            ("values", pairs),
+        ],
+    );
+    let mut f = |v: Value| on(&feed(c.as_mut(), &e.io, "in", good(v)), "out");
+    assert_eq!(
+        f(Value::UInt(5)),
+        Some(Value::from("one")),
+        "the first pair that matches"
+    );
+    assert_eq!(
+        f(Value::UInt(0)),
+        Some(Value::Null),
+        "else: null by default"
+    );
+    let mut c = build(
+        "case",
+        &[
+            ("op", Value::from("contains")),
+            (
+                "values",
+                consts(&[("in.0", Value::from("")), ("in.1", Value::from("x"))]),
+            ),
+        ],
+    );
+    assert_eq!(
+        on(&feed(c.as_mut(), &e.io, "in", good("abc")), "out"),
+        Some(Value::Null),
+        "an empty case text matches nothing"
+    );
+    assert!(nodes::ports("case", &cfg(&[("op", Value::from("and"))])).is_err());
+}
+
 /// Spec 06 0.2.20: the remaining block parameters take a sample on `in.<p>`.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_block_parameter_has_a_port() {

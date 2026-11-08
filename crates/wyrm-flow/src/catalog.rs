@@ -403,12 +403,15 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "round",
         category: "Math",
-        description: "in rounded to precision places (0: an integer).",
-        inputs: &["in", "in.precision"],
-        outputs: &["out"],
+        description: "in rounded to precision places (0: an integer); text: the same with at least min_precision places.",
+        inputs: &["in", "in.precision", "in.min_precision"],
+        outputs: &["out", "text"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("precision", "number", "Places after the point, 0…20 (default 0)."), 0)],
+        params: &[
+            di(p("precision", "number", "Places after the point, 0…20 (default 0)."), 0),
+            p("min_precision", "number", "Fewest places in text: trailing zeros beyond go (default: precision)."),
+        ],
     },
     NodeType {
         ty: "modulo",
@@ -440,8 +443,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "= all equal; and / or of the inputs; > < >= <= between each input and the next."),
-                &["=", "and", "or", ">", "<", ">=", "<="],
+                p("op", "string", "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
+                crate::blocks::IF_OPS,
                 "=",
             ),
             db(p("then", "dynamic", "Sent when it passes (default true)."), true),
@@ -509,6 +512,31 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[],
+    },
+    NodeType {
+        ty: "case",
+        category: "Logic",
+        description: "The then of the first pair whose case in matches by op; else when none does.",
+        inputs: &["in", "in.op", "in.else"],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            pick(
+                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing)."),
+                crate::blocks::CASE_OPS,
+                "=",
+            ),
+            p("else", "dynamic", "Sent when no case matches (default null)."),
+            dl(
+                p(
+                    "inputs",
+                    "array",
+                    "Names of the variable inputs, in pairs: a case, then what it gives (default 0, 1). Give each its constant in values.",
+                ),
+                &["0", "1"],
+            ),
+        ],
     },
 ];
 
@@ -829,7 +857,7 @@ mod tests {
             ports(t.ty, &all).unwrap_or_else(|e| panic!("{} with every param: {e}", t.ty));
         }
         assert!(ports("nope", &BTreeMap::new()).is_err());
-        assert_eq!(TYPES.len(), 35);
+        assert_eq!(TYPES.len(), 36);
         // every logic block is in the palette
         for b in crate::blocks::TYPES {
             assert!(TYPES.iter().any(|t| t.ty == *b), "{b} in the catalog");

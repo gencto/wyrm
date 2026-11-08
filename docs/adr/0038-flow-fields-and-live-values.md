@@ -88,6 +88,11 @@ A block field is one entity: a typed value that a binding can replace. A paramet
 - **Scope:** the logic blocks (`crate::blocks`). Not `expression` and the older types (their single `in` is the sample they act on).
 - **Catalog:** per type `values: true` when its operand inputs (fixed `inputs` and the `dyn_inputs` ports that are not a parameter's `port`) take a constant.
 
+### 8. Block gaps against DGLux (2026-11-08, spec 06 0.2.21; semantics from `dglux_flutter/lib/runtime/blocks_core.dart`)
+- `if.op` gains `!=` (the first input equals none of the others, compared as `=`), `contains`, `starts_with`, `ends_with` (the first input as text with any of the others; a `null` other never matches; a `null` first is empty text). Names are snake_case (ADR 0032 §3): DGLux's `startsWith`/`endsWith` are refused at compile.
+- `round.min_precision` (port `in.min_precision`, no default = `precision`) and a new output **`text`**: DGLux's round gives text when it has places; WYRM keeps `out` a number (its port type, its edges) and adds `text` with `precision` places, trailing zeros trimmed down to `min_precision` places.
+- A **`case` block**: input `in`; `op` (`=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`, default `=`) and `else` (default `null`), both with ports; the variable inputs `inputs` are pairs (case value, then value), usually given as constants in `values` (§7). It sends the then of the first pair whose case matches `in`, else `else`; it calculates on any sample, as every block. An empty case text matches nothing in the text operators (as DGLux). DGLux's `regexp` is left out: a pattern from a port can take any time to match, and the flow crate has no bounded regex engine.
+
 *If wrong:* a field that should not feed other blocks gets an output anyway (harmless while unwired); a watch that misses a sample between two periods shows the latest value only, which is what an editor needs.
 
 ## Studio

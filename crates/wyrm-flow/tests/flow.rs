@@ -909,9 +909,9 @@ async fn watch_streams_live_values() {
             assert_eq!(pair[1], Value::UInt(0), "quality good");
             seen_in = true;
         }
-        // the wired echo goes out, the unwired ones are never built
+        // the outputs and the wired echo go out, the unwired echoes are never built
         for k in keys(at(&row, &["nodes", "r", "out"])) {
-            assert!(["out", "in"].contains(&k.as_str()), "r.{k}");
+            assert!(["out", "text", "in"].contains(&k.as_str()), "r.{k}");
         }
         if at(&row, &["nodes", "a"]).is_some() {
             assert_eq!(keys(at(&row, &["nodes", "a", "out"])), ["out"]);
