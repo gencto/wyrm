@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowSummary {
 
- String get id; int? get version; String? get deployedBy; bool get draft; String? get problem; IList<String> get reads; IList<String> get writes;
+ String get id; int? get version; String? get deployedBy; bool get draft; String? get problem; IList<String> get reads; IList<String> get writes; int get blocks; String? get description; bool get running;
 /// Create a copy of FlowSummary
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $FlowSummaryCopyWith<FlowSummary> get copyWith => _$FlowSummaryCopyWithImpl<Flow
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes)&&(identical(other.blocks, blocks) || other.blocks == blocks)&&(identical(other.description, description) || other.description == description)&&(identical(other.running, running) || other.running == running));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes));
+int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes),blocks,description,running);
 
 @override
 String toString() {
-  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes)';
+  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes, blocks: $blocks, description: $description, running: $running)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $FlowSummaryCopyWith<$Res>  {
   factory $FlowSummaryCopyWith(FlowSummary value, $Res Function(FlowSummary) _then) = _$FlowSummaryCopyWithImpl;
 @useResult
 $Res call({
- String id, int? version, String? deployedBy, bool draft, String? problem, IList<String> reads, IList<String> writes
+ String id, int? version, String? deployedBy, bool draft, String? problem, IList<String> reads, IList<String> writes, int blocks, String? description, bool running
 });
 
 
@@ -62,7 +62,7 @@ class _$FlowSummaryCopyWithImpl<$Res>
 
 /// Create a copy of FlowSummary
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? version = freezed,Object? deployedBy = freezed,Object? draft = null,Object? problem = freezed,Object? reads = null,Object? writes = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? version = freezed,Object? deployedBy = freezed,Object? draft = null,Object? problem = freezed,Object? reads = null,Object? writes = null,Object? blocks = null,Object? description = freezed,Object? running = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
@@ -71,7 +71,10 @@ as String?,draft: null == draft ? _self.draft : draft // ignore: cast_nullable_t
 as bool,problem: freezed == problem ? _self.problem : problem // ignore: cast_nullable_to_non_nullable
 as String?,reads: null == reads ? _self.reads : reads // ignore: cast_nullable_to_non_nullable
 as IList<String>,writes: null == writes ? _self.writes : writes // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as IList<String>,blocks: null == blocks ? _self.blocks : blocks // ignore: cast_nullable_to_non_nullable
+as int,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,running: null == running ? _self.running : running // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 
@@ -83,7 +86,7 @@ as IList<String>,
 
 
 class _FlowSummary implements FlowSummary {
-  const _FlowSummary({required this.id, this.version, this.deployedBy, this.draft = false, this.problem, this.reads = const IListConst([]), this.writes = const IListConst([])});
+  const _FlowSummary({required this.id, this.version, this.deployedBy, this.draft = false, this.problem, this.reads = const IListConst([]), this.writes = const IListConst([]), this.blocks = 0, this.description, this.running = false});
   
 
 @override final  String id;
@@ -93,6 +96,9 @@ class _FlowSummary implements FlowSummary {
 @override final  String? problem;
 @override@JsonKey() final  IList<String> reads;
 @override@JsonKey() final  IList<String> writes;
+@override@JsonKey() final  int blocks;
+@override final  String? description;
+@override@JsonKey() final  bool running;
 
 /// Create a copy of FlowSummary
 /// with the given fields replaced by the non-null parameter values.
@@ -104,16 +110,16 @@ _$FlowSummaryCopyWith<_FlowSummary> get copyWith => __$FlowSummaryCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes)&&(identical(other.blocks, blocks) || other.blocks == blocks)&&(identical(other.description, description) || other.description == description)&&(identical(other.running, running) || other.running == running));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes));
+int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes),blocks,description,running);
 
 @override
 String toString() {
-  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes)';
+  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes, blocks: $blocks, description: $description, running: $running)';
 }
 
 
@@ -124,7 +130,7 @@ abstract mixin class _$FlowSummaryCopyWith<$Res> implements $FlowSummaryCopyWith
   factory _$FlowSummaryCopyWith(_FlowSummary value, $Res Function(_FlowSummary) _then) = __$FlowSummaryCopyWithImpl;
 @override @useResult
 $Res call({
- String id, int? version, String? deployedBy, bool draft, String? problem, IList<String> reads, IList<String> writes
+ String id, int? version, String? deployedBy, bool draft, String? problem, IList<String> reads, IList<String> writes, int blocks, String? description, bool running
 });
 
 
@@ -141,7 +147,7 @@ class __$FlowSummaryCopyWithImpl<$Res>
 
 /// Create a copy of FlowSummary
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? version = freezed,Object? deployedBy = freezed,Object? draft = null,Object? problem = freezed,Object? reads = null,Object? writes = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? version = freezed,Object? deployedBy = freezed,Object? draft = null,Object? problem = freezed,Object? reads = null,Object? writes = null,Object? blocks = null,Object? description = freezed,Object? running = null,}) {
   return _then(_FlowSummary(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
@@ -150,7 +156,10 @@ as String?,draft: null == draft ? _self.draft : draft // ignore: cast_nullable_t
 as bool,problem: freezed == problem ? _self.problem : problem // ignore: cast_nullable_to_non_nullable
 as String?,reads: null == reads ? _self.reads : reads // ignore: cast_nullable_to_non_nullable
 as IList<String>,writes: null == writes ? _self.writes : writes // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as IList<String>,blocks: null == blocks ? _self.blocks : blocks // ignore: cast_nullable_to_non_nullable
+as int,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,running: null == running ? _self.running : running // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 

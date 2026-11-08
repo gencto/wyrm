@@ -3025,6 +3025,263 @@ class S {
       args: [],
     );
   }
+
+  /// `Block`
+  String get block {
+    return Intl.message('Block', name: 'block', desc: '', args: []);
+  }
+
+  /// `{n, plural, =1{1 block} other{{n} blocks}}`
+  String blocksCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 block',
+      other: '$n blocks',
+      name: 'blocksCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Deployed by`
+  String get colDeployedBy {
+    return Intl.message(
+      'Deployed by',
+      name: 'colDeployedBy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Flow`
+  String get colFlow {
+    return Intl.message('Flow', name: 'colFlow', desc: '', args: []);
+  }
+
+  /// `Reads → writes`
+  String get colReadsWrites {
+    return Intl.message(
+      'Reads → writes',
+      name: 'colReadsWrites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Dataflow`
+  String get dataflow {
+    return Intl.message('Dataflow', name: 'dataflow', desc: '', args: []);
+  }
+
+  /// `Deploy`
+  String get deploy {
+    return Intl.message('Deploy', name: 'deploy', desc: '', args: []);
+  }
+
+  /// `Deploying…`
+  String get deploying {
+    return Intl.message('Deploying…', name: 'deploying', desc: '', args: []);
+  }
+
+  /// `Draft · valid, not deployed`
+  String get draftValid {
+    return Intl.message(
+      'Draft · valid, not deployed',
+      name: 'draftValid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit dataflow`
+  String get editDataflow {
+    return Intl.message(
+      'Edit dataflow',
+      name: 'editDataflow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open it in the editor; nothing changes until you deploy.`
+  String get editDataflowNote {
+    return Intl.message(
+      'Open it in the editor; nothing changes until you deploy.',
+      name: 'editDataflowNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `About`
+  String get factAbout {
+    return Intl.message('About', name: 'factAbout', desc: '', args: []);
+  }
+
+  /// `Blocks`
+  String get factBlocks {
+    return Intl.message('Blocks', name: 'factBlocks', desc: '', args: []);
+  }
+
+  /// `Problem`
+  String get factProblem {
+    return Intl.message('Problem', name: 'factProblem', desc: '', args: []);
+  }
+
+  /// `Running`
+  String get factRunning {
+    return Intl.message('Running', name: 'factRunning', desc: '', args: []);
+  }
+
+  /// `The draft does not validate.`
+  String get fixFirst {
+    return Intl.message(
+      'The draft does not validate.',
+      name: 'fixFirst',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `v{v} deployed`
+  String flowDeployed(Object v) {
+    return Intl.message(
+      'v$v deployed',
+      name: 'flowDeployed',
+      desc: '',
+      args: [v],
+    );
+  }
+
+  /// `v{v} · error`
+  String flowError(Object v) {
+    return Intl.message('v$v · error', name: 'flowError', desc: '', args: [v]);
+  }
+
+  /// `Flow id`
+  String get flowName {
+    return Intl.message('Flow id', name: 'flowName', desc: '', args: []);
+  }
+
+  /// `Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.`
+  String get flowPropertiesNote {
+    return Intl.message(
+      'Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.',
+      name: 'flowPropertiesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `v{v} stopped`
+  String flowStopped(Object v) {
+    return Intl.message(
+      'v$v stopped',
+      name: 'flowStopped',
+      desc: '',
+      args: [v],
+    );
+  }
+
+  /// `Version {v}`
+  String flowVersion(Object v) {
+    return Intl.message('Version $v', name: 'flowVersion', desc: '', args: [v]);
+  }
+
+  /// `A deploy needs config on dataflows; the gateway adds your proofs for each target. Viewers can open a flow and only look.`
+  String get flowsFooter {
+    return Intl.message(
+      'A deploy needs config on dataflows; the gateway adds your proofs for each target. Viewers can open a flow and only look.',
+      name: 'flowsFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Flows on {site}`
+  String flowsOn(Object site) {
+    return Intl.message(
+      'Flows on $site',
+      name: 'flowsOn',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Each flow runs in the broker. You edit a draft; nothing changes until you deploy it.`
+  String get flowsSubtitle {
+    return Intl.message(
+      'Each flow runs in the broker. You edit a draft; nothing changes until you deploy it.',
+      name: 'flowsSubtitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `New dataflow`
+  String get newDataflow {
+    return Intl.message(
+      'New dataflow',
+      name: 'newDataflow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No flows on this site yet.`
+  String get noFlows {
+    return Intl.message(
+      'No flows on this site yet.',
+      name: 'noFlows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not deployed`
+  String get notDeployed {
+    return Intl.message(
+      'not deployed',
+      name: 'notDeployed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing changed since the last deploy.`
+  String get nothingToDeploy {
+    return Intl.message(
+      'Nothing changed since the last deploy.',
+      name: 'nothingToDeploy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Blocks`
+  String get paletteBlocks {
+    return Intl.message('Blocks', name: 'paletteBlocks', desc: '', args: []);
+  }
+
+  /// `Tree`
+  String get paletteTree {
+    return Intl.message('Tree', name: 'paletteTree', desc: '', args: []);
+  }
+
+  /// `Remove block`
+  String get removeBlock {
+    return Intl.message(
+      'Remove block',
+      name: 'removeBlock',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Validate`
+  String get validate {
+    return Intl.message('Validate', name: 'validate', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

@@ -14,5 +14,8 @@ abstract class FlowSummary with _$FlowSummary {
     String? problem,
     @Default(IListConst([])) IList<String> reads,
     @Default(IListConst([])) IList<String> writes,
+    @Default(0) int blocks,
+    String? description,
+    @Default(false) bool running,
   }) = _FlowSummary;
 }

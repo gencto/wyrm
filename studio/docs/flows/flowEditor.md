@@ -4,6 +4,271 @@
 
 `app/lib/connectors/flow_editor_page_connector.dart`
 
-_FlowEditorPageConnector exposes no dispatching callbacks yet._
+## nameField.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as NewFlowAction
+    participant ST as AppState
+
+    User->>UI: nameField.onChanged
+    UI->>VM: nameField()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.flowId, flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## fields.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetBlockParamAction
+    participant ST as AppState
+
+    User->>UI: fields.onChanged
+    UI->>VM: fields()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onDeploy
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as DeployFlowAction
+    participant ST as AppState
+
+    User->>UI: onDeploy
+    UI->>VM: onDeploy()
+    VM->>+A1: dispatchAndWait
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft)
+    A1->>ST: dispatchAndWait(RetrieveFlowsAction)
+    A1-->>-VM: ActionStatus
+```
+
+## onValidate
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as ValidateFlowAction
+    participant ST as AppState
+
+    User->>UI: onValidate
+    UI->>VM: onValidate()
+    VM->>+A1: dispatchAndWait
+    Note over A1: Debounce · async
+    A1->>ST: copyWith(flowEditor.problems)
+    A1-->>-VM: ActionStatus
+```
+
+## onClose
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant NAV as Router
+
+    User->>UI: onClose
+    UI->>VM: onClose()
+    VM->>NAV: GoAction.pop
+```
+
+## onPaletteTab
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetPaletteAction
+    participant ST as AppState
+
+    User->>UI: onPaletteTab
+    UI->>VM: onPaletteTab()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.palette)
+```
+
+## onPick
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as AddBlockAction
+    participant ST as AppState
+
+    User->>UI: onPick
+    UI->>VM: onPick()
+    alt entry.startsWith('type:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt entry.startsWith('key:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+```
+
+## onDrop
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as AddBlockAction
+    participant ST as AppState
+
+    User->>UI: onDrop
+    UI->>VM: onDrop()
+    alt entry.startsWith('type:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt entry.startsWith('key:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+```
+
+## onSelect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetSelectedBlockAction
+    participant ST as AppState
+
+    User->>UI: onSelect
+    UI->>VM: onSelect()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.selectedBlock)
+```
+
+## onMove
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as MoveBlockAction
+    participant ST as AppState
+
+    User->>UI: onMove
+    UI->>VM: onMove()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+```
+
+## onConnect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as ConnectPortsAction
+    participant ST as AppState
+
+    User->>UI: onConnect
+    UI->>VM: onConnect()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onDisconnect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as DisconnectEdgeAction
+    participant ST as AppState
+
+    User->>UI: onDisconnect
+    UI->>VM: onDisconnect()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onRemove
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as RemoveBlockAction
+    participant ST as AppState
+
+    User->>UI: onRemove
+    UI->>VM: onRemove()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+_Not drawn — these files dispatch outside any interaction:_
+
+- `FlowEditorPageConnector` — 4 dispatches
+
+| Interaction | Dispatches | Writes |
+| --- | --- | --- |
+| `nameField.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
+| `fields.onChanged` | `SetBlockParamAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft` |
+| `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
+| `onClose` | `GoAction.pop` | — |
+| `onPaletteTab` | `SetPaletteAction` | `flowEditor.palette` |
+| `onPick` | `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onDrop` | `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
+| `onMove` | `MoveBlockAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onConnect` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onDisconnect` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onRemove` | `RemoveBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+
+`?` marks a dispatch that only runs under a condition.
 
 [← all flows](README.md)

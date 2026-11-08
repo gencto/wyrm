@@ -120,6 +120,16 @@ void main() {
       await tester.tap(find.text(name).first);
       await settle(tester, 2500);
       await shot(tester, '0${i + 2}_${name.toLowerCase()}');
+      if (name == 'Flows' && find.text('ahu2_ctl').evaluate().isNotEmpty) {
+        await tester.tap(find.text('ahu2_ctl').first);
+        await settle(tester, 1000);
+        await shot(tester, '03b_flows_selected');
+        await tester.tap(find.text('Edit dataflow').first);
+        await settle(tester, 3500);
+        await shot(tester, '03c_flow_editor');
+        await tester.tap(find.byType(IconButton).last);
+        await settle(tester);
+      }
       if (name == 'Links' && find.text('modbus').evaluate().isNotEmpty) {
         await tester.tap(find.text('modbus').first);
         await settle(tester);

@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/flow_draft.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/grant.dart';
 import 'package:models/hist_point.dart';
@@ -14,6 +15,7 @@ import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
+import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
 import 'package:models/param_spec.dart';
@@ -27,6 +29,7 @@ import 'app_state.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
+import 'flows/actions/retrieve_flows_action.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -430,6 +433,12 @@ extension type SelectFlows(AppState _state) {
 
   /// Returns selectedFlow
   String? get selectedFlow => _state.flows.selectedFlow;
+
+  /// Returns defs
+  IMap<String, Object> get defs => _state.flows.defs;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveFlowsAction>();
 }
 
 extension type SelectFlowEditor(AppState _state) {
@@ -437,7 +446,7 @@ extension type SelectFlowEditor(AppState _state) {
   String? get flowId => _state.flowEditor.flowId;
 
   /// Returns draft
-  Object? get draft => _state.flowEditor.draft;
+  FlowDraft? get draft => _state.flowEditor.draft;
 
   /// Returns dirty
   bool get dirty => _state.flowEditor.dirty;
@@ -450,6 +459,21 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<DeployFlowAction>();
+
+  /// Returns types
+  IList<NodeType> get types => _state.flowEditor.types;
+
+  /// Returns version
+  int get version => _state.flowEditor.version;
+
+  /// Returns state
+  String? get state => _state.flowEditor.state;
+
+  /// Returns message
+  String? get message => _state.flowEditor.message;
+
+  /// Returns palette
+  String get palette => _state.flowEditor.palette;
 }
 
 extension type SelectTasks(AppState _state) {

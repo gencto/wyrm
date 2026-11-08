@@ -11,5 +11,6 @@ abstract class FlowsState with _$FlowsState {
     @Default(IListConst([])) IList<String> view,
     @Default(IMapConst({})) IMap<String, FlowSummary> table,
     String? selectedFlow,
+    @Default(IMapConst({})) IMap<String, Object> defs,
   }) = _FlowsState;
 }
