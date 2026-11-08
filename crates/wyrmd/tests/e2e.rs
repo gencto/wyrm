@@ -9485,7 +9485,9 @@ async fn standby_waits_for_a_witness() {
         "no takeover without a witness"
     );
     let _listener = std::net::TcpListener::bind(("127.0.0.1", witness)).unwrap();
-    let outcome = tokio::time::timeout(Duration::from_secs(10), follower)
+    // 30 s: on a loaded CI runner the follower's first open of the stores a
+    // stopped broker still held, and its session attempts, have taken over 10 s
+    let outcome = tokio::time::timeout(Duration::from_secs(30), follower)
         .await
         .expect("takeover once a witness answers")
         .unwrap()
