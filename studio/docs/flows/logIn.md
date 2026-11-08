@@ -10,57 +10,58 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as SetEmailAction
-    participant A2 as SetPasswordAction
-    participant A3 as LogInWithEmailAction
-    participant A4 as SetThemeModeAction
-    participant A5 as SetLanguageAction
+    participant A1 as SetGatewayAction
+    participant A2 as SetUserAction
+    participant A3 as SetPasswordAction
+    participant A4 as LogInAction
+    participant A5 as SetThemeModeAction
+    participant A6 as SetLanguageAction
     participant ST as AppState
-    participant NAV as Router
 
-    User->>UI: email.onChanged
-    UI->>VM: email()
+    User->>UI: gateway.onChanged
+    UI->>VM: gateway()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.email)
+    A1->>ST: copyWith(login.gateway)
+
+    User->>UI: user.onChanged
+    UI->>VM: user()
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(login.user)
 
     User->>UI: password.onChanged
     UI->>VM: password()
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(login.password)
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(login.password)
 
     User->>UI: onPressedLogIn
     UI->>VM: onPressedLogIn()
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · BlockingAction · async
-    A3->>ST: copyWith(session, login)
-    A3-->>-VM: ActionStatus
-
-    User->>UI: onPressedForgotPassword
-    UI->>VM: onPressedForgotPassword()
-    VM->>NAV: GoAction.push ForgotPasswordRoute
-
-    User->>UI: onPressedRegister
-    UI->>VM: onPressedRegister()
-    VM->>NAV: GoAction.push RegistrationRoute
+    alt login.gateway == null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(login.gateway)
+    end
+    VM->>+A4: dispatchAndWait
+    Note over A4: WaitingAction · BlockingAction · async
+    A4->>ST: copyWith(session, login)
+    A4--xVM: UserException
+    A4-->>-VM: ActionStatus
 
     User->>UI: theme.onChanged
     UI->>VM: theme()
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(theme.mode)
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(theme.mode)
 
     User->>UI: language.onChanged
     UI->>VM: language()
-    VM->>A5: dispatchSync
-    A5->>ST: copyWith(language.locale)
+    VM->>A6: dispatchSync
+    A6->>ST: copyWith(language.locale)
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `email.onChanged` | `SetEmailAction` | `login.email` |
+| `gateway.onChanged` | `SetGatewayAction` | `login.gateway` |
+| `user.onChanged` | `SetUserAction` | `login.user` |
 | `password.onChanged` | `SetPasswordAction` | `login.password` |
-| `onPressedLogIn` | `LogInWithEmailAction` | `session, login` |
-| `onPressedForgotPassword` | `GoAction.push` | — |
-| `onPressedRegister` | `GoAction.push` | — |
+| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction` | `login.gateway`, `session, login` |
 | `theme.onChanged` | `SetThemeModeAction` | `theme.mode` |
 | `language.onChanged` | `SetLanguageAction` | `language.locale` |
 

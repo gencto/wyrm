@@ -20,53 +20,44 @@ typedef String MessageIfAbsent(String messageStr, List<dynamic> args);
 class MessageLookup extends MessageLookupByLibrary {
   String get localeName => 'en';
 
-  static String m0(value) => "Minimum length ${value} symbols";
-
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
     "_locale": MessageLookupByLibrary.simpleMessage("en"),
     "appTitle": MessageLookupByLibrary.simpleMessage("WYRM Studio"),
-    "backToLogIn": MessageLookupByLibrary.simpleMessage("Back to log in"),
     "cancel": MessageLookupByLibrary.simpleMessage("Cancel"),
+    "cannotReachGateway": MessageLookupByLibrary.simpleMessage(
+      "Cannot reach the gateway",
+    ),
     "checkYourConnection": MessageLookupByLibrary.simpleMessage(
       "Check your connection and try again.",
     ),
-    "confirmPassword": MessageLookupByLibrary.simpleMessage("Confirm password"),
     "couldNotConnectToInternet": MessageLookupByLibrary.simpleMessage(
       "Couldn\'t connect to internet.",
     ),
     "darkTheme": MessageLookupByLibrary.simpleMessage("Dark theme"),
-    "email": MessageLookupByLibrary.simpleMessage("Email"),
-    "forgotPassword": MessageLookupByLibrary.simpleMessage("Forgot password?"),
-    "invalidEmail": MessageLookupByLibrary.simpleMessage("Invalid email"),
+    "gatewayUrl": MessageLookupByLibrary.simpleMessage("Gateway URL"),
+    "gatewayUrlHint": MessageLookupByLibrary.simpleMessage(
+      "http://host:8445, or several separated by commas",
+    ),
+    "invalidGatewayUrl": MessageLookupByLibrary.simpleMessage(
+      "Not a gateway URL (http:// or https:// and a host)",
+    ),
     "lightTheme": MessageLookupByLibrary.simpleMessage("Light theme"),
     "logIn": MessageLookupByLibrary.simpleMessage("Log in"),
     "logInSubtitle": MessageLookupByLibrary.simpleMessage(
-      "Sign in to continue.",
+      "Sign in to a WYRM gateway.",
     ),
     "logOut": MessageLookupByLibrary.simpleMessage("Log out"),
-    "minimumLengthSymbols": m0,
-    "mustContainAtLeastOneLowercase": MessageLookupByLibrary.simpleMessage(
-      "Must contain at least one lowercase",
-    ),
-    "mustContainAtLeastOneUppercase": MessageLookupByLibrary.simpleMessage(
-      "Must contain at least one uppercase",
-    ),
     "networkError": MessageLookupByLibrary.simpleMessage("Connection problem"),
     "ok": MessageLookupByLibrary.simpleMessage("OK"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
-    "passwordsDoNotMatch": MessageLookupByLibrary.simpleMessage(
-      "Passwords do not match",
-    ),
     "pleaseCheckYourNetworkSettings": MessageLookupByLibrary.simpleMessage(
       "Please check your network settings.",
     ),
     "pleaseLogInAgain": MessageLookupByLibrary.simpleMessage(
       "Please log in again.",
     ),
-    "register": MessageLookupByLibrary.simpleMessage("Register"),
     "requiredField": MessageLookupByLibrary.simpleMessage("Required field"),
-    "resetPassword": MessageLookupByLibrary.simpleMessage("Reset password"),
     "sessionExpired": MessageLookupByLibrary.simpleMessage("Session expired"),
     "somethingWentWrong": MessageLookupByLibrary.simpleMessage(
       "Something went wrong",
@@ -74,5 +65,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "tryAgainLater": MessageLookupByLibrary.simpleMessage(
       "Please try again later.",
     ),
+    "user": MessageLookupByLibrary.simpleMessage("User"),
   };
 }

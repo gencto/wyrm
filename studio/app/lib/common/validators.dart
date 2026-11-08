@@ -1,18 +1,17 @@
+import 'package:business/wyrm/session.dart';
 import 'package:localization/localization.dart';
 import 'package:pro_validator/pro_validator.dart';
 
 S get s => S.current;
 
-ValidatorGroup get emailValidator =>
-    RequiredValidator(error: s.requiredField) &
-    EmailValidator(error: s.invalidEmail);
+/// A value must be there.
+RequiredValidator get requiredValidator =>
+    RequiredValidator(error: s.requiredField);
 
-ValidatorGroup get passwordValidator =>
-    RequiredValidator(error: s.requiredField) &
-    MinLengthValidator(min: 8, error: s.minimumLengthSymbols(8)) &
-    HasUppercaseValidator(error: s.mustContainAtLeastOneUppercase) &
-    HasLowercaseValidator(error: s.mustContainAtLeastOneLowercase);
-
-MatchValidator get passwordsMatchValidator => MatchValidator(
-  error: s.passwordsDoNotMatch,
-);
+/// One gateway URL, or several separated by commas (a standby, ADR 0036).
+String? gatewayValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return s.requiredField;
+  }
+  return parseGateways(value).isEmpty ? s.invalidGatewayUrl : null;
+}

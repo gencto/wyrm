@@ -186,9 +186,6 @@ class _StateChangeObserver implements StateObserver<AppState> {
     pending.changed = <String>[
       if (prev.connectivity != next.connectivity) 'connectivity',
       if (prev.login != next.login) 'login',
-      if (prev.registration != next.registration) 'registration',
-      if (prev.forgotPassword != next.forgotPassword) 'forgotPassword',
-      if (prev.resetPassword != next.resetPassword) 'resetPassword',
       if (prev.session != next.session) 'session',
       if (prev.theme != next.theme) 'theme',
       if (prev.language != next.language) 'language',

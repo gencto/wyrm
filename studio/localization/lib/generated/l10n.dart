@@ -61,12 +61,7 @@ class S {
 
   /// `WYRM Studio`
   String get appTitle {
-    return Intl.message(
-      'WYRM Studio',
-      name: 'appTitle',
-      desc: '',
-      args: [],
-    );
+    return Intl.message('WYRM Studio', name: 'appTitle', desc: '', args: []);
   }
 
   /// `OK`
@@ -84,69 +79,19 @@ class S {
     return Intl.message('Log in', name: 'logIn', desc: '', args: []);
   }
 
-  /// `Sign in to continue.`
+  /// `Sign in to a WYRM gateway.`
   String get logInSubtitle {
     return Intl.message(
-      'Sign in to continue.',
+      'Sign in to a WYRM gateway.',
       name: 'logInSubtitle',
       desc: '',
       args: [],
     );
   }
 
-  /// `Back to log in`
-  String get backToLogIn {
-    return Intl.message(
-      'Back to log in',
-      name: 'backToLogIn',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Register`
-  String get register {
-    return Intl.message('Register', name: 'register', desc: '', args: []);
-  }
-
-  /// `Reset password`
-  String get resetPassword {
-    return Intl.message(
-      'Reset password',
-      name: 'resetPassword',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Forgot password?`
-  String get forgotPassword {
-    return Intl.message(
-      'Forgot password?',
-      name: 'forgotPassword',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Email`
-  String get email {
-    return Intl.message('Email', name: 'email', desc: '', args: []);
-  }
-
   /// `Password`
   String get password {
     return Intl.message('Password', name: 'password', desc: '', args: []);
-  }
-
-  /// `Confirm password`
-  String get confirmPassword {
-    return Intl.message(
-      'Confirm password',
-      name: 'confirmPassword',
-      desc: '',
-      args: [],
-    );
   }
 
   /// `Dark theme`
@@ -189,59 +134,9 @@ class S {
     );
   }
 
-  /// `Invalid email`
-  String get invalidEmail {
-    return Intl.message(
-      'Invalid email',
-      name: 'invalidEmail',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Minimum length {value} symbols`
-  String minimumLengthSymbols(Object value) {
-    return Intl.message(
-      'Minimum length $value symbols',
-      name: 'minimumLengthSymbols',
-      desc: '',
-      args: [value],
-    );
-  }
-
-  /// `Must contain at least one lowercase`
-  String get mustContainAtLeastOneLowercase {
-    return Intl.message(
-      'Must contain at least one lowercase',
-      name: 'mustContainAtLeastOneLowercase',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Must contain at least one uppercase`
-  String get mustContainAtLeastOneUppercase {
-    return Intl.message(
-      'Must contain at least one uppercase',
-      name: 'mustContainAtLeastOneUppercase',
-      desc: '',
-      args: [],
-    );
-  }
-
   /// `Log out`
   String get logOut {
     return Intl.message('Log out', name: 'logOut', desc: '', args: []);
-  }
-
-  /// `Passwords do not match`
-  String get passwordsDoNotMatch {
-    return Intl.message(
-      'Passwords do not match',
-      name: 'passwordsDoNotMatch',
-      desc: '',
-      args: [],
-    );
   }
 
   /// `Something went wrong`
@@ -299,6 +194,46 @@ class S {
     return Intl.message(
       'Check your connection and try again.',
       name: 'checkYourConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Gateway URL`
+  String get gatewayUrl {
+    return Intl.message('Gateway URL', name: 'gatewayUrl', desc: '', args: []);
+  }
+
+  /// `http://host:8445, or several separated by commas`
+  String get gatewayUrlHint {
+    return Intl.message(
+      'http://host:8445, or several separated by commas',
+      name: 'gatewayUrlHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `User`
+  String get user {
+    return Intl.message('User', name: 'user', desc: '', args: []);
+  }
+
+  /// `Not a gateway URL (http:// or https:// and a host)`
+  String get invalidGatewayUrl {
+    return Intl.message(
+      'Not a gateway URL (http:// or https:// and a host)',
+      name: 'invalidGatewayUrl',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cannot reach the gateway`
+  String get cannotReachGateway {
+    return Intl.message(
+      'Cannot reach the gateway',
+      name: 'cannotReachGateway',
       desc: '',
       args: [],
     );

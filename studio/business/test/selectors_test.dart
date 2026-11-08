@@ -1,10 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
-import 'package:business/redux/forgot_password/actions/forgot_password_action.dart';
-import 'package:business/redux/login/actions/log_in_with_email_action.dart';
-import 'package:business/redux/registration/actions/registration_action.dart';
-import 'package:business/redux/reset_password/actions/reset_password_action.dart';
+import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,11 +25,9 @@ void main() {
       final r = _Reader(AppState.initial());
 
       expect(r.connectivity.isConnected, isTrue);
-      expect(r.login.email, isNull);
+      expect(r.login.gateway, isNull);
+      expect(r.login.user, isNull);
       expect(r.login.password, isNull);
-      expect(r.registration.confirmPassword, isNull);
-      expect(r.resetPassword.password, isNull);
-      expect(r.forgotPassword.email, isNull);
       expect(r.session.token, isNull);
       expect(r.theme.mode, ThemeMode.light);
       expect(r.language.locale, 'en');
@@ -41,27 +36,14 @@ void main() {
     test('a written slice is what the selector returns', () {
       final r = _Reader(
         AppState.initial().copyWith
-            .login(email: 'a@b.c', password: 'secret')
+            .login(user: 'admin', password: 'secret')
             .copyWith
             .session(token: 'tok'),
       );
 
-      expect(r.login.email, 'a@b.c');
+      expect(r.login.user, 'admin');
       expect(r.login.password, 'secret');
       expect(r.session.token, 'tok');
-    });
-
-    test('the four auth slices do not read each other', () {
-      // They hold the same field names over the same types, so a selector
-      // pointed at the wrong slice would still compile and still return a
-      // String?. This is the test that would catch it.
-      final r = _Reader(
-        AppState.initial().copyWith.login(email: 'only-login@b.c'),
-      );
-
-      expect(r.login.email, 'only-login@b.c');
-      expect(r.registration.email, isNull);
-      expect(r.forgotPassword.email, isNull);
     });
   });
 
@@ -101,10 +83,7 @@ void main() {
       // `WaitingAction` and have an `isWaiting` getter, and still showed the
       // user nothing for the two seconds they ran.
       for (final action in <ReduxAction<AppState>>[
-        LogInWithEmailAction(),
-        RegistrationAction(),
-        ForgotPasswordAction(),
-        ResetPasswordAction(),
+        LogInAction(),
       ]) {
         final r = _Reader(
           AppState.initial().copyWith(wait: Wait.empty.add(flag: action)),

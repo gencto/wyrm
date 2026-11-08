@@ -2,17 +2,16 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/language/actions/set_language_action.dart';
-import 'package:business/redux/login/actions/log_in_with_email_action.dart';
-import 'package:business/redux/login/actions/set_email_action.dart';
+import 'package:business/redux/login/actions/log_in_action.dart';
+import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
+import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:flutter/material.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
 
 import '../common/validators.dart';
-import '../navigation/app_router.dart';
-import '../navigation/go_action.dart';
 
 @RoutePage()
 class LogInPageConnector extends StatelessWidget {
@@ -23,16 +22,19 @@ class LogInPageConnector extends StatelessWidget {
     debug: this,
     vm: () => _Factory(this),
     builder: (context, vm) => LogInPage(
-      email: vm.email,
+      gateway: vm.gateway,
+      user: vm.user,
       password: vm.password,
-      onPressedForgotPassword: vm.onPressedForgotPassword,
+      isWaiting: vm.isWaiting,
       onPressedLogIn: vm.onPressedLogIn,
-      onPressedRegister: vm.onPressedRegister,
       theme: vm.theme,
       language: vm.language,
     ),
   );
 }
+
+/// The gateway of the demo's central site (examples/demo/run.sh).
+const defaultGateway = 'http://127.0.0.1:8445';
 
 /// Factory that creates a view-model for the StoreConnector.
 class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
@@ -41,20 +43,35 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
 
   @override
   _Vm fromStore() => _Vm(
-    email: FieldVm(
-      value: login.email,
-      validator: (v) => emailValidator(v),
-      onChanged: (v) => dispatchSync(SetEmailAction(v)),
+    // The last gateway this user logged in to, else the demo's central site.
+    gateway: FieldVm(
+      value: login.gateway ?? defaultGateway,
+      validator: gatewayValidator,
+      onChanged: (v) => dispatchSync(SetGatewayAction(v)),
+      enabled: !login.isWaiting,
     ),
+    user: FieldVm(
+      value: login.user,
+      validator: (v) => requiredValidator(v),
+      onChanged: (v) => dispatchSync(SetUserAction(v)),
+      enabled: !login.isWaiting,
+    ),
+    // A gateway password has no shape rules here: the administrator who made
+    // the user chose it, and the gateway is the one that checks it.
     password: FieldVm(
       value: login.password,
-      validator: (v) => passwordValidator(v),
+      validator: (v) => requiredValidator(v),
       onChanged: (v) => dispatchSync(SetPasswordAction(v)),
+      enabled: !login.isWaiting,
     ),
-    onPressedLogIn: () => dispatchAndWait(LogInWithEmailAction()),
-    onPressedForgotPassword: () =>
-        dispatch(GoAction.push(const ForgotPasswordRoute())),
-    onPressedRegister: () => dispatch(GoAction.push(const RegistrationRoute())),
+    isWaiting: login.isWaiting,
+    onPressedLogIn: () async {
+      // The default shown in the field is only a hint until it is written.
+      if (login.gateway == null) {
+        dispatchSync(SetGatewayAction(defaultGateway));
+      }
+      await dispatchAndWait(LogInAction());
+    },
     theme: FieldVm(
       value: theme.mode,
       onChanged: (mode) => dispatchSync(SetThemeModeAction(mode)),
@@ -73,20 +90,20 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
-    required this.email,
+    required this.gateway,
+    required this.user,
     required this.password,
+    required this.isWaiting,
     required this.onPressedLogIn,
-    required this.onPressedForgotPassword,
-    required this.onPressedRegister,
     required this.theme,
     required this.language,
-  }) : super(equals: [email, password, theme, language]);
+  }) : super(equals: [gateway, user, password, isWaiting, theme, language]);
 
-  final FieldVm<String?> email;
+  final FieldVm<String?> gateway;
+  final FieldVm<String?> user;
   final FieldVm<String?> password;
+  final bool isWaiting;
   final VoidCallback onPressedLogIn;
-  final VoidCallback onPressedForgotPassword;
-  final VoidCallback onPressedRegister;
   final FieldVm<ThemeMode> theme;
   final FieldVm<String> language;
 }

@@ -11,22 +11,6 @@
 part of 'app_router.dart';
 
 /// generated route for
-/// [ForgotPasswordPageConnector]
-class ForgotPasswordRoute extends PageRouteInfo<void> {
-  const ForgotPasswordRoute({List<PageRouteInfo>? children})
-    : super(ForgotPasswordRoute.name, initialChildren: children);
-
-  static const String name = 'ForgotPasswordRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const ForgotPasswordPageConnector();
-    },
-  );
-}
-
-/// generated route for
 /// [HomePageConnector]
 class HomeRoute extends PageRouteInfo<void> {
   const HomeRoute({List<PageRouteInfo>? children})
@@ -54,38 +38,6 @@ class LogInRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const LogInPageConnector();
-    },
-  );
-}
-
-/// generated route for
-/// [RegistrationPageConnector]
-class RegistrationRoute extends PageRouteInfo<void> {
-  const RegistrationRoute({List<PageRouteInfo>? children})
-    : super(RegistrationRoute.name, initialChildren: children);
-
-  static const String name = 'RegistrationRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const RegistrationPageConnector();
-    },
-  );
-}
-
-/// generated route for
-/// [ResetPasswordPageConnector]
-class ResetPasswordRoute extends PageRouteInfo<void> {
-  const ResetPasswordRoute({List<PageRouteInfo>? children})
-    : super(ResetPasswordRoute.name, initialChildren: children);
-
-  static const String name = 'ResetPasswordRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const ResetPasswordPageConnector();
     },
   );
 }

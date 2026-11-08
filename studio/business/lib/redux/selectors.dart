@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'common/action.dart';
+import 'login/actions/log_in_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
 ///
@@ -12,10 +13,7 @@ mixin Selectors {
   AppState get state;
 
   SelectConnectivity get connectivity => SelectConnectivity(state);
-  SelectForgotPassword get forgotPassword => SelectForgotPassword(state);
   SelectLogin get login => SelectLogin(state);
-  SelectRegistration get registration => SelectRegistration(state);
-  SelectResetPassword get resetPassword => SelectResetPassword(state);
   SelectSession get session => SelectSession(state);
   SelectTheme get theme => SelectTheme(state);
   SelectLanguage get language => SelectLanguage(state);
@@ -61,36 +59,18 @@ extension type SelectConnectivity(AppState _state) {
   bool get isConnected => _state.connectivity.isAvailable;
 }
 
-extension type SelectForgotPassword(AppState _state) {
-  /// returns
-  String? get email => _state.forgotPassword.email;
-}
-
 extension type SelectLogin(AppState _state) {
-  /// Returns email value
-  String? get email => _state.login.email;
-
   /// Returns password value
   String? get password => _state.login.password;
-}
 
-extension type SelectRegistration(AppState _state) {
-  /// Returns email value
-  String? get email => _state.registration.email;
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<LogInAction>();
 
-  /// Returns password value
-  String? get password => _state.registration.password;
+  /// Returns gateway
+  String? get gateway => _state.login.gateway;
 
-  /// Returns confirm password value
-  String? get confirmPassword => _state.registration.confirmPassword;
-}
-
-extension type SelectResetPassword(AppState _state) {
-  /// Returns password value
-  String? get password => _state.resetPassword.password;
-
-  /// Returns confirm password value
-  String? get confirmPassword => _state.resetPassword.confirmPassword;
+  /// Returns user
+  String? get user => _state.login.user;
 }
 
 extension type SelectSession(AppState _state) {

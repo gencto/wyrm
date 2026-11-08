@@ -2,11 +2,8 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 
-import '../connectors/forgot_password_page_connector.dart';
 import '../connectors/home_page_connector.dart';
 import '../connectors/log_in_page_connector.dart';
-import '../connectors/registration_page_connector.dart';
-import '../connectors/reset_password_page_connector.dart';
 import '../connectors/splash_page_connector.dart';
 
 part 'app_router.gr.dart';
@@ -38,9 +35,6 @@ class AppRouter extends RootStackRouter {
   List<AutoRoute> get routes => [
     AutoRoute(page: SplashRoute.page, path: '/splash', initial: true),
     AutoRoute(page: LogInRoute.page, path: '/login'),
-    AutoRoute(page: RegistrationRoute.page, path: '/registration'),
-    AutoRoute(page: ForgotPasswordRoute.page, path: '/forgot-password'),
-    AutoRoute(page: ResetPasswordRoute.page, path: '/reset-password'),
     AutoRoute(page: HomeRoute.page, path: '/home'),
   ];
 }
@@ -63,9 +57,6 @@ class _AuthGuard extends AutoRouteGuard with Selectors {
   /// Routes reachable while logged out. Everything else requires a session.
   static const Set<String> _authArea = {
     LogInRoute.name,
-    RegistrationRoute.name,
-    ForgotPasswordRoute.name,
-    ResetPasswordRoute.name,
   };
 
   @override
