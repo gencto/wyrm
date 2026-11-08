@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
+import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
 
 /// How a field of the inspector is edited (spec §6).
@@ -34,6 +35,7 @@ final class InspectorRowVm extends Equatable {
     required this.id,
     required this.name,
     required this.editor,
+    this.engine = '',
     this.value = '',
     this.choices = const [],
     this.source = '',
@@ -45,7 +47,12 @@ final class InspectorRowVm extends Equatable {
 
   /// The field's id within its block.
   final String id;
+  /// What the row reads: `Input min`.
   final String name;
+
+  /// What the engine calls it (`input_min`, `in.0`), mono and small under
+  /// [name]; empty when it reads the same.
+  final String engine;
   final FieldEditorVm editor;
 
   /// The typed value (text, choice, `true`/`false`) or the sample shown.
@@ -71,6 +78,7 @@ final class InspectorRowVm extends Equatable {
   List<Object?> get props => [
     id,
     name,
+    engine,
     editor,
     value,
     choices,
@@ -328,7 +336,8 @@ class FieldInspector extends StatelessWidget {
   }
 }
 
-/// One field: name · editor · link button (82 · 1fr · 32, min 44 high).
+/// One field: label (engine name under it) · editor · link button
+/// (104 · 1fr · 32, min 44 high).
 class _Row extends StatelessWidget {
   const _Row({
     required this.vm,
@@ -361,14 +370,27 @@ class _Row extends StatelessWidget {
         spacing: 8,
         children: [
           SizedBox(
-            width: 82,
+            width: 104,
             child: Tooltip(
               message: vm.hint,
-              child: Text(
-                vm.name,
-                maxLines: 1,
-                overflow: .ellipsis,
-                style: mono(color: c.text2),
+              child: Column(
+                mainAxisSize: .min,
+                crossAxisAlignment: .start,
+                children: [
+                  Text(
+                    vm.name,
+                    maxLines: 2,
+                    overflow: .ellipsis,
+                    style: TextStyle(fontSize: 13, color: c.text2),
+                  ),
+                  if (vm.engine.isNotEmpty)
+                    Text(
+                      vm.engine,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      style: mono(size: 10, color: c.text4),
+                    ),
+                ],
               ),
             ),
           ),
@@ -400,10 +422,10 @@ class _Row extends StatelessWidget {
     if (!takes) {
       return row(false);
     }
-    return DragTarget<Object>(
-      onWillAcceptWithDetails: (d) => d.data is FieldRefVm,
-      onAcceptWithDetails: (d) => onBind(vm.id, d.data as FieldRefVm),
-      builder: (context, candidates, _) => row(candidates.isNotEmpty),
+    // A wire dragged out of the canvas and let go here binds the field.
+    return FieldDropZone(
+      drop: FieldDrop(vm.id, onDrop: (from) => onBind(vm.id, from)),
+      builder: (context, lit) => row(lit),
     );
   }
 

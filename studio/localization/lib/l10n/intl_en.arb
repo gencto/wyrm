@@ -564,5 +564,13 @@
     "factLive": "Live values",
     "liveRefused": "You cannot read every source and target of this flow",
     "firesAtDeploy": "fires at deploy",
-    "firesAtDeployNote": "A parameter sends its value when the flow starts, so this writes at every deploy."
+    "firesAtDeployNote": "A parameter sends its value when the flow starts, so this writes at every deploy.",
+    "refuseOutput": "Outputs cannot be bound",
+    "refuseNoInput": "{field} takes no input: type its value",
+    "@refuseNoInput": {"placeholders": {"field": {"type": "String"}}},
+    "refuseSelf": "A block cannot feed itself",
+    "refuseType": "{from} does not fit {to}",
+    "@refuseType": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+    "refuseLoop": "This closes a loop (only a delay may)",
+    "blockForm": "Form"
 }

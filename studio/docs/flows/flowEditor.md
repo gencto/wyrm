@@ -242,6 +242,24 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
+## onRebind
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as RebindEdgeAction
+    participant ST as AppState
+
+    User->>UI: onRebind
+    UI->>VM: onRebind()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
 ## onDropEntry
 
 ```mermaid
@@ -286,20 +304,26 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockParamAction
+    participant A1 as SetBlockFormAction
+    participant A2 as SetBlockParamAction
     participant ST as AppState
 
     User->>UI: onFieldChanged
     UI->>VM: onFieldChanged()
-    alt f.kind == FieldKind.arg
+    alt form != null
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
+    alt f.kind == FieldKind.arg
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
+    end
     alt f.spec
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
-        A1->>ST: dispatchAndWait(ValidateFlowAction)
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
 
@@ -409,9 +433,10 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
 | `onBind` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty` |
 | `onUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onRebind` | `RebindEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
 | `onDropEntry` | `AddBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
 | `onResize` | `ResizeInputsAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onFieldChanged` | `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
+| `onFieldChanged` | `SetBlockFormAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
 | `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
 | `onFieldBind` | `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty` |
 | `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |

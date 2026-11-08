@@ -564,5 +564,13 @@
     "factLive": "Живі значення",
     "liveRefused": "Ви не можете читати всі джерела й цілі цього потоку",
     "firesAtDeploy": "спрацює при розгортанні",
-    "firesAtDeployNote": "Параметр надсилає значення під час запуску потоку, тож цей зв’язок пише при кожному розгортанні."
+    "firesAtDeployNote": "Параметр надсилає значення під час запуску потоку, тож цей зв’язок пише при кожному розгортанні.",
+    "refuseOutput": "Вихід не можна зв’язати",
+    "refuseNoInput": "{field} не має входу: введіть значення",
+    "@refuseNoInput": {"placeholders": {"field": {"type": "String"}}},
+    "refuseSelf": "Блок не може живити сам себе",
+    "refuseType": "{from} не підходить до {to}",
+    "@refuseType": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+    "refuseLoop": "Це замикає цикл (лише через delay)",
+    "blockForm": "Форма"
 }

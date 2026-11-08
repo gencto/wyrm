@@ -4521,6 +4521,61 @@ class S {
       args: [],
     );
   }
+
+  /// `Outputs cannot be bound`
+  String get refuseOutput {
+    return Intl.message(
+      'Outputs cannot be bound',
+      name: 'refuseOutput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{field} takes no input: type its value`
+  String refuseNoInput(String field) {
+    return Intl.message(
+      '$field takes no input: type its value',
+      name: 'refuseNoInput',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `A block cannot feed itself`
+  String get refuseSelf {
+    return Intl.message(
+      'A block cannot feed itself',
+      name: 'refuseSelf',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{from} does not fit {to}`
+  String refuseType(String from, String to) {
+    return Intl.message(
+      '$from does not fit $to',
+      name: 'refuseType',
+      desc: '',
+      args: [from, to],
+    );
+  }
+
+  /// `This closes a loop (only a delay may)`
+  String get refuseLoop {
+    return Intl.message(
+      'This closes a loop (only a delay may)',
+      name: 'refuseLoop',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Form`
+  String get blockForm {
+    return Intl.message('Form', name: 'blockForm', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

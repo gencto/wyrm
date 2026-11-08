@@ -15,8 +15,8 @@ import 'validate_flow_action.dart';
 ///
 /// Other defaults stay out of the definition: the block shows them as the
 /// values of its fields, and the engine applies them itself. Writing them
-/// would change what a block means (`scale` with `k` and a range at once is
-/// refused).
+/// would change what a block means (a `scale` with a range parameter maps
+/// from the range: it is in its range form).
 class AddBlockAction extends Action {
   AddBlockAction(
     this.type,
