@@ -1176,6 +1176,71 @@ async fn ports_show_what_was_sent_before_any_watch() {
     env.stop().await;
 }
 
+/// Spec 06 0.2.19 and ADR 0032's rule: operand constants are the inputs' values from the start
+/// (`ports` shows them), but they calculate nothing, so a deploy never fires the `set` they
+/// feed; the first real sample does.
+#[tokio::test(flavor = "multi_thread")]
+async fn operand_constants_never_fire_a_command_at_deploy() {
+    let env = Env::start("consts").await;
+    let spy = Spy::on(&env.session).await;
+    let def = |version: u64, bound: bool| {
+        let mut nodes = vec![
+            (
+                "sum",
+                map(&[
+                    ("type", s("add")),
+                    (
+                        "values",
+                        map(&[("in.0", Value::UInt(1)), ("in.1", Value::UInt(2))]),
+                    ),
+                ]),
+            ),
+            (
+                "w",
+                map(&[("type", s("set")), ("path", s("downstream/spy/x"))]),
+            ),
+        ];
+        let mut edges = vec![edge("sum.out", "w.in")];
+        if bound {
+            nodes.push((
+                "v",
+                map(&[("type", s("number")), ("value", Value::UInt(5))]),
+            ));
+            edges.push(edge("v.out", "sum.in.1"));
+        }
+        let nodes: Vec<(&str, Value)> = nodes;
+        map(&[
+            ("id", s("consts")),
+            ("version", Value::UInt(version)),
+            ("nodes", map(&nodes)),
+            ("edges", arr(&edges)),
+            ("permissions", map(&[("maxperm", s("write"))])),
+        ])
+    };
+    env.deploy(def(1, false)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(spy.commands(), 0, "a constant fired a command");
+    let snap = env
+        .client
+        .invoke_one(&format!("wy/{SITE}/dataflows/consts"), "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    assert_eq!(
+        at(&snap, &["nodes", "sum", "in", "in.0"]),
+        Some(&pair(Value::UInt(1)))
+    );
+    assert_eq!(at(&snap, &["nodes", "sum", "out"]), Some(&map(&[])));
+    // a binding wins: the variable's 5 replaces the constant 2 and calculates 1 + 5
+    env.deploy(def(2, true)).await.unwrap();
+    wait("the bound sum is written", || {
+        (spy.commands() >= 1).then_some(())
+    })
+    .await;
+    env.stop().await;
+}
+
 /// Spec 06 0.2.17: a parameter on its port changes the node's clock: a timer of one minute
 /// whose `period_ms` a variable sets to 20 ticks many times a second.
 #[tokio::test(flavor = "multi_thread")]

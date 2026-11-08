@@ -609,6 +609,10 @@ pub fn value() -> Value {
                 {
                     m.insert("echo_inputs".into(), Value::Bool(true));
                 }
+                // spec 06 0.2.19: the operand inputs take a constant in config `values`
+                if crate::blocks::takes_values(t.ty) {
+                    m.insert("values".into(), Value::Bool(true));
+                }
                 Value::Map(m)
             })
             .collect(),
@@ -950,6 +954,15 @@ mod tests {
             "a sample port is not listed"
         );
         assert_eq!(entry("add").get("echo_inputs"), Some(&Value::Bool(true)));
+        // spec 06 0.2.19: the blocks whose operands take a constant
+        for ty in [
+            "add", "concat", "if", "hub", "trace", "round", "not", "length",
+        ] {
+            assert_eq!(entry(ty).get("values"), Some(&Value::Bool(true)), "{ty}");
+        }
+        for ty in ["number", "stopwatch", "scale", "set"] {
+            assert_eq!(entry(ty).get("values"), None, "{ty}");
+        }
         assert_eq!(
             entry("timer").get("echo_inputs"),
             None,

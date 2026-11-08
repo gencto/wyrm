@@ -518,6 +518,12 @@ pub trait Node: Send {
     fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
         None
     }
+    /// The inputs' constants (config `values`, spec 06 0.2.19) as `(port, value)`: each is the
+    /// input's value until a sample replaces it. They calculate nothing; `watch` shows them as
+    /// the inputs' values from the start.
+    fn seeds(&self) -> Vec<(String, Value)> {
+        Vec::new()
+    }
 }
 
 fn truthy(v: &Value) -> bool {

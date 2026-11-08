@@ -416,6 +416,58 @@ pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, String>> {
     Some(check(k, cfg))
 }
 
+/// Whether block type `ty` has operand inputs that take a constant in config `values`
+/// (spec 06 0.2.19): `in` and the variable inputs, never a parameter's port, never `reset`,
+/// and not the variables (their `value` is the constant).
+pub fn takes_values(ty: &str) -> bool {
+    kind(ty).is_some_and(|k| has_operands(k, &shape(k)))
+}
+
+fn has_operands(k: Kind, sh: &Shape) -> bool {
+    !matches!(k, Kind::Number | Kind::Text | Kind::Bool) && (sh.items || sh.inputs.contains(&"in"))
+}
+
+/// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
+/// of the block (`in`, `in.<name>` of `inputs`); keyed by the input's name (`in`, `<name>`).
+fn constants(k: Kind, sh: &Shape, cfg: &Map) -> Result<BTreeMap<String, Value>, String> {
+    let Some(v) = cfg.get("values") else {
+        return Ok(BTreeMap::new());
+    };
+    let Value::Map(m) = v else {
+        return Err("values: expected a map {<input>: <value>}".into());
+    };
+    let items = if sh.items {
+        items(cfg, sh)?
+    } else {
+        Vec::new()
+    };
+    let mut out = BTreeMap::new();
+    for (port, v) in m {
+        let name = match port.as_str() {
+            "in" if sh.inputs.contains(&"in") => "in",
+            p => match p.strip_prefix("in.") {
+                Some(n) if items.iter().any(|i| i == n) => n,
+                _ => {
+                    return Err(format!(
+                        "values.{port}: not an operand input of {} (in, in.<inputs>)",
+                        kind_name(k)
+                    ))
+                }
+            },
+        };
+        out.insert(name.to_owned(), v.clone());
+    }
+    Ok(out)
+}
+
+fn kind_name(k: Kind) -> &'static str {
+    TYPES
+        .iter()
+        .copied()
+        .find(|t| kind(t) == Some(k))
+        .unwrap_or("block")
+}
+
 fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
     let sh = shape(k);
     let known: Vec<&str> = sh
@@ -423,10 +475,12 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
         .iter()
         .map(|p| p.name)
         .chain(sh.items.then_some("inputs"))
+        .chain(has_operands(k, &sh).then_some("values"))
         .collect();
     if let Some(x) = cfg.keys().find(|x| !known.contains(&x.as_str())) {
         return Err(format!("{x}: unknown field"));
     }
+    constants(k, &sh, cfg)?;
     if k == Kind::If {
         let op = match cfg.get("op") {
             None => "=",
@@ -490,7 +544,12 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
                 )
             })
             .collect();
+        // an operand's constant is its value until a sample replaces it; it calculates
+        // nothing by itself (spec 06 0.2.19)
+        let consts = constants(k, &sh, cfg)?;
         Ok(Box::new(Block {
+            consts: consts.clone(),
+            values: consts,
             kind: k,
             name: format!("{flow}/{id}"),
             param_ports: sh
@@ -502,7 +561,6 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             params,
             params_rev: 0,
             items,
-            values: BTreeMap::new(),
             seen: BTreeMap::new(),
             sent: BTreeMap::new(),
             events: 0,
@@ -524,8 +582,11 @@ struct Block {
     param_ports: Vec<&'static str>,
     /// The variable inputs' names, in order.
     items: Vec<String>,
-    /// The last sample of each input port (without `in.`; `in` and `reset` as they are).
+    /// The last sample of each input port (without `in.`; `in` and `reset` as they are),
+    /// seeded with the operands' constants.
     values: BTreeMap<String, Value>,
+    /// The operands' constants from config `values`, for `watch` (`Node::seeds`).
+    consts: BTreeMap<String, Value>,
     /// Quality and time of each input that has a sample.
     seen: BTreeMap<String, (Quality, u64)>,
     /// The last value and quality sent on each output.
@@ -887,5 +948,19 @@ impl Node for Block {
 
     fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
         Some((self.params_rev, &self.params))
+    }
+
+    fn seeds(&self) -> Vec<(String, Value)> {
+        self.consts
+            .iter()
+            .map(|(n, v)| {
+                let port = if n == "in" {
+                    n.clone()
+                } else {
+                    format!("in.{n}")
+                };
+                (port, v.clone())
+            })
+            .collect()
     }
 }

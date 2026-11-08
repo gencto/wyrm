@@ -529,3 +529,58 @@ async fn text_is_bounded() {
         Some(Value::Null)
     );
 }
+
+/// Spec 06 0.2.19: an operand's constant (config `values`) is its value until a sample
+/// replaces it; it calculates nothing by itself; only operands take one.
+#[tokio::test(flavor = "multi_thread")]
+async fn operand_constants() {
+    let e = env().await;
+    let consts = |kv: &[(&str, Value)]| Value::Map(cfg(kv));
+    let mut c = build(
+        "concat",
+        &[(
+            "values",
+            consts(&[("in.0", Value::from("AHU-")), ("in.1", Value::UInt(1))]),
+        )],
+    );
+    assert_eq!(
+        c.seeds(),
+        vec![
+            ("in.0".to_owned(), Value::from("AHU-")),
+            ("in.1".to_owned(), Value::UInt(1))
+        ]
+    );
+    // a binding wins over the constant, the other operand keeps its own
+    let sent = feed(c.as_mut(), &e.io, "in.1", good(Value::UInt(2)));
+    assert_eq!(on(&sent, "out"), Some(Value::from("AHU-2")));
+    let mut a = build("add", &[("values", consts(&[("in.1", Value::UInt(40))]))]);
+    assert_eq!(
+        on(
+            &feed(a.as_mut(), &e.io, "in.0", good(Value::UInt(2))),
+            "out"
+        ),
+        Some(Value::Int(42))
+    );
+    let mut r = build(
+        "round",
+        &[("values", consts(&[("in", Value::Float(2.46))]))],
+    );
+    assert_eq!(
+        on(
+            &feed(r.as_mut(), &e.io, "in.precision", good(Value::UInt(1))),
+            "out"
+        ),
+        Some(Value::Float(2.5))
+    );
+    // only operands: not a parameter's port, not reset, not a variable's in, not unknown
+    let bad = |ty: &str, port: &str| {
+        nodes::ports(ty, &cfg(&[("values", consts(&[(port, Value::UInt(1))]))])).unwrap_err()
+    };
+    assert!(bad("round", "in.precision").contains("values.in.precision"));
+    assert!(bad("add", "in.7").contains("not an operand"));
+    assert!(bad("stopwatch", "reset").contains("values: unknown field"));
+    assert!(bad("number", "in").contains("values: unknown field"));
+    assert!(nodes::ports("add", &cfg(&[("values", Value::UInt(1))])).is_err());
+    assert!(wyrm_flow::blocks::takes_values("add"));
+    assert!(!wyrm_flow::blocks::takes_values("stopwatch"));
+}

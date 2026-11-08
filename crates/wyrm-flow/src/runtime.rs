@@ -264,6 +264,10 @@ async fn run_node(
     // asks from here on are seen: an ask sent once this task is alive is never missed
     let mut asks = probe.asks();
     asks.borrow_and_update();
+    // the operands' constants are the inputs' values from the start
+    for (port, v) in node.seeds() {
+        probe.record(&id, Some((&port, &v, Quality::Good)), &[], None);
+    }
     let _alive = Alive::new(&probe, &id);
     // An ask is answered once the inbox is empty, so what start queued (a variable's
     // value) is recorded and routed before the answer (a preview's snapshot has it).

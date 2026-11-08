@@ -15,14 +15,19 @@ ADR 0032 records the rules below.
    `["0", "1"]`, at most 64 names `[A-Za-z0-9_]+`). Each name is a port
    `in.<name>`. A name may not be a parameter's name.
 4. Any sample on an input calculates the block.
-5. An output is sent only when its value or its quality changed. Events
+5. An operand input (`in`, `in.<name>`) can hold a constant: the config key
+   `values: {"in.0": 5}` (spec 06 0.2.19). The constant is the input's value
+   until a sample on that input replaces it. A constant calculates nothing: the
+   block calculates on its first real sample. A parameter's port, `reset` and
+   the variables take no constant (a parameter's config is its constant).
+6. An output is sent only when its value or its quality changed. Events
    (`on_change`, `on_loop`) are always sent: `{event: <port>, id: <n>}`.
-6. Quality is the worst quality among the inputs that have a sample. The time
+7. Quality is the worst quality among the inputs that have a sample. The time
    is the latest of their times.
 
 УВАГА: an operator does not calculate at start. It waits for its first input,
 so a deploy, a hot swap or a restart never fires an `invoke` or a `set` by
-itself. Only the variables (`number`, `string`, `bool`) send their value at
+itself, and neither does an operand constant. Only the variables (`number`, `string`, `bool`) send their value at
 start, as `const` does.
 
 ## Numbers and conversions
