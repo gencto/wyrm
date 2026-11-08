@@ -189,6 +189,18 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.session != next.session) 'session',
       if (prev.theme != next.theme) 'theme',
       if (prev.language != next.language) 'language',
+      if (prev.site != next.site) 'site',
+      if (prev.nodes != next.nodes) 'nodes',
+      if (prev.live != next.live) 'live',
+      if (prev.links != next.links) 'links',
+      if (prev.quarantine != next.quarantine) 'quarantine',
+      if (prev.packages != next.packages) 'packages',
+      if (prev.linkInstall != next.linkInstall) 'linkInstall',
+      if (prev.peers != next.peers) 'peers',
+      if (prev.flows != next.flows) 'flows',
+      if (prev.flowEditor != next.flowEditor) 'flowEditor',
+      if (prev.tasks != next.tasks) 'tasks',
+      if (prev.assistant != next.assistant) 'assistant',
     ];
   }
 }

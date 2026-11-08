@@ -41,7 +41,7 @@ sequenceDiagram
     end
     VM->>+A4: dispatchAndWait
     Note over A4: WaitingAction · BlockingAction · async
-    A4->>ST: copyWith(session, login)
+    A4->>ST: copyWith(session, site, login)
     A4--xVM: UserException
     A4-->>-VM: ActionStatus
 
@@ -61,7 +61,7 @@ sequenceDiagram
 | `gateway.onChanged` | `SetGatewayAction` | `login.gateway` |
 | `user.onChanged` | `SetUserAction` | `login.user` |
 | `password.onChanged` | `SetPasswordAction` | `login.password` |
-| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction` | `login.gateway`, `session, login` |
+| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction` | `login.gateway`, `session, site, login` |
 | `theme.onChanged` | `SetThemeModeAction` | `theme.mode` |
 | `language.onChanged` | `SetLanguageAction` | `language.locale` |
 
