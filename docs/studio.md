@@ -355,9 +355,11 @@ Boards: row *Assistant* (Ask, Plan, Running, Done, Stopped, What it may do, In E
 | task record | `tasks/<id>` `~state`: `{state, ask, plan[], log[], error?, tokens}` |
 | Approve | `invoke('downstream/<agent>/tasks/<id>', 'approve', {approvals: {<request key>: <ptok>}})` — §10 item 1 |
 | Reject / Cancel | `reject {reason}`, `cancel` |
-| What it may do | the agent link's `cfg`: `model`, `require_approval`, `allowed_prefixes`, `budget_tokens_day`; `api_key_ref` shown as set/not set |
+| What it may do | the agent link's `cfg`: `model`, `require_approval`, `allowed_prefixes`, `budget_tokens_day`, and the name in `api_key_ref` (whether that secret is set is not readable: §10 item 12) |
 
 Cards (a closed catalogue in `ui/lib/assistant/`, each with its Vm): `ReadTraceCard` (what it read), `ChoicesCard` (§10 item 3), `PlanCard` with `PlanStepCard`s (op, key, action, `param_form` of the args read-only, level badge, check result, the model's reason in grey under "why"), `RunCard` (progress per step), `ResultCard` (new values, links to Explorer and History, **Save as a plan**: the plan as `{"steps": [{"invoke": key, "action": …, "args": …}]}` for `wyrm-agent run`), `StoppedCard` (code, message, what stays done, ways out). Approve signs only the ticked steps.
+
+Built now (phase 12), while §10 items 1, 3, 5 and 11 are open: the agent is the link of driver `agent` on the site on screen (none → an empty state that opens Add a link); the task list is `tasks/*` with live states from their `~val`; the conversation is the `ask` stream of this session (the ask, the model's lines, `tool` rows as read chips, the states it reached); the closing card says what the task waits for. The plan card shows a note until the gateway reads `~state` (item 11); Approve is shown disabled with the reason (item 1); Reject and Cancel work. The catalogue cards above and the Explorer drawer come with item 11.
 
 ## 8. Localization
 Every string in `localization/lib/l10n/intl_en.arb` and `intl_uk.arb`, read in connectors as `S.current.<key>`. Broker messages (`message`, `error`) are shown as they come (they are English and precise); the frame around them is translated.
@@ -415,3 +417,4 @@ Each item is a change on the Rust side with its own ADR or spec line; Studio sho
 9. **Repeat**: one instance of a block per row of a table input, keyed by a column.
 10. **A web transport** for `wyrm_client` (`package:web` WebSocket and fetch) if Studio should run in a browser.
 11. **Documents through the gateway.** A task's full record is the `~state` document of `tasks/<id>` (the public `~val` is `{state}` only); the gateway has no op that reads `~state`/`~def` documents (`ws.rs`: `meta`, `children`, `list`, `subscribe`, `history`, `set`, `invoke`), so the Assistant cannot show a plan until it has one (`doc {key, suffix}`, rights as `list` on the node, as the agent's `restricted` folder asks).
+12. **Which secrets a link has.** `sys/links/<id>` has `set_secret`/`delete_secret` but no read of the secret names, so Studio cannot say whether the agent's API key is set; it shows the `api_key_ref` name. A `secrets` value (names only, level `config`) would let it say "not set" and offer Set secret.

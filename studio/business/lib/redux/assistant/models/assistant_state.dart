@@ -7,8 +7,8 @@ part 'assistant_state.freezed.dart';
 abstract class AssistantState with _$AssistantState {
   const factory AssistantState({
     String? draft,
-    @Default(ISetConst({})) ISet<int> ticked,
     @Default('task') String panel,
-    @Default(IListConst([])) IList<String> context,
+    String? agent,
+    @Default(IMapConst({})) IMap<String, String> cfg,
   }) = _AssistantState;
 }

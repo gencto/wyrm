@@ -24,16 +24,18 @@ flowchart LR
     end
     linkInstall["LinkInstallPage · /link-install"]
     flowEditor["FlowEditorPage · /flow-editor/:id"]
+    frxBack(["◀ back"])
 
     logIn ==>|"onPressedLogIn (replace) [status.isCompletedOk]"| studio
     studio ==>|"onLogOut (replace)"| logIn
     links -->|"onTapLinkInstall"| linkInstall
     links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
+    assistant -->|"onAddAgent"| linkInstall
     system -->|"onAction [a == 'gallery']"| gallery
-    linkInstall -.->|"onClose"| links
-    linkInstall -.->|"onBack"| links
-    linkInstall -.->|"onResultAction"| links
+    linkInstall -.->|"onClose"| frxBack
+    linkInstall -.->|"onBack"| frxBack
+    linkInstall -.->|"onResultAction"| frxBack
     flowEditor -.->|"onClose"| flows
 
     classDef frxEntry stroke-dasharray: 5 3
@@ -54,7 +56,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `HistoryPage` | `/studio/history` | no | 4 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
-| `AssistantPage` | `/studio/assistant` | no | 0 | [assistant](assistant.md) |
+| `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 4 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 13 | [flowEditor](flowEditor.md) |
