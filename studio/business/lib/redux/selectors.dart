@@ -24,12 +24,15 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/task_event.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 
 import '../wyrm/keys.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
+import 'assistant/actions/ask_agent_action.dart';
+import 'assistant/actions/retrieve_agent_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
@@ -500,20 +503,29 @@ extension type SelectTasks(AppState _state) {
 
   /// Returns selectedTask
   String? get selectedTask => _state.tasks.selectedTask;
+
+  /// Returns events
+  IMap<String, IList<TaskEvent>> get events => _state.tasks.events;
 }
 
 extension type SelectAssistant(AppState _state) {
   /// Returns draft
   String? get draft => _state.assistant.draft;
 
-  /// Returns ticked
-  ISet<int> get ticked => _state.assistant.ticked;
-
   /// Returns panel
   String get panel => _state.assistant.panel;
 
-  /// Returns context
-  IList<String> get context => _state.assistant.context;
+  /// Returns agent
+  String? get agent => _state.assistant.agent;
+
+  /// Returns cfg
+  IMap<String, String> get cfg => _state.assistant.cfg;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveAgentAction>();
+
+  /// The agent is answering an ask.
+  bool get isAsking => _state.wait.isWaitingForType<AskAgentAction>();
 }
 
 extension type SelectChanges(AppState _state) {

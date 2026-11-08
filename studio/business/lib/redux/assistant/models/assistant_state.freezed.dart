@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AssistantState {
 
- String? get draft; ISet<int> get ticked; String get panel; IList<String> get context;
+ String? get draft; String get panel; String? get agent; IMap<String, String> get cfg;
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $AssistantStateCopyWith<AssistantState> get copyWith => _$AssistantStateCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&const DeepCollectionEquality().equals(other.ticked, ticked)&&(identical(other.panel, panel) || other.panel == panel)&&const DeepCollectionEquality().equals(other.context, context));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,const DeepCollectionEquality().hash(ticked),panel,const DeepCollectionEquality().hash(context));
+int get hashCode => Object.hash(runtimeType,draft,panel,agent,cfg);
 
 @override
 String toString() {
-  return 'AssistantState(draft: $draft, ticked: $ticked, panel: $panel, context: $context)';
+  return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $AssistantStateCopyWith<$Res>  {
   factory $AssistantStateCopyWith(AssistantState value, $Res Function(AssistantState) _then) = _$AssistantStateCopyWithImpl;
 @useResult
 $Res call({
- String? draft, ISet<int> ticked, String panel, IList<String> context
+ String? draft, String panel, String? agent, IMap<String, String> cfg
 });
 
 
@@ -62,13 +62,13 @@ class _$AssistantStateCopyWithImpl<$Res>
 
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? draft = freezed,Object? ticked = null,Object? panel = null,Object? context = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,}) {
   return _then(_self.copyWith(
 draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
-as String?,ticked: null == ticked ? _self.ticked : ticked // ignore: cast_nullable_to_non_nullable
-as ISet<int>,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
-as String,context: null == context ? _self.context : context // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as String?,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
+as String,agent: freezed == agent ? _self.agent : agent // ignore: cast_nullable_to_non_nullable
+as String?,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,
   ));
 }
 
@@ -80,13 +80,13 @@ as IList<String>,
 
 
 class _AssistantState implements AssistantState {
-  const _AssistantState({this.draft, this.ticked = const ISetConst({}), this.panel = 'task', this.context = const IListConst([])});
+  const _AssistantState({this.draft, this.panel = 'task', this.agent, this.cfg = const IMapConst({})});
   
 
 @override final  String? draft;
-@override@JsonKey() final  ISet<int> ticked;
 @override@JsonKey() final  String panel;
-@override@JsonKey() final  IList<String> context;
+@override final  String? agent;
+@override@JsonKey() final  IMap<String, String> cfg;
 
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
@@ -98,16 +98,16 @@ _$AssistantStateCopyWith<_AssistantState> get copyWith => __$AssistantStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&const DeepCollectionEquality().equals(other.ticked, ticked)&&(identical(other.panel, panel) || other.panel == panel)&&const DeepCollectionEquality().equals(other.context, context));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,const DeepCollectionEquality().hash(ticked),panel,const DeepCollectionEquality().hash(context));
+int get hashCode => Object.hash(runtimeType,draft,panel,agent,cfg);
 
 @override
 String toString() {
-  return 'AssistantState(draft: $draft, ticked: $ticked, panel: $panel, context: $context)';
+  return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg)';
 }
 
 
@@ -118,7 +118,7 @@ abstract mixin class _$AssistantStateCopyWith<$Res> implements $AssistantStateCo
   factory _$AssistantStateCopyWith(_AssistantState value, $Res Function(_AssistantState) _then) = __$AssistantStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? draft, ISet<int> ticked, String panel, IList<String> context
+ String? draft, String panel, String? agent, IMap<String, String> cfg
 });
 
 
@@ -135,13 +135,13 @@ class __$AssistantStateCopyWithImpl<$Res>
 
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? draft = freezed,Object? ticked = null,Object? panel = null,Object? context = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,}) {
   return _then(_AssistantState(
 draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
-as String?,ticked: null == ticked ? _self.ticked : ticked // ignore: cast_nullable_to_non_nullable
-as ISet<int>,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
-as String,context: null == context ? _self.context : context // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as String?,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
+as String,agent: freezed == agent ? _self.agent : agent // ignore: cast_nullable_to_non_nullable
+as String?,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,
   ));
 }
 

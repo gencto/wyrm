@@ -130,6 +130,25 @@ void main() {
         await tester.tap(find.byType(IconButton).last);
         await settle(tester);
       }
+      if (name == 'Assistant' && find.byType(TextField).evaluate().isNotEmpty) {
+        await tester.enterText(
+          find.byType(TextField).last,
+          'What does modbus read on this site?',
+        );
+        await settle(tester, 300);
+        await tester.tap(find.text('Ask').last);
+        await settle(tester, 6000);
+        await shot(tester, '07b_assistant_ask');
+        final refused = find.textContaining('started no task');
+        debugPrint('assistant refusal shown: ${refused.evaluate().isNotEmpty}');
+        if (find.text('OK').evaluate().isNotEmpty) {
+          await tester.tap(find.text('OK').last);
+          await settle(tester, 500);
+        }
+        await tester.tap(find.text('What it may do').first);
+        await settle(tester, 500);
+        await shot(tester, '07c_assistant_rights');
+      }
       if (name == 'Links' && find.text('modbus').evaluate().isNotEmpty) {
         await tester.tap(find.text('modbus').first);
         await settle(tester);

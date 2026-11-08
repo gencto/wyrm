@@ -158,19 +158,21 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m62(level) => "needs ${level}";
 
-  static String m63(site) => "Tree · ${site}";
+  static String m63(agent) => "Each task is a node: ${agent}/tasks/<id>";
 
-  static String m64(d) => "up ${d}";
+  static String m64(site) => "Tree · ${site}";
 
-  static String m65(site) => "via ${site}";
+  static String m65(d) => "up ${d}";
 
-  static String m66(n, who) => "${n} waiting to be let in: ${who}";
+  static String m66(site) => "via ${site}";
 
-  static String m67(value) => "was ${value}";
+  static String m67(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m68(n) => "Watch groups · ${n}";
+  static String m68(value) => "was ${value}";
 
-  static String m69(site) => "wyrmd on ${site}";
+  static String m69(n) => "Watch groups · ${n}";
+
+  static String m70(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -248,6 +250,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Its last lines and its own log level.",
     ),
     "addALink": MessageLookupByLibrary.simpleMessage("Add a link"),
+    "addAgent": MessageLookupByLibrary.simpleMessage("Add the agent link"),
     "addAnother": MessageLookupByLibrary.simpleMessage("Add another"),
     "addGrant": MessageLookupByLibrary.simpleMessage("Add a grant"),
     "addUser": MessageLookupByLibrary.simpleMessage("Add a user"),
@@ -281,6 +284,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "approveLinkNote": MessageLookupByLibrary.simpleMessage(
       "Approve makes it an external link with its own branch and a link token; copy the token to the device. The router reloads for about a second. Reject refuses this CN from now on.",
     ),
+    "approveReasonNote": MessageLookupByLibrary.simpleMessage(
+      "Approving needs the gateway to sign the steps for you (docs/studio.md §10 item 1). Approve with wyrm-agent for now.",
+    ),
+    "askButton": MessageLookupByLibrary.simpleMessage("Ask"),
+    "askHint": MessageLookupByLibrary.simpleMessage(
+      "Ask for a change, or a question about the network (Cmd+Enter)",
+    ),
     "asksToJoin": MessageLookupByLibrary.simpleMessage("asks to join"),
     "asksToJoinRelays": m4,
     "asksToRelay": m5,
@@ -309,12 +319,18 @@ class MessageLookup extends MessageLookupByLibrary {
       "nothing: no read, no write",
     ),
     "cancel": MessageLookupByLibrary.simpleMessage("Cancel"),
+    "cancelTask": MessageLookupByLibrary.simpleMessage("Cancel task"),
     "cannotReachGateway": MessageLookupByLibrary.simpleMessage(
       "Cannot reach the gateway",
     ),
     "catalogNote": MessageLookupByLibrary.simpleMessage(
       "Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.",
     ),
+    "cfgApiKey": MessageLookupByLibrary.simpleMessage("API key secret"),
+    "cfgApproval": MessageLookupByLibrary.simpleMessage("Approval for"),
+    "cfgBudget": MessageLookupByLibrary.simpleMessage("Tokens a day"),
+    "cfgModel": MessageLookupByLibrary.simpleMessage("Model"),
+    "cfgPrefixes": MessageLookupByLibrary.simpleMessage("May change"),
     "changeAnswers": MessageLookupByLibrary.simpleMessage("Change the answers"),
     "checkFailed": MessageLookupByLibrary.simpleMessage(
       "The package did not pass: bring another one.",
@@ -412,6 +428,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "A disabled user cannot log in; their roles stay.",
     ),
     "discard": MessageLookupByLibrary.simpleMessage("Discard"),
+    "doneNote": MessageLookupByLibrary.simpleMessage(
+      "The task is done. Its record keeps the plan and the log.",
+    ),
     "doneOnTheDevice": m13,
     "doneOnTheDeviceUpgrade": MessageLookupByLibrary.simpleMessage(
       "Whoever runs the device updates it there; it reconnects with the same certificate.",
@@ -441,7 +460,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "enableUser": MessageLookupByLibrary.simpleMessage("Enable"),
     "everySeconds": m15,
     "factAbout": MessageLookupByLibrary.simpleMessage("About"),
+    "factAgent": MessageLookupByLibrary.simpleMessage("Agent"),
     "factAllowConfig": MessageLookupByLibrary.simpleMessage("Config from it"),
+    "factAskedBy": MessageLookupByLibrary.simpleMessage("Asked by"),
     "factBelow": MessageLookupByLibrary.simpleMessage("Below"),
     "factBlocks": MessageLookupByLibrary.simpleMessage("Blocks"),
     "factBranch": MessageLookupByLibrary.simpleMessage("Branch"),
@@ -449,6 +470,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "factCanDo": MessageLookupByLibrary.simpleMessage("Can do"),
     "factCertificate": MessageLookupByLibrary.simpleMessage("Certificate"),
     "factDevice": MessageLookupByLibrary.simpleMessage("Device"),
+    "factEvents": MessageLookupByLibrary.simpleMessage("Events"),
     "factFlush": MessageLookupByLibrary.simpleMessage("Flush"),
     "factFrom": MessageLookupByLibrary.simpleMessage("From"),
     "factGrants": MessageLookupByLibrary.simpleMessage("Grants"),
@@ -468,11 +490,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "factStarted": MessageLookupByLibrary.simpleMessage("Started"),
     "factStatus": MessageLookupByLibrary.simpleMessage("Status"),
     "factSubject": MessageLookupByLibrary.simpleMessage("Subject"),
+    "factTask": MessageLookupByLibrary.simpleMessage("Task"),
+    "factTaskState": MessageLookupByLibrary.simpleMessage("State"),
     "factThrough": MessageLookupByLibrary.simpleMessage("Through"),
     "factTree": MessageLookupByLibrary.simpleMessage("Tree"),
     "factUpstreams": MessageLookupByLibrary.simpleMessage("Upstreams"),
     "factVersion": MessageLookupByLibrary.simpleMessage("Version"),
     "failed": MessageLookupByLibrary.simpleMessage("failed"),
+    "failedNote": MessageLookupByLibrary.simpleMessage(
+      "The task stopped. What was done stays done.",
+    ),
     "firstSeen": m16,
     "fixFirst": MessageLookupByLibrary.simpleMessage(
       "The draft does not validate.",
@@ -587,6 +614,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "mStandby": MessageLookupByLibrary.simpleMessage("Standby"),
     "mUpDown": MessageLookupByLibrary.simpleMessage("Upstreams / below"),
     "manifest": MessageLookupByLibrary.simpleMessage("Manifest"),
+    "mayDoNote": MessageLookupByLibrary.simpleMessage(
+      "These are the agent link\'s own settings. Change them in Links › Edit params.",
+    ),
     "messagesPerSecond": MessageLookupByLibrary.simpleMessage(
       "Router messages per second",
     ),
@@ -621,8 +651,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkError": MessageLookupByLibrary.simpleMessage("Connection problem"),
     "newCertificate": MessageLookupByLibrary.simpleMessage("new certificate"),
     "newDataflow": MessageLookupByLibrary.simpleMessage("New dataflow"),
+    "newTask": MessageLookupByLibrary.simpleMessage("New task"),
     "newValue": MessageLookupByLibrary.simpleMessage("New value"),
     "no": MessageLookupByLibrary.simpleMessage("no"),
+    "noAgent": MessageLookupByLibrary.simpleMessage(
+      "No assistant on this site. The assistant is the agent link: add it, give it an API key, then ask here.",
+    ),
     "noAudit": MessageLookupByLibrary.simpleMessage(
       "No audit records you may read.",
     ),
@@ -643,6 +677,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "No device connects as an external link.",
     ),
     "noRevisions": MessageLookupByLibrary.simpleMessage("No revisions."),
+    "noTasks": MessageLookupByLibrary.simpleMessage(
+      "Ask for a change. The agent reads the tree, writes a plan and waits for your approval. Nothing changes until you approve.",
+    ),
     "noUpstream": m37,
     "noUsers": MessageLookupByLibrary.simpleMessage("No users you may see."),
     "noValue": MessageLookupByLibrary.simpleMessage("no value"),
@@ -704,6 +741,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "packageUrl": MessageLookupByLibrary.simpleMessage("Package URL (HTTPS)"),
     "paletteBlocks": MessageLookupByLibrary.simpleMessage("Blocks"),
     "paletteTree": MessageLookupByLibrary.simpleMessage("Tree"),
+    "panelMayDo": MessageLookupByLibrary.simpleMessage("What it may do"),
+    "panelThisTask": MessageLookupByLibrary.simpleMessage("This task"),
     "paramCount": m40,
     "paramsJson": m41,
     "paramsNote": MessageLookupByLibrary.simpleMessage(
@@ -713,6 +752,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "password": MessageLookupByLibrary.simpleMessage("Password"),
     "pickOne": MessageLookupByLibrary.simpleMessage(
       "Pick a link from the list.",
+    ),
+    "planCard": MessageLookupByLibrary.simpleMessage("Plan"),
+    "planNote": MessageLookupByLibrary.simpleMessage(
+      "The plan is in the task\'s record. Studio shows it when the gateway can read documents (docs/studio.md §10 item 11). Read it with wyrm-agent for now.",
     ),
     "platform": MessageLookupByLibrary.simpleMessage("Platform"),
     "platformNote": MessageLookupByLibrary.simpleMessage(
@@ -751,6 +794,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "quarantineAndAdmissionNote": MessageLookupByLibrary.simpleMessage(
       "Unknown certificates wait in Links › Quarantine.",
+    ),
+    "readsNote": MessageLookupByLibrary.simpleMessage(
+      "Reading needs no approval. What it reads stays inside your rights and its own.",
     ),
     "recorded": MessageLookupByLibrary.simpleMessage("recorded"),
     "refresh": MessageLookupByLibrary.simpleMessage("Refresh"),
@@ -806,6 +852,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "runNow": MessageLookupByLibrary.simpleMessage("Run now"),
     "runNowNote": m55,
     "running": MessageLookupByLibrary.simpleMessage("Running"),
+    "runningNote": MessageLookupByLibrary.simpleMessage(
+      "The agent works on it. Cancel stops it; what was done stays done.",
+    ),
     "runsOn": m56,
     "runsOnAnotherDevice": MessageLookupByLibrary.simpleMessage(
       "Runs on another device",
@@ -824,6 +873,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "secretsNote": MessageLookupByLibrary.simpleMessage(
       "A secret is sealed by the broker and never shown again; the link reads it by name.",
     ),
+    "sectionEarlier": MessageLookupByLibrary.simpleMessage("Earlier"),
+    "sectionNow": MessageLookupByLibrary.simpleMessage("Now"),
     "seeLinks": MessageLookupByLibrary.simpleMessage("see Links"),
     "selectANode": MessageLookupByLibrary.simpleMessage(
       "Select a node in the tree.",
@@ -890,6 +941,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "tagNeeds": m62,
     "tagRunsNow": MessageLookupByLibrary.simpleMessage("runs now"),
     "tagStaged": MessageLookupByLibrary.simpleMessage("staged"),
+    "taskAwaiting": MessageLookupByLibrary.simpleMessage("awaiting approval"),
+    "taskDone": MessageLookupByLibrary.simpleMessage("done"),
+    "taskFailed": MessageLookupByLibrary.simpleMessage("failed or stopped"),
+    "taskListNote": m63,
+    "taskPlanning": MessageLookupByLibrary.simpleMessage("planning"),
+    "taskRunning": MessageLookupByLibrary.simpleMessage("running"),
     "thisBroker": MessageLookupByLibrary.simpleMessage("this broker"),
     "toAccept": MessageLookupByLibrary.simpleMessage("to accept"),
     "tokenForBelow": MessageLookupByLibrary.simpleMessage(
@@ -903,14 +960,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "treeNote": MessageLookupByLibrary.simpleMessage(
       "Right-click a node or press and hold to see its actions. sys/** is edited in Links, Access, Sites and System.",
     ),
-    "treeOf": m63,
+    "treeOf": m64,
     "tryAgainLater": MessageLookupByLibrary.simpleMessage(
       "Please try again later.",
     ),
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "The point stops being recorded; its rows stay.",
     ),
-    "upFor": m64,
+    "upFor": m65,
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
     "upstreamBroker": MessageLookupByLibrary.simpleMessage("Upstream broker"),
     "upstreamFooter": MessageLookupByLibrary.simpleMessage(
@@ -920,14 +977,15 @@ class MessageLookup extends MessageLookupByLibrary {
     "userActive": MessageLookupByLibrary.simpleMessage("Active"),
     "userDisabled": MessageLookupByLibrary.simpleMessage("Disabled"),
     "validate": MessageLookupByLibrary.simpleMessage("Validate"),
-    "viaSite": m65,
+    "viaSite": m66,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m66,
-    "wasValue": m67,
+    "waitingToBeLetIn": m67,
+    "wasValue": m68,
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m68,
+    "watchGroups": m69,
+    "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
     ),
@@ -963,7 +1021,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m69,
+    "wyrmdOn": m70,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

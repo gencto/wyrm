@@ -3969,6 +3969,271 @@ class S {
       args: [site],
     );
   }
+
+  /// `New task`
+  String get newTask {
+    return Intl.message('New task', name: 'newTask', desc: '', args: []);
+  }
+
+  /// `Each task is a node: {agent}/tasks/<id>`
+  String taskListNote(Object agent) {
+    return Intl.message(
+      'Each task is a node: $agent/tasks/<id>',
+      name: 'taskListNote',
+      desc: '',
+      args: [agent],
+    );
+  }
+
+  /// `Now`
+  String get sectionNow {
+    return Intl.message('Now', name: 'sectionNow', desc: '', args: []);
+  }
+
+  /// `Earlier`
+  String get sectionEarlier {
+    return Intl.message('Earlier', name: 'sectionEarlier', desc: '', args: []);
+  }
+
+  /// `planning`
+  String get taskPlanning {
+    return Intl.message('planning', name: 'taskPlanning', desc: '', args: []);
+  }
+
+  /// `awaiting approval`
+  String get taskAwaiting {
+    return Intl.message(
+      'awaiting approval',
+      name: 'taskAwaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `running`
+  String get taskRunning {
+    return Intl.message('running', name: 'taskRunning', desc: '', args: []);
+  }
+
+  /// `done`
+  String get taskDone {
+    return Intl.message('done', name: 'taskDone', desc: '', args: []);
+  }
+
+  /// `failed or stopped`
+  String get taskFailed {
+    return Intl.message(
+      'failed or stopped',
+      name: 'taskFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ask for a change, or a question about the network (Cmd+Enter)`
+  String get askHint {
+    return Intl.message(
+      'Ask for a change, or a question about the network (Cmd+Enter)',
+      name: 'askHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ask`
+  String get askButton {
+    return Intl.message('Ask', name: 'askButton', desc: '', args: []);
+  }
+
+  /// `This task`
+  String get panelThisTask {
+    return Intl.message('This task', name: 'panelThisTask', desc: '', args: []);
+  }
+
+  /// `What it may do`
+  String get panelMayDo {
+    return Intl.message(
+      'What it may do',
+      name: 'panelMayDo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Task`
+  String get factTask {
+    return Intl.message('Task', name: 'factTask', desc: '', args: []);
+  }
+
+  /// `State`
+  String get factTaskState {
+    return Intl.message('State', name: 'factTaskState', desc: '', args: []);
+  }
+
+  /// `Asked by`
+  String get factAskedBy {
+    return Intl.message('Asked by', name: 'factAskedBy', desc: '', args: []);
+  }
+
+  /// `Events`
+  String get factEvents {
+    return Intl.message('Events', name: 'factEvents', desc: '', args: []);
+  }
+
+  /// `What it read`
+  String get whatItRead {
+    return Intl.message('What it read', name: 'whatItRead', desc: '', args: []);
+  }
+
+  /// `Reading needs no approval. What it reads stays inside your rights and its own.`
+  String get readsNote {
+    return Intl.message(
+      'Reading needs no approval. What it reads stays inside your rights and its own.',
+      name: 'readsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `These are the agent link's own settings. Change them in Links › Edit params.`
+  String get mayDoNote {
+    return Intl.message(
+      'These are the agent link\'s own settings. Change them in Links › Edit params.',
+      name: 'mayDoNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Agent`
+  String get factAgent {
+    return Intl.message('Agent', name: 'factAgent', desc: '', args: []);
+  }
+
+  /// `No assistant on this site. The assistant is the agent link: add it, give it an API key, then ask here.`
+  String get noAgent {
+    return Intl.message(
+      'No assistant on this site. The assistant is the agent link: add it, give it an API key, then ask here.',
+      name: 'noAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add the agent link`
+  String get addAgent {
+    return Intl.message(
+      'Add the agent link',
+      name: 'addAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ask for a change. The agent reads the tree, writes a plan and waits for your approval. Nothing changes until you approve.`
+  String get noTasks {
+    return Intl.message(
+      'Ask for a change. The agent reads the tree, writes a plan and waits for your approval. Nothing changes until you approve.',
+      name: 'noTasks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Plan`
+  String get planCard {
+    return Intl.message('Plan', name: 'planCard', desc: '', args: []);
+  }
+
+  /// `The plan is in the task's record. Studio shows it when the gateway can read documents (docs/studio.md §10 item 11). Read it with wyrm-agent for now.`
+  String get planNote {
+    return Intl.message(
+      'The plan is in the task\'s record. Studio shows it when the gateway can read documents (docs/studio.md §10 item 11). Read it with wyrm-agent for now.',
+      name: 'planNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The task is done. Its record keeps the plan and the log.`
+  String get doneNote {
+    return Intl.message(
+      'The task is done. Its record keeps the plan and the log.',
+      name: 'doneNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The task stopped. What was done stays done.`
+  String get failedNote {
+    return Intl.message(
+      'The task stopped. What was done stays done.',
+      name: 'failedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The agent works on it. Cancel stops it; what was done stays done.`
+  String get runningNote {
+    return Intl.message(
+      'The agent works on it. Cancel stops it; what was done stays done.',
+      name: 'runningNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Approving needs the gateway to sign the steps for you (docs/studio.md §10 item 1). Approve with wyrm-agent for now.`
+  String get approveReasonNote {
+    return Intl.message(
+      'Approving needs the gateway to sign the steps for you (docs/studio.md §10 item 1). Approve with wyrm-agent for now.',
+      name: 'approveReasonNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cancel task`
+  String get cancelTask {
+    return Intl.message('Cancel task', name: 'cancelTask', desc: '', args: []);
+  }
+
+  /// `Model`
+  String get cfgModel {
+    return Intl.message('Model', name: 'cfgModel', desc: '', args: []);
+  }
+
+  /// `Approval for`
+  String get cfgApproval {
+    return Intl.message(
+      'Approval for',
+      name: 'cfgApproval',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `May change`
+  String get cfgPrefixes {
+    return Intl.message('May change', name: 'cfgPrefixes', desc: '', args: []);
+  }
+
+  /// `Tokens a day`
+  String get cfgBudget {
+    return Intl.message('Tokens a day', name: 'cfgBudget', desc: '', args: []);
+  }
+
+  /// `API key secret`
+  String get cfgApiKey {
+    return Intl.message(
+      'API key secret',
+      name: 'cfgApiKey',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

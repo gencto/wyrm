@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/task_event.dart';
 
 part 'tasks_state.freezed.dart';
 
@@ -10,5 +11,6 @@ abstract class TasksState with _$TasksState {
     @Default(IMapConst({})) IMap<String, AgentTask> table,
     @Default(IListConst([])) IList<String> view,
     String? selectedTask,
+    @Default(IMapConst({})) IMap<String, IList<TaskEvent>> events,
   }) = _TasksState;
 }

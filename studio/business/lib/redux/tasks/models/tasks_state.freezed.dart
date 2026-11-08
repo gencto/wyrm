@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$TasksState {
 
- IMap<String, AgentTask> get table; IList<String> get view; String? get selectedTask;
+ IMap<String, AgentTask> get table; IList<String> get view; String? get selectedTask; IMap<String, IList<TaskEvent>> get events;
 /// Create a copy of TasksState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $TasksStateCopyWith<TasksState> get copyWith => _$TasksStateCopyWithImpl<TasksSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask)&&(identical(other.events, events) || other.events == events));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask,events);
 
 @override
 String toString() {
-  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask)';
+  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask, events: $events)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $TasksStateCopyWith<$Res>  {
   factory $TasksStateCopyWith(TasksState value, $Res Function(TasksState) _then) = _$TasksStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, AgentTask> table, IList<String> view, String? selectedTask
+ IMap<String, AgentTask> table, IList<String> view, String? selectedTask, IMap<String, IList<TaskEvent>> events
 });
 
 
@@ -62,12 +62,13 @@ class _$TasksStateCopyWithImpl<$Res>
 
 /// Create a copy of TasksState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? selectedTask = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? selectedTask = freezed,Object? events = null,}) {
   return _then(_self.copyWith(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, AgentTask>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,selectedTask: freezed == selectedTask ? _self.selectedTask : selectedTask // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,events: null == events ? _self.events : events // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<TaskEvent>>,
   ));
 }
 
@@ -79,12 +80,13 @@ as String?,
 
 
 class _TasksState implements TasksState {
-  const _TasksState({this.table = const IMapConst({}), this.view = const IListConst([]), this.selectedTask});
+  const _TasksState({this.table = const IMapConst({}), this.view = const IListConst([]), this.selectedTask, this.events = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, AgentTask> table;
 @override@JsonKey() final  IList<String> view;
 @override final  String? selectedTask;
+@override@JsonKey() final  IMap<String, IList<TaskEvent>> events;
 
 /// Create a copy of TasksState
 /// with the given fields replaced by the non-null parameter values.
@@ -96,16 +98,16 @@ _$TasksStateCopyWith<_TasksState> get copyWith => __$TasksStateCopyWithImpl<_Tas
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask)&&(identical(other.events, events) || other.events == events));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask,events);
 
 @override
 String toString() {
-  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask)';
+  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask, events: $events)';
 }
 
 
@@ -116,7 +118,7 @@ abstract mixin class _$TasksStateCopyWith<$Res> implements $TasksStateCopyWith<$
   factory _$TasksStateCopyWith(_TasksState value, $Res Function(_TasksState) _then) = __$TasksStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, AgentTask> table, IList<String> view, String? selectedTask
+ IMap<String, AgentTask> table, IList<String> view, String? selectedTask, IMap<String, IList<TaskEvent>> events
 });
 
 
@@ -133,12 +135,13 @@ class __$TasksStateCopyWithImpl<$Res>
 
 /// Create a copy of TasksState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? selectedTask = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? selectedTask = freezed,Object? events = null,}) {
   return _then(_TasksState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, AgentTask>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,selectedTask: freezed == selectedTask ? _self.selectedTask : selectedTask // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,events: null == events ? _self.events : events // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<TaskEvent>>,
   ));
 }
 
