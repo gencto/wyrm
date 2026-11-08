@@ -36,11 +36,12 @@ void main() {
     final status = await s.dispatchAndWait(LogInAction());
 
     expect(status.isCompletedOk, isTrue, reason: '${status.originalError}');
-    expect(s.state.session.token, startsWith('user:'));
+    expect(s.state.session.token, user);
+    expect(s.state.site.name, isNotEmpty);
     final deps = s.dependencies! as AppDependencies;
     final who = await deps.session!.me();
-    final children = await deps.wyrm.children('wy/${who.site}');
-    expect(children.map((c) => c.name), contains('downstream'));
+    final children = await deps.wyrm.children('wy/${who.site}/sys');
+    expect(children.map((c) => c.name), contains('links'));
     await deps.detach();
   }, skip: skip);
 
