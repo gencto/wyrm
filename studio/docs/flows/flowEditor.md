@@ -391,6 +391,23 @@ sequenceDiagram
     VM->>NAV: GoAction.navigate ExplorerRoute
 ```
 
+## onPanelWidth
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetPanelWidthAction
+    participant ST as AppState
+
+    User->>UI: onPanelWidth
+    UI->>VM: onPanelWidth()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(panels.widths)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `FlowEditorPageConnector` — 8 dispatches
@@ -417,6 +434,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
 | `onRemove` | `RemoveBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
 | `onLogo` | `GoAction.navigate` | — |
+| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 
 `?` marks a dispatch that only runs under a condition.
 

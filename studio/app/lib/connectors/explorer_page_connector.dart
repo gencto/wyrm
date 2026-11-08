@@ -25,6 +25,7 @@ import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
+import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/points.dart';
@@ -45,6 +46,7 @@ import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/inspector_sections.dart';
+import 'package:ui/containers/side_panels.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/quality_mark.dart';
@@ -58,6 +60,7 @@ import 'package:ui/trees/node_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
 import '../common/forms.dart';
+import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
 
 /// The sections of a site the tree starts from (`sys/**` is not in the
@@ -280,6 +283,8 @@ class ExplorerPageConnector extends StatelessWidget {
               busy: vm.busy,
               onSubmit: vm.onSubmit,
               onCloseInspector: vm.onCloseInspector,
+              panels: vm.panelWidths,
+              onPanelWidth: vm.onPanelWidth,
             ),
           ),
         ),
@@ -846,6 +851,10 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         }
       },
       menuOf: _menuOf,
+      panelWidths: WorkspacePanels.explorer.widths(panels.widths),
+      onPanelWidth: (side, w) => dispatchSync(
+        SetPanelWidthAction(WorkspacePanels.explorer.slot(side), w),
+      ),
     );
   }
 
@@ -1604,6 +1613,8 @@ class _Vm extends Vm {
     required this.onTool,
     required this.onSetPoll,
     required this.menuOf,
+    required this.panelWidths,
+    required this.onPanelWidth,
   }) : super(
          equals: [
            treeLabel,
@@ -1641,6 +1652,7 @@ class _Vm extends Vm {
            copyKeys,
            pointValue,
            busy,
+           panelWidths,
          ],
        );
 
@@ -1709,4 +1721,6 @@ class _Vm extends Vm {
   final ValueChanged<String> onTool;
   final ValueChanged<double> onSetPoll;
   final Future<NodeMenuVm?> Function(String key) menuOf;
+  final SidePanelWidths panelWidths;
+  final void Function(PanelSide side, double width) onPanelWidth;
 }

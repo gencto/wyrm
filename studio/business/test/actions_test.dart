@@ -5,10 +5,12 @@ import 'package:business/redux/language/actions/set_language_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/session/actions/set_token_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/panel_slot.dart';
 
 /// A store with nothing but a state.
 ///
@@ -99,6 +101,28 @@ void main() {
       // `persistDifference` compares slices, so a state that is not a value
       // would write all three keys on every change.
       expect(AppState.initial(), AppState.initial());
+    });
+  });
+
+  group('SetPanelWidthAction', () {
+    test('stores the width of one slot', () async {
+      final store = _store();
+      await store.dispatchAndWait(
+        SetPanelWidthAction(PanelSlot.explorerTree, 340),
+      );
+
+      expect(store.state.panels.widths.unlock, {PanelSlot.explorerTree: 340.0});
+    });
+
+    test('ignores a width that is not a positive number', () async {
+      final store = _store();
+      for (final w in [0.0, -5.0, double.nan, double.infinity]) {
+        await store.dispatchAndWait(
+          SetPanelWidthAction(PanelSlot.flowPalette, w),
+        );
+      }
+
+      expect(store.state.panels.widths, isEmpty);
     });
   });
 }

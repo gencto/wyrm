@@ -8,6 +8,7 @@ import '../containers/action_card.dart';
 import '../containers/inspector.dart';
 import '../containers/inspector_sections.dart';
 import '../containers/section_label.dart';
+import '../containers/side_panels.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
@@ -298,6 +299,8 @@ class ExplorerPage extends StatelessWidget {
     this.onSubmit,
     this.onCloseInspector,
     this.busy = false,
+    this.panels = const SidePanelWidths(),
+    this.onPanelWidth,
     super.key,
   });
 
@@ -392,6 +395,10 @@ class ExplorerPage extends StatelessWidget {
   final VoidCallback? onCloseInspector;
   final bool busy;
 
+  /// The tree and inspector widths the viewer chose (§1).
+  final SidePanelWidths panels;
+  final void Function(PanelSide side, double width)? onPanelWidth;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
@@ -413,13 +420,23 @@ class ExplorerPage extends StatelessWidget {
         width: wide ? 260 : 240,
       );
       final ins = inspector;
-      return Row(
-        crossAxisAlignment: .stretch,
-        children: [
-          if (box.maxWidth >= 700) treePanel,
-          Expanded(child: _workspace(context)),
-          if (ins != null && wide) _inspector(context, ins),
-        ],
+      return SidePanels(
+        left: box.maxWidth >= 700
+            ? SidePanel(
+                width: panels.left,
+                defaultWidth: wide ? 260 : 240,
+                child: treePanel,
+              )
+            : null,
+        center: _workspace(context),
+        right: ins != null && wide
+            ? SidePanel(
+                width: panels.right,
+                defaultWidth: 320,
+                child: _inspector(context, ins),
+              )
+            : null,
+        onChanged: onPanelWidth,
       );
     },
   );

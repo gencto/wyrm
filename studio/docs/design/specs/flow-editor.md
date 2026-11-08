@@ -11,6 +11,8 @@ Boards: `FlowBind` (fields, bindings, properties), `FlowTree` (dragging points a
 | Canvas | flex 999 1 560, scrolls both ways | `#0E1113` with a dot grid: radial `#252B30` 1 px every 20 px |
 | Inspector | flex 1 1 320, max 360 | `#13171A`, left border |
 
+**Side panels are resizable (proposed; the boards are fixed).** Drag the inner border of the palette or the inspector to change its width: palette 200–520 (default 220), inspector 280–640 (default 320); the canvas never gets less than 480. Handle, double click to reset, ←/→ and persistence as in `explorer.md` §1.
+
 Top bar: logo (to Explorer) · path `Flows › <flow id> › <selected block>` (14; `Flows` link `#A3ABAF`, separators `#5A6168`, ids mono `#ECE9E1`) · right: state (`Draft saved` with a teal dot 6, `Saving…`, or `Version <n> · deployed` when the draft equals the deployed version; 12 `#8E979C`) · `Validate` (outline 38) · `Deploy` (ember filled 38; outline and disabled only while nothing differs from the deployed version, tooltip `Nothing to deploy`) · close.
 
 ## 2. Palette

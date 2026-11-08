@@ -19,6 +19,7 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
+import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/quarantine_entry.dart';
@@ -88,6 +89,7 @@ mixin Selectors {
   SelectHistorian get historian => SelectHistorian(state);
   SelectAccess get access => SelectAccess(state);
   SelectSystem get system => SelectSystem(state);
+  SelectPanels get panels => SelectPanels(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -631,4 +633,9 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
+}
+
+extension type SelectPanels(AppState _state) {
+  /// Returns widths
+  IMap<PanelSlot, double> get widths => _state.panels.widths;
 }

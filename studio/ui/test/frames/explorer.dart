@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/inspector_sections.dart';
+import 'package:ui/containers/side_panels.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
@@ -440,6 +441,7 @@ ExplorerPage _page({
   ExplorerInspectorVm? inspector,
   String? empty,
   StatusPillVm pill = const StatusPillVm(label: 'Connected', tone: Tone.good),
+  SidePanelWidths panels = const SidePanelWidths(),
 }) => ExplorerPage(
   treeLabel: 'Tree · plant',
   tree: _tree(),
@@ -492,6 +494,7 @@ ExplorerPage _page({
   onRange: _none,
   onCheckAll: () {},
   inspector: inspector ?? _pointInspector(),
+  panels: panels,
 );
 
 /// A device with a point selected (board *Main*).
@@ -587,4 +590,10 @@ Widget explorerOffline() => _shell(
   ),
   offline:
       'The gateway connection is lost. Reconnecting; values on screen are the last ones received.',
+);
+
+/// The point frame after the viewer dragged the panel edges: a wider tree,
+/// a narrower inspector (spec §1, resizable side panels).
+Widget explorerResized() => _shell(
+  _page(panels: const SidePanelWidths(left: 380, right: 290)),
 );

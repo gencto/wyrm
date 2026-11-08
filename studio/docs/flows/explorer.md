@@ -484,6 +484,23 @@ sequenceDiagram
     end
 ```
 
+## onPanelWidth
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetPanelWidthAction
+    participant ST as AppState
+
+    User->>UI: onPanelWidth
+    UI->>VM: onPanelWidth()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(panels.widths)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `ExplorerPageConnector` — 2 dispatches
@@ -514,6 +531,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onSubmit` | `StageInvokeAction` ?, `InvokeNodeAction` ?, `StageValueAction` ? | `nodes.results` |
 | `onTool` | `StageInvokeAction`, `ClearSelectionAction`, `InvokeNodeAction`, `SetActionAction` | `nodes.checked, nodes.marked, nodes.point, nodes.anchor`, `nodes.results`, `nodes.action` |
 | `onSetPoll` | `StagePointEditAction` ? | `changes.table, changes.view` |
+| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 
 `?` marks a dispatch that only runs under a condition.
 

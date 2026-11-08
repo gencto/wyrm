@@ -34,4 +34,8 @@ void main() {
     'offline',
     (t) => shoot(t, 'explorer_offline', explorerOffline()),
   );
+  testWidgets(
+    'resized panels',
+    (t) => shoot(t, 'explorer_resized', explorerResized()),
+  );
 }

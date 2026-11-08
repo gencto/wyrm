@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
+import '../containers/side_panels.dart';
 import '../flows/block_palette.dart';
 import '../flows/field_inspector.dart';
 import '../flows/flow_block_view.dart';
@@ -61,6 +62,8 @@ class FlowEditorPage extends StatelessWidget {
     this.summary,
     this.removeLabel = '',
     this.onRemove,
+    this.panels = const SidePanelWidths(),
+    this.onPanelWidth,
     super.key,
   });
 
@@ -227,58 +230,56 @@ class FlowEditorPage extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: Row(
-                crossAxisAlignment: .stretch,
-                children: [
-                  SizedBox(
-                    width: 220,
-                    child: BlockPalette(
-                      tabs: paletteTabs,
-                      tab: paletteTab,
-                      onTab: onPaletteTab,
-                      entries: palette,
-                      onPick: onPick,
-                      hint: searchHint,
-                      notes: paletteNotes,
-                      closed: paletteClosed,
-                    ),
+              child: SidePanels(
+                onChanged: onPanelWidth,
+                left: SidePanel(
+                  width: panels.left,
+                  defaultWidth: 220,
+                  child: BlockPalette(
+                    tabs: paletteTabs,
+                    tab: paletteTab,
+                    onTab: onPaletteTab,
+                    entries: palette,
+                    onPick: onPick,
+                    hint: searchHint,
+                    notes: paletteNotes,
+                    closed: paletteClosed,
                   ),
-                  Expanded(
-                    child: FlowCanvas(
-                      blocks: blocks,
-                      wires: wires,
-                      actions: blockActions,
-                      onClear: onClear,
-                      onMove: onMove,
-                      onDrop: onDrop,
-                      legend: legend,
-                    ),
+                ),
+                center: FlowCanvas(
+                  blocks: blocks,
+                  wires: wires,
+                  actions: blockActions,
+                  onClear: onClear,
+                  onMove: onMove,
+                  onDrop: onDrop,
+                  legend: legend,
+                ),
+                right: SidePanel(
+                  width: panels.right,
+                  defaultWidth: 320,
+                  child: FieldInspector(
+                    header: switch (nameField) {
+                      final f? => Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+                        child: ParamField(vm: f),
+                      ),
+                      null => null,
+                    },
+                    kindLabel: inspectorKind,
+                    title: inspectorTitle,
+                    note: inspectorNote,
+                    rows: inspectorRows,
+                    summary: summary,
+                    footer: inspectorFooter,
+                    onChanged: onFieldChanged,
+                    onUnbind: onFieldUnbind,
+                    onBind: onFieldBind,
+                    onProblem: onProblem,
+                    removeLabel: removeLabel,
+                    onRemove: onRemove,
                   ),
-                  SizedBox(
-                    width: 320,
-                    child: FieldInspector(
-                      header: switch (nameField) {
-                        final f? => Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
-                          child: ParamField(vm: f),
-                        ),
-                        null => null,
-                      },
-                      kindLabel: inspectorKind,
-                      title: inspectorTitle,
-                      note: inspectorNote,
-                      rows: inspectorRows,
-                      summary: summary,
-                      footer: inspectorFooter,
-                      onChanged: onFieldChanged,
-                      onUnbind: onFieldUnbind,
-                      onBind: onFieldBind,
-                      onProblem: onProblem,
-                      removeLabel: removeLabel,
-                      onRemove: onRemove,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
@@ -289,4 +290,8 @@ class FlowEditorPage extends StatelessWidget {
 
   /// The logo: to Explorer (spec §1).
   final void Function() onLogo;
+
+  /// The palette and inspector widths the viewer chose (spec §1).
+  final SidePanelWidths panels;
+  final void Function(PanelSide side, double width)? onPanelWidth;
 }

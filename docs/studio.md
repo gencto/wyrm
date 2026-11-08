@@ -247,6 +247,7 @@ Each with `frx add-widget <name> -k <kind> --dir <dir>`, its `…Vm` beside it.
 | `step_list` | view / indicators | the stepper of Add a link |
 | `progress_list` | view / indicators | done / now / failed / waiting rows (installs, plan runs) |
 | `check_list` | view / indicators | archive checks: ok / failed / skipped with mono detail |
+| `side_panels` | container / containers | a workspace with a resizable left and right panel (Explorer, flow editor, History): 8 px handles on the inner borders, ember on hover/drag/focus, double click resets, ←/→ 16 px, center ≥ 480 (panels shrink to their min first); bounds left 200–520, right 280–640; widths come in and go out through `onChanged`, kept per viewer in `PanelsState.widths` and persisted as `panelWidth.<workspace>.<panel>` (a bad stored value falls back to the default) |
 
 ### 6.6 Forms from `~meta`
 One mapper in `business/lib/wyrm/mappers/param_spec_mapper.dart` reads an action's parameters or a link's `cfg` into `ParamSpec`s; the connector turns each into the template's view models:

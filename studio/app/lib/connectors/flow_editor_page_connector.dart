@@ -20,6 +20,7 @@ import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/watch_flow_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
+import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
@@ -33,6 +34,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
+import 'package:ui/containers/side_panels.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_block_view.dart';
@@ -42,6 +44,7 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 
+import '../common/side_panels.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'flows_page_connector.dart';
@@ -159,6 +162,8 @@ class FlowEditorPageConnector extends StatelessWidget {
       removeLabel: S.current.removeBlock,
       onRemove: vm.onRemove,
       onLogo: vm.onLogo,
+      panels: vm.panelWidths,
+      onPanelWidth: vm.onPanelWidth,
     ),
   );
 
@@ -391,6 +396,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onProblem: (x) => dispatchSync(SetSelectedBlockAction(x)),
       onRemove: sel == null ? null : () => dispatchSync(RemoveBlockAction(sel)),
       onLogo: () => dispatch(GoAction.navigate(const ExplorerRoute())),
+      panelWidths: WorkspacePanels.flowEditor.widths(panels.widths),
+      onPanelWidth: (side, w) => dispatchSync(
+        SetPanelWidthAction(WorkspacePanels.flowEditor.slot(side), w),
+      ),
     );
   }
 
@@ -452,8 +461,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             if (action != null &&
                 action.params.any((p) => p.defaultValue != null))
               'args': {
-                for (final p in action.params)
-                  p.name: ?p.defaultValue,
+                for (final p in action.params) p.name: ?p.defaultValue,
               },
           },
         ),
@@ -886,6 +894,8 @@ class _Vm extends Vm {
     required this.onProblem,
     required this.onRemove,
     required this.onLogo,
+    required this.panelWidths,
+    required this.onPanelWidth,
   }) : super(
          equals: [
            watch,
@@ -905,6 +915,7 @@ class _Vm extends Vm {
            inspectorRows,
            summary,
            onRemove != null,
+           panelWidths,
          ],
        );
 
@@ -946,4 +957,6 @@ class _Vm extends Vm {
   final VoidCallback? onRemove;
 
   final void Function() onLogo;
+  final SidePanelWidths panelWidths;
+  final void Function(PanelSide side, double width) onPanelWidth;
 }

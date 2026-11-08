@@ -12,6 +12,8 @@ Boards: `Main` (device selected, a point selected, review drawer), `Actions` (no
 | Workspace | flex 999 1 560 | `#0E1113` | — |
 | Inspector | flex 1 1 320, max 360 | `#13171A` | left `#252B30` |
 
+**Side panels are resizable (proposed; the boards are fixed).** Drag the inner border of the tree or the inspector to change its width: tree 200–520 (default 260, 240 below 1100 wide), inspector 280–640 (default 320); the workspace never gets less than 480, so on a narrow window both panels shrink to their minimum first. The 8 px handle shows the `col-resize` cursor and turns its 1 px border ember on hover, drag or focus; a double click restores the default; with the handle focused, ← and → move the border by 16 px. Each viewer's widths are kept across restarts (`SidePanels`, `docs/studio.md` §6.5).
+
 Top bar, left to right: logo (mark + `WYRM` Unbounded 700 16, letter-spacing 0.08 em + `Studio` 14 `#A3ABAF`) · site switcher (height 40, radius 8, border `#2F373D`, fill `#161A1D`: status dot 8, site name mono 14, **route** `via edge · central` 12 `#8E979C`, chevron) · search (flex 1 1 280, max 520, height 40, placeholder `Go to a node, action or link`, `⌘K` key cap) · right: **Review and apply** (ember filled, count badge 22 high on `#0E1113`, count text `#F3A766`; disabled outline when 0) · account avatar 40 round.
 
 ## 2. Tree
