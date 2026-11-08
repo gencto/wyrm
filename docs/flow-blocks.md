@@ -155,6 +155,14 @@ An editor shows the live values of a deployed flow with
 port values only while a watch is open, so a port shows a value from its first
 sample after the watch opened.
 
+An editor shows the live values of a draft that is not deployed with
+`dataflows/~act/preview {def}` (spec 06 0.2.16, ADR 0038 §5). The draft runs
+in a sandbox: nothing is stored, and `set`, `invoke` and `publish` write
+nothing. The rows are those of a watch, plus `sinks`: what each of these nodes
+would write, and where. The first row already has the variables' start values.
+A preview ends after 10 minutes; the editor opens it again with its latest
+draft.
+
 ## Example
 
 A tank level in percent, on a flow value, and a high alarm at 90 %:

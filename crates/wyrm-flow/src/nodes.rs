@@ -481,16 +481,30 @@ fn truthy(v: &Value) -> bool {
 
 // ---------- sources ----------
 
+/// The I/O tasks a source started: they end with the node (a stop, a hot swap, the end of a
+/// preview), not later.
+#[derive(Default)]
+struct Tasks(Vec<tokio::task::JoinHandle<()>>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for t in &self.0 {
+            t.abort();
+        }
+    }
+}
+
 struct Subscribe {
     key: String,
     last: Option<Value>,
+    tasks: Tasks,
 }
 
 impl Node for Subscribe {
     fn start(&mut self, io: &Io) {
         let pattern = io.full_key(&self.key);
         let (io2, client) = (io.clone(), io.client.clone());
-        tokio::spawn(async move {
+        self.tasks.0.push(tokio::spawn(async move {
             let Ok(mut s) = client.subscribe(&pattern).await else {
                 return;
             };
@@ -507,12 +521,12 @@ impl Node for Subscribe {
                     );
                 }
             }
-        });
+        }));
         // Owner gone → `bad/disconnected` with the previous value.
         let full = io.full_key(&self.key);
         if let Some(owner) = wyrm_client::owner_key(&full).filter(|o| !o.contains('*')) {
             let (io3, session) = (io.clone(), io.client.session().clone());
-            tokio::spawn(async move {
+            self.tasks.0.push(tokio::spawn(async move {
                 let Ok(sub) = session.liveliness().declare_subscriber(&owner).await else {
                     return;
                 };
@@ -521,7 +535,7 @@ impl Node for Subscribe {
                         (io3.inject)("__lost", Msg::new(Value::Null, Quality::Bad, now_us()));
                     }
                 }
-            });
+            }));
         }
     }
 
@@ -572,13 +586,14 @@ impl Node for Const {
 
 struct Liveliness {
     key: String,
+    tasks: Tasks,
 }
 
 impl Node for Liveliness {
     fn start(&mut self, io: &Io) {
         let key = io.full_key(&self.key);
         let (io2, session) = (io.clone(), io.client.session().clone());
-        tokio::spawn(async move {
+        self.tasks.0.push(tokio::spawn(async move {
             let Ok(sub) = session
                 .liveliness()
                 .declare_subscriber(&key)
@@ -591,7 +606,7 @@ impl Node for Liveliness {
                 let up = s.kind() == zenoh::sample::SampleKind::Put;
                 (io2.inject)("__src", Msg::new(Value::Bool(up), Quality::Good, now_us()));
             }
-        });
+        }));
     }
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
         if port == "__src" {
@@ -1135,13 +1150,56 @@ fn should_fire(on: &str, last: &mut Option<Value>, v: &Value) -> bool {
     }
 }
 
-struct Invoke {
-    path: String,
-    action: String,
+/// When an `invoke` node calls, and with which arguments: one rule for a deployed flow and
+/// for a preview, so a preview reports what the flow would do.
+struct InvokeGate {
     args: Map,
     on: String,
     allow_bad: bool,
     last: Option<Value>,
+}
+
+impl InvokeGate {
+    fn from(cfg: &Map) -> Result<Self, String> {
+        Ok(Self {
+            args: match cfg.get("args") {
+                Some(Value::Map(m)) => m.clone(),
+                _ => Map::new(),
+            },
+            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
+            allow_bad: b(cfg, "allow_bad", false)?,
+            last: None,
+        })
+    }
+
+    /// The arguments of the call `m` makes, or `None` when it makes none.
+    fn call(&mut self, m: &Msg) -> Option<Map> {
+        if m.q == Quality::Bad && !self.allow_bad {
+            return None; // never act on bad data
+        }
+        if !should_fire(&self.on, &mut self.last, &m.v) {
+            return None;
+        }
+        // `"$in"` in args is replaced by the input value.
+        Some(
+            self.args
+                .iter()
+                .map(|(k, v)| {
+                    let v = match v {
+                        Value::Str(s) if s == "$in" => m.v.clone(),
+                        v => v.clone(),
+                    };
+                    (k.clone(), v)
+                })
+                .collect(),
+        )
+    }
+}
+
+struct Invoke {
+    path: String,
+    action: String,
+    gate: InvokeGate,
     tx: Option<tokio::sync::mpsc::Sender<Map>>,
 }
 
@@ -1151,24 +1209,9 @@ impl Node for Invoke {
             out.emit("out", m);
             return;
         }
-        if m.q == Quality::Bad && !self.allow_bad {
-            return; // never act on bad data
-        }
-        if !should_fire(&self.on, &mut self.last, &m.v) {
+        let Some(args) = self.gate.call(&m) else {
             return;
-        }
-        // `"$in"` in args is replaced by the input value.
-        let args: Map = self
-            .args
-            .iter()
-            .map(|(k, v)| {
-                let v = match v {
-                    Value::Str(s) if s == "$in" => m.v.clone(),
-                    v => v.clone(),
-                };
-                (k.clone(), v)
-            })
-            .collect();
+        };
         // one caller task, in order: a task per call could run a later call first
         let tx = self.tx.get_or_insert_with(|| {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<Map>(COMMAND_QUEUE);
@@ -1197,12 +1240,46 @@ impl Node for Invoke {
 /// Calls an `invoke` node holds while its caller is busy; more are dropped.
 const COMMAND_QUEUE: usize = 256;
 
-struct Set {
-    path: String,
-    on: String,
+/// When a `set` node writes: one rule for a deployed flow and for a preview.
+struct SetGate {
+    change: bool,
     deadband: f64,
     allow_bad: bool,
     last: Option<Value>,
+}
+
+impl SetGate {
+    fn from(cfg: &Map) -> Result<Self, String> {
+        Ok(Self {
+            change: one_of(cfg, "on", &["any", "change"], "change")? == "change",
+            deadband: f(cfg, "deadband")?.unwrap_or(0.0),
+            allow_bad: b(cfg, "allow_bad", false)?,
+            last: None,
+        })
+    }
+
+    /// Whether `m` is written.
+    fn pass(&mut self, m: &Msg) -> bool {
+        if m.q == Quality::Bad && !self.allow_bad {
+            return false;
+        }
+        if self.change {
+            let within = match (self.last.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
+                (Some(a), Some(b)) => (a - b).abs() <= self.deadband,
+                _ => self.last.as_ref() == Some(&m.v),
+            };
+            if within {
+                return false;
+            }
+        }
+        self.last = Some(m.v.clone());
+        true
+    }
+}
+
+struct Set {
+    path: String,
+    gate: SetGate,
     /// The value to write: one writer task writes the newest, in order (a task per sample
     /// could write an older value last).
     tx: Option<tokio::sync::watch::Sender<Option<Value>>>,
@@ -1210,19 +1287,9 @@ struct Set {
 
 impl Node for Set {
     fn input(&mut self, _p: &str, m: Msg, io: &Io, _out: &mut Out) {
-        if m.q == Quality::Bad && !self.allow_bad {
+        if !self.gate.pass(&m) {
             return;
         }
-        if self.on == "change" {
-            let within = match (self.last.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
-                (Some(a), Some(b)) => (a - b).abs() <= self.deadband,
-                _ => self.last.as_ref() == Some(&m.v),
-            };
-            if within {
-                return;
-            }
-        }
-        self.last = Some(m.v.clone());
         let tx = self.tx.get_or_insert_with(|| {
             let (tx, mut rx) = tokio::sync::watch::channel::<Option<Value>>(None);
             let (client, node) = (io.client.clone(), io.full_key(&self.path));
@@ -1242,19 +1309,143 @@ impl Node for Set {
     }
 }
 
-/// Build a node (config already checked by [`ports`]).
-pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
-    build_with(ty, flow, id, cfg, None)
+// ---------- preview ----------
+
+/// How nodes are built: for a deployed flow, or for a preview of a draft (ADR 0038 §5).
+#[derive(Clone)]
+pub enum Mode {
+    /// A deployed flow: sinks write.
+    Live,
+    /// A preview: `set`, `invoke` and `publish` become capture nodes, which hold no client
+    /// and no writer and only report what they would do to the probe.
+    Preview(Sandbox),
 }
 
-/// [`build`] with the artifact store that `wasm` nodes load from.
+/// What a preview's capture nodes need: where they report, and the keys they name.
+#[derive(Clone)]
+pub struct Sandbox {
+    pub probe: Arc<crate::watch::Probe>,
+    pub site: String,
+    /// The draft's id: a `publish` node reports the key it would write once deployed.
+    pub flow: String,
+}
+
+impl Sandbox {
+    fn full_key(&self, k: &str) -> String {
+        if k.starts_with("wy/") {
+            k.to_owned()
+        } else {
+            format!("wy/{}/{}", self.site, k.trim_start_matches('/'))
+        }
+    }
+}
+
+/// What a sink would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SinkOp {
+    Set,
+    Invoke,
+    Publish,
+}
+
+impl SinkOp {
+    pub fn name(self) -> &'static str {
+        match self {
+            SinkOp::Set => "set",
+            SinkOp::Invoke => "invoke",
+            SinkOp::Publish => "publish",
+        }
+    }
+}
+
+enum Gate {
+    Set(SetGate),
+    Invoke(InvokeGate),
+    Publish,
+}
+
+/// A sink in a preview: the deployed node's rule decides, and the result goes to the probe
+/// only. It has no client, no writer task and never reads `io`: it cannot write by
+/// construction. An `invoke` sends nothing on `out` (there is no answer).
+struct Capture {
+    node: String,
+    key: String,
+    gate: Gate,
+    probe: Arc<crate::watch::Probe>,
+}
+
+impl Node for Capture {
+    fn input(&mut self, port: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if port.starts_with("__") {
+            return;
+        }
+        let (op, value) = match &mut self.gate {
+            Gate::Set(g) => {
+                if !g.pass(&m) {
+                    return;
+                }
+                (SinkOp::Set, m.v)
+            }
+            Gate::Invoke(g) => match g.call(&m) {
+                Some(args) => (SinkOp::Invoke, Value::Map(args)),
+                None => return,
+            },
+            Gate::Publish => (SinkOp::Publish, m.v),
+        };
+        self.probe.sink(&self.node, op, &self.key, value);
+    }
+}
+
+/// The capture node of a sink type in a preview; `None` for every other type.
+fn capture(ty: &str, id: &str, cfg: &Map, sb: &Sandbox) -> Result<Option<Box<dyn Node>>, String> {
+    let (key, gate) = match ty {
+        "set" | "invoke" => {
+            let target = command_target(ty, cfg).ok_or("path: required")?;
+            let gate = match ty {
+                "set" => Gate::Set(SetGate::from(cfg)?),
+                _ => Gate::Invoke(InvokeGate::from(cfg)?),
+            };
+            (sb.full_key(&target), gate)
+        }
+        "publish" => (
+            format!(
+                "wy/{}/dataflows/{}/nodes/{}",
+                sb.site,
+                sb.flow,
+                req_s(cfg, "node")?
+            ),
+            Gate::Publish,
+        ),
+        _ => return Ok(None),
+    };
+    Ok(Some(Box::new(Capture {
+        node: id.to_owned(),
+        key,
+        gate,
+        probe: sb.probe.clone(),
+    })))
+}
+
+/// Build a node of a deployed flow (config already checked by [`ports`]).
+pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
+    build_with(ty, flow, id, cfg, None, &Mode::Live)
+}
+
+/// [`build`] with the artifact store that `wasm` nodes load from, for a deployed flow or a
+/// preview ([`Mode`]).
 pub fn build_with(
     ty: &str,
     flow: &str,
     id: &str,
     cfg: &Map,
     artifacts: Option<&Artifacts>,
+    mode: &Mode,
 ) -> Result<Box<dyn Node>, String> {
+    if let Mode::Preview(sb) = mode {
+        if let Some(c) = capture(ty, id, cfg, sb)? {
+            return Ok(c);
+        }
+    }
     if let Some(b) = crate::blocks::build(ty, flow, id, cfg) {
         return b;
     }
@@ -1263,6 +1454,7 @@ pub fn build_with(
         "subscribe" => Box::new(Subscribe {
             key: req_s(cfg, "key")?.to_owned(),
             last: None,
+            tasks: Tasks::default(),
         }),
         "timer" => Box::new(Timer {
             period: Duration::from_secs_f64(num("period_ms", 1000.0)? / 1000.0),
@@ -1271,6 +1463,7 @@ pub fn build_with(
         "const" => Box::new(Const(cfg.get("value").cloned().unwrap_or(Value::Null))),
         "liveliness" => Box::new(Liveliness {
             key: req_s(cfg, "key")?.to_owned(),
+            tasks: Tasks::default(),
         }),
         "expression" => {
             let inputs = names(cfg)?;
@@ -1346,21 +1539,12 @@ pub fn build_with(
         "invoke" => Box::new(Invoke {
             path: req_s(cfg, "path")?.to_owned(),
             action: req_s(cfg, "action")?.to_owned(),
-            args: match cfg.get("args") {
-                Some(Value::Map(m)) => m.clone(),
-                _ => Map::new(),
-            },
-            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
+            gate: InvokeGate::from(cfg)?,
             tx: None,
         }),
         "set" => Box::new(Set {
             path: req_s(cfg, "path")?.to_owned(),
-            on: one_of(cfg, "on", &["any", "change"], "change")?.to_owned(),
-            deadband: num("deadband", 0.0)?,
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
+            gate: SetGate::from(cfg)?,
             tx: None,
         }),
         "wasm" => {

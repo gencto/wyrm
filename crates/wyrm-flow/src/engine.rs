@@ -15,6 +15,9 @@
 //! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/downstream/`
 //! or `wy/<site>/storage/` (ADR 0008, ADR 0017).
 //!
+//! Live values (ADR 0038): `<id>/~act/watch` and `<id>/~act/ports` for a deployed flow;
+//! `preview {def}` runs a draft in a sandbox whose sinks only report (`crate::preview`).
+//!
 //! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
 //! `wyrm:flow/node` component under `<dir>/artifacts/<sha256>.wasm` and
 //! returns `{artifact: <sha256>}`; a `~def` uses it as
@@ -172,6 +175,9 @@ struct State {
     flows: BTreeMap<String, FlowRt>,
     /// The open watches of the site, for their caps.
     watches: Arc<Watches>,
+    /// The running previews of drafts (ADR 0038 §5), for their caps, and their tasks.
+    previews: Arc<Watches>,
+    preview_tasks: Vec<JoinHandle<()>>,
 }
 
 type Shared = Arc<AsyncMutex<State>>;
@@ -424,6 +430,7 @@ impl State {
             ptx,
             Some(&self.host.artifacts),
             f.probe.clone(),
+            &crate::nodes::Mode::Live,
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
@@ -904,6 +911,21 @@ impl Link for Engine {
                 .level(Perm::Read),
         )
         .await?;
+        // live values of a draft in a sandbox whose sinks only report (ADR 0038 §5)
+        ctx.declare_action(
+            "",
+            "preview",
+            ActionMeta::new()
+                .display("Preview")
+                .param("def", def_param())
+                .param("nodes", ParamMeta::of(TypeCode::Array))
+                .param("max_hz", ParamMeta::of(TypeCode::Number))
+                .result(ActionResult::Stream)
+                .stream(true)
+                .timeout_ms(live::TIMEOUT_MS)
+                .level(Perm::Read),
+        )
+        .await?;
         // the palette of an editor: types, ports, params (crate::catalog)
         ctx.declare_action(
             "",
@@ -919,6 +941,8 @@ impl Link for Engine {
             host: cfg.host.clone(),
             flows: BTreeMap::new(),
             watches: Arc::new(Watches::default()),
+            previews: Arc::new(crate::preview::registry()),
+            preview_tasks: Vec::new(),
         }));
         let stored: Vec<Vec<u8>> = cfg.host.store().state().defs.values().cloned().collect();
         {
@@ -985,6 +1009,28 @@ impl Link for Engine {
                 let mut r = BTreeMap::new();
                 r.insert("artifact".into(), Value::Str(sha));
                 return out.reply(Value::Map(r)).await;
+            }
+            ("", "preview") => {
+                // a draft: compiled as for deploy, run with the caller's rights to read, never
+                // stored; no `maxperm` or proofs, as nothing is written
+                let (def, ports) = compile(&def_arg()?, &st.host.artifacts, &st.host.site)
+                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                reads_flow(&def, who, &self.site)?;
+                let only = live::only(&args, &def)?;
+                let period = live::period(&args)?;
+                let subject = deployer(who).unwrap_or_default();
+                let ticket = st.previews.open(&subject, &subject)?;
+                let p = crate::preview::start(
+                    &def,
+                    &ports,
+                    &st.ctx,
+                    &st.host.site,
+                    &st.host.artifacts,
+                )?;
+                let task = p.spawn(only, period, ticket, out);
+                st.preview_tasks.retain(|t| !t.is_finished());
+                st.preview_tasks.push(task);
+                return Ok(());
             }
             ("", "node_types") => {
                 drop(st);
@@ -1101,7 +1147,8 @@ impl Link for Engine {
                 drop(st);
                 tokio::spawn(async move {
                     let rows = out.clone();
-                    let last = live::run(probe, only, period, ticket.cancelled(), move |v| {
+                    let cancel = ticket.cancelled();
+                    let last = live::run(probe, only, period, live::TTL, cancel, move |v| {
                         let rows = rows.clone();
                         async move { rows.reply(v).await.is_ok() }
                     })
@@ -1133,6 +1180,11 @@ impl Link for Engine {
 
     async fn stop(&mut self) {
         let mut st = self.shared.lock().await;
+        // previews end first: each stops its sandbox
+        st.previews.cancel_all();
+        for t in std::mem::take(&mut st.preview_tasks) {
+            let _ = tokio::time::timeout(Duration::from_secs(2), t).await;
+        }
         let ids: Vec<String> = st.flows.keys().cloned().collect();
         for id in ids {
             if let Some(f) = st.flows.get(&id) {

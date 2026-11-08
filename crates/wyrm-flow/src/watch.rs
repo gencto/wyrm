@@ -16,7 +16,7 @@
 //!    remove, or when the engine stops.
 
 use crate::def::FlowDef;
-use crate::nodes::Msg;
+use crate::nodes::{Msg, SinkOp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -76,10 +76,21 @@ struct NodeRec {
     params: BTreeMap<String, ParamRec>,
 }
 
+/// What a preview's sink would have done last (ADR 0038 §5).
+#[derive(Debug, Clone)]
+struct SinkRec {
+    op: SinkOp,
+    key: String,
+    v: Value,
+    seq: u64,
+}
+
 #[derive(Debug, Default)]
 struct Data {
     seq: u64,
     nodes: BTreeMap<String, NodeRec>,
+    /// A preview's sinks: the latest per node.
+    sinks: BTreeMap<String, SinkRec>,
     /// When the last watch closed.
     idle_since: Option<Instant>,
     /// The node tasks that run, and the last request for parameters each answered.
@@ -206,9 +217,46 @@ impl Probe {
         }
     }
 
+    /// A preview's sink `node` would do `op` on `key` with `v` (the latest per node is kept).
+    pub(crate) fn sink(&self, node: &str, op: SinkOp, key: &str, v: Value) {
+        {
+            let mut d = self.lock();
+            d.seq += 1;
+            let seq = d.seq;
+            d.sinks.insert(
+                node.to_owned(),
+                SinkRec {
+                    op,
+                    key: key.to_owned(),
+                    v,
+                    seq,
+                },
+            );
+        }
+        self.bump();
+    }
+
     fn bump(&self) {
         let seq = self.lock().seq;
         self.wake.send_replace(seq);
+    }
+
+    /// Wait (at most `max`) until `nodes` node tasks run and the flow is quiet: a round of
+    /// asks in which no node recorded anything. Each task answers an ask once its inbox is
+    /// empty, so what the nodes sent at start (a variable's value, a parameter's echo) is in
+    /// the next snapshot. A busy flow (a source at 20 Hz) is never quiet: `max` bounds it.
+    pub async fn settle(&self, nodes: usize, max: Duration) {
+        let deadline = Instant::now() + max;
+        while self.lock().alive.len() < nodes && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        while Instant::now() < deadline {
+            let before = self.lock().seq;
+            self.ask_params().await;
+            if self.lock().seq == before {
+                return;
+            }
+        }
     }
 
     /// Hold the probe open: node tasks record until the guard drops.
@@ -281,7 +329,9 @@ impl Probe {
                 ])),
             );
         }
-        (row(Some(true), nodes), d.seq)
+        let mut r = row(Some(true), nodes);
+        add_sinks(&mut r, &d, 0, only);
+        (r, d.seq)
     }
 
     /// Row 2: what changed after `since`, or `None` when nothing did (in `only`); and the
@@ -316,9 +366,40 @@ impl Probe {
             }
             nodes.insert(id.clone(), Value::Map(n));
         }
-        let out = (!nodes.is_empty()).then(|| row(Some(false), nodes));
+        let mut r = row(Some(false), nodes);
+        // a row of changes: nodes that changed, or sinks that acted
+        let out = (add_sinks(&mut r, &d, since, only) || has_nodes(&r)).then_some(r);
         (out, d.seq)
     }
+}
+
+fn has_nodes(row: &Value) -> bool {
+    matches!(row, Value::Map(m) if matches!(m.get("nodes"), Some(Value::Map(n)) if !n.is_empty()))
+}
+
+/// Adds `sinks: [{node, op, key, value}]` to `row`: each sink of a node in `only` (all: `None`)
+/// that acted after `since`, the latest per node. `false` when there is none (no key added).
+fn add_sinks(row: &mut Value, d: &Data, since: u64, only: Option<&BTreeSet<String>>) -> bool {
+    let list: Vec<Value> = d
+        .sinks
+        .iter()
+        .filter(|(n, s)| s.seq > since && only.is_none_or(|o| o.contains(*n)))
+        .map(|(n, s)| {
+            Value::Map(BTreeMap::from([
+                ("node".to_owned(), Value::from(n.as_str())),
+                ("op".to_owned(), Value::from(s.op.name())),
+                ("key".to_owned(), Value::from(s.key.as_str())),
+                ("value".to_owned(), s.v.clone()),
+            ]))
+        })
+        .collect();
+    if list.is_empty() {
+        return false;
+    }
+    if let Value::Map(m) = row {
+        m.insert("sinks".into(), Value::Array(list));
+    }
+    true
 }
 
 /// Keeps a [`Probe`] recording; the last one to drop starts the [`KEEP`] time.
@@ -443,13 +524,14 @@ pub async fn ports(probe: &Arc<Probe>, only: Option<&BTreeSet<String>>) -> Value
     probe.snapshot(only).0
 }
 
-/// Run one watch: send rows through `send` (`false`: the caller is gone) until it ends, and
-/// return its last row. `cancel` ends it at once (a newer watch of the same caller took its
-/// place).
+/// Run one watch: send rows through `send` (`false`: the caller is gone) until it ends after
+/// `ttl` ([`TTL`] for a watch), and return its last row. `cancel` ends it at once (a newer
+/// watch of the same caller took its place).
 pub async fn run<F, Fut>(
     probe: Arc<Probe>,
     only: Option<BTreeSet<String>>,
     period: Duration,
+    ttl: Duration,
     mut cancel: watch::Receiver<bool>,
     mut send: F,
 ) -> Option<Value>
@@ -469,7 +551,7 @@ where
     if !send(first).await {
         return None;
     }
-    let ttl = Instant::now() + TTL;
+    let ttl = Instant::now() + ttl;
     let mut last = Instant::now();
     // the earliest time the next row of changes may go
     let mut next = Instant::now();
@@ -520,10 +602,20 @@ where
     }
 }
 
-/// The open watches of a site, for the caps.
-#[derive(Default)]
+/// The open watches of a site, for the caps: at most `per_flow` on one flow and `per_site` in
+/// all ([`MAX_PER_FLOW`] and [`MAX_PER_SITE`] by default). Previews use it with the subject in
+/// place of the flow (`crate::preview`).
 pub struct Watches {
     inner: Mutex<Reg>,
+    per_flow: usize,
+    per_site: usize,
+    what: &'static str,
+}
+
+impl Default for Watches {
+    fn default() -> Self {
+        Self::with_caps(MAX_PER_FLOW, MAX_PER_SITE, "watches")
+    }
 }
 
 #[derive(Default)]
@@ -560,8 +652,25 @@ impl Drop for Ticket {
 }
 
 impl Watches {
+    /// A registry with these caps; `what` names its entries in a `busy` error.
+    pub fn with_caps(per_flow: usize, per_site: usize, what: &'static str) -> Self {
+        Self {
+            inner: Mutex::new(Reg::default()),
+            per_flow,
+            per_site,
+            what,
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Reg> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// End every registered entry (the engine stops).
+    pub fn cancel_all(&self) {
+        for e in self.lock().list.drain(..) {
+            e.cancel.send_replace(true);
+        }
     }
 
     /// Open watches on `flow` (all flows: `None`).
@@ -578,14 +687,15 @@ impl Watches {
     /// away without a word, and an editor opens its watch again on every start. A cap full of
     /// other callers' watches is `busy`.
     pub fn open(self: &Arc<Self>, flow: &str, sub: &str) -> Result<Ticket, LinkError> {
+        let (per_flow, per_site, noun) = (self.per_flow, self.per_site, self.what);
         let mut r = self.lock();
         let busy = |what: &str| {
             LinkError::new(
                 Status::Busy,
-                format!("{what}: no more watches (at most {MAX_PER_FLOW} per flow, {MAX_PER_SITE} per site)"),
+                format!("{what}: no more {noun} (at most {per_flow} each, {per_site} per site)"),
             )
         };
-        if r.list.iter().filter(|e| e.flow == flow).count() >= MAX_PER_FLOW {
+        if r.list.iter().filter(|e| e.flow == flow).count() >= per_flow {
             let pos = r
                 .list
                 .iter()
@@ -594,7 +704,7 @@ impl Watches {
             let old = r.list.remove(pos);
             old.cancel.send_replace(true);
         }
-        if r.list.len() >= MAX_PER_SITE {
+        if r.list.len() >= per_site {
             let pos = r
                 .list
                 .iter()
@@ -745,6 +855,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(500),
+            TTL,
             cancel,
             move |v| {
                 let tx = tx.clone();
@@ -801,6 +912,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel.clone(),
             send.clone(),
         )
@@ -815,6 +927,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel,
             send,
         ));
@@ -827,12 +940,41 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel,
             |_| async { true },
         ));
         tokio::time::sleep(Duration::from_secs(1)).await;
         p.end(End::Gone);
         assert_eq!(task.await.unwrap(), None);
+    }
+
+    /// ADR 0038 §5: a preview's sinks go with the snapshot and with change rows, the latest per
+    /// node; a row of sinks alone is a change row.
+    #[test]
+    fn sinks_in_rows() {
+        let p = Probe::new(&def());
+        let _h = p.hold();
+        let (snap, seq) = p.snapshot(None);
+        assert_eq!(get(&snap, &["sinks"]), None, "no sink acted yet");
+        p.sink("r", SinkOp::Set, "wy/s/downstream/l/x/~set", Value::UInt(1));
+        p.sink("r", SinkOp::Set, "wy/s/downstream/l/x/~set", Value::UInt(2));
+        let (ch, seq2) = p.changes(seq, None);
+        let ch = ch.expect("a row of sinks alone");
+        assert_eq!(get(&ch, &["snapshot"]), Some(&Value::Bool(false)));
+        assert_eq!(get(&ch, &["nodes"]), Some(&Value::Map(BTreeMap::new())));
+        let Some(Value::Array(sinks)) = get(&ch, &["sinks"]) else {
+            panic!("sinks: {ch:?}")
+        };
+        assert_eq!(sinks.len(), 1, "the latest per node");
+        assert_eq!(get(&sinks[0], &["value"]), Some(&Value::UInt(2)));
+        assert_eq!(get(&sinks[0], &["op"]), Some(&Value::from("set")));
+        assert_eq!(get(&sinks[0], &["node"]), Some(&Value::from("r")));
+        assert_eq!(p.changes(seq2, None).0, None);
+        // the snapshot holds every sink's latest; `nodes` filters them
+        assert!(get(&p.snapshot(None).0, &["sinks"]).is_some());
+        let only = BTreeSet::from(["t".to_owned()]);
+        assert_eq!(get(&p.snapshot(Some(&only)).0, &["sinks"]), None);
     }
 
     #[test]

@@ -29,7 +29,7 @@ pub struct Inbox {
 impl Inbox {
     fn new(cap: usize, overflow: Overflow) -> Arc<Self> {
         Arc::new(Self {
-            q: Mutex::new(VecDeque::with_capacity(cap.min(1024))),
+            q: Mutex::new(VecDeque::new()),
             data: Notify::new(),
             space: Notify::new(),
             cap,
@@ -77,6 +77,11 @@ impl Inbox {
             }
             wait.await;
         }
+    }
+
+    /// Nothing waits in the queue.
+    fn is_empty(&self) -> bool {
+        self.lock().is_empty()
     }
 
     async fn pop(&self) -> (String, Msg) {
@@ -139,7 +144,9 @@ impl Running {
 /// Start `def`. `restored`: states of unchanged nodes (same id and hash).
 /// `io_for(node)` builds each node's I/O handle. A node panic is reported
 /// on `panics` and stops this run. `wasm` nodes load from `artifacts`. The node
-/// tasks record into `probe` while a watch holds it open (ADR 0038 §3).
+/// tasks record into `probe` while a watch holds it open (ADR 0038 §3). `mode`: a deployed
+/// flow, or a preview whose sinks only report (ADR 0038 §5).
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     def: &FlowDef,
     ports: &BTreeMap<String, Ports>,
@@ -148,6 +155,7 @@ pub fn start(
     panics: mpsc::UnboundedSender<String>,
     artifacts: Option<&Artifacts>,
     probe: Arc<Probe>,
+    mode: &nodes::Mode,
 ) -> Result<Running, String> {
     let inboxes: BTreeMap<String, Arc<Inbox>> = def
         .nodes
@@ -188,7 +196,7 @@ pub fn start(
     let (flush, flush_rx) = watch::channel(0u64);
     let mut built: Vec<(String, u32, Box<dyn Node>)> = Vec::new();
     for (id, n) in &def.nodes {
-        let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts)?;
+        let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts, mode)?;
         if let Some((hash, st)) = restored.get(id) {
             if *hash == n.hash {
                 node.restore(st);
@@ -253,9 +261,13 @@ async fn run_node(
         let _ = panics.send(format!("nodes.{id}: panic in start"));
         return;
     }
-    let _alive = Alive::new(&probe, &id);
+    // asks from here on are seen: an ask sent once this task is alive is never missed
     let mut asks = probe.asks();
     asks.borrow_and_update();
+    let _alive = Alive::new(&probe, &id);
+    // An ask is answered once the inbox is empty, so what start queued (a variable's
+    // value) is recorded and routed before the answer (a preview's snapshot has it).
+    let mut pending_ask: Option<u64> = None;
     let statics = probe.statics(&id);
     // The parameters' change counter as their echo outputs and the recorder last saw it.
     let rev_now = |node: &dyn Node| node.live_params().map(|(r, _)| r);
@@ -306,9 +318,7 @@ async fn run_node(
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.tick(now_us(), &mut out))).is_ok()
             }
             Ok(()) = asks.changed() => {
-                let gen = *asks.borrow_and_update();
-                probe.answer(&id, gen, node.live_params().map(|(_, m)| m));
-                rec_rev = rev_now(node.as_ref());
+                pending_ask = Some(*asks.borrow_and_update());
                 true
             }
             _ = flush.changed() => { save(node.as_ref()); true }
@@ -345,6 +355,13 @@ async fn run_node(
             }
         }
         route(&routes, out).await;
+        if let Some(gen) = pending_ask {
+            if inbox.is_empty() {
+                pending_ask = None;
+                probe.answer(&id, gen, node.live_params().map(|(_, m)| m));
+                rec_rev = rev_now(node.as_ref());
+            }
+        }
     }
 }
 
