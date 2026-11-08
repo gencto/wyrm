@@ -8,6 +8,7 @@ import 'values.dart';
 /// [QuarantineEntry].
 QuarantineEntry quarantineEntryOf(String node, NodeMeta m) => QuarantineEntry(
   cn: m.displayName ?? node,
+  node: node,
   kind: str(attrOf(m, 'kind')) ?? 'link',
   from: str(attrOf(m, 'from')) ?? str(attrOf(m, 'addr')),
   firstSeen: time(attrOf(m, 'first_seen')),

@@ -14,12 +14,15 @@ dependencies:
   business:
     path: ../business
   equatable: ^2.1.0
+  fast_immutable_collections: ^11.2.0
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
   localization:
     path: ../localization
+  models:
+    path: ../models
   pro_pretty_logging: ^2.0.0
   pro_validator: ^3.0.0
   ui:

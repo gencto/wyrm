@@ -38,23 +38,25 @@ class TagChip extends StatelessWidget {
     return Container(
       height: 22,
       padding: const EdgeInsets.symmetric(horizontal: 7),
-      alignment: .center,
       decoration: BoxDecoration(
         color: neutral ? c.ground4 : toneTint(c, vm.tone),
         borderRadius: Radii.chip,
       ),
-      child: Text(
-        vm.label,
-        style: vm.monospace
-            ? mono(
-                size: 11,
-                weight: .w600,
-                color: neutral ? c.text2 : toneColor(c, vm.tone),
-              )
-            : TextStyle(
-                fontSize: 12,
-                color: neutral ? c.text2 : toneColor(c, vm.tone),
-              ),
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          vm.label,
+          style: vm.monospace
+              ? mono(
+                  size: 11,
+                  weight: .w600,
+                  color: neutral ? c.text2 : toneColor(c, vm.tone),
+                )
+              : TextStyle(
+                  fontSize: 12,
+                  color: neutral ? c.text2 : toneColor(c, vm.tone),
+                ),
+        ),
       ),
     );
   }

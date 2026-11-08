@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_info.dart';
 
+import 'package:wyrm_client/wyrm_client.dart';
+
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/mappers/link_info_mapper.dart';
 import '../../app_state.dart';
@@ -29,7 +31,12 @@ class RetrieveLinksAction extends Action with WaitingAction {
           () => api.meta('$base/${c.name}'),
         ).then((m) => linkInfoOf(c.name, m)),
     ]);
+    final version = await readValue(api, '$root/sys/version');
     return state.copyWith.links(
+      version: switch (version) {
+        VStr(:final v) => v,
+        _ => null,
+      },
       table: IMap<String, LinkInfo>.fromValues(
         values: links,
         keyMapper: (l) => l.id,

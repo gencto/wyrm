@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$NodesState {
 
- IMap<String, NodeInfo> get table; IList<String> get view; ISet<String> get expanded; String? get selectedNode;
+ IMap<String, NodeInfo> get table; IList<String> get view; ISet<String> get expanded; String? get selectedNode; IMap<String, IList<String>> get results;
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $NodesStateCopyWith<NodesState> get copyWith => _$NodesStateCopyWithImpl<NodesSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results);
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode)';
+  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $NodesStateCopyWith<$Res>  {
   factory $NodesStateCopyWith(NodesState value, $Res Function(NodesState) _then) = _$NodesStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode
+ IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results
 });
 
 
@@ -62,13 +62,14 @@ class _$NodesStateCopyWithImpl<$Res>
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,}) {
   return _then(_self.copyWith(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, NodeInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,expanded: null == expanded ? _self.expanded : expanded // ignore: cast_nullable_to_non_nullable
 as ISet<String>,selectedNode: freezed == selectedNode ? _self.selectedNode : selectedNode // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,results: null == results ? _self.results : results // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<String>>,
   ));
 }
 
@@ -80,13 +81,14 @@ as String?,
 
 
 class _NodesState implements NodesState {
-  const _NodesState({this.table = const IMapConst({}), this.view = const IListConst([]), this.expanded = const ISetConst({}), this.selectedNode});
+  const _NodesState({this.table = const IMapConst({}), this.view = const IListConst([]), this.expanded = const ISetConst({}), this.selectedNode, this.results = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, NodeInfo> table;
 @override@JsonKey() final  IList<String> view;
 @override@JsonKey() final  ISet<String> expanded;
 @override final  String? selectedNode;
+@override@JsonKey() final  IMap<String, IList<String>> results;
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
@@ -98,16 +100,16 @@ _$NodesStateCopyWith<_NodesState> get copyWith => __$NodesStateCopyWithImpl<_Nod
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results);
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode)';
+  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results)';
 }
 
 
@@ -118,7 +120,7 @@ abstract mixin class _$NodesStateCopyWith<$Res> implements $NodesStateCopyWith<$
   factory _$NodesStateCopyWith(_NodesState value, $Res Function(_NodesState) _then) = __$NodesStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode
+ IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results
 });
 
 
@@ -135,13 +137,14 @@ class __$NodesStateCopyWithImpl<$Res>
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,}) {
   return _then(_NodesState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, NodeInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,expanded: null == expanded ? _self.expanded : expanded // ignore: cast_nullable_to_non_nullable
 as ISet<String>,selectedNode: freezed == selectedNode ? _self.selectedNode : selectedNode // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,results: null == results ? _self.results : results // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<String>>,
   ));
 }
 

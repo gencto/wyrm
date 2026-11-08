@@ -6,11 +6,13 @@ import 'package:models/grant.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_info.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
+import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/site_choice.dart';
@@ -20,7 +22,17 @@ import '../wyrm/keys.dart';
 import 'app_state.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
+import 'flow_editor/actions/deploy_flow_action.dart';
+import 'link_install/actions/install_link_action.dart';
+import 'links/actions/deauthorize_link_action.dart';
+import 'links/actions/get_link_log_action.dart';
+import 'links/actions/grant_link_action.dart';
+import 'links/actions/remove_link_action.dart';
+import 'links/actions/retrieve_link_history_action.dart';
 import 'links/actions/retrieve_links_action.dart';
+import 'links/actions/rollback_link_params_action.dart';
+import 'links/actions/start_link_action.dart';
+import 'links/actions/stop_link_action.dart';
 import 'login/actions/log_in_action.dart';
 import 'nodes/actions/retrieve_nodes_action.dart';
 import 'packages/actions/retrieve_packages_action.dart';
@@ -215,6 +227,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns selectedNode
   String? get selectedNode => _state.nodes.selectedNode;
+
+  /// Returns results
+  IMap<String, IList<String>> get results => _state.nodes.results;
 }
 
 extension type SelectLive(AppState _state) {
@@ -243,6 +258,31 @@ extension type SelectLinks(AppState _state) {
 
   /// Returns selectedLink
   String? get selectedLink => _state.links.selectedLink;
+
+  /// Returns log
+  IList<String> get log => _state.links.log;
+
+  /// Returns revisions
+  IList<LinkRevision> get revisions => _state.links.revisions;
+
+  /// Returns version
+  String? get version => _state.links.version;
+
+  /// A start, stop, remove, grant, deauthorize or rollback is running.
+  bool get isActing =>
+      _state.wait.isWaitingForType<StartLinkAction>() ||
+      _state.wait.isWaitingForType<StopLinkAction>() ||
+      _state.wait.isWaitingForType<RemoveLinkAction>() ||
+      _state.wait.isWaitingForType<GrantLinkAction>() ||
+      _state.wait.isWaitingForType<DeauthorizeLinkAction>() ||
+      _state.wait.isWaitingForType<RollbackLinkParamsAction>();
+
+  /// The log is being read.
+  bool get isReadingLog => _state.wait.isWaitingForType<GetLinkLogAction>();
+
+  /// The parameter revisions are being read.
+  bool get isReadingHistory =>
+      _state.wait.isWaitingForType<RetrieveLinkHistoryAction>();
 }
 
 extension type SelectQuarantine(AppState _state) {
@@ -259,14 +299,11 @@ extension type SelectQuarantine(AppState _state) {
   /// Returns the ordered view of the table
   IList<String> get view => _state.quarantine.view;
 
-  /// Returns holdUnknown
-  bool get holdUnknown => _state.quarantine.holdUnknown;
-
-  /// Returns allowAll
-  bool get allowAll => _state.quarantine.allowAll;
-
   /// Returns selectedEntry
   String? get selectedEntry => _state.quarantine.selectedEntry;
+
+  /// Returns forms
+  IMap<String, IList<ParamSpec>> get forms => _state.quarantine.forms;
 }
 
 extension type SelectPackages(AppState _state) {
@@ -310,6 +347,9 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns message
   String? get message => _state.linkInstall.message;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<InstallLinkAction>();
 }
 
 extension type SelectPeers(AppState _state) {
@@ -358,6 +398,9 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns selectedBlock
   String? get selectedBlock => _state.flowEditor.selectedBlock;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<DeployFlowAction>();
 }
 
 extension type SelectTasks(AppState _state) {

@@ -6,6 +6,8 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import 'redux/app_state.dart';
 import 'redux/links/actions/retrieve_links_action.dart';
+import 'redux/packages/actions/retrieve_packages_action.dart';
+import 'redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'redux/services/agent_tasks/agent_tasks.dart';
 import 'redux/services/agent_tasks/agent_tasks_dispatcher.dart';
 import 'redux/services/connectivity/connectivity.dart';
@@ -85,6 +87,12 @@ class AppDependencies {
     (store) {
       if (store.state.links.view.isNotEmpty) {
         unawaited(store.dispatchAndWait(RetrieveLinksAction()));
+      }
+      if (store.state.quarantine.view.isNotEmpty) {
+        unawaited(store.dispatchAndWait(RetrieveQuarantineAction()));
+      }
+      if (store.state.packages.view.isNotEmpty) {
+        unawaited(store.dispatchAndWait(RetrievePackagesAction()));
       }
     },
   ];

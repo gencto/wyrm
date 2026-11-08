@@ -19,12 +19,12 @@ class AddQuarantineAction extends Action {
   AppState reduce() {
     final byId = IMap<String, QuarantineEntry>.fromValues(
       values: _items,
-      keyMapper: (item) => item.cn,
+      keyMapper: (item) => item.node,
     );
     if (replace) {
       return state.copyWith.quarantine(
         table: byId,
-        view: [for (final item in _items) item.cn].lock,
+        view: [for (final item in _items) item.node].lock,
       );
     }
     final table = state.quarantine.table;
@@ -33,7 +33,7 @@ class AddQuarantineAction extends Action {
       table: table.addAll(byId),
       view: view.addAll([
         for (final item in _items)
-          if (!table.containsKey(item.cn)) item.cn,
+          if (!table.containsKey(item.node)) item.node,
       ]),
     );
   }

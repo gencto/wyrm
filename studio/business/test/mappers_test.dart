@@ -134,6 +134,7 @@ void main() {
     );
 
     expect(q.cn, 'broker:plant');
+    expect(q.node, 'broker_plant');
     expect(q.kind, 'broker');
     expect(q.via, ['site_a', 'site_b']);
     expect(q.key, 'ab12');
