@@ -1,9 +1,11 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/catalog_item.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/grant.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_target.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
@@ -350,6 +352,33 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<InstallLinkAction>();
+
+  /// Returns path
+  String get path => _state.linkInstall.path;
+
+  /// Returns category
+  String get category => _state.linkInstall.category;
+
+  /// Returns query
+  String? get query => _state.linkInstall.query;
+
+  /// Returns phase
+  String? get phase => _state.linkInstall.phase;
+
+  /// Returns manifest
+  String? get manifest => _state.linkInstall.manifest;
+
+  /// Returns rights
+  String? get rights => _state.linkInstall.rights;
+
+  /// Returns catalog
+  IList<CatalogItem> get catalog => _state.linkInstall.catalog;
+
+  /// Returns targets
+  IList<InstallTarget> get targets => _state.linkInstall.targets;
+
+  /// Returns method
+  String get method => _state.linkInstall.method;
 }
 
 extension type SelectPeers(AppState _state) {

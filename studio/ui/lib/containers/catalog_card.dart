@@ -1,0 +1,154 @@
+import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
+
+import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/typography.dart';
+
+/// One entry of the official list.
+final class CatalogCardVm extends Equatable {
+  const CatalogCardVm({
+    required this.id,
+    required this.tag,
+    required this.name,
+    required this.description,
+    required this.source,
+    required this.builtIn,
+    required this.modes,
+    this.note,
+    this.selected = false,
+  });
+
+  final String id;
+  final String tag;
+  final String name;
+  final String description;
+
+  /// `built in` or `package`.
+  final String source;
+  final bool builtIn;
+
+  /// `embedded · process · external`.
+  final String modes;
+
+  /// `1 link already`.
+  final String? note;
+  final bool selected;
+
+  @override
+  List<Object?> get props => [
+    id,
+    tag,
+    name,
+    description,
+    source,
+    builtIn,
+    modes,
+    note,
+    selected,
+  ];
+}
+
+/// Board *Add a link · O1*: tag, name, note, one line, the source chip and
+/// the run modes.
+class CatalogCard extends StatelessWidget {
+  const CatalogCard({required this.vm, this.onTap, super.key});
+
+  final CatalogCardVm vm;
+  final ValueChanged<String>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Material(
+      color: vm.selected ? c.emberFill : c.ground2,
+      shape: RoundedRectangleBorder(
+        borderRadius: Radii.card,
+        side: BorderSide(
+          color: vm.selected ? c.ember : c.line1,
+          width: vm.selected ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap == null ? null : () => onTap!(vm.id),
+        borderRadius: Radii.card,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: .start,
+            spacing: 8,
+            children: [
+              Row(
+                spacing: 8,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.ground4,
+                      borderRadius: Radii.chip,
+                    ),
+                    child: Text(
+                      vm.tag,
+                      style: mono(size: 10, weight: .w600, color: c.text2),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      vm.name,
+                      overflow: .ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: .w600,
+                        color: c.text1,
+                      ),
+                    ),
+                  ),
+                  if (vm.note case final n?)
+                    Text(n, style: TextStyle(fontSize: 11, color: c.good)),
+                ],
+              ),
+              Text(
+                vm.description,
+                maxLines: 2,
+                overflow: .ellipsis,
+                style: TextStyle(fontSize: 12, height: 1.4, color: c.text3),
+              ),
+              Row(
+                spacing: 8,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: vm.builtIn ? c.ground4 : c.goodTint,
+                      borderRadius: Radii.chip,
+                    ),
+                    child: Text(
+                      vm.source,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: vm.builtIn ? c.text2 : c.good,
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: Text(
+                      vm.modes,
+                      overflow: .ellipsis,
+                      style: mono(size: 11, color: c.text4),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

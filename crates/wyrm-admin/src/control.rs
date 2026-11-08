@@ -3453,7 +3453,15 @@ impl Link for Admin {
                 .display("from Driver")
                 .group(INSTALL_GROUP)
                 .param("id", str_param().required(true).display("Link ID"))
-                .param("driver", str_param().required(true).display("Driver"))
+                // The drivers this broker hosts, so a UI can list them
+                // (WYRM Studio's Add a link, docs/studio.md §7.3).
+                .param(
+                    "driver",
+                    str_param()
+                        .required(true)
+                        .display("Driver")
+                        .enum_values(cfg.ctl.host.drivers().into_iter().map(str::to_owned)),
+                )
                 .param(
                     "mode",
                     str_param()

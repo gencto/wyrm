@@ -49,41 +49,60 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m13(id) => "Params history of ${id}";
 
-  static String m14(site) =>
+  static String m14(name, broker) => "${name} is installed on ${broker}.";
+
+  static String m15(n) =>
+      "${Intl.plural(n, one: '1 link already', other: '${n} links already')}";
+
+  static String m16(site) =>
       "Started and watched by ${site}: built-in drivers and installed packages. You can stop, change, upgrade and remove them.";
 
-  static String m15(site) => "Links on ${site}";
+  static String m17(site) => "Links on ${site}";
 
-  static String m16(id) => "Log of ${id}";
+  static String m18(id) => "Log of ${id}";
 
-  static String m17(level, have) => "Needs ${level} · you have ${have}";
+  static String m19(level, have) => "Needs ${level} · you have ${have}";
 
-  static String m18(level) => "Needs ${level} · you have it";
+  static String m20(level) => "Needs ${level} · you have it";
 
-  static String m19(name) => "package ${name}";
+  static String m21(name) => "package ${name}";
 
-  static String m20(rev) => "Parameters (revision ${rev}, JSON)";
+  static String m22(rev) => "Parameters (revision ${rev}, JSON)";
 
-  static String m21(cn) => "Reject ${cn}?";
+  static String m23(name) => "${name} is installed";
 
-  static String m22(id) => "Remove ${id}?";
+  static String m24(name) => "Installing ${name}…";
 
-  static String m23(rev) => "Revision ${rev}";
+  static String m25(cn) => "Reject ${cn}?";
 
-  static String m24(rev) => "Revision ${rev} · in use";
+  static String m26(id) => "Remove ${id}?";
 
-  static String m25(rev) => "Roll back to revision ${rev}?";
+  static String m27(rev) => "Revision ${rev}";
 
-  static String m26(site) => "Runs on ${site}";
+  static String m28(rev) => "Revision ${rev} · in use";
 
-  static String m27(count) =>
+  static String m29(rev) => "Roll back to revision ${rev}?";
+
+  static String m30(site) => "Runs on ${site}";
+
+  static String m31(count) =>
       "${Intl.plural(count, zero: 'No staged changes', one: '1 staged change', other: '${count} staged changes')}";
 
-  static String m28(site) => "via ${site}";
+  static String m32(n, total) => "Step ${n} of ${total}";
+
+  static String m33(site) => "via ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
     "_locale": MessageLookupByLibrary.simpleMessage("en"),
+    "aCustomPackage": MessageLookupByLibrary.simpleMessage("A custom package"),
+    "acceptFirst": MessageLookupByLibrary.simpleMessage(
+      "Accept the requested rights first.",
+    ),
+    "acceptRequestedRights": MessageLookupByLibrary.simpleMessage(
+      "Accept requested rights",
+    ),
+    "accepted": MessageLookupByLibrary.simpleMessage("accepted"),
     "actComesWithWyrmd": MessageLookupByLibrary.simpleMessage(
       "Comes with wyrmd",
     ),
@@ -145,6 +164,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Its last lines and its own log level.",
     ),
     "addALink": MessageLookupByLibrary.simpleMessage("Add a link"),
+    "addAnother": MessageLookupByLibrary.simpleMessage("Add another"),
     "agoDays": m0,
     "agoHours": m1,
     "agoMinutes": m2,
@@ -153,6 +173,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "allowAllLinksNote": MessageLookupByLibrary.simpleMessage(
       "Every new CN from this CA becomes a link at once, no approval. A leaked certificate gets in.",
     ),
+    "answerBroker": MessageLookupByLibrary.simpleMessage("Broker"),
+    "answerFrom": MessageLookupByLibrary.simpleMessage("From"),
+    "answerLink": MessageLookupByLibrary.simpleMessage("Link"),
+    "answerName": MessageLookupByLibrary.simpleMessage("Name"),
+    "answerRights": MessageLookupByLibrary.simpleMessage("Rights"),
+    "answerRuns": MessageLookupByLibrary.simpleMessage("Runs"),
     "appTitle": MessageLookupByLibrary.simpleMessage("WYRM Studio"),
     "apply": MessageLookupByLibrary.simpleMessage("Apply"),
     "approve": MessageLookupByLibrary.simpleMessage("Approve"),
@@ -163,10 +189,21 @@ class MessageLookup extends MessageLookupByLibrary {
       "Approve makes it an external link with its own branch and a link token; copy the token to the device. The router reloads for about a second. Reject refuses this CN from now on.",
     ),
     "asksToRelay": m3,
+    "back": MessageLookupByLibrary.simpleMessage("Back"),
+    "backToLinks": MessageLookupByLibrary.simpleMessage("Back to Links"),
+    "branchOrTag": MessageLookupByLibrary.simpleMessage("branch or tag"),
+    "bringOne": MessageLookupByLibrary.simpleMessage(
+      "Choose a file or type where the package is.",
+    ),
     "brokerRefused": MessageLookupByLibrary.simpleMessage(
       "The broker refused a change; the ones after it were not applied.",
     ),
+    "brokerSays": MessageLookupByLibrary.simpleMessage("The broker says"),
+    "builtIn": MessageLookupByLibrary.simpleMessage("built in"),
     "builtInDriver": m4,
+    "builtInSummary": MessageLookupByLibrary.simpleMessage(
+      "Built into wyrmd · nothing to download",
+    ),
     "caSigned": m5,
     "canDoNothing": MessageLookupByLibrary.simpleMessage(
       "nothing: no read, no write",
@@ -175,9 +212,23 @@ class MessageLookup extends MessageLookupByLibrary {
     "cannotReachGateway": MessageLookupByLibrary.simpleMessage(
       "Cannot reach the gateway",
     ),
+    "catalogNote": MessageLookupByLibrary.simpleMessage(
+      "Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.",
+    ),
+    "changeAnswers": MessageLookupByLibrary.simpleMessage("Change the answers"),
+    "checkFailed": MessageLookupByLibrary.simpleMessage(
+      "The package did not pass: bring another one.",
+    ),
     "checkYourConnection": MessageLookupByLibrary.simpleMessage(
       "Check your connection and try again.",
     ),
+    "checkedHere": MessageLookupByLibrary.simpleMessage(
+      "Checked here; the broker checks again before it installs.",
+    ),
+    "chooseWasm": MessageLookupByLibrary.simpleMessage(
+      "Choose a .wasm component",
+    ),
+    "chooseZip": MessageLookupByLibrary.simpleMessage("Choose a package .zip"),
     "colCertificate": MessageLookupByLibrary.simpleMessage("Certificate"),
     "colFrom": MessageLookupByLibrary.simpleMessage("From"),
     "colLink": MessageLookupByLibrary.simpleMessage("Link"),
@@ -190,8 +241,16 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "colWho": MessageLookupByLibrary.simpleMessage("Who"),
     "colWhyHere": MessageLookupByLibrary.simpleMessage("Why here"),
+    "configAllowed": MessageLookupByLibrary.simpleMessage(
+      "config allowed for this upstream",
+    ),
+    "continueLabel": MessageLookupByLibrary.simpleMessage("Continue"),
     "couldNotConnectToInternet": MessageLookupByLibrary.simpleMessage(
       "Couldn\'t connect to internet.",
+    ),
+    "customPackage": MessageLookupByLibrary.simpleMessage("Custom package"),
+    "customPackageNote": MessageLookupByLibrary.simpleMessage(
+      "A package archive you bring: a zip, a URL, a Git repository or one .wasm. It is checked before install.",
     ),
     "darkTheme": MessageLookupByLibrary.simpleMessage("Dark theme"),
     "deauthorizeTitle": m6,
@@ -202,6 +261,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "doneOnTheDeviceUpgrade": MessageLookupByLibrary.simpleMessage(
       "Whoever runs the device updates it there; it reconnects with the same certificate.",
     ),
+    "downstream": MessageLookupByLibrary.simpleMessage("downstream"),
     "downstreamBrokerQuic": MessageLookupByLibrary.simpleMessage(
       "downstream broker · over quic",
     ),
@@ -220,11 +280,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "factRunsAs": MessageLookupByLibrary.simpleMessage("Runs as"),
     "factSeen": MessageLookupByLibrary.simpleMessage("Seen"),
     "factVersion": MessageLookupByLibrary.simpleMessage("Version"),
+    "failed": MessageLookupByLibrary.simpleMessage("failed"),
     "firstSeen": m9,
     "fromAddress": m10,
+    "fromTheOfficialList": MessageLookupByLibrary.simpleMessage(
+      "From the official list",
+    ),
     "gatewayUrl": MessageLookupByLibrary.simpleMessage("Gateway URL"),
     "gatewayUrlHint": MessageLookupByLibrary.simpleMessage(
       "http://host:8445, or several separated by commas",
+    ),
+    "gitRef": MessageLookupByLibrary.simpleMessage("Ref"),
+    "gitRepository": MessageLookupByLibrary.simpleMessage(
+      "Git repository (HTTPS)",
     ),
     "goTo": m11,
     "grantFor": m12,
@@ -247,15 +315,23 @@ class MessageLookup extends MessageLookupByLibrary {
     "holdUnknownNote": MessageLookupByLibrary.simpleMessage(
       "Off (with Allow all links off too): unknown certificates are ignored.",
     ),
+    "howItRunsThere": MessageLookupByLibrary.simpleMessage("How it runs there"),
+    "install": MessageLookupByLibrary.simpleMessage("Install"),
+    "installRailNote": MessageLookupByLibrary.simpleMessage(
+      "Installing needs config on sys (the admin role). Nothing is installed before you press Install.",
+    ),
+    "installedOn": m14,
     "invalidGatewayUrl": MessageLookupByLibrary.simpleMessage(
       "Not a gateway URL (http:// or https:// and a host)",
     ),
     "letItIn": MessageLookupByLibrary.simpleMessage("Let it in"),
     "letTheBrokerIn": MessageLookupByLibrary.simpleMessage("Let the broker in"),
     "lightTheme": MessageLookupByLibrary.simpleMessage("Light theme"),
+    "linkName": MessageLookupByLibrary.simpleMessage("Link name"),
     "linkOverTls": MessageLookupByLibrary.simpleMessage("link · over tls"),
-    "linksLocalNote": m14,
-    "linksOn": m15,
+    "linksAlready": m15,
+    "linksLocalNote": m16,
+    "linksOn": m17,
     "linksQuarantineNote": MessageLookupByLibrary.simpleMessage(
       "Connections with a certificate from this site that no link is set up for. They can read and write nothing until you approve them.",
     ),
@@ -271,14 +347,37 @@ class MessageLookup extends MessageLookupByLibrary {
     "logInSubtitle": MessageLookupByLibrary.simpleMessage(
       "Sign in to a WYRM gateway.",
     ),
-    "logOf": m16,
+    "logOf": m18,
     "logOut": MessageLookupByLibrary.simpleMessage("Log out"),
+    "manifest": MessageLookupByLibrary.simpleMessage("Manifest"),
     "modeEmbedded": MessageLookupByLibrary.simpleMessage("Embedded"),
+    "modeEmbeddedNote": MessageLookupByLibrary.simpleMessage(
+      "Inside the broker: the lightest; it stops when the broker stops.",
+    ),
     "modeExternal": MessageLookupByLibrary.simpleMessage("External"),
+    "modeExternalNote": MessageLookupByLibrary.simpleMessage(
+      "On another machine: it connects with a certificate from this site.",
+    ),
     "modeProcess": MessageLookupByLibrary.simpleMessage("Process"),
+    "modeProcessNote": MessageLookupByLibrary.simpleMessage(
+      "Its own process on this host, watched and restarted by the broker.",
+    ),
+    "modeWasmNote": MessageLookupByLibrary.simpleMessage(
+      "Inside the broker, in the sandbox: no files, only the network it is allowed, memory and time limits. Set by the package kind.",
+    ),
     "more": MessageLookupByLibrary.simpleMessage("More"),
-    "needsLevelYouHave": m17,
-    "needsLevelYouHaveIt": m18,
+    "nameIt": MessageLookupByLibrary.simpleMessage("Give the link a name."),
+    "nameRule": MessageLookupByLibrary.simpleMessage(
+      "Letters, digits, . _ - · not used by another link, a removed link or a site",
+    ),
+    "nameTaken": MessageLookupByLibrary.simpleMessage(
+      "Another link has this name.",
+    ),
+    "needsConfigOnSys": MessageLookupByLibrary.simpleMessage(
+      "Needs config on sys",
+    ),
+    "needsLevelYouHave": m19,
+    "needsLevelYouHaveIt": m20,
     "networkError": MessageLookupByLibrary.simpleMessage("Connection problem"),
     "noLocalLinks": MessageLookupByLibrary.simpleMessage(
       "No links run on this broker yet. Add a link to connect a device.",
@@ -287,11 +386,20 @@ class MessageLookup extends MessageLookupByLibrary {
       "No device connects as an external link.",
     ),
     "noRevisions": MessageLookupByLibrary.simpleMessage("No revisions."),
+    "noneAsked": MessageLookupByLibrary.simpleMessage("none asked"),
+    "notInstalled": MessageLookupByLibrary.simpleMessage(
+      "The broker did not install it.",
+    ),
     "nothingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Nothing waits in quarantine.",
     ),
     "nothingStaged": MessageLookupByLibrary.simpleMessage(
       "Nothing staged. Edit a value or a parameter to stage it.",
+    ),
+    "now": MessageLookupByLibrary.simpleMessage("now"),
+    "officialList": MessageLookupByLibrary.simpleMessage("Official list"),
+    "officialListNote": MessageLookupByLibrary.simpleMessage(
+      "Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.",
     ),
     "offline": MessageLookupByLibrary.simpleMessage(
       "The gateway connection is lost. Reconnecting; values on screen are the last ones received.",
@@ -299,14 +407,38 @@ class MessageLookup extends MessageLookupByLibrary {
     "ok": MessageLookupByLibrary.simpleMessage("OK"),
     "onOtherDevices": MessageLookupByLibrary.simpleMessage("On other devices"),
     "onThisBroker": MessageLookupByLibrary.simpleMessage("On this broker"),
-    "packageNamed": m19,
-    "paramsJson": m20,
+    "onWhichBroker": MessageLookupByLibrary.simpleMessage("On which broker"),
+    "openInExplorer": MessageLookupByLibrary.simpleMessage("Open in Explorer"),
+    "package": MessageLookupByLibrary.simpleMessage("package"),
+    "packageNamed": m21,
+    "packageSummary": MessageLookupByLibrary.simpleMessage(
+      "Package from your repository · SHA-256 checked against the index on download",
+    ),
+    "packageUrl": MessageLookupByLibrary.simpleMessage("Package URL (HTTPS)"),
+    "paramsJson": m22,
+    "passed": MessageLookupByLibrary.simpleMessage("passed"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
+    "pickOne": MessageLookupByLibrary.simpleMessage(
+      "Pick a link from the list.",
+    ),
     "pleaseCheckYourNetworkSettings": MessageLookupByLibrary.simpleMessage(
       "Please check your network settings.",
     ),
     "pleaseLogInAgain": MessageLookupByLibrary.simpleMessage(
       "Please log in again.",
+    ),
+    "qCheckFailed": MessageLookupByLibrary.simpleMessage(
+      "The package did not pass",
+    ),
+    "qCheckOk": MessageLookupByLibrary.simpleMessage("The package looks right"),
+    "qChoose": MessageLookupByLibrary.simpleMessage("What do you want to add?"),
+    "qFailed": MessageLookupByLibrary.simpleMessage(
+      "The broker did not install it",
+    ),
+    "qInstalled": m23,
+    "qInstalling": m24,
+    "qRun": MessageLookupByLibrary.simpleMessage(
+      "Where should it run, and under what name?",
     ),
     "quarantine": MessageLookupByLibrary.simpleMessage("Quarantine"),
     "refresh": MessageLookupByLibrary.simpleMessage("Refresh"),
@@ -314,7 +446,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rejectNote": MessageLookupByLibrary.simpleMessage(
       "This certificate is refused from now on.",
     ),
-    "rejectTitle": m21,
+    "rejectTitle": m25,
     "remoteFooter": MessageLookupByLibrary.simpleMessage(
       "If the device is lost or stolen: Remove for good. Deauthorize is the pause: approve it again from quarantine and it keeps its name and tree.",
     ),
@@ -322,27 +454,34 @@ class MessageLookup extends MessageLookupByLibrary {
     "removeDeletesTree": MessageLookupByLibrary.simpleMessage(
       "It stops, and its tree is deleted. The name can be used again.",
     ),
-    "removeLinkTitle": m22,
+    "removeLinkTitle": m26,
     "removeRetiresId": MessageLookupByLibrary.simpleMessage(
       "It stops, its tree is deleted, and its id is retired: it cannot be used again.",
     ),
     "requiredField": MessageLookupByLibrary.simpleMessage("Required field"),
     "review": MessageLookupByLibrary.simpleMessage("Review"),
     "reviewAndApply": MessageLookupByLibrary.simpleMessage("Review and apply"),
-    "revision": m23,
-    "revisionNow": m24,
+    "revision": m27,
+    "revisionNow": m28,
+    "rightsNote": MessageLookupByLibrary.simpleMessage(
+      "Without this the broker installs nothing. Grants change later with Grant access; other values with the link\'s params.",
+    ),
+    "rightsTitle": MessageLookupByLibrary.simpleMessage(
+      "The package asks for these rights",
+    ),
     "rollBack": MessageLookupByLibrary.simpleMessage("Roll back"),
     "rollBackNote": MessageLookupByLibrary.simpleMessage(
       "Its parameters become a new revision and the link restarts with them.",
     ),
-    "rollBackTo": m25,
-    "runsOn": m26,
+    "rollBackTo": m29,
+    "runsOn": m30,
     "runsOnAnotherDevice": MessageLookupByLibrary.simpleMessage(
       "Runs on another device",
     ),
     "searchHint": MessageLookupByLibrary.simpleMessage(
       "Go to a node, action or link",
     ),
+    "searchLinks": MessageLookupByLibrary.simpleMessage("Search the list"),
     "secretName": MessageLookupByLibrary.simpleMessage("Name"),
     "secretValue": MessageLookupByLibrary.simpleMessage(
       "Value (empty deletes it)",
@@ -356,7 +495,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Something went wrong",
     ),
     "stage": MessageLookupByLibrary.simpleMessage("Stage"),
-    "stagedChanges": m27,
+    "stagedChanges": m31,
     "stagedNote": MessageLookupByLibrary.simpleMessage(
       "Nothing is written until you apply. Each change runs with your own rights.",
     ),
@@ -368,19 +507,53 @@ class MessageLookup extends MessageLookupByLibrary {
     "stateStopped": MessageLookupByLibrary.simpleMessage("Stopped"),
     "stateStopping": MessageLookupByLibrary.simpleMessage("Stopping"),
     "stateWaiting": MessageLookupByLibrary.simpleMessage("Waiting"),
+    "stepBring": MessageLookupByLibrary.simpleMessage("Bring"),
+    "stepCheck": MessageLookupByLibrary.simpleMessage("Check"),
+    "stepChoose": MessageLookupByLibrary.simpleMessage("Choose"),
+    "stepInstall": MessageLookupByLibrary.simpleMessage("Install"),
+    "stepOf": m32,
+    "stepWhere": MessageLookupByLibrary.simpleMessage("Where it runs"),
+    "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
+      "Studio is signed in here",
+    ),
     "thisBroker": MessageLookupByLibrary.simpleMessage("this broker"),
+    "toAccept": MessageLookupByLibrary.simpleMessage("to accept"),
     "tryAgainLater": MessageLookupByLibrary.simpleMessage(
       "Please try again later.",
     ),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
     "user": MessageLookupByLibrary.simpleMessage("User"),
-    "viaSite": m28,
+    "viaSite": m33,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
+    "whyBring": MessageLookupByLibrary.simpleMessage(
+      "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
+    ),
     "whyBroker": MessageLookupByLibrary.simpleMessage("Broker"),
+    "whyCheck": MessageLookupByLibrary.simpleMessage(
+      "Before anything is installed, the archive and what is in it are checked: size, paths, the manifest and its fields, the protocol version, which hosts it has binaries for.",
+    ),
+    "whyChoose": MessageLookupByLibrary.simpleMessage(
+      "Most links come from the official list: a driver built into wyrmd or a package from your repository. Bring your own package only when it is not there.",
+    ),
     "whyDeauthorized": MessageLookupByLibrary.simpleMessage("Deauthorized"),
+    "whyFailed": MessageLookupByLibrary.simpleMessage(
+      "The broker answered success: false. Its message tells why.",
+    ),
+    "whyInstalled": MessageLookupByLibrary.simpleMessage(
+      "It runs, has its own identity and has declared its branch.",
+    ),
+    "whyInstalling": MessageLookupByLibrary.simpleMessage(
+      "This takes a few seconds. You can leave; it continues.",
+    ),
     "whyNew": MessageLookupByLibrary.simpleMessage("New"),
+    "whyRunCustom": MessageLookupByLibrary.simpleMessage(
+      "Choose the broker. Only brokers whose host the package was built for can take it; how it runs is set by the package kind.",
+    ),
+    "whyRunOfficial": MessageLookupByLibrary.simpleMessage(
+      "Choose the broker, then how the link runs on it. A built-in driver can run inside the broker, as its own process or on another machine.",
+    ),
     "wsAccess": MessageLookupByLibrary.simpleMessage("Access"),
     "wsAssistant": MessageLookupByLibrary.simpleMessage("Assistant"),
     "wsExplorer": MessageLookupByLibrary.simpleMessage("Explorer"),
@@ -389,5 +562,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
+    "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),
+    "yourAnswersNote": MessageLookupByLibrary.simpleMessage(
+      "Your answers. Click a step on the left to change one.",
+    ),
+    "zipFile": MessageLookupByLibrary.simpleMessage("Zip file"),
   };
 }

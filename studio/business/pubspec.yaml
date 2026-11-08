@@ -9,6 +9,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  archive: ^4.0.7
   async_redux: ^28.4.0
   connectivity_plus: ^7.1.1
   fast_immutable_collections: ^11.2.0
