@@ -126,7 +126,7 @@ class TreeRow extends StatelessWidget {
                   : null,
             ),
             AppIcon(vm.icon, size: 16, color: sel ? c.ember : c.text4),
-            Flexible(
+            Expanded(
               child: Text(
                 vm.name,
                 overflow: .ellipsis,
@@ -143,7 +143,6 @@ class TreeRow extends StatelessWidget {
                 decoration: BoxDecoration(shape: .circle, color: c.ember),
               ),
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
-            const Spacer(),
             if (vm.chip case final chip?) TagChip(vm: TagChipVm(label: chip)),
             if (vm.meta case final m?)
               Text(m, style: TextStyle(fontSize: 12, color: c.text4)),

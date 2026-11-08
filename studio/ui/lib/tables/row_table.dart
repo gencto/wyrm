@@ -78,8 +78,12 @@ class RowTable extends StatelessWidget {
     required this.rows,
     this.onTap,
     this.empty,
+    this.rowHeight = 58,
     super.key,
   });
+
+  /// 58 for two-line rows, 40 for one line (points, history).
+  final double rowHeight;
 
   final List<ColumnVm> columns;
   final List<RowVm> rows;
@@ -133,7 +137,7 @@ class RowTable extends StatelessWidget {
               onTap: onTap == null ? null : () => onTap!(r.id),
               hoverColor: c.ground3,
               child: Container(
-                constraints: const BoxConstraints(minHeight: 58),
+                constraints: BoxConstraints(minHeight: rowHeight),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 9,

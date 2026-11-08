@@ -14,6 +14,7 @@ import 'package:app/run_env.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,6 +74,39 @@ void main() {
       'route=${appRouter.current.name}',
     );
     await shot(tester, '01_explorer');
+    if (find.text('mock').evaluate().isNotEmpty) {
+      await tester.tap(find.text('mock').first);
+      await settle(tester, 2500);
+      await shot(tester, '01b_explorer_mock');
+      store.dispatchSync(
+        SelectNodeAction('wy/edge/downstream/modbus/line1/ahu1'),
+      );
+      await settle(tester, 3000);
+      await shot(tester, '01d_explorer_device');
+      final point = find.text('setpoint');
+      if (point.evaluate().isNotEmpty) {
+        await tester.tap(point.last);
+        await settle(tester, 2000);
+        await shot(tester, '01e_explorer_point');
+      }
+      store.dispatchSync(
+        SelectNodeAction('wy/edge/downstream/modbus/line1/ahu1'),
+      );
+      await settle(tester);
+      await tester.tap(find.text('Actions').first);
+      await settle(tester, 1000);
+      await shot(tester, '01c_explorer_actions');
+      final readId = find.text('Read Device Identification');
+      if (readId.evaluate().isNotEmpty) {
+        await tester.tap(readId.first);
+        await settle(tester, 800);
+        await tester.tap(find.text('Run now').last);
+        await settle(tester, 2500);
+        await shot(tester, '01f_explorer_action_result');
+      }
+      await tester.tap(find.text('Points').first);
+      await settle(tester, 500);
+    }
 
     for (final (i, name) in [
       'Links',
