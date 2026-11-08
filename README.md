@@ -30,7 +30,8 @@ A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`
 | `links/mqtt` | MQTT on the driver framework: plain topics (raw or JSON pointer) and Sparkplug B (BIRTH/DATA/DEATH, NCMD/DCMD, rebirth); TLS (ring); password from the link secrets (`auth_ref`) |
 | `crates/wyrm-wasm-host` | WebAssembly component host (no imports; fuel, memory and time limits) for the flow node `wasm` (ADR 0010) |
 | `crates/wyrm-ffi` | C ABI over `wyrm-client` (`include/wyrm.h`) for Dart and other languages |
-| `dart/` | `wyrm_core` (CBOR codec, 26 fixtures), `wyrm_client` (gateway WebSocket), `wyrm_ffi` (direct, via `wyrm-ffi`), `wyrm_flutter` (tree widget + example app) |
+| `dart/` | `wyrm_core` (CBOR codec, 26 fixtures), `wyrm_client` (gateway WebSocket), `wyrm_ffi` (direct, via `wyrm-ffi`) |
+| `studio/` | WYRM Studio, the Flutter app (ADR 0037): an AsyncRedux monorepo made with `frx`; plan in [`docs/studio.md`](docs/studio.md) |
 | `links/agent` | AI agent as a link: `~act/ask` plans with an LLM over read-only tools, `tasks/<id>` (`~state` restricted), human `approve` with per-key tokens; scoped service token, `allowed_prefixes`, daily token budget |
 | `tools/wyrm-mcp` | MCP server over the tree for AI tools: browse, read, dry-run first, human approval for config-level changes (`docs/mcp.md`, ADR 0005) |
 | `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`/`watch`, `tree`, `set`, `invoke`, `values` (recorded history), `bench`, `keygen`, `token` (human approval), `admin …`, `flow …`, and dev commands `new link\|flow`, `dev`, `sim`, `record`, `replay` (`tools/wyr/README.md`) |
@@ -134,17 +135,15 @@ Certificates last 365 days. The broker issues its own again (listener, client, p
 
 A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge (ADR 0007) and commands it as plant allows (`allow_config` at each hop for `sys`).
 
-Demo with a chain of three sites, connectors and the Flutter app:
+Demo with a chain of three sites and connectors:
 `examples/demo/run.sh` starts `central`, `edge` (`mock`, `mockdev`, `modbus`
 as a process link, `modbus_slave`, `http`, `snmp`, `prometheus`) and `plant`
 (`mock`, `s7`, `bacnet`, `opcua`; connected to edge), each link against its
 simulator, each with a gateway (`:8445`, `:8444`, `:8446`, user
 `admin`, password `wyrm-demo-1`); central reads plant through edge. `wyrmd -c <cfg> ca` creates a site's CA
-and the certificates of the sites below it before they start. App: `cd dart/wyrm_flutter/example &&
-flutter create --platforms=macos . && flutter run -d macos` (raise
-`MACOSX_DEPLOYMENT_TARGET` to 12.0 and add the `network.client`
-entitlement); root `wy/edge/downstream`, the tune icon opens a node's `~meta`
-and actions.
+and the certificates of the sites below it before they start. The app is
+WYRM Studio (`studio/`, [`docs/studio.md`](docs/studio.md)); it logs in to
+any of the three gateways.
 
 ## Gateway
 ```json5
