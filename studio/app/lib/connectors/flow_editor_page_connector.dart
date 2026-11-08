@@ -501,13 +501,18 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   }
 
   /// Whether the draft's values come from its preview: it runs otherwise
-  /// than the deployed version (its layout aside) and the broker has a
-  /// preview.
+  /// than the deployed version (its layout aside), the broker has a
+  /// preview, and the preview has answered (until then the watch's values
+  /// stay, so the first edit does not blank every field).
   bool get _previewing {
-    final d = flowEditor.draft;
-    final dep = flowEditor.deployed;
+    final ed = flowEditor;
+    final d = ed.draft;
+    final dep = ed.deployed;
     return d != null &&
-        flowEditor.previewOff == null &&
+        ed.previewOff == null &&
+        (ed.previewPorts.isNotEmpty ||
+            ed.previewSinks.isNotEmpty ||
+            ed.previewError != null) &&
         (dep == null || previewDefOf(dep) != previewDefOf(d));
   }
 
