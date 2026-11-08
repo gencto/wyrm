@@ -30,13 +30,14 @@ flowchart LR
     links -->|"onTapLinkInstall"| linkInstall
     links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
+    system -->|"onAction [a == 'gallery']"| gallery
     linkInstall -.->|"onClose"| links
     linkInstall -.->|"onBack"| links
     linkInstall -.->|"onResultAction"| links
     flowEditor -.->|"onClose"| flows
 
     classDef frxEntry stroke-dasharray: 5 3
-    class logIn,gallery,studio frxEntry
+    class logIn,studio frxEntry
 ```
 
 Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it, when there is exactly one). Thick: a hop that replaces the stack. `⚡` marks navigation dispatched from a reducer rather than the view-model. A dashed border means nothing pushes that screen — you arrive by path, deep link or a guard redirect.
@@ -50,10 +51,10 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `ExplorerPage` | `/studio/explorer` | no | 10 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |
-| `HistoryPage` | `/studio/history` | no | 0 | [history](history.md) |
-| `AccessPage` | `/studio/access` | no | 0 | [access](access.md) |
+| `HistoryPage` | `/studio/history` | no | 4 | [history](history.md) |
+| `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 0 | [assistant](assistant.md) |
-| `SystemPage` | `/studio/system` | no | 0 | [system](system.md) |
+| `SystemPage` | `/studio/system` | no | 4 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 13 | [flowEditor](flowEditor.md) |

@@ -1,0 +1,25 @@
+import 'package:async_redux/async_redux.dart';
+import 'package:wyrm_client/wyrm_client.dart';
+
+import '../../app_state.dart';
+import '../../common/action.dart';
+
+/// Removes a user of the gateway.
+class RemoveUserAction extends Action with WaitingAction {
+  RemoveUserAction(this.name);
+
+  final String name;
+
+  @override
+  Future<AppState?> reduce() async {
+    try {
+      await deps.session?.removeUser(name);
+    } on WyrmException catch (e) {
+      throw UserException('The gateway refused it.', reason: e.message);
+    }
+    return state.copyWith.access(
+      users: access.users.removeWhere((u) => u.name == name),
+      selected: null,
+    );
+  }
+}

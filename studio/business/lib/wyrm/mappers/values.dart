@@ -19,10 +19,13 @@ String? str(Value? v) => switch (v) {
   _ => null,
 };
 
-/// The text of [v], also for a number or a bool; null otherwise.
+/// The text of [v], also for a number or a bool; null otherwise. A whole
+/// float is written without its `.0`.
 String? text(Value? v) => switch (v) {
   VStr(:final v) => v,
   VInt(:final v) => '$v',
+  VFloat(:final v) when v == v.truncateToDouble() && v.abs() < 1e15 =>
+    '${v.toInt()}',
   VFloat(:final v) => '$v',
   VBool(:final v) => '$v',
   _ => null,

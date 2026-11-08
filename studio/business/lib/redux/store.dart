@@ -202,6 +202,9 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.tasks != next.tasks) 'tasks',
       if (prev.assistant != next.assistant) 'assistant',
       if (prev.changes != next.changes) 'changes',
+      if (prev.historian != next.historian) 'historian',
+      if (prev.access != next.access) 'access',
+      if (prev.system != next.system) 'system',
     ];
   }
 }

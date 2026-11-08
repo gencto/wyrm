@@ -3282,6 +3282,693 @@ class S {
   String get validate {
     return Intl.message('Validate', name: 'validate', desc: '', args: []);
   }
+
+  /// `Access on {site}`
+  String accessOn(Object site) {
+    return Intl.message(
+      'Access on $site',
+      name: 'accessOn',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Who may log in to this gateway, what each role may reach, and what was done.`
+  String get accessSubtitle {
+    return Intl.message(
+      'Who may log in to this gateway, what each role may reach, and what was done.',
+      name: 'accessSubtitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add a grant`
+  String get addGrant {
+    return Intl.message('Add a grant', name: 'addGrant', desc: '', args: []);
+  }
+
+  /// `Add a user`
+  String get addUser {
+    return Intl.message('Add a user', name: 'addUser', desc: '', args: []);
+  }
+
+  /// `Add a point`
+  String get addWatchPath {
+    return Intl.message(
+      'Add a point',
+      name: 'addWatchPath',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Record one more point (a key under downstream, dataflows or storage).`
+  String get addWatchPathNote {
+    return Intl.message(
+      'Record one more point (a key under downstream, dataflows or storage).',
+      name: 'addWatchPathNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Users are managed by the gateway's administrators.`
+  String get adminsOnly {
+    return Intl.message(
+      'Users are managed by the gateway\'s administrators.',
+      name: 'adminsOnly',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Log`
+  String get brokerLog {
+    return Intl.message('Log', name: 'brokerLog', desc: '', args: []);
+  }
+
+  /// `Clear disconnected links`
+  String get clearConns {
+    return Intl.message(
+      'Clear disconnected links',
+      name: 'clearConns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Removes external links that are not connected; their ids are retired.`
+  String get clearConnsNote {
+    return Intl.message(
+      'Removes external links that are not connected; their ids are retired.',
+      name: 'clearConnsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Key`
+  String get colKey {
+    return Intl.message('Key', name: 'colKey', desc: '', args: []);
+  }
+
+  /// `Level`
+  String get colLevel {
+    return Intl.message('Level', name: 'colLevel', desc: '', args: []);
+  }
+
+  /// `Role`
+  String get colRole {
+    return Intl.message('Role', name: 'colRole', desc: '', args: []);
+  }
+
+  /// `Roles`
+  String get colRoles {
+    return Intl.message('Roles', name: 'colRoles', desc: '', args: []);
+  }
+
+  /// `Rows shown`
+  String get colRows {
+    return Intl.message('Rows shown', name: 'colRows', desc: '', args: []);
+  }
+
+  /// `From`
+  String get colSource {
+    return Intl.message('From', name: 'colSource', desc: '', args: []);
+  }
+
+  /// `User`
+  String get colUser {
+    return Intl.message('User', name: 'colUser', desc: '', args: []);
+  }
+
+  /// `Watch`
+  String get colWatch {
+    return Intl.message('Watch', name: 'colWatch', desc: '', args: []);
+  }
+
+  /// `Collecting values…`
+  String get collecting {
+    return Intl.message(
+      'Collecting values…',
+      name: 'collecting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `connected`
+  String get connected {
+    return Intl.message('connected', name: 'connected', desc: '', args: []);
+  }
+
+  /// `Control plane`
+  String get controlPlane {
+    return Intl.message(
+      'Control plane',
+      name: 'controlPlane',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `data_dir {size}`
+  String dataDir(Object size) {
+    return Intl.message(
+      'data_dir $size',
+      name: 'dataDir',
+      desc: '',
+      args: [size],
+    );
+  }
+
+  /// `Every part of the design system (development builds).`
+  String get designGalleryNote {
+    return Intl.message(
+      'Every part of the design system (development builds).',
+      name: 'designGalleryNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Disable`
+  String get disableUser {
+    return Intl.message('Disable', name: 'disableUser', desc: '', args: []);
+  }
+
+  /// `A disabled user cannot log in; their roles stay.`
+  String get disableUserNote {
+    return Intl.message(
+      'A disabled user cannot log in; their roles stay.',
+      name: 'disableUserNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit the group`
+  String get editGroup {
+    return Intl.message(
+      'Edit the group',
+      name: 'editGroup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `How and how often its points are recorded.`
+  String get editGroupNote {
+    return Intl.message(
+      'How and how often its points are recorded.',
+      name: 'editGroupNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enable`
+  String get enableUser {
+    return Intl.message('Enable', name: 'enableUser', desc: '', args: []);
+  }
+
+  /// `every {s} s`
+  String everySeconds(Object s) {
+    return Intl.message(
+      'every $s s',
+      name: 'everySeconds',
+      desc: '',
+      args: [s],
+    );
+  }
+
+  /// `Build`
+  String get factBuild {
+    return Intl.message('Build', name: 'factBuild', desc: '', args: []);
+  }
+
+  /// `Flush`
+  String get factFlush {
+    return Intl.message('Flush', name: 'factFlush', desc: '', args: []);
+  }
+
+  /// `Grants`
+  String get factGrants {
+    return Intl.message('Grants', name: 'factGrants', desc: '', args: []);
+  }
+
+  /// `Interval`
+  String get factInterval {
+    return Intl.message('Interval', name: 'factInterval', desc: '', args: []);
+  }
+
+  /// `Log level`
+  String get factLogLevel {
+    return Intl.message('Log level', name: 'factLogLevel', desc: '', args: []);
+  }
+
+  /// `Oldest day`
+  String get factOldest {
+    return Intl.message('Oldest day', name: 'factOldest', desc: '', args: []);
+  }
+
+  /// `Record`
+  String get factRecord {
+    return Intl.message('Record', name: 'factRecord', desc: '', args: []);
+  }
+
+  /// `Rows written`
+  String get factRowsWritten {
+    return Intl.message(
+      'Rows written',
+      name: 'factRowsWritten',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Started`
+  String get factStarted {
+    return Intl.message('Started', name: 'factStarted', desc: '', args: []);
+  }
+
+  /// `Subject`
+  String get factSubject {
+    return Intl.message('Subject', name: 'factSubject', desc: '', args: []);
+  }
+
+  /// `Gateway user`
+  String get gatewayUser {
+    return Intl.message(
+      'Gateway user',
+      name: 'gatewayUser',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `raw kept {days} d`
+  String historianKeep(Object days) {
+    return Intl.message(
+      'raw kept $days d',
+      name: 'historianKeep',
+      desc: '',
+      args: [days],
+    );
+  }
+
+  /// `{n} series`
+  String historianSeries(Object n) {
+    return Intl.message(
+      '$n series',
+      name: 'historianSeries',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Historian {size}`
+  String historianSize(Object size) {
+    return Intl.message(
+      'Historian $size',
+      name: 'historianSize',
+      desc: '',
+      args: [size],
+    );
+  }
+
+  /// `Sync links read the historian's change journal, so nothing is lost while a database is down.`
+  String get historyFooter {
+    return Intl.message(
+      'Sync links read the historian\'s change journal, so nothing is lost while a database is down.',
+      name: 'historyFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `lag {lag}`
+  String lag(Object lag) {
+    return Intl.message('lag $lag', name: 'lag', desc: '', args: [lag]);
+  }
+
+  /// `ACL denials`
+  String get mAclDenials {
+    return Intl.message('ACL denials', name: 'mAclDenials', desc: '', args: []);
+  }
+
+  /// `Audit records`
+  String get mAuditRecords {
+    return Intl.message(
+      'Audit records',
+      name: 'mAuditRecords',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Free disk`
+  String get mFreeDisk {
+    return Intl.message('Free disk', name: 'mFreeDisk', desc: '', args: []);
+  }
+
+  /// `In quarantine`
+  String get mInQuarantine {
+    return Intl.message(
+      'In quarantine',
+      name: 'mInQuarantine',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links connected`
+  String get mLinksConnected {
+    return Intl.message(
+      'Links connected',
+      name: 'mLinksConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Memory`
+  String get mMemory {
+    return Intl.message('Memory', name: 'mMemory', desc: '', args: []);
+  }
+
+  /// `Sessions`
+  String get mSessions {
+    return Intl.message('Sessions', name: 'mSessions', desc: '', args: []);
+  }
+
+  /// `Standby`
+  String get mStandby {
+    return Intl.message('Standby', name: 'mStandby', desc: '', args: []);
+  }
+
+  /// `Upstreams / below`
+  String get mUpDown {
+    return Intl.message(
+      'Upstreams / below',
+      name: 'mUpDown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Router messages per second`
+  String get messagesPerSecond {
+    return Intl.message(
+      'Router messages per second',
+      name: 'messagesPerSecond',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No audit records you may read.`
+  String get noAudit {
+    return Intl.message(
+      'No audit records you may read.',
+      name: 'noAudit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No grants you may read.`
+  String get noGrants {
+    return Intl.message(
+      'No grants you may read.',
+      name: 'noGrants',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No users you may see.`
+  String get noUsers {
+    return Intl.message(
+      'No users you may see.',
+      name: 'noUsers',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No watch groups yet. Add one to record points.`
+  String get noWatchGroups {
+    return Intl.message(
+      'No watch groups yet. Add one to record points.',
+      name: 'noWatchGroups',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No points in this group.`
+  String get noWatchPaths {
+    return Intl.message(
+      'No points in this group.',
+      name: 'noWatchPaths',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `none`
+  String get none {
+    return Intl.message('none', name: 'none', desc: '', args: []);
+  }
+
+  /// `{n, plural, =1{1 point} other{{n} points}}`
+  String pointsCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 point',
+      other: '$n points',
+      name: 'pointsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Purge a time range`
+  String get purgeHistory {
+    return Intl.message(
+      'Purge a time range',
+      name: 'purgeHistory',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deletes the recorded rows of a range, for every point.`
+  String get purgeHistoryNote {
+    return Intl.message(
+      'Deletes the recorded rows of a range, for every point.',
+      name: 'purgeHistoryNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove the group`
+  String get removeGroup {
+    return Intl.message(
+      'Remove the group',
+      name: 'removeGroup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It stops recording; its rows stay unless you purge them.`
+  String get removeGroupNote {
+    return Intl.message(
+      'It stops recording; its rows stay unless you purge them.',
+      name: 'removeGroupNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove user`
+  String get removeUser {
+    return Intl.message('Remove user', name: 'removeUser', desc: '', args: []);
+  }
+
+  /// `They cannot log in again; their sessions end.`
+  String get removeUserNote {
+    return Intl.message(
+      'They cannot log in again; their sessions end.',
+      name: 'removeUserNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove {name}?`
+  String removeUserTitle(Object name) {
+    return Intl.message(
+      'Remove $name?',
+      name: 'removeUserTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Running`
+  String get running {
+    return Intl.message('Running', name: 'running', desc: '', args: []);
+  }
+
+  /// `see Links`
+  String get seeLinks {
+    return Intl.message('see Links', name: 'seeLinks', desc: '', args: []);
+  }
+
+  /// `Log level {level}`
+  String setLogLevel(Object level) {
+    return Intl.message(
+      'Log level $level',
+      name: 'setLogLevel',
+      desc: '',
+      args: [level],
+    );
+  }
+
+  /// `Takes effect at once, no restart. Staged with your other edits.`
+  String get setLogLevelNote {
+    return Intl.message(
+      'Takes effect at once, no restart. Staged with your other edits.',
+      name: 'setLogLevelNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set password`
+  String get setPassword {
+    return Intl.message(
+      'Set password',
+      name: 'setPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Their open sessions stay until they expire.`
+  String get setPasswordNote {
+    return Intl.message(
+      'Their open sessions stay until they expire.',
+      name: 'setPasswordNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set roles`
+  String get setRoles {
+    return Intl.message('Set roles', name: 'setRoles', desc: '', args: []);
+  }
+
+  /// `Roles decide what the user reaches (see Grants).`
+  String get setRolesNote {
+    return Intl.message(
+      'Roles decide what the user reaches (see Grants).',
+      name: 'setRolesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sys/**, admin only`
+  String get sysAdminOnly {
+    return Intl.message(
+      'sys/**, admin only',
+      name: 'sysAdminOnly',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `wyrmd.json5 states the intent at first start; everything changed here since lives in its write-ahead log.`
+  String get systemFooter {
+    return Intl.message(
+      'wyrmd.json5 states the intent at first start; everything changed here since lives in its write-ahead log.',
+      name: 'systemFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Audit`
+  String get tabAudit {
+    return Intl.message('Audit', name: 'tabAudit', desc: '', args: []);
+  }
+
+  /// `Grants`
+  String get tabGrants {
+    return Intl.message('Grants', name: 'tabGrants', desc: '', args: []);
+  }
+
+  /// `Users`
+  String get tabUsers {
+    return Intl.message('Users', name: 'tabUsers', desc: '', args: []);
+  }
+
+  /// `The point stops being recorded; its rows stay.`
+  String get unsubscribeNote {
+    return Intl.message(
+      'The point stops being recorded; its rows stay.',
+      name: 'unsubscribeNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `up {d}`
+  String upFor(Object d) {
+    return Intl.message('up $d', name: 'upFor', desc: '', args: [d]);
+  }
+
+  /// `Active`
+  String get userActive {
+    return Intl.message('Active', name: 'userActive', desc: '', args: []);
+  }
+
+  /// `Disabled`
+  String get userDisabled {
+    return Intl.message('Disabled', name: 'userDisabled', desc: '', args: []);
+  }
+
+  /// `Watch group`
+  String get watchGroup {
+    return Intl.message('Watch group', name: 'watchGroup', desc: '', args: []);
+  }
+
+  /// `Watch groups · {n}`
+  String watchGroups(Object n) {
+    return Intl.message(
+      'Watch groups · $n',
+      name: 'watchGroups',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `wyrmd on {site}`
+  String wyrmdOn(Object site) {
+    return Intl.message(
+      'wyrmd on $site',
+      name: 'wyrmdOn',
+      desc: '',
+      args: [site],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
