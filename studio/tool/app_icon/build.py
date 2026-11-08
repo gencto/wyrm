@@ -1,6 +1,6 @@
 """Render the WYRM Studio app icon for every platform of studio/app.
 
-    cd studio && python3 tool/app_icon/build.py [night|ember|signal]
+    cd studio && python3 tool/app_icon/build.py [night|ember]
 
 Needs: Python 3.10+, numpy, Pillow, and rsvg-convert (macOS: brew install librsvg;
 Debian/Ubuntu: apt install librsvg2-bin). The mark and palettes are in icon.py,

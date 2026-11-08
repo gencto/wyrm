@@ -11,11 +11,10 @@ Board: `AppIcon` (canvas row "Design system"; its images in `../canvas/icon/`). 
 ## Variants
 | Variant | Background | Mark | Status |
 |---|---|---|---|
-| `night` | `#171B1F` → `#0B0D0F`, ember glow at 42 % height | ember rings `#F6B072` → `#D9732B`, ember head | **chosen** |
+| `night` | `#171B1F` → `#0B0D0F`, ember glow at 42 % height | ember rings `#F6B072` → `#D9732B`, ember head | **chosen** (owner, 2026-11-08) |
 | `ember` | `#F09A4E` → `#C9612A` | dark rings and head `#0E1113` | alternative |
-| `signal` | `#14201E` → `#0B0F0F`, teal glow | teal rings `#9BE0D0` → `#4FAE99`, ember head | alternative |
 
-Night matches the app's own background (`#0E1113`) and the log-in board. To switch, run `build.py ember` (or `signal`), commit the changed PNGs, and change the "chosen" tag on the board.
+Night matches the app's own background (`#0E1113`) and the log-in board. To switch, run `build.py ember`, commit the changed PNGs, and change the "chosen" tag on the board.
 
 ## Background
 Computed in floating point with numpy (vertical gradient, Gaussian glow at (0.5, 0.42), a faint top highlight) and dithered before quantising to 8 bits. Never a plain SVG radial gradient: at 8 bits that bands visibly on a dark tile. The mark itself is SVG rendered by `rsvg-convert` and composited with Pillow.
@@ -40,7 +39,7 @@ Linux: the PNG is for the `.desktop` entry of a package (deb, Flatpak, Snap). Th
 ## Regenerate
 ```sh
 cd studio
-python3 tool/app_icon/build.py            # night; or: build.py ember | signal
+python3 tool/app_icon/build.py            # night; or: build.py ember
 git status app docs/design/icon           # the changed PNGs, commit them
 ```
 Needs Python 3.10+, numpy, Pillow and `rsvg-convert` (macOS `brew install librsvg`, Debian/Ubuntu `apt install librsvg2-bin`). About 15 s. It also writes the 1024 px masters to `docs/design/icon/`.

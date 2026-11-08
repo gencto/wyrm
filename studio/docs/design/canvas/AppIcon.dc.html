@@ -29,12 +29,12 @@ code{font-family:'IBM Plex Mono',ui-monospace,monospace}
 <section style="display: flex; flex-direction: column; gap: 18px">
 <div style="display: flex; flex-direction: column; gap: 6px">
 <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">01 · Variants</span>
-<h2 style="margin: 0; font-size: 26px; font-weight: 600">Night is the icon; ember and signal are the alternatives</h2>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">Night is the icon; ember is the one alternative</h2>
 </div>
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px">
+<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px">
 <sc-for list="{{variants}}" as="v" hint-placeholder-count="3">
 <div style="padding: 20px; border-radius: 14px; border: 1px solid {{v.border}}; background: #13171A; display: flex; flex-direction: column; gap: 14px">
-<img src="{{v.big}}" width="340" height="340" alt="" style="align-self: center">
+<img src="{{v.big}}" width="420" height="420" alt="" style="align-self: center">
 <div style="display: flex; align-items: flex-end; gap: 16px; padding: 12px 14px; border-radius: 10px; background: #1B2024">
 <img src="{{v.s64}}" width="64" height="64" alt="">
 <img src="{{v.s32}}" width="32" height="32" alt="">
@@ -177,8 +177,7 @@ class Component extends DCLogic {
     });
     const variants = [
       v('night', 'chosen', 'The app’s own background with the ember mark: what the log-in screen shows. Calm in a dock full of bright icons, and it matches the window it opens.', true),
-      v('ember', 'alternative', 'Inverted: an ember tile with a dark mark. The loudest of the three; easiest to find, least like the app inside.', false),
-      v('signal', 'alternative', 'Night with teal rings and an ember head: the colours of values (teal) and commands (ember) in the explorer.', false)
+      v('ember', 'alternative', 'Inverted: an ember tile with a dark mark. Louder and easier to find in a dock, less like the app inside.', false)
     ];
     const iosApps = [
       { name: 'Mail', bg: '#3D7BE0' }, { name: 'Notes', bg: '#E9C44C' }, { name: 'Studio', bg: '#0E1113', me: true }, { name: 'Maps', bg: '#5BAA6A' },

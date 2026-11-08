@@ -8,7 +8,6 @@ MARK_CX, MARK_CY = 110, 65   # visual centre of the mark box
 PAL = {
   'night':  dict(bg0='#171B1F', bg1='#0B0D0F', glow='#4A2A12', glow_o=0.55, ring0='#F6B072', ring1='#D9732B', fill0='#F8BC85', fill1='#E07B2E', spine='#7A4A22', spine_o=0.9, hole='#0E1113'),
   'ember':  dict(bg0='#F09A4E', bg1='#C9612A', glow='#FFD3A8', glow_o=0.35, ring0='#1A1F23', ring1='#0E1113', fill0='#22282D', fill1='#0E1113', spine='#7A3A12', spine_o=0.55, hole='#E8893A'),
-  'signal': dict(bg0='#14201E', bg1='#0B0F0F', glow='#1E5A4E', glow_o=0.5, ring0='#9BE0D0', ring1='#4FAE99', fill0='#F8BC85', fill1='#E07B2E', spine='#2F6F62', spine_o=0.9, hole='#0E1113'),
 }
 
 def defs(p, uid):

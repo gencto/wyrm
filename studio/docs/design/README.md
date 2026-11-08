@@ -1,6 +1,6 @@
 # Design reference
 
-`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 58, 2026-11-08). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
+`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 59, 2026-11-08). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
 
 The boards do not render on their own (they run inside the canvas). Read them as source:
 
