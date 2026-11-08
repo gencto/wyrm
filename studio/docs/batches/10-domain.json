@@ -1,0 +1,156 @@
+{
+  "intents": [
+    {
+      "command": "add-enum",
+      "args": [
+        "link_mode"
+      ],
+      "options": {
+        "value": [
+          "embedded",
+          "process",
+          "wasm",
+          "external"
+        ]
+      }
+    },
+    {
+      "command": "add-enum",
+      "args": [
+        "quality"
+      ],
+      "options": {
+        "value": [
+          "good",
+          "uncertain",
+          "bad"
+        ]
+      }
+    },
+    {
+      "command": "add-enum",
+      "args": [
+        "task_state"
+      ],
+      "options": {
+        "value": [
+          "planning",
+          "awaiting_approval",
+          "running",
+          "done",
+          "failed"
+        ]
+      }
+    },
+    {
+      "command": "add-enum",
+      "args": [
+        "peer_kind"
+      ],
+      "options": {
+        "value": [
+          "upstream",
+          "downstream",
+          "relayed",
+          "platform",
+          "device"
+        ]
+      }
+    },
+    {
+      "command": "add-enum",
+      "args": [
+        "links_tab"
+      ],
+      "options": {
+        "value": [
+          "local",
+          "remote",
+          "quarantine"
+        ]
+      }
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "node_info"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "live_value"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "package_check"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "link_info"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "quarantine_entry"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "package_info"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "peer"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "flow_summary"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "param_spec"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "plan_step"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "agent_task"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "install_source"
+      ],
+      "options": {
+        "case": [
+          "built_in",
+          "repository",
+          "zip",
+          "url",
+          "git",
+          "wasm"
+        ]
+      }
+    }
+  ]
+}

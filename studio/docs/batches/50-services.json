@@ -1,0 +1,28 @@
+{
+  "intents": [
+    {
+      "command": "add-service",
+      "args": [
+        "wyrm_connection"
+      ]
+    },
+    {
+      "command": "add-service",
+      "args": [
+        "live_values"
+      ]
+    },
+    {
+      "command": "add-service",
+      "args": [
+        "tree_watch"
+      ]
+    },
+    {
+      "command": "add-service",
+      "args": [
+        "agent_tasks"
+      ]
+    }
+  ]
+}

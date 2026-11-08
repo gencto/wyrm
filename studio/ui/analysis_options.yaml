@@ -1,0 +1,15 @@
+include: package:pro_lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - "lib/generated/**.gen.dart"
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+formatter:
+  trailing_commas: preserve

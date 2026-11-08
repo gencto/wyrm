@@ -1,0 +1,39 @@
+{
+  "intents": [
+    {
+      "command": "add-tabs",
+      "args": [
+        "studio"
+      ],
+      "options": {
+        "tab": [
+          "explorer",
+          "links",
+          "flows",
+          "history",
+          "access",
+          "sites",
+          "assistant",
+          "system"
+        ]
+      }
+    },
+    {
+      "command": "add-page",
+      "args": [
+        "link_install"
+      ]
+    },
+    {
+      "command": "add-page",
+      "args": [
+        "flow_editor"
+      ],
+      "options": {
+        "param": [
+          "id:String"
+        ]
+      }
+    }
+  ]
+}
