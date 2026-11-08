@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Access</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Go to a node, action or link" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #2A1F16; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">3</span></button>
+<button type="button" aria-label="Account: admin" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">AD</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="#access" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Roles list -->
+<aside aria-label="Roles" style="flex: 1 1 240px; max-width: 280px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<nav aria-label="Access sections" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 10px; border-bottom: 1px solid #252B30">
+<a href="#roles" aria-current="page" style="height: 34px; border-radius: 6px; background: #22282D; color: #ECE9E1; font-size: 13px; display: flex; align-items: center; justify-content: center">Roles</a>
+<a href="#users" style="height: 34px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center; justify-content: center">Users</a>
+<a href="#tokens" style="height: 34px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center; justify-content: center">Tokens</a>
+<a href="#audit" style="height: 34px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center; justify-content: center">Audit</a>
+</nav>
+<div style="padding: 14px 12px 8px; display: flex; align-items: center; justify-content: space-between">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Roles · 5</span>
+<button type="button" aria-label="New role" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #A3ABAF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<div style="padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{roles}}" as="r" hint-placeholder-count="5">
+<button type="button" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}" style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 10px; border: 0; border-radius: 8px; background: {{r.bg}}; color: #ECE9E1; text-align: left; cursor: pointer">
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<code style="font-size: 14px; font-weight: {{r.weight}}">{{r.id}}</code>
+<span style="font-size: 12px; color: #8E979C">{{r.count}}</span>
+</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #22282D; color: #A3ABAF">≤ {{r.max}}</span>
+</button>
+</sc-for>
+</div>
+<p style="margin: auto 12px 14px; font-size: 12px; color: #8E979C; line-height: 1.5">Roles live in the gateway. For every request it mints a short-lived token from the role’s grants; the link checks it before the driver runs.</p>
+</aside>
+
+<!-- Role editor -->
+<main style="flex: 999 1 520px; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 26px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 600">{{role.id}}</h1>
+<span style="display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; background: #22282D; color: #C5CBCE; font-size: 12px">max level · {{role.max}}</span>
+</div>
+<p style="margin: 0; color: #A3ABAF">{{role.desc}}</p>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add grant</button>
+</div>
+
+<section aria-label="Grants" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Grants · first match wins</h2>
+<span style="font-size: 12px; color: #8E979C">Key expressions: <code style="color: #C5CBCE">*</code> one segment, <code style="color: #C5CBCE">**</code> any depth</span>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow-x: auto">
+<div style="min-width: 640px">
+<sc-for list="{{grants}}" as="g" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 14px; min-height: 56px; padding: 8px 12px 8px 16px; border-bottom: 1px solid #1D2226; box-sizing: border-box; background: {{g.rowBg}}">
+<code style="flex: 0 0 22px; font-size: 12px; color: #8E979C">{{g.n}}</code>
+<code style="flex: 1 1 220px; min-width: 0; font-size: 13px; color: #ECE9E1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{g.key}}</code>
+<sc-if value="{{g.matched}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #2A1F16; color: #F3A766; white-space: nowrap">matches the check</span></sc-if>
+<div role="radiogroup" aria-label="Level for {{g.key}}" style="flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 2px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<sc-for list="{{g.levels}}" as="lv" hint-placeholder-count="5">
+<button type="button" role="radio" aria-checked="{{lv.checked}}" onClick="{{lv.pick}}" style="height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: {{lv.bg}}; color: {{lv.color}}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: {{lv.weight}}; cursor: pointer">{{lv.name}}</button>
+</sc-for>
+</div>
+<button type="button" aria-label="Remove grant {{g.key}}" style="flex: none; width: 36px; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #8E979C; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button>
+</div>
+</sc-for>
+</div>
+</div>
+<sc-if value="{{dirty}}" hint-placeholder-val="{{false}}"><p style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #F3A766"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}"></span>Staged. The router ACL is rebuilt when you apply; open clients reconnect once.</p></sc-if>
+</section>
+
+<section aria-label="Members" style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Members</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{role.members}}" as="m" hint-placeholder-count="3">
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 4px; border-radius: 18px; background: #161A1D; border: 1px solid #252B30; font-size: 13px"><span style="width: 28px; height: 28px; border-radius: 50%; background: #22282D; color: #C5CBCE; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{m.ini}}</span><code style="font-size: 13px">{{m.name}}</code><span style="color: #8E979C; font-size: 12px">{{m.kind}}</span></span>
+</sc-for>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 18px; border: 1px dashed #3A4249; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">Add member</button>
+</div>
+</section>
+
+<section aria-label="Recent activity" style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Recent activity · sys/audit</h2>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow-x: auto">
+<div style="min-width: 640px">
+<sc-for list="{{audit}}" as="a" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 60px 90px 70px 1fr 110px; align-items: center; gap: 12px; min-height: 44px; padding: 6px 16px; border-bottom: 1px solid #1D2226; box-sizing: border-box; font-size: 13px">
+<code style="color: #8E979C">{{a.t}}</code>
+<code style="color: #C5CBCE">{{a.who}}</code>
+<code style="color: #A3ABAF">{{a.op}}</code>
+<code style="color: #ECE9E1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{a.key}}</code>
+<span style="display: flex; align-items: center; gap: 6px; color: {{a.c}}"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{a.c}}"></span>{{a.res}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Inspector: check -->
+<aside aria-label="Check a request" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Check a request</span>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5">What would a member of <code style="color: #ECE9E1">{{role.id}}</code> get on this key? Same order as the responder: first grant, then the caps.</p>
+</div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 16px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Key</span><input type="text" value="{{checkKey}}" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box; min-width: 0"></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Request</span><span style="display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 6px; background: #1D2226; border: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 13px">~set · needs write</span></div>
+
+<div style="display: flex; flex-direction: column; border-radius: 10px; border: 1px solid #252B30; background: #161A1D">
+<div style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border-bottom: 1px solid #1D2226; box-sizing: border-box; font-size: 13px"><span style="flex: 1; color: #A3ABAF">Matched grant</span><code style="color: #ECE9E1">{{check.grant}}</code></div>
+<div style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border-bottom: 1px solid #1D2226; box-sizing: border-box; font-size: 13px"><span style="flex: 1; color: #A3ABAF">Role max</span><code style="color: #ECE9E1">{{role.max}}</code></div>
+<div style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border-bottom: 1px solid #1D2226; box-sizing: border-box; font-size: 13px"><span style="flex: 1; color: #A3ABAF">Link maxperm · modbus</span><code style="color: #ECE9E1">config</code></div>
+<div style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; box-sizing: border-box"><span style="flex: 1; font-weight: 600">Effective</span><code style="font-size: 15px; font-weight: 600; color: #ECE9E1">{{check.level}}</code></div>
+</div>
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 8px; background: {{check.bg}}; border: 1px solid {{check.border}}; font-size: 13px; color: {{check.ink}}">
+<span style="width: 8px; height: 8px; flex: none; margin-top: 5px; border-radius: 50%; background: {{check.c}}"></span>
+<span>{{check.text}}</span>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Tokens for this role</h2>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<span style="color: #8E979C">Lifetime</span><span>5 min · at most 15</span>
+<span style="color: #8E979C">Replay</span><span>single use, by jti</span>
+<span style="color: #8E979C">Reaches sys</span><span>{{role.sys}}</span>
+</div>
+</section>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const LEVELS = ['none', 'list', 'read', 'write', 'config'];
+    const rank = (l) => LEVELS.indexOf(l);
+    const ROLES = [
+      { id: 'operator', max: 'write', desc: 'Shift staff: read every point, write setpoints, keep flows as they are.', sys: 'no',
+        grants: [['wy/plant/downstream/**', 'write'], ['wy/plant/storage/**', 'write'], ['wy/plant/dataflows/**', 'read'], ['wy/plant/sys/**', 'none']],
+        members: [['olena', 'person'], ['maria.s', 'person'], ['taras.d', 'person']] },
+      { id: 'admin', max: 'config', desc: 'Installs links, edits flows and roles, authorizes sites. The only role that reaches sys.', sys: 'yes, config',
+        grants: [['wy/**', 'config']], members: [['admin', 'person']] },
+      { id: 'viewer', max: 'read', desc: 'Control-room screens and dashboards. Reads values and history, writes nothing.', sys: 'no',
+        grants: [['wy/plant/downstream/**', 'read'], ['wy/plant/storage/**', 'read'], ['wy/plant/dataflows/**', 'list']],
+        members: [['control-room', 'screen']] },
+      { id: 'ai-agent', max: 'write', desc: 'wyrm-agent and MCP. Plans with read tools; each config step needs a person’s approval token.', sys: 'no',
+        grants: [['wy/plant/downstream/**', 'read'], ['wy/plant/storage/agent/**', 'write']], members: [['wyrm-agent', 'service']] },
+      { id: 'integrator', max: 'write', desc: 'External systems that pull data and push targets into storage.', sys: 'no',
+        grants: [['wy/plant/downstream/modbus/**', 'read'], ['wy/plant/storage/erp/**', 'write']], members: [['erp-sync', 'service']] }
+    ];
+    const sel = st.role || 'operator';
+    const over = st.over || {};
+    const roleRaw = ROLES.find((r) => r.id === sel) || ROLES[0];
+    const levelOf = (i) => (over[sel] && over[sel][i]) || roleRaw.grants[i][1];
+    const dirty = !!over[sel] && Object.keys(over[sel]).some((i) => over[sel][i] !== roleRaw.grants[i][1]);
+    const toRe = (p) => new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\/\*\*/g, '(/.*)?').replace(/\*/g, '[^/]+') + '$');
+    const checkKey = 'wy/plant/downstream/modbus/tcp-boiler/plc1/fan/~set';
+    let mi = -1;
+    for (let i = 0; i < roleRaw.grants.length; i++) { if (toRe(roleRaw.grants[i][0]).test(checkKey)) { mi = i; break; } }
+    const grantLevel = mi >= 0 ? levelOf(mi) : 'none';
+    const eff = LEVELS[Math.min(rank(grantLevel), rank(roleRaw.max), rank('config'))];
+    const ok = rank(eff) >= rank('write');
+    const check = {
+      grant: mi >= 0 ? '#' + (mi + 1) + ' · ' + grantLevel : 'none',
+      level: eff,
+      c: ok ? '#6CC4B0' : '#E07A5F', bg: ok ? '#15302A' : '#33201B', border: ok ? '#36705F' : '#5A3328', ink: ok ? '#C4EBE1' : '#F0C2B5',
+      text: ok ? 'Allowed. The write goes to the driver and shows once it is read back.' : 'Denied with a permission error. The driver never sees the call and nothing is written.'
+    };
+    const setLevel = (i, l) => {
+      const o = { ...(over[sel] || {}) }; o[i] = l;
+      this.setState({ over: { ...over, [sel]: o } });
+    };
+    const grants = roleRaw.grants.map((g, i) => {
+      const cur = levelOf(i);
+      return {
+        n: i + 1, key: g[0], matched: i === mi, rowBg: i === mi ? '#191714' : 'transparent',
+        levels: LEVELS.map((l) => ({
+          name: l, checked: l === cur ? 'true' : 'false',
+          bg: l === cur ? (rank(l) >= 3 ? '#2A1F16' : '#2F373D') : 'transparent',
+          color: l === cur ? (rank(l) >= 3 ? '#F3A766' : '#ECE9E1') : '#8E979C',
+          weight: l === cur ? 600 : 400,
+          pick: () => setLevel(i, l)
+        }))
+      };
+    });
+    const roles = ROLES.map((r) => ({
+      id: r.id, max: r.max, count: r.members.length + (r.members.length === 1 ? ' member' : ' members') + ' · ' + r.grants.length + (r.grants.length === 1 ? ' grant' : ' grants'),
+      bg: r.id === sel ? '#2A1F16' : 'transparent', weight: r.id === sel ? 600 : 400, pressed: r.id === sel ? 'true' : 'false',
+      pick: () => this.setState({ role: r.id })
+    }));
+    const role = {
+      id: roleRaw.id, max: roleRaw.max, desc: roleRaw.desc, sys: roleRaw.sys,
+      members: roleRaw.members.map((m) => ({ name: m[0], kind: m[1], ini: m[0].slice(0, 2).toUpperCase() }))
+    };
+    const TEAL = '#6CC4B0', CORAL = '#E07A5F';
+    const audit = [
+      { t: '01:56', who: 'olena', op: 'set', key: '…/plc1/t2/~set  22.0', res: 'ok', c: TEAL },
+      { t: '01:41', who: 'maria.s', op: 'invoke', key: '…/plc1/~act/rescan', res: 'ok', c: TEAL },
+      { t: '01:20', who: 'olena', op: 'invoke', key: 'sys/links/~act/install', res: 'denied', c: CORAL },
+      { t: '00:52', who: 'taras.d', op: 'set', key: 'storage/tank/limit/~set  90', res: 'ok', c: TEAL }
+    ];
+    return { accent, roles, role, grants, dirty, checkKey, check, audit };
+  }
+}
+</script>
+</body>
+</html>

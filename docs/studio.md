@@ -4,7 +4,7 @@ WYRM Studio is the app people use to set up and run a WYRM network: browse the t
 
 This document is the build plan. Each phase is one pull request. Every step says which `frx` command makes the artifact and what is written by hand.
 
-The reference for every screen is the **Studio design canvas** (Claude Design, owner's workspace). Its boards are named in each section; a board with several states (a storyboard row) is one golden test per frame (§9).
+The reference for every screen is the **Studio design canvas** (Claude Design, owner's workspace); a snapshot of its boards is in [`studio/docs/design/`](../studio/docs/design/README.md). Boards are named in each section; a board with several states (a storyboard row) is one golden test per frame (§9). How to work on it, command by command: [`studio/docs/workflow.md`](../studio/docs/workflow.md).
 
 ## 1. Layout
 

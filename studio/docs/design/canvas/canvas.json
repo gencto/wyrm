@@ -1,0 +1,671 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-07T23:45:00Z"
+ },
+ "title": "WYRM Studio",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "Main.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · Explorer — points of a device",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Flow.dc.html": {
+   "x": 1520,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · Flows — list, versions, open the editor",
+   "expand": "fill"
+  },
+  "Links.dc.html": {
+   "x": 3040,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · Links — on this broker (full control)",
+   "expand": "fill"
+  },
+  "Sites.dc.html": {
+   "x": 4560,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · Sites — map of brokers, platforms and devices",
+   "expand": "fill"
+  },
+  "Access.dc.html": {
+   "x": 6080,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · Access — roles and grants",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "System.dc.html": {
+   "x": 7600,
+   "y": 0,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System — broker health and logs",
+   "expand": "fill"
+  },
+  "Actions.dc.html": {
+   "x": 0,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Explorer · Actions of a node",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "ActionDetail.dc.html": {
+   "x": 1520,
+   "y": 1420,
+   "w": 1440,
+   "h": 1200,
+   "title": "Action · contract, trigger and runs",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "FlowTree.dc.html": {
+   "x": 1520,
+   "y": 2900,
+   "w": 1440,
+   "h": 1000,
+   "title": "Flow editor · drag points and actions from the tree",
+   "expand": "fill"
+  },
+  "PackageInstall.dc.html": {
+   "x": 3040,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Add a link · A · start from the equipment",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LinkInstall.dc.html": {
+   "x": 4560,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Add a link · B · the main flow (clickable: official and custom)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "History.dc.html": {
+   "x": 6080,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "History · watch groups and trends",
+   "expand": "fill"
+  },
+  "FlowBind.dc.html": {
+   "x": 0,
+   "y": 2900,
+   "w": 1440,
+   "h": 1000,
+   "title": "Flow editor · fields, bindings, properties",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "FlowSymbol.dc.html": {
+   "x": 3040,
+   "y": 2900,
+   "w": 1440,
+   "h": 1000,
+   "title": "Flow · inside an own block",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "FlowRepeat.dc.html": {
+   "x": 4560,
+   "y": 2900,
+   "w": 1440,
+   "h": 1100,
+   "title": "Flow · Repeat, one block per data row",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkB00.dc.html": {
+   "x": 0,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "0 · Start: Links › Add a link",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkB10.dc.html": {
+   "x": 9120,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "End · The new link in Explorer",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "DesignSystem.dc.html": {
+   "x": 0,
+   "y": 11200,
+   "w": 1440,
+   "h": 3400,
+   "title": "WYRM Studio — design system",
+   "expand": "fill"
+  },
+  "Icons.dc.html": {
+   "x": 1520,
+   "y": 11200,
+   "w": 1440,
+   "h": 2000,
+   "title": "WYRM Studio — icons",
+   "expand": "fill"
+  },
+  "PropertySheet.dc.html": {
+   "x": 3040,
+   "y": 11200,
+   "w": 1440,
+   "h": 2200,
+   "title": "WYRM Studio — property sheet",
+   "expand": "fill"
+  },
+  "AddLinkO1.dc.html": {
+   "x": 1520,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "Official · 1 · Pick from the list",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkO2.dc.html": {
+   "x": 3040,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "Official · 2 · Where it runs",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkO2b.dc.html": {
+   "x": 4560,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "Official · 2 · When a package asks for rights",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkO3.dc.html": {
+   "x": 6080,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "Official · 3 · Installing",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkO4.dc.html": {
+   "x": 7600,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000,
+   "title": "Official · 3 · Installed",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC1.dc.html": {
+   "x": 1520,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 1 · Bring the package",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC2.dc.html": {
+   "x": 3040,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 2 · Archive check",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC2b.dc.html": {
+   "x": 4560,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 2 · Check failed",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC3.dc.html": {
+   "x": 6080,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 3 · Where it runs",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC4.dc.html": {
+   "x": 7600,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 4 · Installed",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AddLinkC4b.dc.html": {
+   "x": 9120,
+   "y": 6000,
+   "w": 1440,
+   "h": 1000,
+   "title": "Custom · 4 · Broker refused",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LinksRemote.dc.html": {
+   "x": 0,
+   "y": 8200,
+   "w": 1440,
+   "h": 1000,
+   "title": "Links · On other devices",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LinksQuarantine.dc.html": {
+   "x": 1520,
+   "y": 8200,
+   "w": 1440,
+   "h": 1000,
+   "title": "Links · Quarantine",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "SitesChainQ.dc.html": {
+   "x": 3040,
+   "y": 8200,
+   "w": 1440,
+   "h": 1000,
+   "title": "Sites · Chain, a broker waits",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "SitesStar.dc.html": {
+   "x": 4560,
+   "y": 8200,
+   "w": 1440,
+   "h": 1000,
+   "title": "Sites · Star, plant on top",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "SitesTwoUp.dc.html": {
+   "x": 6080,
+   "y": 8200,
+   "w": 1440,
+   "h": 1000,
+   "title": "Sites · Two upstreams and relays",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantAsk.dc.html": {
+   "x": 0,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · 1 · Ask, it asks back",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Assistant.dc.html": {
+   "x": 1520,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · 2 · Plan to approve (clickable)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantRun.dc.html": {
+   "x": 3040,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · 3 · Running",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantDone.dc.html": {
+   "x": 4560,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · 4 · Done, and do it again",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantFailed.dc.html": {
+   "x": 6080,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · 4 · Stopped",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantRights.dc.html": {
+   "x": 7600,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · What it may do",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "AssistantDrawer.dc.html": {
+   "x": 9120,
+   "y": 9700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Assistant · In Explorer, about the selection",
+   "expand": "fill",
+   "is_interactive": true
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "Flow.dc.html",
+  "Links.dc.html",
+  "Sites.dc.html",
+  "Access.dc.html",
+  "System.dc.html",
+  "Actions.dc.html",
+  "ActionDetail.dc.html",
+  "FlowTree.dc.html",
+  "PackageInstall.dc.html",
+  "LinkInstall.dc.html",
+  "History.dc.html",
+  "FlowBind.dc.html",
+  "FlowSymbol.dc.html",
+  "FlowRepeat.dc.html",
+  "AddLinkB00.dc.html",
+  "AddLinkO1.dc.html",
+  "AddLinkO2.dc.html",
+  "AddLinkO2b.dc.html",
+  "AddLinkO3.dc.html",
+  "AddLinkO4.dc.html",
+  "AddLinkC1.dc.html",
+  "AddLinkC2.dc.html",
+  "AddLinkC2b.dc.html",
+  "AddLinkC3.dc.html",
+  "AddLinkC4.dc.html",
+  "AddLinkC4b.dc.html",
+  "AddLinkB10.dc.html",
+  "LinksRemote.dc.html",
+  "LinksQuarantine.dc.html",
+  "SitesChainQ.dc.html",
+  "SitesStar.dc.html",
+  "SitesTwoUp.dc.html",
+  "AssistantAsk.dc.html",
+  "Assistant.dc.html",
+  "AssistantRun.dc.html",
+  "AssistantDone.dc.html",
+  "AssistantFailed.dc.html",
+  "AssistantRights.dc.html",
+  "AssistantDrawer.dc.html",
+  "DesignSystem.dc.html",
+  "Icons.dc.html",
+  "PropertySheet.dc.html"
+ ],
+ "notes": {
+  "t-screens": {
+   "x": 0,
+   "y": -300,
+   "text": "WYRM Studio — app screens",
+   "kind": "title1",
+   "maxW": 9040
+  },
+  "t-deep": {
+   "x": 0,
+   "y": 1120,
+   "text": "Actions, adding a link (A and B), history",
+   "kind": "title1",
+   "maxW": 9040
+  },
+  "t-flow": {
+   "x": 0,
+   "y": 2640,
+   "text": "Dataflow editor: opened from Flows › Edit dataflow. Fields and bindings, the tree, own blocks, Repeat",
+   "kind": "title1",
+   "maxW": 6000
+  },
+  "t-addlink": {
+   "x": 0,
+   "y": 4240,
+   "text": "Add a link · every screen. Row 1: official list (3 steps). Row 2: custom package (4 steps, with the archive check).",
+   "kind": "title1",
+   "maxW": 10560
+  },
+  "t-ds": {
+   "x": 0,
+   "y": 10940,
+   "text": "Design system",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "n-b00": {
+   "x": 0,
+   "y": 5540,
+   "w": 440,
+   "text": "Where it starts. Links › Add a link (also an empty downstream in Explorer, and ⌘K “add link”). Both paths begin and end on the same screens.",
+   "fill": "gray"
+  },
+  "n-b10": {
+   "x": 9120,
+   "y": 5540,
+   "w": 440,
+   "text": "Where both paths land: the new link selected in Explorer, running, with an empty tree and its own Add actions as the next step.",
+   "fill": "green"
+  },
+  "n-addlinko1": {
+   "x": 1520,
+   "y": 5540,
+   "w": 440,
+   "text": "One question: what do you add? Built-in drivers and repository packages are one list with a category filter; each card says built in or package, and how it can run. The two tabs on top are the only fork: official or custom.",
+   "fill": "gray"
+  },
+  "n-addlinko2": {
+   "x": 3040,
+   "y": 5540,
+   "w": 440,
+   "text": "Broker first (this one or a downstream that allows config; others are greyed with the reason), then the mode a built-in driver allows: embedded, process, external. Name is prefilled. Install is on this screen: two clicks after the pick.",
+   "fill": "gray"
+  },
+  "n-addlinko2b": {
+   "x": 4560,
+   "y": 5540,
+   "w": 440,
+   "text": "A repository package (here a WASM history sync) has one mode, set by its kind. Its network list and limits are shown, and Install stays off until Accept requested rights is ticked, as the broker requires.",
+   "fill": "orange"
+  },
+  "n-addlinko3": {
+   "x": 6080,
+   "y": 5540,
+   "w": 440,
+   "text": "A built-in driver has nothing to download: register, identity, start. Each stage ticks off.",
+   "fill": "gray"
+  },
+  "n-addlinko4": {
+   "x": 7600,
+   "y": 5540,
+   "w": 440,
+   "text": "The broker’s own answer (success, message) and one next step: the link is empty, add a connection.",
+   "fill": "green"
+  },
+  "n-addlinkc1": {
+   "x": 1520,
+   "y": 7040,
+   "w": 440,
+   "text": "Zip from this computer by default; URL, Git (a built package) and one .wasm are the other ways in. The rules for each are under the field.",
+   "fill": "gray"
+  },
+  "n-addlinkc2": {
+   "x": 3040,
+   "y": 7040,
+   "w": 440,
+   "text": "Every check the broker makes, before anything is installed: size and file count, paths, the manifest and its fields, protocol, binaries per host, name, rights. The manifest is shown on the right.",
+   "fill": "gray"
+  },
+  "n-addlinkc2b": {
+   "x": 4560,
+   "y": 7040,
+   "w": 440,
+   "text": "The failing check in red with the broker’s own message, later checks marked not checked, what was found instead and how to fix it. Continue is off.",
+   "fill": "red"
+  },
+  "n-addlinkc3": {
+   "x": 6080,
+   "y": 7040,
+   "w": 440,
+   "text": "Only brokers whose host is in the package can take it (line-2-edge is x86_64: greyed with the reason). Mode is the package kind. Rights are accepted here, next to Install.",
+   "fill": "gray"
+  },
+  "n-addlinkc4": {
+   "x": 7600,
+   "y": 7040,
+   "w": 440,
+   "text": "Upload, check again on the broker, move into place, registry and audit, start with its own certificate and token.",
+   "fill": "green"
+  },
+  "n-addlinkc4b": {
+   "x": 9120,
+   "y": 7040,
+   "w": 440,
+   "text": "success: false with the broker’s message (here: no tls/ listener for a process link). Nothing was installed; ways out: another broker or the broker config.",
+   "fill": "red"
+  },
+  "t-custom": {
+   "x": 0,
+   "y": 6000,
+   "w": 1440,
+   "text": "Custom package starts from the same Links › Add a link (screen 0, row above): the second tab, “Custom package”.\n\nOfficial = pick → where → install.\nCustom = bring → check → where → install.\n\nBoth ask the same “where”: which broker and how it runs there.",
+   "fill": "gray"
+  },
+  "t-control": {
+   "x": 0,
+   "y": 7940,
+   "text": "Who controls what: links on other devices, quarantine, and different site layouts",
+   "kind": "title1",
+   "maxW": 7520
+  },
+  "n-linksremote": {
+   "x": 0,
+   "y": 9240,
+   "w": 440,
+   "text": "Links that run on their own machines. Plant controls only rights: grants, Deauthorize (block: back to quarantine) and Remove for good (id retired). Start, stop, upgrade and params are greyed with the reason: they are done on the device.",
+   "fill": "gray"
+  },
+  "n-linksquarantine": {
+   "x": 1520,
+   "y": 9240,
+   "w": 440,
+   "text": "Unknown certificates from this CA wait here with no rights. Approve sets the display name and the role that may operate it; Reject refuses the CN. The two admission switches (enable_quarantine, allow_all_links) sit on top. A waiting broker points to Sites.",
+   "fill": "orange"
+  },
+  "n-siteschainq": {
+   "x": 3040,
+   "y": 9240,
+   "w": 440,
+   "text": "The same map, with a downstream broker in quarantine: its key to compare, the sites it asks to relay, Authorize with Via or Reject.",
+   "fill": "orange"
+  },
+  "n-sitesstar": {
+   "x": 4560,
+   "y": 9240,
+   "w": 440,
+   "text": "No upstream broker: plant is the top and sends to platforms (MQTT UNS, ThingsBoard) through the uplink link. Platforms only get values, never send commands.",
+   "fill": "gray"
+  },
+  "n-sitestwoup": {
+   "x": 6080,
+   "y": 9240,
+   "w": 440,
+   "text": "plant reports to two brokers; each has its own switches (connected, allow_config, values Hz) and Leave. Sites relayed below line-2-edge are admitted by it, not by plant.",
+   "fill": "gray"
+  },
+  "n-assistantask": {
+   "x": 0,
+   "y": 10740,
+   "w": 440,
+   "text": "You type the task in plain words (with @ context from Explorer). It reads the tree on its own, with nothing to approve, and shows what it read. When something is open it asks with a card of choices made from the live tree, so you click instead of typing.",
+   "fill": "gray"
+  },
+  "n-assistant": {
+   "x": 1520,
+   "y": 10740,
+   "w": 440,
+   "text": "The plan as GenUI: one card per step with verb, key, action and an argument sheet made from ~meta (bounds, enums). Check result per step; “why” is the model’s and shown grey. A conflict comes with fixes as buttons. Tick steps, Approve: one token per step with your rights.",
+   "fill": "orange"
+  },
+  "n-assistantrun": {
+   "x": 3040,
+   "y": 10740,
+   "w": 440,
+   "text": "The plan card collapses; the run card ticks off steps with the broker’s answers. It stops at the first step that fails.",
+   "fill": "gray"
+  },
+  "n-assistantdone": {
+   "x": 4560,
+   "y": 10740,
+   "w": 440,
+   "text": "Result card with live values and the next places to go. “Same for more units” is a table the AI made: fill rows, get one plan. Save as a plan: the same JSON wyrm-agent runs, for automation without the chat.",
+   "fill": "green"
+  },
+  "n-assistantfailed": {
+   "x": 6080,
+   "y": 10740,
+   "w": 440,
+   "text": "The broker’s code and message, what stays done, the AI’s read-only diagnosis, and the ways out as cards: fix (a new plan), undo (a reverse plan), leave.",
+   "fill": "red"
+  },
+  "n-assistantrights": {
+   "x": 7600,
+   "y": 10740,
+   "w": 440,
+   "text": "Params of the agent link in words: who approves (every step is the default; the others warn about text in the tree steering it), allowed prefixes, model, daily tokens, API key set and never shown.",
+   "fill": "gray"
+  },
+  "n-assistantdrawer": {
+   "x": 9120,
+   "y": 10740,
+   "w": 440,
+   "text": "⌘J opens it beside the tree with the selection as context. Questions stay read only; a fix is the same step card with Approve.",
+   "fill": "gray"
+  },
+  "t-ai": {
+   "x": 0,
+   "y": 9440,
+   "text": "Assistant: a chat that configures the platform, with generated UI and your approval",
+   "kind": "title1",
+   "maxW": 10560
+  }
+ },
+ "designSystems": []
+}

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — System</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Go to a node, action or link" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #2A1F16; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">3</span></button>
+<button type="button" aria-label="Account: admin" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">AD</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="#system" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Center -->
+<main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">wyrmd on plant</h1>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Running</span>
+</div>
+<p style="margin: 0; color: #A3ABAF">Zenoh 1.10.1 · spec 0.2.14 · up 6 d 4 h · <code style="color: #C5CBCE">sys/**</code>, admin only</p>
+</div>
+<nav aria-label="System sections" style="display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
+<a href="#overview" aria-current="page" style="height: 34px; padding: 0 12px; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; display: flex; align-items: center">Overview</a>
+<a href="#config" style="height: 34px; padding: 0 12px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center">Config</a>
+<a href="#pki" style="height: 34px; padding: 0 12px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center">Certificates</a>
+</nav>
+</div>
+
+<section aria-label="Broker metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="8">
+<div style="padding: 14px 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #A3ABAF">{{t.label}}</span>
+<code style="font-size: 22px; color: {{t.color}}">{{t.value}}</code>
+<span style="font-size: 12px; color: #8E979C">{{t.sub}}</span>
+</div>
+</sc-for>
+</section>
+
+<section aria-label="Traffic" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px">
+<h2 style="margin: 0 auto 0 0; font-size: 14px; font-weight: 600">Router messages per second · last hour</h2>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #6CC4B0"></span>in</span>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #8E979C"></span>out</span>
+</div>
+<svg viewBox="0 0 800 120" width="100%" height="120" preserveAspectRatio="none" role="img" aria-label="Messages in and out per second over the last hour, steady around five thousand with one dip at the 01:12 reconnect">
+<path d="M0 30H800M0 60H800M0 90H800" stroke="#1D2226" stroke-width="1"></path>
+<polyline fill="none" stroke="#8E979C" stroke-width="1.6" points="0,52 40,50 80,51 120,49 160,50 200,52 240,51 280,50 320,49 360,51 400,50 440,96 460,62 480,51 520,50 560,49 600,51 640,50 680,48 720,50 760,49 800,50"></polyline>
+<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="0,58 40,57 80,59 120,56 160,57 200,58 240,57 280,56 320,57 360,58 400,57 440,104 460,70 480,58 520,57 560,56 600,58 640,57 680,55 720,57 760,56 800,57"></polyline>
+</svg>
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C"><span>01:02</span><span>01:12 reconnect to edge</span><span>02:02</span></div>
+</section>
+
+<section aria-label="Broker log" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0 auto 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Log · live</h2>
+<div role="group" aria-label="Show levels" style="display: flex; gap: 6px">
+<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #5A3328; background: #33201B; color: #F0A28D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">error</button>
+<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #4A4020; background: #2E2814; color: #E2C15A; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">warn</button>
+<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #3A4249; background: #22282D; color: #C5CBCE; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">info</button>
+<button type="button" aria-pressed="false" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #252B30; background: transparent; color: #8E979C; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">debug</button>
+</div>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #0B0D0F; overflow-x: auto">
+<div style="min-width: 700px; padding: 6px 0">
+<sc-for list="{{log}}" as="l" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 80px 56px 150px 1fr; gap: 12px; align-items: baseline; padding: 6px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5">
+<span style="color: #8E979C">{{l.t}}</span>
+<span style="color: {{l.c}}; font-weight: 600">{{l.lvl}}</span>
+<span style="color: #A3ABAF">{{l.src}}</span>
+<span style="color: #C5CBCE">{{l.msg}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Inspector -->
+<aside aria-label="Broker state" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Control plane</span>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5">The broker keeps only itself: registry, ACL, keys, profiles and flow definitions. The tree is re-declared by links on connect.</p>
+</div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 20px">
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">State on disk</h2>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<span style="color: #8E979C">Write-ahead log</span><span>1,284 records since snapshot</span>
+<span style="color: #8E979C">Snapshot</span><span>today 01:30</span>
+<span style="color: #8E979C">HMAC chain</span><span style="display: flex; align-items: center; gap: 6px; color: #6CC4B0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>verified</span>
+<span style="color: #8E979C">Last start</span><span>restored in 38 ms</span>
+</div>
+<button type="button" style="height: 40px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Take a snapshot now</button>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Log level · sys/log_level</h2>
+<div role="radiogroup" aria-label="Log level" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">error</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">warn</button>
+<button type="button" role="radio" aria-checked="true" style="height: 34px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; cursor: pointer">info</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">debug</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">trace</button>
+</div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Takes effect at once, no restart. Values and tokens are never logged below trace.</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Configuration</h2>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5"><code style="color: #ECE9E1">wyrmd.json5</code> states the intent at first start. Everything changed here since then lives in the log.</p>
+<button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path></svg>Export current state as JSON5</button>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Site CA</h2>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<span style="color: #8E979C">Fingerprint</span><code style="color: #ECE9E1">SHA-256 7F:2A…C1:09</code>
+<span style="color: #8E979C">Issued</span><span>12 links · 1 site below</span>
+<span style="color: #8E979C">Expires</span><span>2031-10-02</span>
+</div>
+</section>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const T1 = '#ECE9E1', TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const tiles = [
+      { label: 'Links connected', value: '4 / 5', sub: 'bacnet failed', color: T1 },
+      { label: 'In quarantine', value: '1', sub: 'field-gw · see Links', color: AMBER },
+      { label: 'Sessions', value: '14', sub: '3 gateway users', color: T1 },
+      { label: 'ACL denials · 1 h', value: '3', sub: 'see Access › Audit', color: T1 },
+      { label: 'CPU', value: '17 %', sub: '4 cores', color: T1 },
+      { label: 'Memory', value: '212 MB', sub: 'of 2 GB', color: T1 },
+      { label: 'Free disk', value: '38 GB', sub: 'data_dir 1.9 GB', color: T1 },
+      { label: 'Audit records', value: '18,402', sub: 'today 412', color: T1 }
+    ];
+    const C = { ERROR: CORAL, WARN: AMBER, INFO: '#A3ABAF' };
+    const log = [
+      { t: '02:01:44', lvl: 'INFO', src: 'gateway', msg: 'olena: set …/plc1/t2/~set ok (read back in 212 ms)' },
+      { t: '01:58:10', lvl: 'WARN', src: 'peers', msg: 'line2 requested broker:line2 with relay; waiting for Authorize' },
+      { t: '01:56:31', lvl: 'ERROR', src: 'link:bacnet', msg: 'wasm component stopped: fuel limit reached during start' },
+      { t: '01:41:02', lvl: 'INFO', src: 'admin', msg: 'ACL rebuilt from registry (23 rules); router runtime restarted' },
+      { t: '01:30:00', lvl: 'INFO', src: 'state', msg: 'snapshot written; WAL truncated' },
+      { t: '01:12:18', lvl: 'WARN', src: 'peers', msg: 'upstream edge unreachable, retry in 4 s' },
+      { t: '01:12:22', lvl: 'INFO', src: 'peers', msg: 'upstream edge connected; 6 streams reopened' }
+    ].map((l) => ({ ...l, c: C[l.lvl] }));
+    return { accent, tiles, log };
+  }
+}
+</script>
+</body>
+</html>

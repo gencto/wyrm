@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a link · the new link in Explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span><span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<span style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span><code>plant</code></span>
+<span style="margin-left: auto; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600">AD</span>
+</header>
+<sc-if value="{{banner}}" hint-placeholder-val="{{true}}">
+<div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; border-bottom: 1px solid #36705F; background: #15302A; font-size: 14px; color: #C4EBE1">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span><code style="color: #ECE9E1">modbus-line2</code> installed just now on <code style="color: #ECE9E1">plant</code> and running. Its tree is empty: add a connection to start.</span>
+<button type="button" onClick="{{hide}}" style="margin-left: auto; height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #36705F; background: transparent; color: #C4EBE1; font-size: 13px; cursor: pointer">Dismiss</button>
+</div>
+</sc-if>
+<div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>Explorer</a>
+<a href="AddLinkB00.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>Links</a>
+</nav>
+<aside aria-label="Node tree" style="flex: 1 1 260px; max-width: 290px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; padding: 14px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px">
+<span style="padding: 0 6px 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Tree · plant</span>
+<sc-for list="{{tree}}" as="n" hint-placeholder-count="7">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 {{n.pad}}; border-radius: 6px; background: {{n.bg}}">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{n.ink}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg>
+<code style="flex: 1; font-size: 13px; color: {{n.text}}; font-weight: {{n.weight}}">{{n.name}}</code>
+<sc-if value="{{n.isNew}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #2A1F16; color: #F3A766">new</span></sc-if>
+<span style="width: 8px; height: 8px; border-radius: 50%; background: {{n.dot}}"></span>
+</div>
+</sc-for>
+</aside>
+<main style="flex: 999 1 520px; min-width: 0; padding: 22px 26px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<code style="font-size: 13px; color: #8E979C">wy/plant/downstream/<span style="color: #ECE9E1">modbus-line2</span></code>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"><h1 style="margin: 0; font-size: 26px; font-weight: 600">modbus-line2</h1><span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Running</span></div>
+<p style="margin: 0; color: #A3ABAF">Modbus link · built-in driver · embedded in plant</p>
+</div>
+<nav aria-label="Link sections" style="display: flex; gap: 4px; border-bottom: 1px solid #252B30">
+<a href="#children" aria-current="page" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; box-shadow: inset 0 -2px 0 {{accent}}; font-weight: 500">Connections <span style="font-size: 12px; color: #A3ABAF">0</span></a>
+<a href="#params" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF">Parameters</a>
+<a href="Actions.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF">Actions</a>
+</nav>
+<section aria-label="No connections yet" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; border-radius: 12px; border: 1px dashed #3A4249">
+<div style="display: flex; flex-direction: column; gap: 4px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">No connections yet</h2><span style="color: #A3ABAF">A link starts empty. Tell it how to reach the equipment: these are its own Add actions.</span></div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px">
+<a href="ActionDetail.dc.html" style="display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 10px; border: 1.5px solid {{accent}}; background: #1E1813"><span style="font-weight: 600">Add IP Connection</span><span style="font-size: 13px; color: #A3ABAF; line-height: 1.4">Modbus TCP or RTU over TCP to a host and port.</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #F3A766">add_ip_connection</span></a>
+<a href="ActionDetail.dc.html" style="display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #161A1D"><span style="font-weight: 600">Add Serial Connection</span><span style="font-size: 13px; color: #A3ABAF; line-height: 1.4">RTU on a serial port of the broker host.</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">add_serial_connection</span></a>
+<a href="ActionDetail.dc.html" style="display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #161A1D"><span style="font-weight: 600">Import</span><span style="font-size: 13px; color: #A3ABAF; line-height: 1.4">A connection branch from an export, or an old DSA tree.</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">import · import_dsa</span></a>
+</div>
+<span style="font-size: 12px; color: #8E979C">Then the same on each level: a connection gets Add Device, a device gets Add Point and Add Folder.</span>
+</section>
+</main>
+<aside aria-label="Link status" style="flex: 1 1 300px; max-width: 340px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; padding: 18px 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Link</span><div style="display: flex; align-items: center; gap: 8px"><code style="font-size: 18px; font-weight: 600">modbus-line2</code><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">MB</span></div></div>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<span style="color: #8E979C">From</span><span>Official list · built-in driver modbus</span>
+<span style="color: #8E979C">Broker</span><span>plant</span>
+<span style="color: #8E979C">Runs as</span><span>Embedded</span>
+<span style="color: #8E979C">Up</span><span>4 s</span>
+<span style="color: #8E979C">Installed</span><span>by admin, just now · sys/audit</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+<a href="Links.dc.html" style="height: 40px; border-radius: 8px; border: 1px solid #3A4249; display: flex; align-items: center; justify-content: center; font-size: 14px">Change mode or params</a>
+<button type="button" style="height: 40px; border-radius: 8px; border: 1px solid #5A3328; background: #33201B; color: #F0A28D; font-size: 14px; cursor: pointer">Remove this link</button>
+</div>
+<span style="margin-top: auto; font-size: 12px; color: #8E979C; line-height: 1.5">A custom package lands the same way; its panel also shows the package, version and SHA-256 from the registry.</span>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const T = '#6CC4B0', C = '#E07A5F';
+    const D = {
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      link: 'M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5',
+      conn: 'M5 12h4M15 12h4M9 8h6v8H9z'
+    };
+    const N = (d, name, depth, o) => ({ d, name, pad: (10 + depth * 16) + 'px', isNew: !!(o && o.isNew), dot: (o && o.dot) || 'transparent',
+      bg: o && o.sel ? '#2A1F16' : 'transparent', ink: o && o.sel ? accent : '#8E979C', text: o && o.sel ? '#ECE9E1' : '#C5CBCE', weight: o && o.sel ? 600 : 400 });
+    const tree = [
+      N(D.folder, 'downstream', 0),
+      N(D.link, 'modbus', 1, { dot: T }), N(D.link, 'opc-ua', 1, { dot: T }), N(D.link, 'bacnet', 1, { dot: C }),
+      N(D.link, 'modbus-line2', 1, { dot: T, isNew: 1, sel: 1 }),
+      N(D.folder, 'dataflows', 0), N(D.folder, 'storage', 0)
+    ];
+    return { accent, tree, banner: !st.hidden, hide: () => this.setState({ hidden: true }) };
+  }
+}
+</script>
+</body>
+</html>
