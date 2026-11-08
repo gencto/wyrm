@@ -4,6 +4,227 @@
 
 `app/lib/connectors/sites_page_connector.dart`
 
-_SitesPageConnector exposes no dispatching callbacks yet._
+## onShow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as WatchKeysAction
+    participant A2 as RetrieveLinksAction
+    participant A3 as RetrieveQuarantineAction
+    participant A4 as RetrievePeersAction
+    participant ST as AppState
+
+    User->>UI: onShow
+    UI->>VM: onShow()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(links.version, links.table, links.view)
+    A2-->>-VM: ActionStatus
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(quarantine.table, quarantine.view, quarantine.forms)
+    A3-->>-VM: ActionStatus
+    VM->>+A4: dispatchAndWait
+    Note over A4: WaitingAction · async
+    A4->>ST: copyWith(peers.table, peers.view)
+    A4-->>-VM: ActionStatus
+```
+
+## onHide
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as UnwatchKeysAction
+    participant ST as AppState
+
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
+## onNode
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as SetSelectedPeerAction
+    participant ST as AppState
+
+    User->>UI: onNode
+    UI->>VM: onNode()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(peers.selectedPeer)
+```
+
+## onReview
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as SetTabAction
+    participant ST as AppState
+
+    User->>UI: onReview
+    UI->>VM: onReview()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(links.tab)
+```
+
+## onConnect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as RetrieveNodeDetailAction
+    participant A2 as AddUpstreamAction
+    participant ST as AppState
+
+    User->>UI: onConnect
+    UI->>VM: onConnect()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(nodes.detail)
+    A1-->>-VM: ActionStatus
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: dispatchAndWait(RetrievePeersAction)
+    A2-->>-VM: ActionStatus
+```
+
+## onToken.onSubmit
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as IssueSiteTokenAction
+    participant ST as AppState
+
+    User->>UI: onToken.onSubmit
+    UI->>VM: onToken()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(nodes.results)
+    A1-->>-VM: ActionStatus
+```
+
+## onAction
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as IssueSiteTokenAction
+    participant A2 as RetrieveNodeDetailAction
+    participant A3 as AddUpstreamAction
+    participant A4 as SetTabAction
+    participant A5 as ViewSiteAction
+    participant A6 as SelectNodeAction
+    participant A7 as DeauthorizeLinkAction
+    participant A8 as RetrievePeersAction
+    participant A9 as RejectQuarantineAction
+    participant ST as AppState
+
+    User->>UI: onAction
+    UI->>VM: onAction()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(nodes.results)
+    A1-->>-VM: ActionStatus
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(nodes.detail)
+    A2-->>-VM: ActionStatus
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>A8: dispatchAndWait
+    A3-->>-VM: ActionStatus
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(links.tab)
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(links.tab)
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(site, nodes, links, quarantine, packages)
+    A5->>ST: dispatchAndWait(RetrieveLinksAction)
+    VM->>A6: dispatchSync
+    A6->>ST: copyWith(nodes.selectedNode, nodes.action)
+    A6->>ST: dispatchSync(ToggleNodeAction)
+    A6->>A2: dispatchAndWait
+    A6->>ST: dispatchAndWait(RetrieveHistoryAction)
+    alt await ConfirmDialog.ask(context, title: S.current.deauthorizeTitle(name), message: S.current.deauthorizeBrokerNote, confirm: S.current.actDeauthorize, cancel: S.current.cancel)
+        VM->>+A7: dispatchAndWait
+        Note over A7: WaitingAction · async
+        A7-->>-VM: ActionStatus
+        VM->>+A8: dispatchAndWait
+        Note over A8: WaitingAction · async
+        A8->>ST: copyWith(peers.table, peers.view)
+        A8-->>-VM: ActionStatus
+    end
+    alt context.mounted && await ConfirmDialog.ask(context, title: S.current.rejectTitle(quarantine.table[name]?.cn ?? name), message: S.current.rejectNote, confirm: S.current.reject, cancel: S.current.cancel)
+        VM->>+A9: dispatchAndWait
+        Note over A9: WaitingAction · async
+        A9->>ST: copyWith(quarantine.table, quarantine.view, quarantine.selectedEntry)
+        A9-->>-VM: ActionStatus
+    end
+```
+
+## onSubmit
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SitesPage
+    participant VM as SitesPageConnector
+    participant A1 as AuthorizeBrokerAction
+    participant ST as AppState
+
+    User->>UI: onSubmit
+    UI->>VM: onSubmit()
+    alt id.startsWith('waiting:')
+        VM->>+A1: dispatchAndWait
+        Note over A1: NonReentrant · WaitingAction · async
+        A1->>ST: dispatchAndWait(ApproveQuarantineAction)
+        A1->>ST: dispatchAndWait(RetrievePeersAction)
+        A1-->>-VM: ActionStatus
+    end
+```
+
+| Interaction | Dispatches | Writes |
+| --- | --- | --- |
+| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePeersAction` | `live.watched`, `links.version, links.table, links.view`, `quarantine.table, quarantine.view, quarantine.forms`, `peers.table, peers.view` |
+| `onHide` | `UnwatchKeysAction` | `live.watched` |
+| `onNode` | `SetSelectedPeerAction` | `peers.selectedPeer` |
+| `onReview` | `SetTabAction` | `links.tab` |
+| `onConnect` | `RetrieveNodeDetailAction`, `AddUpstreamAction` | `nodes.detail` |
+| `onToken.onSubmit` | `IssueSiteTokenAction` | `nodes.results` |
+| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages`, `nodes.selectedNode, nodes.action`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onSubmit` | `AuthorizeBrokerAction` ? | — |
+
+`?` marks a dispatch that only runs under a condition.
 
 [← all flows](README.md)

@@ -2598,6 +2598,433 @@ class S {
       args: [value],
     );
   }
+
+  /// `asks to join`
+  String get asksToJoin {
+    return Intl.message('asks to join', name: 'asksToJoin', desc: '', args: []);
+  }
+
+  /// `asks to join · relays {n}`
+  String asksToJoinRelays(Object n) {
+    return Intl.message(
+      'asks to join · relays $n',
+      name: 'asksToJoinRelays',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Broker waiting`
+  String get brokerWaiting {
+    return Intl.message(
+      'Broker waiting',
+      name: 'brokerWaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{brokers} brokers · {devices} devices`
+  String brokersDevices(Object brokers, Object devices) {
+    return Intl.message(
+      '$brokers brokers · $devices devices',
+      name: 'brokersDevices',
+      desc: '',
+      args: [brokers, devices],
+    );
+  }
+
+  /// `Connect`
+  String get connect {
+    return Intl.message('Connect', name: 'connect', desc: '', args: []);
+  }
+
+  /// `{site} dials out to it; it authorizes {site} there.`
+  String connectNote(Object site) {
+    return Intl.message(
+      '$site dials out to it; it authorizes $site there.',
+      name: 'connectNote',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Connect to an upstream`
+  String get connectUpstream {
+    return Intl.message(
+      'Connect to an upstream',
+      name: 'connectUpstream',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its rights here are cut now and its next connection waits in quarantine. Its sites stay below it.`
+  String get deauthorizeBrokerNote {
+    return Intl.message(
+      'Its rights here are cut now and its next connection waits in quarantine. Its sites stay below it.',
+      name: 'deauthorizeBrokerNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Decide in Links`
+  String get decideInLinks {
+    return Intl.message(
+      'Decide in Links',
+      name: 'decideInLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A link in quarantine is approved or rejected in Links › Quarantine.`
+  String get decideInLinksNote {
+    return Intl.message(
+      'A link in quarantine is approved or rejected in Links › Quarantine.',
+      name: 'decideInLinksNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downstream broker`
+  String get downstreamBroker {
+    return Intl.message(
+      'Downstream broker',
+      name: 'downstreamBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Config from it`
+  String get factAllowConfig {
+    return Intl.message(
+      'Config from it',
+      name: 'factAllowConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Below`
+  String get factBelow {
+    return Intl.message('Below', name: 'factBelow', desc: '', args: []);
+  }
+
+  /// `Status`
+  String get factStatus {
+    return Intl.message('Status', name: 'factStatus', desc: '', args: []);
+  }
+
+  /// `Through`
+  String get factThrough {
+    return Intl.message('Through', name: 'factThrough', desc: '', args: []);
+  }
+
+  /// `Tree`
+  String get factTree {
+    return Intl.message('Tree', name: 'factTree', desc: '', args: []);
+  }
+
+  /// `Upstreams`
+  String get factUpstreams {
+    return Intl.message('Upstreams', name: 'factUpstreams', desc: '', args: []);
+  }
+
+  /// `Go up`
+  String get goUp {
+    return Intl.message('Go up', name: 'goUp', desc: '', args: []);
+  }
+
+  /// `Work with it`
+  String get groupWork {
+    return Intl.message('Work with it', name: 'groupWork', desc: '', args: []);
+  }
+
+  /// `Issue`
+  String get issue {
+    return Intl.message('Issue', name: 'issue', desc: '', args: []);
+  }
+
+  /// `connected`
+  String get legendConnected {
+    return Intl.message(
+      'connected',
+      name: 'legendConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `offline`
+  String get legendOffline {
+    return Intl.message('offline', name: 'legendOffline', desc: '', args: []);
+  }
+
+  /// `platform`
+  String get legendPlatform {
+    return Intl.message('platform', name: 'legendPlatform', desc: '', args: []);
+  }
+
+  /// `waiting in quarantine`
+  String get legendWaiting {
+    return Intl.message(
+      'waiting in quarantine',
+      name: 'legendWaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Let others in`
+  String get letOthersIn {
+    return Intl.message(
+      'Let others in',
+      name: 'letOthersIn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `new certificate`
+  String get newCertificate {
+    return Intl.message(
+      'new certificate',
+      name: 'newCertificate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no`
+  String get no {
+    return Intl.message('no', name: 'no', desc: '', args: []);
+  }
+
+  /// `none: {site} is the top`
+  String noUpstream(Object site) {
+    return Intl.message(
+      'none: $site is the top',
+      name: 'noUpstream',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Open in Links`
+  String get openInLinks {
+    return Intl.message(
+      'Open in Links',
+      name: 'openInLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Grants, deauthorize and remove are in Links › On other devices.`
+  String get openInLinksNote {
+    return Intl.message(
+      'Grants, deauthorize and remove are in Links › On other devices.',
+      name: 'openInLinksNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open its tree`
+  String get openItsTree {
+    return Intl.message(
+      'Open its tree',
+      name: 'openItsTree',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Explorer shows wy/{site}.`
+  String openItsTreeNote(Object site) {
+    return Intl.message(
+      'Explorer shows wy/$site.',
+      name: 'openItsTreeNote',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Platform`
+  String get platform {
+    return Intl.message('Platform', name: 'platform', desc: '', args: []);
+  }
+
+  /// `Its settings and counters are under downstream/uplink.`
+  String get platformNote {
+    return Intl.message(
+      'Its settings and counters are under downstream/uplink.',
+      name: 'platformNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Quarantine and admission`
+  String get quarantineAndAdmission {
+    return Intl.message(
+      'Quarantine and admission',
+      name: 'quarantineAndAdmission',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unknown certificates wait in Links › Quarantine.`
+  String get quarantineAndAdmissionNote {
+    return Intl.message(
+      'Unknown certificates wait in Links › Quarantine.',
+      name: 'quarantineAndAdmissionNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing to do from here: it came in with its relay. Deauthorize the relay to cut it off.`
+  String get relayedFooter {
+    return Intl.message(
+      'Nothing to do from here: it came in with its relay. Deauthorize the relay to cut it off.',
+      name: 'relayedFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{relays 1 site} other{relays {n} sites}}`
+  String relaysSites(num n) {
+    return Intl.plural(
+      n,
+      one: 'relays 1 site',
+      other: 'relays $n sites',
+      name: 'relaysSites',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Site relayed below`
+  String get siteRelayedBelow {
+    return Intl.message(
+      'Site relayed below',
+      name: 'siteRelayedBelow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sites around {site}`
+  String sitesAround(Object site) {
+    return Intl.message(
+      'Sites around $site',
+      name: 'sitesAround',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `What {site} connects to and what connects to it: brokers above and below, platforms it sends to, and devices whose links run outside any broker.`
+  String sitesSubtitle(Object site) {
+    return Intl.message(
+      'What $site connects to and what connects to it: brokers above and below, platforms it sends to, and devices whose links run outside any broker.',
+      name: 'sitesSubtitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Token for a site below`
+  String get tokenForBelow {
+    return Intl.message(
+      'Token for a site below',
+      name: 'tokenForBelow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Valid for hours`
+  String get tokenHours {
+    return Intl.message(
+      'Valid for hours',
+      name: 'tokenHours',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `One token admits a broker at once. It is shown once; set its uses and hours.`
+  String get tokenNote {
+    return Intl.message(
+      'One token admits a broker at once. It is shown once; set its uses and hours.',
+      name: 'tokenNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Uses`
+  String get tokenUses {
+    return Intl.message('Uses', name: 'tokenUses', desc: '', args: []);
+  }
+
+  /// `Upstream broker`
+  String get upstreamBroker {
+    return Intl.message(
+      'Upstream broker',
+      name: 'upstreamBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `An upstream configured in wyrmd.json5 is changed there; one added here is removed with sys/upstream/<name> ▸ Remove.`
+  String get upstreamFooter {
+    return Intl.message(
+      'An upstream configured in wyrmd.json5 is changed there; one added here is removed with sys/upstream/<name> ▸ Remove.',
+      name: 'upstreamFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} waiting to be let in: {who}`
+  String waitingToBeLetIn(Object n, Object who) {
+    return Intl.message(
+      '$n waiting to be let in: $who',
+      name: 'waitingToBeLetIn',
+      desc: '',
+      args: [n, who],
+    );
+  }
+
+  /// `yes`
+  String get yes {
+    return Intl.message('yes', name: 'yes', desc: '', args: []);
+  }
+
+  /// `YOU`
+  String get youTag {
+    return Intl.message('YOU', name: 'youTag', desc: '', args: []);
+  }
+
+  /// `your upstream`
+  String get yourUpstream {
+    return Intl.message(
+      'your upstream',
+      name: 'yourUpstream',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
