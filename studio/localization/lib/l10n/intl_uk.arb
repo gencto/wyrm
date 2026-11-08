@@ -663,5 +663,13 @@
     "childrenNote": "Вибери рядок: вузол відкривається в дереві, значення — в інспекторі.",
     "noReadFlow": "Щоб відкрити редактор, потрібне право read на цей потік.",
     "colName": "Назва",
-    "colKind": "Вид"
+    "colKind": "Вид",
+    "refuseOutput": "Вихід не можна зв’язати",
+    "refuseNoInput": "{field} не має входу: введіть значення",
+    "@refuseNoInput": {"placeholders": {"field": {"type": "String"}}},
+    "refuseSelf": "Блок не може живити сам себе",
+    "refuseType": "{from} не підходить до {to}",
+    "@refuseType": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+    "refuseLoop": "Це замикає цикл (лише через delay)",
+    "blockForm": "Форма"
 }

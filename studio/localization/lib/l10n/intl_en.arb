@@ -663,5 +663,13 @@
     "childrenNote": "Select a row: a node opens in the tree, a value opens in the inspector.",
     "noReadFlow": "Opening the editor needs read on this flow.",
     "colName": "Name",
-    "colKind": "Kind"
+    "colKind": "Kind",
+    "refuseOutput": "Outputs cannot be bound",
+    "refuseNoInput": "{field} takes no input: type its value",
+    "@refuseNoInput": {"placeholders": {"field": {"type": "String"}}},
+    "refuseSelf": "A block cannot feed itself",
+    "refuseType": "{from} does not fit {to}",
+    "@refuseType": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+    "refuseLoop": "This closes a loop (only a delay may)",
+    "blockForm": "Form"
 }

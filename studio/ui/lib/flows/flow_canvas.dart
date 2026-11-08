@@ -1,7 +1,11 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/typography.dart';
+import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
 import 'flow_legend.dart';
 
@@ -45,8 +49,26 @@ final class FlowWireVm extends Equatable {
 
 /// The canvas of the flow editor (spec §3–§5): blocks on a dot grid, S-curve
 /// wires from a field's right port to another's left port, the legend
-/// pinned bottom-left. A palette entry dropped on the canvas places a block
-/// there; a tap on the empty canvas clears the selection.
+/// pinned bottom-left.
+///
+/// The canvas reads the pointer itself, in its own coordinates, so what is
+/// dragged stays under the pointer at any zoom and scroll:
+/// - a block's header moves the block (snapped to the 20 px grid when let
+///   go);
+/// - a field, after 3 px, draws a wire from its right port to the pointer;
+///   a row that takes it lights, one that refuses lights red with the
+///   reason; let go on a row that takes it, it binds; on the empty canvas,
+///   nothing happens;
+/// - on a bound input, the left port (or the whole row of a field without
+///   an output) picks its wire up: let go on another input, it moves
+///   there; on the empty canvas, it unbinds;
+/// - a double click or an Alt-click on a bound input unbinds it;
+/// - the empty canvas pans, and so do two fingers on a trackpad; a click
+///   on it clears the selection.
+///
+/// A wire let go outside the canvas over a [FieldDropZone] (the inspector)
+/// binds that field. A palette entry dropped on the canvas places a block
+/// with the pointer on its header.
 class FlowCanvas extends StatefulWidget {
   const FlowCanvas({
     required this.blocks,
@@ -56,6 +78,7 @@ class FlowCanvas extends StatefulWidget {
     required this.onMove,
     required this.onDrop,
     this.legend,
+    this.controller,
     super.key,
   });
 
@@ -66,75 +89,415 @@ class FlowCanvas extends StatefulWidget {
   /// A tap on the empty canvas.
   final VoidCallback onClear;
 
-  /// A block let go at (`x`, `y`).
+  /// A block let go at (`x`, `y`), on the grid.
   final void Function(String id, double x, double y) onMove;
 
-  /// A palette entry (its id) dropped at a point of the canvas.
+  /// A palette entry (its id) dropped: the new block's top-left, on the
+  /// grid.
   final void Function(String entry, double x, double y) onDrop;
   final FlowLegendVm? legend;
 
+  /// The zoom and scroll; the canvas keeps its own when none is given.
+  final TransformationController? controller;
+
   static const size = Size(3000, 2000);
+
+  /// The grid blocks snap to.
+  static const grid = 20.0;
+
+  /// Where a dropped block's top-left goes relative to the pointer: the
+  /// pointer lands on the header, past the kind chip.
+  static const dropGrab = Offset(24, 16);
+
+  /// How far the pointer moves, on the screen, before a press drags.
+  static const slop = 3.0;
+
+  static double snap(double v) => (v / grid).round() * grid;
 
   @override
   State<FlowCanvas> createState() => _FlowCanvasState();
 }
 
+/// What a press on the canvas started.
+sealed class _Press {
+  _Press(this.down);
+
+  /// Where it went down, on the screen.
+  final Offset down;
+  var dragging = false;
+}
+
+final class _Pan extends _Press {
+  _Pan(super.down);
+}
+
+final class _Move extends _Press {
+  _Move(super.down, this.id, this.grab);
+
+  final String id;
+
+  /// The pointer's place on the block, kept while it moves.
+  final Offset grab;
+  Offset? at;
+}
+
+final class _Wire extends _Press {
+  _Wire(super.down, this.from, {this.picked});
+
+  /// The output the wire comes from.
+  final FieldRefVm from;
+
+  /// The input a picked-up wire leaves: block, port and row.
+  final (String, String, String)? picked;
+  Offset pointer = Offset.zero;
+
+  /// The row under the pointer: block and row id; with [refusal] when it
+  /// refuses.
+  (String, String)? over;
+  String? refusal;
+
+  /// The field outside the canvas under the pointer.
+  FieldDrop? outside;
+}
+
+/// A press that only selects (a field with nothing to drag, the body).
+final class _Tap extends _Press {
+  _Tap(super.down, this.block, this.row);
+
+  final String block;
+  final String? row;
+}
+
 class _FlowCanvasState extends State<FlowCanvas> {
-  final _drag = <String, Offset>{};
   final GlobalKey<State<StatefulWidget>> _key = GlobalKey();
+  final GlobalKey<State<StatefulWidget>> _view = GlobalKey();
+  TransformationController? _own;
+  _Press? _press;
+
+  /// The last click on a row, for a double click: block, row, when.
+  (String, String, Duration)? _lastClick;
+
+  TransformationController get _ctl =>
+      widget.controller ?? (_own ??= TransformationController());
+
+  @override
+  void dispose() {
+    _own?.dispose();
+    super.dispose();
+  }
+
+  /// The blocks as drawn: the moving one where the pointer has it.
+  List<FlowBlockVm> get _blocks => [
+    for (final b in widget.blocks)
+      if (_press case _Move(:final id, :final at?) when id == b.id)
+        b.at(at.dx, at.dy)
+      else
+        b,
+  ];
+
+  Offset _local(Offset global) {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    return box?.globalToLocal(global) ?? global;
+  }
+
+  bool _inView(Offset global) {
+    final box = _view.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return true;
+    }
+    return (Offset.zero & box.size).contains(box.globalToLocal(global));
+  }
+
+  /// The topmost block under [p] (canvas coordinates).
+  FlowBlockVm? _blockAt(List<FlowBlockVm> blocks, Offset p) {
+    for (final b in blocks.reversed) {
+      if (b.contains(p)) {
+        return b;
+      }
+    }
+    return null;
+  }
+
+  static bool _bound(FieldRowVm r) =>
+      r.inPort != null &&
+      (r.inMark == PortMark.bound || r.inMark == PortMark.write);
+
+  void _down(PointerDownEvent e) {
+    if (e.buttons != kPrimaryButton) {
+      return;
+    }
+    final p = e.localPosition;
+    final blocks = _blocks;
+    final b = _blockAt(blocks, p);
+    if (b == null) {
+      _press = _Pan(e.position);
+      return;
+    }
+    widget.actions.onSelect(b.id);
+    if (b.onHeader(p)) {
+      _press = _Move(e.position, b.id, p - Offset(b.x, b.y));
+      return;
+    }
+    final i = b.rowAt(p);
+    if (i == null) {
+      _press = _Tap(e.position, b.id, null);
+      return;
+    }
+    final r = b.rows[i];
+    if (_bound(r) && HardwareKeyboard.instance.isAltPressed) {
+      _press = null;
+      widget.actions.onUnbind(b.id, r.id);
+      return;
+    }
+    if (_bound(r) && (b.onLeftPort(p) || r.outPort == null)) {
+      final w = widget.wires
+          .where((w) => w.to == b.id && w.toPort == r.inPort)
+          .firstOrNull;
+      if (w != null) {
+        _press = _Wire(
+          e.position,
+          FieldRefVm(w.from, w.fromPort),
+          picked: (b.id, r.inPort!, r.id),
+        )..pointer = p;
+        return;
+      }
+    }
+    if (r.outPort case final out?) {
+      _press = _Wire(
+        e.position,
+        FieldRefVm(b.id, out, label: '${b.id}.${r.label}'),
+      )..pointer = p;
+      return;
+    }
+    _press = _Tap(e.position, b.id, r.id);
+  }
+
+  void _move(PointerMoveEvent e) {
+    final press = _press;
+    if (press == null) {
+      return;
+    }
+    if (!press.dragging &&
+        (e.position - press.down).distance < FlowCanvas.slop) {
+      return;
+    }
+    press.dragging = true;
+    final p = e.localPosition;
+    switch (press) {
+      case _Pan():
+        _ctl.value = Matrix4.translationValues(e.delta.dx, e.delta.dy, 0)
+          ..multiply(_ctl.value);
+      case _Move(:final id, :final grab):
+        final b = widget.blocks.where((b) => b.id == id).firstOrNull;
+        if (b == null) {
+          return;
+        }
+        final at = p - grab;
+        setState(
+          () => press.at = Offset(
+            at.dx.clamp(0, FlowCanvas.size.width - b.width),
+            at.dy.clamp(0, FlowCanvas.size.height - b.height),
+          ),
+        );
+      case _Wire():
+        _follow(press, p, e.position);
+      case _Tap():
+        break;
+    }
+  }
+
+  void _follow(_Wire w, Offset p, Offset global) {
+    w
+      ..pointer = p
+      ..over = null
+      ..refusal = null
+      ..outside = null;
+    if (!_inView(global)) {
+      // A picked-up wire moves between inputs of the canvas only.
+      w.outside = w.picked != null
+          ? null
+          : fieldDropAt(global, View.of(context).viewId);
+    } else {
+      final b = _blockAt(_blocks, p);
+      final i = b?.rowAt(p);
+      if (b != null && i != null) {
+        final r = b.rows[i];
+        final picked = w.picked;
+        final same = picked != null && picked.$1 == b.id && picked.$3 == r.id;
+        w
+          ..over = (b.id, r.id)
+          ..refusal = same
+              ? null
+              : widget.actions.refusal(
+                  w.from,
+                  b.id,
+                  r.id,
+                  replacing: picked == null ? null : (picked.$1, picked.$2),
+                );
+      }
+    }
+    fieldDropHover.value = w.outside?.id;
+    setState(() {});
+  }
+
+  void _up(PointerUpEvent e) {
+    final press = _press;
+    _press = null;
+    fieldDropHover.value = null;
+    switch (press) {
+      case null:
+        return;
+      case _Pan(:final dragging):
+        if (!dragging) {
+          widget.onClear();
+        }
+      case _Move(:final id, :final at?):
+        widget.onMove(id, FlowCanvas.snap(at.dx), FlowCanvas.snap(at.dy));
+      case _Move():
+        break;
+      case _Wire(dragging: false, picked: (final block, _, final row)):
+        _click(block, row);
+      case _Wire(dragging: false, :final from):
+        final b = _blockAt(_blocks, e.localPosition);
+        final i = b?.rowAt(e.localPosition);
+        if (b != null && i != null) {
+          _click(b.id, b.rows[i].id);
+        } else {
+          _click(from.block, '');
+        }
+      case _Wire():
+        _drop(press);
+      case _Tap(:final block, :final row?):
+        _click(block, row);
+      case _Tap():
+        break;
+    }
+    setState(() {});
+  }
+
+  void _drop(_Wire w) {
+    final picked = w.picked;
+    if (w.outside case final zone?) {
+      zone.onDrop(w.from);
+      return;
+    }
+    final over = w.over;
+    if (over == null) {
+      // Let go on the canvas, not on a field: a picked-up wire unbinds.
+      final onBlock = _blockAt(_blocks, w.pointer) != null;
+      if (picked != null && !onBlock) {
+        widget.actions.onUnbind(picked.$1, picked.$3);
+      }
+      return;
+    }
+    if (w.refusal != null) {
+      return;
+    }
+    final (block, rowId) = over;
+    final row = _blocks
+        .where((b) => b.id == block)
+        .firstOrNull
+        ?.rows
+        .where((r) => r.id == rowId)
+        .firstOrNull;
+    final inPort = row?.inPort;
+    if (inPort == null) {
+      return;
+    }
+    if (picked == null) {
+      widget.actions.onBind(w.from, block, inPort);
+    } else if (picked.$1 != block || picked.$2 != inPort) {
+      widget.actions.onRebind(picked.$1, picked.$2, block, inPort);
+    }
+  }
+
+  /// A click on row [row] of [block]; the second within 400 ms on a bound
+  /// input unbinds it.
+  void _click(String block, String row) {
+    final now = Duration(microseconds: DateTime.now().microsecondsSinceEpoch);
+    final last = _lastClick;
+    _lastClick = (block, row, now);
+    if (last == null ||
+        last.$1 != block ||
+        last.$2 != row ||
+        row.isEmpty ||
+        now - last.$3 > const Duration(milliseconds: 400)) {
+      return;
+    }
+    _lastClick = null;
+    final r = widget.blocks
+        .where((b) => b.id == block)
+        .firstOrNull
+        ?.rows
+        .where((r) => r.id == row)
+        .firstOrNull;
+    if (r != null && _bound(r)) {
+      widget.actions.onUnbind(block, row);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final blocks = [
-      for (final b in widget.blocks)
-        if (_drag[b.id] case final at?) b.at(at.dx, at.dy) else b,
-    ];
+    final blocks = _blocks;
     final byId = {for (final b in blocks) b.id: b};
-    final actions = FlowBlockActions(
-      onSelect: widget.actions.onSelect,
-      onBind: widget.actions.onBind,
-      onUnbind: widget.actions.onUnbind,
-      onDropEntry: widget.actions.onDropEntry,
-      onResize: widget.actions.onResize,
-      onMove: (id, delta) => setState(() {
-        final b = byId[id];
-        if (b == null) {
-          return;
-        }
-        final at = _drag[id] ?? Offset(b.x, b.y);
-        _drag[id] = Offset(
-          (at.dx + delta.dx).clamp(0, FlowCanvas.size.width - b.width),
-          (at.dy + delta.dy).clamp(0, FlowCanvas.size.height - 100),
-        );
-      }),
-      onMoveEnd: (id) {
-        final at = _drag.remove(id);
-        if (at != null) {
-          widget.onMove(id, at.dx, at.dy);
-        }
-      },
-    );
+    final wire = switch (_press) {
+      final _Wire w when w.dragging => w,
+      _ => null,
+    };
+    final picked = wire?.picked;
+    final wires = [
+      for (final w in widget.wires)
+        if (picked == null || w.to != picked.$1 || w.toPort != picked.$2) w,
+    ];
+    final selected = blocks.where((b) => b.selected).firstOrNull?.id;
+    final front = [
+      for (final w in wires)
+        if (w.from == selected || w.to == selected) w,
+    ];
+    final light = wire?.over == null
+        ? RowLight.none
+        : (wire!.refusal == null ? RowLight.takes : RowLight.refuses);
+    final pending = wire == null ? null : _pending(wire, byId);
     return ColoredBox(
+      key: _view,
       color: c.ground0,
       child: Stack(
         children: [
           Positioned.fill(
-            child: DragTarget<Object>(
-              onWillAcceptWithDetails: (d) => d.data is String,
+            child: DragTarget<String>(
               onAcceptWithDetails: (d) {
-                final box =
-                    _key.currentContext?.findRenderObject() as RenderBox?;
-                final p = box?.globalToLocal(d.offset) ?? Offset.zero;
-                widget.onDrop(d.data as String, p.dx, p.dy);
+                final p = _local(d.offset) - FlowCanvas.dropGrab;
+                widget.onDrop(
+                  d.data,
+                  FlowCanvas.snap(p.dx.clamp(0, FlowCanvas.size.width)),
+                  FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
+                );
               },
               builder: (context, _, _) => InteractiveViewer(
+                transformationController: _ctl,
                 constrained: false,
+                panEnabled: false,
                 minScale: 0.4,
                 maxScale: 1.6,
                 boundaryMargin: const EdgeInsets.all(200),
-                child: GestureDetector(
-                  onTap: widget.onClear,
+                child: Listener(
+                  behavior: .opaque,
+                  onPointerDown: _down,
+                  onPointerMove: _move,
+                  onPointerUp: _up,
+                  // Two fingers on a trackpad scroll the canvas; the viewer
+                  // keeps pinch zoom.
+                  onPointerPanZoomUpdate: (e) =>
+                      _ctl.value = Matrix4.translationValues(
+                        e.panDelta.dx,
+                        e.panDelta.dy,
+                        0,
+                      )..multiply(_ctl.value),
+                  onPointerCancel: (_) => setState(() {
+                    _press = null;
+                    fieldDropHover.value = null;
+                  }),
                   child: SizedBox(
                     key: _key,
                     width: FlowCanvas.size.width,
@@ -146,14 +509,45 @@ class _FlowCanvasState extends State<FlowCanvas> {
                           child: CustomPaint(
                             painter: _Grid(c.line1),
                             foregroundPainter: _Wires(
-                              wires: widget.wires,
+                              wires: wires,
                               byId: byId,
                               teal: c.good,
                               ember: c.ember,
                             ),
                           ),
                         ),
-                        for (final w in widget.wires)
+                        for (final b in blocks)
+                          Positioned(
+                            left: b.x,
+                            top: b.y,
+                            child: FlowBlockView(
+                              key: ValueKey(b.id),
+                              vm: b,
+                              actions: widget.actions,
+                              lit: wire?.over?.$1 == b.id
+                                  ? wire!.over!.$2
+                                  : null,
+                              light: light,
+                            ),
+                          ),
+                        // The selected block's wires over the blocks.
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: CustomPaint(
+                              painter: _Wires(
+                                wires: front,
+                                byId: byId,
+                                teal: c.good,
+                                ember: c.ember,
+                                pending: pending,
+                                pendingColor: wire?.refusal != null
+                                    ? c.bad
+                                    : c.good,
+                              ),
+                            ),
+                          ),
+                        ),
+                        for (final w in wires)
                           if (w.warning case final text?)
                             if (_mid(byId, w) case final m?)
                               Positioned(
@@ -164,15 +558,11 @@ class _FlowCanvasState extends State<FlowCanvas> {
                                   child: _WarnChip(text, w.warningNote),
                                 ),
                               ),
-                        for (final b in blocks)
+                        if (wire?.refusal case final why?)
                           Positioned(
-                            left: b.x,
-                            top: b.y,
-                            child: FlowBlockView(
-                              key: ValueKey(b.id),
-                              vm: b,
-                              actions: actions,
-                            ),
+                            left: wire!.pointer.dx + 14,
+                            top: wire.pointer.dy + 12,
+                            child: IgnorePointer(child: _Refusal(why)),
                           ),
                       ],
                     ),
@@ -196,6 +586,24 @@ class _FlowCanvasState extends State<FlowCanvas> {
         ],
       ),
     );
+  }
+
+  /// The wire being dragged: from its output's port to the input it is
+  /// over (when that takes it), else to the pointer.
+  (Offset, Offset)? _pending(_Wire w, Map<String, FlowBlockVm> byId) {
+    final p1 = byId[w.from.block]?.portAt(w.from.port, output: true);
+    if (p1 == null) {
+      return null;
+    }
+    var p2 = w.pointer;
+    if (w.over case (final block, final row) when w.refusal == null) {
+      final b = byId[block];
+      final r = b?.rows.where((r) => r.id == row).firstOrNull;
+      if (r?.inPort case final port?) {
+        p2 = b!.portAt(port, output: false) ?? p2;
+      }
+    }
+    return (p1, p2);
   }
 }
 
@@ -246,6 +654,29 @@ class _WarnChip extends StatelessWidget {
   }
 }
 
+/// Why the row under a dragged wire refuses it, beside the pointer.
+class _Refusal extends StatelessWidget {
+  const _Refusal(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: .center,
+      decoration: BoxDecoration(
+        color: c.badTint,
+        border: .all(color: c.badLine),
+        borderRadius: const BorderRadius.all(Radius.circular(6)),
+      ),
+      child: Text(text, style: mono(size: 11, color: c.bad)),
+    );
+  }
+}
+
 /// A dot every 20 px (spec §1: radial #252B30, 1 px).
 class _Grid extends CustomPainter {
   _Grid(this.color);
@@ -267,19 +698,30 @@ class _Grid extends CustomPainter {
 }
 
 /// `M x1 y1 C x1+dx y1, x2−dx y2, x2 y2`, `dx = max(50, |x2−x1|/2)`,
-/// width 2 (spec §4).
+/// width 2 (spec §4); [pending] is the wire being dragged.
 class _Wires extends CustomPainter {
   _Wires({
     required this.wires,
     required this.byId,
     required this.teal,
     required this.ember,
+    this.pending,
+    this.pendingColor = Colors.transparent,
   });
 
   final List<FlowWireVm> wires;
   final Map<String, FlowBlockVm> byId;
   final Color teal;
   final Color ember;
+  final (Offset, Offset)? pending;
+  final Color pendingColor;
+
+  static Path _curve(Offset p1, Offset p2) {
+    final dx = _dx(p1, p2);
+    return Path()
+      ..moveTo(p1.dx, p1.dy)
+      ..cubicTo(p1.dx + dx, p1.dy, p2.dx - dx, p2.dy, p2.dx, p2.dy);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -289,12 +731,8 @@ class _Wires extends CustomPainter {
       if (p1 == null || p2 == null) {
         continue;
       }
-      final dx = _dx(p1, p2);
-      final path = Path()
-        ..moveTo(p1.dx, p1.dy)
-        ..cubicTo(p1.dx + dx, p1.dy, p2.dx - dx, p2.dy, p2.dx, p2.dy);
       canvas.drawPath(
-        path,
+        _curve(p1, p2),
         Paint()
           ..color = w.writes ? ember : teal
           ..style = .stroke
@@ -302,8 +740,24 @@ class _Wires extends CustomPainter {
           ..strokeWidth = 2,
       );
     }
+    if (pending case (final p1, final p2)) {
+      canvas
+        ..drawPath(
+          _curve(p1, p2),
+          Paint()
+            ..color = pendingColor
+            ..style = .stroke
+            ..strokeCap = .round
+            ..strokeWidth = 2,
+        )
+        ..drawCircle(p2, 4, Paint()..color = pendingColor);
+    }
   }
 
   @override
-  bool shouldRepaint(_Wires old) => old.wires != wires || old.byId != byId;
+  bool shouldRepaint(_Wires old) =>
+      old.wires != wires ||
+      old.byId != byId ||
+      old.pending != pending ||
+      old.pendingColor != pendingColor;
 }

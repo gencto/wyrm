@@ -11,8 +11,10 @@ import 'package:business/redux/flow_editor/actions/disconnect_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/move_block_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/rebind_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_block_action.dart';
 import 'package:business/redux/flow_editor/actions/resize_inputs_action.dart';
+import 'package:business/redux/flow_editor/actions/set_block_form_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
 import 'package:business/redux/flow_editor/actions/set_palette_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
@@ -57,6 +59,9 @@ const _sources = {
   'const',
 };
 const _sinks = {'set', 'invoke', 'publish'};
+
+/// Blocks that send their `value` parameter on `out`.
+const _variables = {'number', 'string', 'bool', 'const'};
 
 @RoutePage()
 class FlowEditorPageConnector extends StatelessWidget {
@@ -126,12 +131,12 @@ class FlowEditorPageConnector extends StatelessWidget {
       wires: vm.wires,
       blockActions: FlowBlockActions(
         onSelect: vm.onSelect,
-        onMove: (_, _) {},
-        onMoveEnd: (_) {},
         onBind: vm.onBind,
+        onRebind: vm.onRebind,
         onUnbind: vm.onUnbind,
         onDropEntry: vm.onDropEntry,
         onResize: vm.onResize,
+        refusal: vm.refusal,
       ),
       onClear: vm.onClear,
       onMove: vm.onMove,
@@ -189,9 +194,22 @@ class FlowEditorPageConnector extends StatelessWidget {
         if (b.type != 'invoke')
           if (pointOf(b) case final k?) _full(root, k),
       if (id != newFlowId) '$root/dataflows/$id',
+      // What the deployed publish blocks last published: their inputs.
+      if (id != newFlowId)
+        for (final b in ed.deployed?.blocks.values ?? const <FlowBlock>[])
+          ?_published(root, id, b),
     }.toList();
   }
 }
+
+/// The value a `publish` block of flow [flow] publishes
+/// (`dataflows/<flow>/nodes/<node>`), null for any other block.
+String? _published(String root, String flow, FlowBlock b) =>
+    switch (b.cfg['node']) {
+      final String n when b.type == 'publish' && flow.isNotEmpty =>
+        '$root/dataflows/$flow/nodes/$n',
+      _ => null,
+    };
 
 /// A point key of a definition (relative to the site, or full) as a full key.
 String _full(String root, String key) =>
@@ -220,7 +238,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final edges = d?.edges ?? const IListConst<FlowEdge>([]);
     final blocks = d?.blocks ?? const IMapConst<String, FlowBlock>({});
     final fields = {
-      for (final x in blocks.values) x.id: fieldsOf(types[x.type], x),
+      for (final x in blocks.values)
+        x.id: fieldsOf(types[x.type], x, edges: edges),
     };
     // Rows a block draws: its own, and any field a wire touches.
     final rows = {
@@ -238,6 +257,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     };
     String labelOf(String block, String port) =>
         fields[block]?.where((f) => f.outPort == port).firstOrNull?.label ??
+        port;
+    String inLabelOf(String block, String port) =>
+        fields[block]?.where((f) => f.inPort == port).firstOrNull?.label ??
         port;
 
     return _Vm(
@@ -310,8 +332,16 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       inspectorRows: b == null
           ? const []
           : [
+              if (formOf(b, edges) case final form?)
+                InspectorRowVm(
+                  id: 'form',
+                  name: S.current.blockForm,
+                  editor: FieldEditorVm.choice,
+                  value: form.label,
+                  choices: [for (final f in formsOf(b.type)) f.label],
+                ),
               for (final f in fields[b.id]!)
-                _inspectorRow(b, f, d!, root, labelOf),
+                _inspectorRow(b, f, d!, root, labelOf, inLabelOf),
             ],
       summary: b == null ? _summary(root, id, d, problems) : null,
       onDeploy: () => unawaited(dispatchAndWait(DeployFlowAction())),
@@ -334,6 +364,46 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onBind: (from, to, port) =>
           dispatchSync(ConnectPortsAction(from.block, from.port, to, port)),
       onUnbind: _unbind,
+      onRebind: (oldBlock, oldPort, block, port) {
+        final old = fields[oldBlock]
+            ?.where((f) => f.inPort == oldPort)
+            .firstOrNull;
+        dispatchSync(
+          RebindEdgeAction(
+            oldBlock,
+            oldPort,
+            block,
+            port,
+            param: old?.spec?.name,
+            keep: old != null && old.typed
+                ? ed.ports[portKey('in', oldBlock, oldPort)]?.value
+                : null,
+          ),
+        );
+      },
+      refusal: (from, block, row, {replacing}) {
+        final to = fields[block]?.where((f) => f.id == row).firstOrNull;
+        if (d == null || to == null) {
+          return null;
+        }
+        final r = bindRefusal(
+          types,
+          d,
+          fromBlock: from.block,
+          fromPort: from.port,
+          toBlock: block,
+          to: to,
+          replacing: replacing,
+        );
+        return switch (r?.reason) {
+          null => null,
+          BindRefusal.output => S.current.refuseOutput,
+          BindRefusal.noInput => S.current.refuseNoInput(to.label),
+          BindRefusal.self => S.current.refuseSelf,
+          BindRefusal.type => S.current.refuseType(r!.from, r.to),
+          BindRefusal.loop => S.current.refuseLoop,
+        };
+      },
       onDropEntry: (entry, block, port) {
         final target = blocks[block];
         if (target == null || !entry.startsWith('key:')) {
@@ -355,6 +425,15 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         if (b == null) {
           return;
         }
+        if (row == 'form') {
+          final form = formsOf(
+            b.type,
+          ).where((f) => f.label == text).firstOrNull;
+          if (form != null) {
+            dispatchSync(SetBlockFormAction(b.id, form.id));
+          }
+          return;
+        }
         final f = fields[b.id]!.where((x) => x.id == row).firstOrNull;
         if (f == null) {
           return;
@@ -363,7 +442,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           final args = Map<String, Object?>.of(
             (b.cfg['args'] as Map?)?.cast<String, Object?>() ?? const {},
           );
-          args[f.label] = _typed(text, 'dynamic');
+          args[f.name] = _typed(text, 'dynamic');
           dispatchSync(SetBlockParamAction(b.id, 'args', args));
         } else if (f.spec case final p?) {
           dispatchSync(
@@ -403,7 +482,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       return;
     }
     final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
-    final f = fieldsOf(t, b).where((x) => x.id == row).firstOrNull;
+    final f = fieldsOf(
+      t,
+      b,
+      edges: d!.edges,
+    ).where((x) => x.id == row).firstOrNull;
     final port = f?.inPort;
     if (f == null || port == null) {
       return;
@@ -452,8 +535,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             if (action != null &&
                 action.params.any((p) => p.defaultValue != null))
               'args': {
-                for (final p in action.params)
-                  p.name: ?p.defaultValue,
+                for (final p in action.params) p.name: ?p.defaultValue,
               },
           },
         ),
@@ -533,13 +615,24 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   /// The values of [b]'s fields: the watch's (only for a block the deployed
   /// version has, with the same type), else the tree's own value of the
   /// point a `subscribe` reads or a `set` writes.
-  LiveValue? Function(String) _live(FlowBlock b, String root) {
+  ///
+  /// The engine records a port only from its first sample after the watch
+  /// opened (ADR 0038 §6), so a slow point or a value sent once at start
+  /// shows nothing there. What such a field holds is still known, and is
+  /// shown: an input fed by a wire of the deployed version holds the last
+  /// value of its source; a variable (`number`, `string`, `bool`, `const`)
+  /// sends its `value`; a parameter's echo output is the parameter.
+  LiveValue? Function(String) _live(FlowBlock b, String root, [int hops = 0]) {
     final dep = flowEditor.deployed?.blocks[b.id];
     final same = dep != null && dep.type == b.type;
     final point = pointOf(b);
-    final tree = point == null || b.type == 'invoke'
-        ? null
-        : live.values[_full(root, point)];
+    final flow = flowEditor.draft?.id ?? '';
+    final pub = _published(root, flow, b);
+    final tree = pub != null
+        ? live.values[pub]
+        : (point == null || b.type == 'invoke'
+              ? null
+              : live.values[_full(root, point)]);
     return (k) {
       final v = same ? flowEditor.ports[k] : null;
       if (v != null) {
@@ -547,8 +640,46 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       }
       if (tree != null &&
           (k == portKey('out', b.id, 'out') && b.type != 'set' ||
-              k == portKey('in', b.id, 'in') && b.type == 'set')) {
+              k == portKey('in', b.id, 'in') &&
+                  (b.type == 'set' || b.type == 'publish'))) {
         return tree;
+      }
+      if (!same || hops > 4) {
+        return null;
+      }
+      final inPrefix = portKey('in', b.id, '');
+      final outPrefix = portKey('out', b.id, '');
+      if (k.startsWith(inPrefix)) {
+        final port = k.substring(inPrefix.length);
+        final wire = flowEditor.deployed?.edges
+            .where((e) => e.to == b.id && e.toPort == port)
+            .firstOrNull;
+        final src = wire == null
+            ? null
+            : flowEditor.deployed?.blocks[wire.from];
+        if (wire != null && src != null) {
+          return _live(src, root, hops + 1)(
+            portKey('out', src.id, wire.fromPort),
+          );
+        }
+      } else if (k.startsWith(outPrefix)) {
+        final port = k.substring(outPrefix.length);
+        // An output wired straight into a publish block sent what that
+        // block last published.
+        for (final e
+            in flowEditor.deployed?.edges ?? const IListConst<FlowEdge>([])) {
+          final to = flowEditor.deployed?.blocks[e.to];
+          final key = to == null ? null : _published(root, flow, to);
+          if (e.from == b.id && e.fromPort == port && key != null) {
+            if (live.values[key] case final v?) {
+              return v;
+            }
+          }
+        }
+        final param = port == 'out' && _variables.contains(b.type)
+            ? 'value'
+            : port;
+        return flowEditor.ports[portKey('param', b.id, param)];
       }
       return null;
     };
@@ -600,6 +731,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             return FieldRowVm(
               id: f.id,
               label: f.label,
+              name: f.name,
               value: value.text,
               tone: value.bad
                   ? ValueTone.bad
@@ -664,6 +796,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     FlowDraft d,
     String root,
     String Function(String block, String port) labelOf,
+    String Function(String block, String port) inLabelOf,
   ) {
     final into = f.inPort == null
         ? null
@@ -674,13 +807,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       if (f.outPort != null)
         for (final e in d.edges)
           if (e.from == b.id && e.fromPort == f.outPort)
-            '${e.to}.${_inLabel(e.toPort)}',
+            '${e.to}.${inLabelOf(e.to, e.toPort)}',
     ];
     final hint = f.spec?.description ?? '';
     if (into != null) {
       return InspectorRowVm(
         id: f.id,
         name: f.label,
+        engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.bound,
         source: '${into.from}.${labelOf(into.from, into.fromPort)}',
         writes: writingTypes.contains(b.type),
@@ -694,6 +828,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       return InspectorRowVm(
         id: f.id,
         name: f.label,
+        engine: f.name == f.label ? '' : f.name,
         editor: p.choices.isNotEmpty
             ? FieldEditorVm.choice
             : (p.type == 'bool' ? FieldEditorVm.toggle : FieldEditorVm.text),
@@ -709,10 +844,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       );
     }
     if (f.kind == FieldKind.arg) {
-      final v = (b.cfg['args'] as Map?)?[f.label];
+      final v = (b.cfg['args'] as Map?)?[f.name];
       return InspectorRowVm(
         id: f.id,
         name: f.label,
+        engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.text,
         value: v == null ? '' : (v is String ? v : jsonEncode(v)),
       );
@@ -722,6 +858,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       return InspectorRowVm(
         id: f.id,
         name: f.label,
+        engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.output,
         value: value,
         targets: targets.isEmpty
@@ -737,9 +874,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       inPort: f.inPort,
     );
   }
-
-  static String _inLabel(String port) =>
-      port.startsWith('in.') ? port.substring(3) : port;
 
   /// The inspector with nothing selected (spec §6, proposed): the flow.
   FlowSummaryVm _summary(
@@ -878,6 +1012,8 @@ class _Vm extends Vm {
     required this.onSelect,
     required this.onBind,
     required this.onUnbind,
+    required this.onRebind,
+    required this.refusal,
     required this.onDropEntry,
     required this.onResize,
     required this.onFieldChanged,
@@ -937,6 +1073,20 @@ class _Vm extends Vm {
   final ValueChanged<String> onSelect;
   final void Function(FieldRefVm from, String block, String toPort) onBind;
   final void Function(String block, String rowId) onUnbind;
+  final void Function(
+    String oldBlock,
+    String oldPort,
+    String block,
+    String toPort,
+  )
+  onRebind;
+  final String? Function(
+    FieldRefVm from,
+    String block,
+    String rowId, {
+    (String, String)? replacing,
+  })
+  refusal;
   final void Function(String entry, String block, String toPort) onDropEntry;
   final void Function(String block, {required bool add}) onResize;
   final void Function(String id, String value) onFieldChanged;

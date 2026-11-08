@@ -1,7 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -47,6 +45,7 @@ final class FieldRowVm extends Equatable {
   const FieldRowVm({
     required this.id,
     required this.label,
+    this.name = '',
     this.value = '',
     this.tone = ValueTone.plain,
     this.inPort,
@@ -59,8 +58,11 @@ final class FieldRowVm extends Equatable {
   /// The field's id within its block.
   final String id;
 
-  /// `input_min`, never `in.input_min`.
+  /// What the row reads: `Input min`, `Input 1`, a point's name; no colon.
   final String label;
+
+  /// What the engine calls it (`input_min`, `in.0`): the row's tooltip.
+  final String name;
 
   /// Already formatted (`92.6`, `4095`, `82.5 °C`).
   final String value;
@@ -81,6 +83,7 @@ final class FieldRowVm extends Equatable {
   List<Object?> get props => [
     id,
     label,
+    name,
     value,
     tone,
     inPort,
@@ -168,6 +171,40 @@ final class FlowBlockVm extends Equatable {
   static const rowHeight = 28.0;
   static const bodyTop = 6.0;
 
+  /// The − / + row under the fields.
+  static const toolsHeight = 38.0;
+
+  /// How tall the block is drawn: header, body padding 6 + 8, 28 per row
+  /// (at least one), the − / + row.
+  double get height =>
+      headerHeight +
+      bodyTop +
+      rowHeight * (rows.isEmpty ? 1 : rows.length) +
+      8 +
+      (variadic == null ? 0 : toolsHeight);
+
+  /// Whether [p] (canvas coordinates) is on the header, which moves the
+  /// block.
+  bool onHeader(Offset p) =>
+      p.dx >= x && p.dx <= x + width && p.dy >= y && p.dy < y + headerHeight;
+
+  /// Whether [p] is on the block, its ports included (they stand 5 px out).
+  bool contains(Offset p) =>
+      p.dx >= x - 8 && p.dx <= x + width + 8 && p.dy >= y && p.dy <= y + height;
+
+  /// The row under [p], if any.
+  int? rowAt(Offset p) {
+    if (!contains(p)) {
+      return null;
+    }
+    final i = ((p.dy - y - headerHeight - bodyTop) / rowHeight).floor();
+    return i >= 0 && i < rows.length ? i : null;
+  }
+
+  /// Whether [p] is on the left port's side of a row: the port and the
+  /// 14 px inside it. A press there on a bound input picks its wire up.
+  bool onLeftPort(Offset p) => p.dx < x + 14;
+
   /// Where a wire meets [port] (an input: the left edge, an output: the
   /// right edge), at the centre of its row.
   Offset? portAt(String port, {required bool output}) {
@@ -199,26 +236,36 @@ final class FlowBlockVm extends Equatable {
 }
 
 /// What a block reports back; one set of handlers for every block, keyed by
-/// [FlowBlockVm.id].
+/// [FlowBlockVm.id]. The canvas reads the pointer itself (drag a block by
+/// its header, drag a wire from a field) and calls these.
 final class FlowBlockActions {
   const FlowBlockActions({
     required this.onSelect,
-    required this.onMove,
-    required this.onMoveEnd,
     required this.onBind,
+    required this.onRebind,
     required this.onUnbind,
     required this.onDropEntry,
     required this.onResize,
+    this.refusal = _takesAll,
   });
 
   final ValueChanged<String> onSelect;
-  final void Function(String block, Offset delta) onMove;
-  final ValueChanged<String> onMoveEnd;
 
-  /// A field dragged from `from` dropped on input `toPort` of `block`.
+  /// A wire dragged from `from` let go on input `toPort` of `block`.
   final void Function(FieldRefVm from, String block, String toPort) onBind;
 
-  /// Double click or Alt-click on a bound input.
+  /// The wire into `oldBlock.oldPort`, picked up and let go on input
+  /// `toPort` of `block`.
+  final void Function(
+    String oldBlock,
+    String oldPort,
+    String block,
+    String toPort,
+  )
+  onRebind;
+
+  /// Double click or Alt-click on a bound input, or its wire picked up and
+  /// let go on the empty canvas.
   final void Function(String block, String rowId) onUnbind;
 
   /// A palette entry (`key:<point>`) dropped on input `toPort` of `block`.
@@ -226,18 +273,47 @@ final class FlowBlockActions {
 
   /// − (false) or + (true).
   final void Function(String block, {required bool add}) onResize;
+
+  /// Why a row (block, row id) does not take a wire from a field
+  /// (`Outputs cannot be bound`, `number does not fit bool`), null when it
+  /// does; `replacing` is the input a picked-up wire leaves.
+  final String? Function(
+    FieldRefVm from,
+    String block,
+    String rowId, {
+    (String, String)? replacing,
+  })
+  refusal;
+
+  static String? _takesAll(
+    FieldRefVm from,
+    String block,
+    String rowId, {
+    (String, String)? replacing,
+  }) => null;
 }
+
+/// How a row is lit while a wire is dragged over it.
+enum RowLight { none, takes, refuses }
 
 /// A block of the flow editor (spec §3): a header with its kind chip, mono
 /// title and type, then one row per field with its value and ports. The
-/// header moves the block; a row with an output is the handle to bind it
-/// into another field; a row with an input takes such a drop, and a point
-/// from the Tree tab.
+/// canvas moves it and draws wires from and into its rows; a row with an
+/// input takes a point dropped from the Tree tab. [lit] is the row a
+/// dragged wire is over, [light] how it is lit.
 class FlowBlockView extends StatelessWidget {
-  const FlowBlockView({required this.vm, required this.actions, super.key});
+  const FlowBlockView({
+    required this.vm,
+    required this.actions,
+    this.lit,
+    this.light = RowLight.none,
+    super.key,
+  });
 
   final FlowBlockVm vm;
   final FlowBlockActions actions;
+  final String? lit;
+  final RowLight light;
 
   @override
   Widget build(BuildContext context) {
@@ -249,153 +325,150 @@ class FlowBlockView extends StatelessWidget {
       .action => (c.emberTint, c.emberSoft),
       .my => (const Color(0xFF3A2A1C), c.emberSoft),
     };
-    return GestureDetector(
-      onTap: () => actions.onSelect(vm.id),
-      child: Container(
-        width: vm.width,
-        decoration: BoxDecoration(
-          color: c.ground2,
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-          border: .all(
-            color: vm.selected ? c.ember : c.line2,
-            width: vm.selected ? 1.5 : 1,
-          ),
-          boxShadow: [
-            if (vm.selected)
-              BoxShadow(
-                color: c.ember.withValues(alpha: 0.14),
-                spreadRadius: 4,
-              ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: vm.selected ? 0.4 : 0.35),
-              offset: Offset(0, vm.selected ? 10 : 8),
-              blurRadius: vm.selected ? 24 : 20,
-            ),
-          ],
+    return Container(
+      width: vm.width,
+      decoration: BoxDecoration(
+        color: c.ground2,
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: .all(
+          color: vm.selected ? c.ember : c.line2,
+          width: vm.selected ? 1.5 : 1,
         ),
-        child: Column(
-          mainAxisSize: .min,
-          crossAxisAlignment: .stretch,
-          children: [
-            GestureDetector(
-              onPanUpdate: (d) => actions.onMove(vm.id, d.delta),
-              onPanEnd: (_) => actions.onMoveEnd(vm.id),
-              child: Container(
-                height: FlowBlockVm.headerHeight,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: headerFill,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(7),
-                  ),
-                ),
-                child: Row(
-                  spacing: 8,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        border: .all(color: ink),
-                        borderRadius: const BorderRadius.all(
-                          Radius.circular(3),
-                        ),
-                      ),
-                      child: Text(
-                        vm.kind.chip,
-                        style: mono(
-                          size: 9,
-                          weight: .w600,
-                          color: ink,
-                        ).copyWith(height: 1.2),
-                      ),
-                    ),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: vm.width * 0.55),
-                      child: Text(
-                        vm.title,
-                        maxLines: 1,
-                        overflow: .ellipsis,
-                        style: mono(weight: .w600, color: c.text1),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        vm.type,
-                        maxLines: 1,
-                        overflow: .ellipsis,
-                        textAlign: .right,
-                        style: mono(size: 11, color: c.text4),
-                      ),
-                    ),
-                  ],
+        boxShadow: [
+          if (vm.selected)
+            BoxShadow(color: c.ember.withValues(alpha: 0.14), spreadRadius: 4),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: vm.selected ? 0.4 : 0.35),
+            offset: Offset(0, vm.selected ? 10 : 8),
+            blurRadius: vm.selected ? 24 : 20,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          MouseRegion(
+            cursor: SystemMouseCursors.move,
+            child: Container(
+              height: FlowBlockVm.headerHeight,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: headerFill,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(7),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(
-                top: FlowBlockVm.bodyTop,
-                bottom: 8,
-              ),
-              child: Column(
-                crossAxisAlignment: .stretch,
+              child: Row(
+                spacing: 8,
                 children: [
-                  for (final r in vm.rows)
-                    _FieldRow(block: vm.id, vm: r, actions: actions),
-                  if (vm.variadic case final v?)
-                    Container(
-                      margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                      padding: const EdgeInsets.only(top: 6),
-                      decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: c.line1)),
-                      ),
-                      child: Row(
-                        spacing: 6,
-                        children: [
-                          _ToolButton(
-                            label: '−',
-                            tooltip: v.removeLabel,
-                            onTap: v.canRemove
-                                ? () => actions.onResize(vm.id, add: false)
-                                : null,
-                          ),
-                          _ToolButton(
-                            label: '+',
-                            tooltip: v.addLabel,
-                            onTap: v.canAdd
-                                ? () => actions.onResize(vm.id, add: true)
-                                : null,
-                          ),
-                          Text(
-                            v.label,
-                            style: TextStyle(fontSize: 12, color: c.text4),
-                          ),
-                        ],
-                      ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
                     ),
+                    decoration: BoxDecoration(
+                      border: .all(color: ink),
+                      borderRadius: const BorderRadius.all(Radius.circular(3)),
+                    ),
+                    child: Text(
+                      vm.kind.chip,
+                      style: mono(
+                        size: 9,
+                        weight: .w600,
+                        color: ink,
+                      ).copyWith(height: 1.2),
+                    ),
+                  ),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: vm.width * 0.55),
+                    child: Text(
+                      vm.title,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      style: mono(weight: .w600, color: c.text1),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      vm.type,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      textAlign: .right,
+                      style: mono(size: 11, color: c.text4),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: FlowBlockVm.bodyTop, bottom: 8),
+            child: Column(
+              crossAxisAlignment: .stretch,
+              children: [
+                if (vm.rows.isEmpty)
+                  const SizedBox(height: FlowBlockVm.rowHeight),
+                for (final r in vm.rows)
+                  _FieldRow(
+                    block: vm.id,
+                    vm: r,
+                    actions: actions,
+                    light: r.id == lit ? light : RowLight.none,
+                  ),
+                if (vm.variadic case final v?)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                    padding: const EdgeInsets.only(top: 6),
+                    decoration: BoxDecoration(
+                      border: Border(top: BorderSide(color: c.line1)),
+                    ),
+                    child: Row(
+                      spacing: 6,
+                      children: [
+                        _ToolButton(
+                          label: '−',
+                          tooltip: v.removeLabel,
+                          onTap: v.canRemove
+                              ? () => actions.onResize(vm.id, add: false)
+                              : null,
+                        ),
+                        _ToolButton(
+                          label: '+',
+                          tooltip: v.addLabel,
+                          onTap: v.canAdd
+                              ? () => actions.onResize(vm.id, add: true)
+                              : null,
+                        ),
+                        Text(
+                          v.label,
+                          style: TextStyle(fontSize: 12, color: c.text4),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// One field: `name:`, its value right-aligned, a port on each edge.
+/// One field: its label, its value right-aligned, a port on each edge.
 class _FieldRow extends StatelessWidget {
   const _FieldRow({
     required this.block,
     required this.vm,
     required this.actions,
+    required this.light,
   });
 
   final String block;
   final FieldRowVm vm;
   final FlowBlockActions actions;
+  final RowLight light;
 
   @override
   Widget build(BuildContext context) {
@@ -418,18 +491,28 @@ class _FieldRow extends StatelessWidget {
       );
     }
 
-    Widget row(bool lit) => SizedBox(
+    Widget row(RowLight light, {bool point = false}) => SizedBox(
       height: FlowBlockVm.rowHeight,
       child: Stack(
         clipBehavior: .none,
         children: [
-          if (lit)
+          if (point || light != RowLight.none)
             Positioned.fill(
               child: CustomPaint(
-                painter: _Dashed(
-                  color: c.emberLine,
-                  fill: c.ember.withValues(alpha: 0.12),
-                ),
+                painter: switch (light) {
+                  RowLight.refuses => _Dashed(
+                    color: c.badLine,
+                    fill: c.bad.withValues(alpha: 0.12),
+                  ),
+                  RowLight.takes => _Dashed(
+                    color: c.goodLine,
+                    fill: c.good.withValues(alpha: 0.14),
+                  ),
+                  RowLight.none => _Dashed(
+                    color: c.emberLine,
+                    fill: c.ember.withValues(alpha: 0.12),
+                  ),
+                },
               ),
             ),
           Padding(
@@ -438,9 +521,9 @@ class _FieldRow extends StatelessWidget {
               spacing: 6,
               children: [
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 120),
+                  constraints: const BoxConstraints(maxWidth: 124),
                   child: Text(
-                    '${vm.label}:',
+                    vm.label,
                     maxLines: 1,
                     overflow: .ellipsis,
                     style: TextStyle(fontSize: 12, color: c.text3),
@@ -473,76 +556,33 @@ class _FieldRow extends StatelessWidget {
       ),
     );
 
-    var child = row(vm.dropTarget);
+    var child = row(light, point: vm.dropTarget);
     final inPort = vm.inPort;
     if (inPort != null) {
-      final plain = child;
-      child = DragTarget<Object>(
-        onWillAcceptWithDetails: (d) => switch (d.data) {
-          FieldRefVm(:final block) => block != this.block,
-          final String e => e.startsWith('key:'),
-          _ => false,
-        },
-        onAcceptWithDetails: (d) => switch (d.data) {
-          final FieldRefVm f => actions.onBind(f, block, inPort),
-          final String e => actions.onDropEntry(e, block, inPort),
-          _ => null,
-        },
-        builder: (context, candidates, _) =>
-            candidates.isEmpty ? plain : row(true),
-      );
-      child = Listener(
-        onPointerDown: (e) {
-          if (e.buttons == kPrimaryButton &&
-              HardwareKeyboard.instance.isAltPressed &&
-              vm.inMark != PortMark.free) {
-            actions.onUnbind(block, vm.id);
-          }
-        },
-        child: GestureDetector(
-          onDoubleTap: vm.inMark == PortMark.free
-              ? null
-              : () => actions.onUnbind(block, vm.id),
-          child: child,
-        ),
+      // A point of the Tree tab dropped on an input (a palette Draggable).
+      child = DragTarget<String>(
+        onWillAcceptWithDetails: (d) => d.data.startsWith('key:'),
+        onAcceptWithDetails: (d) => actions.onDropEntry(d.data, block, inPort),
+        builder: (context, candidates, _) => candidates.isEmpty
+            ? row(light, point: vm.dropTarget)
+            : row(RowLight.none, point: true),
       );
     }
-    final outPort = vm.outPort;
-    if (outPort != null) {
-      final ref = FieldRefVm(block, outPort, label: '$block.${vm.label}');
-      child = Draggable<Object>(
-        data: ref,
-        dragAnchorStrategy: pointerDragAnchorStrategy,
-        feedback: _DragChip(ref.label),
-        child: MouseRegion(cursor: SystemMouseCursors.grab, child: child),
-      );
-    }
-    return child;
-  }
-}
-
-/// What follows the pointer while a field is dragged.
-class _DragChip extends StatelessWidget {
-  const _DragChip(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        height: 28,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        alignment: .center,
-        decoration: BoxDecoration(
-          color: c.emberFill,
-          border: .all(color: c.ember, width: 1.5),
-          borderRadius: const BorderRadius.all(Radius.circular(6)),
-        ),
-        child: Text(label, style: mono(size: 12, color: c.emberNew)),
-      ),
+    final tip = vm.name.isEmpty || vm.name == vm.label ? '' : vm.name;
+    return MouseRegion(
+      cursor:
+          vm.outPort != null ||
+              vm.inMark == PortMark.bound ||
+              vm.inMark == PortMark.write
+          ? SystemMouseCursors.grab
+          : MouseCursor.defer,
+      child: tip.isEmpty
+          ? child
+          : Tooltip(
+              message: tip,
+              waitDuration: const Duration(milliseconds: 600),
+              child: child,
+            ),
     );
   }
 }

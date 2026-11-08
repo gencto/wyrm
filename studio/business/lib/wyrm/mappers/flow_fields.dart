@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
@@ -81,6 +82,7 @@ String? pointOf(FlowBlock b) =>
 final class FlowField {
   const FlowField({
     required this.id,
+    required this.name,
     required this.label,
     required this.kind,
     this.inPort,
@@ -93,7 +95,13 @@ final class FlowField {
   /// `arg:<name>`.
   final String id;
 
-  /// What the row reads (`input_min`, `0`, `out`); never `in.<p>`.
+  /// What the engine calls it: the parameter (`input_min`), the port
+  /// (`in`, `in.0`, `quotient`) or the argument; shown small in the
+  /// inspector and in the row's tooltip.
+  final String name;
+
+  /// What the row reads: [fieldLabel] (`Input min`, `Input 1`, `Output`),
+  /// a point's own name, an argument's key; never `in.<p>`, no colon.
   final String label;
   final FieldKind kind;
 
@@ -116,6 +124,7 @@ final class FlowField {
   bool operator ==(Object other) =>
       other is FlowField &&
       other.id == id &&
+      other.name == name &&
       other.label == label &&
       other.kind == kind &&
       other.inPort == inPort &&
@@ -123,11 +132,12 @@ final class FlowField {
       other.onBlock == onBlock;
 
   @override
-  int get hashCode => Object.hash(id, label, kind, inPort, outPort, onBlock);
+  int get hashCode =>
+      Object.hash(id, name, label, kind, inPort, outPort, onBlock);
 
   @override
   String toString() =>
-      'FlowField($label ${inPort ?? '-'} → ${outPort ?? '-'}'
+      'FlowField($name "$label" ${inPort ?? '-'} → ${outPort ?? '-'}'
       '${onBlock ? '' : ' hidden'})';
 }
 
@@ -197,21 +207,232 @@ Variadic? variadicOf(NodeType? t, FlowBlock b) {
   );
 }
 
+// ---------- labels (flow-editor.md §3, owner decision 2026-11-08) ----------
+
+/// Names whose sentence-case form reads wrong or says too little. A key
+/// `<type>.<name>` names a parameter of that type and wins over `<name>`
+/// (`latch` has an input and a parameter both named `reset`).
+const fieldLabelOverrides = <String, String>{
+  'in': 'Input',
+  'out': 'Output',
+  'k': 'Factor',
+  'b': 'Offset',
+  'abs': 'Absolute change',
+  'pct': 'Percent change',
+  'fn': 'Function',
+  'op': 'Operation',
+  'expr': 'Expression',
+  'msg': 'Message',
+  'ms': 'Delay (ms)',
+  'key': 'Point',
+  'node': 'Value name',
+  'meta': 'Meta',
+  'allow_bad': 'Allow bad quality',
+  'on_bad': 'On bad quality',
+  'max_samples': 'Max samples',
+  'memory_mb': 'Memory (MB)',
+  'input_out_of_range': 'Input out of range',
+  'latch.reset': 'Reset mode',
+  'set.path': 'Point',
+  'set.on': 'Write on',
+  'invoke.path': 'Node',
+  'invoke.on': 'Run on',
+  'stopwatch.interval': 'Interval (s)',
+};
+
+/// Outputs that say more under their own name than as `Output`.
+const outputLabelOverrides = <String, String>{
+  'invoke.out': 'Result',
+  'alarm.out': 'Active',
+  'timer.out': 'Count',
+};
+
+/// Parameters of which the engine needs one or the other: both are rows
+/// of the block, though neither has a default.
+const _oneOf = <String, Set<String>>{
+  'deadband': {'abs', 'pct'},
+  'alarm': {'high', 'low'},
+};
+
+/// Unit suffixes of engine names: `size_s` → `Size (s)`.
+const _units = {'s': 's', 'ms': 'ms', 'mb': 'MB', 'hz': 'Hz'};
+
+/// `input_min` → `Input min`: words split at `_` and `.`, the first with a
+/// capital, a unit suffix in brackets.
+String humanize(String name) {
+  final words = name.split(RegExp('[_.]')).where((w) => w.isNotEmpty).toList();
+  if (words.isEmpty) {
+    return name;
+  }
+  String? unit;
+  if (words.length > 1 && _units.containsKey(words.last.toLowerCase())) {
+    unit = _units[words.removeLast().toLowerCase()];
+  }
+  final text = [
+    for (final (i, w) in words.indexed)
+      i == 0 ? '${w[0].toUpperCase()}${w.substring(1)}' : w.toLowerCase(),
+  ].join(' ');
+  return unit == null ? text : '$text ($unit)';
+}
+
+/// What a field named [name] of a block of [type] reads in Studio: the
+/// catalog's own `display`, else an override ([fieldLabelOverrides]), else
+/// [humanize]. Numbered inputs (`in.0`) read `Input 1`; other variable
+/// inputs keep the name the user gave them (an `expression` variable, a
+/// `wasm` port).
+String fieldLabel(
+  String type,
+  String name, {
+  ParamSpec? spec,
+  bool variable = false,
+}) {
+  final display = spec?.display;
+  if (display != null && display.isNotEmpty) {
+    return display;
+  }
+  final short = name.startsWith('in.') ? name.substring(3) : name;
+  if (variable) {
+    final n = int.tryParse(short);
+    return n == null ? short : 'Input ${n + 1}';
+  }
+  return (spec == null ? null : fieldLabelOverrides['$type.$short']) ??
+      fieldLabelOverrides[short] ??
+      humanize(short);
+}
+
+// ---------- forms (a block that does one of two things) ----------
+
+/// One way a block of a type works, with the fields only it uses (ADR 0032
+/// §7: `scale` is `k × in + b`, or a range map). The editor shows one form
+/// at a time; the first is the default and needs nothing in the config.
+final class BlockForm {
+  const BlockForm(
+    this.id,
+    this.label, {
+    this.params = const {},
+    this.outputs = const {},
+    this.defaults = const {},
+  });
+
+  final String id;
+
+  /// What the inspector's choice reads.
+  final String label;
+
+  /// The parameters only this form uses (with their `in.<p>` ports and
+  /// echo outputs).
+  final Set<String> params;
+
+  /// The outputs only this form sends.
+  final Set<String> outputs;
+
+  /// The engine's defaults of [params], for a catalog that does not give
+  /// them (before ADR 0038).
+  final Map<String, Object> defaults;
+
+  /// Whether [name] (a parameter or an output) belongs to this form.
+  bool owns(String name) => params.contains(name) || outputs.contains(name);
+}
+
+const _forms = <String, List<BlockForm>>{
+  'scale': [
+    BlockForm('linear', 'k × in + b', params: {'k', 'b'}),
+    BlockForm(
+      'range',
+      'Range',
+      params: {'input_min', 'input_max', 'output_min', 'output_max'},
+      outputs: {'input_out_of_range'},
+      defaults: {
+        'input_min': 0,
+        'input_max': 1,
+        'output_min': 0,
+        'output_max': 100,
+      },
+    ),
+  ],
+};
+
+/// The forms of a block of [type]; empty for a type with one.
+List<BlockForm> formsOf(String type) => _forms[type] ?? const [];
+
+/// The form [b] is in: a later form once one of its parameters is in the
+/// config or an edge feeds one of their ports (the engine switches on
+/// then), else the first.
+BlockForm? formOf(FlowBlock b, Iterable<FlowEdge> edges) {
+  final forms = formsOf(b.type);
+  if (forms.isEmpty) {
+    return null;
+  }
+  for (final f in forms.skip(1)) {
+    final given = f.params.any(
+      (p) =>
+          b.cfg[p] != null ||
+          edges.any((e) => e.to == b.id && e.toPort == 'in.$p'),
+    );
+    if (given) {
+      return f;
+    }
+  }
+  return forms.first;
+}
+
+/// Whether the field [name] of [b] (a parameter or an output) belongs to a
+/// form [b] is not in, and nothing keeps it: neither the config nor an
+/// edge. Such a field is not shown.
+bool _otherForm(FlowBlock b, String name, Iterable<FlowEdge> edges) {
+  final form = formOf(b, edges);
+  if (form == null || form.owns(name)) {
+    return false;
+  }
+  final other = formsOf(b.type).any((f) => f.owns(name));
+  if (!other) {
+    return false;
+  }
+  final kept =
+      b.cfg[name] != null ||
+      edges.any(
+        (e) =>
+            (e.to == b.id && e.toPort == 'in.$name') ||
+            (e.from == b.id && e.fromPort == name),
+      );
+  return !kept;
+}
+
+// ---------- the fields of a block ----------
+
 /// The fields of [b] in the order a block draws them: fixed inputs that are
 /// no parameter's, then the parameters (each with its input port where the
-/// engine has one), then the variable inputs, then the outputs.
+/// engine has one), then the variable inputs, then the outputs. [edges] are
+/// the draft's: they decide the form of a block with two (`scale`).
 ///
 /// With ADR 0038 the catalog says each parameter's `port` and `echo`;
 /// without it a parameter `p` has the port `in.<p>` when the type lists it,
 /// and every field of a non-sink block has an output named like it (the
-/// engine's echo). An echo never takes the name of an existing output, and
-/// two fields never share one: outputs first, then parameters, then inputs;
-/// a parameter named like an input gives neither an echo.
-List<FlowField> fieldsOf(NodeType? t, FlowBlock b) {
+/// engine's echo). Echoes are named as the engine names them
+/// (`catalog.rs` `echoes`): a declared output keeps its name, then inputs
+/// take theirs, then parameters; so `latch`'s input `reset` has an echo and
+/// its parameter `reset` has none.
+List<FlowField> fieldsOf(
+  NodeType? t,
+  FlowBlock b, {
+  Iterable<FlowEdge> edges = const [],
+}) {
   if (t == null) {
     return const [
-      FlowField(id: 'in:in', label: 'in', kind: .input, inPort: 'in'),
-      FlowField(id: 'out:out', label: 'out', kind: .output, outPort: 'out'),
+      FlowField(
+        id: 'in:in',
+        name: 'in',
+        label: 'Input',
+        kind: .input,
+        inPort: 'in',
+      ),
+      FlowField(
+        id: 'out:out',
+        name: 'out',
+        label: 'Output',
+        kind: .output,
+        outPort: 'out',
+      ),
     ];
   }
   final role = roleOf(b.type);
@@ -219,20 +440,6 @@ List<FlowField> fieldsOf(NodeType? t, FlowBlock b) {
   final sink = _sinks.contains(b.type);
   final echoInputs = !sink && (t.echoInputs ?? true);
   final dynParams = {?t.dynInParam, ?t.dynOutParam};
-  // A parameter named like a fixed input (`latch` reset) has no echo, and
-  // neither has that input: the two would share the name (ADR 0038 §1).
-  final taken = <String>{
-    ...ports.outputs,
-    for (final p in t.params)
-      if (t.inputs.contains(p.name)) p.name,
-  };
-  String? echo(String name, {required bool allowed}) {
-    if (!allowed || taken.contains(name)) {
-      return null;
-    }
-    taken.add(name);
-    return name;
-  }
 
   // Which parameter owns which input port.
   final portOf = <String, String>{};
@@ -249,65 +456,93 @@ List<FlowField> fieldsOf(NodeType? t, FlowBlock b) {
     for (final p in t.inputs)
       if (!paramPorts.contains(p)) p,
   ];
-  String inLabel(String port) =>
-      port.startsWith('in.') ? port.substring(3) : port;
+
+  // Echo names in the engine's order: outputs are taken, then inputs, then
+  // parameters (ADR 0038 §1).
+  final taken = <String>{...ports.outputs};
+  final inEcho = <String, String>{};
+  for (final port in [...fixedIns, ...dynIns]) {
+    final allowed =
+        echoInputs ||
+        (b.type == 'set' && port == 'in' && (t.echoInputs ?? true));
+    if (allowed && taken.add(port)) {
+      inEcho[port] = port;
+    }
+  }
+  final paramEcho = <String, String>{};
+  for (final p in t.params) {
+    final allowed = !sink && (p.echo ?? true) && !dynParams.contains(p.name);
+    if (allowed && taken.add(p.name)) {
+      paramEcho[p.name] = p.name;
+    }
+  }
+
   final node = role == BlockRole.node;
+  final form = formOf(b, edges);
   final point = pointOf(b);
   final pointName = point?.split('/').last;
 
-  // Parameters first take their echo names, then inputs (ADR 0038 §1).
   final params = <FlowField>[
     for (final p in t.params)
-      if (!dynParams.contains(p.name))
+      if (!dynParams.contains(p.name) && !_otherForm(b, p.name, edges))
         FlowField(
           id: 'p:${p.name}',
-          label: p.name,
+          name: p.name,
+          label: fieldLabel(b.type, p.name, spec: p),
           kind: .param,
           spec: p,
           inPort: portOf[p.name],
-          outPort: echo(p.name, allowed: !sink && (p.echo ?? true)),
+          outPort: paramEcho[p.name],
           onBlock:
               !node &&
               !(role == BlockRole.action &&
-                  (p.name == 'path' || p.name == 'args')) &&
+                  const {'path', 'args', 'allow_bad'}.contains(p.name)) &&
               (portOf.containsKey(p.name) ||
+                  (form?.params.contains(p.name) ?? false) ||
+                  (_oneOf[b.type]?.contains(p.name) ?? false) ||
                   b.cfg[p.name] != null ||
                   p.defaultValue != null ||
                   p.required),
         ),
   ];
-  FlowField input(String port) => FlowField(
+  FlowField input(String port, {required bool variable}) => FlowField(
     id: 'in:$port',
+    name: port,
     label: switch (b.type) {
-      'publish' when port == 'in' => 'value',
-      'set' when port == 'in' => pointName ?? 'in',
-      'invoke' when port == 'in' => 'run when',
-      _ => inLabel(port),
+      'publish' when port == 'in' => 'Value',
+      'set' when port == 'in' => pointName ?? 'Input',
+      'invoke' when port == 'in' => 'Run when',
+      _ => fieldLabel(b.type, port, variable: variable),
     },
     kind: .input,
     inPort: port,
     // A writable point repeats what it writes (spec §3, tree point).
-    outPort: echo(
-      port,
-      allowed: echoInputs || (b.type == 'set' && (t.echoInputs ?? true)),
-    ),
+    outPort: inEcho[port],
   );
 
-  final fixed = [for (final p in fixedIns) input(p)];
-  final dyn = [for (final p in dynIns) input(p)];
+  final fixed = [for (final p in fixedIns) input(p, variable: false)];
+  final dyn = [for (final p in dynIns) input(p, variable: true)];
   final args = <FlowField>[
     if (b.type == 'invoke')
       if (b.cfg['args'] case final Map<String, Object?> m)
-        for (final k in m.keys) FlowField(id: 'arg:$k', label: k, kind: .arg),
+        for (final k in m.keys)
+          FlowField(id: 'arg:$k', name: k, label: k, kind: .arg),
   ];
   final outs = <FlowField>[
     for (final p in ports.outputs)
-      FlowField(
-        id: 'out:$p',
-        label: _reads.contains(b.type) && p == 'out' ? (pointName ?? p) : p,
-        kind: .output,
-        outPort: p,
-      ),
+      if (!_otherForm(b, p, edges))
+        FlowField(
+          id: 'out:$p',
+          name: p,
+          label: _reads.contains(b.type) && p == 'out'
+              ? (pointName ?? fieldLabel(b.type, p))
+              : (t.dynOutParam != null && !t.outputs.contains(p)
+                    ? p
+                    : outputLabelOverrides['${b.type}.$p'] ??
+                          fieldLabel(b.type, p)),
+          kind: .output,
+          outPort: p,
+        ),
   ];
   // A sink names what it writes before the value it writes (`publish`:
   // node, value).
@@ -317,17 +552,149 @@ List<FlowField> fieldsOf(NodeType? t, FlowBlock b) {
 }
 
 /// The rows of [b] drawn on the canvas.
-List<FlowField> rowsOf(NodeType? t, FlowBlock b) => [
-  for (final f in fieldsOf(t, b))
+List<FlowField> rowsOf(
+  NodeType? t,
+  FlowBlock b, {
+  Iterable<FlowEdge> edges = const [],
+}) => [
+  for (final f in fieldsOf(t, b, edges: edges))
     if (f.onBlock) f,
 ];
 
 /// The height the editor draws [b] at: header 32, body padding 6 + 8, 28
 /// per row, and the − / + row of a variable block.
-double blockHeight(NodeType? t, FlowBlock b) {
-  final rows = rowsOf(t, b).length;
+double blockHeight(
+  NodeType? t,
+  FlowBlock b, {
+  Iterable<FlowEdge> edges = const [],
+}) {
+  final rows = rowsOf(t, b, edges: edges).length;
   final tools = variadicOf(t, b) == null ? 0.0 : 38.0;
   return 32 + 6 + 28.0 * math.max(rows, 1) + 8 + tools;
+}
+
+// ---------- binding (drag a field onto another, spec §4) ----------
+
+/// Why a field does not take a binding from the field being dragged.
+enum BindRefusal {
+  /// The target is an output: it takes nothing.
+  output,
+
+  /// The target is a parameter the engine has no `in.<p>` port for
+  /// (`scale` `k`): it is typed in the inspector.
+  noInput,
+
+  /// The source is a field of the same block.
+  self,
+
+  /// The two port types do not fit (`number` into `bool`).
+  type,
+
+  /// The edge would close a loop that no `delay` breaks (validation step 5).
+  loop,
+}
+
+/// A refusal and, for [BindRefusal.type], the two types.
+final class Refused {
+  const Refused(this.reason, {this.from = '', this.to = ''});
+
+  final BindRefusal reason;
+  final String from;
+  final String to;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Refused &&
+      other.reason == reason &&
+      other.from == from &&
+      other.to == to;
+
+  @override
+  int get hashCode => Object.hash(reason, from, to);
+
+  @override
+  String toString() => 'Refused($reason $from $to)';
+}
+
+/// The type the engine gives output [port] of a block of type [t]
+/// (`number`, `bool`, `map`, `any`): the catalog's `port_types`, else a
+/// parameter's echo by the parameter's type (ADR 0038 §6), else `any`.
+String outputType(NodeType? t, String port) {
+  if (t == null) {
+    return 'any';
+  }
+  final listed = t.portTypes[port];
+  if (listed != null) {
+    return listed;
+  }
+  final p = t.params.where((p) => p.name == port).firstOrNull;
+  return switch (p?.type) {
+    'number' || 'int' => 'number',
+    'bool' => 'bool',
+    'map' => 'map',
+    _ => 'any',
+  };
+}
+
+/// The type the engine gives input [port] (`port_types`, else `any`).
+String inputType(NodeType? t, String port) => t?.portTypes[port] ?? 'any';
+
+/// Whether `fromBlock.fromPort` may be bound into the field [to] of
+/// `toBlock` (spec §4); null when it may. [replacing] is an edge being
+/// moved (a wire picked up from its input): it is left out of the loop
+/// check, as is the edge already into [to].
+Refused? bindRefusal(
+  Map<String, NodeType> types,
+  FlowDraft d, {
+  required String fromBlock,
+  required String fromPort,
+  required String toBlock,
+  required FlowField to,
+  (String, String)? replacing,
+}) {
+  final inPort = to.inPort;
+  if (inPort == null) {
+    return Refused(
+      to.kind == FieldKind.output ? BindRefusal.output : BindRefusal.noInput,
+    );
+  }
+  if (fromBlock == toBlock) {
+    return const Refused(BindRefusal.self);
+  }
+  final src = d.blocks[fromBlock];
+  final dst = d.blocks[toBlock];
+  final ft = outputType(types[src?.type], fromPort);
+  final tt = inputType(types[dst?.type], inPort);
+  if (ft != tt && ft != 'any' && tt != 'any') {
+    return Refused(BindRefusal.type, from: ft, to: tt);
+  }
+  // A loop: does the target already reach the source? Edges into a delay
+  // do not count (the engine's step 5).
+  if (dst?.type != 'delay') {
+    final next = <String, List<String>>{};
+    for (final e in d.edges) {
+      if ((e.to == toBlock && e.toPort == inPort) ||
+          (replacing != null &&
+              e.to == replacing.$1 &&
+              e.toPort == replacing.$2) ||
+          d.blocks[e.to]?.type == 'delay') {
+        continue;
+      }
+      next.putIfAbsent(e.from, () => []).add(e.to);
+    }
+    final seen = <String>{};
+    final todo = [toBlock];
+    while (todo.isNotEmpty) {
+      final n = todo.removeLast();
+      if (n == fromBlock) {
+        return const Refused(BindRefusal.loop);
+      }
+      if (seen.add(n)) {
+        todo.addAll(next[n] ?? const []);
+      }
+    }
+  }
+  return null;
 }
 
 /// The key of a live value of [node] in `flowEditor.ports`.
@@ -390,7 +757,7 @@ FieldValue fieldValue(
         return const FieldValue('');
       }
     case FieldKind.arg:
-      shown = (b.cfg['args'] as Map?)?[f.label];
+      shown = (b.cfg['args'] as Map?)?[f.name];
   }
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;
   return FieldValue(
