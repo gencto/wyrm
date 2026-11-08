@@ -11,9 +11,10 @@ flowchart LR
     end
     splash(["SplashPage · /splash"])
     home["HomePage · /home"]
+    gallery["GalleryPage · /gallery"]
 
     classDef frxEntry stroke-dasharray: 5 3
-    class logIn,home frxEntry
+    class logIn,home,gallery frxEntry
 ```
 
 Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it, when there is exactly one). Thick: a hop that replaces the stack. `⚡` marks navigation dispatched from a reducer rather than the view-model. A dashed border means nothing pushes that screen — you arrive by path, deep link or a guard redirect.
@@ -23,3 +24,4 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
 | `LogInPage` | `/login` | yes | 6 | [logIn](logIn.md) |
 | `HomePage` | `/home` | no | 1 | [home](home.md) |
+| `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |

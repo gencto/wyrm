@@ -1,113 +1,163 @@
 import 'package:flutter/material.dart';
 
+import '../indicators/app_icon.dart';
+import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
-/// The app's action button, in the four roles the app uses.
+/// The app's button, in the four roles of board *Design system* §06.
 ///
 /// Named constructors rather than optional colours, so a caller picks a role
-/// and cannot invent a fifth style.
+/// and cannot invent a fifth style. One primary per zone: in the top bar it
+/// is Review and apply; in a panel it is that panel's commit.
+///
+/// A button the user's role cannot use is shown disabled with the reason
+/// ([disabledReason], docs/studio.md §2 rule 8), never removed.
 class Button extends StatelessWidget {
-  /// Solid accent fill — the one affirmative action on a screen.
+  /// Solid ember fill — the one affirmative action in a zone.
   const Button.primary({
     required this.label,
     required this.onPressed,
+    this.icon,
     this.expand = false,
+    this.disabledReason,
+    this.size = ButtonSize.toolbar,
     super.key,
   }) : _variant = .primary;
 
-  /// Muted fill with a hairline border — supporting actions.
+  /// A line/3 outline — supporting actions.
   const Button.secondary({
     required this.label,
     required this.onPressed,
+    this.icon,
     this.expand = false,
+    this.disabledReason,
+    this.size = ButtonSize.toolbar,
     super.key,
   }) : _variant = .secondary;
 
-  /// No fill, no border — inline links such as "forgot password".
-  const Button.text({
+  /// A line/1 outline, quieter text — the third action, a link-like one.
+  const Button.quiet({
     required this.label,
     required this.onPressed,
+    this.icon,
     this.expand = false,
+    this.disabledReason,
+    this.size = ButtonSize.toolbar,
     super.key,
-  }) : _variant = .text;
+  }) : _variant = .quiet;
 
-  /// Drawn entirely in the error colour — destructive actions.
+  /// Coral on a bad tint — destructive actions.
   const Button.danger({
     required this.label,
     required this.onPressed,
+    this.icon,
     this.expand = false,
+    this.disabledReason,
+    this.size = ButtonSize.toolbar,
     super.key,
   }) : _variant = .danger;
 
+  /// The label; empty for an icon-only button (give it an [icon]).
   final String label;
 
-  /// Null disables the button; the theme dims it.
+  /// Null disables the button.
   final VoidCallback? onPressed;
+
+  /// An icon of `ui/assets/svg/icons` (`ui_add`, `action_play`, …).
+  final String? icon;
 
   /// Stretch to the available width instead of hugging.
   final bool expand;
 
-  final _Variant _variant;
+  /// Why the button is disabled, shown as its tooltip.
+  final String? disabledReason;
 
-  static const double _height = 48;
-  static const double _minWidth = 200;
+  final ButtonSize size;
+
+  final _Variant _variant;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    const shape = RoundedRectangleBorder(borderRadius: Radii.button);
-
+    final c = context.colors;
+    final enabled = onPressed != null;
     final (background, foreground, border) = switch (_variant) {
-      .primary => (scheme.primary, scheme.onPrimary, null),
-      .secondary => (
-        scheme.surfaceContainerHigh,
-        scheme.onSurface,
-        scheme.outline,
-      ),
-      .text => (Colors.transparent, scheme.primary, null),
-      .danger => (
-        Colors.transparent,
-        scheme.error,
-        scheme.error.withValues(alpha: 0.4),
-      ),
+      .primary => (c.ember, c.onEmber, c.ember),
+      .secondary => (Colors.transparent, c.text1, c.line3),
+      .quiet => (Colors.transparent, c.text2, c.line1),
+      .danger => (c.badTint, c.badText, c.badLine),
     };
-
-    // A TextButton, not a filled button with a transparent fill: Material
-    // sizes and pads it for inline use, so hover tints the words rather than
-    // a slab the size of a primary action.
-    if (_variant == .text) {
-      return TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          foregroundColor: foreground,
-          shape: shape,
-          minimumSize: expand ? const Size(double.infinity, _height) : null,
-        ),
-        child: Text(label),
-      );
-    }
-
-    return ElevatedButton(
-      onPressed: onPressed,
-      style:
-          ElevatedButton.styleFrom(
-            backgroundColor: background,
-            foregroundColor: foreground,
-            minimumSize: Size(expand ? .infinity : _minWidth, _height),
-            padding: const .symmetric(horizontal: AppSpacing.md),
-            shape: border == null
-                ? shape
-                : shape.copyWith(side: BorderSide(color: border)),
-          ).copyWith(
-            // NOT `styleFrom(elevation: 0)`: that expands a scalar into a
-            // state map that still lifts to +2 on hover and +6 on press, so
-            // the button grows a shadow the moment the mouse touches it.
-            elevation: const WidgetStatePropertyAll(0),
+    final height = size.height;
+    final iconOnly = label.isEmpty && icon != null;
+    final fg = enabled ? foreground : c.muted;
+    final child = Row(
+      mainAxisSize: expand ? .max : .min,
+      mainAxisAlignment: .center,
+      spacing: 8,
+      children: [
+        if (icon case final name?) AppIcon(name, size: 16, color: fg),
+        if (label.isNotEmpty)
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: AppFonts.sans,
+              fontSize: 14,
+              fontWeight: _variant == .primary ? .w600 : .w500,
+              color: fg,
+            ),
           ),
-      child: Text(label),
+      ],
     );
+    final button = Material(
+      color: enabled
+          ? background
+          : (_variant == .primary ? c.ground4 : Colors.transparent),
+      shape: RoundedRectangleBorder(
+        borderRadius: Radii.button,
+        side: BorderSide(color: enabled ? border : c.line1),
+      ),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: Radii.button,
+        hoverColor: c.text1.withValues(alpha: 0.05),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: height,
+            minWidth: iconOnly ? height : 0,
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : 16),
+            child: Center(widthFactor: expand ? null : 1, child: child),
+          ),
+        ),
+      ),
+    );
+    final sized = expand ? SizedBox(width: .infinity, child: button) : button;
+    final reason = disabledReason;
+    if (!enabled && reason != null) {
+      return Tooltip(message: reason, child: sized);
+    }
+    if (iconOnly && label.isEmpty) {
+      return Semantics(button: true, child: sized);
+    }
+    return sized;
   }
 }
 
-enum _Variant { primary, secondary, text, danger }
+/// Board *Design system* §04 heights.
+enum ButtonSize {
+  /// An inline control, 32.
+  small(32),
+
+  /// A toolbar button, 40.
+  toolbar(40),
+
+  /// A commit button, 44.
+  commit(44);
+
+  const ButtonSize(this.height);
+
+  final double height;
+}
+
+enum _Variant { primary, secondary, quiet, danger }

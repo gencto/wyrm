@@ -56,7 +56,7 @@ class SegmentedControl<T> extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
         borderRadius: Radii.control,
-        border: .all(color: context.colors.borderStrong),
+        border: .all(color: context.colors.line2),
       ),
       // Scrollable rather than overflowing: the track is laid out inside a
       // width-capped container, and three text segments at a large text scale

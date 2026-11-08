@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 
+import '../connectors/gallery_page_connector.dart';
 import '../connectors/home_page_connector.dart';
 import '../connectors/log_in_page_connector.dart';
 import '../connectors/splash_page_connector.dart';
@@ -36,6 +37,7 @@ class AppRouter extends RootStackRouter {
     AutoRoute(page: SplashRoute.page, path: '/splash', initial: true),
     AutoRoute(page: LogInRoute.page, path: '/login'),
     AutoRoute(page: HomeRoute.page, path: '/home'),
+    AutoRoute(page: GalleryRoute.page, path: '/gallery'),
   ];
 }
 
