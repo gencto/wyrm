@@ -29,7 +29,7 @@ use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
 use wyrm_core::profile::{self, ProfileDef};
-use wyrm_core::{Attachment, NodeMeta, Perm, SetRequest, Status, Value};
+use wyrm_core::{Attachment, NodeMeta, Perm, SetRequest, Status, StatusGroup, Value};
 use zenoh::key_expr::keyexpr;
 use zenoh::liveliness::LivelinessToken;
 use zenoh::query::{Query, Queryable};
@@ -665,8 +665,24 @@ fn status_att(status: Status) -> Attachment {
     Attachment::with_status(status)
 }
 
+/// The status a refusal leaves with. Spec 04 puts every code below 0x20 in
+/// the success or closed groups, and requesters read those as success: a
+/// refusal that carries one (`not_available` from a driver, `closed` from a
+/// stopped link through `?`) would look done. It leaves as an error instead
+/// (docs/links.md, "A refusal is an error").
+fn refusal(e: &LinkError) -> Status {
+    match e.status.group() {
+        StatusGroup::Error => e.status,
+        StatusGroup::Closed => Status::Disconnected,
+        StatusGroup::Progress => {
+            warn!(status = ?e.status, "a refusal with a success status, sent as internal_error");
+            Status::InternalError
+        }
+    }
+}
+
 fn err_att(e: &LinkError) -> Attachment {
-    let mut a = status_att(e.status);
+    let mut a = status_att(refusal(e));
     if !e.message.is_empty() && e.status != Status::PermissionDenied {
         a.err = Some(e.message.clone());
     }
@@ -1278,7 +1294,7 @@ async fn drain(
                 true,
             ),
             SinkItem::Error(e) => {
-                let mut a = att(e.status, seq, true);
+                let mut a = att(refusal(&e), seq, true);
                 a.err = err_att(&e).err;
                 (Ok(Vec::new()), a, true)
             }

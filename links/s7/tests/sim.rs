@@ -398,7 +398,7 @@ async fn an_item_error_fails_that_point_only() {
         Perm::Config,
     )
     .await;
-    assert_eq!(s, Some(Status::NotAvailable));
+    assert_eq!(s, Some(Status::InvalidParameter));
     assert!(
         msg.contains("0x0A") && msg.contains("does not exist"),
         "{msg}"
@@ -925,7 +925,7 @@ async fn ping_and_commissioning_actions() {
         Perm::Config,
     )
     .await;
-    assert_eq!(s, Some(Status::NotAvailable));
+    assert_eq!(s, Some(Status::InvalidParameter));
     assert!(msg.contains("0xD401"), "{msg}");
     let szl_before = dev
         .lock()

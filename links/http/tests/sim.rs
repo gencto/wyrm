@@ -1491,7 +1491,7 @@ async fn test_selector_is_bounded() {
     wait("polled again", || good(&h, "c1/d1/p", Value::Float(2.0))).await;
     let args = map(&[("path", "$.n".into())]);
     let (r, _, e) = act(&h, "c1/d1", "test_selector", args, cfg).await;
-    assert_eq!(r, Some(Status::NotAvailable));
+    assert_eq!(r, Some(Status::NotFound));
     assert!(e.contains("not kept"), "{e}");
     h.stop().await;
 }
