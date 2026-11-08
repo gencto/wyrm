@@ -21,6 +21,7 @@ import 'nodes/actions/retrieve_nodes_action.dart';
 import 'packages/actions/retrieve_packages_action.dart';
 import 'peers/actions/retrieve_peers_action.dart';
 import 'quarantine/actions/retrieve_quarantine_action.dart';
+import 'session/actions/log_out_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
@@ -110,6 +111,9 @@ extension type SelectSession(AppState _state) {
 
   /// Returns true if session is available
   bool get isAvailable => token != null;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<LogOutAction>();
 }
 
 extension type SelectTheme(AppState _state) {
@@ -137,6 +141,10 @@ extension type SelectSite(AppState _state) {
 
   /// Returns connected
   bool get connected => _state.site.connected;
+
+  /// Returns root
+  String? get root =>
+      _state.site.name == null ? null : 'wy/${_state.site.name}';
 }
 
 extension type SelectNodes(AppState _state) {
