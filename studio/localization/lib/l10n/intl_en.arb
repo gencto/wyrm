@@ -646,5 +646,22 @@
     "factLive": "Live values",
     "liveRefused": "You cannot read every source and target of this flow",
     "firesAtDeploy": "fires at deploy",
-    "firesAtDeployNote": "A parameter sends its value when the flow starts, so this writes at every deploy."
+    "firesAtDeployNote": "A parameter sends its value when the flow starts, so this writes at every deploy.",
+    "tabContents": "Contents",
+    "kindFolder": "folder",
+    "kindDataflow": "dataflow",
+    "kindStorage": "storage",
+    "kindBroker": "broker",
+    "insFolder": "Folder",
+    "insStorage": "Storage",
+    "insBroker": "Broker",
+    "secState": "State",
+    "factSince": "Since",
+    "deployedByWho": "deployed by {who}",
+    "childCount": "{count, plural, =0{no children} =1{1 child} other{{count} children}}",
+    "noChildren": "Nothing under this node.",
+    "childrenNote": "Select a row: a node opens in the tree, a value opens in the inspector.",
+    "noReadFlow": "Opening the editor needs read on this flow.",
+    "colName": "Name",
+    "colKind": "Kind"
 }

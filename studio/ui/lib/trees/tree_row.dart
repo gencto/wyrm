@@ -140,6 +140,7 @@ class TreeRow extends StatelessWidget {
             Expanded(
               child: Text(
                 vm.name,
+                maxLines: 1,
                 overflow: .ellipsis,
                 style: mono(
                   weight: sel ? .w600 : .w400,

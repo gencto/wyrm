@@ -115,6 +115,8 @@ class RowTable extends StatelessWidget {
                     flex: col.flex,
                     child: Text(
                       col.label,
+                      maxLines: 1,
+                      overflow: .ellipsis,
                       style: TextStyle(fontSize: 12, color: c.text3),
                     ),
                   ),
@@ -200,6 +202,7 @@ class _Cell extends StatelessWidget {
       );
       head = Text(
         vm.title,
+        maxLines: 1,
         overflow: .ellipsis,
         style: vm.monospace ? mono(color: base.color) : base,
       );
@@ -213,6 +216,7 @@ class _Cell extends StatelessWidget {
         if (vm.subtitle case final s?)
           Text(
             s,
+            maxLines: 1,
             overflow: .ellipsis,
             style: TextStyle(fontSize: 12, color: c.text4),
           ),

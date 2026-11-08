@@ -134,12 +134,20 @@ class _SearchPaletteState extends State<SearchPalette> {
                             Expanded(
                               child: Text(
                                 h.title,
+                                maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(fontSize: 14, color: c.text1),
                               ),
                             ),
                             if (h.detail case final d?)
-                              Text(d, style: mono(size: 12, color: c.text4)),
+                              Flexible(
+                                child: Text(
+                                  d,
+                                  maxLines: 1,
+                                  overflow: .ellipsis,
+                                  style: mono(size: 12, color: c.text4),
+                                ),
+                              ),
                           ],
                         ),
                       ),

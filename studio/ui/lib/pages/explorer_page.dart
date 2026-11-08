@@ -241,6 +241,7 @@ class ExplorerPage extends StatelessWidget {
     required this.tabs,
     required this.tab,
     required this.onTab,
+    required this.onTapFlowEditor,
     this.onMenu,
     this.onMark,
     this.onMarkRange,
@@ -257,6 +258,7 @@ class ExplorerPage extends StatelessWidget {
     this.pill,
     this.subtitle,
     this.headerButtons = const [],
+    this.openButton,
     this.actionsLabel,
     this.onActions,
     this.onTool,
@@ -273,6 +275,11 @@ class ExplorerPage extends StatelessWidget {
     this.pointsNote,
     this.pointsEmpty,
     this.emptyButtons = const [],
+    this.childColumns = const [],
+    this.children = const [],
+    this.childrenEmpty,
+    this.childrenNote,
+    this.onChild,
     this.onPoint,
     this.onCheck,
     this.onRange,
@@ -327,6 +334,13 @@ class ExplorerPage extends StatelessWidget {
   /// Ping, beside Actions ▾.
   final List<ToolButtonVm> headerButtons;
 
+  /// A button that opens another screen on this node (a flow's Edit
+  /// dataflow): its id goes to [onTapFlowEditor].
+  final ToolButtonVm? openButton;
+
+  /// Opens the flow editor on a flow id.
+  final void Function(String) onTapFlowEditor;
+
   /// `Actions`: the node menu, opened at a point.
   final String? actionsLabel;
   final ValueChanged<Offset>? onActions;
@@ -354,6 +368,16 @@ class ExplorerPage extends StatelessWidget {
   /// `No points yet`, with [emptyButtons] under it.
   final String? pointsEmpty;
   final List<ToolButtonVm> emptyButtons;
+
+  /// The `children` tab of a node that is not a device (a link, a
+  /// connection, a folder, a broker, storage): its children as rows.
+  final List<ColumnVm> childColumns;
+  final List<RowVm> children;
+  final String? childrenEmpty;
+  final String? childrenNote;
+
+  /// A child row tapped: its key.
+  final ValueChanged<String>? onChild;
   final ValueChanged<String>? onPoint;
   final ValueChanged<String>? onCheck;
   final ValueChanged<String>? onRange;
@@ -458,66 +482,27 @@ class ExplorerPage extends StatelessWidget {
         children: [
           if (keyName case final k?)
             KeyLine(keyName: k, onCopy: onCopyKey, copyLabel: copyKeyLabel),
-          Wrap(
-            alignment: .spaceBetween,
-            crossAxisAlignment: .end,
-            runSpacing: 12,
-            spacing: 16,
-            children: [
-              Column(
-                crossAxisAlignment: .start,
-                mainAxisSize: .min,
-                spacing: 6,
-                children: [
-                  Row(
-                    mainAxisSize: .min,
-                    spacing: 12,
-                    children: [
-                      Text(
-                        title!,
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: .w600,
-                          letterSpacing: -0.26,
-                          color: c.text1,
-                        ),
-                      ),
-                      if (pill case final p?) StatusPill(vm: p, dense: true),
-                    ],
-                  ),
-                  if (subtitle case final s?)
-                    Text(s, style: TextStyle(fontSize: 14, color: c.text3)),
-                ],
-              ),
-              Row(
-                mainAxisSize: .min,
-                spacing: 8,
-                children: [
-                  for (final b in headerButtons) _button(b),
-                  if (actionsLabel case final a?)
-                    Builder(
-                      builder: (context) => _actionsButton(
-                        c,
-                        label: a,
-                        onTap: onActions == null
-                            ? null
-                            : () {
-                                final box =
-                                    context.findRenderObject()! as RenderBox;
-                                onActions!(
-                                  box.localToGlobal(
-                                    Offset(
-                                      box.size.width - 300,
-                                      box.size.height + 6,
-                                    ),
-                                  ),
-                                );
-                              },
-                      ),
-                    ),
-                ],
-              ),
-            ],
+          LayoutBuilder(
+            // The name and the subtitle take what the buttons leave and
+            // end in an ellipsis; under 560 the buttons go below them.
+            builder: (context, box) {
+              final heading = _heading(c, title!);
+              final buttons = _headerButtons(c);
+              return box.maxWidth < 560
+                  ? Column(
+                      crossAxisAlignment: .start,
+                      spacing: 12,
+                      children: [heading, buttons],
+                    )
+                  : Row(
+                      crossAxisAlignment: .end,
+                      spacing: 16,
+                      children: [
+                        Expanded(child: heading),
+                        buttons,
+                      ],
+                    );
+            },
           ),
           SegmentedTabs(
             tabs: tabs,
@@ -547,11 +532,7 @@ class ExplorerPage extends StatelessWidget {
           ),
           TrendChart(series: trend, empty: trendEmpty, timeLabels: trendLabels),
           if (historyRows.isNotEmpty)
-            RowTable(
-              columns: historyColumns,
-              rows: historyRows,
-              rowHeight: 40,
-            ),
+            RowTable(columns: historyColumns, rows: historyRows, rowHeight: 40),
         ],
       ]),
       'audit' => _padded([
@@ -560,13 +541,100 @@ class ExplorerPage extends StatelessWidget {
         if (auditRows.isNotEmpty)
           RowTable(columns: auditColumns, rows: auditRows, rowHeight: 40),
       ]),
-      _ => _pointsTab(c),
+      'children' => _padded([
+        RowTable(
+          columns: childColumns,
+          rows: children,
+          rowHeight: 48,
+          onTap: onChild,
+          empty: childrenEmpty,
+        ),
+        if (childrenNote case final n?)
+          Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+      ]),
+      'points' => _pointsTab(c),
+      _ => const SizedBox.shrink(),
     };
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [header, body],
     );
   }
+
+  /// The node's name in mono 26 with its state pill, and one subtitle line
+  /// under it: both one line with an ellipsis, the full text as a tooltip
+  /// (a display name can be a sentence).
+  Widget _heading(AppColors c, String name) => Column(
+    crossAxisAlignment: .start,
+    mainAxisSize: .min,
+    spacing: 6,
+    children: [
+      Row(
+        spacing: 12,
+        children: [
+          Flexible(
+            child: Tooltip(
+              message: name,
+              waitDuration: const Duration(milliseconds: 600),
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: .ellipsis,
+                style: mono(size: 26, weight: .w600, color: c.text1),
+              ),
+            ),
+          ),
+          if (pill case final p?) StatusPill(vm: p, dense: true),
+        ],
+      ),
+      if (subtitle case final s?)
+        Tooltip(
+          message: s,
+          waitDuration: const Duration(milliseconds: 600),
+          child: Text(
+            s,
+            maxLines: 1,
+            overflow: .ellipsis,
+            style: TextStyle(fontSize: 14, color: c.text3),
+          ),
+        ),
+    ],
+  );
+
+  /// Edit dataflow, Ping, Actions ▾.
+  Widget _headerButtons(AppColors c) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      if (openButton case final o?)
+        Button.secondary(
+          label: o.label,
+          icon: o.icon,
+          onPressed: o.disabledReason == null
+              ? () => onTapFlowEditor(o.id)
+              : null,
+          disabledReason: o.disabledReason,
+        ),
+      for (final b in headerButtons) _button(b),
+      if (actionsLabel case final a?)
+        Builder(
+          builder: (context) => _actionsButton(
+            c,
+            label: a,
+            onTap: onActions == null
+                ? null
+                : () {
+                    final box = context.findRenderObject()! as RenderBox;
+                    onActions!(
+                      box.localToGlobal(
+                        Offset(box.size.width - 300, box.size.height + 6),
+                      ),
+                    );
+                  },
+          ),
+        ),
+    ],
+  );
 
   Widget _padded(List<Widget> children) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
@@ -797,11 +865,19 @@ class ExplorerPage extends StatelessWidget {
               textBaseline: .alphabetic,
               spacing: 10,
               children: [
-                Text(ins.name, style: mono(size: 18, weight: .w600)),
+                Flexible(
+                  child: Text(
+                    ins.name,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: mono(size: 18, weight: .w600),
+                  ),
+                ),
                 if (ins.display case final d?)
                   Flexible(
                     child: Text(
                       d,
+                      maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(fontSize: 14, color: c.text3),
                     ),

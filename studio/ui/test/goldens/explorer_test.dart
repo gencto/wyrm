@@ -14,8 +14,13 @@ void main() {
     return;
   }
 
-  Future<void> shoot(WidgetTester tester, String name, Widget page) async {
-    tester.view.physicalSize = const Size(1440, 1000);
+  Future<void> shoot(
+    WidgetTester tester,
+    String name,
+    Widget page, {
+    Size size = const Size(1440, 1000),
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(frame(page));
@@ -33,5 +38,19 @@ void main() {
   testWidgets(
     'offline',
     (t) => shoot(t, 'explorer_offline', explorerOffline()),
+  );
+  testWidgets('flow', (t) => shoot(t, 'explorer_flow', explorerFlow()));
+  testWidgets(
+    'folder',
+    (t) => shoot(t, 'explorer_folder', explorerFolder()),
+  );
+  testWidgets(
+    'long name',
+    (t) => shoot(
+      t,
+      'explorer_long_name',
+      explorerLongName(),
+      size: const Size(1100, 800),
+    ),
   );
 }

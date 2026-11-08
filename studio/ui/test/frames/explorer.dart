@@ -15,6 +15,7 @@ import 'package:ui/shell/studio_shell.dart';
 import 'package:ui/shell/top_bar.dart';
 import 'package:ui/shell/workspace_rail.dart';
 import 'package:ui/tables/points_table.dart';
+import 'package:ui/tables/row_table.dart';
 import 'package:ui/trees/node_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
@@ -42,6 +43,8 @@ Widget _shell(
   String? offline,
   Widget? drawer,
   int changes = 3,
+  String site = 'plant',
+  String route = 'via edge · central',
 }) => StudioShell(
   rail: _rail,
   selected: 0,
@@ -50,8 +53,8 @@ Widget _shell(
   drawer: drawer,
   topBar: (compact) => TopBar(
     vm: TopBarVm(
-      site: 'plant',
-      siteDetail: 'via edge · central',
+      site: site,
+      siteDetail: route,
       sites: const [],
       connected: offline == null,
       changes: changes,
@@ -479,6 +482,7 @@ ExplorerPage _page({
   tabs: _tabs,
   tab: 'points',
   onTab: _none,
+  onTapFlowEditor: _none,
   toolbar: _toolbar,
   onPointFilter: _none,
   pointFilterHint: 'Filter points',
@@ -587,4 +591,322 @@ Widget explorerOffline() => _shell(
   ),
   offline:
       'The gateway connection is lost. Reconnecting; values on screen are the last ones received.',
+);
+
+// Frames by node kind (docs/design/specs/explorer.md "Frames by node
+// kind"), from the demo's `edge` site.
+
+const _edge = 'wy/edge';
+const _flowKey = '$_edge/dataflows/ahu2_ctl';
+const _flowDisplay =
+    'ahu2: count mod 10 × 10 → mockdev knob on change; temp in °F; a warm flag';
+
+List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
+  const TreeRowVm(
+    id: '$_edge/downstream',
+    name: 'downstream',
+    depth: 0,
+    hasChildren: true,
+    expanded: true,
+    meta: '3',
+  ),
+  const TreeRowVm(
+    id: '$_edge/downstream/modbus',
+    name: 'modbus',
+    depth: 1,
+    icon: 'node_link',
+    hasChildren: true,
+    expanded: true,
+    chip: 'Embedded',
+    dot: Tone.good,
+    dotLabel: 'Connected',
+  ),
+  const TreeRowVm(
+    id: '$_edge/downstream/modbus/line1',
+    name: 'line1',
+    depth: 2,
+    icon: 'node_conn',
+    hasChildren: true,
+    expanded: true,
+  ),
+  TreeRowVm(
+    id: '$_edge/downstream/modbus/line1/${longName ?? 'ahu1'}',
+    name: longName ?? 'ahu1',
+    depth: 3,
+    icon: 'node_device',
+    selected: selected.endsWith('/${longName ?? 'ahu1'}'),
+  ),
+  const TreeRowVm(
+    id: '$_edge/downstream/mock',
+    name: 'mock',
+    depth: 1,
+    icon: 'node_link',
+    hasChildren: true,
+    chip: 'Embedded',
+    dot: Tone.good,
+    dotLabel: 'Connected',
+  ),
+  const TreeRowVm(
+    id: '$_edge/dataflows',
+    name: 'dataflows',
+    depth: 0,
+    hasChildren: true,
+    expanded: true,
+    meta: '1',
+  ),
+  TreeRowVm(
+    id: _flowKey,
+    name: 'ahu2_ctl',
+    depth: 1,
+    icon: 'node_flow',
+    hasChildren: true,
+    selected: selected == _flowKey,
+  ),
+  const TreeRowVm(
+    id: '$_edge/storage',
+    name: 'storage',
+    depth: 0,
+    hasChildren: true,
+    expanded: true,
+    meta: '1',
+  ),
+  TreeRowVm(
+    id: '$_edge/storage/line1',
+    name: 'line1',
+    depth: 1,
+    icon: 'node_storage',
+    hasChildren: true,
+    selected: selected == '$_edge/storage/line1',
+  ),
+  const TreeRowVm(
+    id: '$_edge/upstream',
+    name: 'upstream',
+    depth: 0,
+    hasChildren: true,
+  ),
+];
+
+ExplorerPage _edgePage({
+  required String keyName,
+  required List<TreeRowVm> tree,
+  required String title,
+  required String subtitle,
+  required List<TabItemVm> tabs,
+  required String tab,
+  StatusPillVm? pill,
+  ToolButtonVm? openButton,
+  List<ToolButtonVm> headerButtons = const [],
+  List<InspectorSectionVm> params = const [],
+  List<RowVm> children = const [],
+  List<PointRowVm> points = const [],
+  ExplorerInspectorVm? inspector,
+}) => ExplorerPage(
+  treeLabel: 'Tree · edge',
+  tree: tree,
+  onTap: _none,
+  onToggle: _none,
+  onMenu: (_, _) {},
+  onTreeFilter: _none,
+  treeFilterHint: 'Filter',
+  keyName: keyName,
+  onCopyKey: () {},
+  title: title,
+  pill: pill,
+  subtitle: subtitle,
+  openButton: openButton,
+  onTapFlowEditor: _none,
+  headerButtons: headerButtons,
+  actionsLabel: 'Actions',
+  onActions: _none,
+  onTool: _none,
+  tabs: tabs,
+  tab: tab,
+  onTab: _none,
+  toolbar: _toolbar,
+  onPointFilter: _none,
+  pointFilterHint: 'Filter points',
+  points: points,
+  onPoint: _none,
+  onCheck: _none,
+  onRange: _none,
+  onCheckAll: () {},
+  params: params,
+  childColumns: const [
+    ColumnVm('Name', flex: 4),
+    ColumnVm('Kind', flex: 2),
+    ColumnVm('Value', flex: 3),
+  ],
+  children: children,
+  childrenEmpty: 'Nothing under this node.',
+  childrenNote:
+      'Select a row: a node opens in the tree, a value opens in the inspector.',
+  onChild: _none,
+  inspector: inspector,
+);
+
+const _flowState = InspectorSectionVm(
+  label: 'State',
+  facts: [
+    FactVm(label: 'State', value: 'v2 deployed'),
+    FactVm(label: 'Version', value: 'v2', mono: true),
+    FactVm(label: 'Deployed by', value: 'user:admin@central', mono: true),
+    FactVm(label: 'Since', value: '2026-11-08 08:03:19', mono: true),
+  ],
+);
+
+const _flowAttributes = InspectorSectionVm(
+  label: 'Attributes',
+  facts: [
+    FactVm(label: 'display', value: _flowDisplay, mono: true),
+    FactVm(label: 'version', value: '2', mono: true),
+  ],
+);
+
+/// A flow selected: its name, its state from `~val`, Edit dataflow, and no
+/// points.
+Widget explorerFlow() => _shell(
+  _edgePage(
+    keyName: _flowKey,
+    tree: _edgeTree(_flowKey),
+    title: 'ahu2_ctl',
+    pill: const StatusPillVm(label: 'v2 deployed', tone: Tone.good),
+    subtitle: 'dataflow · deployed by user:admin@central · $_flowDisplay',
+    openButton: const ToolButtonVm(
+      id: 'ahu2_ctl',
+      label: 'Edit dataflow',
+      icon: 'action_edit',
+    ),
+    tabs: const [
+      TabItemVm(id: 'params', label: 'Parameters'),
+      TabItemVm(id: 'actions', label: 'Actions', count: '8'),
+      TabItemVm(id: 'audit', label: 'Audit'),
+    ],
+    tab: 'params',
+    params: const [_flowState, _flowAttributes],
+    inspector: const NodeInspectorVm(
+      eyebrow: 'Dataflow',
+      title: 'ahu2_ctl',
+      sections: [_flowState, _flowAttributes],
+    ),
+  ),
+  changes: 0,
+  site: 'edge',
+  route: 'this broker',
+);
+
+/// A storage folder selected: its children as a table, a value of it in
+/// the inspector.
+Widget explorerFolder() => _shell(
+  _edgePage(
+    keyName: '$_edge/storage/line1',
+    tree: _edgeTree('$_edge/storage/line1'),
+    title: 'line1',
+    subtitle: 'storage · 3 children',
+    tabs: const [
+      TabItemVm(id: 'children', label: 'Contents', count: '3'),
+      TabItemVm(id: 'params', label: 'Parameters'),
+      TabItemVm(id: 'actions', label: 'Actions', count: '5'),
+      TabItemVm(id: 'history', label: 'History'),
+      TabItemVm(id: 'audit', label: 'Audit'),
+    ],
+    tab: 'children',
+    children: const [
+      RowVm(
+        id: '$_edge/storage/line1/fault',
+        cells: [
+          CellVm(title: 'fault', monospace: true),
+          CellVm(title: 'bool · RW'),
+          CellVm(title: 'false', monospace: true),
+        ],
+      ),
+      RowVm(
+        id: '$_edge/storage/line1/temp',
+        selected: true,
+        cells: [
+          CellVm(title: 'temp', subtitle: 'Line 1 air temp', monospace: true),
+          CellVm(title: 'number · RW'),
+          CellVm(title: '21.5 °C', monospace: true),
+        ],
+      ),
+      RowVm(
+        id: '$_edge/storage/line1/test',
+        cells: [
+          CellVm(title: 'test', monospace: true),
+          CellVm(title: 'storage'),
+          CellVm(title: '—', monospace: true),
+        ],
+      ),
+    ],
+    inspector: PointInspectorVm(
+      eyebrow: 'Point',
+      name: 'temp',
+      display: 'Line 1 air temp',
+      value: '21.5 °C',
+      quality: const QualityMarkVm(label: 'good · 08:03:19', tone: Tone.good),
+      sections: const [
+        InspectorSectionVm(
+          label: 'Value',
+          facts: [
+            FactVm(label: 'Type', value: 'number', mono: true),
+            FactVm(label: 'Unit', value: '°C'),
+            FactVm(label: 'Write', value: 'write'),
+          ],
+        ),
+      ],
+      edit: _f('value', 'New value', 21.5, kind: ParamKind.number),
+      editLabel: 'Set value',
+      stageLabel: 'Stage',
+    ),
+  ),
+  changes: 0,
+  site: 'edge',
+  route: 'this broker',
+);
+
+const _longName = 'supply_air_temperature_controller_north_wing_floor_2';
+const _longDisplay =
+    'North wing, floor 2: supply air temperature controller with the '
+    'economiser, the frost guard and the night set-back schedule from the '
+    'building management contract of 2019';
+
+/// A device whose name and display name are both very long, on a narrow
+/// window: every line ends in an ellipsis, nothing overflows.
+Widget explorerLongName() => _shell(
+  _edgePage(
+    keyName: '$_edge/downstream/modbus/line1/$_longName',
+    tree: _edgeTree(_longName, longName: _longName),
+    title: _longName,
+    pill: const StatusPillVm(label: 'Connected', tone: Tone.good),
+    subtitle:
+        'modbus device · unit 1 · 127.0.0.1:5020 · last read 08:03:19 · '
+        '$_longDisplay',
+    headerButtons: const [ToolButtonVm(id: 'ping', label: 'Ping')],
+    tabs: _tabs,
+    tab: 'points',
+    points: [
+      const PointRowVm(
+        id: '$_edge/downstream/modbus/line1/$_longName/$_longName',
+        name: _longName,
+        display: _longDisplay,
+        register: 'HR 40003',
+        type: 'f32_wbswap',
+        unit: '°C',
+        poll: '1 s',
+        value: '21.5',
+        quality: _good,
+      ),
+      ..._points(select: false),
+    ],
+    inspector: const PointInspectorVm(
+      eyebrow: 'Point',
+      name: _longName,
+      display: _longDisplay,
+      value: '21.5 °C',
+      quality: _good,
+      sections: [],
+    ),
+  ),
+  changes: 0,
+  site: 'edge',
+  route: 'this broker',
 );

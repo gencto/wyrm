@@ -5133,6 +5133,119 @@ class S {
       args: [],
     );
   }
+
+  /// `Contents`
+  String get tabContents {
+    return Intl.message('Contents', name: 'tabContents', desc: '', args: []);
+  }
+
+  /// `folder`
+  String get kindFolder {
+    return Intl.message('folder', name: 'kindFolder', desc: '', args: []);
+  }
+
+  /// `dataflow`
+  String get kindDataflow {
+    return Intl.message('dataflow', name: 'kindDataflow', desc: '', args: []);
+  }
+
+  /// `storage`
+  String get kindStorage {
+    return Intl.message('storage', name: 'kindStorage', desc: '', args: []);
+  }
+
+  /// `broker`
+  String get kindBroker {
+    return Intl.message('broker', name: 'kindBroker', desc: '', args: []);
+  }
+
+  /// `Folder`
+  String get insFolder {
+    return Intl.message('Folder', name: 'insFolder', desc: '', args: []);
+  }
+
+  /// `Storage`
+  String get insStorage {
+    return Intl.message('Storage', name: 'insStorage', desc: '', args: []);
+  }
+
+  /// `Broker`
+  String get insBroker {
+    return Intl.message('Broker', name: 'insBroker', desc: '', args: []);
+  }
+
+  /// `State`
+  String get secState {
+    return Intl.message('State', name: 'secState', desc: '', args: []);
+  }
+
+  /// `Since`
+  String get factSince {
+    return Intl.message('Since', name: 'factSince', desc: '', args: []);
+  }
+
+  /// `deployed by {who}`
+  String deployedByWho(Object who) {
+    return Intl.message(
+      'deployed by $who',
+      name: 'deployedByWho',
+      desc: '',
+      args: [who],
+    );
+  }
+
+  /// `{count, plural, =0{no children} =1{1 child} other{{count} children}}`
+  String childCount(num count) {
+    return Intl.plural(
+      count,
+      zero: 'no children',
+      one: '1 child',
+      other: '$count children',
+      name: 'childCount',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Nothing under this node.`
+  String get noChildren {
+    return Intl.message(
+      'Nothing under this node.',
+      name: 'noChildren',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Select a row: a node opens in the tree, a value opens in the inspector.`
+  String get childrenNote {
+    return Intl.message(
+      'Select a row: a node opens in the tree, a value opens in the inspector.',
+      name: 'childrenNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Opening the editor needs read on this flow.`
+  String get noReadFlow {
+    return Intl.message(
+      'Opening the editor needs read on this flow.',
+      name: 'noReadFlow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Name`
+  String get colName {
+    return Intl.message('Name', name: 'colName', desc: '', args: []);
+  }
+
+  /// `Kind`
+  String get colKind {
+    return Intl.message('Kind', name: 'colKind', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
