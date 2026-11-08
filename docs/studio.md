@@ -4,6 +4,8 @@ WYRM Studio is the app people use to set up and run a WYRM network: browse the t
 
 This document is the build plan. Each phase is one pull request. Every step says which `frx` command makes the artifact and what is written by hand.
 
+**Which wins:** a board (its PNG, else its source) for anything visible, then the screen's spec in `studio/docs/design/specs/`, then this plan; where this plan disagrees with a board, the plan is wrong.
+
 The reference for every screen is the **Studio design canvas** (Claude Design, owner's workspace); a snapshot of its boards is in [`studio/docs/design/`](../studio/docs/design/README.md). Boards are named in each section; a board with several states (a storyboard row) is one golden test per frame (§9). How to work on it, command by command: [`studio/docs/workflow.md`](../studio/docs/workflow.md).
 
 ## 1. Layout
@@ -315,7 +317,7 @@ On `success: false` show the message and the way out (`process links need a tls/
 ### 7.4 Explorer
 Boards: *Studio · Explorer*, *Explorer · Actions of a node*, *Action · contract, trigger and runs*, *WYRM Studio — property sheet*. Tab: explorer. State: `nodes`, `live`.
 - Tree: lazy, one `list()` per expanded node (§5.2); icons by node kind (§6.4); a history mark from `hasHistory`; `sys/**` is not in the tree (it is in Links, Access, Sites, System).
-- Points table of the selected node: name, value with unit, quality, time; writable points edit in place (`set(key/~set, value)`, level from `~meta`).
+- Layout, columns, inspector, selection, copy and staging: **[`studio/docs/design/specs/explorer.md`](../studio/docs/design/specs/explorer.md)** (it replaces the line that stood here, which contradicted the board: the points table has select, Point, Register, Type, Unit, Poll, Value, Quality, Write and no Time). Writes go through staging and the review drawer, then `set(key/~set, value)`, level from `~meta`.
 - Actions: from `meta(key).actions`, grouped by `group`, each opening `param_form`; the result rows and the error `{code, message}`; runs remembered for the session.
 - Property sheet: `~meta` fields, profile, overlays.
 
@@ -337,7 +339,7 @@ Boards: *Studio · Sites*, *Sites · Chain, a broker waits*, *Sites · Star*, *S
 ### 7.6 Flows
 Boards: *Studio · Flows*, *Flow editor · fields, bindings, properties*, *Flow editor · drag points and actions from the tree*, *Flow · inside an own block*, *Flow · Repeat*. Tab: flows; route `FlowEditorRoute(id)`. State: `flows`, `flow_editor`.
 - List: `children('dataflows')`, each `dataflows/<id>` `~val`; versions from `invoke('dataflows/<id>', 'history')`.
-- Editor: palette from `invoke('dataflows', 'node_types')` (type, category, ports, parameters); every parameter is a field with an input port when the type has `in.<parameter>` (docs/flow-blocks.md, rule 2) and an output; tree tab: drag a point onto a block (a field) or onto the canvas (a node block), drag an action (a block of its inputs plus ok, code, message).
+- Editor: palette from `invoke('dataflows', 'node_types')` (type, category, ports, parameters); how ports become fields, values and ports on each row: **[`studio/docs/design/specs/flow-editor.md`](../studio/docs/design/specs/flow-editor.md) §3** (rows are fields, never `in.<parameter>` labels; every parameter shows its value and has an output); tree tab: drag a point onto a block (a field) or onto the canvas (a node block), drag an action (a block of its inputs plus ok, code, message).
 - Validate as you edit: `invoke('dataflows', 'validate', {def})` (debounced, `ValidateFlowAction` with `debounce`); Deploy: `invoke('dataflows', 'deploy', {def})` with `version` + 1 and `layout`; the gateway adds the proofs (ADR 0008, 0033).
 - Own blocks and Repeat need engine support (§10 items 8, 9); until then they stay design-only and are not in the palette.
 
