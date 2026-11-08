@@ -4,6 +4,247 @@
 
 `app/lib/connectors/explorer_page_connector.dart`
 
-_ExplorerPageConnector exposes no dispatching callbacks yet._
+## onShow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as WatchKeysAction
+    participant A2 as RetrieveNodesAction
+    participant A3 as RetrieveLinksAction
+    participant ST as AppState
+
+    User->>UI: onShow
+    UI->>VM: onShow()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+    alt nodes.expanded.isEmpty
+        VM->>+A2: dispatchAndWait
+        Note over A2: WaitingAction · async
+        A2->>ST: dispatch(ToggleNodeAction)
+        A2-->>-VM: ActionStatus
+    end
+    alt links.view.isEmpty
+        VM->>+A3: dispatchAndWait
+        Note over A3: WaitingAction · async
+        A3->>ST: copyWith(links.version, links.table, links.view)
+        A3-->>-VM: ActionStatus
+    end
+```
+
+## onHide
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as UnwatchKeysAction
+    participant ST as AppState
+
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
+## onSelect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SelectNodeAction
+    participant ST as AppState
+
+    User->>UI: onSelect
+    UI->>VM: onSelect()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.selectedNode, nodes.action)
+    A1->>ST: dispatchSync(ToggleNodeAction)
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+```
+
+## onToggle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as ToggleNodeAction
+    participant ST as AppState
+
+    User->>UI: onToggle
+    UI->>VM: onToggle()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.expanded)
+```
+
+## onTab
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetTabAction
+    participant A2 as RetrieveHistoryAction
+    participant ST as AppState
+
+    User->>UI: onTab
+    UI->>VM: onTab()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.tab)
+    alt t == 'history' && sel != null
+        VM->>+A2: dispatchAndWait
+        Note over A2: WaitingAction · async
+        A2->>ST: copyWith(nodes.historyKey, nodes.history)
+        A2-->>-VM: ActionStatus
+    end
+```
+
+## onAction
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetActionAction
+    participant ST as AppState
+
+    User->>UI: onAction
+    UI->>VM: onAction()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.action)
+```
+
+## onRange
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetHistoryRangeAction
+    participant A2 as RetrieveHistoryAction
+    participant ST as AppState
+
+    User->>UI: onRange
+    UI->>VM: onRange()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.historyRange)
+    alt sel != null
+        VM->>+A2: dispatchAndWait
+        Note over A2: WaitingAction · async
+        A2->>ST: copyWith(nodes.historyKey, nodes.history)
+        A2-->>-VM: ActionStatus
+    end
+```
+
+## onCloseInspector
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetActionAction
+    participant ST as AppState
+
+    User->>UI: onCloseInspector
+    UI->>VM: onCloseInspector()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.action)
+```
+
+## onSubmit
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as StageInvokeAction
+    participant A2 as InvokeNodeAction
+    participant A3 as StageValueAction
+    participant ST as AppState
+
+    User->>UI: onSubmit
+    UI->>VM: onSubmit()
+    alt act.level == 'config'
+        VM->>A1: dispatchSync
+        A1->>ST: dispatchSync(AddChangesAction)
+        VM->>+A2: dispatchAndWait
+        Note over A2: WaitingAction · async
+        A2->>ST: copyWith(nodes.results)
+        A2-->>-VM: ActionStatus
+    end
+    alt values.containsKey('value')
+        VM->>A3: dispatchSync
+        A3->>ST: dispatchSync(AddChangesAction)
+    end
+```
+
+## onMenu
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SelectNodeAction
+    participant A2 as SetTabAction
+    participant A3 as SetActionAction
+    participant ST as AppState
+
+    User->>UI: onMenu
+    UI->>VM: onMenu()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.selectedNode, nodes.action)
+    A1->>ST: dispatchSync(ToggleNodeAction)
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+    alt picked != null
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(nodes.tab)
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(nodes.action)
+    end
+```
+
+_Not drawn — these files dispatch outside any interaction:_
+
+- `ExplorerPageConnector` — 2 dispatches
+
+| Interaction | Dispatches | Writes |
+| --- | --- | --- |
+| `onShow` | `WatchKeysAction`, `RetrieveNodesAction` ?, `RetrieveLinksAction` ? | `live.watched`, `links.version, links.table, links.view` |
+| `onHide` | `UnwatchKeysAction` | `live.watched` |
+| `onSelect` | `SelectNodeAction` | `nodes.selectedNode, nodes.action` |
+| `onToggle` | `ToggleNodeAction` | `nodes.expanded` |
+| `onTab` | `SetTabAction`, `RetrieveHistoryAction` ? | `nodes.tab`, `nodes.historyKey, nodes.history` |
+| `onAction` | `SetActionAction` | `nodes.action` |
+| `onRange` | `SetHistoryRangeAction`, `RetrieveHistoryAction` ? | `nodes.historyRange`, `nodes.historyKey, nodes.history` |
+| `onCloseInspector` | `SetActionAction` | `nodes.action` |
+| `onSubmit` | `StageInvokeAction` ?, `InvokeNodeAction` ?, `StageValueAction` ? | `nodes.results` |
+| `onMenu` | `SelectNodeAction`, `SetTabAction` ?, `SetActionAction` ? | `nodes.selectedNode, nodes.action`, `nodes.tab`, `nodes.action` |
+
+`?` marks a dispatch that only runs under a condition.
 
 [← all flows](README.md)

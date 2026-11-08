@@ -4,6 +4,7 @@ import 'package:models/agent_task.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/grant.dart';
+import 'package:models/hist_point.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
 import 'package:models/link_info.dart';
@@ -11,6 +12,7 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
+import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
@@ -232,6 +234,24 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns results
   IMap<String, IList<String>> get results => _state.nodes.results;
+
+  /// Returns tab
+  String get tab => _state.nodes.tab;
+
+  /// Returns action
+  String? get action => _state.nodes.action;
+
+  /// Returns historyRange
+  String get historyRange => _state.nodes.historyRange;
+
+  /// Returns detail
+  IMap<String, NodeDetail> get detail => _state.nodes.detail;
+
+  /// Returns history
+  IList<HistPoint> get history => _state.nodes.history;
+
+  /// Returns historyKey
+  String? get historyKey => _state.nodes.historyKey;
 }
 
 extension type SelectLive(AppState _state) {
