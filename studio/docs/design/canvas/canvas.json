@@ -387,9 +387,59 @@
    "title": "Assistant · In Explorer, about the selection",
    "expand": "fill",
    "is_interactive": true
+  },
+  "Login.dc.html": {
+   "x": 0,
+   "y": -1700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Log in · Studio start (clickable: Log in runs the loader)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LoginSigning.dc.html": {
+   "x": 1520,
+   "y": -1700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Log in · Signing in",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LoginWrong.dc.html": {
+   "x": 3040,
+   "y": -1700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Log in · Wrong password",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LoginUnreachable.dc.html": {
+   "x": 4560,
+   "y": -1700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Log in · Gateway unreachable",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "LoginWelcome.dc.html": {
+   "x": 6080,
+   "y": -1700,
+   "w": 1440,
+   "h": 1000,
+   "title": "Log in · Welcome, opening the tree",
+   "expand": "fill",
+   "is_interactive": true
   }
  },
  "order": [
+  "Login.dc.html",
+  "LoginSigning.dc.html",
+  "LoginWrong.dc.html",
+  "LoginUnreachable.dc.html",
+  "LoginWelcome.dc.html",
   "Main.dc.html",
   "Flow.dc.html",
   "Links.dc.html",
@@ -665,6 +715,48 @@
    "text": "Assistant: a chat that configures the platform, with generated UI and your approval",
    "kind": "title1",
    "maxW": 10560
+  },
+  "n-login": {
+   "x": 0,
+   "y": -660,
+   "w": 440,
+   "text": "Split screen: on the left the network breathes (values flowing teal, commands ember; the five nodes of the mark pulse; reduced motion stops it all). On the right the form: gateway with live status and recent gateways, user, password, remember. Click Log in to play the whole sequence.",
+   "fill": "gray"
+  },
+  "n-loginsigning": {
+   "x": 1520,
+   "y": -660,
+   "w": 440,
+   "text": "The button becomes the WYRM loader: the five nodes of the mark crawl in a wave, a thin bar runs under it, and three real steps tick off: reach the gateway, check the user, read the role and the sites.",
+   "fill": "gray"
+  },
+  "n-loginwrong": {
+   "x": 3040,
+   "y": -660,
+   "w": 440,
+   "text": "The password field shakes once and turns coral, with the message under it. Nothing else moves; the user and gateway stay filled.",
+   "fill": "red"
+  },
+  "n-loginunreachable": {
+   "x": 4560,
+   "y": -660,
+   "w": 440,
+   "text": "The gateway dot turns coral and an alert says what failed (refused, timed out, certificate). If a standby gateway is known, it is offered: the same login works there (loginAny).",
+   "fill": "orange"
+  },
+  "n-loginwelcome": {
+   "x": 6080,
+   "y": -660,
+   "w": 440,
+   "text": "After the gateway answers: the mark as a large loader, the user’s role and reach, and what the tree holds, while the Explorer loads behind it.",
+   "fill": "green"
+  },
+  "t-login": {
+   "x": 0,
+   "y": -1960,
+   "text": "Log in: the first screen, with the WYRM loader",
+   "kind": "title1",
+   "maxW": 7520
   }
  },
  "designSystems": []
