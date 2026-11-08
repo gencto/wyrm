@@ -23,9 +23,9 @@ Top bar, left to right: logo (mark + `WYRM` Unbounded 700 16, letter-spacing 0.0
 - Selected row: fill `#2A1F16`, icon ember; on the selected row a `⋯` button (32 × 32, fill `#3A2A1C`, ink `#F3A766`) opens the node menu (§5).
 - Footer (12, `#8E979C`, top border): `The tree shows data only.` `sys/**` `is edited in` Links, Access, Sites `and` System, the four as links to those workspaces.
 
-## 3. Workspace for a device (connection and link: same frame, their own fields)
+## 3. Workspace for a device (other kinds: §3a)
 1. **Key line**: the full key in mono 13 `#8E979C`, last segment `#ECE9E1`, then a **Copy key** icon button 28 × 28 (copies the full key, §6).
-2. **Title row**: `h1` name 26/600, a status pill (24 high, radius 12, `Connected` teal on `#15302A`; `Connecting` amber, `Failed` coral, `Stopped` grey), and under it one subtitle line 14 `#A3ABAF`: `<kind> · unit <n> · <host>:<port> · last read <hh:mm:ss>` (from the node's `~meta` and its connection). Right side: **Ping** (outline 40) and **Actions ▾** (outline 40, opens the action menu, §5).
+2. **Title row**: the node's **name** (last key segment) in mono 26/600, never its display name, a status pill (24 high, radius 12, `Connected` teal on `#15302A`; `Connecting` amber, `Failed` coral, `Stopped` grey), and under it one subtitle line 14 `#A3ABAF`: `<kind> · unit <n> · <host>:<port> · last read <hh:mm:ss>` (from the node's `~meta` and its connection), then the display name. Name and subtitle are one line each with an ellipsis and the full text as a tooltip: a display name can be a sentence, a segment 50 characters. Right side: **Ping** (outline 40) and **Actions ▾** (outline 40, opens the action menu, §5).
 3. **Tabs** (44 high, current one with a 2 px ember underline): `Points 9` · `Parameters` · `Actions 7` · `History` · `Audit`. A count is plain 12 `#A3ABAF` text after the label, not a pill.
 4. **Toolbar** (padding 16 × 24, gap 8): `Add point` (outline, fill `#161A1D`), `Import CSV or DSA tree`, `Apply profile` (quiet outline), and on the right `Filter points` (240 wide, height 40). Buttons are the device's own actions; a button whose action the user's level does not allow is disabled with the reason as a tooltip.
 5. **Points table** (border `#252B30`, radius 10, fill `#13171A`, horizontal scroll under 860):
@@ -45,6 +45,24 @@ Top bar, left to right: logo (mark + `WYRM` Unbounded 700 16, letter-spacing 0.0
    Header row 40, 12/600 uppercase 0.04 em `#8E979C`. Rows 40 (32 compact), bottom border `#1D2226`; selected row fill `#1D2226`; staged row fill `#191714`. Under the table: `Values update live. Edits are staged in this session; nothing is written to the device until you apply.` (13 `#8E979C`). **No Time column**: the time of the selected point is in the inspector.
 
    Rows are the device's **points** only. Its diagnostic values (`status`, `error`, `requests`, `errors`, `timeouts`, `exceptions`, `reopens`, `last_rtt_ms`, `avg_rtt_ms`) are not points: `status` drives the pill, `last read` the subtitle, and the counters are a **Diagnostics** section in the inspector when nothing is selected **(proposed)**.
+
+## 3a. Frames by node kind (proposed)
+The node's kind picks the frame. It comes from its place, its profile (`is`) and its actions, in this order (`business/lib/wyrm/kinds.dart`, `nodeKindOf`; it agrees with the tree icon):
+
+| Kind | Rule | Pill | Subtitle | Header buttons | Tabs |
+|---|---|---|---|---|---|
+| folder | a section (`downstream`, `dataflows`, `storage`, `upstream`), a plain node | — | `folder · <n> children · <display>` | Actions ▾ | Contents · Parameters · Actions · History · Audit |
+| flow | `wy:flow`, or `dataflows/<f>` | `~val` state: `v2 deployed` teal, `v2 stopped` grey, `v2 · error` coral, `not deployed` | `dataflow · deployed by <who> · <error> · <display>` | **Edit dataflow** (opens the flow editor route; needs read), Actions ▾ | Parameters (a **State** section from `~val`: state, version, deployed by, since, error; then attributes) · Actions · Audit |
+| broker | `wy:broker`, or `upstream/<u>` | `connected` child: Connected / Offline | `broker · <attr.root> · <n> children · <display>` | Actions ▾ | Contents · Parameters · Actions · History · Audit |
+| link | `wy:link`, or `downstream/<l>` | the link's `sys/links/<id>/state` | `<driver> link · <display>` | Actions ▾ | Contents · Parameters · Actions · History · Audit |
+| storage | anything under `storage/` | — | `storage · <n> children · <display>` | Actions ▾ | Contents · Parameters · Actions · History · Audit |
+| connection | profile holds `conn` | its `status` | `<driver> connection · <host>:<port> · <display>` | Actions ▾ | Contents · Parameters · Actions · History · Audit |
+| device | profile holds `device`, a `<vendor>:<model>` profile, or the node has `add_point` (a modbus folder under a device too) | its `status` | as §3.2 | Ping, Actions ▾ | Points · Parameters · Actions · History · Audit (§3) |
+
+- **Only a device** gets Points, Ping, Add point, Import CSV or DSA tree and Apply profile (§3.3–3.5).
+- **Contents**: a table of the node's children (columns Name: mono name with the display name under it · Kind: a node's kind word, or a value's type and `RW` · Value: with its unit, `—` for a node). Selecting a node row opens it in the tree; selecting a value shows it in the point inspector (§4). A link's or a connection's diagnostic values (`status`, counters) are not rows: `status` drives the pill, the counters are in the inspector's Diagnostics.
+- A tab kept from the node before stays when the next node has it; else the frame's first tab shows.
+- Inspector with nothing selected: label = the kind (`Folder`, `Dataflow`, `Broker`, `Link`, `Storage`, `Connection`, `Device`), title = the name; a flow shows its State section; a Parameters section only when the node has `edit` or `cfg`.
 
 ## 4. Inspector
 - **A point selected**: label `POINT`; name mono 18/600 + display name `#A3ABAF`; value mono 22 with unit; quality · time (12). Sections (12/600 uppercase): **Register** (Area, Address, Data type, Word order: 2 columns, fields 36 high), **Value** (Unit, Scale, Precision: 3 columns), **Polling** (segmented 250 ms · 500 ms · 1 s · 5 s; `staged · was 1 s` in ember on the right), **Write** (`Writable` switch, `Turning this on needs config level`), **What the tree will publish** (the `~meta` and `~val` it produces, mono 12, on `#0E1113`). Every field is built from the point's `~meta.cfg` with `param_form` and stages its change (§7).
@@ -82,6 +100,8 @@ Loading (tree rows as skeletons, table header with 6 skeleton rows) · empty dev
 - [~] Multi-select, selection bar, Copy key / Copy keys, ⌘⇧C — plain ⌘C copies the selected point's value (the table has no cell selection)
 - [x] Review drawer as §7
 - [x] Goldens: device with a point selected, nothing selected, review drawer open, empty device, offline
+- [x] Frames by node kind (§3a): the device frame only for devices; a flow with its state and Edit dataflow; Contents for the rest. Goldens: a flow selected, a folder selected
+- [x] Long names (§3.2): name and subtitle one line with an ellipsis and a tooltip; the node menu header, inspector title, tree names, table cells and key line end in an ellipsis. Golden: a long name and display name at 1100; widget test at 1440, 1100, 900 and 760
 
 ## 10. Found in the app (screenshot 2026-11-08)
 1. Site switcher shows `edge` only; the route is missing.
@@ -94,5 +114,7 @@ Loading (tree rows as skeletons, table header with 6 skeleton rows) · empty dev
 8. Device diagnostics (`status`, `requests`, `errors`, …) are listed as points.
 9. The inspector shows a raw `NODE` dump (`key`, `is`, `Actions`, `CFG`) with a close button instead of the point/device inspector.
 10. No multi-select and no copy.
+
+11. (2026-11-08) A flow showed its display name (a sentence) as the title and overflowed the title row and the node menu header; it showed the device frame (Ping, `Points 0`, Add point, an empty points table) with the subtitle `node`. Fixed by §3.2 and §3a.
 
 **Decided in the app (owner to confirm):** the points table scrolls under 720, not 860: at 1440 the workspace is 784 wide, and at 860 the Quality and Write columns were hidden.

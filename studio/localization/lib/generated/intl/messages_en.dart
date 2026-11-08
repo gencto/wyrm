@@ -51,166 +51,175 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m13(site) => "CA-signed · ${site} CA";
 
-  static String m14(site) =>
+  static String m14(count) =>
+      "${Intl.plural(count, zero: 'no children', one: '1 child', other: '${count} children')}";
+
+  static String m15(site) =>
       "${site} dials out to it; it authorizes ${site} there.";
 
-  static String m15(size) => "data_dir ${size}";
+  static String m16(size) => "data_dir ${size}";
 
-  static String m16(id) => "Deauthorize ${id}?";
+  static String m17(id) => "Deauthorize ${id}?";
 
-  static String m17(device) =>
+  static String m18(who) => "deployed by ${who}";
+
+  static String m19(device) =>
       "It runs on ${device}; the broker cannot start or stop it.";
 
-  static String m18(id) => "Edit params of ${id}";
+  static String m20(id) => "Edit params of ${id}";
 
-  static String m19(s) => "every ${s} s";
+  static String m21(s) => "every ${s} s";
 
-  static String m20(when) => "first seen ${when}";
+  static String m22(when) => "first seen ${when}";
 
-  static String m21(v) => "v${v} deployed";
+  static String m23(v) => "v${v} deployed";
 
-  static String m22(v) => "v${v} · error";
+  static String m24(v) => "v${v} · error";
 
-  static String m23(v) => "v${v} stopped";
+  static String m25(v) => "v${v} stopped";
 
-  static String m24(v) => "Version ${v}";
+  static String m26(v) => "Version ${v}";
 
-  static String m25(site) => "Flows on ${site}";
+  static String m27(site) => "Flows on ${site}";
 
-  static String m26(address) => "from ${address}";
+  static String m28(address) => "from ${address}";
 
-  static String m27(key) => "Go to ${key}";
+  static String m29(key) => "Go to ${key}";
 
-  static String m28(id) => "Grant access to ${id}";
+  static String m30(id) => "Grant access to ${id}";
 
-  static String m29(days) => "raw kept ${days} d";
+  static String m31(days) => "raw kept ${days} d";
 
-  static String m30(n) => "${n} series";
+  static String m32(n) => "${n} series";
 
-  static String m31(size) => "Historian ${size}";
+  static String m33(size) => "Historian ${size}";
 
-  static String m32(id) => "Params history of ${id}";
+  static String m34(id) => "Params history of ${id}";
 
-  static String m33(n) =>
+  static String m35(n) =>
       "${Intl.plural(n, one: '1 input', other: '${n} inputs')}";
 
-  static String m34(name, broker) => "${name} is installed on ${broker}.";
+  static String m36(name, broker) => "${name} is installed on ${broker}.";
 
-  static String m35(count) => "${count} keys copied";
+  static String m37(count) => "${count} keys copied";
 
-  static String m36(lag) => "lag ${lag}";
+  static String m38(lag) => "lag ${lag}";
 
-  static String m37(time) => "last read ${time}";
+  static String m39(time) => "last read ${time}";
 
-  static String m38(n) =>
+  static String m40(n) =>
       "${Intl.plural(n, one: '1 link already', other: '${n} links already')}";
 
-  static String m39(site) =>
+  static String m41(site) =>
       "Started and watched by ${site}: built-in drivers and installed packages. You can stop, change, upgrade and remove them.";
 
-  static String m40(site) => "Links on ${site}";
+  static String m42(site) => "Links on ${site}";
 
-  static String m41(id) => "Log of ${id}";
+  static String m43(id) => "Log of ${id}";
 
-  static String m42(kind, count) => "${kind} · ${count} actions";
+  static String m44(kind, count) => "${kind} · ${count} actions";
 
-  static String m43(count) => "${count} selected";
+  static String m45(count) => "${count} selected";
 
-  static String m44(level, have) => "Needs ${level} · you have ${have}";
+  static String m46(level, have) => "Needs ${level} · you have ${have}";
 
-  static String m45(level) => "Needs ${level} · you have it";
+  static String m47(level) => "Needs ${level} · you have it";
 
-  static String m46(action) => "This node has no ${action} action.";
+  static String m48(action) => "This node has no ${action} action.";
 
-  static String m47(param) => "The driver has no ${param} parameter.";
+  static String m49(param) => "The driver has no ${param} parameter.";
 
-  static String m48(site) => "none: ${site} is the top";
+  static String m50(site) => "none: ${site} is the top";
 
-  static String m49(site) => "Explorer shows wy/${site}.";
+  static String m51(site) => "Explorer shows wy/${site}.";
 
-  static String m50(name) => "package ${name}";
-
-  static String m51(n) =>
-      "${Intl.plural(n, zero: 'no parameters', one: '1 parameter', other: '${n} parameters')}";
-
-  static String m52(rev) => "Parameters (revision ${rev}, JSON)";
+  static String m52(name) => "package ${name}";
 
   static String m53(n) =>
+      "${Intl.plural(n, zero: 'no parameters', one: '1 parameter', other: '${n} parameters')}";
+
+  static String m54(rev) => "Parameters (revision ${rev}, JSON)";
+
+  static String m55(n) =>
       "${Intl.plural(n, one: '1 point', other: '${n} points')}";
 
-  static String m54(name) => "${name} is installed";
+  static String m56(name) => "${name} is installed";
 
-  static String m55(name) => "Installing ${name}…";
+  static String m57(name) => "Installing ${name}…";
 
-  static String m56(cn) => "Reject ${cn}?";
+  static String m58(field) => "${field} takes no input: type its value";
 
-  static String m57(n) =>
+  static String m59(from, to) => "${from} does not fit ${to}";
+
+  static String m60(cn) => "Reject ${cn}?";
+
+  static String m61(n) =>
       "${Intl.plural(n, one: 'relays 1 site', other: 'relays ${n} sites')}";
 
-  static String m58(id) => "Remove ${id}?";
+  static String m62(id) => "Remove ${id}?";
 
-  static String m59(name) => "Remove ${name}?";
+  static String m63(name) => "Remove ${name}?";
 
-  static String m60(action) => "Result · ${action}";
+  static String m64(action) => "Result · ${action}";
 
-  static String m61(what) => "returns ${what}";
+  static String m65(what) => "returns ${what}";
 
-  static String m62(audit) =>
+  static String m66(audit) =>
       "Each write is checked by the link and recorded in ${audit}. A value shows only after it is read back.";
 
-  static String m63(rev) => "Revision ${rev}";
+  static String m67(rev) => "Revision ${rev}";
 
-  static String m64(rev) => "Revision ${rev} · in use";
+  static String m68(rev) => "Revision ${rev} · in use";
 
-  static String m65(site, user, role, level) =>
+  static String m69(site, user, role, level) =>
       "Site ${site} · applied with your rights: ${user}, ${role} (${level})";
 
-  static String m66(rev) => "Roll back to revision ${rev}?";
+  static String m70(rev) => "Roll back to revision ${rev}?";
 
-  static String m67(n) => "${Intl.plural(n, one: '1 row', other: '${n} rows')}";
+  static String m71(n) => "${Intl.plural(n, one: '1 row', other: '${n} rows')}";
 
-  static String m68(user) =>
+  static String m72(user) =>
       "Runs as ${user}. Nothing else in the tree changes unless the result is used.";
 
-  static String m69(site) => "Runs on ${site}";
+  static String m73(site) => "Runs on ${site}";
 
-  static String m70(level) => "Log level ${level}";
+  static String m74(level) => "Log level ${level}";
 
-  static String m71(site) => "Sites around ${site}";
+  static String m75(site) => "Sites around ${site}";
 
-  static String m72(site) =>
+  static String m76(site) =>
       "What ${site} connects to and what connects to it: brokers above and below, platforms it sends to, and devices whose links run outside any broker.";
 
-  static String m73(count) =>
+  static String m77(count) =>
       "${Intl.plural(count, zero: 'No staged changes', one: '1 staged change', other: '${count} staged changes')}";
 
-  static String m74(was) => "staged · was ${was}";
+  static String m78(was) => "staged · was ${was}";
 
-  static String m75(n, total) => "Step ${n} of ${total}";
+  static String m79(n, total) => "Step ${n} of ${total}";
 
-  static String m76(level) => "needs ${level}";
+  static String m80(level) => "needs ${level}";
 
-  static String m77(agent) => "Each task is a node: ${agent}/tasks/<id>";
+  static String m81(agent) => "Each task is a node: ${agent}/tasks/<id>";
 
-  static String m78(site) => "Tree · ${site}";
+  static String m82(site) => "Tree · ${site}";
 
-  static String m79(unit) => "unit ${unit}";
+  static String m83(unit) => "unit ${unit}";
 
-  static String m80(d) => "up ${d}";
+  static String m84(d) => "up ${d}";
 
-  static String m81(v) => "Version ${v} · deployed";
+  static String m85(v) => "Version ${v} · deployed";
 
-  static String m82(site) => "via ${site}";
+  static String m86(site) => "via ${site}";
 
-  static String m83(n, who) => "${n} waiting to be let in: ${who}";
+  static String m87(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m84(value) => "was ${value}";
+  static String m88(value) => "was ${value}";
 
-  static String m85(n) => "Watch groups · ${n}";
+  static String m89(n) => "Watch groups · ${n}";
 
-  static String m86(level) => "Turning this on needs ${level} level";
+  static String m90(level) => "Turning this on needs ${level} level";
 
-  static String m87(site) => "wyrmd on ${site}";
+  static String m91(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -353,6 +362,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Drag an output here to bind",
     ),
     "block": MessageLookupByLibrary.simpleMessage("Block"),
+    "blockForm": MessageLookupByLibrary.simpleMessage("Form"),
     "blocksCount": m10,
     "branchOrTag": MessageLookupByLibrary.simpleMessage("branch or tag"),
     "bringOne": MessageLookupByLibrary.simpleMessage(
@@ -397,6 +407,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "checkedHere": MessageLookupByLibrary.simpleMessage(
       "Checked here; the broker checks again before it installs.",
     ),
+    "childCount": m14,
+    "childrenNote": MessageLookupByLibrary.simpleMessage(
+      "Select a row: a node opens in the tree, a value opens in the inspector.",
+    ),
     "chooseWasm": MessageLookupByLibrary.simpleMessage(
       "Choose a .wasm component",
     ),
@@ -414,10 +428,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "colFlow": MessageLookupByLibrary.simpleMessage("Flow"),
     "colFrom": MessageLookupByLibrary.simpleMessage("From"),
     "colKey": MessageLookupByLibrary.simpleMessage("Key"),
+    "colKind": MessageLookupByLibrary.simpleMessage("Kind"),
     "colLevel": MessageLookupByLibrary.simpleMessage("Level"),
     "colLink": MessageLookupByLibrary.simpleMessage("Link"),
     "colLinkDevice": MessageLookupByLibrary.simpleMessage("Link · device"),
     "colMode": MessageLookupByLibrary.simpleMessage("Mode"),
+    "colName": MessageLookupByLibrary.simpleMessage("Name"),
     "colOp": MessageLookupByLibrary.simpleMessage("What"),
     "colPoint": MessageLookupByLibrary.simpleMessage("Point"),
     "colPoll": MessageLookupByLibrary.simpleMessage("Poll"),
@@ -454,7 +470,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Staged with your other edits; applied in Review.",
     ),
     "connect": MessageLookupByLibrary.simpleMessage("Connect"),
-    "connectNote": m14,
+    "connectNote": m15,
     "connectUpstream": MessageLookupByLibrary.simpleMessage(
       "Connect to an upstream",
     ),
@@ -471,18 +487,19 @@ class MessageLookup extends MessageLookupByLibrary {
       "A package archive you bring: a zip, a URL, a Git repository or one .wasm. It is checked before install.",
     ),
     "darkTheme": MessageLookupByLibrary.simpleMessage("Dark theme"),
-    "dataDir": m15,
+    "dataDir": m16,
     "dataflow": MessageLookupByLibrary.simpleMessage("Dataflow"),
     "deauthorizeBrokerNote": MessageLookupByLibrary.simpleMessage(
       "Its rights here are cut now and its next connection waits in quarantine. Its sites stay below it.",
     ),
-    "deauthorizeTitle": m16,
+    "deauthorizeTitle": m17,
     "decideInLinks": MessageLookupByLibrary.simpleMessage("Decide in Links"),
     "decideInLinksNote": MessageLookupByLibrary.simpleMessage(
       "A link in quarantine is approved or rejected in Links › Quarantine.",
     ),
     "decideInSites": MessageLookupByLibrary.simpleMessage("decide in Sites"),
     "deploy": MessageLookupByLibrary.simpleMessage("Deploy"),
+    "deployedByWho": m18,
     "deploying": MessageLookupByLibrary.simpleMessage("Deploying…"),
     "designGallery": MessageLookupByLibrary.simpleMessage("Design gallery"),
     "designGalleryNote": MessageLookupByLibrary.simpleMessage(
@@ -497,7 +514,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "doneNote": MessageLookupByLibrary.simpleMessage(
       "The task is done. Its record keeps the plan and the log.",
     ),
-    "doneOnTheDevice": m17,
+    "doneOnTheDevice": m19,
     "doneOnTheDeviceUpgrade": MessageLookupByLibrary.simpleMessage(
       "Whoever runs the device updates it there; it reconnects with the same certificate.",
     ),
@@ -523,9 +540,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "editParamsNote": MessageLookupByLibrary.simpleMessage(
       "Stage applies with the other changes; the link restarts with the new revision.",
     ),
-    "editParamsOf": m18,
+    "editParamsOf": m20,
     "enableUser": MessageLookupByLibrary.simpleMessage("Enable"),
-    "everySeconds": m19,
+    "everySeconds": m21,
     "factAbout": MessageLookupByLibrary.simpleMessage("About"),
     "factAgent": MessageLookupByLibrary.simpleMessage("Agent"),
     "factAllowConfig": MessageLookupByLibrary.simpleMessage("Config from it"),
@@ -558,6 +575,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "factRunning": MessageLookupByLibrary.simpleMessage("Running"),
     "factRunsAs": MessageLookupByLibrary.simpleMessage("Runs as"),
     "factSeen": MessageLookupByLibrary.simpleMessage("Seen"),
+    "factSince": MessageLookupByLibrary.simpleMessage("Since"),
     "factStarted": MessageLookupByLibrary.simpleMessage("Started"),
     "factStatus": MessageLookupByLibrary.simpleMessage("Status"),
     "factSubject": MessageLookupByLibrary.simpleMessage("Subject"),
@@ -596,12 +614,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "firesAtDeployNote": MessageLookupByLibrary.simpleMessage(
       "A parameter sends its value when the flow starts, so this writes at every deploy.",
     ),
-    "firstSeen": m20,
+    "firstSeen": m22,
     "fixFirst": MessageLookupByLibrary.simpleMessage(
       "The draft does not validate.",
     ),
-    "flowDeployed": m21,
-    "flowError": m22,
+    "flowDeployed": m23,
+    "flowError": m24,
     "flowName": MessageLookupByLibrary.simpleMessage("Flow id"),
     "flowPropertiesNote": MessageLookupByLibrary.simpleMessage(
       "Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.",
@@ -609,16 +627,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "flowPropertiesNote2": MessageLookupByLibrary.simpleMessage(
       "A bound field shows its source here and in the block; click the link icon to unbind.",
     ),
-    "flowStopped": m23,
-    "flowVersion": m24,
+    "flowStopped": m25,
+    "flowVersion": m26,
     "flowsFooter": MessageLookupByLibrary.simpleMessage(
       "A deploy needs config on dataflows; the gateway adds your proofs for each target. Viewers can open a flow and only look.",
     ),
-    "flowsOn": m25,
+    "flowsOn": m27,
     "flowsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Each flow runs in the broker. You edit a draft; nothing changes until you deploy it.",
     ),
-    "fromAddress": m26,
+    "fromAddress": m28,
     "fromTheOfficialList": MessageLookupByLibrary.simpleMessage(
       "From the official list",
     ),
@@ -631,9 +649,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "gitRepository": MessageLookupByLibrary.simpleMessage(
       "Git repository (HTTPS)",
     ),
-    "goTo": m27,
+    "goTo": m29,
     "goUp": MessageLookupByLibrary.simpleMessage("Go up"),
-    "grantFor": m28,
+    "grantFor": m30,
     "grantLevel": MessageLookupByLibrary.simpleMessage("Level"),
     "grantPath": MessageLookupByLibrary.simpleMessage("Key or pattern"),
     "groupChange": MessageLookupByLibrary.simpleMessage("Change"),
@@ -647,13 +665,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "groupYouControl": MessageLookupByLibrary.simpleMessage(
       "What you control here",
     ),
-    "historianKeep": m29,
-    "historianSeries": m30,
-    "historianSize": m31,
+    "historianKeep": m31,
+    "historianSeries": m32,
+    "historianSize": m33,
     "historyFooter": MessageLookupByLibrary.simpleMessage(
       "Sync links read the historian\'s change journal, so nothing is lost while a database is down.",
     ),
-    "historyOf": m32,
+    "historyOf": m34,
     "holdUnknown": MessageLookupByLibrary.simpleMessage(
       "Hold unknown connections here",
     ),
@@ -664,35 +682,42 @@ class MessageLookup extends MessageLookupByLibrary {
     "importPoints": MessageLookupByLibrary.simpleMessage(
       "Import CSV or DSA tree",
     ),
-    "inputsCount": m33,
+    "inputsCount": m35,
     "insAction": MessageLookupByLibrary.simpleMessage("Action"),
+    "insBroker": MessageLookupByLibrary.simpleMessage("Broker"),
     "insConnection": MessageLookupByLibrary.simpleMessage("Connection"),
     "insDevice": MessageLookupByLibrary.simpleMessage("Device"),
+    "insFolder": MessageLookupByLibrary.simpleMessage("Folder"),
     "insLink": MessageLookupByLibrary.simpleMessage("Link"),
     "insNode": MessageLookupByLibrary.simpleMessage("Node"),
     "insPoint": MessageLookupByLibrary.simpleMessage("Point"),
+    "insStorage": MessageLookupByLibrary.simpleMessage("Storage"),
     "install": MessageLookupByLibrary.simpleMessage("Install"),
     "installRailNote": MessageLookupByLibrary.simpleMessage(
       "Installing needs config on sys (the admin role). Nothing is installed before you press Install.",
     ),
-    "installedOn": m34,
+    "installedOn": m36,
     "invalidGatewayUrl": MessageLookupByLibrary.simpleMessage(
       "Not a gateway URL (http:// or https:// and a host)",
     ),
     "issue": MessageLookupByLibrary.simpleMessage("Issue"),
     "keyCopied": MessageLookupByLibrary.simpleMessage("Key copied"),
-    "keysCopied": m35,
+    "keysCopied": m37,
     "kindAction": MessageLookupByLibrary.simpleMessage("Action"),
+    "kindBroker": MessageLookupByLibrary.simpleMessage("broker"),
     "kindConnection": MessageLookupByLibrary.simpleMessage("connection"),
+    "kindDataflow": MessageLookupByLibrary.simpleMessage("dataflow"),
     "kindDevice": MessageLookupByLibrary.simpleMessage("device"),
     "kindFlow": MessageLookupByLibrary.simpleMessage("Flow"),
+    "kindFolder": MessageLookupByLibrary.simpleMessage("folder"),
     "kindLink": MessageLookupByLibrary.simpleMessage("link"),
     "kindLogic": MessageLookupByLibrary.simpleMessage("Logic block"),
     "kindNode": MessageLookupByLibrary.simpleMessage("node"),
     "kindSink": MessageLookupByLibrary.simpleMessage("Sink"),
+    "kindStorage": MessageLookupByLibrary.simpleMessage("storage"),
     "kindTreeNode": MessageLookupByLibrary.simpleMessage("Tree node"),
-    "lag": m36,
-    "lastRead": m37,
+    "lag": m38,
+    "lastRead": m39,
     "legendConnected": MessageLookupByLibrary.simpleMessage("connected"),
     "legendFree": MessageLookupByLibrary.simpleMessage("free field"),
     "legendOffline": MessageLookupByLibrary.simpleMessage("offline"),
@@ -711,9 +736,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "lightTheme": MessageLookupByLibrary.simpleMessage("Light theme"),
     "linkName": MessageLookupByLibrary.simpleMessage("Link name"),
     "linkOverTls": MessageLookupByLibrary.simpleMessage("link · over tls"),
-    "linksAlready": m38,
-    "linksLocalNote": m39,
-    "linksOn": m40,
+    "linksAlready": m40,
+    "linksLocalNote": m41,
+    "linksOn": m42,
     "linksQuarantineNote": MessageLookupByLibrary.simpleMessage(
       "Connections with a certificate from this site that no link is set up for. They can read and write nothing until you approve them.",
     ),
@@ -732,7 +757,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "logInSubtitle": MessageLookupByLibrary.simpleMessage(
       "Sign in to a WYRM gateway.",
     ),
-    "logOf": m41,
+    "logOf": m43,
     "logOut": MessageLookupByLibrary.simpleMessage("Log out"),
     "mAclDenials": MessageLookupByLibrary.simpleMessage("ACL denials"),
     "mAuditRecords": MessageLookupByLibrary.simpleMessage("Audit records"),
@@ -748,7 +773,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "These are the agent link\'s own settings. Change them in Links › Edit params.",
     ),
     "menuOther": MessageLookupByLibrary.simpleMessage("Other"),
-    "menuSubtitle": m42,
+    "menuSubtitle": m44,
     "messagesPerSecond": MessageLookupByLibrary.simpleMessage(
       "Router messages per second",
     ),
@@ -771,7 +796,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "myBlocksReason": MessageLookupByLibrary.simpleMessage(
       "Needs own blocks in the engine",
     ),
-    "nSelected": m43,
+    "nSelected": m45,
     "nameIt": MessageLookupByLibrary.simpleMessage("Give the link a name."),
     "nameRule": MessageLookupByLibrary.simpleMessage(
       "Letters, digits, . _ - · not used by another link, a removed link or a site",
@@ -782,15 +807,15 @@ class MessageLookup extends MessageLookupByLibrary {
     "needsConfigOnSys": MessageLookupByLibrary.simpleMessage(
       "Needs config on sys",
     ),
-    "needsLevelYouHave": m44,
-    "needsLevelYouHaveIt": m45,
+    "needsLevelYouHave": m46,
+    "needsLevelYouHaveIt": m47,
     "networkError": MessageLookupByLibrary.simpleMessage("Connection problem"),
     "newCertificate": MessageLookupByLibrary.simpleMessage("new certificate"),
     "newDataflow": MessageLookupByLibrary.simpleMessage("New dataflow"),
     "newTask": MessageLookupByLibrary.simpleMessage("New task"),
     "newValue": MessageLookupByLibrary.simpleMessage("New value"),
     "no": MessageLookupByLibrary.simpleMessage("no"),
-    "noActionReason": m46,
+    "noActionReason": m48,
     "noAgent": MessageLookupByLibrary.simpleMessage(
       "No assistant on this site. The assistant is the agent link: add it, give it an API key, then ask here.",
     ),
@@ -799,6 +824,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "noAuditHere": MessageLookupByLibrary.simpleMessage(
       "No records for this node in the last 500 of sys/audit.",
+    ),
+    "noChildren": MessageLookupByLibrary.simpleMessage(
+      "Nothing under this node.",
     ),
     "noEditReason": MessageLookupByLibrary.simpleMessage(
       "This point has no edit action.",
@@ -816,7 +844,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noLocalLinks": MessageLookupByLibrary.simpleMessage(
       "No links run on this broker yet. Add a link to connect a device.",
     ),
-    "noParamReason": m47,
+    "noParamReason": m49,
     "noPingReason": MessageLookupByLibrary.simpleMessage(
       "This node has no ping action: the driver pings by itself (cfg ping).",
     ),
@@ -827,6 +855,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "noProfileReason": MessageLookupByLibrary.simpleMessage(
       "The broker has no action to apply a profile to a device yet.",
     ),
+    "noReadFlow": MessageLookupByLibrary.simpleMessage(
+      "Opening the editor needs read on this flow.",
+    ),
     "noRemoteLinks": MessageLookupByLibrary.simpleMessage(
       "No device connects as an external link.",
     ),
@@ -834,7 +865,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noTasks": MessageLookupByLibrary.simpleMessage(
       "Ask for a change. The agent reads the tree, writes a plan and waits for your approval. Nothing changes until you approve.",
     ),
-    "noUpstream": m48,
+    "noUpstream": m50,
     "noUsers": MessageLookupByLibrary.simpleMessage("No users you may see."),
     "noValue": MessageLookupByLibrary.simpleMessage("no value"),
     "noWatchGroups": MessageLookupByLibrary.simpleMessage(
@@ -888,7 +919,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Grants, deauthorize and remove are in Links › On other devices.",
     ),
     "openItsTree": MessageLookupByLibrary.simpleMessage("Open its tree"),
-    "openItsTreeNote": m49,
+    "openItsTreeNote": m51,
     "operateRunsNow": MessageLookupByLibrary.simpleMessage(
       "Operate · runs now",
     ),
@@ -896,7 +927,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Runs on the device with your rights and is written to the audit.",
     ),
     "package": MessageLookupByLibrary.simpleMessage("package"),
-    "packageNamed": m50,
+    "packageNamed": m52,
     "packageSummary": MessageLookupByLibrary.simpleMessage(
       "Package from your repository · SHA-256 checked against the index on download",
     ),
@@ -906,8 +937,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "paletteTree": MessageLookupByLibrary.simpleMessage("Tree"),
     "panelMayDo": MessageLookupByLibrary.simpleMessage("What it may do"),
     "panelThisTask": MessageLookupByLibrary.simpleMessage("This task"),
-    "paramCount": m51,
-    "paramsJson": m52,
+    "paramCount": m53,
+    "paramsJson": m54,
     "paramsNote": MessageLookupByLibrary.simpleMessage(
       "The node\'s ~meta as the broker declares it: its profile, cfg and attr.",
     ),
@@ -934,7 +965,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "pleaseLogInAgain": MessageLookupByLibrary.simpleMessage(
       "Please log in again.",
     ),
-    "pointsCount": m53,
+    "pointsCount": m55,
     "pointsNote": MessageLookupByLibrary.simpleMessage(
       "Values update live. Edits are staged in this session; nothing is written to the device until you apply.",
     ),
@@ -951,8 +982,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "qFailed": MessageLookupByLibrary.simpleMessage(
       "The broker did not install it",
     ),
-    "qInstalled": m54,
-    "qInstalling": m55,
+    "qInstalled": m56,
+    "qInstalling": m57,
     "qRun": MessageLookupByLibrary.simpleMessage(
       "Where should it run, and under what name?",
     ),
@@ -971,15 +1002,26 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "recorded": MessageLookupByLibrary.simpleMessage("recorded"),
     "refresh": MessageLookupByLibrary.simpleMessage("Refresh"),
+    "refuseLoop": MessageLookupByLibrary.simpleMessage(
+      "This closes a loop (only a delay may)",
+    ),
+    "refuseNoInput": m58,
+    "refuseOutput": MessageLookupByLibrary.simpleMessage(
+      "Outputs cannot be bound",
+    ),
+    "refuseSelf": MessageLookupByLibrary.simpleMessage(
+      "A block cannot feed itself",
+    ),
+    "refuseType": m59,
     "reject": MessageLookupByLibrary.simpleMessage("Reject"),
     "rejectNote": MessageLookupByLibrary.simpleMessage(
       "This certificate is refused from now on.",
     ),
-    "rejectTitle": m56,
+    "rejectTitle": m60,
     "relayedFooter": MessageLookupByLibrary.simpleMessage(
       "Nothing to do from here: it came in with its relay. Deauthorize the relay to cut it off.",
     ),
-    "relaysSites": m57,
+    "relaysSites": m61,
     "remoteFooter": MessageLookupByLibrary.simpleMessage(
       "If the device is lost or stolen: Remove for good. Deauthorize is the pause: approve it again from quarantine and it keeps its name and tree.",
     ),
@@ -996,7 +1038,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "removeInput": MessageLookupByLibrary.simpleMessage(
       "Remove the last input",
     ),
-    "removeLinkTitle": m58,
+    "removeLinkTitle": m62,
     "removeRetiresId": MessageLookupByLibrary.simpleMessage(
       "It stops, its tree is deleted, and its id is retired: it cannot be used again.",
     ),
@@ -1004,16 +1046,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "removeUserNote": MessageLookupByLibrary.simpleMessage(
       "They cannot log in again; their sessions end.",
     ),
-    "removeUserTitle": m59,
+    "removeUserTitle": m63,
     "requiredField": MessageLookupByLibrary.simpleMessage("Required field"),
-    "resultOf": m60,
-    "returns": m61,
+    "resultOf": m64,
+    "returns": m65,
     "review": MessageLookupByLibrary.simpleMessage("Review"),
     "reviewAndApply": MessageLookupByLibrary.simpleMessage("Review and apply"),
-    "reviewNote": m62,
-    "revision": m63,
-    "revisionNow": m64,
-    "rightsLine": m65,
+    "reviewNote": m66,
+    "revision": m67,
+    "revisionNow": m68,
+    "rightsLine": m69,
     "rightsNote": MessageLookupByLibrary.simpleMessage(
       "Without this the broker installs nothing. Grants change later with Grant access; other values with the link\'s params.",
     ),
@@ -1024,15 +1066,15 @@ class MessageLookup extends MessageLookupByLibrary {
     "rollBackNote": MessageLookupByLibrary.simpleMessage(
       "Its parameters become a new revision and the link restarts with them.",
     ),
-    "rollBackTo": m66,
-    "rowsAnswered": m67,
+    "rollBackTo": m70,
+    "rowsAnswered": m71,
     "runNow": MessageLookupByLibrary.simpleMessage("Run now"),
-    "runNowNote": m68,
+    "runNowNote": m72,
     "running": MessageLookupByLibrary.simpleMessage("Running"),
     "runningNote": MessageLookupByLibrary.simpleMessage(
       "The agent works on it. Cancel stops it; what was done stays done.",
     ),
-    "runsOn": m69,
+    "runsOn": m73,
     "runsOnAnotherDevice": MessageLookupByLibrary.simpleMessage(
       "Runs on another device",
     ),
@@ -1051,6 +1093,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "What the tree will publish",
     ),
     "secRegister": MessageLookupByLibrary.simpleMessage("Register"),
+    "secState": MessageLookupByLibrary.simpleMessage("State"),
     "secValue": MessageLookupByLibrary.simpleMessage("Value"),
     "secWrite": MessageLookupByLibrary.simpleMessage("Write"),
     "secretName": MessageLookupByLibrary.simpleMessage("Name"),
@@ -1067,7 +1110,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Select a node in the tree.",
     ),
     "sessionExpired": MessageLookupByLibrary.simpleMessage("Session expired"),
-    "setLogLevel": m70,
+    "setLogLevel": m74,
     "setLogLevelNote": MessageLookupByLibrary.simpleMessage(
       "Takes effect at once, no restart. Staged with your other edits.",
     ),
@@ -1085,8 +1128,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "siteRelayedBelow": MessageLookupByLibrary.simpleMessage(
       "Site relayed below",
     ),
-    "sitesAround": m71,
-    "sitesSubtitle": m72,
+    "sitesAround": m75,
+    "sitesSubtitle": m76,
     "somethingWentWrong": MessageLookupByLibrary.simpleMessage(
       "Something went wrong",
     ),
@@ -1094,11 +1137,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "stagedActionNote": MessageLookupByLibrary.simpleMessage(
       "Stage puts it into Review and apply with your other edits.",
     ),
-    "stagedChanges": m73,
+    "stagedChanges": m77,
     "stagedNote": MessageLookupByLibrary.simpleMessage(
       "Nothing is written until you apply. Each change runs with your own rights.",
     ),
-    "stagedWas": m74,
+    "stagedWas": m78,
     "stale": MessageLookupByLibrary.simpleMessage("stale"),
     "stateConnected": MessageLookupByLibrary.simpleMessage("Connected"),
     "stateFailed": MessageLookupByLibrary.simpleMessage("Failed"),
@@ -1112,7 +1155,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "stepCheck": MessageLookupByLibrary.simpleMessage("Check"),
     "stepChoose": MessageLookupByLibrary.simpleMessage("Choose"),
     "stepInstall": MessageLookupByLibrary.simpleMessage("Install"),
-    "stepOf": m75,
+    "stepOf": m79,
     "stepWhere": MessageLookupByLibrary.simpleMessage("Where it runs"),
     "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
       "Studio is signed in here",
@@ -1123,18 +1166,19 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "tabActions": MessageLookupByLibrary.simpleMessage("Actions"),
     "tabAudit": MessageLookupByLibrary.simpleMessage("Audit"),
+    "tabContents": MessageLookupByLibrary.simpleMessage("Contents"),
     "tabGrants": MessageLookupByLibrary.simpleMessage("Grants"),
     "tabHistory": MessageLookupByLibrary.simpleMessage("History"),
     "tabParameters": MessageLookupByLibrary.simpleMessage("Parameters"),
     "tabPoints": MessageLookupByLibrary.simpleMessage("Points"),
     "tabUsers": MessageLookupByLibrary.simpleMessage("Users"),
-    "tagNeeds": m76,
+    "tagNeeds": m80,
     "tagRunsNow": MessageLookupByLibrary.simpleMessage("runs now"),
     "tagStaged": MessageLookupByLibrary.simpleMessage("staged"),
     "taskAwaiting": MessageLookupByLibrary.simpleMessage("awaiting approval"),
     "taskDone": MessageLookupByLibrary.simpleMessage("done"),
     "taskFailed": MessageLookupByLibrary.simpleMessage("failed or stopped"),
-    "taskListNote": m77,
+    "taskListNote": m81,
     "taskPlanning": MessageLookupByLibrary.simpleMessage("planning"),
     "taskRunning": MessageLookupByLibrary.simpleMessage("running"),
     "thisBroker": MessageLookupByLibrary.simpleMessage("this broker"),
@@ -1155,7 +1199,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "The tree shows data only.",
     ),
     "treeNoteMiddle": MessageLookupByLibrary.simpleMessage("is edited in"),
-    "treeOf": m78,
+    "treeOf": m82,
     "treePoint": MessageLookupByLibrary.simpleMessage("Point"),
     "treePointNote": MessageLookupByLibrary.simpleMessage(
       "on a block: adds it as a field. On the canvas: a new block of that node.",
@@ -1164,11 +1208,11 @@ class MessageLookup extends MessageLookupByLibrary {
       "Please try again later.",
     ),
     "unbind": MessageLookupByLibrary.simpleMessage("Unbind"),
-    "unitNumber": m79,
+    "unitNumber": m83,
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "The point stops being recorded; its rows stay.",
     ),
-    "upFor": m80,
+    "upFor": m84,
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
     "upstreamBroker": MessageLookupByLibrary.simpleMessage("Upstream broker"),
     "upstreamFooter": MessageLookupByLibrary.simpleMessage(
@@ -1179,16 +1223,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "userDisabled": MessageLookupByLibrary.simpleMessage("Disabled"),
     "validate": MessageLookupByLibrary.simpleMessage("Validate"),
     "valueCopied": MessageLookupByLibrary.simpleMessage("Value copied"),
-    "versionDeployed": m81,
-    "viaSite": m82,
+    "versionDeployed": m85,
+    "viaSite": m86,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m83,
-    "wasValue": m84,
+    "waitingToBeLetIn": m87,
+    "wasValue": m88,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m85,
+    "watchGroups": m89,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
@@ -1220,7 +1264,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "writableNeeds": m86,
+    "writableNeeds": m90,
     "wsAccess": MessageLookupByLibrary.simpleMessage("Access"),
     "wsAssistant": MessageLookupByLibrary.simpleMessage("Assistant"),
     "wsExplorer": MessageLookupByLibrary.simpleMessage("Explorer"),
@@ -1229,7 +1273,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m87,
+    "wyrmdOn": m91,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

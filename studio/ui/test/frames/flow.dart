@@ -1,7 +1,6 @@
 // Canvas data, kept as the boards write it.
 // ignore_for_file: lines_longer_than_80_chars
 
-import 'package:flutter/widgets.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/field_inspector.dart';
@@ -19,16 +18,26 @@ const _m = 16.0;
 
 const _actions = FlowBlockActions(
   onSelect: _id,
-  onMove: _move,
-  onMoveEnd: _id,
   onBind: _bindField,
+  onRebind: _four,
   onUnbind: _two,
   onDropEntry: _three,
   onResize: _resize,
+  refusal: _refusal,
 );
 
+/// Rows of the boards that are outputs only: a wire over one is refused.
+const _outputsOnly = {'output', 'result', 'state', 't1', 't2', 'out'};
+
+String? _refusal(
+  FieldRefVm _,
+  String _,
+  String row, {
+  (String, String)? replacing,
+}) => _outputsOnly.contains(row) ? 'Outputs cannot be bound' : null;
+
 void _id(String _) {}
-void _move(String _, Offset _) {}
+void _four(String _, String _, String _, String _) {}
 void _bindField(FieldRefVm _, String _, String _) {}
 void _two(String _, String _) {}
 void _three(String _, String _, String _) {}
@@ -117,15 +126,48 @@ List<PaletteEntryVm> _blocks() => const [
   ),
 ];
 
-/// A row of a block: [ins] / [outs] are `''` (none), `free`, `bound`,
+/// The label a row reads for an engine name (flow-editor.md §3): fields
+/// read in sentence case; point names, variables and item labels as given.
+const _human = {
+  'in': 'Input',
+  'out': 'Output',
+  'op': 'Operation',
+  'input': 'Input',
+  'output': 'Output',
+  'else': 'Else',
+  'expr': 'Expression',
+  'result': 'Result',
+  'key': 'Value name',
+  'value': 'Value',
+  'quality': 'Quality',
+  'input_max': 'Input max',
+  'output_max': 'Output max',
+  'run when': 'Run when',
+  'ramp_s': 'Ramp (s)',
+  'ok': 'Ok',
+  'code': 'Code',
+  'message': 'Message',
+  'limit': 'Limit',
+  'state': 'State',
+  'margin': 'Margin',
+  'input_min': 'Input min',
+  'output_min': 'Output min',
+  'input_out_of_range': 'Input out of range',
+};
+
+String _label(String name) => _human[name] ?? name;
+
+/// A row of a block, [name] as the engine has it and [label] as it reads
+/// (else from [_human]): [ins] / [outs] are `''` (none), `free`, `bound`,
 /// `write`.
 FieldRowVm _r(
-  String label,
+  String name,
   String value, {
   String ins = 'free',
   String outs = 'free',
   ValueTone tone = ValueTone.plain,
   bool target = false,
+  String? label,
 }) {
   PortMark mark(String s) => switch (s) {
     'free' => PortMark.free,
@@ -134,12 +176,13 @@ FieldRowVm _r(
     _ => PortMark.none,
   };
   return FieldRowVm(
-    id: label,
-    label: label,
+    id: name,
+    label: label ?? _label(name),
+    name: name,
     value: value,
     tone: tone,
-    inPort: ins.isEmpty ? null : label,
-    outPort: outs.isEmpty ? null : label,
+    inPort: ins.isEmpty ? null : name,
+    outPort: outs.isEmpty ? null : name,
     inMark: mark(ins),
     outMark: mark(outs),
     dropTarget: target,
@@ -264,9 +307,12 @@ FlowEditorPage _bind({
   List<InspectorRowVm> rows = const [],
   FlowSummaryVm? summary,
   int cases = 2,
+  List<FlowBlockVm>? blocks,
+  List<FlowWireVm>? wires,
+  String flow = 'tank-level',
 }) => FlowEditorPage(
   flowsLabel: 'Flows',
-  flowLabel: 'tank-level',
+  flowLabel: flow,
   blockLabel: selected == null ? null : title,
   state: 'Draft saved',
   stateDot: true,
@@ -284,8 +330,8 @@ FlowEditorPage _bind({
   paletteClosed: const {'Sources', 'Sinks', 'Code · WASM'},
   searchHint: 'Find a block',
   onPick: _id,
-  blocks: _bindBlocks(selected ?? '', cases: cases),
-  wires: _bindWires,
+  blocks: blocks ?? _bindBlocks(selected ?? '', cases: cases),
+  wires: wires ?? _bindWires,
   blockActions: _actions,
   onClear: () {},
   onMove: (_, _, _) {},
@@ -307,7 +353,8 @@ FlowEditorPage _bind({
 
 InspectorRowVm _text(String name, String value) => InspectorRowVm(
   id: name,
-  name: name,
+  name: _label(name),
+  engine: _label(name) == name ? '' : name,
   editor: FieldEditorVm.text,
   value: value,
   inPort: name,
@@ -316,7 +363,8 @@ InspectorRowVm _text(String name, String value) => InspectorRowVm(
 List<InspectorRowVm> _caseRows(int cases) => [
   const InspectorRowVm(
     id: 'op',
-    name: 'op',
+    name: 'Operation',
+    engine: 'op',
     editor: FieldEditorVm.choice,
     value: '=',
     choices: ['=', '>', '<'],
@@ -324,7 +372,8 @@ List<InspectorRowVm> _caseRows(int cases) => [
   ),
   const InspectorRowVm(
     id: 'input',
-    name: 'input',
+    name: 'Input',
+    engine: 'input',
     editor: FieldEditorVm.bound,
     source: 'tankInfo.state',
     inPort: 'input',
@@ -336,7 +385,8 @@ List<InspectorRowVm> _caseRows(int cases) => [
   _text('else', '0'),
   const InspectorRowVm(
     id: 'output',
-    name: 'output',
+    name: 'Output',
+    engine: 'output',
     editor: FieldEditorVm.output,
     value: '100',
     targets: '→ plc1.fan',
@@ -621,7 +671,8 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   inspectorRows: const [
     InspectorRowVm(
       id: 'run when',
-      name: 'run when',
+      name: 'Run when',
+      engine: 'run when',
       editor: FieldEditorVm.bound,
       source: 'if.out',
       writes: true,
@@ -629,28 +680,32 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     ),
     InspectorRowVm(
       id: 'ramp_s',
-      name: 'ramp_s',
+      name: 'Ramp (s)',
+      engine: 'ramp_s',
       editor: FieldEditorVm.text,
       value: '5',
       inPort: 'ramp_s',
     ),
     InspectorRowVm(
       id: 'ok',
-      name: 'ok',
+      name: 'Ok',
+      engine: 'ok',
       editor: FieldEditorVm.output,
       value: 'true',
       targets: 'not bound',
     ),
     InspectorRowVm(
       id: 'code',
-      name: 'code',
+      name: 'Code',
+      engine: 'code',
       editor: FieldEditorVm.output,
       value: '—',
       targets: 'not bound',
     ),
     InspectorRowVm(
       id: 'message',
-      name: 'message',
+      name: 'Message',
+      engine: 'message',
       editor: FieldEditorVm.output,
       value: 'stopped',
       targets: 'not bound',
@@ -664,3 +719,132 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   removeLabel: 'Remove block',
   onRemove: () {},
 );
+
+/// A `scale` in each form (ADR 0032 §7), as the editor builds it from the
+/// catalog: the linear form reads Input · Factor · Offset · Output (no left
+/// port on Factor and Offset: the engine has no `in.k`, `in.b`); the range
+/// form reads the four range fields, each with both ports, and
+/// `Input out of range`.
+FlowEditorPage flowScale({required bool range}) {
+  final rows = range
+      ? [
+          _r('in', '3790', ins: 'bound', tone: ValueTone.bound),
+          _r('input_min', '0'),
+          _r('input_max', '4095'),
+          _r('output_min', '0'),
+          _r('output_max', '100'),
+          _r('out', '92.6', ins: '', outs: 'bound'),
+          _r('input_out_of_range', 'false', ins: ''),
+        ]
+      : [
+          _r('in', '3790', ins: 'bound', tone: ValueTone.bound),
+          _r('k', '0.0244', ins: '', label: 'Factor'),
+          _r('b', '0', ins: '', label: 'Offset'),
+          _r('out', '92.6', ins: '', outs: 'bound'),
+        ];
+  return _bind(
+    flow: 'tank',
+    selected: 'pct',
+    kind: 'Logic block',
+    title: 'pct',
+    note:
+        'out = k × in + b; with a range, in is first mapped from '
+        'input_min…input_max to output_min…output_max.',
+    blocks: [
+      FlowBlockVm(
+        id: 'raw',
+        title: 'raw',
+        type: 'plc/tank',
+        kind: BlockKindVm.node,
+        x: 40 + _m,
+        y: 80 + _m,
+        width: 200,
+        rows: [_r('level_raw', '3790', ins: '', outs: 'bound')],
+      ),
+      FlowBlockVm(
+        id: 'pct',
+        title: 'pct',
+        type: 'scale',
+        x: 320 + _m,
+        y: 60 + _m,
+        selected: true,
+        rows: rows,
+      ),
+      FlowBlockVm(
+        id: 'show',
+        title: 'show',
+        type: 'publish',
+        kind: BlockKindVm.sink,
+        x: 640 + _m,
+        y: 100 + _m,
+        width: 210,
+        rows: [
+          _r('key', 'level', ins: '', outs: ''),
+          _r('value', '92.6', ins: 'bound', outs: '', tone: ValueTone.bound),
+        ],
+      ),
+    ],
+    wires: const [
+      FlowWireVm('raw', 'level_raw', 'pct', 'in'),
+      FlowWireVm('pct', 'out', 'show', 'value'),
+    ],
+    rows: [
+      InspectorRowVm(
+        id: 'form',
+        name: 'Form',
+        editor: FieldEditorVm.choice,
+        value: range ? 'Range' : 'k × in + b',
+        choices: const [
+          'k × in + b',
+          'Range',
+        ],
+      ),
+      const InspectorRowVm(
+        id: 'in',
+        name: 'Input',
+        engine: 'in',
+        editor: FieldEditorVm.bound,
+        source: 'raw.level_raw',
+        inPort: 'in',
+      ),
+      if (range) ...[
+        _text('input_min', '0'),
+        _text('input_max', '4095'),
+        _text('output_min', '0'),
+        _text('output_max', '100'),
+      ] else ...[
+        const InspectorRowVm(
+          id: 'k',
+          name: 'Factor',
+          engine: 'k',
+          editor: FieldEditorVm.text,
+          value: '0.0244',
+        ),
+        const InspectorRowVm(
+          id: 'b',
+          name: 'Offset',
+          engine: 'b',
+          editor: FieldEditorVm.text,
+          value: '0',
+        ),
+      ],
+      const InspectorRowVm(
+        id: 'out',
+        name: 'Output',
+        engine: 'out',
+        editor: FieldEditorVm.output,
+        value: '92.6',
+        targets: '→ show.Value',
+      ),
+      if (range)
+        const InspectorRowVm(
+          id: 'input_out_of_range',
+          name: 'Input out of range',
+          engine: 'input_out_of_range',
+          editor: FieldEditorVm.output,
+          value: 'false',
+          targets: 'not bound',
+        ),
+    ],
+  );
+}

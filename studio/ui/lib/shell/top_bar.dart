@@ -103,7 +103,12 @@ class TopBar extends StatelessWidget {
         spacing: compact ? 10 : 20,
         children: [
           WyrmLogo(showStudio: !compact),
-          _SiteSwitcher(vm: vm, onSite: onSite, compact: compact),
+          // Site names and the route are user text: the switcher gives
+          // way before the buttons do.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: _SiteSwitcher(vm: vm, onSite: onSite, compact: compact),
+          ),
           if (!compact)
             Flexible(
               child: ConstrainedBox(
@@ -204,11 +209,22 @@ class _SiteSwitcher extends StatelessWidget {
               mark: vm.connected ? Mark.dot : Mark.ring,
               color: vm.connected ? c.good : c.warn,
             ),
-            Text(vm.site, style: mono(size: 14, color: c.text1)),
+            Flexible(
+              child: Text(
+                vm.site,
+                maxLines: 1,
+                overflow: .ellipsis,
+                style: mono(size: 14, color: c.text1),
+              ),
+            ),
             if (!compact && vm.siteDetail != null)
-              Text(
-                vm.siteDetail!,
-                style: TextStyle(fontSize: 12, color: c.text4),
+              Flexible(
+                child: Text(
+                  vm.siteDetail!,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: TextStyle(fontSize: 12, color: c.text4),
+                ),
               ),
             AppIcon('ui_chevron_down', size: 16, color: c.text3),
           ],
@@ -238,26 +254,35 @@ class _SearchBox extends StatelessWidget {
           border: .all(color: c.line1),
           borderRadius: Radii.control,
         ),
-        child: Row(
-          spacing: 10,
-          children: [
-            AppIcon('ui_search', size: 16, color: c.text3),
-            Expanded(
-              child: Text(
-                hint,
-                overflow: .ellipsis,
-                style: TextStyle(fontSize: 14, color: c.text4),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                border: .all(color: c.line2),
-                borderRadius: Radii.chip,
-              ),
-              child: Text('⌘K', style: mono(size: 12, color: c.text3)),
-            ),
-          ],
+        // A narrow box drops the key cap, then the hint, never overflows.
+        child: LayoutBuilder(
+          builder: (context, box) => Row(
+            spacing: 10,
+            children: [
+              AppIcon('ui_search', size: 16, color: c.text3),
+              if (box.maxWidth >= 60)
+                Expanded(
+                  child: Text(
+                    hint,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: TextStyle(fontSize: 14, color: c.text4),
+                  ),
+                ),
+              if (box.maxWidth >= 140)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    border: .all(color: c.line2),
+                    borderRadius: Radii.chip,
+                  ),
+                  child: Text('⌘K', style: mono(size: 12, color: c.text3)),
+                ),
+            ],
+          ),
         ),
       ),
     );

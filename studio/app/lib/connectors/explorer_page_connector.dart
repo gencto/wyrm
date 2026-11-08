@@ -26,6 +26,8 @@ import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/wyrm/kinds.dart';
+import 'package:business/wyrm/mappers/flow_value_mapper.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/points.dart';
@@ -34,10 +36,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:models/action_info.dart';
+import 'package:models/flow_summary.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
+import 'package:models/node_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
 import 'package:ui/alerts/styled_snackbar.dart';
@@ -59,9 +63,12 @@ import 'package:ui/tables/row_table.dart';
 import 'package:ui/trees/node_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
+import '../common/flow_state.dart';
 import '../common/forms.dart';
 import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
+import '../navigation/app_router.dart';
+import '../navigation/go_action.dart';
 
 /// The sections of a site the tree starts from (`sys/**` is not in the
 /// tree: it is in Links, Access, Sites and System, docs/studio.md §7.4).
@@ -216,6 +223,7 @@ class ExplorerPageConnector extends StatelessWidget {
               pill: vm.pill,
               subtitle: vm.subtitle,
               headerButtons: vm.headerButtons,
+              openButton: vm.openButton,
               actionsLabel: vm.keyName == null ? null : S.current.tabActions,
               onActions: (at) => _menu(context, vm, vm.keyName!, at),
               onTool: (id) => _tool(context, vm, id),
@@ -245,6 +253,15 @@ class ExplorerPageConnector extends StatelessWidget {
               pointsEmpty: vm.pointsEmpty,
               emptyButtons: vm.emptyButtons,
               pointsNote: S.current.pointsNote,
+              childColumns: [
+                ColumnVm(S.current.colName, flex: 4),
+                ColumnVm(S.current.colKind, flex: 2),
+                ColumnVm(S.current.colValue, flex: 3),
+              ],
+              children: vm.children,
+              childrenEmpty: S.current.noChildren,
+              childrenNote: vm.children.isEmpty ? null : S.current.childrenNote,
+              onChild: vm.onSelect,
               onPoint: vm.onPoint,
               onCheck: vm.onCheck,
               onRange: vm.onRange,
@@ -285,6 +302,7 @@ class ExplorerPageConnector extends StatelessWidget {
               onCloseInspector: vm.onCloseInspector,
               panels: vm.panelWidths,
               onPanelWidth: vm.onPanelWidth,
+              onTapFlowEditor: vm.onTapFlowEditor,
             ),
           ),
         ),
@@ -532,6 +550,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     return [
       '$_root/sys/links/*/state',
       if (sel != null) '$sel/*',
+      // A flow's state is its own `~val`.
+      if (sel != null && _kind(sel, nodes.detail[sel]) == NodeKind.flow) sel,
     ];
   }
 
@@ -544,27 +564,34 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     return nodes.table[key]?.choices.unlock ?? const [];
   }
 
-  /// The kind of the node on screen, from its profile and place.
-  String _kind(String key, NodeDetail? d) {
-    final p = d?.profile ?? nodes.table[key]?.profile ?? '';
-    if (p.contains('device')) {
-      return 'device';
-    }
-    if (p.contains('conn')) {
-      return 'connection';
-    }
-    if (_parent(key) == '$_root/downstream') {
-      return 'link';
-    }
-    return 'node';
-  }
+  /// The kind of [key], from its place, profile and actions: it picks the
+  /// frame (docs/design/specs/explorer.md "Frames by node kind").
+  NodeKind _kind(String key, NodeDetail? d) => nodeKindOf(
+    key: key,
+    root: _root,
+    profile: d?.profile ?? nodes.table[key]?.profile,
+    actions: [for (final a in d?.actions ?? const <ActionInfo>[]) a.name],
+  );
 
-  String _kindWord(String kind) => switch (kind) {
-    'device' => S.current.kindDevice,
-    'connection' => S.current.kindConnection,
-    'link' => S.current.kindLink,
-    _ => S.current.kindNode,
+  static String _kindWord(NodeKind kind) => switch (kind) {
+    NodeKind.device => S.current.kindDevice,
+    NodeKind.connection => S.current.kindConnection,
+    NodeKind.link => S.current.kindLink,
+    NodeKind.flow => S.current.kindDataflow,
+    NodeKind.storage => S.current.kindStorage,
+    NodeKind.broker => S.current.kindBroker,
+    NodeKind.folder => S.current.kindFolder,
   };
+
+  /// A display name worth showing beside [key]'s name: not empty, not the
+  /// name again.
+  String? _display(String key, NodeDetail? d) {
+    final name = key.split('/').last;
+    return switch (d?.display ?? nodes.table[key]?.display) {
+      final s? when s.trim().isNotEmpty && s != name => s,
+      _ => null,
+    };
+  }
 
   ActionInfo? _actionOf(String key, String name) =>
       nodes.detail[key]?.actions.where((a) => a.name == name).firstOrNull;
@@ -606,8 +633,17 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           p,
     ];
     final actions = detail?.actions.unlock ?? const <ActionInfo>[];
-    final tab = nodes.tab;
-    final kind = sel == null ? 'node' : _kind(sel, detail);
+    final kind = sel == null ? NodeKind.folder : _kind(sel, detail);
+    final flow = sel == null || kind != NodeKind.flow
+        ? null
+        : flowSummaryOfValue(
+            sel.split('/').last,
+            live.values[sel]?.value,
+            description: _display(sel, detail),
+          );
+    final tabs = _tabs(kind, pointsAll.length, kids, actions.length);
+    // The tab stays when the next node has it; else the frame's first.
+    final tab = tabs.any((t) => t.id == nodes.tab) ? nodes.tab : tabs.first.id;
     final linkDot = sel == null ? null : _linkDot(sel);
     final point = nodes.point;
     final checked = nodes.checked;
@@ -620,21 +656,28 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       treeFilter: nodes.treeFilter,
       watch: _watch(),
       keyName: sel,
-      title: sel == null
+      // The name, never the display name: that is a sentence at times, and
+      // goes in the subtitle (docs/design/specs/explorer.md §3).
+      title: sel?.split('/').last,
+      pill: switch (sel) {
+        null => null,
+        _ when flow != null => () {
+          final (tone, word, _) = flowStateOf(flow);
+          return StatusPillVm(label: word, tone: tone);
+        }(),
+        _ when linkDot != null => StatusPillVm(
+          label: linkDot.$2,
+          tone: linkDot.$1,
+          mark: linkDot.$1 == Tone.warn ? .ring : .dot,
+        ),
+        final k when kind == NodeKind.broker => _brokerPill(k),
+        final k => _statusPill(k),
+      },
+      subtitle: sel == null
           ? null
-          : (detail?.display ??
-                nodes.table[sel]?.display ??
-                sel.split('/').last),
-      pill: linkDot != null
-          ? StatusPillVm(
-              label: linkDot.$2,
-              tone: linkDot.$1,
-              mark: linkDot.$1 == Tone.warn ? .ring : .dot,
-            )
-          : (sel == null ? null : _statusPill(sel)),
-      subtitle: sel == null ? null : _subtitle(sel, kind, detail, pointsAll),
+          : _subtitle(sel, kind, detail, pointsAll, kids, flow),
       headerButtons: [
-        if (sel != null)
+        if (sel != null && kind == NodeKind.device)
           _actionButton(
             sel,
             'ping',
@@ -642,22 +685,24 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
             why: S.current.noPingReason,
           ),
       ],
-      tabs: [
-        TabItemVm(
-          id: 'points',
-          label: S.current.tabPoints,
-          count: '${pointsAll.length}',
-        ),
-        TabItemVm(id: 'params', label: S.current.tabParameters),
-        TabItemVm(
-          id: 'actions',
-          label: S.current.tabActions,
-          count: '${actions.length}',
-        ),
-        TabItemVm(id: 'history', label: S.current.tabHistory),
-        TabItemVm(id: 'audit', label: S.current.tabAudit),
-      ],
+      openButton: flow == null
+          ? null
+          : ToolButtonVm(
+              id: flow.id,
+              label: S.current.editDataflow,
+              icon: 'action_edit',
+              disabledReason: site.needs('read', sel!) == null
+                  ? null
+                  : S.current.noReadFlow,
+            ),
+      tabs: tabs,
       tab: tab,
+      children: sel == null || tabs.every((t) => t.id != 'children')
+          ? const []
+          : [
+              for (final k in kids)
+                if (!_hidden(kind, k)) _childRow(k),
+            ],
       toolbar: sel == null ? const [] : _toolbar(sel),
       selectionBar: checked.length < 2
           ? null
@@ -674,9 +719,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                   id: 'set_poll',
                   label: S.current.setPoll,
                   disabledReason:
-                      checked.every(
-                        (k) => _actionOf(k, 'edit') != null,
-                      )
+                      checked.every((k) => _actionOf(k, 'edit') != null)
                       ? null
                       : S.current.noEditReason,
                 ),
@@ -712,7 +755,10 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
               for (final b in _toolbar(sel))
                 if (b.id != 'apply_profile') b,
             ],
-      params: _nodeSections(sel, detail, kind, withDiagnostics: false),
+      params: [
+        if (flow != null) _flowSection(flow, sel),
+        ..._nodeSections(sel, detail, kind, withDiagnostics: false),
+      ],
       actionGroups: _groups(actions),
       result: _result(),
       range: nodes.historyRange,
@@ -781,7 +827,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       auditNote: !canAudit
           ? S.current.auditNeeds
           : (nodes.audit.isEmpty ? S.current.noAuditHere : null),
-      inspector: _inspector(sel, detail, kind, actions),
+      inspector: _inspector(sel, detail, kind, actions, flow),
       copyKeys: [
         if (checked.isNotEmpty)
           ...checked
@@ -855,22 +901,28 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       onPanelWidth: (side, w) => dispatchSync(
         SetPanelWidthAction(WorkspacePanels.explorer.slot(side), w),
       ),
+      onTapFlowEditor: (id) => dispatch(GoAction.push(FlowEditorRoute(id: id))),
     );
   }
 
-  /// `modbus device · unit 1 · 127.0.0.1:5020 · last read 12:00:03`.
+  /// One line under the name: `modbus device · unit 1 · 127.0.0.1:5020 ·
+  /// last read 12:00:03`, `dataflow · deployed by admin`, `folder · 3
+  /// children`, then the display name (it may be long: the line ends in an
+  /// ellipsis and its tooltip holds it all).
   String _subtitle(
     String key,
-    String kind,
+    NodeKind kind,
     NodeDetail? d,
     List<NodeInfo> points,
+    List<NodeInfo> kids,
+    FlowSummary? flow,
   ) {
     final parts = key.split('/');
     final link = parts.length > 3 ? parts[3] : null;
     final driver = link == null ? null : links.table[link]?.driver;
     final conn = switch (kind) {
-      'device' => nodes.detail[_parent(key)]?.cfg,
-      'connection' => d?.cfg,
+      NodeKind.device => nodes.detail[_parent(key)]?.cfg,
+      NodeKind.connection => d?.cfg,
       _ => null,
     };
     DateTime? last;
@@ -880,18 +932,137 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         last = t;
       }
     }
+    final driverKind = switch (kind) {
+      NodeKind.device || NodeKind.connection || NodeKind.link => true,
+      _ => false,
+    };
     return [
       [
-        if (driver != null && driver.isNotEmpty) driver,
+        if (driverKind && driver != null && driver.isNotEmpty) driver,
         _kindWord(kind),
       ].join(' '),
-      if (kind == 'device' && d?.cfg['unit'] != null)
+      if (flow?.deployedBy case final who?) S.current.deployedByWho(who),
+      ?flow?.problem,
+      if (kind == NodeKind.device && d?.cfg['unit'] != null)
         S.current.unitNumber(d!.cfg['unit']!),
       if (conn?['host'] case final h?)
         conn?['port'] == null ? h : '$h:${conn!['port']}',
       ?conn?['serial_port'],
-      if (last != null) S.current.lastRead(_time(last)),
+      if (kind == NodeKind.broker) ?d?.attr['root'],
+      if (!driverKind && kind != NodeKind.flow && kind != NodeKind.device)
+        S.current.childCount(kids.length),
+      if (last != null && kind == NodeKind.device)
+        S.current.lastRead(_time(last)),
+      ?_display(key, d),
     ].join(' · ');
+  }
+
+  /// The tabs of [kind]'s frame (docs/design/specs/explorer.md "Frames by
+  /// node kind"): a device has its points, a flow its state and actions,
+  /// any other node its children.
+  static List<TabItemVm> _tabs(
+    NodeKind kind,
+    int points,
+    List<NodeInfo> kids,
+    int actions,
+  ) => [
+    if (kind == NodeKind.device)
+      TabItemVm(id: 'points', label: S.current.tabPoints, count: '$points')
+    else if (kind != NodeKind.flow)
+      TabItemVm(
+        id: 'children',
+        label: S.current.tabContents,
+        count: '${kids.where((k) => !_hidden(kind, k)).length}',
+      ),
+    TabItemVm(id: 'params', label: S.current.tabParameters),
+    TabItemVm(id: 'actions', label: S.current.tabActions, count: '$actions'),
+    if (kind != NodeKind.flow)
+      TabItemVm(id: 'history', label: S.current.tabHistory),
+    TabItemVm(id: 'audit', label: S.current.tabAudit),
+  ];
+
+  /// A link's or a connection's diagnostic values are not its contents:
+  /// `status` drives the pill, the counters are in the inspector.
+  static bool _hidden(NodeKind kind, NodeInfo child) =>
+      (kind == NodeKind.connection || kind == NodeKind.link) &&
+      isDiagnostic(child);
+
+  /// One row of the Contents tab: the name in mono with the display name
+  /// under it, the kind (a value's type), the value.
+  RowVm _childRow(NodeInfo k) {
+    final value = k.type != null;
+    final v = live.values[k.key];
+    return RowVm(
+      id: k.key,
+      selected: k.key == nodes.point,
+      cells: [
+        CellVm(
+          title: k.name,
+          subtitle: _display(k.key, nodes.detail[k.key]),
+          monospace: true,
+        ),
+        CellVm(
+          title: value
+              ? [k.type!, if (k.writable != null) 'RW'].join(' · ')
+              : _kindWord(_kind(k.key, nodes.detail[k.key])),
+        ),
+        CellVm(
+          title: !value ? '—' : _value(v, k.unit, choices: _choices(k.key)),
+          monospace: true,
+        ),
+      ],
+    );
+  }
+
+  /// A broker's `connected` value as its pill.
+  StatusPillVm? _brokerPill(String key) =>
+      switch (live.values['$key/connected']?.value) {
+        true => StatusPillVm(label: S.current.stateConnected, tone: Tone.good),
+        false => StatusPillVm(label: S.current.stateOffline, tone: Tone.bad),
+        _ => null,
+      };
+
+  /// A flow's `~val` as a section: state, version, who deployed it, since
+  /// when, the error.
+  InspectorSectionVm _flowSection(FlowSummary f, String? key) {
+    final (_, word, problem) = flowStateOf(f);
+    final since = switch (key == null ? null : live.values[key]?.value) {
+      {'since': final int us} => DateTime.fromMicrosecondsSinceEpoch(
+        us,
+        isUtc: true,
+      ),
+      _ => null,
+    };
+    return InspectorSectionVm(
+      label: S.current.secState,
+      facts: [
+        FactVm(label: S.current.colState, value: word),
+        FactVm(
+          label: S.current.factVersion,
+          value: f.version == null ? '—' : 'v${f.version}',
+          mono: true,
+        ),
+        FactVm(
+          label: S.current.colDeployedBy,
+          value: f.deployedBy ?? '—',
+          mono: true,
+        ),
+        if (since != null)
+          FactVm(
+            label: S.current.factSince,
+            value: '${_date(since)} ${_time(since)}',
+            mono: true,
+          ),
+        if (problem != null)
+          FactVm(label: S.current.factProblem, value: problem),
+      ],
+    );
+  }
+
+  static String _date(DateTime t) {
+    final l = t.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)}';
   }
 
   /// A header or toolbar button that runs the node's own [action], or is
@@ -1003,9 +1174,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           register: _register(
             NodeDetail(
               key: '',
-              cfg: {
-                for (final e in c.args.entries) e.key: '${e.value}',
-              }.lock,
+              cfg: {for (final e in c.args.entries) e.key: '${e.value}'}.lock,
             ),
           ),
           type: '${c.args['dtype'] ?? '—'}',
@@ -1242,7 +1411,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   List<InspectorSectionVm> _nodeSections(
     String? sel,
     NodeDetail? d,
-    String kind, {
+    NodeKind kind, {
     required bool withDiagnostics,
   }) {
     if (sel == null) {
@@ -1253,21 +1422,23 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       for (final n in _children(sel))
         if (isDiagnostic(n) && n.name != 'status') n,
     ];
+    final noParams = edit == null && (d?.cfg.isEmpty ?? true);
     return [
-      InspectorSectionVm(
-        label: S.current.secParameters,
-        fields: edit == null ? const [] : _editFields(sel, edit.params),
-        facts: edit != null
-            ? const []
-            : [
-                for (final e
-                    in d?.cfg.entries ?? const <MapEntry<String, String>>[])
-                  FactVm(label: e.key, value: e.value, mono: true),
-              ],
-        text: edit == null && (d?.cfg.isEmpty ?? true)
-            ? S.current.noActionReason('edit')
-            : null,
-      ),
+      if (!noParams || kind == NodeKind.device)
+        InspectorSectionVm(
+          label: S.current.secParameters,
+          fields: edit == null ? const [] : _editFields(sel, edit.params),
+          facts: edit != null
+              ? const []
+              : [
+                  for (final e
+                      in d?.cfg.entries ?? const <MapEntry<String, String>>[])
+                    FactVm(label: e.key, value: e.value, mono: true),
+                ],
+          text: edit == null && (d?.cfg.isEmpty ?? true)
+              ? S.current.noActionReason('edit')
+              : null,
+        ),
       if (d != null && d.attr.isNotEmpty)
         InspectorSectionVm(
           label: S.current.secAttributes,
@@ -1358,7 +1529,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         ? links.table[key.split('/')[3]]?.driver
         : null;
     return NodeMenuVm(
-      title: d.display ?? key.split('/').last,
+      title: key.split('/').last,
       subtitle: S.current.menuSubtitle(
         [
           if (driver != null && driver.isNotEmpty) driver,
@@ -1418,8 +1589,9 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   ExplorerInspectorVm? _inspector(
     String? sel,
     NodeDetail? d,
-    String kind,
+    NodeKind kind,
     Iterable<ActionInfo> actions,
+    FlowSummary? flow,
   ) {
     if (sel == null) {
       return null;
@@ -1508,13 +1680,19 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     }
     return NodeInspectorVm(
       eyebrow: switch (kind) {
-        'device' => S.current.insDevice,
-        'connection' => S.current.insConnection,
-        'link' => S.current.insLink,
-        _ => S.current.insNode,
+        NodeKind.device => S.current.insDevice,
+        NodeKind.connection => S.current.insConnection,
+        NodeKind.link => S.current.insLink,
+        NodeKind.flow => S.current.dataflow,
+        NodeKind.storage => S.current.insStorage,
+        NodeKind.broker => S.current.insBroker,
+        NodeKind.folder => S.current.insFolder,
       },
-      title: d?.display ?? sel.split('/').last,
-      sections: _nodeSections(sel, d, kind, withDiagnostics: true),
+      title: sel.split('/').last,
+      sections: [
+        if (flow != null) _flowSection(flow, sel),
+        ..._nodeSections(sel, d, kind, withDiagnostics: true),
+      ],
     );
   }
 
@@ -1565,6 +1743,7 @@ class _Vm extends Vm {
     required this.pill,
     required this.subtitle,
     required this.headerButtons,
+    required this.openButton,
     required this.tabs,
     required this.tab,
     required this.toolbar,
@@ -1575,6 +1754,7 @@ class _Vm extends Vm {
     required this.pointsLoading,
     required this.pointsEmpty,
     required this.emptyButtons,
+    required this.children,
     required this.params,
     required this.actionGroups,
     required this.result,
@@ -1615,6 +1795,7 @@ class _Vm extends Vm {
     required this.menuOf,
     required this.panelWidths,
     required this.onPanelWidth,
+    required this.onTapFlowEditor,
   }) : super(
          equals: [
            treeLabel,
@@ -1627,6 +1808,7 @@ class _Vm extends Vm {
            pill,
            subtitle,
            headerButtons,
+           openButton,
            tabs,
            tab,
            toolbar,
@@ -1637,6 +1819,7 @@ class _Vm extends Vm {
            pointsLoading,
            pointsEmpty,
            emptyButtons,
+           children,
            params,
            actionGroups,
            result,
@@ -1666,6 +1849,9 @@ class _Vm extends Vm {
   final StatusPillVm? pill;
   final String? subtitle;
   final List<ToolButtonVm> headerButtons;
+
+  /// A flow's Edit dataflow; its id is the flow's.
+  final ToolButtonVm? openButton;
   final List<TabItemVm> tabs;
   final String tab;
   final List<ToolButtonVm> toolbar;
@@ -1676,6 +1862,9 @@ class _Vm extends Vm {
   final bool pointsLoading;
   final String? pointsEmpty;
   final List<ToolButtonVm> emptyButtons;
+
+  /// The Contents tab of a node that is not a device or a flow.
+  final List<RowVm> children;
   final List<InspectorSectionVm> params;
   final List<ActionCardGroupVm> actionGroups;
   final ResultVm? result;
@@ -1723,4 +1912,7 @@ class _Vm extends Vm {
   final Future<NodeMenuVm?> Function(String key) menuOf;
   final SidePanelWidths panelWidths;
   final void Function(PanelSide side, double width) onPanelWidth;
+
+  /// Opens the flow editor on a flow id.
+  final void Function(String) onTapFlowEditor;
 }

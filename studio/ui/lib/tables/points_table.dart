@@ -280,21 +280,52 @@ class PointsTable extends StatelessWidget {
                     height: 6,
                     decoration: BoxDecoration(shape: .circle, color: c.ember),
                   ),
-                Text(r.name, style: mono(color: c.text1)),
-                if (r.display case final d?)
-                  Flexible(
-                    child: Text(
-                      d,
-                      overflow: .ellipsis,
+                // One line: the name, then the display name in what is
+                // left, the ellipsis at its end (a long name cuts it too).
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text.rich(
+                      TextSpan(
+                        text: r.name,
+                        style: mono(color: c.text1),
+                        children: [
+                          if (r.display case final d?)
+                            TextSpan(
+                              text: '  $d',
+                              style: TextStyle(
+                                fontFamily: AppFonts.sans,
+                                fontSize: 13,
+                                color: c.text4,
+                              ),
+                            ),
+                        ],
+                      ),
                       maxLines: 1,
-                      style: TextStyle(fontSize: 13, color: c.text4),
+                      overflow: .ellipsis,
                     ),
                   ),
+                ),
               ],
             ),
-            Text(r.register, style: mono(color: c.text2)),
-            Text(r.type, style: mono(color: c.text3)),
-            Text(r.unit, style: TextStyle(fontSize: 14, color: c.text2)),
+            Text(
+              r.register,
+              maxLines: 1,
+              overflow: .ellipsis,
+              style: mono(color: c.text2),
+            ),
+            Text(
+              r.type,
+              maxLines: 1,
+              overflow: .ellipsis,
+              style: mono(color: c.text3),
+            ),
+            Text(
+              r.unit,
+              maxLines: 1,
+              overflow: .ellipsis,
+              style: TextStyle(fontSize: 14, color: c.text2),
+            ),
             Column(
               crossAxisAlignment: .start,
               mainAxisSize: .min,

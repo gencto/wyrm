@@ -50,6 +50,8 @@ class Inspector extends StatelessWidget {
                       if (eyebrow case final e?)
                         Text(
                           e.toUpperCase(),
+                          maxLines: 1,
+                          overflow: .ellipsis,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: .w600,
@@ -58,9 +60,15 @@ class Inspector extends StatelessWidget {
                           ),
                         ),
                       if (title.isNotEmpty)
-                        Text(
-                          title,
-                          style: Theme.of(context).textTheme.titleLarge,
+                        Tooltip(
+                          message: title,
+                          waitDuration: const Duration(milliseconds: 600),
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            overflow: .ellipsis,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
                         ),
                       ?header,
                     ],

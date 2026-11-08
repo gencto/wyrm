@@ -16,6 +16,7 @@ import 'package:ui/models/tone.dart';
 import 'package:ui/pages/flows_page.dart';
 import 'package:ui/tables/row_table.dart';
 
+import '../common/flow_state.dart';
 import '../common/tab_visibility.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -73,24 +74,7 @@ class _Factory extends VmFactory<AppState, FlowsPageConnector, _Vm>
     return '${short(f.reads.unlock)} → ${short(f.writes.unlock)}';
   }
 
-  (Tone, String, String?) _state(FlowSummary f) => switch (f) {
-    FlowSummary(problem: final p?) => (
-      Tone.bad,
-      S.current.flowError(f.version ?? 0),
-      p,
-    ),
-    FlowSummary(running: true) => (
-      Tone.good,
-      S.current.flowDeployed(f.version ?? 0),
-      null,
-    ),
-    FlowSummary(version: final v?) => (
-      Tone.neutral,
-      S.current.flowStopped(v),
-      null,
-    ),
-    _ => (Tone.neutral, S.current.notDeployed, null),
-  };
+  (Tone, String, String?) _state(FlowSummary f) => flowStateOf(f);
 
   @override
   _Vm fromStore() {

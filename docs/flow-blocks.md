@@ -143,3 +143,73 @@ A tank level in percent, on a flow value, and a high alarm at 90 %:
   ],
 }
 ```
+
+## How the editor shows each block
+
+WYRM Studio's flow editor draws a block as **fields**, one row each
+(`studio/docs/design/specs/flow-editor.md` §3). It builds them from the
+catalog (`dataflows/~act/node_types`) in `studio/business/lib/wyrm/mappers/flow_fields.dart`
+(`fieldsOf`, `fieldLabel`). The rules:
+
+1. A row reads a human label (owner decision 2026-11-08): the catalog's
+   `display`, else an override, else sentence case with a unit suffix in
+   brackets. Numbered inputs `in.0`, `in.1` read `Input 1`, `Input 2`. Names a
+   user or a device gave (points, `expression` variables, `wasm` ports,
+   `invoke` arguments) stay as given. The engine name is the row's tooltip and
+   stands under the label in the inspector.
+2. Ports: `⇄` a left port (the engine has an input for the field) and a right
+   port (its echo or its output); `→` a right port only; `←` a left port only.
+   Every field is also an output named like it (ADR 0038 §1): declared
+   outputs keep their names, then inputs take theirs, then parameters.
+3. A parameter is a row of the block when it has a port, belongs to the form
+   in use, is set, has a default, is required, or is one of a pair the engine
+   needs one of (`deadband` `abs`/`pct`, `alarm` `high`/`low`). Maps, lists
+   and the parameters of the variable inputs (`inputs`) are edited in the
+   inspector only.
+4. In the inspector a parameter with `choices` is a dropdown, a `bool` a
+   toggle, anything else a text field (numbers and JSON typed as the
+   parameter's type). A bound field shows its source; an output its value and
+   where it goes.
+5. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
+   parameters (the engine has them; the editor leaves them out so a sink stays
+   a sink). A `set` repeats what it writes on its point's row.
+6. Values are live for the deployed version (`dataflows/<id>/~act/watch`).
+   Where the watch has no sample yet the editor shows what is known: a wired
+   input its source's value, a variable its `value`, a `publish` input what it
+   last published.
+
+| Type | Rows on the block, in order | Inspector only | Choices (dropdown) / toggles | Variable inputs | Changed 2026-11-08 |
+|---|---|---|---|---|---|
+| `subscribe` | `<point>` → (live value of the point) | Point (`key`) | — | — | label is the point's name |
+| `liveliness` | `<node>` → | Point (`key`) | — | — | as `subscribe` |
+| `timer` | Period (ms) → · Count → | — | — | — | `out` reads `Count` |
+| `const` | Value → · Output → | — | — | — | labels |
+| `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | Inputs (list) | Trigger `any`/`all`; Quality `worst`/`ignore`/`custom` | `in.<name>`, names as given, − / + | labels |
+| `filter` | Input ⇄ · Expression → · Output → | — | — | — | labels |
+| `latch` | Input ⇄ · Reset ⇄ · Reset mode · Output → | — | Reset mode `manual`/`auto` | — | the input `reset` has its echo (was missing); the parameter reads `Reset mode` |
+| `delay` | Input ⇄ · Delay (ms) → · Output → | — | — | — | labels |
+| `scale`, form `k × in + b` | Input ⇄ · Factor → · Offset → · Output → | Form | Form | — | form chosen in the inspector; no range rows; Factor and Offset have no left port |
+| `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | Form | Form | — | range rows only in this form; switching drops the other form's config and wires |
+| `deadband` | Input ⇄ · Absolute change → · Percent change → · Output → | — | — | — | `abs`, `pct` on the block (one is required) |
+| `window` | Input ⇄ · Size (s) → · Kind → · Function → · Max samples → · Output → | — | Kind `tumbling`/`sliding`; Function `avg`…`rate` | — | labels |
+| `alarm` | Input ⇄ · High → · Low → · Hysteresis → · Delay (s) → · Return delay (s) → · On bad quality → · Active → · Event → | — | On bad quality `hold`/`clear`/`raise` | — | `high`, `low` on the block; `out` reads `Active` |
+| `publish` | Value name · Value ← | Meta | — | — | labels; live value from `dataflows/<id>/nodes/<node>` |
+| `set` | `<point>` ⇄ | Point (`path`), Write on, Deadband, Allow bad quality | Write on `change`/`any`; Allow bad quality toggle | — | labels |
+| `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | Node (`path`), Args, Allow bad quality | Run on `any`/`rising`/`falling`/`change`; Allow bad quality toggle | — | `out` reads `Result`; Allow bad quality off the block |
+| `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | Config, Fuel, Memory (MB) | — | ports named by `inputs`/`outputs`, as given | labels |
+| `number`, `string`, `bool` | Input ⇄ · Value → · Output → | — | `bool` Value toggle | — | labels; Output shows `value` until the first sample |
+| `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | — | `in.0`, `in.1`, …, − / + (at least 2) | `in.0` reads `Input 1` |
+| `abs`, `not`, `length` | Input ⇄ · Output → | — | — | — | labels |
+| `round` | Input ⇄ · Precision ⇄ · Output → | — | — | — | labels |
+| `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | — | — | — | labels |
+| `if` | Operation → · Then ⇄ · Else ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | Operation `=`, `and`, `or`, `>`, `<`, `>=`, `<=` | − / + | labels |
+| `hub` | Ignore null → · Input 1 ⇄ · Input 2 ⇄ · … · Output → · Index → · On change → | — | Ignore null toggle | − / + | labels |
+| `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | — | Enabled, Loop toggles | — | labels |
+| `trace` | Tracing → · Message → · Input 1 ⇄ · Input 2 ⇄ · … | — | Tracing toggle | − / + | labels |
+| `concat` | Strict → · Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | Strict toggle | − / + | labels |
+
+Parameters the editor would bind but the engine has no input for (they show
+no left port, and a wire dragged onto them is refused with `<field> takes no
+input`): `scale` `k`, `b`; `alarm` `high`, `low`, `hysteresis`, `delay_s`,
+`return_delay_s`; `delay` `ms`; `window` `size_s`; `deadband` `abs`, `pct`;
+`timer` `period_ms`; `latch` `reset` (ADR 0038 §5 adds them one by one).

@@ -501,6 +501,21 @@ sequenceDiagram
     A1->>ST: copyWith(panels.widths)
 ```
 
+## onTapFlowEditor
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant NAV as Router
+
+    User->>UI: onTapFlowEditor
+    UI->>VM: onTapFlowEditor()
+    VM->>NAV: GoAction.push FlowEditorRoute(id: id)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `ExplorerPageConnector` — 2 dispatches
@@ -532,6 +547,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onTool` | `StageInvokeAction`, `ClearSelectionAction`, `InvokeNodeAction`, `SetActionAction` | `nodes.checked, nodes.marked, nodes.point, nodes.anchor`, `nodes.results`, `nodes.action` |
 | `onSetPoll` | `StagePointEditAction` ? | `changes.table, changes.view` |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
+| `onTapFlowEditor` | `GoAction.push` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

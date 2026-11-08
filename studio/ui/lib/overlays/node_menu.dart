@@ -126,6 +126,7 @@ class NodeMenu extends StatelessWidget {
               Expanded(
                 child: Text(
                   i.label,
+                  maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
                     fontSize: 14,
@@ -165,13 +166,26 @@ class NodeMenu extends StatelessWidget {
                 child: Row(
                   spacing: 8,
                   children: [
-                    Text(
-                      vm.title,
-                      style: mono(weight: .w600, color: c.text1),
+                    // The name gives way first, the subtitle keeps its
+                    // own share: both are user text and can be long.
+                    Flexible(
+                      flex: 3,
+                      child: Tooltip(
+                        message: vm.title,
+                        waitDuration: const Duration(milliseconds: 600),
+                        child: Text(
+                          vm.title,
+                          maxLines: 1,
+                          overflow: .ellipsis,
+                          style: mono(weight: .w600, color: c.text1),
+                        ),
+                      ),
                     ),
                     Flexible(
+                      flex: 2,
                       child: Text(
                         vm.subtitle,
+                        maxLines: 1,
                         overflow: .ellipsis,
                         style: TextStyle(fontSize: 12, color: c.text4),
                       ),
@@ -184,6 +198,8 @@ class NodeMenu extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
                   child: Text(
                     g.label.toUpperCase(),
+                    maxLines: 1,
+                    overflow: .ellipsis,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: .w600,

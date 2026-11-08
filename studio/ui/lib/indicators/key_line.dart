@@ -39,6 +39,7 @@ class KeyLine extends StatelessWidget {
                 ),
               ],
             ),
+            maxLines: 1,
             overflow: .ellipsis,
             style: mono(color: c.text4),
           ),
