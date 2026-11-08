@@ -83,7 +83,7 @@ and **message** (what happened, or why it failed).
 
 | Item | Fields | What it does |
 |---|---|---|
-| from Driver | Link ID, Driver, Mode, Params | A built-in driver as `embedded`, `process` or `external`. |
+| from Driver | Link ID, Driver (the drivers this broker hosts, as choices), Mode, Params | A built-in driver as `embedded`, `process` or `external`. |
 | from Zip | Name, Zip (a file you choose) | Installs the package in the zip and runs it as link *Name*. |
 | from Url | Name, Url | Downloads a package zip, then as *from Zip*. |
 | from Git | Name, Url, Ref | Clones a repository that holds a **built** package, then as *from Zip*. |
