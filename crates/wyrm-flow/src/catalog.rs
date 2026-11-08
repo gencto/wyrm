@@ -143,7 +143,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "timer",
         category: "Sources",
         description: "A count every period.",
-        inputs: &[],
+        inputs: &["in.period_ms"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -216,7 +216,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "delay",
         category: "Logic",
         description: "Every sample, later (also breaks a cycle).",
-        inputs: &["in"],
+        inputs: &["in", "in.ms"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -226,7 +226,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "scale",
         category: "Math",
         description: "out = k × in + b; with a range, in is first mapped from input_min…input_max to output_min…output_max.",
-        inputs: &["in", "in.input_min", "in.input_max", "in.output_min", "in.output_max"],
+        inputs: &["in", "in.k", "in.b", "in.input_min", "in.input_max", "in.output_min", "in.output_max"],
         outputs: &["out", "input_out_of_range"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -243,7 +243,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "deadband",
         category: "Math",
         description: "Passes a value that moved by more than abs or pct.",
-        inputs: &["in"],
+        inputs: &["in", "in.abs", "in.pct"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -256,7 +256,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "window",
         category: "Math",
         description: "One value per window of time: avg, min, max, sum, count or rate.",
-        inputs: &["in"],
+        inputs: &["in", "in.size_s"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -271,7 +271,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "alarm",
         category: "Alarms",
         description: "true while in is above high or below low (with hysteresis and delays); an event on each change.",
-        inputs: &["in"],
+        inputs: &["in", "in.high", "in.low", "in.hysteresis", "in.delay_s", "in.return_delay_s"],
         outputs: &["out", "event"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -895,7 +895,34 @@ mod tests {
             param("scale", "input_min").get("port"),
             Some(&Value::from("in.input_min"))
         );
-        assert_eq!(param("scale", "k").get("port"), None);
+        // spec 06 0.2.17: the older types' parameters an editor binds have ports
+        for (ty, p) in [
+            ("scale", "k"),
+            ("scale", "b"),
+            ("alarm", "high"),
+            ("alarm", "low"),
+            ("alarm", "hysteresis"),
+            ("alarm", "delay_s"),
+            ("alarm", "return_delay_s"),
+            ("delay", "ms"),
+            ("window", "size_s"),
+            ("deadband", "abs"),
+            ("deadband", "pct"),
+            ("timer", "period_ms"),
+        ] {
+            assert_eq!(
+                param(ty, p).get("port"),
+                Some(&Value::from(format!("in.{p}"))),
+                "{ty}.{p}"
+            );
+            assert_eq!(
+                param(ty, p).get("echo"),
+                Some(&Value::Bool(true)),
+                "{ty}.{p}"
+            );
+        }
+        assert_eq!(param("window", "kind").get("port"), None);
+        assert_eq!(param("alarm", "on_bad").get("port"), None);
         assert_eq!(
             param("stopwatch", "interval").get("default"),
             Some(&Value::Float(0.5))
@@ -926,7 +953,11 @@ mod tests {
         assert_eq!(
             entry("timer").get("echo_inputs"),
             None,
-            "a source has no inputs"
+            "a timer's only input is its parameter's port"
+        );
+        assert_eq!(
+            pt("timer").get("in.period_ms"),
+            Some(&Value::from("number"))
         );
         for t in TYPES {
             let ports = ports(t.ty, &sample_cfg(t)).unwrap_or_else(|e| panic!("{}: {e}", t.ty));

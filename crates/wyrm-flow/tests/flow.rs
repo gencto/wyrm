@@ -1128,6 +1128,42 @@ async fn watch_needs_the_rights_on_the_command_targets() {
     env.stop().await;
 }
 
+/// Spec 06 0.2.17: a parameter on its port changes the node's clock: a timer of one minute
+/// whose `period_ms` a variable sets to 20 ticks many times a second.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bound_period_changes_the_clock() {
+    let env = Env::start("bound-period").await;
+    let def = map(&[
+        ("id", s("clock")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "p",
+                    map(&[("type", s("number")), ("value", Value::UInt(20))]),
+                ),
+                (
+                    "t",
+                    map(&[("type", s("timer")), ("period_ms", Value::UInt(60_000))]),
+                ),
+                ("n", map(&[("type", s("publish")), ("node", s("n"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[edge("p.out", "t.in.period_ms"), edge("t.out", "n.in")]),
+        ),
+    ]);
+    env.deploy(def).await.unwrap();
+    wait("ticks at 20 ms", || {
+        env.last("clock/nodes/n")
+            .filter(|s| s.v.as_f64().is_some_and(|n| n >= 10.0))
+    })
+    .await;
+    env.stop().await;
+}
+
 // ---------- preview (ADR 0038 §5) ----------
 
 /// A stand-in link at `downstream/spy` that counts every command query it gets (`~set`,

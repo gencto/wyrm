@@ -121,6 +121,31 @@ and set it back after.
 | `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
+## Parameter ports of the other node types
+
+The older node types take the parameters an editor binds on a port
+`in.<parameter>` too (spec 06 0.2.17), with the rule of the blocks: the config
+value (or the default) at start, then the last good sample.
+
+| Type | Parameter ports |
+|---|---|
+| `scale` | `in.k`, `in.b` (and the range ports `in.input_min` … `in.output_max`) |
+| `alarm` | `in.high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s` |
+| `delay` | `in.ms` |
+| `window` | `in.size_s` |
+| `deadband` | `in.abs`, `in.pct` |
+| `timer` | `in.period_ms` |
+
+- Every one of these ports takes a number. A sample that is not a finite
+  number, or that is outside the parameter's bounds (`period_ms` at least 10,
+  `size_s` above 0, `ms`, `delay_s` and `return_delay_s` at least 0), is
+  ignored: the last good value stays.
+- The config rules stay: `alarm` still needs `high` or `low` in its config,
+  `deadband` `abs` or `pct`. The config gives the start value.
+- A new `period_ms`, `ms`, `size_s` or alarm delay takes effect at once. The
+  node's clock starts again one period after the change. A sample that a
+  `delay` already holds keeps its time.
+
 ## Fields as outputs
 
 Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This

@@ -293,11 +293,13 @@ async fn run_node(
         }
         route(&routes, out).await;
     }
-    let mut tick = node.tick_every().map(|p| {
-        let mut iv = tokio::time::interval(p);
+    let clock = |p: std::time::Duration, first: tokio::time::Instant| {
+        let mut iv = tokio::time::interval_at(first, p);
         iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         iv
-    });
+    };
+    let mut period = node.tick_every();
+    let mut tick = period.map(|p| clock(p, tokio::time::Instant::now()));
     loop {
         let mut out = Out::default();
         let mut inbound = None;
@@ -355,6 +357,13 @@ async fn run_node(
             }
         }
         route(&routes, out).await;
+        // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,
+        // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
+        let now_every = node.tick_every();
+        if now_every != period {
+            period = now_every;
+            tick = period.map(|p| clock(p, tokio::time::Instant::now() + p));
+        }
         if let Some(gen) = pending_ask {
             if inbox.is_empty() {
                 pending_ask = None;

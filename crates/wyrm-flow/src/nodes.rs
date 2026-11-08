@@ -225,6 +225,40 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
 /// `k × · + b`.
 const SCALE_RANGE: &[&str] = &["input_min", "input_max", "output_min", "output_max"];
 
+/// `alarm`'s parameters with a port `in.<p>` (spec 06 0.2.17).
+const ALARM_PORTS: &[&str] = &["high", "low", "hysteresis", "delay_s", "return_delay_s"];
+
+/// A sample on a parameter's port `in.<p>` (spec 06 0.2.17, ADR 0032 §2 style: the config
+/// gives the start, the last good sample wins): a finite number that `ok` accepts, else
+/// `None` (ignored, the last good value stays).
+fn param_sample(m: &Msg, ok: impl Fn(f64) -> bool) -> Option<f64> {
+    m.v.as_f64().filter(|x| x.is_finite() && ok(*x))
+}
+
+/// The effective parameters of a node with parameter ports, and their change counter.
+struct Live {
+    params: BTreeMap<String, Value>,
+    rev: u64,
+}
+
+impl Live {
+    fn new(ty: &str, cfg: &Map) -> Self {
+        Self {
+            params: crate::catalog::effective_params(ty, cfg),
+            rev: 0,
+        }
+    }
+
+    fn set(&mut self, p: &str, x: f64) {
+        self.params.insert(p.to_owned(), Value::Float(x));
+        self.rev += 1;
+    }
+
+    fn get(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        Some((self.rev, &self.params))
+    }
+}
+
 /// Ports and config validation of a node type (compiler step 3), with the echo outputs of its
 /// fields (ADR 0038 §1).
 pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
@@ -250,7 +284,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if p < 10.0 {
                 return Err("period_ms: at least 10".into());
             }
-            Ports::new(&[], &[("out", Number)])
+            Ports::new(&[("in.period_ms", Number)], &[("out", Number)])
         }
         "const" => {
             only(cfg, &["value"])?;
@@ -287,7 +321,12 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 f(cfg, k)?;
             }
             let mut ins = vec![("in".to_owned(), Number)];
-            ins.extend(SCALE_RANGE.iter().map(|r| (format!("in.{r}"), Number)));
+            ins.extend(
+                ["k", "b"]
+                    .iter()
+                    .chain(SCALE_RANGE)
+                    .map(|r| (format!("in.{r}"), Number)),
+            );
             Ports {
                 inputs: ins,
                 outputs: vec![("out".into(), Number), ("input_out_of_range".into(), Bool)],
@@ -299,7 +338,10 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if f(cfg, "abs")?.is_none() && f(cfg, "pct")?.is_none() {
                 return Err("abs or pct: required".into());
             }
-            Ports::new(&[("in", Number)], &[("out", Number)])
+            Ports::new(
+                &[("in", Number), ("in.abs", Number), ("in.pct", Number)],
+                &[("out", Number)],
+            )
         }
         "window" => {
             only(cfg, &["kind", "size_s", "fn", "max_samples"])?;
@@ -315,7 +357,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if size <= 0.0 {
                 return Err("size_s: must be > 0".into());
             }
-            Ports::new(&[("in", Number)], &[("out", Number)])
+            Ports::new(&[("in", Number), ("in.size_s", Number)], &[("out", Number)])
         }
         "alarm" => {
             only(
@@ -336,7 +378,13 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             f(cfg, "delay_s")?;
             f(cfg, "return_delay_s")?;
             one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?;
-            Ports::new(&[("in", Number)], &[("out", Bool), ("event", Map)])
+            let mut ins = vec![("in".to_owned(), Number)];
+            ins.extend(ALARM_PORTS.iter().map(|p| (format!("in.{p}"), Number)));
+            Ports {
+                inputs: ins,
+                outputs: vec![("out".into(), Bool), ("event".into(), Map)],
+                echoes: Vec::new(),
+            }
         }
         "latch" => {
             only(cfg, &["reset"])?;
@@ -346,7 +394,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         "delay" => {
             only(cfg, &["ms"])?;
             f(cfg, "ms")?.ok_or("ms: required")?;
-            Ports::new(&[("in", Any)], &[("out", Any)])
+            Ports::new(&[("in", Any), ("in.ms", Number)], &[("out", Any)])
         }
         "filter" => {
             only(cfg, &["expr"])?;
@@ -558,16 +606,27 @@ impl Node for Subscribe {
 struct Timer {
     period: Duration,
     n: u64,
+    live: Live,
 }
 
 impl Node for Timer {
-    fn input(&mut self, _p: &str, _m: Msg, _io: &Io, _out: &mut Out) {}
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if p == "in.period_ms" {
+            if let Some(x) = param_sample(&m, |x| x >= 10.0) {
+                self.period = Duration::from_secs_f64(x / 1000.0);
+                self.live.set("period_ms", x);
+            }
+        }
+    }
     fn tick_every(&self) -> Option<Duration> {
         Some(self.period)
     }
     fn tick(&mut self, now: u64, out: &mut Out) {
         self.n += 1;
         out.emit("out", Msg::new(Value::UInt(self.n), Quality::Good, now));
+    }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
     }
 }
 
@@ -746,6 +805,18 @@ impl Scale {
 
 impl Node for Scale {
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(p @ ("k" | "b")) = port.strip_prefix("in.") {
+            if let Some(x) = param_sample(&m, |_| true) {
+                if p == "k" {
+                    self.k = x;
+                } else {
+                    self.b = x;
+                }
+                self.params.insert(p.to_owned(), Value::Float(x));
+                self.rev += 1;
+            }
+            return;
+        }
         if let Some(i) = port
             .strip_prefix("in.")
             .and_then(|r| SCALE_RANGE.iter().position(|x| *x == r))
@@ -789,10 +860,22 @@ struct Deadband {
     abs: Option<f64>,
     pct: Option<f64>,
     last: Option<(f64, Quality)>,
+    live: Live,
 }
 
 impl Node for Deadband {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(name @ ("abs" | "pct")) = p.strip_prefix("in.") {
+            if let Some(x) = param_sample(&m, |_| true) {
+                if name == "abs" {
+                    self.abs = Some(x);
+                } else {
+                    self.pct = Some(x);
+                }
+                self.live.set(name, x);
+            }
+            return;
+        }
         let Some(x) = m.v.as_f64() else { return };
         let pass = match self.last {
             None => true,
@@ -823,6 +906,9 @@ impl Node for Deadband {
             }
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Window {
@@ -832,6 +918,7 @@ struct Window {
     max: usize,
     buf: VecDeque<(u64, f64, Quality)>,
     start: Option<u64>,
+    live: Live,
 }
 
 impl Window {
@@ -870,7 +957,14 @@ impl Window {
 }
 
 impl Node for Window {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if p == "in.size_s" {
+            if let Some(x) = param_sample(&m, |x| x > 0.0) {
+                self.size_us = ((x * 1e6) as u64).max(1);
+                self.live.set("size_s", x);
+            }
+            return;
+        }
         let Some(x) = m.v.as_f64() else { return };
         if m.q == Quality::Bad {
             return;
@@ -948,6 +1042,9 @@ impl Node for Window {
             }
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Alarm {
@@ -959,6 +1056,7 @@ struct Alarm {
     on_bad: String,
     active: bool,
     pending: Option<(bool, u64, f64)>,
+    live: Live,
 }
 
 impl Alarm {
@@ -980,7 +1078,24 @@ impl Alarm {
 }
 
 impl Node for Alarm {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(name) = p
+            .strip_prefix("in.")
+            .and_then(|n| ALARM_PORTS.iter().find(|x| **x == n))
+        {
+            let delay = name.ends_with("delay_s");
+            if let Some(x) = param_sample(&m, |x| !delay || x >= 0.0) {
+                match *name {
+                    "high" => self.high = Some(x),
+                    "low" => self.low = Some(x),
+                    "hysteresis" => self.hyst = x,
+                    "delay_s" => self.delay_us = (x * 1e6) as u64,
+                    _ => self.ret_us = (x * 1e6) as u64,
+                }
+                self.live.set(name, x);
+            }
+            return;
+        }
         if m.q == Quality::Bad {
             // Lost data must not raise false alarms or clear real ones.
             match self.on_bad.as_str() {
@@ -1030,6 +1145,9 @@ impl Node for Alarm {
             self.active = *b;
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Latch {
@@ -1064,10 +1182,23 @@ impl Node for Latch {
 struct Delay {
     us: u64,
     queue: VecDeque<(u64, Msg)>,
+    live: Live,
 }
 
 impl Node for Delay {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
+
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if p == "in.ms" {
+            // a sample already waiting keeps its time
+            if let Some(x) = param_sample(&m, |x| x >= 0.0) {
+                self.us = (x * 1000.0) as u64;
+                self.live.set("ms", x);
+            }
+            return;
+        }
         self.queue.push_back((now_us() + self.us, m));
         while self.queue.len() > 10_000 {
             self.queue.pop_front();
@@ -1459,6 +1590,7 @@ pub fn build_with(
         "timer" => Box::new(Timer {
             period: Duration::from_secs_f64(num("period_ms", 1000.0)? / 1000.0),
             n: 0,
+            live: Live::new("timer", cfg),
         }),
         "const" => Box::new(Const(cfg.get("value").cloned().unwrap_or(Value::Null))),
         "liveliness" => Box::new(Liveliness {
@@ -1494,6 +1626,7 @@ pub fn build_with(
             abs: f(cfg, "abs")?,
             pct: f(cfg, "pct")?,
             last: None,
+            live: Live::new("deadband", cfg),
         }),
         "window" => Box::new(Window {
             tumbling: one_of(cfg, "kind", &["tumbling", "sliding"], "tumbling")? == "tumbling",
@@ -1508,6 +1641,7 @@ pub fn build_with(
             max: max_samples(cfg)? as usize,
             buf: VecDeque::new(),
             start: None,
+            live: Live::new("window", cfg),
         }),
         "alarm" => Box::new(Alarm {
             high: f(cfg, "high")?,
@@ -1518,6 +1652,7 @@ pub fn build_with(
             on_bad: one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?.to_owned(),
             active: false,
             pending: None,
+            live: Live::new("alarm", cfg),
         }),
         "latch" => Box::new(Latch {
             auto: one_of(cfg, "reset", &["manual", "auto"], "manual")? == "auto",
@@ -1526,6 +1661,7 @@ pub fn build_with(
         "delay" => Box::new(Delay {
             us: (num("ms", 0.0)? * 1000.0) as u64,
             queue: VecDeque::new(),
+            live: Live::new("delay", cfg),
         }),
         "filter" => {
             let engine = script::engine();
