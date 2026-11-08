@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/grant.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
@@ -12,8 +13,12 @@ import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
 import 'package:models/peer.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/site_choice.dart';
+import 'package:models/staged_change.dart';
 
+import '../wyrm/keys.dart';
 import 'app_state.dart';
+import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'links/actions/retrieve_links_action.dart';
 import 'login/actions/log_in_action.dart';
@@ -22,6 +27,7 @@ import 'packages/actions/retrieve_packages_action.dart';
 import 'peers/actions/retrieve_peers_action.dart';
 import 'quarantine/actions/retrieve_quarantine_action.dart';
 import 'session/actions/log_out_action.dart';
+import 'site/actions/retrieve_sites_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
@@ -49,6 +55,7 @@ mixin Selectors {
   SelectFlowEditor get flowEditor => SelectFlowEditor(state);
   SelectTasks get tasks => SelectTasks(state);
   SelectAssistant get assistant => SelectAssistant(state);
+  SelectChanges get changes => SelectChanges(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -142,9 +149,52 @@ extension type SelectSite(AppState _state) {
   /// Returns connected
   bool get connected => _state.site.connected;
 
-  /// Returns root
-  String? get root =>
+  /// The site on screen: the one picked in the switcher, else the one
+  /// logged into.
+  String? get viewed => _state.site.current ?? _state.site.name;
+
+  /// `wy/<viewed site>`, the root every screen's keys start from.
+  String? get root => viewed == null ? null : 'wy/$viewed';
+
+  /// `wy/<site logged into>`: where `/api/me` and the gateway live.
+  String? get home =>
       _state.site.name == null ? null : 'wy/${_state.site.name}';
+
+  /// Returns current
+  String? get current => _state.site.current;
+
+  /// Returns grants
+  IList<Grant> get grants => _state.site.grants;
+
+  /// Returns choices
+  IList<SiteChoice> get choices => _state.site.choices;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveSitesAction>();
+
+  /// The user's level on [key]: the highest grant whose pattern matches it
+  /// (`none` when none does). Grants below an upstream are rewritten for
+  /// the downstream site by the gateway, so the patterns are full keys.
+  String levelOn(String key) {
+    var best = 0;
+    for (final g in _state.site.grants) {
+      final r = levelRank(g.level);
+      if (r > best && keyMatches(g.key, key)) {
+        best = r;
+      }
+    }
+    return levels[best];
+  }
+
+  /// The user has at least [level] on [key].
+  bool can(String level, String key) =>
+      levelRank(levelOn(key)) >= levelRank(level);
+
+  /// Why a control that needs [level] on [key] is disabled, or null when the
+  /// user has it (docs/studio.md §2 rule 8: shown, never hidden).
+  String? needs(String level, String key) => can(level, key)
+      ? null
+      : 'needs $level on ${key.split('/').skip(2).join('/')}';
 }
 
 extension type SelectNodes(AppState _state) {
@@ -172,7 +222,7 @@ extension type SelectLive(AppState _state) {
   IMap<String, LiveValue> get values => _state.live.values;
 
   /// Returns watched
-  ISet<String> get watched => _state.live.watched;
+  IMap<String, int> get watched => _state.live.watched;
 }
 
 extension type SelectLinks(AppState _state) {
@@ -339,4 +389,24 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns context
   IList<String> get context => _state.assistant.context;
+}
+
+extension type SelectChanges(AppState _state) {
+  /// Returns [IMap<String, StagedChange>] table
+  IMap<String, StagedChange> get table => _state.changes.table;
+
+  /// Returns [StagedChange] value by id
+  StagedChange byId(String id) => table[id]!;
+
+  /// Returns the ordered view of the table
+  IList<String> get view => _state.changes.view;
+
+  /// Returns open
+  bool get open => _state.changes.open;
+
+  /// Returns message
+  String? get message => _state.changes.message;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
 }

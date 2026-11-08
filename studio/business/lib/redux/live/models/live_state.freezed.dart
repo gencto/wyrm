@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LiveState {
 
- IMap<String, LiveValue> get values; ISet<String> get watched;
+ IMap<String, LiveValue> get values; IMap<String, int> get watched;
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,12 +25,12 @@ $LiveStateCopyWith<LiveState> get copyWith => _$LiveStateCopyWithImpl<LiveState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, values) || other.values == values)&&const DeepCollectionEquality().equals(other.watched, watched));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,const DeepCollectionEquality().hash(watched));
+int get hashCode => Object.hash(runtimeType,values,watched);
 
 @override
 String toString() {
@@ -45,7 +45,7 @@ abstract mixin class $LiveStateCopyWith<$Res>  {
   factory $LiveStateCopyWith(LiveState value, $Res Function(LiveState) _then) = _$LiveStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, LiveValue> values, ISet<String> watched
+ IMap<String, LiveValue> values, IMap<String, int> watched
 });
 
 
@@ -66,7 +66,7 @@ class _$LiveStateCopyWithImpl<$Res>
   return _then(_self.copyWith(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
-as ISet<String>,
+as IMap<String, int>,
   ));
 }
 
@@ -78,11 +78,11 @@ as ISet<String>,
 
 
 class _LiveState implements LiveState {
-  const _LiveState({this.values = const IMapConst({}), this.watched = const ISetConst({})});
+  const _LiveState({this.values = const IMapConst({}), this.watched = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, LiveValue> values;
-@override@JsonKey() final  ISet<String> watched;
+@override@JsonKey() final  IMap<String, int> watched;
 
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
@@ -94,12 +94,12 @@ _$LiveStateCopyWith<_LiveState> get copyWith => __$LiveStateCopyWithImpl<_LiveSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&const DeepCollectionEquality().equals(other.watched, watched));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,const DeepCollectionEquality().hash(watched));
+int get hashCode => Object.hash(runtimeType,values,watched);
 
 @override
 String toString() {
@@ -114,7 +114,7 @@ abstract mixin class _$LiveStateCopyWith<$Res> implements $LiveStateCopyWith<$Re
   factory _$LiveStateCopyWith(_LiveState value, $Res Function(_LiveState) _then) = __$LiveStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, LiveValue> values, ISet<String> watched
+ IMap<String, LiveValue> values, IMap<String, int> watched
 });
 
 
@@ -135,7 +135,7 @@ class __$LiveStateCopyWithImpl<$Res>
   return _then(_LiveState(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
-as ISet<String>,
+as IMap<String, int>,
   ));
 }
 

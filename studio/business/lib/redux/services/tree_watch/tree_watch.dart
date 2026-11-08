@@ -92,6 +92,9 @@ class TreeWatchService extends DisposableServiceInterface {
     _lists.clear();
   }
 
+  /// Closes every list and keeps the session (the site on screen changed).
+  void detachLists() => _closeAll();
+
   /// Closes every list and forgets the session.
   void detach() {
     _closeAll();

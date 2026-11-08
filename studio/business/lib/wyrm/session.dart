@@ -7,6 +7,7 @@ final class WhoAmI {
     required this.site,
     required this.roles,
     required this.max,
+    this.grants = const [],
   });
 
   /// Reads the answer of `/api/me`: `{sub, roles, grants, max, exp, site}`.
@@ -18,6 +19,13 @@ final class WhoAmI {
       _ => const [],
     },
     max: _str(v['max']),
+    grants: switch (v['grants']) {
+      VArray(:final v) => [
+        for (final g in v)
+          if ((_str(g['k']), _str(g['p'])) case (final k?, final p?)) (k, p),
+      ],
+      _ => const [],
+    },
   );
 
   /// `user:<name>` (or `user:<name>@<site>` below an upstream).
@@ -31,6 +39,9 @@ final class WhoAmI {
 
   /// The highest level any grant gives (`read`, `write`, `config`), if sent.
   final String? max;
+
+  /// `(key pattern, level)` of each grant.
+  final List<(String, String)> grants;
 
   static String? _str(Value? v) => switch (v) {
     VStr(:final v) => v,

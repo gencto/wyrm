@@ -8,6 +8,6 @@ part 'live_state.freezed.dart';
 abstract class LiveState with _$LiveState {
   const factory LiveState({
     @Default(IMapConst({})) IMap<String, LiveValue> values,
-    @Default(ISetConst({})) ISet<String> watched,
+    @Default(IMapConst({})) IMap<String, int> watched,
   }) = _LiveState;
 }

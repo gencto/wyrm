@@ -238,6 +238,189 @@ class S {
       args: [],
     );
   }
+
+  /// `Explorer`
+  String get wsExplorer {
+    return Intl.message('Explorer', name: 'wsExplorer', desc: '', args: []);
+  }
+
+  /// `Links`
+  String get wsLinks {
+    return Intl.message('Links', name: 'wsLinks', desc: '', args: []);
+  }
+
+  /// `Flows`
+  String get wsFlows {
+    return Intl.message('Flows', name: 'wsFlows', desc: '', args: []);
+  }
+
+  /// `History`
+  String get wsHistory {
+    return Intl.message('History', name: 'wsHistory', desc: '', args: []);
+  }
+
+  /// `Access`
+  String get wsAccess {
+    return Intl.message('Access', name: 'wsAccess', desc: '', args: []);
+  }
+
+  /// `Sites`
+  String get wsSites {
+    return Intl.message('Sites', name: 'wsSites', desc: '', args: []);
+  }
+
+  /// `Assistant`
+  String get wsAssistant {
+    return Intl.message('Assistant', name: 'wsAssistant', desc: '', args: []);
+  }
+
+  /// `System`
+  String get wsSystem {
+    return Intl.message('System', name: 'wsSystem', desc: '', args: []);
+  }
+
+  /// `More`
+  String get more {
+    return Intl.message('More', name: 'more', desc: '', args: []);
+  }
+
+  /// `Go to a node, action or link`
+  String get searchHint {
+    return Intl.message(
+      'Go to a node, action or link',
+      name: 'searchHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Review and apply`
+  String get reviewAndApply {
+    return Intl.message(
+      'Review and apply',
+      name: 'reviewAndApply',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Review`
+  String get review {
+    return Intl.message('Review', name: 'review', desc: '', args: []);
+  }
+
+  /// `The gateway connection is lost. Reconnecting; values on screen are the last ones received.`
+  String get offline {
+    return Intl.message(
+      'The gateway connection is lost. Reconnecting; values on screen are the last ones received.',
+      name: 'offline',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this broker`
+  String get thisBroker {
+    return Intl.message('this broker', name: 'thisBroker', desc: '', args: []);
+  }
+
+  /// `via {site}`
+  String viaSite(Object site) {
+    return Intl.message('via $site', name: 'viaSite', desc: '', args: [site]);
+  }
+
+  /// `upstream`
+  String get upstream {
+    return Intl.message('upstream', name: 'upstream', desc: '', args: []);
+  }
+
+  /// `Go to {key}`
+  String goTo(Object key) {
+    return Intl.message('Go to $key', name: 'goTo', desc: '', args: [key]);
+  }
+
+  /// `{count, plural, =0{No staged changes} =1{1 staged change} other{{count} staged changes}}`
+  String stagedChanges(num count) {
+    return Intl.plural(
+      count,
+      zero: 'No staged changes',
+      one: '1 staged change',
+      other: '$count staged changes',
+      name: 'stagedChanges',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Nothing is written until you apply. Each change runs with your own rights.`
+  String get stagedNote {
+    return Intl.message(
+      'Nothing is written until you apply. Each change runs with your own rights.',
+      name: 'stagedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apply`
+  String get apply {
+    return Intl.message('Apply', name: 'apply', desc: '', args: []);
+  }
+
+  /// `Discard`
+  String get discard {
+    return Intl.message('Discard', name: 'discard', desc: '', args: []);
+  }
+
+  /// `Nothing staged. Edit a value or a parameter to stage it.`
+  String get nothingStaged {
+    return Intl.message(
+      'Nothing staged. Edit a value or a parameter to stage it.',
+      name: 'nothingStaged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker refused a change; the ones after it were not applied.`
+  String get brokerRefused {
+    return Intl.message(
+      'The broker refused a change; the ones after it were not applied.',
+      name: 'brokerRefused',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needs {level} · you have it`
+  String needsLevelYouHaveIt(Object level) {
+    return Intl.message(
+      'Needs $level · you have it',
+      name: 'needsLevelYouHaveIt',
+      desc: '',
+      args: [level],
+    );
+  }
+
+  /// `Needs {level} · you have {have}`
+  String needsLevelYouHave(Object level, Object have) {
+    return Intl.message(
+      'Needs $level · you have $have',
+      name: 'needsLevelYouHave',
+      desc: '',
+      args: [level, have],
+    );
+  }
+
+  /// `Design gallery`
+  String get designGallery {
+    return Intl.message(
+      'Design gallery',
+      name: 'designGallery',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

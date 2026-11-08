@@ -60,7 +60,7 @@ class AppDependencies {
     final old = _session;
     _session = session;
     connection.attach(session.connection);
-    liveValues.attach(session.api, _store.state.live.watched);
+    liveValues.attach(session.api, _store.state.live.watched.keys);
     treeWatch.attach(session.api, _store.state.nodes.expanded);
     agentTasks.attach(session.api);
     if (old != null && !identical(old, session)) {

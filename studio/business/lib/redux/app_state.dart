@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'assistant/models/assistant_state.dart';
+import 'changes/models/changes_state.dart';
 import 'connectivity/models/connectivity_state.dart';
 import 'flow_editor/models/flow_editor_state.dart';
 import 'flows/models/flows_state.dart';
@@ -43,6 +44,7 @@ abstract class AppState with _$AppState {
     required FlowEditorState flowEditor,
     required TasksState tasks,
     required AssistantState assistant,
+    required ChangesState changes,
     required Wait wait,
   }) = _AppState;
 
@@ -64,6 +66,7 @@ abstract class AppState with _$AppState {
     flowEditor: FlowEditorState(),
     tasks: TasksState(),
     assistant: AssistantState(),
+    changes: ChangesState(),
     wait: Wait.empty,
   );
 }

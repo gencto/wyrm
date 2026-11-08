@@ -1,8 +1,9 @@
+import '../../../wyrm/keys.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
-/// Removes [keys] from `live.watched`, closes their subscriptions and drops
-/// their last values. Dispatched by a connector's `onDispose`.
+/// One reader fewer of each of [keys]; a key nobody reads is unsubscribed and
+/// its last values (under a pattern too) are dropped.
 class UnwatchKeysAction extends Action {
   UnwatchKeysAction(this.keys);
 
@@ -10,44 +11,30 @@ class UnwatchKeysAction extends Action {
 
   @override
   AppState? reduce() {
-    final watched = state.live.watched.removeAll(keys);
+    var watched = state.live.watched;
+    final gone = <String>{};
+    for (final k in keys.toSet()) {
+      final n = watched[k];
+      if (n == null) {
+        continue;
+      }
+      if (n <= 1) {
+        watched = watched.remove(k);
+        gone.add(k);
+      } else {
+        watched = watched.add(k, n - 1);
+      }
+    }
     if (watched == state.live.watched) {
       return null;
     }
-    deps.liveValues.sync(watched);
-    // A pattern's values are kept by their own keys; drop those under it.
-    final gone = keys.toSet();
+    deps.liveValues.sync(watched.keys);
+    if (gone.isEmpty) {
+      return state.copyWith.live(watched: watched);
+    }
     final values = state.live.values.removeWhere(
-      (k, _) => gone.contains(k) || gone.any((p) => _matches(p, k)),
+      (k, _) => gone.any((p) => keyMatches(p, k)),
     );
     return state.copyWith.live(watched: watched, values: values);
   }
-}
-
-/// [key] matches [pattern] of `*` (one segment) and `**` (any segments).
-bool _matches(String pattern, String key) {
-  if (!pattern.contains('*')) {
-    return false;
-  }
-  final p = pattern.split('/');
-  final k = key.split('/');
-  bool at(int i, int j) {
-    if (i == p.length) {
-      return j == k.length;
-    }
-    if (p[i] == '**') {
-      for (var n = j; n <= k.length; n++) {
-        if (at(i + 1, n)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    if (j == k.length) {
-      return false;
-    }
-    return (p[i] == '*' || p[i] == k[j]) && at(i + 1, j + 1);
-  }
-
-  return at(0, 0);
 }

@@ -1,5 +1,7 @@
 import 'package:async_redux/async_redux.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/grant.dart';
+import 'package:wyrm_client/wyrm_client.dart' hide Grant;
 
 import '../../../wyrm/session.dart';
 import '../../app_state.dart';
@@ -66,6 +68,7 @@ class LogInAction extends Action with WaitingAction, BlockingAction {
         name: me.site,
         role: me.roles.isEmpty ? me.max : me.roles.join(', '),
         connected: true,
+        grants: [for (final (k, p) in me.grants) Grant(key: k, level: p)].lock,
       ),
       login: state.login.copyWith(password: null),
     );

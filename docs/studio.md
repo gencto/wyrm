@@ -171,7 +171,16 @@ Each service is two halves (template rule): `<Name>Service` talks to `WyrmApi` a
 
 `WatchKeysAction`/`UnwatchKeysAction` are dispatched by connectors' `onInit`/`onDispose` (the keys the screen shows), so only visible points are subscribed. A connector that shows values selects `live.values` filtered to its own keys, so a value elsewhere does not rebuild it.
 
-### 5.3 Calls
+### 5.3 Decisions of phase 5 (2026-11-08)
+These hold for every screen; each was decided under ADR 0029 (decide, record, do not ask).
+
+1. **The site on screen is not the site logged into.** `site.name` is the gateway's site (`/api/me`); `site.current` is the one picked in the top-bar switcher (null = the same). Every screen reads its keys from `site.root` = `wy/<current ?? name>`; `site.home` stays the gateway's. The switcher's list (`site.choices`, `RetrieveSitesAction`) is the site itself, every broker below it (`downstream/<d>` of profile `wy:broker`, `attr.site`, up to 4 hops, with the site it is relayed through) and the brokers above it (`sys/upstream/*`). `ViewSiteAction` empties the per-site tables and reads them again.
+2. **The user's rights are kept.** `/api/me` `grants: [{k, p}]` go to `site.grants`; `site.levelOn(key)` is the highest level whose pattern matches (`*`, `**`, `wyrm/keys.dart`), `site.needs(level, key)` the reason shown on a disabled control (rule 8). The gateway rewrites grants for a downstream site, so the patterns are full keys.
+3. **Stage, then apply once** (canvas *Design system* §01, §06). Edits of values and parameters become `StagedChange`s in the `changes` slice (op, key, field, from, to, level, and the `set` value or the `invoke` action and args); a second edit of the same key and field replaces the first and keeps its `from`. The top bar's *Review and apply* shows the count (disabled at 0); the review panel lists the change cards with the level each needs against the user's grants. `ApplyChangesAction` runs them in order with the user's own rights and stops at the first refusal: applied ones leave the list, the refused one and the rest stay, the broker's message is shown. Actions that do something now (Start, Remove, Install, Approve) are not staged.
+4. **Live values follow the visible tab.** The tabs shell keeps visited tabs mounted, so a screen watches its keys through `TabVisibility` (watch when its tab becomes active, unwatch when it stops), not through `onInit`/`onDispose`. `live.watched` counts readers per key or pattern (`IMap<String, int>`), so two parts of a screen on the same key do not close each other's subscription.
+5. **Navigation after log in and log out is explicit** (`GoAction.replace`): auto_route 11 re-runs the auth guard on the token's listenable but does not redirect away from an already resolved route. The guard still keeps a logged-out user out of the shell.
+
+### 5.4 Calls
 All calls go through `deps.wyrm` (the `WyrmApi` of the session): `invoke(key, action, args)` is a stream (an action may answer several rows); `set(key, value)`; `meta(key)`; `children(key)`; `history(key, …)`. A large argument (a package zip, a file) goes over `POST /api/invoke` by itself (`FrameClient`, 64 MiB).
 
 ## 6. Design system
@@ -405,3 +414,4 @@ Each item is a change on the Rust side with its own ADR or spec line; Studio sho
 8. **Own blocks (sub-flows)** in the flow engine: a block whose fields are the inputs and outputs of an inner graph.
 9. **Repeat**: one instance of a block per row of a table input, keyed by a column.
 10. **A web transport** for `wyrm_client` (`package:web` WebSocket and fetch) if Studio should run in a browser.
+11. **Documents through the gateway.** A task's full record is the `~state` document of `tasks/<id>` (the public `~val` is `{state}` only); the gateway has no op that reads `~state`/`~def` documents (`ws.rs`: `meta`, `children`, `list`, `subscribe`, `history`, `set`, `invoke`), so the Assistant cannot show a plan until it has one (`doc {key, suffix}`, rights as `list` on the node, as the agent's `restricted` folder asks).

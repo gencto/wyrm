@@ -201,6 +201,7 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.flowEditor != next.flowEditor) 'flowEditor',
       if (prev.tasks != next.tasks) 'tasks',
       if (prev.assistant != next.assistant) 'assistant',
+      if (prev.changes != next.changes) 'changes',
     ];
   }
 }
