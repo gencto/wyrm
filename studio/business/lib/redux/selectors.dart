@@ -21,15 +21,20 @@ import 'package:models/package_info.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/role_grant.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/user_info.dart';
+import 'package:models/watch_group.dart';
 
 import '../wyrm/keys.dart';
+import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
+import 'historian/actions/retrieve_historian_action.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -47,6 +52,7 @@ import 'peers/actions/retrieve_peers_action.dart';
 import 'quarantine/actions/retrieve_quarantine_action.dart';
 import 'session/actions/log_out_action.dart';
 import 'site/actions/retrieve_sites_action.dart';
+import 'system/actions/retrieve_system_log_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
@@ -75,6 +81,9 @@ mixin Selectors {
   SelectTasks get tasks => SelectTasks(state);
   SelectAssistant get assistant => SelectAssistant(state);
   SelectChanges get changes => SelectChanges(state);
+  SelectHistorian get historian => SelectHistorian(state);
+  SelectAccess get access => SelectAccess(state);
+  SelectSystem get system => SelectSystem(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -525,4 +534,58 @@ extension type SelectChanges(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
+}
+
+extension type SelectHistorian(AppState _state) {
+  /// Returns groups
+  IList<WatchGroup> get groups => _state.historian.groups;
+
+  /// Returns selected
+  String? get selected => _state.historian.selected;
+
+  /// Returns range
+  String get range => _state.historian.range;
+
+  /// Returns series
+  IMap<String, IList<HistPoint>> get series => _state.historian.series;
+
+  /// Returns stats
+  IMap<String, String> get stats => _state.historian.stats;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveHistorianAction>();
+}
+
+extension type SelectAccess(AppState _state) {
+  /// Returns users
+  IList<UserInfo> get users => _state.access.users;
+
+  /// Returns grants
+  IList<RoleGrant> get grants => _state.access.grants;
+
+  /// Returns audit
+  IList<String> get audit => _state.access.audit;
+
+  /// Returns selected
+  String? get selected => _state.access.selected;
+
+  /// Returns tab
+  String get tab => _state.access.tab;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveAccessAction>();
+}
+
+extension type SelectSystem(AppState _state) {
+  /// Returns log
+  IList<String> get log => _state.system.log;
+
+  /// Returns logLevel
+  String? get logLevel => _state.system.logLevel;
+
+  /// Returns filter
+  String? get filter => _state.system.filter;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
 }

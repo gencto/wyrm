@@ -191,6 +191,65 @@ class WyrmGateway {
     return r['result'] ?? const VNull();
   }
 
+  /// `GET /api/users` (admin): `[{name, roles, disabled}]`.
+  Future<List<GatewayUser>> users() async {
+    final r = await _get(_http, base.resolve('/api/users'), bearer: _session);
+    return [
+      if (r case VArray(:final v))
+        for (final u in v) GatewayUser.of(u),
+    ];
+  }
+
+  /// `POST /api/users {name, password, roles}` (admin).
+  Future<void> addUser(String name, String password, List<String> roles) =>
+      _post(
+        _http,
+        base.resolve('/api/users'),
+        bearer: _session,
+        body: {
+          'name': VStr(name),
+          'password': VStr(password),
+          'roles': VArray([for (final r in roles) VStr(r)]),
+        },
+      );
+
+  /// `DELETE /api/users/<name>` (admin).
+  Future<void> removeUser(String name) async {
+    final req = await _http.deleteUrl(_userUrl(name));
+    req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_session');
+    await _read(await req.close());
+  }
+
+  /// `POST /api/users/<name>/password {password}` (admin).
+  Future<void> setUserPassword(String name, String password) => _post(
+    _http,
+    _userUrl(name, 'password'),
+    bearer: _session,
+    body: {'password': VStr(password)},
+  );
+
+  /// `POST /api/users/<name>/roles {roles}` (admin).
+  Future<void> setUserRoles(String name, List<String> roles) => _post(
+    _http,
+    _userUrl(name, 'roles'),
+    bearer: _session,
+    body: {
+      'roles': VArray([for (final r in roles) VStr(r)]),
+    },
+  );
+
+  /// `POST /api/users/<name>/disabled {disabled}` (admin).
+  Future<void> setUserDisabled(String name, bool disabled) => _post(
+    _http,
+    _userUrl(name, 'disabled'),
+    bearer: _session,
+    body: {'disabled': VBool(disabled)},
+  );
+
+  Uri _userUrl(String name, [String? what]) => base.replace(
+    pathSegments: ['api', 'users', name, if (what != null) what],
+  );
+
   /// Close the HTTP client (open sockets stay until their clients close).
   void dispose() => _http.close();
 
@@ -244,6 +303,30 @@ class WyrmGateway {
 
   static WyrmException _bad(String what) =>
       WyrmException.of(Status.invalidMessage, 'malformed gateway reply: $what');
+}
+
+/// A user of the gateway (`/api/users`).
+class GatewayUser {
+  final String name;
+  final List<String> roles;
+  final bool disabled;
+
+  const GatewayUser(this.name, this.roles, {this.disabled = false});
+
+  factory GatewayUser.of(Value v) => GatewayUser(
+    switch (v['name']) {
+      VStr(:final v) => v,
+      _ => '',
+    },
+    switch (v['roles']) {
+      VArray(:final v) => [
+        for (final r in v)
+          if (r case VStr(:final v)) v,
+      ],
+      _ => const [],
+    },
+    disabled: v['disabled'] == const VBool(true),
+  );
 }
 
 /// [FrameTransport] over a `dart:io` WebSocket (binary CBOR frames).

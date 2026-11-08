@@ -66,6 +66,24 @@ abstract interface class WyrmSession {
   /// Who the user is on this gateway.
   Future<WhoAmI> me();
 
+  /// The gateway's users (`/api/users`, admin only).
+  Future<List<GatewayUser>> users();
+
+  /// Adds a user with [password] and [roles].
+  Future<void> addUser(String name, String password, List<String> roles);
+
+  /// Removes a user.
+  Future<void> removeUser(String name);
+
+  /// Sets a user's roles.
+  Future<void> setUserRoles(String name, List<String> roles);
+
+  /// Sets a user's password.
+  Future<void> setUserPassword(String name, String password);
+
+  /// Disables or enables a user.
+  Future<void> setUserDisabled(String name, {required bool disabled});
+
   /// Close the client and the HTTP connection.
   Future<void> close();
 }
@@ -121,6 +139,28 @@ final class _GatewaySession implements WyrmSession {
 
   @override
   Future<WhoAmI> me() async => WhoAmI.fromValue(await _gw.me());
+
+  @override
+  Future<List<GatewayUser>> users() => _gw.users();
+
+  @override
+  Future<void> addUser(String name, String password, List<String> roles) =>
+      _gw.addUser(name, password, roles);
+
+  @override
+  Future<void> removeUser(String name) => _gw.removeUser(name);
+
+  @override
+  Future<void> setUserRoles(String name, List<String> roles) =>
+      _gw.setUserRoles(name, roles);
+
+  @override
+  Future<void> setUserPassword(String name, String password) =>
+      _gw.setUserPassword(name, password);
+
+  @override
+  Future<void> setUserDisabled(String name, {required bool disabled}) =>
+      _gw.setUserDisabled(name, disabled);
 
   @override
   Future<void> close() async {

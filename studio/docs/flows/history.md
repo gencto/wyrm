@@ -4,6 +4,66 @@
 
 `app/lib/connectors/history_page_connector.dart`
 
-_HistoryPageConnector exposes no dispatching callbacks yet._
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as HistoryPage
+    participant VM as HistoryPageConnector
+    participant A1 as RetrieveHistorianAction
+    participant A2 as RetrieveSeriesAction
+    participant A3 as SetSelectedAction
+    participant A4 as SetRangeAction
+    participant ST as AppState
+
+    User->>UI: onShow
+    UI->>VM: onShow()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(historian.groups, historian.stats, historian.selected)
+    A1-->>-VM: ActionStatus
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(historian.series)
+    A2-->>-VM: ActionStatus
+
+    User->>UI: onGroup
+    UI->>VM: onGroup()
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(historian.selected)
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(historian.series)
+    A2-->>-VM: ActionStatus
+
+    User->>UI: onRange
+    UI->>VM: onRange()
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(historian.range)
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(historian.series)
+    A2-->>-VM: ActionStatus
+
+    User->>UI: onAction
+    UI->>VM: onAction()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(historian.groups, historian.stats, historian.selected)
+    A1-->>-VM: ActionStatus
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(historian.series)
+    A2-->>-VM: ActionStatus
+```
+
+| Interaction | Dispatches | Writes |
+| --- | --- | --- |
+| `onShow` | `RetrieveHistorianAction`, `RetrieveSeriesAction` | `historian.groups, historian.stats, historian.selected`, `historian.series` |
+| `onGroup` | `SetSelectedAction`, `RetrieveSeriesAction` | `historian.selected`, `historian.series` |
+| `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range`, `historian.series` |
+| `onAction` | `RetrieveHistorianAction`, `RetrieveSeriesAction` | `historian.groups, historian.stats, historian.selected`, `historian.series` |
+
+`?` marks a dispatch that only runs under a condition.
 
 [← all flows](README.md)

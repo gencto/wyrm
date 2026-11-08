@@ -1,11 +1,13 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'access/models/access_state.dart';
 import 'assistant/models/assistant_state.dart';
 import 'changes/models/changes_state.dart';
 import 'connectivity/models/connectivity_state.dart';
 import 'flow_editor/models/flow_editor_state.dart';
 import 'flows/models/flows_state.dart';
+import 'historian/models/historian_state.dart';
 import 'language/models/language_state.dart';
 import 'link_install/models/link_install_state.dart';
 import 'links/models/links_state.dart';
@@ -17,6 +19,7 @@ import 'peers/models/peers_state.dart';
 import 'quarantine/models/quarantine_state.dart';
 import 'session/models/session_state.dart';
 import 'site/models/site_state.dart';
+import 'system/models/system_state.dart';
 import 'tasks/models/tasks_state.dart';
 import 'theme/models/theme_state.dart';
 
@@ -45,6 +48,9 @@ abstract class AppState with _$AppState {
     required TasksState tasks,
     required AssistantState assistant,
     required ChangesState changes,
+    required HistorianState historian,
+    required AccessState access,
+    required SystemState system,
     required Wait wait,
   }) = _AppState;
 
@@ -67,6 +73,9 @@ abstract class AppState with _$AppState {
     tasks: TasksState(),
     assistant: AssistantState(),
     changes: ChangesState(),
+    historian: HistorianState(),
+    access: AccessState(),
+    system: SystemState(),
     wait: Wait.empty,
   );
 }

@@ -155,6 +155,37 @@ class FakeSession implements WyrmSession {
   @override
   Future<WhoAmI> me() async => who;
 
+  /// The users `/api/users` answers, by name.
+  final userTable = <String, GatewayUser>{};
+
+  @override
+  Future<List<GatewayUser>> users() async => userTable.values.toList();
+
+  @override
+  Future<void> addUser(
+    String name,
+    String password,
+    List<String> roles,
+  ) async => userTable[name] = GatewayUser(name, roles);
+
+  @override
+  Future<void> removeUser(String name) async => userTable.remove(name);
+
+  @override
+  Future<void> setUserRoles(String name, List<String> roles) async =>
+      userTable[name] = GatewayUser(name, roles);
+
+  @override
+  Future<void> setUserPassword(String name, String password) async {}
+
+  @override
+  Future<void> setUserDisabled(String name, {required bool disabled}) async =>
+      userTable[name] = GatewayUser(
+        name,
+        userTable[name]?.roles ?? const [],
+        disabled: disabled,
+      );
+
   @override
   Future<void> close() async => closed = true;
 }
