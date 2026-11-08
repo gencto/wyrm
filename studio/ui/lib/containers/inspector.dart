@@ -57,10 +57,11 @@ class Inspector extends StatelessWidget {
                             color: c.text3,
                           ),
                         ),
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
+                      if (title.isNotEmpty)
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       ?header,
                     ],
                   ),

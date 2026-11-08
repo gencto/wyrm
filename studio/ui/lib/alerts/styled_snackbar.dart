@@ -16,6 +16,7 @@ class StyledSnackbar {
     BuildContext? context,
     String? title,
     double maxWidth = 400,
+    Duration duration = const Duration(seconds: 4),
   }) {
     final ctx = context ?? contextGetter?.call();
 
@@ -30,6 +31,7 @@ class StyledSnackbar {
 
     ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
+        duration: duration,
         elevation: 6,
         behavior: SnackBarBehavior.floating,
         margin: EdgeInsets.fromLTRB(left, 0, right, AppSpacing.xl),

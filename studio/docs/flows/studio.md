@@ -11,7 +11,7 @@ sequenceDiagram
     participant UI as StudioPage
     participant VM as StudioPageConnector
     participant A1 as ViewSiteAction
-    participant A2 as SetSelectedNodeAction
+    participant A2 as SelectNodeAction
     participant A3 as SetOpenAction
     participant A4 as ApplyChangesAction
     participant A5 as DiscardChangesAction
@@ -29,7 +29,11 @@ sequenceDiagram
     User->>UI: onGoToKey
     UI->>VM: onGoToKey()
     VM->>A2: dispatch
-    A2->>ST: copyWith(nodes.selectedNode)
+    A2->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
+    A2->>ST: dispatchSync(ToggleNodeAction)
+    A2->>ST: dispatchAndWait(RetrieveNodeDetailAction)
+    A2->>ST: dispatchAndWait(RetrieveDetailsAction)
+    A2->>ST: dispatchAndWait(RetrieveHistoryAction)
 
     User->>UI: onReview
     UI->>VM: onReview()
@@ -46,6 +50,7 @@ sequenceDiagram
     VM->>+A4: dispatchAndWait
     Note over A4: WaitingAction · async
     A4->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
+    A4->>ST: dispatchAndWait(RetrieveDetailsAction)
     A4-->>-VM: ActionStatus
 
     User->>UI: onDiscard
@@ -72,7 +77,7 @@ sequenceDiagram
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages` |
-| `onGoToKey` | `SetSelectedNodeAction` | `nodes.selectedNode` |
+| `onGoToKey` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |
 | `onApply` | `ApplyChangesAction` | `changes.table, changes.view, changes.message, changes.open` |

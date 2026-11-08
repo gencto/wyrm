@@ -66,20 +66,20 @@ Edits to points (poll, register, unit, writable, add, remove) are staged in the 
 Loading (tree rows as skeletons, table header with 6 skeleton rows) · empty device (`No points yet` + `Add point`, `Import CSV or DSA tree`) · offline (banner under the top bar, values greyed, quality `stale`) · no rights for an action (disabled with the reason) · action error (`{code, message}` under the form, verbatim).
 
 ## 9. Checklist
-- [ ] Site switcher shows the site and its route (`via edge · central`)
-- [ ] Filter field in the tree
-- [ ] Tree names in mono 13; chips, counts, dots as §2
-- [ ] Key line with Copy key; last segment highlighted
-- [ ] Status pill and subtitle line; Ping and Actions ▾
-- [ ] Tabs: Points, Parameters, Actions, History, Audit; counts as plain text
-- [ ] Toolbar: Add point, Import CSV or DSA tree, Apply profile, Filter points
-- [ ] Table columns exactly: select, Point (+ display name), Register, Type, Unit, Poll, Value, Quality, Write; no Time
-- [ ] Row height 40; staged marks; selected fill
-- [ ] Diagnostics out of the points table
-- [ ] Point inspector with the five sections; device inspector when nothing is selected
-- [ ] Multi-select, selection bar, Copy key / Copy keys, ⌘⇧C
-- [ ] Review drawer as §7
-- [ ] Goldens: device with a point selected, nothing selected, review drawer open, empty device, offline
+- [x] Site switcher shows the site and its route (`via edge · central`)
+- [x] Filter field in the tree
+- [x] Tree names in mono 13; chips, counts, dots as §2
+- [x] Key line with Copy key; last segment highlighted
+- [x] Status pill and subtitle line; Ping and Actions ▾
+- [x] Tabs: Points, Parameters, Actions, History, Audit; counts as plain text
+- [x] Toolbar: Add point, Import CSV or DSA tree, Apply profile, Filter points
+- [x] Table columns exactly: select, Point (+ display name), Register, Type, Unit, Poll, Value, Quality, Write; no Time
+- [x] Row height 40; staged marks; selected fill
+- [x] Diagnostics out of the points table
+- [~] Point inspector with the five sections; device inspector when nothing is selected — Word order is read-only, derived from the `dtype` suffix; Precision is disabled (the modbus driver has no such parameter)
+- [~] Multi-select, selection bar, Copy key / Copy keys, ⌘⇧C — plain ⌘C copies the selected point's value (the table has no cell selection)
+- [x] Review drawer as §7
+- [x] Goldens: device with a point selected, nothing selected, review drawer open, empty device, offline
 
 ## 10. Found in the app (screenshot 2026-11-08)
 1. Site switcher shows `edge` only; the route is missing.
@@ -92,3 +92,5 @@ Loading (tree rows as skeletons, table header with 6 skeleton rows) · empty dev
 8. Device diagnostics (`status`, `requests`, `errors`, …) are listed as points.
 9. The inspector shows a raw `NODE` dump (`key`, `is`, `Actions`, `CFG`) with a close button instead of the point/device inspector.
 10. No multi-select and no copy.
+
+**Decided in the app (owner to confirm):** the points table scrolls under 720, not 860: at 1440 the workspace is 784 wide, and at 860 the Quality and Write columns were hidden.

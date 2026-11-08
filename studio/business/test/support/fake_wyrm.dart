@@ -92,11 +92,27 @@ class FakeWyrmApi implements WyrmApi {
   @override
   Future<NodeMeta> meta(String key) async {
     calls.add(Call('meta', key));
-    if (errors[key] case final e?) {
-      throw e;
+    metaInFlight++;
+    if (metaInFlight > metaMaxInFlight) {
+      metaMaxInFlight = metaInFlight;
     }
-    return metas[key] ?? (throw _missing(key));
+    try {
+      if (metaDelay > Duration.zero) {
+        await Future<void>.delayed(metaDelay);
+      }
+      if (errors[key] case final e?) {
+        throw e;
+      }
+      return metas[key] ?? (throw _missing(key));
+    } finally {
+      metaInFlight--;
+    }
   }
+
+  /// How long a `meta` answer takes, and how many were open at once.
+  Duration metaDelay = Duration.zero;
+  var metaInFlight = 0;
+  var metaMaxInFlight = 0;
 
   @override
   Future<List<Child>> children(String key) async {

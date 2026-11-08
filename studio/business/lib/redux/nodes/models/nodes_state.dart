@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/audit_entry.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
@@ -20,5 +21,12 @@ abstract class NodesState with _$NodesState {
     @Default(IMapConst({})) IMap<String, NodeDetail> detail,
     @Default(IListConst([])) IList<HistPoint> history,
     String? historyKey,
+    String? point,
+    @Default(ISetConst({})) ISet<String> checked,
+    String? anchor,
+    @Default('') String treeFilter,
+    @Default('') String pointFilter,
+    @Default(ISetConst({})) ISet<String> marked,
+    @Default(IListConst([])) IList<AuditEntry> audit,
   }) = _NodesState;
 }

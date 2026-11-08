@@ -7,7 +7,7 @@ import 'package:business/redux/changes/actions/apply_changes_action.dart';
 import 'package:business/redux/changes/actions/discard_changes_action.dart';
 import 'package:business/redux/changes/actions/remove_change_action.dart';
 import 'package:business/redux/changes/actions/set_open_action.dart';
-import 'package:business/redux/nodes/actions/set_selected_node_action.dart';
+import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
@@ -122,30 +122,34 @@ class StudioPageConnector extends StatelessWidget {
                 onReview: vm.onReview,
                 onLogOut: vm.onLogOut,
               ),
-              child: Row(
-                crossAxisAlignment: .stretch,
-                children: [
-                  Expanded(child: child),
-                  if (vm.reviewOpen)
-                    ReviewPanel(
+              onScrim: vm.onCloseReview,
+              drawer: !vm.reviewOpen
+                  ? null
+                  : ReviewPanel(
                       cards: vm.cards,
                       error: vm.reviewError,
                       applying: vm.applying,
                       labels: ReviewLabels(
                         title: S.current.stagedChanges(vm.cards.length),
-                        apply: S.current.apply,
-                        discard: S.current.discard,
+                        rights: vm.rights,
+                        apply: S.current.applyChanges(vm.allowed),
+                        ask: vm.blocked == 0
+                            ? null
+                            : S.current.askAdminFor(vm.blocked),
+                        askReason: S.current.askAdminReason,
+                        discard: S.current.discardAll,
                         empty: S.current.nothingStaged,
-                        note: S.current.stagedNote,
+                        note: S.current.reviewNote(vm.audit),
+                        audit: vm.audit,
                         refused: S.current.brokerRefused,
+                        close: S.current.closeLabel,
                       ),
                       onApply: vm.onApply,
                       onDiscard: vm.onDiscard,
                       onClose: vm.onCloseReview,
                       onRemove: vm.onRemoveChange,
                     ),
-                ],
-              ),
+              child: child,
             ),
           ),
         ),
@@ -193,16 +197,26 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
     final home = site.name ?? '';
     final viewed = site.viewed ?? home;
     final here = site.choices.where((c) => c.site == viewed).firstOrNull;
-    final route = [
+    final route = {
       ?here?.via,
       if (viewed != home) home,
-    ];
+    }.toList();
+    final cards = changeCards(this);
+    final blocked = cards.where((c) => !c.allowed).length;
+    final linksTouched = {
+      for (final id in changes.view)
+        if (changes.table[id]?.key.split('/') case final p?
+            when p.length > 3 && p[2] == 'downstream')
+          p[3],
+    };
     final quarantined = quarantine.view.length;
     return _Vm(
       connected: site.connected,
       topBar: TopBarVm(
         site: viewed,
-        siteDetail: route.isEmpty ? null : S.current.viaSite(route.join(' · ')),
+        siteDetail: route.isEmpty
+            ? (viewed == home ? S.current.thisBroker : null)
+            : S.current.viaSite(route.join(' · ')),
         sites: [
           for (final c in site.choices)
             SiteItemVm(
@@ -225,7 +239,18 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
       reviewOpen: changes.open,
       reviewError: changes.message,
       applying: changes.isWaiting,
-      cards: changeCards(this),
+      cards: cards,
+      blocked: blocked,
+      allowed: cards.length - blocked,
+      rights: S.current.rightsLine(
+        viewed,
+        site.user ?? '',
+        site.role ?? '',
+        site.levelOn('${site.root}/downstream'),
+      ),
+      audit: linksTouched.length == 1
+          ? 'sys/audit/${linksTouched.single}'
+          : 'sys/audit',
       searchEntries: [
         for (var i = 0; i < _tabIds.length; i++)
           SearchEntryVm(
@@ -272,7 +297,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         );
       },
       onSite: (s) => dispatch(ViewSiteAction(s)),
-      onGoToKey: (k) => dispatch(SetSelectedNodeAction(k)),
+      onGoToKey: (k) => dispatch(SelectNodeAction(k)),
       onReview: () => dispatch(SetOpenAction(true)),
       onCloseReview: () => dispatch(SetOpenAction(false)),
       onApply: () => unawaited(dispatchAndWait(ApplyChangesAction())),
@@ -298,6 +323,10 @@ class _Vm extends Vm {
     required this.reviewError,
     required this.applying,
     required this.cards,
+    required this.blocked,
+    required this.allowed,
+    required this.rights,
+    required this.audit,
     required this.searchEntries,
     required this.goTo,
     required this.onSite,
@@ -317,6 +346,10 @@ class _Vm extends Vm {
            reviewError,
            applying,
            cards,
+           blocked,
+           allowed,
+           rights,
+           audit,
            searchEntries,
          ],
        );
@@ -328,6 +361,16 @@ class _Vm extends Vm {
   final String? reviewError;
   final bool applying;
   final List<ChangeCardVm> cards;
+
+  /// Changes the user lacks the level for, and the ones they may apply.
+  final int blocked;
+  final int allowed;
+
+  /// `Site plant · applied with your rights: olena, operator (write)`.
+  final String rights;
+
+  /// `sys/audit/<link>` the applied writes are recorded in.
+  final String audit;
   final List<SearchEntryVm> searchEntries;
   final SearchEntryVm? Function(String text) goTo;
   final ValueChanged<String> onSite;

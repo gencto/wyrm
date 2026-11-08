@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/audit_entry.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_summary.dart';
@@ -267,6 +268,27 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns historyKey
   String? get historyKey => _state.nodes.historyKey;
+
+  /// Returns point
+  String? get point => _state.nodes.point;
+
+  /// Returns checked
+  ISet<String> get checked => _state.nodes.checked;
+
+  /// Returns anchor
+  String? get anchor => _state.nodes.anchor;
+
+  /// Returns treeFilter
+  String get treeFilter => _state.nodes.treeFilter;
+
+  /// Returns pointFilter
+  String get pointFilter => _state.nodes.pointFilter;
+
+  /// Returns marked
+  ISet<String> get marked => _state.nodes.marked;
+
+  /// Returns audit
+  IList<AuditEntry> get audit => _state.nodes.audit;
 }
 
 extension type SelectLive(AppState _state) {

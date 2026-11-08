@@ -1,20 +1,25 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../charts/trend_chart.dart';
 import '../containers/action_card.dart';
-import '../containers/fact_grid.dart';
 import '../containers/inspector.dart';
+import '../containers/inspector_sections.dart';
 import '../containers/section_label.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
+import '../indicators/app_icon.dart';
+import '../indicators/key_line.dart';
 import '../indicators/key_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../overlays/log_view.dart';
+import '../tables/points_table.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
 import '../theme/typography.dart';
 import '../trees/node_tree.dart';
 import '../trees/tree_row.dart';
@@ -59,35 +64,65 @@ final class ResultVm extends Equatable {
   List<Object?> get props => [title, status, columns, rows, lines];
 }
 
-/// What the inspector shows: a point, an action's form, or a node's
-/// properties.
+/// A button of the header or the points toolbar: the node's own action, or
+/// a control disabled with the reason.
+final class ToolButtonVm extends Equatable {
+  const ToolButtonVm({
+    required this.id,
+    required this.label,
+    this.icon,
+    this.quiet = false,
+    this.disabledReason,
+  });
+
+  /// Handed back to `onTool`.
+  final String id;
+  final String label;
+  final String? icon;
+
+  /// A quieter outline (Import, Apply profile).
+  final bool quiet;
+
+  /// Null when the button works.
+  final String? disabledReason;
+
+  @override
+  List<Object?> get props => [id, label, icon, quiet, disabledReason];
+}
+
+/// What the inspector shows: a point, an action's form, or the node on
+/// screen.
 sealed class ExplorerInspectorVm extends Equatable {
   const ExplorerInspectorVm();
 }
 
-/// A point: its live value, its facts, the field that stages a new value.
+/// A point (docs/design/specs/explorer.md §4): its name and display name,
+/// its value and quality, then sections built from its `~meta.cfg`.
 final class PointInspectorVm extends ExplorerInspectorVm {
   const PointInspectorVm({
+    required this.eyebrow,
     required this.name,
-    required this.display,
     required this.value,
     required this.quality,
-    required this.facts,
+    required this.sections,
+    this.display,
     this.edit,
     this.editLabel = '',
     this.stageLabel = '',
     this.readOnlyReason,
   });
 
+  /// `Point`.
+  final String eyebrow;
   final String name;
   final String? display;
 
   /// The value with its unit.
   final String value;
   final QualityMarkVm quality;
-  final List<FactVm> facts;
+  final List<InspectorSectionVm> sections;
 
-  /// The field that stages a set; null when the point cannot be set.
+  /// The field that stages a new value; null when the point cannot be set.
   final ParamFieldVm? edit;
   final String editLabel;
   final String stageLabel;
@@ -95,11 +130,12 @@ final class PointInspectorVm extends ExplorerInspectorVm {
 
   @override
   List<Object?> get props => [
+    eyebrow,
     name,
     display,
     value,
     quality,
-    facts,
+    sections,
     edit,
     editLabel,
     stageLabel,
@@ -111,6 +147,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
 final class ActionInspectorVm extends ExplorerInspectorVm {
   const ActionInspectorVm({
     required this.id,
+    required this.eyebrow,
     required this.title,
     required this.keyName,
     required this.tags,
@@ -123,6 +160,9 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
   });
 
   final String id;
+
+  /// `Action`.
+  final String eyebrow;
   final String title;
   final String keyName;
 
@@ -140,6 +180,7 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
   @override
   List<Object?> get props => [
     id,
+    eyebrow,
     title,
     keyName,
     tags,
@@ -152,30 +193,45 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
   ];
 }
 
-/// A node that is not a point: its properties (the property sheet).
+/// The node on screen with no point selected (§4 "nothing selected"): its
+/// parameters as a form from `cfg`, then its diagnostics.
 final class NodeInspectorVm extends ExplorerInspectorVm {
   const NodeInspectorVm({
+    required this.eyebrow,
     required this.title,
-    required this.facts,
-    this.cfg = const [],
-    this.attr = const [],
-    this.cfgLabel = 'cfg',
-    this.attrLabel = 'attr',
+    required this.sections,
   });
 
+  /// `Device`, `Connection`, `Link`.
+  final String eyebrow;
   final String title;
-  final List<FactVm> facts;
-  final List<FactVm> cfg;
-  final List<FactVm> attr;
-  final String cfgLabel;
-  final String attrLabel;
+  final List<InspectorSectionVm> sections;
 
   @override
-  List<Object?> get props => [title, facts, cfg, attr, cfgLabel, attrLabel];
+  List<Object?> get props => [eyebrow, title, sections];
 }
 
-/// Board *Studio · Explorer* with *Explorer · Actions of a node*: the
-/// tree, the selected node's tabs, and its inspector.
+/// The bar that replaces the points toolbar while 2 or more rows are
+/// checked (§6): `<n> selected`, its buttons, Clear.
+final class SelectionBarVm extends Equatable {
+  const SelectionBarVm({
+    required this.count,
+    required this.buttons,
+    required this.clear,
+  });
+
+  /// `3 selected`.
+  final String count;
+  final List<ToolButtonVm> buttons;
+  final String clear;
+
+  @override
+  List<Object?> get props => [count, buttons, clear];
+}
+
+/// Board *Studio · Explorer* (docs/design/specs/explorer.md): the tree, the
+/// node on screen with its key line, title, tabs and points, and the
+/// inspector of the point, action or node.
 class ExplorerPage extends StatelessWidget {
   const ExplorerPage({
     required this.treeLabel,
@@ -186,16 +242,41 @@ class ExplorerPage extends StatelessWidget {
     required this.tab,
     required this.onTab,
     this.onMenu,
+    this.onMark,
+    this.onMarkRange,
+    this.treeFilter = '',
+    this.onTreeFilter,
+    this.treeFilterHint = '',
     this.treeNote,
+    this.onNoteLink,
+    this.treeLoading = false,
     this.keyName,
+    this.onCopyKey,
+    this.copyKeyLabel = 'Copy key',
     this.title,
     this.pill,
+    this.subtitle,
+    this.headerButtons = const [],
+    this.actionsLabel,
+    this.onActions,
+    this.onTool,
     this.empty = '',
-    this.pointColumns = const [],
+    this.toolbar = const [],
+    this.selectionBar,
+    this.onClearSelection,
+    this.pointFilter = '',
+    this.onPointFilter,
+    this.pointFilterHint = '',
     this.points = const [],
+    this.pointLabels = const PointsTableLabels(),
+    this.pointsLoading = false,
     this.pointsNote,
     this.pointsEmpty,
+    this.emptyButtons = const [],
     this.onPoint,
+    this.onCheck,
+    this.onRange,
+    this.onCheckAll,
     this.params = const [],
     this.paramsNote,
     this.actionGroups = const [],
@@ -203,12 +284,16 @@ class ExplorerPage extends StatelessWidget {
     this.result,
     this.ranges = const [],
     this.range = '',
-    this.onRange,
+    this.onHistoryRange,
     this.trend = const [],
     this.trendLabels = const ('', ''),
     this.trendEmpty = '',
     this.historyColumns = const [],
     this.historyRows = const [],
+    this.historyNote,
+    this.auditColumns = const [],
+    this.auditRows = const [],
+    this.auditNote,
     this.inspector,
     this.onSubmit,
     this.onCloseInspector,
@@ -221,11 +306,33 @@ class ExplorerPage extends StatelessWidget {
   final ValueChanged<String> onTap;
   final ValueChanged<String> onToggle;
   final void Function(String id, Offset at)? onMenu;
-  final String? treeNote;
+  final ValueChanged<String>? onMark;
+  final ValueChanged<String>? onMarkRange;
+  final String treeFilter;
+  final ValueChanged<String>? onTreeFilter;
+  final String treeFilterHint;
+  final TreeNoteVm? treeNote;
+  final ValueChanged<String>? onNoteLink;
+  final bool treeLoading;
 
   final String? keyName;
+  final VoidCallback? onCopyKey;
+  final String copyKeyLabel;
   final String? title;
   final StatusPillVm? pill;
+
+  /// `modbus device · unit 1 · 127.0.0.1:5020 · last read 12:00:03`.
+  final String? subtitle;
+
+  /// Ping, beside Actions ▾.
+  final List<ToolButtonVm> headerButtons;
+
+  /// `Actions`: the node menu, opened at a point.
+  final String? actionsLabel;
+  final ValueChanged<Offset>? onActions;
+
+  /// A header, toolbar, empty-state or selection-bar button, by its id.
+  final ValueChanged<String>? onTool;
 
   /// Shown when nothing is selected.
   final String empty;
@@ -233,13 +340,26 @@ class ExplorerPage extends StatelessWidget {
   final String tab;
   final ValueChanged<String> onTab;
 
-  final List<ColumnVm> pointColumns;
-  final List<RowVm> points;
+  final List<ToolButtonVm> toolbar;
+  final SelectionBarVm? selectionBar;
+  final VoidCallback? onClearSelection;
+  final String pointFilter;
+  final ValueChanged<String>? onPointFilter;
+  final String pointFilterHint;
+  final List<PointRowVm> points;
+  final PointsTableLabels pointLabels;
+  final bool pointsLoading;
   final String? pointsNote;
-  final String? pointsEmpty;
-  final ValueChanged<String>? onPoint;
 
-  final List<FactVm> params;
+  /// `No points yet`, with [emptyButtons] under it.
+  final String? pointsEmpty;
+  final List<ToolButtonVm> emptyButtons;
+  final ValueChanged<String>? onPoint;
+  final ValueChanged<String>? onCheck;
+  final ValueChanged<String>? onRange;
+  final VoidCallback? onCheckAll;
+
+  final List<InspectorSectionVm> params;
   final String? paramsNote;
 
   final List<ActionCardGroupVm> actionGroups;
@@ -248,15 +368,27 @@ class ExplorerPage extends StatelessWidget {
 
   final List<TabItemVm> ranges;
   final String range;
-  final ValueChanged<String>? onRange;
+  final ValueChanged<String>? onHistoryRange;
   final List<TrendSeriesVm> trend;
   final (String, String) trendLabels;
   final String trendEmpty;
   final List<ColumnVm> historyColumns;
   final List<RowVm> historyRows;
 
+  /// Why there is no history here (a node, not a point).
+  final String? historyNote;
+
+  final List<ColumnVm> auditColumns;
+  final List<RowVm> auditRows;
+
+  /// Why the audit is empty or cannot be read.
+  final String? auditNote;
+
   final ExplorerInspectorVm? inspector;
   final ValueChanged<Map<String, Object?>>? onSubmit;
+
+  /// Closes an action's form (the point and node inspectors have no close:
+  /// they are part of the layout).
   final VoidCallback? onCloseInspector;
   final bool busy;
 
@@ -270,21 +402,46 @@ class ExplorerPage extends StatelessWidget {
         onTap: onTap,
         onToggle: onToggle,
         onMenu: onMenu,
+        onMark: onMark,
+        onMarkRange: onMarkRange,
+        filter: treeFilter,
+        onFilter: onTreeFilter,
+        filterHint: treeFilterHint,
         note: treeNote,
-        width: wide ? 290 : 240,
+        onNoteLink: onNoteLink,
+        loading: treeLoading,
+        width: wide ? 260 : 240,
       );
-      final work = _workspace(context);
       final ins = inspector;
       return Row(
         crossAxisAlignment: .stretch,
         children: [
           if (box.maxWidth >= 700) treePanel,
-          Expanded(child: work),
+          Expanded(child: _workspace(context)),
           if (ins != null && wide) _inspector(context, ins),
         ],
       );
     },
   );
+
+  Widget _button(ToolButtonVm b) {
+    final onPressed = b.disabledReason != null || onTool == null
+        ? null
+        : () => onTool!(b.id);
+    return b.quiet
+        ? Button.quiet(
+            label: b.label,
+            icon: b.icon,
+            onPressed: onPressed,
+            disabledReason: b.disabledReason,
+          )
+        : Button.secondary(
+            label: b.label,
+            icon: b.icon,
+            onPressed: onPressed,
+            disabledReason: b.disabledReason,
+          );
+  }
 
   Widget _workspace(BuildContext context) {
     final c = context.colors;
@@ -293,128 +450,366 @@ class ExplorerPage extends StatelessWidget {
         child: Text(empty, style: TextStyle(fontSize: 14, color: c.text4)),
       );
     }
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 22, 24, 40),
-      children: [
-        if (keyName case final k?) KeyText(k, color: c.text3),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 12,
-          crossAxisAlignment: .center,
-          children: [
-            Text(title!, style: Theme.of(context).textTheme.headlineSmall),
-            if (pill case final p?) StatusPill(vm: p, dense: true),
-          ],
-        ),
-        const SizedBox(height: 16),
-        SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: 18),
-        ...switch (tab) {
-          'params' => [
-            if (paramsNote case final n?) ...[
-              Text(n, style: TextStyle(fontSize: 13, color: c.text3)),
-              const SizedBox(height: 12),
-            ],
-            FactGrid(facts: params, labelWidth: 180),
-          ],
-          'actions' => [
-            for (final g in actionGroups) ...[
-              SectionLabel(g.label),
-              const SizedBox(height: 4),
-              Text(g.note, style: TextStyle(fontSize: 12, color: c.text4)),
-              const SizedBox(height: 10),
-              LayoutBuilder(
-                builder: (context, box) {
-                  final n = box.maxWidth > 640 ? 2 : 1;
-                  final w = (box.maxWidth - 12 * (n - 1)) / n;
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      for (final card in g.cards)
-                        SizedBox(
-                          width: w,
-                          child: ActionCard(vm: card, onTap: onAction),
-                        ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-            if (result case final r?) ...[
-              Row(
-                spacing: 12,
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      child: Column(
+        crossAxisAlignment: .stretch,
+        spacing: 14,
+        children: [
+          if (keyName case final k?)
+            KeyLine(keyName: k, onCopy: onCopyKey, copyLabel: copyKeyLabel),
+          Wrap(
+            alignment: .spaceBetween,
+            crossAxisAlignment: .end,
+            runSpacing: 12,
+            spacing: 16,
+            children: [
+              Column(
+                crossAxisAlignment: .start,
+                mainAxisSize: .min,
+                spacing: 6,
                 children: [
-                  Text(
-                    r.title,
-                    style: const TextStyle(fontSize: 14, fontWeight: .w600),
+                  Row(
+                    mainAxisSize: .min,
+                    spacing: 12,
+                    children: [
+                      Text(
+                        title!,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: .w600,
+                          letterSpacing: -0.26,
+                          color: c.text1,
+                        ),
+                      ),
+                      if (pill case final p?) StatusPill(vm: p, dense: true),
+                    ],
                   ),
-                  QualityMark(
-                    vm: QualityMarkVm(label: r.status, tone: .good),
-                  ),
+                  if (subtitle case final s?)
+                    Text(s, style: TextStyle(fontSize: 14, color: c.text3)),
                 ],
               ),
-              const SizedBox(height: 10),
-              if (r.rows.isNotEmpty)
-                RowTable(columns: r.columns, rows: r.rows)
-              else
-                SizedBox(height: 260, child: LogView(lines: r.lines)),
-            ],
-          ],
-          'history' => [
-            SegmentedTabs(
-              tabs: ranges,
-              selected: range,
-              onSelect: onRange ?? (_) {},
-            ),
-            const SizedBox(height: 16),
-            TrendChart(
-              series: trend,
-              empty: trendEmpty,
-              timeLabels: trendLabels,
-            ),
-            const SizedBox(height: 16),
-            if (historyRows.isNotEmpty)
-              RowTable(
-                columns: historyColumns,
-                rows: historyRows,
-                rowHeight: 40,
+              Row(
+                mainAxisSize: .min,
+                spacing: 8,
+                children: [
+                  for (final b in headerButtons) _button(b),
+                  if (actionsLabel case final a?)
+                    Builder(
+                      builder: (context) => _actionsButton(
+                        c,
+                        label: a,
+                        onTap: onActions == null
+                            ? null
+                            : () {
+                                final box =
+                                    context.findRenderObject()! as RenderBox;
+                                onActions!(
+                                  box.localToGlobal(
+                                    Offset(
+                                      box.size.width - 300,
+                                      box.size.height + 6,
+                                    ),
+                                  ),
+                                );
+                              },
+                      ),
+                    ),
+                ],
               ),
-          ],
-          _ => [
+            ],
+          ),
+          SegmentedTabs(
+            tabs: tabs,
+            selected: tab,
+            onSelect: onTab,
+            plainCounts: true,
+            height: 44,
+          ),
+        ],
+      ),
+    );
+    final body = switch (tab) {
+      'params' => _padded([
+        if (paramsNote case final n?)
+          Text(n, style: TextStyle(fontSize: 13, color: c.text3)),
+        InspectorSections(sections: params),
+      ]),
+      'actions' => _padded(_actions(c)),
+      'history' => _padded([
+        if (historyNote case final n?)
+          Text(n, style: TextStyle(fontSize: 13, color: c.text4))
+        else ...[
+          SegmentedTabs(
+            tabs: ranges,
+            selected: range,
+            onSelect: onHistoryRange ?? (_) {},
+          ),
+          TrendChart(series: trend, empty: trendEmpty, timeLabels: trendLabels),
+          if (historyRows.isNotEmpty)
             RowTable(
-              columns: pointColumns,
-              rows: points,
-              onTap: onPoint,
-              empty: pointsEmpty,
+              columns: historyColumns,
+              rows: historyRows,
               rowHeight: 40,
             ),
-            if (pointsNote case final n?) ...[
-              const SizedBox(height: 8),
-              Text(n, style: TextStyle(fontSize: 12, color: c.text4)),
-            ],
-          ],
-        },
+        ],
+      ]),
+      'audit' => _padded([
+        if (auditNote case final n?)
+          Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+        if (auditRows.isNotEmpty)
+          RowTable(columns: auditColumns, rows: auditRows, rowHeight: 40),
+      ]),
+      _ => _pointsTab(c),
+    };
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [header, body],
+    );
+  }
+
+  Widget _padded(List<Widget> children) => Padding(
+    padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
+    child: Column(
+      crossAxisAlignment: .stretch,
+      spacing: 16,
+      children: children,
+    ),
+  );
+
+  Widget _pointsTab(AppColors c) {
+    final bar = selectionBar;
+    final toolbarRow = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: SizedBox(
+        height: 40,
+        child: bar != null
+            ? Row(
+                spacing: 8,
+                children: [
+                  Text(
+                    bar.count,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: .w600,
+                      color: c.text1,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: .horizontal,
+                      child: Row(
+                        spacing: 8,
+                        children: [for (final b in bar.buttons) _button(b)],
+                      ),
+                    ),
+                  ),
+                  Button.quiet(label: bar.clear, onPressed: onClearSelection),
+                ],
+              )
+            : LayoutBuilder(
+                // The filter takes up to 240 and gives way first; the
+                // buttons scroll only when even a 160 filter leaves them
+                // too little room.
+                builder: (context, box) => Row(
+                  spacing: 8,
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: .horizontal,
+                        child: Row(
+                          spacing: 8,
+                          children: [
+                            for (final b in toolbar)
+                              if (b.quiet) _button(b) else _filled(c, b),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (onPointFilter != null)
+                      SizedBox(
+                        width: (box.maxWidth - 500).clamp(160, 240),
+                        child: _filterBox(c),
+                      ),
+                  ],
+                ),
+              ),
+      ),
+    );
+    final showEmpty = !pointsLoading && points.isEmpty && pointsEmpty != null;
+    return Column(
+      crossAxisAlignment: .stretch,
+      children: [
+        toolbarRow,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: showEmpty
+              ? _empty(c)
+              : PointsTable(
+                  rows: points,
+                  labels: pointLabels,
+                  loading: pointsLoading,
+                  onTap: onPoint,
+                  onCheck: onCheck,
+                  onRange: onRange,
+                  onCheckAll: onCheckAll,
+                ),
+        ),
+        if (pointsNote case final n?)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            child: Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+          ),
       ],
     );
   }
+
+  /// Add point: an outline on the raised ground.
+  Widget _filled(AppColors c, ToolButtonVm b) => DecoratedBox(
+    decoration: BoxDecoration(color: c.ground2, borderRadius: Radii.button),
+    child: _button(b),
+  );
+
+  Widget _filterBox(AppColors c) => Container(
+    height: 40,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    decoration: BoxDecoration(
+      color: c.ground1,
+      border: .all(color: c.line1),
+      borderRadius: Radii.button,
+    ),
+    child: Row(
+      spacing: 8,
+      children: [
+        AppIcon('ui_search', size: 14, color: c.text4),
+        Expanded(
+          child: TextFormField(
+            initialValue: pointFilter,
+            onChanged: onPointFilter,
+            style: TextStyle(fontSize: 13, color: c.text1),
+            decoration: InputDecoration(
+              isCollapsed: true,
+              contentPadding: EdgeInsets.zero,
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              hintText: pointFilterHint,
+              hintStyle: TextStyle(fontSize: 13, color: c.text4),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _empty(AppColors c) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+    decoration: BoxDecoration(
+      color: c.ground1,
+      border: .all(color: c.line1),
+      borderRadius: Radii.card,
+    ),
+    child: Column(
+      spacing: 16,
+      children: [
+        Text(
+          pointsEmpty!,
+          style: TextStyle(fontSize: 16, fontWeight: .w600, color: c.text1),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: .center,
+          children: [for (final b in emptyButtons) _button(b)],
+        ),
+      ],
+    ),
+  );
+
+  List<Widget> _actions(AppColors c) => [
+    for (final g in actionGroups)
+      Column(
+        crossAxisAlignment: .stretch,
+        spacing: 10,
+        children: [
+          Column(
+            crossAxisAlignment: .stretch,
+            spacing: 4,
+            children: [
+              SectionLabel(g.label),
+              Text(g.note, style: TextStyle(fontSize: 12, color: c.text4)),
+            ],
+          ),
+          LayoutBuilder(
+            builder: (context, box) {
+              final n = box.maxWidth > 640 ? 2 : 1;
+              final w = (box.maxWidth - 12 * (n - 1)) / n;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final card in g.cards)
+                    SizedBox(
+                      width: w,
+                      child: ActionCard(vm: card, onTap: onAction),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    if (result case final r?) ...[
+      Row(
+        spacing: 12,
+        children: [
+          Text(
+            r.title,
+            style: const TextStyle(fontSize: 14, fontWeight: .w600),
+          ),
+          QualityMark(
+            vm: QualityMarkVm(label: r.status, tone: .good),
+          ),
+        ],
+      ),
+      if (r.rows.isNotEmpty)
+        RowTable(columns: r.columns, rows: r.rows)
+      else
+        SizedBox(height: 260, child: LogView(lines: r.lines)),
+    ],
+  ];
 
   Widget _inspector(BuildContext context, ExplorerInspectorVm ins) {
     final c = context.colors;
     return switch (ins) {
       PointInspectorVm() => Inspector(
-        eyebrow: 'Point',
-        title: ins.name,
-        onClose: onCloseInspector,
+        eyebrow: ins.eyebrow,
+        title: '',
+        width: 320,
         header: Column(
           crossAxisAlignment: .start,
-          spacing: 6,
+          spacing: 10,
           children: [
-            if (ins.display case final d?)
-              Text(d, style: TextStyle(fontSize: 13, color: c.text3)),
             Row(
-              spacing: 12,
+              crossAxisAlignment: .baseline,
+              textBaseline: .alphabetic,
+              spacing: 10,
+              children: [
+                Text(ins.name, style: mono(size: 18, weight: .w600)),
+                if (ins.display case final d?)
+                  Flexible(
+                    child: Text(
+                      d,
+                      overflow: .ellipsis,
+                      style: TextStyle(fontSize: 14, color: c.text3),
+                    ),
+                  ),
+              ],
+            ),
+            Row(
+              spacing: 10,
               children: [
                 Flexible(
                   child: Text(ins.value, style: mono(size: 22, color: c.text1)),
@@ -426,9 +821,9 @@ class ExplorerPage extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: .stretch,
-          spacing: 16,
+          spacing: 18,
           children: [
-            FactGrid(facts: ins.facts, labelWidth: 96),
+            InspectorSections(sections: ins.sections),
             if (ins.edit case final e?) ...[
               SectionLabel(ins.editLabel),
               ActionForm(
@@ -439,14 +834,14 @@ class ExplorerPage extends StatelessWidget {
                 disabledReason: ins.readOnlyReason,
                 onSubmit: onSubmit ?? (_) {},
               ),
-            ] else if (ins.readOnlyReason case final r?)
-              Text(r, style: TextStyle(fontSize: 12, color: c.text4)),
+            ],
           ],
         ),
       ),
       ActionInspectorVm() => Inspector(
-        eyebrow: 'Action',
+        eyebrow: ins.eyebrow,
         title: ins.title,
+        width: 320,
         onClose: onCloseInspector,
         header: Column(
           crossAxisAlignment: .start,
@@ -465,7 +860,7 @@ class ExplorerPage extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: c.ground4,
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: Radii.chip,
                     ),
                     child: Text(t, style: mono(size: 11, color: c.text2)),
                   ),
@@ -495,7 +890,7 @@ class ExplorerPage extends StatelessWidget {
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: Radii.button,
               ),
               child: SelectableText(
                 ins.cli,
@@ -506,25 +901,40 @@ class ExplorerPage extends StatelessWidget {
         ),
       ),
       NodeInspectorVm() => Inspector(
-        eyebrow: 'Node',
+        eyebrow: ins.eyebrow,
         title: ins.title,
-        onClose: onCloseInspector,
-        child: Column(
-          crossAxisAlignment: .stretch,
-          spacing: 16,
-          children: [
-            FactGrid(facts: ins.facts, labelWidth: 96),
-            if (ins.cfg.isNotEmpty) ...[
-              SectionLabel(ins.cfgLabel),
-              FactGrid(facts: ins.cfg),
-            ],
-            if (ins.attr.isNotEmpty) ...[
-              SectionLabel(ins.attrLabel),
-              FactGrid(facts: ins.attr),
-            ],
-          ],
-        ),
+        width: 320,
+        child: InspectorSections(sections: ins.sections),
       ),
     };
   }
+
+  /// Actions ▾: an outline 40 with a chevron.
+  Widget _actionsButton(
+    AppColors c, {
+    required String label,
+    VoidCallback? onTap,
+  }) => Material(
+    color: Colors.transparent,
+    shape: RoundedRectangleBorder(
+      borderRadius: Radii.button,
+      side: BorderSide(color: c.line3),
+    ),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: Radii.button,
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          mainAxisSize: .min,
+          spacing: 8,
+          children: [
+            Text(label, style: TextStyle(fontSize: 14, color: c.text1)),
+            AppIcon('ui_chevron_down', size: 14, color: c.text1),
+          ],
+        ),
+      ),
+    ),
+  );
 }

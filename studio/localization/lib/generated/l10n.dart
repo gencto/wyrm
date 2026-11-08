@@ -2432,10 +2432,10 @@ class S {
     );
   }
 
-  /// `Values update live. Edits are staged in this session; nothing is written until you apply.`
+  /// `Values update live. Edits are staged in this session; nothing is written to the device until you apply.`
   String get pointsNote {
     return Intl.message(
-      'Values update live. Edits are staged in this session; nothing is written until you apply.',
+      'Values update live. Edits are staged in this session; nothing is written to the device until you apply.',
       name: 'pointsNote',
       desc: '',
       args: [],
@@ -2572,16 +2572,6 @@ class S {
   /// `staged`
   String get tagStaged {
     return Intl.message('staged', name: 'tagStaged', desc: '', args: []);
-  }
-
-  /// `Right-click a node or press and hold to see its actions. sys/** is edited in Links, Access, Sites and System.`
-  String get treeNote {
-    return Intl.message(
-      'Right-click a node or press and hold to see its actions. sys/** is edited in Links, Access, Sites and System.',
-      name: 'treeNote',
-      desc: '',
-      args: [],
-    );
   }
 
   /// `Tree · {site}`
@@ -4230,6 +4220,628 @@ class S {
     return Intl.message(
       'API key secret',
       name: 'cfgApiKey',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The tree shows data only.`
+  String get treeNoteLead {
+    return Intl.message(
+      'The tree shows data only.',
+      name: 'treeNoteLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `is edited in`
+  String get treeNoteMiddle {
+    return Intl.message(
+      'is edited in',
+      name: 'treeNoteMiddle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `and`
+  String get andWord {
+    return Intl.message('and', name: 'andWord', desc: '', args: []);
+  }
+
+  /// `Filter`
+  String get filter {
+    return Intl.message('Filter', name: 'filter', desc: '', args: []);
+  }
+
+  /// `Copy key`
+  String get copyKey {
+    return Intl.message('Copy key', name: 'copyKey', desc: '', args: []);
+  }
+
+  /// `Copy keys`
+  String get copyKeys {
+    return Intl.message('Copy keys', name: 'copyKeys', desc: '', args: []);
+  }
+
+  /// `Key copied`
+  String get keyCopied {
+    return Intl.message('Key copied', name: 'keyCopied', desc: '', args: []);
+  }
+
+  /// `{count} keys copied`
+  String keysCopied(Object count) {
+    return Intl.message(
+      '$count keys copied',
+      name: 'keysCopied',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Value copied`
+  String get valueCopied {
+    return Intl.message(
+      'Value copied',
+      name: 'valueCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ping`
+  String get ping {
+    return Intl.message('Ping', name: 'ping', desc: '', args: []);
+  }
+
+  /// `Add point`
+  String get addPoint {
+    return Intl.message('Add point', name: 'addPoint', desc: '', args: []);
+  }
+
+  /// `Import CSV or DSA tree`
+  String get importPoints {
+    return Intl.message(
+      'Import CSV or DSA tree',
+      name: 'importPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apply profile`
+  String get applyProfile {
+    return Intl.message(
+      'Apply profile',
+      name: 'applyProfile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Filter points`
+  String get filterPoints {
+    return Intl.message(
+      'Filter points',
+      name: 'filterPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Register`
+  String get colRegister {
+    return Intl.message('Register', name: 'colRegister', desc: '', args: []);
+  }
+
+  /// `Unit`
+  String get colUnit {
+    return Intl.message('Unit', name: 'colUnit', desc: '', args: []);
+  }
+
+  /// `Poll`
+  String get colPoll {
+    return Intl.message('Poll', name: 'colPoll', desc: '', args: []);
+  }
+
+  /// `What`
+  String get colOp {
+    return Intl.message('What', name: 'colOp', desc: '', args: []);
+  }
+
+  /// `Result`
+  String get colResult {
+    return Intl.message('Result', name: 'colResult', desc: '', args: []);
+  }
+
+  /// `was`
+  String get wasWord {
+    return Intl.message('was', name: 'wasWord', desc: '', args: []);
+  }
+
+  /// `No points yet`
+  String get noPointsYet {
+    return Intl.message(
+      'No points yet',
+      name: 'noPointsYet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count} selected`
+  String nSelected(Object count) {
+    return Intl.message(
+      '$count selected',
+      name: 'nSelected',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Set poll…`
+  String get setPoll {
+    return Intl.message('Set poll…', name: 'setPoll', desc: '', args: []);
+  }
+
+  /// `Record in history…`
+  String get recordInHistory {
+    return Intl.message(
+      'Record in history…',
+      name: 'recordInHistory',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove…`
+  String get removeEllipsis {
+    return Intl.message('Remove…', name: 'removeEllipsis', desc: '', args: []);
+  }
+
+  /// `Clear`
+  String get clearSelection {
+    return Intl.message('Clear', name: 'clearSelection', desc: '', args: []);
+  }
+
+  /// `not applied`
+  String get notApplied {
+    return Intl.message('not applied', name: 'notApplied', desc: '', args: []);
+  }
+
+  /// `stale`
+  String get stale {
+    return Intl.message('stale', name: 'stale', desc: '', args: []);
+  }
+
+  /// `last read {time}`
+  String lastRead(Object time) {
+    return Intl.message(
+      'last read $time',
+      name: 'lastRead',
+      desc: '',
+      args: [time],
+    );
+  }
+
+  /// `unit {unit}`
+  String unitNumber(Object unit) {
+    return Intl.message(
+      'unit $unit',
+      name: 'unitNumber',
+      desc: '',
+      args: [unit],
+    );
+  }
+
+  /// `device`
+  String get kindDevice {
+    return Intl.message('device', name: 'kindDevice', desc: '', args: []);
+  }
+
+  /// `connection`
+  String get kindConnection {
+    return Intl.message(
+      'connection',
+      name: 'kindConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `link`
+  String get kindLink {
+    return Intl.message('link', name: 'kindLink', desc: '', args: []);
+  }
+
+  /// `node`
+  String get kindNode {
+    return Intl.message('node', name: 'kindNode', desc: '', args: []);
+  }
+
+  /// `Point`
+  String get insPoint {
+    return Intl.message('Point', name: 'insPoint', desc: '', args: []);
+  }
+
+  /// `Action`
+  String get insAction {
+    return Intl.message('Action', name: 'insAction', desc: '', args: []);
+  }
+
+  /// `Device`
+  String get insDevice {
+    return Intl.message('Device', name: 'insDevice', desc: '', args: []);
+  }
+
+  /// `Connection`
+  String get insConnection {
+    return Intl.message(
+      'Connection',
+      name: 'insConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Link`
+  String get insLink {
+    return Intl.message('Link', name: 'insLink', desc: '', args: []);
+  }
+
+  /// `Node`
+  String get insNode {
+    return Intl.message('Node', name: 'insNode', desc: '', args: []);
+  }
+
+  /// `Register`
+  String get secRegister {
+    return Intl.message('Register', name: 'secRegister', desc: '', args: []);
+  }
+
+  /// `Value`
+  String get secValue {
+    return Intl.message('Value', name: 'secValue', desc: '', args: []);
+  }
+
+  /// `Polling`
+  String get secPolling {
+    return Intl.message('Polling', name: 'secPolling', desc: '', args: []);
+  }
+
+  /// `Write`
+  String get secWrite {
+    return Intl.message('Write', name: 'secWrite', desc: '', args: []);
+  }
+
+  /// `What the tree will publish`
+  String get secPublish {
+    return Intl.message(
+      'What the tree will publish',
+      name: 'secPublish',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Parameters`
+  String get secParameters {
+    return Intl.message(
+      'Parameters',
+      name: 'secParameters',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Diagnostics`
+  String get secDiagnostics {
+    return Intl.message(
+      'Diagnostics',
+      name: 'secDiagnostics',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Attributes`
+  String get secAttributes {
+    return Intl.message(
+      'Attributes',
+      name: 'secAttributes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `staged · was {was}`
+  String stagedWas(Object was) {
+    return Intl.message(
+      'staged · was $was',
+      name: 'stagedWas',
+      desc: '',
+      args: [was],
+    );
+  }
+
+  /// `Turning this on needs {level} level`
+  String writableNeeds(Object level) {
+    return Intl.message(
+      'Turning this on needs $level level',
+      name: 'writableNeeds',
+      desc: '',
+      args: [level],
+    );
+  }
+
+  /// `Area`
+  String get fieldArea {
+    return Intl.message('Area', name: 'fieldArea', desc: '', args: []);
+  }
+
+  /// `Address`
+  String get fieldAddress {
+    return Intl.message('Address', name: 'fieldAddress', desc: '', args: []);
+  }
+
+  /// `Data type`
+  String get fieldDataType {
+    return Intl.message('Data type', name: 'fieldDataType', desc: '', args: []);
+  }
+
+  /// `Word order`
+  String get fieldWordOrder {
+    return Intl.message(
+      'Word order',
+      name: 'fieldWordOrder',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unit`
+  String get fieldUnit {
+    return Intl.message('Unit', name: 'fieldUnit', desc: '', args: []);
+  }
+
+  /// `Scale`
+  String get fieldScale {
+    return Intl.message('Scale', name: 'fieldScale', desc: '', args: []);
+  }
+
+  /// `Offset`
+  String get fieldOffset {
+    return Intl.message('Offset', name: 'fieldOffset', desc: '', args: []);
+  }
+
+  /// `Precision`
+  String get fieldPrecision {
+    return Intl.message(
+      'Precision',
+      name: 'fieldPrecision',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Bit`
+  String get fieldBit {
+    return Intl.message('Bit', name: 'fieldBit', desc: '', args: []);
+  }
+
+  /// `Registers`
+  String get fieldRegisters {
+    return Intl.message(
+      'Registers',
+      name: 'fieldRegisters',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Writable`
+  String get fieldWritable {
+    return Intl.message('Writable', name: 'fieldWritable', desc: '', args: []);
+  }
+
+  /// `Writable by the master`
+  String get fieldWritableByMaster {
+    return Intl.message(
+      'Writable by the master',
+      name: 'fieldWritableByMaster',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set by the data type: its _wswap, _bswap or _wbswap suffix.`
+  String get wordOrderReason {
+    return Intl.message(
+      'Set by the data type: its _wswap, _bswap or _wbswap suffix.',
+      name: 'wordOrderReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The driver has no {param} parameter.`
+  String noParamReason(Object param) {
+    return Intl.message(
+      'The driver has no $param parameter.',
+      name: 'noParamReason',
+      desc: '',
+      args: [param],
+    );
+  }
+
+  /// `This point has no edit action.`
+  String get noEditReason {
+    return Intl.message(
+      'This point has no edit action.',
+      name: 'noEditReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This node has no ping action: the driver pings by itself (cfg ping).`
+  String get noPingReason {
+    return Intl.message(
+      'This node has no ping action: the driver pings by itself (cfg ping).',
+      name: 'noPingReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker has no action to apply a profile to a device yet.`
+  String get noProfileReason {
+    return Intl.message(
+      'The broker has no action to apply a profile to a device yet.',
+      name: 'noProfileReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This node has no {action} action.`
+  String noActionReason(Object action) {
+    return Intl.message(
+      'This node has no $action action.',
+      name: 'noActionReason',
+      desc: '',
+      args: [action],
+    );
+  }
+
+  /// `Recording a point is set up in History (watch groups).`
+  String get noHistoryAction {
+    return Intl.message(
+      'Recording a point is set up in History (watch groups).',
+      name: 'noHistoryAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker has no call to send a request to an admin yet.`
+  String get askAdminReason {
+    return Intl.message(
+      'The broker has no call to send a request to an admin yet.',
+      name: 'askAdminReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The audit needs config on sys/audit.`
+  String get auditNeeds {
+    return Intl.message(
+      'The audit needs config on sys/audit.',
+      name: 'auditNeeds',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `done`
+  String get auditDone {
+    return Intl.message('done', name: 'auditDone', desc: '', args: []);
+  }
+
+  /// `refused ({code})`
+  String auditRefused(Object code) {
+    return Intl.message(
+      'refused ($code)',
+      name: 'auditRefused',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `Select a point in the table to see its history.`
+  String get pickAPoint {
+    return Intl.message(
+      'Select a point in the table to see its history.',
+      name: 'pickAPoint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Site {site} · applied with your rights: {user}, {role} ({level})`
+  String rightsLine(Object site, Object user, Object role, Object level) {
+    return Intl.message(
+      'Site $site · applied with your rights: $user, $role ($level)',
+      name: 'rightsLine',
+      desc: '',
+      args: [site, user, role, level],
+    );
+  }
+
+  /// `{count, plural, =1{Apply 1 change} other{Apply {count} changes}}`
+  String applyChanges(num count) {
+    return Intl.plural(
+      count,
+      one: 'Apply 1 change',
+      other: 'Apply $count changes',
+      name: 'applyChanges',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Ask an admin for {count}`
+  String askAdminFor(Object count) {
+    return Intl.message(
+      'Ask an admin for $count',
+      name: 'askAdminFor',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Each write is checked by the link and recorded in {audit}. A value shows only after it is read back.`
+  String reviewNote(Object audit) {
+    return Intl.message(
+      'Each write is checked by the link and recorded in $audit. A value shows only after it is read back.',
+      name: 'reviewNote',
+      desc: '',
+      args: [audit],
+    );
+  }
+
+  /// `Close`
+  String get closeLabel {
+    return Intl.message('Close', name: 'closeLabel', desc: '', args: []);
+  }
+
+  /// `Discard all`
+  String get discardAll {
+    return Intl.message('Discard all', name: 'discardAll', desc: '', args: []);
+  }
+
+  /// `{kind} · {count} actions`
+  String menuSubtitle(Object kind, Object count) {
+    return Intl.message(
+      '$kind · $count actions',
+      name: 'menuSubtitle',
+      desc: '',
+      args: [kind, count],
+    );
+  }
+
+  /// `Other`
+  String get menuOther {
+    return Intl.message('Other', name: 'menuOther', desc: '', args: []);
+  }
+
+  /// `No records for this node in the last 500 of sys/audit.`
+  String get noAuditHere {
+    return Intl.message(
+      'No records for this node in the last 500 of sys/audit.',
+      name: 'noAuditHere',
       desc: '',
       args: [],
     );

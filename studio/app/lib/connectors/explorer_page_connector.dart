@@ -7,36 +7,54 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
+import 'package:business/redux/nodes/actions/check_points_action.dart';
+import 'package:business/redux/nodes/actions/clear_selection_action.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
+import 'package:business/redux/nodes/actions/mark_nodes_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_audit_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_action_action.dart';
 import 'package:business/redux/nodes/actions/set_history_range_action.dart';
+import 'package:business/redux/nodes/actions/set_point_filter_action.dart';
 import 'package:business/redux/nodes/actions/set_tab_action.dart';
+import 'package:business/redux/nodes/actions/set_tree_filter_action.dart';
 import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
+import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
+import 'package:business/wyrm/points.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:models/action_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/live_value.dart';
+import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
+import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
+import 'package:ui/alerts/styled_snackbar.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/containers/inspector_sections.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/overlays/node_menu.dart';
 import 'package:ui/pages/explorer_page.dart';
+import 'package:ui/tables/points_table.dart';
 import 'package:ui/tables/row_table.dart';
+import 'package:ui/trees/node_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
 import '../common/forms.dart';
@@ -45,6 +63,50 @@ import '../common/tab_visibility.dart';
 /// The sections of a site the tree starts from (`sys/**` is not in the
 /// tree: it is in Links, Access, Sites and System, docs/studio.md §7.4).
 const _sections = ['downstream', 'dataflows', 'storage', 'upstream'];
+
+/// Explorer's keys (docs/design/specs/explorer.md §6): ⌘⇧C copies the
+/// keys, ⌘C the value of the point in the inspector, Esc clears the
+/// selection.
+enum _Key { copyKeys, copyValue, clear }
+
+class _KeyIntent extends Intent {
+  const _KeyIntent(this.key);
+
+  final _Key key;
+}
+
+/// Runs a [_Key] unless a text field has the focus (its own ⌘C and Esc
+/// win) or there is nothing to do; then the key passes on.
+class _KeyAction extends Action<_KeyIntent> {
+  _KeyAction({required this.enabled, required this.run});
+
+  final bool Function(_Key key) enabled;
+  final void Function(_Key key) run;
+
+  @override
+  bool isEnabled(_KeyIntent intent) =>
+      enabled(intent.key) &&
+      FocusManager.instance.primaryFocus?.context
+              ?.findAncestorStateOfType<EditableTextState>() ==
+          null;
+
+  @override
+  Object? invoke(_KeyIntent intent) {
+    run(intent.key);
+    return null;
+  }
+}
+
+/// The workspaces the tree's note links to, by their rail index.
+const _noteLinks = {'links': 1, 'access': 4, 'sites': 5, 'system': 7};
+
+/// The poll rates of the Polling segments, in seconds.
+const _polls = [0.25, 0.5, 1.0, 5.0];
+
+/// Where an `edit` parameter of a point goes in the inspector (docs/design/
+/// specs/explorer.md §4); a parameter not named here goes to Register.
+const _valueParams = {'unit', 'scale', 'offset', 'precision'};
+const _writeParams = {'writable', 'writable_by_master'};
 
 /// What Explorer subscribes to while its tab is shown: the children of the
 /// selected node, the selected point, and the links' states for the dots.
@@ -70,6 +132,11 @@ class ExplorerPageConnector extends StatelessWidget {
           ..dispatchSync(UnwatchKeysAction(before.watch));
         _watching.keys = now.watch;
       }
+      if (now.tab == 'audit' &&
+          now.auditKey != null &&
+          (before.tab != 'audit' || before.keyName != now.keyName)) {
+        now.onAudit();
+      }
     },
     builder: (context, vm) => TabVisibility(
       onShow: () {
@@ -82,63 +149,240 @@ class ExplorerPageConnector extends StatelessWidget {
         _watching.shown = false;
         vm.onHide(_watching.keys);
       },
-      child: ExplorerPage(
-        treeLabel: vm.treeLabel,
-        tree: vm.tree,
-        treeNote: S.current.treeNote,
-        onTap: vm.onSelect,
-        onToggle: vm.onToggle,
-        onMenu: (id, at) => vm.onMenu(context, id, at),
-        keyName: vm.keyName,
-        title: vm.title,
-        pill: vm.pill,
-        empty: S.current.selectANode,
-        tabs: vm.tabs,
-        tab: vm.tab,
-        onTab: vm.onTab,
-        pointColumns: [
-          ColumnVm(S.current.colPoint, flex: 3),
-          ColumnVm(S.current.colType, flex: 2),
-          ColumnVm(S.current.colValue, flex: 3),
-          ColumnVm(S.current.colQuality, flex: 2),
-          ColumnVm(S.current.colTime, flex: 2),
-          ColumnVm(S.current.colWrite),
-        ],
-        points: vm.points,
-        pointsEmpty: S.current.noPoints,
-        pointsNote: S.current.pointsNote,
-        onPoint: vm.onSelect,
-        params: vm.params,
-        paramsNote: S.current.paramsNote,
-        actionGroups: vm.actionGroups,
-        onAction: vm.onAction,
-        result: vm.result,
-        ranges: const [
-          TabItemVm(id: '1h', label: '1 h'),
-          TabItemVm(id: '24h', label: '24 h'),
-          TabItemVm(id: '7d', label: '7 d'),
-        ],
-        range: vm.range,
-        onRange: vm.onRange,
-        trend: vm.trend,
-        trendLabels: vm.trendLabels,
-        trendEmpty: S.current.noHistory,
-        historyColumns: [
-          ColumnVm(S.current.colTime, flex: 2),
-          ColumnVm(S.current.colValue, flex: 3),
-          ColumnVm(S.current.colQuality, flex: 2),
-        ],
-        historyRows: vm.historyRows,
-        inspector: vm.inspector,
-        busy: vm.busy,
-        onSubmit: vm.onSubmit,
-        onCloseInspector: vm.onCloseInspector,
+      child: Shortcuts(
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true):
+              _KeyIntent(_Key.copyKeys),
+          SingleActivator(LogicalKeyboardKey.keyC, control: true, shift: true):
+              _KeyIntent(_Key.copyKeys),
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true): _KeyIntent(
+            _Key.copyValue,
+          ),
+          SingleActivator(LogicalKeyboardKey.escape): _KeyIntent(_Key.clear),
+        },
+        child: Actions(
+          actions: {
+            _KeyIntent: _KeyAction(
+              enabled: (k) => switch (k) {
+                _Key.copyKeys => vm.copyKeys.isNotEmpty,
+                _Key.copyValue => vm.pointValue != null,
+                _Key.clear => true,
+              },
+              run: (k) => switch (k) {
+                _Key.copyKeys => _copy(context, vm.copyKeys),
+                _Key.copyValue => _copyValue(context, vm.pointValue),
+                _Key.clear => vm.onClear(),
+              },
+            ),
+          },
+          child: Focus(
+            autofocus: true,
+            child: ExplorerPage(
+              treeLabel: vm.treeLabel,
+              tree: vm.tree,
+              treeLoading: vm.treeLoading,
+              treeFilter: vm.treeFilter,
+              onTreeFilter: vm.onTreeFilter,
+              treeFilterHint: S.current.filter,
+              treeNote: TreeNoteVm(
+                lead: S.current.treeNoteLead,
+                code: 'sys/**',
+                middle: S.current.treeNoteMiddle,
+                and: S.current.andWord,
+                links: [
+                  ('links', S.current.wsLinks),
+                  ('access', S.current.wsAccess),
+                  ('sites', S.current.wsSites),
+                  ('system', S.current.wsSystem),
+                ],
+              ),
+              onNoteLink: (id) => AutoTabsRouter.of(
+                context,
+              ).setActiveIndex(_noteLinks[id] ?? 0),
+              onTap: vm.onSelect,
+              onToggle: vm.onToggle,
+              onMark: vm.onMark,
+              onMarkRange: vm.onMarkRange,
+              onMenu: (id, at) => _menu(context, vm, id, at),
+              keyName: vm.keyName,
+              onCopyKey: vm.keyName == null
+                  ? null
+                  : () => _copy(context, [vm.keyName!]),
+              copyKeyLabel: S.current.copyKey,
+              title: vm.title,
+              pill: vm.pill,
+              subtitle: vm.subtitle,
+              headerButtons: vm.headerButtons,
+              actionsLabel: vm.keyName == null ? null : S.current.tabActions,
+              onActions: (at) => _menu(context, vm, vm.keyName!, at),
+              onTool: (id) => _tool(context, vm, id),
+              empty: S.current.selectANode,
+              tabs: vm.tabs,
+              tab: vm.tab,
+              onTab: vm.onTab,
+              toolbar: vm.toolbar,
+              selectionBar: vm.selectionBar,
+              onClearSelection: vm.onClear,
+              pointFilter: vm.pointFilter,
+              onPointFilter: vm.onPointFilter,
+              pointFilterHint: S.current.filterPoints,
+              points: vm.points,
+              pointLabels: PointsTableLabels(
+                point: S.current.colPoint,
+                register: S.current.colRegister,
+                type: S.current.colType,
+                unit: S.current.colUnit,
+                poll: S.current.colPoll,
+                value: S.current.colValue,
+                quality: S.current.colQuality,
+                write: S.current.colWrite,
+                was: S.current.wasWord,
+              ),
+              pointsLoading: vm.pointsLoading,
+              pointsEmpty: vm.pointsEmpty,
+              emptyButtons: vm.emptyButtons,
+              pointsNote: S.current.pointsNote,
+              onPoint: vm.onPoint,
+              onCheck: vm.onCheck,
+              onRange: vm.onRange,
+              onCheckAll: vm.onCheckAll,
+              params: vm.params,
+              actionGroups: vm.actionGroups,
+              onAction: vm.onAction,
+              result: vm.result,
+              ranges: const [
+                TabItemVm(id: '1h', label: '1 h'),
+                TabItemVm(id: '24h', label: '24 h'),
+                TabItemVm(id: '7d', label: '7 d'),
+              ],
+              range: vm.range,
+              onHistoryRange: vm.onHistoryRange,
+              trend: vm.trend,
+              trendLabels: vm.trendLabels,
+              trendEmpty: S.current.noHistory,
+              historyColumns: [
+                ColumnVm(S.current.colTime, flex: 2),
+                ColumnVm(S.current.colValue, flex: 3),
+                ColumnVm(S.current.colQuality, flex: 2),
+              ],
+              historyRows: vm.historyRows,
+              historyNote: vm.historyNote,
+              auditColumns: [
+                ColumnVm(S.current.colTime, flex: 2),
+                ColumnVm(S.current.colOp),
+                ColumnVm(S.current.colKey, flex: 4),
+                ColumnVm(S.current.colWho, flex: 3),
+                ColumnVm(S.current.colResult, flex: 2),
+              ],
+              auditRows: vm.auditRows,
+              auditNote: vm.auditNote,
+              inspector: vm.inspector,
+              busy: vm.busy,
+              onSubmit: vm.onSubmit,
+              onCloseInspector: vm.onCloseInspector,
+            ),
+          ),
+        ),
       ),
     ),
   );
 
   static bool _sameKeys(List<String> a, List<String> b) =>
       a.length == b.length && a.every(b.contains);
+
+  /// Copies [keys], one per line, and says so for 2 s.
+  static void _copy(BuildContext context, List<String> keys) {
+    if (keys.isEmpty) {
+      return;
+    }
+    unawaited(Clipboard.setData(ClipboardData(text: keys.join('\n'))));
+    StyledSnackbar.instance.show(
+      context: context,
+      message: keys.length == 1
+          ? S.current.keyCopied
+          : S.current.keysCopied(keys.length),
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  /// ⌘C: the value of the point in the inspector.
+  static void _copyValue(BuildContext context, String? value) {
+    if (value == null) {
+      return;
+    }
+    unawaited(Clipboard.setData(ClipboardData(text: value)));
+    StyledSnackbar.instance.show(
+      context: context,
+      message: S.current.valueCopied,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  /// The node menu of [id] at [at] (tree `⋯`, right click, Actions ▾).
+  static Future<void> _menu(
+    BuildContext context,
+    _Vm vm,
+    String id,
+    Offset at,
+  ) async {
+    if (id != vm.keyName) {
+      vm.onSelect(id);
+    }
+    final menu = await vm.menuOf(id);
+    if (!context.mounted || menu == null) {
+      return;
+    }
+    final picked = await NodeMenu.show(context, at: at, vm: menu);
+    if (!context.mounted || picked == null) {
+      return;
+    }
+    if (picked == NodeMenu.copyId) {
+      _copy(context, [id]);
+    } else {
+      vm.onPickAction(picked);
+    }
+  }
+
+  /// A header, toolbar, empty-state or selection-bar button.
+  static Future<void> _tool(BuildContext context, _Vm vm, String id) async {
+    switch (id) {
+      case 'copy_keys':
+        _copy(context, vm.copyKeys);
+      case 'set_poll':
+        final box = context.findRenderObject() as RenderBox?;
+        final at = box == null
+            ? Offset.zero
+            : box.localToGlobal(const Offset(320, 180));
+        final picked = await NodeMenu.show(
+          context,
+          at: at,
+          vm: NodeMenuVm(
+            title: S.current.colPoll,
+            subtitle: S.current.nSelected(vm.checkedCount),
+            groups: [
+              NodeMenuGroupVm(
+                label: S.current.setPoll,
+                items: [
+                  for (final s in _polls)
+                    NodeMenuItemVm(id: '$s', label: pollText(s)),
+                ],
+              ),
+            ],
+            copyLabel: S.current.copyKeys,
+          ),
+        );
+        if (!context.mounted || picked == null) {
+          return;
+        }
+        if (picked == NodeMenu.copyId) {
+          _copy(context, vm.copyKeys);
+        } else {
+          vm.onSetPoll(double.parse(picked));
+        }
+      default:
+        vm.onTool(id);
+    }
+  }
 }
 
 /// Factory that creates a view-model for the StoreConnector.
@@ -173,6 +417,27 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     };
   }
 
+  /// The framework `status` of [key] (connection or device): its enum name
+  /// and tone.
+  StatusPillVm? _statusPill(String key) {
+    final v = live.values['$key/status'];
+    if (v == null) {
+      return null;
+    }
+    final name = valueText(v.value, choices: _choices('$key/status'));
+    final tone = switch (name.toLowerCase()) {
+      'connected' => Tone.good,
+      'connecting' || 'unknown' => Tone.warn,
+      'failed' => Tone.bad,
+      _ => Tone.neutral,
+    };
+    return StatusPillVm(
+      label: name,
+      tone: tone,
+      mark: tone == Tone.warn ? .ring : .dot,
+    );
+  }
+
   String? _chip(String key) {
     if (_parent(key) != '$_root/downstream') {
       return null;
@@ -187,9 +452,23 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     };
   }
 
+  /// The tree rows; with a filter, the nodes whose name holds it and their
+  /// ancestors, opened.
   List<TreeRowVm> _rows() {
     final out = <TreeRowVm>[];
     final selected = nodes.selectedNode;
+    final f = nodes.treeFilter.trim().toLowerCase();
+    final keep = <String>{};
+    if (f.isNotEmpty) {
+      for (final n in nodes.table.values) {
+        if (n.type == null && n.name.toLowerCase().contains(f)) {
+          final parts = n.key.split('/');
+          for (var i = 3; i <= parts.length; i++) {
+            keep.add(parts.sublist(0, i).join('/'));
+          }
+        }
+      }
+    }
     void walk(
       String key,
       String name,
@@ -197,7 +476,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       NodeInfo? info,
       bool section = false,
     }) {
-      final open = nodes.expanded.contains(key);
+      if (f.isNotEmpty && !keep.contains(key)) {
+        return;
+      }
+      final open =
+          nodes.expanded.contains(key) ||
+          (f.isNotEmpty && keep.any((k) => k.startsWith('$key/')));
       final dot = _linkDot(key);
       final kids = open ? _children(key) : const <NodeInfo>[];
       out.add(
@@ -214,6 +498,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           hasChildren: section || (info?.hasChildren ?? false),
           expanded: open,
           selected: key == selected,
+          marked: nodes.marked.contains(key),
           chip: _chip(key),
           dot: dot?.$1,
           dotLabel: dot?.$2,
@@ -242,43 +527,121 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     return [
       '$_root/sys/links/*/state',
       if (sel != null) '$sel/*',
-      if (sel != null && nodes.table[sel]?.type != null) sel,
     ];
+  }
+
+  /// The enum names of [key]: a list carries none, the full meta does.
+  List<String> _choices(String key) {
+    final d = nodes.detail[key]?.choices;
+    if (d != null && d.isNotEmpty) {
+      return d.unlock;
+    }
+    return nodes.table[key]?.choices.unlock ?? const [];
+  }
+
+  /// The kind of the node on screen, from its profile and place.
+  String _kind(String key, NodeDetail? d) {
+    final p = d?.profile ?? nodes.table[key]?.profile ?? '';
+    if (p.contains('device')) {
+      return 'device';
+    }
+    if (p.contains('conn')) {
+      return 'connection';
+    }
+    if (_parent(key) == '$_root/downstream') {
+      return 'link';
+    }
+    return 'node';
+  }
+
+  String _kindWord(String kind) => switch (kind) {
+    'device' => S.current.kindDevice,
+    'connection' => S.current.kindConnection,
+    'link' => S.current.kindLink,
+    _ => S.current.kindNode,
+  };
+
+  ActionInfo? _actionOf(String key, String name) =>
+      nodes.detail[key]?.actions.where((a) => a.name == name).firstOrNull;
+
+  /// `HR 10`, `IR 3`, `Coil 1`, `DI 7`: the modbus area and the offset as
+  /// the driver takes it (`addr`, 0-based; docs/modbus.md), or the cfg's
+  /// `address`.
+  static String _register(NodeDetail? d) {
+    final cfg = d?.cfg;
+    if (cfg == null) {
+      return '—';
+    }
+    if (cfg['addr'] case final a?) {
+      final area = switch (cfg['table']) {
+        'holding' => 'HR',
+        'input' => 'IR',
+        'coil' => 'Coil',
+        'discrete' => 'DI',
+        final t? => t,
+        null => '',
+      };
+      return area.isEmpty ? a : '$area $a';
+    }
+    return cfg['address'] ?? '—';
   }
 
   @override
   _Vm fromStore() {
     final sel = nodes.selectedNode;
-    final info = sel == null ? null : nodes.table[sel];
     final detail = sel == null ? null : nodes.detail[sel];
-    final isPoint = info?.type != null || detail?.type != null;
-    final pointsHere = sel == null
-        ? const <NodeInfo>[]
-        : _children(sel).where((n) => n.type != null).toList();
+    final kids = sel == null ? const <NodeInfo>[] : _children(sel);
+    final pointsAll = kids.where(isPoint).toList();
+    final f = nodes.pointFilter.trim().toLowerCase();
+    final shown = [
+      for (final p in pointsAll)
+        if (f.isEmpty ||
+            p.name.toLowerCase().contains(f) ||
+            (p.display?.toLowerCase().contains(f) ?? false))
+          p,
+    ];
     final actions = detail?.actions.unlock ?? const <ActionInfo>[];
     final tab = nodes.tab;
-    final dot = sel == null ? null : _linkDot(sel);
-    final histChoices = sel == null ? const <String>[] : _choices(sel);
+    final kind = sel == null ? 'node' : _kind(sel, detail);
+    final linkDot = sel == null ? null : _linkDot(sel);
+    final point = nodes.point;
+    final checked = nodes.checked;
+    final order = [for (final p in shown) p.key];
+    final canAudit = site.can('config', '$_root/sys/audit');
     return _Vm(
       treeLabel: S.current.treeOf(site.viewed ?? ''),
       tree: _rows(),
+      treeLoading: nodes.view.isEmpty && nodes.isWaiting,
+      treeFilter: nodes.treeFilter,
       watch: _watch(),
       keyName: sel,
       title: sel == null
           ? null
-          : (detail?.display ?? info?.display ?? sel.split('/').last),
-      pill: dot == null
-          ? null
-          : StatusPillVm(
-              label: dot.$2,
-              tone: dot.$1,
-              mark: dot.$1 == Tone.warn ? .ring : .dot,
-            ),
+          : (detail?.display ??
+                nodes.table[sel]?.display ??
+                sel.split('/').last),
+      pill: linkDot != null
+          ? StatusPillVm(
+              label: linkDot.$2,
+              tone: linkDot.$1,
+              mark: linkDot.$1 == Tone.warn ? .ring : .dot,
+            )
+          : (sel == null ? null : _statusPill(sel)),
+      subtitle: sel == null ? null : _subtitle(sel, kind, detail, pointsAll),
+      headerButtons: [
+        if (sel != null)
+          _actionButton(
+            sel,
+            'ping',
+            S.current.ping,
+            why: S.current.noPingReason,
+          ),
+      ],
       tabs: [
         TabItemVm(
           id: 'points',
           label: S.current.tabPoints,
-          count: '${pointsHere.length}',
+          count: '${pointsAll.length}',
         ),
         TabItemVm(id: 'params', label: S.current.tabParameters),
         TabItemVm(
@@ -287,40 +650,71 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           count: '${actions.length}',
         ),
         TabItemVm(id: 'history', label: S.current.tabHistory),
+        TabItemVm(id: 'audit', label: S.current.tabAudit),
       ],
       tab: tab,
+      toolbar: sel == null ? const [] : _toolbar(sel),
+      selectionBar: checked.length < 2
+          ? null
+          : SelectionBarVm(
+              count: S.current.nSelected(checked.length),
+              clear: S.current.clearSelection,
+              buttons: [
+                ToolButtonVm(
+                  id: 'copy_keys',
+                  label: S.current.copyKeys,
+                  icon: 'ui_copy',
+                ),
+                ToolButtonVm(
+                  id: 'set_poll',
+                  label: S.current.setPoll,
+                  disabledReason:
+                      checked.every(
+                        (k) => _actionOf(k, 'edit') != null,
+                      )
+                      ? null
+                      : S.current.noEditReason,
+                ),
+                ToolButtonVm(
+                  id: 'record',
+                  label: S.current.recordInHistory,
+                  disabledReason: S.current.noHistoryAction,
+                ),
+                ToolButtonVm(
+                  id: 'remove_checked',
+                  label: S.current.removeEllipsis,
+                  disabledReason: [
+                    for (final k in checked) ?site.needs('config', k),
+                  ].firstOrNull,
+                ),
+              ],
+            ),
+      checkedCount: checked.length,
+      pointFilter: nodes.pointFilter,
       points: [
-        for (final p in [if (isPoint && info != null) info, ...pointsHere])
-          _pointRow(p, selected: p.key == sel),
+        for (final p in shown) _pointRow(p),
+        if (sel != null) ..._stagedAdds(sel),
       ],
-      params: [
-        if (detail != null) ...[
-          if (detail.profile case final p?)
-            FactVm(label: 'is', value: p, mono: true),
-          if (detail.type case final t?)
-            FactVm(label: 'type', value: t, mono: true),
-          if (detail.unit case final u?) FactVm(label: 'unit', value: u),
-          if (detail.writable case final w?)
-            FactVm(label: 'writable', value: w, mono: true),
-          if (detail.invokable case final i?)
-            FactVm(label: 'invokable', value: i, mono: true),
-          if (detail.choices.isNotEmpty)
-            FactVm(label: 'enum', value: detail.choices.join(', '), mono: true),
-          if (detail.rev case final r?)
-            FactVm(label: 'rev', value: '$r', mono: true),
-          for (final e in detail.cfg.entries)
-            FactVm(label: 'cfg.${e.key}', value: e.value, mono: true),
-          for (final e in detail.attr.entries)
-            FactVm(label: 'attr.${e.key}', value: e.value, mono: true),
-        ],
-      ],
+      pointsLoading: sel != null && detail == null && kids.isEmpty,
+      pointsEmpty: pointsAll.isEmpty
+          ? (_actionOf(sel ?? '', 'add_point') != null
+                ? S.current.noPointsYet
+                : S.current.noPoints)
+          : null,
+      emptyButtons: sel == null || _actionOf(sel, 'add_point') == null
+          ? const []
+          : [
+              for (final b in _toolbar(sel))
+                if (b.id != 'apply_profile') b,
+            ],
+      params: _nodeSections(sel, detail, kind, withDiagnostics: false),
       actionGroups: _groups(actions),
       result: _result(),
       range: nodes.historyRange,
       trend: [
-        if (nodes.historyKey == sel)
+        if (point != null && nodes.historyKey == point)
           TrendSeriesVm(
-            label: sel ?? '',
+            label: point,
             points: [
               for (final h in nodes.history)
                 if (h.value case final v?)
@@ -332,7 +726,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           ? ('', '')
           : (_time(nodes.history.first.time), _time(nodes.history.last.time)),
       historyRows: [
-        if (nodes.historyKey == sel)
+        if (point != null && nodes.historyKey == point)
           for (final (i, h) in nodes.history.reversed.take(50).indexed)
             RowVm(
               id: '$i',
@@ -340,9 +734,9 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                 CellVm(title: _time(h.time), monospace: true),
                 CellVm(
                   title: switch (h.value) {
-                    final num n when histChoices.isNotEmpty => valueText(
+                    final num n when _choices(point).isNotEmpty => valueText(
                       n,
-                      choices: histChoices,
+                      choices: _choices(point),
                     ),
                     _ => h.text,
                   },
@@ -352,7 +746,49 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
               ],
             ),
       ],
-      inspector: _inspector(sel, info, isPoint, actions),
+      historyNote: point == null ? S.current.pickAPoint : null,
+      auditKey: canAudit ? sel : null,
+      auditRows: [
+        if (sel != null)
+          for (final (i, e) in nodes.audit.take(200).indexed)
+            RowVm(
+              id: '$i',
+              cells: [
+                CellVm(title: _time(e.time), monospace: true),
+                CellVm(title: e.op),
+                CellVm(
+                  title: e.key.startsWith(sel)
+                      ? '…${e.key.substring(sel.length)}'
+                      : e.key,
+                  monospace: true,
+                ),
+                CellVm(title: e.who, monospace: true),
+                if (e.status == 0)
+                  CellVm(title: S.current.auditDone, tone: Tone.good)
+                else
+                  CellVm(
+                    title: S.current.auditRefused(e.status),
+                    tone: Tone.bad,
+                  ),
+              ],
+            ),
+      ],
+      auditNote: !canAudit
+          ? S.current.auditNeeds
+          : (nodes.audit.isEmpty ? S.current.noAuditHere : null),
+      inspector: _inspector(sel, detail, kind, actions),
+      copyKeys: [
+        if (checked.isNotEmpty)
+          ...checked
+        else ...[
+          ?sel,
+          for (final k in nodes.marked)
+            if (k != sel) k,
+        ],
+      ],
+      pointValue: point == null
+          ? null
+          : _value(live.values[point], null, choices: _choices(point)),
       busy: nodes.isWaiting || changes.isWaiting,
       onShow: () {
         dispatchSync(WatchKeysAction(_watch()));
@@ -366,69 +802,232 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       onHide: (keys) => dispatchSync(UnwatchKeysAction(keys)),
       onSelect: (k) => dispatchSync(SelectNodeAction(k)),
       onToggle: (k) => dispatchSync(ToggleNodeAction(k)),
+      onMark: (k) => dispatchSync(MarkNodesAction.toggle(k)),
+      onMarkRange: (k) => dispatchSync(
+        MarkNodesAction.range(k, [for (final r in _rows()) r.id]),
+      ),
+      onTreeFilter: (t) => dispatchSync(SetTreeFilterAction(t)),
+      onPointFilter: (t) => dispatchSync(SetPointFilterAction(t)),
+      onPoint: (k) => dispatchSync(SelectPointAction(k == point ? null : k)),
+      onCheck: (k) => dispatchSync(CheckPointsAction.toggle(k)),
+      onRange: (k) => dispatchSync(CheckPointsAction.range(k, order)),
+      onCheckAll: () => dispatchSync(CheckPointsAction.all(order)),
+      onClear: () => dispatchSync(ClearSelectionAction()),
       onTab: (t) {
         dispatchSync(SetTabAction(t));
-        if (t == 'history' && sel != null) {
-          unawaited(dispatchAndWait(RetrieveHistoryAction(sel)));
+        if (t == 'history' && point != null) {
+          unawaited(dispatchAndWait(RetrieveHistoryAction(point)));
+        }
+      },
+      onAudit: () {
+        if (sel != null) {
+          unawaited(dispatchAndWait(RetrieveAuditAction(sel)));
         }
       },
       onAction: (a) => dispatchSync(SetActionAction(a)),
-      onRange: (r) {
+      onPickAction: (a) {
+        dispatchSync(SetTabAction('actions'));
+        dispatchSync(SetActionAction(a));
+      },
+      onHistoryRange: (r) {
         dispatchSync(SetHistoryRangeAction(r));
-        if (sel != null) {
-          unawaited(dispatchAndWait(RetrieveHistoryAction(sel)));
+        if (point != null) {
+          unawaited(dispatchAndWait(RetrieveHistoryAction(point)));
         }
       },
       onCloseInspector: () => dispatchSync(SetActionAction(null)),
       onSubmit: (values) => _submit(sel, values),
-      onMenu: _menu,
+      onTool: (id) => _onTool(sel, id),
+      onSetPoll: (s) {
+        for (final k in checked) {
+          if (_actionOf(k, 'edit') != null) {
+            dispatchSync(StagePointEditAction(k, pollParam, s));
+          }
+        }
+      },
+      menuOf: _menuOf,
     );
   }
 
-  /// The enum names of [key]: a list carries none, the full meta does.
-  List<String> _choices(String key) {
-    final d = nodes.detail[key]?.choices;
-    if (d != null && d.isNotEmpty) {
-      return d.unlock;
+  /// `modbus device · unit 1 · 127.0.0.1:5020 · last read 12:00:03`.
+  String _subtitle(
+    String key,
+    String kind,
+    NodeDetail? d,
+    List<NodeInfo> points,
+  ) {
+    final parts = key.split('/');
+    final link = parts.length > 3 ? parts[3] : null;
+    final driver = link == null ? null : links.table[link]?.driver;
+    final conn = switch (kind) {
+      'device' => nodes.detail[_parent(key)]?.cfg,
+      'connection' => d?.cfg,
+      _ => null,
+    };
+    DateTime? last;
+    for (final p in points) {
+      final t = live.values[p.key]?.time;
+      if (t != null && (last == null || t.isAfter(last))) {
+        last = t;
+      }
     }
-    return nodes.table[key]?.choices.unlock ?? const [];
+    return [
+      [
+        if (driver != null && driver.isNotEmpty) driver,
+        _kindWord(kind),
+      ].join(' '),
+      if (kind == 'device' && d?.cfg['unit'] != null)
+        S.current.unitNumber(d!.cfg['unit']!),
+      if (conn?['host'] case final h?)
+        conn?['port'] == null ? h : '$h:${conn!['port']}',
+      ?conn?['serial_port'],
+      if (last != null) S.current.lastRead(_time(last)),
+    ].join(' · ');
   }
 
-  RowVm _pointRow(NodeInfo p, {required bool selected}) {
-    final v = live.values[p.key];
-    final staged = changes.table['set:${p.key}'];
-    final choices = _choices(p.key);
-    return RowVm(
-      id: p.key,
-      selected: selected,
-      cells: [
-        CellVm(title: p.name, subtitle: p.display, strong: true),
-        CellVm(title: p.type ?? '—', monospace: true),
-        CellVm(
-          title: staged != null
-              ? '${staged.to} ●'
-              : _value(v, p.unit, choices: choices),
-          subtitle: staged != null
-              ? S.current.wasValue(_value(v, p.unit, choices: choices))
-              : null,
-          monospace: true,
-        ),
-        _qualityCell(v),
-        CellVm(title: v == null ? '—' : _time(v.time), monospace: true),
-        CellVm(title: p.writable == null ? 'R' : 'RW'),
-      ],
+  /// A header or toolbar button that runs the node's own [action], or is
+  /// disabled with [why] when the node has none, or with the level it needs.
+  ToolButtonVm _actionButton(
+    String key,
+    String action,
+    String label, {
+    required String why,
+    String? icon,
+    bool quiet = false,
+  }) {
+    final a = _actionOf(key, action);
+    return ToolButtonVm(
+      id: action,
+      label: label,
+      icon: icon,
+      quiet: quiet,
+      disabledReason: a == null ? why : site.needs(a.level, key),
     );
   }
 
-  CellVm _qualityCell(LiveValue? v) => switch (v?.quality) {
-    null => CellVm(title: S.current.noValue, tone: Tone.neutral, mark: .ring),
-    Quality.good => const CellVm(title: 'good', tone: Tone.good),
-    Quality.uncertain => const CellVm(
-      title: 'uncertain',
-      tone: Tone.warn,
+  List<ToolButtonVm> _toolbar(String key) {
+    final import = _actionOf(key, 'import_dsa') != null
+        ? 'import_dsa'
+        : 'import';
+    return [
+      _actionButton(
+        key,
+        'add_point',
+        S.current.addPoint,
+        icon: 'ui_add',
+        why: S.current.noActionReason('add_point'),
+      ),
+      _actionButton(
+        key,
+        import,
+        S.current.importPoints,
+        icon: 'ui_upload',
+        quiet: true,
+        why: S.current.noActionReason('import'),
+      ),
+      ToolButtonVm(
+        id: 'apply_profile',
+        label: S.current.applyProfile,
+        icon: 'ui_profile',
+        quiet: true,
+        disabledReason: S.current.noProfileReason,
+      ),
+    ];
+  }
+
+  void _onTool(String? sel, String id) {
+    if (sel == null) {
+      return;
+    }
+    switch (id) {
+      case 'remove_checked':
+        for (final k in nodes.checked) {
+          dispatchSync(StageInvokeAction(k, 'remove', const {}));
+        }
+        dispatchSync(ClearSelectionAction());
+      case 'ping':
+        unawaited(dispatchAndWait(InvokeNodeAction(sel, 'ping')));
+      default:
+        // A node action with a form: Add point, Import.
+        dispatchSync(SetActionAction(id));
+    }
+  }
+
+  PointRowVm _pointRow(NodeInfo p) {
+    final v = live.values[p.key];
+    final d = nodes.detail[p.key];
+    final edit = changes.table[StagePointEditAction.idOf(p.key)];
+    final stagedPoll = edit?.args[pollParam];
+    final poll = d?.cfg[pollParam];
+    final offline = !site.connected;
+    return PointRowVm(
+      id: p.key,
+      name: p.name,
+      display: p.display ?? d?.display,
+      register: _register(d),
+      type: d?.cfg['dtype'] ?? p.type ?? '—',
+      unit: switch (p.unit ?? d?.unit ?? d?.cfg['unit']) {
+        final u? when u.isNotEmpty => u,
+        _ => '—',
+      },
+      poll: stagedPoll != null ? pollText(stagedPoll) : pollText(poll),
+      pollWas: stagedPoll != null && poll != null ? pollText(poll) : null,
+      value: v == null ? '—' : valueText(v.value, choices: _choices(p.key)),
+      quality: offline
+          ? QualityMarkVm(label: S.current.stale, tone: .neutral, mark: .dashed)
+          : _quality(v),
+      writable: p.writable != null,
+      checked: nodes.checked.contains(p.key),
+      selected: p.key == nodes.point,
+      staged: changes.table.values.any((c) => c.key == p.key),
+      stale: offline,
+    );
+  }
+
+  /// Points staged to be added to [device]: `not applied` until applied.
+  List<PointRowVm> _stagedAdds(String device) => [
+    for (final c in changes.table.values)
+      if (c.key == device && c.action == 'add_point')
+        PointRowVm(
+          id: c.id,
+          name: '${c.args['name'] ?? '—'}',
+          register: _register(
+            NodeDetail(
+              key: '',
+              cfg: {
+                for (final e in c.args.entries) e.key: '${e.value}',
+              }.lock,
+            ),
+          ),
+          type: '${c.args['dtype'] ?? '—'}',
+          unit: switch (c.args['unit']) {
+            final String u when u.isNotEmpty => u,
+            _ => '—',
+          },
+          poll: pollText(c.args[pollParam]),
+          quality: QualityMarkVm(
+            label: S.current.notApplied,
+            tone: .neutral,
+            mark: .ring,
+          ),
+          writable: c.args['writable'] == true,
+          staged: true,
+        ),
+  ];
+
+  QualityMarkVm _quality(LiveValue? v) => switch (v?.quality) {
+    null => QualityMarkVm(
+      label: S.current.noValue,
+      tone: .neutral,
       mark: .ring,
     ),
-    Quality.bad => const CellVm(title: 'bad', tone: Tone.bad),
+    Quality.good => const QualityMarkVm(label: 'good', tone: .good),
+    Quality.uncertain => const QualityMarkVm(
+      label: 'uncertain',
+      tone: .warn,
+      mark: .ring,
+    ),
+    Quality.bad => const QualityMarkVm(label: 'bad', tone: .bad),
   };
 
   static Tone? _toneOf(String? q) => switch (q) {
@@ -448,6 +1047,239 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     final l = t.toLocal();
     String two(int n) => n.toString().padLeft(2, '0');
     return '${two(l.hour)}:${two(l.minute)}:${two(l.second)}';
+  }
+
+  /// The board's word for a modbus `edit` parameter, else its display name.
+  static String _label(ParamSpec p) => switch (p.name) {
+    'table' => S.current.fieldArea,
+    'addr' => S.current.fieldAddress,
+    'dtype' => S.current.fieldDataType,
+    'unit' => S.current.fieldUnit,
+    'scale' => S.current.fieldScale,
+    'offset' => S.current.fieldOffset,
+    'bit' => S.current.fieldBit,
+    'regs' => S.current.fieldRegisters,
+    'writable' => S.current.fieldWritable,
+    'writable_by_master' => S.current.fieldWritableByMaster,
+    _ => p.display ?? p.name,
+  };
+
+  /// The fields of [key]'s `edit`, each staging its change; the staged
+  /// value shows in place of the current one.
+  List<ParamFieldVm> _editFields(String key, Iterable<ParamSpec> specs) {
+    final staged = changes.table[StagePointEditAction.idOf(key)]?.args;
+    return [
+      for (final p in specs)
+        ParamFieldVm(
+          id: '$key/${p.name}',
+          label: _label(p),
+          kind: paramField(p).kind,
+          value: staged?[p.name] ?? p.defaultValue,
+          choices: p.choices.unlock,
+          description: p.description,
+          onChanged: (v) => dispatchSync(StagePointEditAction(key, p.name, v)),
+        ),
+    ];
+  }
+
+  /// A field the board shows that the driver has no parameter for.
+  static ParamFieldVm _missing(String id, String label, {Object? value}) =>
+      ParamFieldVm(
+        id: id,
+        label: label,
+        kind: .text,
+        value: value,
+        enabled: false,
+        description: value == null
+            ? S.current.noParamReason(label.toLowerCase())
+            : S.current.wordOrderReason,
+        onChanged: (_) {},
+      );
+
+  /// The word order a modbus data type's suffix sets.
+  static String _wordOrder(String? dtype) => switch (dtype) {
+    final d? when d.endsWith('_wbswap') => 'DCBA',
+    final d? when d.endsWith('_wswap') => 'CDAB',
+    final d? when d.endsWith('_bswap') => 'BADC',
+    _ => 'ABCD',
+  };
+
+  List<InspectorSectionVm> _pointSections(String key, NodeDetail? d) {
+    final edit = _actionOf(key, 'edit');
+    final v = live.values[key];
+    final info = nodes.table[key];
+    final type = d?.type ?? info?.type;
+    final unit = d?.unit ?? info?.unit;
+    final writable = d?.writable ?? info?.writable;
+    final publish = InspectorSectionVm(
+      label: S.current.secPublish,
+      code: [
+        (
+          '~meta',
+          '{type: ${type ?? '—'}${unit == null ? '' : ', unit: $unit'}, '
+              'writable: ${writable != null}}',
+        ),
+        (
+          '~val',
+          v == null
+              ? '—'
+              : '{v: ${valueText(v.value, choices: _choices(key))}, '
+                    'q: ${v.quality.name}, t: ${_time(v.time)}}',
+        ),
+      ],
+    );
+    if (edit == null) {
+      return [
+        InspectorSectionVm(
+          label: S.current.secValue,
+          facts: [
+            FactVm(label: S.current.colType, value: type ?? '—', mono: true),
+            FactVm(label: S.current.colUnit, value: unit ?? '—'),
+            FactVm(label: S.current.colWrite, value: writable ?? 'R'),
+          ],
+          text: S.current.noEditReason,
+        ),
+        publish,
+      ];
+    }
+    final staged = changes.table[StagePointEditAction.idOf(key)]?.args;
+    final specs = edit.params;
+    final poll = specs.where((p) => p.name == pollParam).firstOrNull;
+    final register = [
+      for (final p in specs)
+        if (p.name != pollParam &&
+            !_valueParams.contains(p.name) &&
+            !_writeParams.contains(p.name))
+          p,
+    ];
+    final dtype = '${staged?['dtype'] ?? d?.cfg['dtype'] ?? ''}';
+    final registerFields = _editFields(key, register);
+    if (specs.any((p) => p.name == 'dtype')) {
+      registerFields.insert(
+        registerFields.indexWhere((f) => f.id == '$key/dtype') + 1,
+        _missing(
+          '$key/word_order',
+          S.current.fieldWordOrder,
+          value: _wordOrder(dtype),
+        ),
+      );
+    }
+    final pollNow = staged?[pollParam] ?? poll?.defaultValue;
+    final pollWas = poll?.defaultValue;
+    final pollIndex = _polls.indexWhere(
+      (s) => pollText(s) == pollText(pollNow),
+    );
+    final pollStaged =
+        (staged?.containsKey(pollParam) ?? false) &&
+        pollText(pollNow) != pollText(pollWas);
+    return [
+      InspectorSectionVm(label: S.current.secRegister, fields: registerFields),
+      InspectorSectionVm(
+        label: S.current.secValue,
+        columns: 3,
+        fields: [
+          ..._editFields(
+            key,
+            specs.where((p) => p.name == 'unit' || p.name == 'scale'),
+          ),
+          if (!specs.any((p) => p.name == 'precision'))
+            _missing('$key/precision', S.current.fieldPrecision),
+          ..._editFields(
+            key,
+            specs.where(
+              (p) =>
+                  _valueParams.contains(p.name) &&
+                  p.name != 'unit' &&
+                  p.name != 'scale',
+            ),
+          ),
+        ],
+      ),
+      if (poll != null)
+        InspectorSectionVm(
+          label: S.current.secPolling,
+          note: pollStaged ? S.current.stagedWas(pollText(pollWas)) : null,
+          segments: [for (final s in _polls) pollText(s)],
+          segment: pollIndex < 0 ? null : pollIndex,
+          onSegment: (i) =>
+              dispatchSync(StagePointEditAction(key, pollParam, _polls[i])),
+        ),
+      InspectorSectionVm(
+        label: S.current.secWrite,
+        fields: [
+          for (final f in _editFields(
+            key,
+            specs.where((p) => _writeParams.contains(p.name)),
+          ))
+            if (f.kind == .toggle)
+              ParamFieldVm(
+                id: f.id,
+                label: f.label,
+                kind: f.kind,
+                value: f.value,
+                description: S.current.writableNeeds(edit.level),
+                onChanged: f.onChanged,
+              )
+            else
+              f,
+        ],
+      ),
+      publish,
+    ];
+  }
+
+  /// The node on screen as the inspector and the Parameters tab show it:
+  /// its `edit` parameters as a form, its attributes, its diagnostics.
+  List<InspectorSectionVm> _nodeSections(
+    String? sel,
+    NodeDetail? d,
+    String kind, {
+    required bool withDiagnostics,
+  }) {
+    if (sel == null) {
+      return const [];
+    }
+    final edit = _actionOf(sel, 'edit');
+    final diag = [
+      for (final n in _children(sel))
+        if (isDiagnostic(n) && n.name != 'status') n,
+    ];
+    return [
+      InspectorSectionVm(
+        label: S.current.secParameters,
+        fields: edit == null ? const [] : _editFields(sel, edit.params),
+        facts: edit != null
+            ? const []
+            : [
+                for (final e
+                    in d?.cfg.entries ?? const <MapEntry<String, String>>[])
+                  FactVm(label: e.key, value: e.value, mono: true),
+              ],
+        text: edit == null && (d?.cfg.isEmpty ?? true)
+            ? S.current.noActionReason('edit')
+            : null,
+      ),
+      if (d != null && d.attr.isNotEmpty)
+        InspectorSectionVm(
+          label: S.current.secAttributes,
+          facts: [
+            for (final e in d.attr.entries)
+              FactVm(label: e.key, value: e.value, mono: true),
+          ],
+        ),
+      if (withDiagnostics && diag.isNotEmpty)
+        InspectorSectionVm(
+          label: S.current.secDiagnostics,
+          facts: [
+            for (final n in diag)
+              FactVm(
+                label: n.name,
+                value: _value(live.values[n.key], n.unit),
+                mono: true,
+              ),
+          ],
+        ),
+    ];
   }
 
   List<ActionCardGroupVm> _groups(Iterable<ActionInfo> actions) {
@@ -479,6 +1311,58 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           cards: [for (final a in now) card(a)],
         ),
     ];
+  }
+
+  /// The node menu of [key] (§5): groups from the action `group`, else
+  /// Configure · staged and Operate · runs now, in `~meta.actions` order.
+  Future<NodeMenuVm?> _menuOf(String key) async {
+    NodeDetail? d;
+    for (var i = 0; i < 20; i++) {
+      d = state.nodes.detail[key];
+      if (d != null) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    if (d == null) {
+      return null;
+    }
+    final groups = <String, List<NodeMenuItemVm>>{};
+    for (final a in d.actions) {
+      final g =
+          a.group ??
+          (a.level == 'config'
+              ? S.current.configureStaged
+              : S.current.operateRunsNow);
+      (groups[g] ??= []).add(
+        NodeMenuItemVm(
+          id: a.name,
+          label: '${a.display ?? a.name}${a.params.isEmpty ? '' : '…'}',
+          level: a.level,
+          danger: a.name.startsWith('remove') || a.name.startsWith('delete'),
+          disabledReason: site.needs(a.level, key),
+        ),
+      );
+    }
+    final kind = _kind(key, d);
+    final driver = key.split('/').length > 3
+        ? links.table[key.split('/')[3]]?.driver
+        : null;
+    return NodeMenuVm(
+      title: d.display ?? key.split('/').last,
+      subtitle: S.current.menuSubtitle(
+        [
+          if (driver != null && driver.isNotEmpty) driver,
+          _kindWord(kind),
+        ].join(' '),
+        d.actions.length,
+      ),
+      groups: [
+        for (final e in groups.entries)
+          NodeMenuGroupVm(label: e.key, items: e.value),
+      ],
+      copyLabel: S.current.copyKey,
+    );
   }
 
   ResultVm? _result() {
@@ -524,8 +1408,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
 
   ExplorerInspectorVm? _inspector(
     String? sel,
-    NodeInfo? info,
-    bool isPoint,
+    NodeDetail? d,
+    String kind,
     Iterable<ActionInfo> actions,
   ) {
     if (sel == null) {
@@ -538,6 +1422,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         final stage = act.level == 'config';
         return ActionInspectorVm(
           id: '$sel ▸ ${act.name}',
+          eyebrow: S.current.insAction,
           title: act.display ?? act.name,
           keyName: '…/${sel.split('/').last}/~act/${act.name}',
           tags: [
@@ -559,50 +1444,33 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         );
       }
     }
-    final d = nodes.detail[sel];
-    if (isPoint) {
-      final v = live.values[sel];
-      final writable = d?.writable ?? info?.writable;
-      final choices = _choices(sel);
-      final type = d?.type ?? info?.type;
+    final point = nodes.point;
+    if (point != null) {
+      final pd = nodes.detail[point];
+      final info = nodes.table[point];
+      final v = live.values[point];
+      final writable = pd?.writable ?? info?.writable;
+      final choices = _choices(point);
+      final type = pd?.type ?? info?.type;
       return PointInspectorVm(
-        name: sel.split('/').last,
-        display: d?.display ?? info?.display,
-        value: _value(v, d?.unit ?? info?.unit, choices: choices),
-        quality: switch (v?.quality) {
-          Quality.good => QualityMarkVm(
-            label: 'good · ${_time(v!.time)}',
-            tone: Tone.good,
+        eyebrow: S.current.insPoint,
+        name: point.split('/').last,
+        display: pd?.display ?? info?.display,
+        value: _value(v, pd?.unit ?? info?.unit, choices: choices),
+        quality: switch (_quality(v)) {
+          _ when !site.connected => QualityMarkVm(
+            label: S.current.stale,
+            tone: .neutral,
+            mark: .dashed,
           ),
-          Quality.uncertain => QualityMarkVm(
-            label: 'uncertain · ${_time(v!.time)}',
-            tone: Tone.warn,
-            mark: .ring,
+          final q when v != null => QualityMarkVm(
+            label: '${q.label} · ${_time(v.time)}',
+            tone: q.tone,
+            mark: q.mark,
           ),
-          Quality.bad => QualityMarkVm(
-            label: 'bad · ${_time(v!.time)}',
-            tone: Tone.bad,
-          ),
-          null => QualityMarkVm(
-            label: S.current.noValue,
-            tone: Tone.neutral,
-            mark: .ring,
-          ),
+          final q => q,
         },
-        facts: [
-          FactVm(label: 'type', value: type ?? '—', mono: true),
-          if (d?.unit ?? info?.unit case final u?)
-            FactVm(label: 'unit', value: u),
-          FactVm(label: 'writable', value: writable ?? 'no', mono: true),
-          if (d?.profile ?? info?.profile case final p?)
-            FactVm(label: 'is', value: p, mono: true),
-          FactVm(
-            label: S.current.factHistory,
-            value: (d?.hasHistory ?? info?.hasHistory ?? false)
-                ? S.current.recorded
-                : S.current.notRecorded,
-          ),
-        ],
+        sections: _pointSections(point, pd),
         editLabel: S.current.setValue,
         stageLabel: S.current.stage,
         edit: writable == null
@@ -626,27 +1494,18 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                 choices: choices,
                 onChanged: (_) {},
               ),
-        readOnlyReason: writable == null
-            ? S.current.notWritable
-            : site.needs(writable, sel),
+        readOnlyReason: writable == null ? null : site.needs(writable, point),
       );
     }
     return NodeInspectorVm(
-      title: d?.display ?? info?.display ?? sel.split('/').last,
-      facts: [
-        FactVm(label: 'key', value: sel, mono: true),
-        if (d?.profile ?? info?.profile case final p?)
-          FactVm(label: 'is', value: p, mono: true),
-        FactVm(label: S.current.tabActions, value: '${actions.length}'),
-      ],
-      cfg: [
-        for (final e in d?.cfg.entries ?? const <MapEntry<String, String>>[])
-          FactVm(label: e.key, value: e.value, mono: true),
-      ],
-      attr: [
-        for (final e in d?.attr.entries ?? const <MapEntry<String, String>>[])
-          FactVm(label: e.key, value: e.value, mono: true),
-      ],
+      eyebrow: switch (kind) {
+        'device' => S.current.insDevice,
+        'connection' => S.current.insConnection,
+        'link' => S.current.insLink,
+        _ => S.current.insNode,
+      },
+      title: d?.display ?? sel.split('/').last,
+      sections: _nodeSections(sel, d, kind, withDiagnostics: true),
     );
   }
 
@@ -655,9 +1514,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       return;
     }
     final a = nodes.action;
-    final act = a == null
-        ? null
-        : nodes.detail[sel]?.actions.where((x) => x.name == a).firstOrNull;
+    final act = a == null ? null : _actionOf(sel, a);
     if (act != null) {
       final args = plainArgs(values);
       if (act.level == 'config') {
@@ -669,62 +1526,20 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       }
       return;
     }
-    if (values.containsKey('value')) {
-      final choices = _choices(sel);
+    final point = nodes.point;
+    if (point != null && values.containsKey('value')) {
+      final choices = _choices(point);
       final value = values['value'];
       dispatchSync(
         StageValueAction(
-          sel,
+          point,
           value is String && choices.contains(value)
               ? choices.indexOf(value)
               : value,
-          from: _value(live.values[sel], null, choices: choices),
+          from: _value(live.values[point], null, choices: choices),
         ),
       );
     }
-  }
-
-  Future<void> _menu(BuildContext context, String id, Offset at) async {
-    dispatchSync(SelectNodeAction(id));
-    final d = await _detailWhenRead(id);
-    if (!context.mounted || d == null || d.isEmpty) {
-      return;
-    }
-    final picked = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
-      items: [
-        for (final a in d)
-          PopupMenuItem(
-            value: a.name,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${a.display ?? a.name}${a.params.isEmpty ? '' : '…'}',
-                  ),
-                ),
-                Text(a.level, style: const TextStyle(fontSize: 12)),
-              ],
-            ),
-          ),
-      ],
-    );
-    if (picked != null) {
-      dispatchSync(SetTabAction('actions'));
-      dispatchSync(SetActionAction(picked));
-    }
-  }
-
-  Future<List<ActionInfo>?> _detailWhenRead(String id) async {
-    for (var i = 0; i < 20; i++) {
-      final d = state.nodes.detail[id];
-      if (d != null) {
-        return d.actions.unlock;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    return null;
   }
 }
 
@@ -733,13 +1548,24 @@ class _Vm extends Vm {
   _Vm({
     required this.treeLabel,
     required this.tree,
+    required this.treeLoading,
+    required this.treeFilter,
     required this.watch,
     required this.keyName,
     required this.title,
     required this.pill,
+    required this.subtitle,
+    required this.headerButtons,
     required this.tabs,
     required this.tab,
+    required this.toolbar,
+    required this.selectionBar,
+    required this.checkedCount,
+    required this.pointFilter,
     required this.points,
+    required this.pointsLoading,
+    required this.pointsEmpty,
+    required this.emptyButtons,
     required this.params,
     required this.actionGroups,
     required this.result,
@@ -747,29 +1573,59 @@ class _Vm extends Vm {
     required this.trend,
     required this.trendLabels,
     required this.historyRows,
+    required this.historyNote,
+    required this.auditKey,
+    required this.auditRows,
+    required this.auditNote,
     required this.inspector,
+    required this.copyKeys,
+    required this.pointValue,
     required this.busy,
     required this.onShow,
     required this.onHide,
     required this.onSelect,
     required this.onToggle,
-    required this.onTab,
-    required this.onAction,
+    required this.onMark,
+    required this.onMarkRange,
+    required this.onTreeFilter,
+    required this.onPointFilter,
+    required this.onPoint,
+    required this.onCheck,
     required this.onRange,
+    required this.onCheckAll,
+    required this.onClear,
+    required this.onTab,
+    required this.onAudit,
+    required this.onAction,
+    required this.onPickAction,
+    required this.onHistoryRange,
     required this.onCloseInspector,
     required this.onSubmit,
-    required this.onMenu,
+    required this.onTool,
+    required this.onSetPoll,
+    required this.menuOf,
   }) : super(
          equals: [
            treeLabel,
            tree,
+           treeLoading,
+           treeFilter,
            watch,
            keyName,
            title,
            pill,
+           subtitle,
+           headerButtons,
            tabs,
            tab,
+           toolbar,
+           selectionBar,
+           checkedCount,
+           pointFilter,
            points,
+           pointsLoading,
+           pointsEmpty,
+           emptyButtons,
            params,
            actionGroups,
            result,
@@ -777,38 +1633,80 @@ class _Vm extends Vm {
            trend,
            trendLabels,
            historyRows,
+           historyNote,
+           auditKey,
+           auditRows,
+           auditNote,
            inspector,
+           copyKeys,
+           pointValue,
            busy,
          ],
        );
 
   final String treeLabel;
   final List<TreeRowVm> tree;
+  final bool treeLoading;
+  final String treeFilter;
   final List<String> watch;
   final String? keyName;
   final String? title;
   final StatusPillVm? pill;
+  final String? subtitle;
+  final List<ToolButtonVm> headerButtons;
   final List<TabItemVm> tabs;
   final String tab;
-  final List<RowVm> points;
-  final List<FactVm> params;
+  final List<ToolButtonVm> toolbar;
+  final SelectionBarVm? selectionBar;
+  final int checkedCount;
+  final String pointFilter;
+  final List<PointRowVm> points;
+  final bool pointsLoading;
+  final String? pointsEmpty;
+  final List<ToolButtonVm> emptyButtons;
+  final List<InspectorSectionVm> params;
   final List<ActionCardGroupVm> actionGroups;
   final ResultVm? result;
   final String range;
   final List<TrendSeriesVm> trend;
   final (String, String) trendLabels;
   final List<RowVm> historyRows;
+  final String? historyNote;
+
+  /// The node whose audit the Audit tab reads; null without the rights.
+  final String? auditKey;
+  final List<RowVm> auditRows;
+  final String? auditNote;
   final ExplorerInspectorVm? inspector;
+
+  /// What Copy keys and ⌘⇧C copy: the checked rows, else the node on
+  /// screen and the tree rows marked.
+  final List<String> copyKeys;
+
+  /// What ⌘C copies: the value of the point in the inspector.
+  final String? pointValue;
   final bool busy;
   final VoidCallback onShow;
   final void Function(List<String> keys) onHide;
   final ValueChanged<String> onSelect;
   final ValueChanged<String> onToggle;
-  final ValueChanged<String> onTab;
-  final ValueChanged<String> onAction;
+  final ValueChanged<String> onMark;
+  final ValueChanged<String> onMarkRange;
+  final ValueChanged<String> onTreeFilter;
+  final ValueChanged<String> onPointFilter;
+  final ValueChanged<String> onPoint;
+  final ValueChanged<String> onCheck;
   final ValueChanged<String> onRange;
+  final VoidCallback onCheckAll;
+  final VoidCallback onClear;
+  final ValueChanged<String> onTab;
+  final VoidCallback onAudit;
+  final ValueChanged<String> onAction;
+  final ValueChanged<String> onPickAction;
+  final ValueChanged<String> onHistoryRange;
   final VoidCallback onCloseInspector;
   final Future<void> Function(Map<String, Object?> values) onSubmit;
-  final Future<void> Function(BuildContext context, String id, Offset at)
-  onMenu;
+  final ValueChanged<String> onTool;
+  final ValueChanged<double> onSetPoll;
+  final Future<NodeMenuVm?> Function(String key) menuOf;
 }

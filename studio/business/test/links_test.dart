@@ -100,7 +100,8 @@ void main() {
     await s.dispatchAndWait(ApplyChangesAction());
 
     expect(s.state.changes.view, isEmpty);
-    expect(api.calls.last.args?['params'], isA<VMap>());
+    final update = api.calls.lastWhere((c) => c.op == 'invoke');
+    expect(update.args?['params'], isA<VMap>());
   });
 
   test('Apply stops at the first refusal and keeps the rest', () async {

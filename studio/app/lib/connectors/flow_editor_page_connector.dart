@@ -204,8 +204,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                       final v => valueText(
                         v.value,
                         choices:
-                            nodes.detail[k]?.choices.unlock ??
-                            n.choices.unlock,
+                            nodes.detail[k]?.choices.unlock ?? n.choices.unlock,
                         unit: n.unit,
                       ),
                     },

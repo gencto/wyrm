@@ -93,7 +93,8 @@ void main() {
         SelectNodeAction('wy/edge/downstream/modbus/line1/ahu1'),
       );
       await settle(tester);
-      await tester.tap(find.text('Actions').first);
+      // The tab: the header's Actions ▾ (first) opens the node menu.
+      await tester.tap(find.text('Actions').last);
       await settle(tester, 1000);
       await shot(tester, '01c_explorer_actions');
       final readId = find.text('Read Device Identification');

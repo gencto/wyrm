@@ -207,7 +207,7 @@ Edit `ui/lib/theme/common.dart` (`_darkBrand`, `_darkNeutrals`) to these values.
 
 The roles without a Material slot (good/warn/bad fills and lines, selected fill, ember line) are fields of `AppColors` (`ui/lib/theme/extensions/colors.dart`), read as `context.colors.goodFill`; add them to the class by hand and let `frx watch` regenerate `colors.g.theme.dart`.
 
-Radii: chip 4, control 6, input and button 8, card 10–12 (`AppRadii.segment = 6`, `control = 8`, `input = button = 8`, `card = 12`). Spacing stays 4/8/16/24/32. Row height 40 (lists), 48 (actions), 56 (table rows); touch targets ≥ 40.
+Radii: chip 4, control 6, input and button 8, card 10–12 (`AppRadii.segment = 6`, `control = 8`, `input = button = 8`, `card = 12`). Spacing stays 4/8/16/24/32. Row height 40 (lists), 48 (actions), 56 (table rows; the Explorer points table is 40, `studio/docs/design/specs/explorer.md` §3); touch targets ≥ 40.
 
 ### 6.2 Type
 IBM Plex Sans 400/500/600 for text, IBM Plex Mono 400/500/600 for keys, values and codes, Unbounded 700 for the logo only. Bundle the TTF files in `ui/assets/fonts/` and declare them in `ui/pubspec.yaml` (`fonts:`); no `google_fonts`. Sizes: 26 page title, 20 inspector title, 16 section, 14 body, 13 rows, 12 meta and labels (uppercase 0.06 em for section labels), 11 tags.

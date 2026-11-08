@@ -32,12 +32,19 @@ class SegmentedTabs extends StatelessWidget {
     required this.tabs,
     required this.selected,
     required this.onSelect,
+    this.plainCounts = false,
+    this.height = 40,
     super.key,
   });
 
   final List<TabItemVm> tabs;
   final String selected;
   final ValueChanged<String> onSelect;
+
+  /// Counts as plain 12 text after the label, not pills (Explorer's device
+  /// tabs, docs/design/specs/explorer.md §3.3).
+  final bool plainCounts;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -55,8 +62,10 @@ class SegmentedTabs extends StatelessWidget {
               InkWell(
                 onTap: () => onSelect(t.id),
                 child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  height: height,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: plainCounts ? 14 : 12,
+                  ),
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
@@ -76,7 +85,9 @@ class SegmentedTabs extends StatelessWidget {
                           color: t.id == selected ? c.text1 : c.text3,
                         ),
                       ),
-                      if (t.count case final n?)
+                      if (t.count case final n? when plainCounts)
+                        Text(n, style: TextStyle(fontSize: 12, color: c.text3))
+                      else if (t.count case final n?)
                         Container(
                           constraints: const BoxConstraints(minWidth: 22),
                           height: 22,
