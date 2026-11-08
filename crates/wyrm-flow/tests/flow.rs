@@ -1048,3 +1048,72 @@ async fn watch_caps_end_the_same_callers_oldest() {
     assert!(ended.is_ok(), "the oldest watch ended");
     env.stop().await;
 }
+
+/// An `invoke` node's output carries its target's answer: a watcher reads the targets too.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_needs_the_rights_on_the_command_targets() {
+    use wyrm_core::ptok::Grant;
+    use wyrm_core::Perm;
+    let env = Env::start("watch-targets").await;
+    let def = map(&[
+        ("id", s("cmd")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "a",
+                    map(&[("type", s("subscribe")), ("key", s("downstream/mock/p0"))]),
+                ),
+                (
+                    "go",
+                    map(&[
+                        ("type", s("invoke")),
+                        ("path", s("downstream/mock")),
+                        ("action", s("reset")),
+                        ("on", s("change")),
+                    ]),
+                ),
+            ]),
+        ),
+        ("edges", arr(&[edge("a.out", "go.in")])),
+        ("permissions", map(&[("maxperm", s("write"))])),
+    ]);
+    env.deploy(def).await.unwrap();
+    let flow = format!("wy/{SITE}/dataflows/cmd");
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let viewer = |grants: Vec<Grant>| {
+        let tokens = SigningTokens::new(key.clone(), SITE)
+            .subject("user:viewer")
+            .max(Perm::Read)
+            .grants(grants);
+        WyrmClient::new(env.session.clone())
+            .with_tokens(Arc::new(tokens))
+            .with_timeout(Duration::from_secs(3))
+    };
+    let g = |k: &str| Grant {
+        k: format!("wy/{SITE}/{k}"),
+        p: Perm::Read,
+    };
+    // the source, not the target `downstream/mock`
+    let sources_only = viewer(vec![g("dataflows/**"), g("downstream/mock/p0")]);
+    for action in ["watch", "ports"] {
+        let e = match sources_only.invoke(&flow, action, map(&[])).await {
+            Ok(mut st) => st.next().await.unwrap().unwrap_err(),
+            Err(e) => e,
+        };
+        assert_eq!(
+            e.status,
+            wyrm_core::status::StatusCode::Known(wyrm_core::Status::PermissionDenied),
+            "{action}: {e}"
+        );
+    }
+    let both = viewer(vec![g("dataflows/**"), g("downstream/mock/**")]);
+    let snap = both
+        .invoke_one(&flow, "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&snap, &["snapshot"]), Some(&Value::Bool(true)));
+    env.stop().await;
+}

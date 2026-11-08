@@ -30,7 +30,7 @@ ADR 0019 chose Deploy-only: no live `~set` of a field.
 ### 3. `dataflows/<id>/~act/watch` — live values of a deployed flow
 - Level `read` on `dataflows/<id>`, `stream: true`, `timeout_ms: 30000`.
 - Args: `nodes` (optional list of node ids; absent = all), `max_hz` (optional, default 4, at most 20, per node).
-- **Rights:** the caller's `ptok` `auth` (spec 04, as DQL queries) must cover reading every `subscribe` source of the flow; otherwise `permission_denied` naming the first key the caller cannot read. The values of a flow are derived from its sources.
+- **Rights:** the caller's `ptok` `auth` (spec 04, as DQL queries) must cover reading every source (`subscribe`, `liveliness`) and every command target (the node of each `invoke`/`set`) of the flow; otherwise `permission_denied` naming the first key the caller cannot read. The values of a flow are derived from its sources, an `invoke` node's output carries its target's answer and a `set` node's input is what it writes there (security review 2026-11-08).
 - **Rows:**
   1. first: `{t, snapshot: true, nodes: {<node>: {in: {<port>: [v, q]}, out: {<port>: [v, q]}, params: {<p>: v}}}}` — the last value of every port and the effective value of every parameter;
   2. then: the same shape with `snapshot: false` and only what changed since the last row, at most `max_hz` rows per node per second (the latest value wins inside a period);

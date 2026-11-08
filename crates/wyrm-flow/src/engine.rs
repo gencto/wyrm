@@ -739,17 +739,52 @@ fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Resu
                 "a flow with sources needs the rights of {role}: a token with `auth` (spec 04)"
             )));
         };
-        let Ok(target) = keyexpr::new(&full) else {
+        if keyexpr::new(&full).is_err() {
             continue; // the compiler reports it
-        };
-        let first = auth
-            .iter()
-            .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)));
-        let ok = first.is_some_and(|g| {
-            g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target))
-        });
-        if !ok {
+        }
+        if !reads_key(auth, &full) {
             return Err(denied(format!("{full}: {role} may not read it")));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `auth` gives read on all of `full`: the first grant that touches it decides, and it
+/// must cover it whole (a deny grant on a part is never skipped).
+fn reads_key(auth: &[Grant], full: &str) -> bool {
+    use zenoh::key_expr::keyexpr;
+    let Ok(target) = keyexpr::new(full) else {
+        return false;
+    };
+    auth.iter()
+        .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)))
+        .is_some_and(|g| g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target)))
+}
+
+/// `watch` and `ports` (ADR 0038 §3): the caller reads every source and every command target
+/// of the flow. A flow's values come from its sources, and an `invoke` node's output carries
+/// its target's answer, a `set` node's input what it writes there. The error names the first
+/// key the caller may not read (a target as its node key, without `~act/<a>` or `~set`).
+fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> {
+    reads_sources_of(def, who, site, "the caller")?;
+    for t in targets(def, site) {
+        let node = t
+            .rsplit_once("/~act/")
+            .map(|(n, _)| n)
+            .or_else(|| t.strip_suffix("/~set"))
+            .unwrap_or(&t);
+        let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+            return Err(LinkError::new(
+                Status::PermissionDenied,
+                "a flow with command targets needs the rights of the caller: a token with \
+                 `auth` (spec 04)",
+            ));
+        };
+        if !reads_key(auth, node) {
+            return Err(LinkError::new(
+                Status::PermissionDenied,
+                format!("{node}: the caller may not read it"),
+            ));
         }
     }
     Ok(())
@@ -1049,8 +1084,8 @@ impl Link for Engine {
                     .flows
                     .get(id)
                     .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
-                // the values of a flow come from its sources: the caller must read them
-                reads_sources_of(&f.def, who, &self.site, "the caller")?;
+                // the values of a flow come from its sources and its command targets
+                reads_flow(&f.def, who, &self.site)?;
                 let only = live::only(&args, &f.def)?;
                 let probe = f.probe.clone();
                 if action == "ports" {
@@ -1166,5 +1201,74 @@ mod tests {
         );
         let both = caller(Some(vec![g("wy/s/downstream/**"), g("wy/s/storage/**")]));
         reads_sources_of(&def, &both, "s", "the caller").unwrap();
+        reads_flow(&def, &both, "s").unwrap();
+    }
+
+    /// Security review of ADR 0038: an `invoke` node's output carries its target's answer, so
+    /// a watcher reads every command target too.
+    #[test]
+    fn a_watcher_reads_every_command_target() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let def = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "a",
+                        m(&[("type", s("subscribe")), ("key", s("downstream/l/p"))]),
+                    ),
+                    (
+                        "cmd",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/secret/dev")),
+                            ("action", s("read_all")),
+                        ]),
+                    ),
+                    ("w", m(&[("type", s("set")), ("path", s("storage/out"))])),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ]))
+        .unwrap();
+        let g = |k: &str| Grant {
+            k: k.into(),
+            p: Perm::Read,
+        };
+        let sources = caller(Some(vec![g("wy/s/downstream/l/**")]));
+        let e = reads_flow(&def, &sources, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/secret/dev: the caller may not read it"),
+            "{e}"
+        );
+        let no_set = caller(Some(vec![
+            g("wy/s/downstream/l/**"),
+            g("wy/s/downstream/secret/**"),
+        ]));
+        let e = reads_flow(&def, &no_set, "s").unwrap_err();
+        assert!(e.message.contains("wy/s/storage/out:"), "{e}");
+        // a deny grant on the target comes first and decides
+        let denied = caller(Some(vec![
+            Grant {
+                k: "wy/s/downstream/secret/**".into(),
+                p: Perm::None,
+            },
+            g("wy/s/**"),
+        ]));
+        assert!(reads_flow(&def, &denied, "s").is_err());
+        let all = caller(Some(vec![g("wy/s/**")]));
+        reads_flow(&def, &all, "s").unwrap();
+        // no `auth` at all
+        assert!(reads_flow(&def, &caller(None), "s").is_err());
     }
 }
