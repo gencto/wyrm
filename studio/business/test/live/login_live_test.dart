@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
@@ -55,5 +56,23 @@ void main() {
 
     expect(status.originalError, isA<UserException>());
     expect(s.state.session.token, isNull);
+  }, skip: skip);
+
+  test('RetrieveLinksAction lists the links of the site', () async {
+    final s = store();
+    await s.dispatchAndWait(SetGatewayAction(gateway));
+    await s.dispatchAndWait(SetUserAction(user));
+    await s.dispatchAndWait(SetPasswordAction(password));
+    await s.dispatchAndWait(LogInAction());
+
+    final status = await s.dispatchAndWait(RetrieveLinksAction());
+
+    expect(status.isCompletedOk, isTrue, reason: '${status.originalError}');
+    expect(s.state.links.view, isNotEmpty);
+    expect(
+      s.state.links.table.values.every((l) => l.driver.isNotEmpty),
+      isTrue,
+    );
+    await (s.dependencies! as AppDependencies).detach();
   }, skip: skip);
 }

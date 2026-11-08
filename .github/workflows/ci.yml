@@ -44,10 +44,8 @@ jobs:
       - run: dart test
         working-directory: dart/wyrm_core
   studio:
-    # WYRM Studio (ADR 0037, docs/studio.md §9). Informational until its first
-    # green run on GitHub. Drop continue-on-error once it passes.
+    # WYRM Studio (ADR 0037, docs/studio.md §9).
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 25
     permissions:
       contents: read
