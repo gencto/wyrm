@@ -1,0 +1,264 @@
+{
+  "intents": [
+    {
+      "command": "add-action",
+      "args": [
+        "start_link"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "stop_link"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "update_link_params"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "rollback_link_params"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "grant_link"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "remove_link"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "deauthorize_link"
+      ],
+      "options": {
+        "state": "links",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "approve_quarantine"
+      ],
+      "options": {
+        "state": "quarantine",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "reject_quarantine"
+      ],
+      "options": {
+        "state": "quarantine",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "set_admission_options"
+      ],
+      "options": {
+        "state": "quarantine",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "choose_install_source"
+      ],
+      "options": {
+        "state": "link_install",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "check_package"
+      ],
+      "options": {
+        "state": "link_install",
+        "kind": "async"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "install_link"
+      ],
+      "options": {
+        "state": "link_install",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "add_upstream"
+      ],
+      "options": {
+        "state": "peers",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "issue_site_token"
+      ],
+      "options": {
+        "state": "peers",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "authorize_broker"
+      ],
+      "options": {
+        "state": "peers",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "load_flow"
+      ],
+      "options": {
+        "state": "flow_editor",
+        "kind": "async"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "validate_flow"
+      ],
+      "options": {
+        "state": "flow_editor",
+        "kind": "async",
+        "mixin": [
+          "debounce"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "deploy_flow"
+      ],
+      "options": {
+        "state": "flow_editor",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "ask_agent"
+      ],
+      "options": {
+        "state": "assistant",
+        "kind": "async"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "toggle_plan_step"
+      ],
+      "options": {
+        "state": "assistant",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "approve_task"
+      ],
+      "options": {
+        "state": "tasks",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "reject_task"
+      ],
+      "options": {
+        "state": "tasks",
+        "kind": "waiting"
+      }
+    }
+  ]
+}

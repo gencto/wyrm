@@ -1,0 +1,112 @@
+{
+  "intents": [
+    {
+      "command": "add-substate",
+      "args": [
+        "site"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "nodes"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "live"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "links"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "quarantine"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "packages"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "link_install"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "peers"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "flows"
+      ],
+      "options": {
+        "kind": "search"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "flow_editor"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "tasks"
+      ],
+      "options": {
+        "kind": "table"
+      }
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "assistant"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    }
+  ]
+}

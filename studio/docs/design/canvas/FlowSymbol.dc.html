@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Inside an own block</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 52px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 6px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+</a>
+<nav aria-label="Path inside the flow" style="display: flex; align-items: center; gap: 8px; font-size: 14px"><a href="Flow.dc.html" style="color: #A3ABAF">Flows</a><span style="color: #5A6168">›</span><a href="FlowBind.dc.html" style="font-family: 'IBM Plex Mono', monospace; color: #A3ABAF">tank-level</a><span style="color: #5A6168">›</span><code style="color: #F3A766">tankInfo</code><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #3A2A1C; color: #F3A766">MY · draft v4</span></nav>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<a href="FlowBind.dc.html" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; color: #ECE9E1; font-size: 14px; display: flex; align-items: center">Back to tank-level</a>
+<button type="button" style="height: 38px; padding: 0 18px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">Publish v4</button>
+</div>
+</header>
+<div style="padding: 10px 16px; border-bottom: 1px solid #3A2A1C; background: #1A1511; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; color: #F6C59A">
+<span>You are inside the own block <code>tankInfo</code>. The left and right frames are its fields; everything between is its logic.</span>
+<span style="color: #A3ABAF">3 places use v3. They switch to v4 only when each one accepts it.</span>
+</div>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Canvas -->
+<main style="flex: 999 1 640px; min-width: 0; position: relative; overflow: auto; background-color: #0E1113; background-image: radial-gradient(#252B30 1px, transparent 1.2px); background-size: 20px 20px">
+<div style="position: relative; width: 960px; height: 600px; margin: 16px">
+<svg width="960" height="600" viewBox="0 0 960 600" aria-hidden="true" style="position: absolute; inset: 0">
+<sc-for list="{{wires}}" as="w" hint-placeholder-count="7"><path d="{{w.d}}" fill="none" stroke="{{w.c}}" stroke-width="2" stroke-linecap="round"></path></sc-for>
+</svg>
+<sc-for list="{{blocks}}" as="b" hint-placeholder-count="5">
+<div style="position: absolute; left: {{b.x}}; top: {{b.y}}; width: {{b.w}}; border-radius: 8px; background: {{b.bg}}; border: {{b.border}}">
+<div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 7px 7px 0 0; background: {{b.hbg}}">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; padding: 1px 4px; border-radius: 3px; border: 1px solid {{b.hink}}; color: {{b.hink}}">{{b.tag}}</span>
+<code style="font-size: 13px; font-weight: 600">{{b.title}}</code>
+<code style="margin-left: auto; font-size: 11px; color: #8E979C">{{b.sub}}</code>
+</div>
+<div style="padding: 6px 12px 8px">
+<sc-for list="{{b.rows}}" as="r" hint-placeholder-count="3">
+<div style="height: 28px; display: flex; align-items: center; gap: 6px; font-size: 12px">
+<span style="width: 10px; height: 10px; flex: none; margin-left: -17px; border-radius: 50%; box-sizing: border-box; background: {{r.inFill}}; border: 2px solid {{r.inRing}}"></span>
+<span style="color: #A3ABAF; white-space: nowrap">{{r.n}}:</span>
+<code style="margin-left: auto; color: {{r.vc}}; white-space: nowrap">{{r.v}}</code>
+<span style="width: 10px; height: 10px; flex: none; margin-right: -17px; border-radius: 50%; box-sizing: border-box; background: {{r.outFill}}; border: 2px solid {{r.outRing}}"></span>
+</div>
+</sc-for>
+<sc-if value="{{b.isIn}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{addField}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0; border: 0; background: transparent; color: #F3A766; font-size: 12px; cursor: pointer">+ Add field</button></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</main>
+
+<!-- Definition -->
+<aside aria-label="Definition of tankInfo" style="flex: 1 1 360px; max-width: 400px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 16px 18px 12px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Own block</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Name</span><input type="text" value="tankInfo" style="height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Version</span><span style="display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 6px; background: #1D2226; border: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 13px">v3 → <span style="color: #F3A766; margin-left: 6px">v4 draft</span></span></div>
+</div>
+</div>
+<div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between"><h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Fields · {{fieldCount}}</h2><span style="font-size: 12px; color: #8E979C">what users of the block see</span></div>
+<div style="border: 1px solid #252B30; border-radius: 8px">
+<div style="display: grid; grid-template-columns: 1.2fr 0.6fr 0.9fr 0.8fr; gap: 8px; align-items: center; height: 32px; padding: 0 10px; border-bottom: 1px solid #252B30; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C"><span>Field</span><span>Way</span><span>Type</span><span>Default</span></div>
+<sc-for list="{{fields}}" as="f" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 1.2fr 0.6fr 0.9fr 0.8fr; gap: 8px; align-items: center; min-height: 38px; padding: 0 10px; border-bottom: 1px solid #1D2226; font-size: 12px; background: {{f.bg}}">
+<code style="color: #ECE9E1">{{f.n}}</code>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{f.wayInk}}">{{f.way}}</span>
+<code style="color: #A3ABAF">{{f.type}}</code>
+<code style="color: #C5CBCE">{{f.def}}</code>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5"><strong style="color: #C5CBCE; font-weight: 600">in</strong> fields can be typed or bound from outside. <strong style="color: #C5CBCE; font-weight: 600">out</strong> fields are results others bind to. Every field still shows its value on the block.</span>
+</div>
+<div style="padding: 0 18px 14px; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Used in</h2>
+<sc-for list="{{uses}}" as="u" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 10px; min-height: 34px; font-size: 13px"><code style="color: #ECE9E1">{{u.flow}}</code><span style="color: #8E979C">{{u.how}}</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #A3ABAF">{{u.ver}}</span></div>
+</sc-for>
+</div>
+<div style="margin-top: auto; padding: 14px 18px 18px; border-top: 1px solid #252B30; font-size: 12px; color: #8E979C; line-height: 1.5">An own block is a small flow of its own. Drag it from My blocks like any other block, put it inside a Repeat, or open it here to change its logic.</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const extra = st.extra || 0;
+    const TEAL = '#6CC4B0', GREY = '#5A6168';
+    const inFields = [{ n: 'level_raw', v: '3790', in: 0, out: 1 }, { n: 'limit', v: '90', in: 0, out: 1 }];
+    for (let i = 0; i < extra; i++) inFields.push({ n: 'field_' + (i + 1), v: '—', in: 0, out: 1, isNew: 1 });
+    const B = [
+      { id: 'in', title: 'fields in', sub: 'from outside', kind: 'io', x: 20, y: 60, w: 190, fields: inFields },
+      { id: 'scale', title: 'scale', sub: '', kind: 'logic', x: 270, y: 30, w: 210, fields: [
+        { n: 'input', v: '3790', in: 1, out: 1 }, { n: 'from', v: '0…4095', in: 1, out: 1 }, { n: 'to', v: '0…100', in: 1, out: 1 }, { n: 'output', v: '92.6', in: 0, out: 1 }] },
+      { id: 'if', title: 'if', sub: '', kind: 'logic', x: 270, y: 260, w: 210, fields: [
+        { n: 'value', v: '92.6', in: 1, out: 1 }, { n: 'op', v: '>', in: 1, out: 1 }, { n: 'compare', v: '90', in: 1, out: 1 }, { n: 'then', v: 'high', in: 1, out: 1 }, { n: 'else', v: 'ok', in: 1, out: 1 }, { n: 'output', v: 'high', in: 0, out: 1 }] },
+      { id: 'sc', title: 'script', sub: 'rhai', kind: 'logic', x: 530, y: 330, w: 200, fields: [
+        { n: 'a', v: '90', in: 1, out: 1 }, { n: 'b', v: '92.6', in: 1, out: 1 }, { n: 'expr', v: 'a - b', in: 1, out: 1 }, { n: 'result', v: '-2.6', in: 0, out: 1 }] },
+      { id: 'out', title: 'fields out', sub: 'to outside', kind: 'io', x: 770, y: 120, w: 170, fields: [
+        { n: 'level', v: '92.6', in: 1, out: 0 }, { n: 'state', v: 'high', in: 1, out: 0 }, { n: 'margin', v: '-2.6', in: 1, out: 0 }] }
+    ];
+    const L = [
+      ['in', 'level_raw', 'scale', 'input'], ['scale', 'output', 'if', 'value'], ['in', 'limit', 'if', 'compare'],
+      ['in', 'limit', 'sc', 'a'], ['scale', 'output', 'sc', 'b'],
+      ['scale', 'output', 'out', 'level'], ['if', 'output', 'out', 'state'], ['sc', 'result', 'out', 'margin']
+    ];
+    const byId = {}; B.forEach((b) => { byId[b.id] = b; });
+    const fi = (b, n) => b.fields.findIndex((f) => f.n === n);
+    const py = (b, i) => b.y + 52 + 28 * i;
+    const wires = L.map((l) => {
+      const a = byId[l[0]], b = byId[l[2]];
+      const x1 = a.x + a.w, y1 = py(a, fi(a, l[1])), x2 = b.x, y2 = py(b, fi(b, l[3]));
+      const dx = Math.max(50, Math.abs(x2 - x1) / 2);
+      return { d: 'M' + x1 + ' ' + y1 + ' C' + (x1 + dx) + ' ' + y1 + ' ' + (x2 - dx) + ' ' + y2 + ' ' + x2 + ' ' + y2, c: (l[0] === 'in' || l[2] === 'out') ? accent : TEAL };
+    });
+    const hasIn = {}, hasOut = {};
+    L.forEach((l) => { hasIn[l[2] + '.' + l[3]] = 1; hasOut[l[0] + '.' + l[1]] = 1; });
+    const blocks = B.map((b) => {
+      const io = b.kind === 'io';
+      return { x: b.x + 'px', y: b.y + 'px', w: b.w + 'px', title: b.title, sub: b.sub, tag: io ? 'FIELD' : 'FX', isIn: b.id === 'in',
+        bg: io ? '#1A1511' : '#161A1D', border: io ? '1.5px dashed ' + accent : '1px solid #2F373D', hbg: io ? '#3A2A1C' : '#22282D', hink: io ? '#F3A766' : '#C5CBCE',
+        rows: b.fields.map((f) => {
+          const k = b.id + '.' + f.n, wi = !!hasIn[k], wo = !!hasOut[k];
+          return { n: f.n, v: f.v, vc: f.isNew ? '#F3A766' : (wi ? '#F6C59A' : '#ECE9E1'),
+            inFill: f.in && wi ? TEAL : 'transparent', inRing: f.in ? (wi ? TEAL : GREY) : 'transparent',
+            outFill: f.out && wo ? TEAL : 'transparent', outRing: f.out ? (wo ? TEAL : GREY) : 'transparent' };
+        }) };
+    });
+    const F = (n, way, type, def, isNew) => ({ n, way, type, def, wayInk: way === 'in' ? '#6CC4B0' : '#F3A766', bg: isNew ? '#191714' : 'transparent' });
+    const fields = [F('level_raw', 'in', 'number', '0'), F('limit', 'in', 'number', '90')];
+    for (let i = 0; i < extra; i++) fields.push(F('field_' + (i + 1), 'in', 'number', '—', 1));
+    fields.push(F('level', 'out', 'number · %', '—'), F('state', 'out', 'enum', 'ok'), F('margin', 'out', 'number', '—'));
+    const uses = [
+      { flow: 'tank-level', how: 'one block', ver: 'v3' },
+      { flow: 'boiler-room', how: 'one block', ver: 'v3' },
+      { flow: 'all-tanks', how: 'inside a Repeat · 3 rows', ver: 'v3' }
+    ];
+    return { accent, blocks, wires, fields, uses, fieldCount: fields.length, addField: () => this.setState({ extra: extra + 1 }) };
+  }
+}
+</script>
+</body>
+</html>

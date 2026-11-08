@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a link</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased">
+
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; color: #ECE9E1; text-decoration: none">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+</a>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #A3ABAF"><a href="Links.dc.html" style="color: #A3ABAF; text-decoration: none">Links on plant</a><span>/</span><span style="color: #ECE9E1">Add a link</span></nav>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 12px">
+<span style="font-size: 12px; color: #8E979C">{{headNote}}</span>
+<a href="Links.dc.html" aria-label="Close" style="width: 40px; height: 40px; border-radius: 8px; color: #A3ABAF; display: flex; align-items: center; justify-content: center; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></a>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Stepper -->
+<nav aria-label="Steps" style="flex: 1 1 220px; max-width: 250px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+<span style="padding: 0 8px 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{pathLabel}}</span>
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+<button type="button" onClick="{{s.go}}" disabled="{{s.locked}}" aria-current="{{s.current}}" style="display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 6px 8px; border: 0; border-radius: 8px; background: {{s.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer; opacity: {{s.op}}">
+<span style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid {{s.ring}}; background: {{s.fill}}; color: {{s.ink}}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-sizing: border-box">{{s.mark}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 14px; font-weight: {{s.weight}}">{{s.title}}</span><span style="font-size: 12px; color: #8E979C; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{s.sub}}</span></span>
+</button>
+</sc-for>
+<div style="margin-top: auto; padding: 14px 8px 0; border-top: 1px solid #252B30; font-size: 12px; color: #8E979C; line-height: 1.5">Installing needs config on <span style="font-family: 'IBM Plex Mono', monospace">sys</span> (the admin role). Nothing is installed before you press Install.</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<div style="flex: 1; padding: 24px 30px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C">{{stepLabel}}</span>
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{cur.q}}</h1>
+<p style="margin: 0; color: #A3ABAF; max-width: 700px; line-height: 1.55">{{cur.why}}</p>
+</div>
+
+<!-- CHOOSE -->
+<sc-if value="{{is.choose}}" hint-placeholder-val="{{true}}">
+<div role="tablist" aria-label="Where the link comes from" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 880px">
+<button type="button" role="tab" aria-selected="{{tabOff.sel}}" onClick="{{tabOff.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; border-radius: 10px; border: {{tabOff.border}}; background: {{tabOff.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer"><span style="font-size: 16px; font-weight: 600">Official list</span><span style="font-size: 13px; color: #A3ABAF">Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.</span></button>
+<button type="button" role="tab" aria-selected="{{tabCus.sel}}" onClick="{{tabCus.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; border-radius: 10px; border: {{tabCus.border}}; background: {{tabCus.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer"><span style="font-size: 16px; font-weight: 600">Custom package</span><span style="font-size: 13px; color: #A3ABAF">A package archive you bring: a zip, a URL, a Git repository or one .wasm. It is checked before install.</span></button>
+</div>
+
+<sc-if value="{{isOfficial}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<label style="flex: 1 1 260px; max-width: 420px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #252B30; background: #13171A; box-sizing: border-box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span><input type="text" placeholder="Protocol, database, store…" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font-family: inherit; font-size: 13px"></label>
+<div role="group" aria-label="Category" style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{cats}}" as="c" hint-placeholder-count="4"><button type="button" aria-pressed="{{c.sel}}" onClick="{{c.pick}}" style="height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.ink}}; font-family: inherit; font-size: 12px; cursor: pointer">{{c.name}}</button></sc-for>
+</div>
+</div>
+<div role="radiogroup" aria-label="Link" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{items}}" as="i" hint-placeholder-count="8">
+<button type="button" role="radio" aria-checked="{{i.checked}}" onClick="{{i.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 104px; padding: 12px 14px; border-radius: 10px; border: {{i.border}}; background: {{i.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer; box-sizing: border-box">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">{{i.tag}}</span><span style="font-weight: 600">{{i.name}}</span><sc-if value="{{i.hasNote}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; font-size: 11px; color: #6CC4B0">{{i.note}}</span></sc-if></span>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.4">{{i.desc}}</span>
+<span style="margin-top: auto; display: flex; flex-wrap: wrap; gap: 4px"><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: {{i.srcBg}}; color: {{i.srcInk}}">{{i.srcLabel}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">{{i.modes}}</span></span>
+</button>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #8E979C">
+<span>Built in: in wyrmd, nothing to download. Package: from the index in <span style="font-family: 'IBM Plex Mono', monospace; color: #A3ABAF">packages.repository</span>, SHA-256 checked; a broker lists only packages it can install.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isCustom}}" hint-placeholder-val="{{false}}">
+<div role="radiogroup" aria-label="How you bring the package" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30; max-width: 640px">
+<sc-for list="{{methods}}" as="m" hint-placeholder-count="4"><button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="height: 36px; border: 0; border-radius: 6px; background: {{m.bg}}; color: {{m.ink}}; font-family: inherit; font-size: 13px; font-weight: {{m.weight}}; cursor: pointer">{{m.name}}</button></sc-for>
+</div>
+<sc-if value="{{meth.zip}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 12px; border: 1.5px dashed {{accent}}; background: #1A1511; max-width: 640px; box-sizing: border-box">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#F3A766" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M10 12h4M10 16h4"></path></svg>
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px">{{cfile}}</span><span style="font-size: 12px; color: #8E979C">4.8 MB · chosen from this computer</span></span>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 13px; cursor: pointer">Choose another</button>
+</div>
+<span style="font-size: 12px; color: #8E979C">A zip with <span style="font-family: 'IBM Plex Mono', monospace">wyrm-link.json</span> at its root, up to 64 MiB. Made with <span style="font-family: 'IBM Plex Mono', monospace">wyr link pack</span>.</span>
+</sc-if>
+<sc-if value="{{meth.url}}" hint-placeholder-val="{{false}}">
+<label style="display: flex; flex-direction: column; gap: 6px; max-width: 640px"><span style="font-size: 13px">Package URL</span><input type="text" value="https://packages.example.com/acme-meter/1.2.0/acme-meter-1.2.0-linux-aarch64.zip" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box"></label>
+<span style="font-size: 12px; color: #8E979C">HTTPS only (plain HTTP to loopback). No <span style="font-family: 'IBM Plex Mono', monospace">user:token@</span> in the URL: it is shown in sys/packages and kept in the audit. Up to 64 MiB, 90 s, 3 redirects.</span>
+</sc-if>
+<sc-if value="{{meth.git}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; max-width: 640px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px">Repository</span><input type="text" value="https://github.com/acme/acme-meter-package" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box; min-width: 0"></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px">Ref</span><input type="text" value="v1.2.0" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box; min-width: 0"></label>
+</div>
+<span style="font-size: 12px; color: #8E979C">A public repository over HTTPS that holds a built package (<span style="font-family: 'IBM Plex Mono', monospace">wyrm-link.json</span> at its root). Cloned with depth 1; needs git on the broker host.</span>
+</sc-if>
+<sc-if value="{{meth.wasm}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 12px; border: 1.5px dashed #3A4249; background: #161A1D; max-width: 640px; box-sizing: border-box"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">WA</span><span style="flex: 1; font-family: 'IBM Plex Mono', monospace">register.wasm</span><span style="font-size: 12px; color: #8E979C">412 KB</span></div>
+<span style="font-size: 12px; color: #8E979C">One component, up to 16 MiB. It is wrapped as a WASM package with the name you give and runs in the broker’s sandbox.</span>
+</sc-if>
+</sc-if>
+</sc-if>
+
+<!-- CHECK (custom) -->
+<sc-if value="{{is.check}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+<div style="flex: 1 1 400px; min-width: 0; border: 1px solid #252B30; border-radius: 12px; background: #13171A">
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #1D2226">
+<span style="width: 20px; height: 20px; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{c.ok}}" hint-placeholder-val="{{true}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+<sc-if value="{{c.bad}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E07A5F" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></sc-if>
+<sc-if value="{{c.skip}}" hint-placeholder-val="{{false}}"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #5A6168; box-sizing: border-box"></span></sc-if>
+</span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; color: {{c.ink}}">{{c.t}}</span><span style="font-size: 12px; color: {{c.dInk}}; font-family: {{c.dFont}}">{{c.d}}</span></span>
+</div>
+</sc-for>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; border: 1px solid #252B30; background: #161A1D">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">wyrm-link.json</span>
+<sc-for list="{{manifest}}" as="f" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 90px 1fr; gap: 10px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace; color: #8E979C">{{f.k}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{f.ink}}; word-break: break-word">{{f.v}}</span></div>
+</sc-for>
+</div>
+</div>
+<sc-if value="{{checkFailed}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 10px; border: 1px solid #5A3328; background: #1C1513; max-width: 880px; box-sizing: border-box">
+<span style="font-size: 15px">This is not a link package.</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">The zip has no <span style="font-family: 'IBM Plex Mono', monospace">wyrm-link.json</span> at its root, so there is nothing to read the rest from. It looks like a folder was zipped with its parent (<span style="font-family: 'IBM Plex Mono', monospace">acme-meter/wyrm-link.json</span>). Build the package with <span style="font-family: 'IBM Plex Mono', monospace">wyr link pack</span>, or zip the folder’s contents, then choose the new zip. Nothing was installed.</span>
+<div style="display: flex; gap: 10px; padding-top: 4px"><button type="button" onClick="{{back}}" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Choose another zip</button></div>
+</div>
+</sc-if>
+<span style="font-size: 12px; color: #8E979C">Checked in Studio with the same rules the broker uses; the broker checks again when you install.</span>
+</sc-if>
+
+<!-- RUN AND NAME -->
+<sc-if value="{{is.run}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid #252B30; background: #161A1D; max-width: 880px; box-sizing: border-box">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">{{sel.tag}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">{{sel.name}}</span><span style="font-size: 12px; color: #8E979C">{{sel.from}}</span></span>
+</div>
+<span style="font-size: 13px; font-weight: 600; color: #C5CBCE">On which broker</span>
+<div role="radiogroup" aria-label="Broker" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; max-width: 880px">
+<sc-for list="{{brokers}}" as="b" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{b.checked}}" disabled="{{b.off}}" onClick="{{b.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 76px; padding: 10px 14px; border-radius: 10px; border: {{b.border}}; background: {{b.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer; opacity: {{b.op}}">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{b.dot}}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{b.name}}</span><span style="font-size: 11px; color: #8E979C">{{b.role}}</span></span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">{{b.host}}</span>
+<span style="font-size: 12px; color: {{b.noteInk}}">{{b.note}}</span>
+</button>
+</sc-for>
+</div>
+<span style="font-size: 13px; font-weight: 600; color: #C5CBCE">How it runs there</span>
+<div role="radiogroup" aria-label="Where it runs" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; max-width: 880px">
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{m.checked}}" disabled="{{m.off}}" onClick="{{m.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 92px; padding: 12px 14px; border-radius: 10px; border: {{m.border}}; background: {{m.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer; opacity: {{m.op}}">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 16px; height: 16px; border-radius: 50%; border: 2px solid {{m.ring}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{m.dot}}"></span></span><span style="font-weight: 600">{{m.name}}</span><sc-if value="{{m.isDefault}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #22282D; color: #A3ABAF">default</span></sc-if></span>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.45">{{m.note}}</span>
+</button>
+</sc-for>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; max-width: 420px"><span style="font-size: 13px">Link name</span><input type="text" value="{{linkName}}" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 14px; box-sizing: border-box"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C">wy/{{brokerName}}/downstream/<span style="color: #F6C59A">{{linkName}}</span></span><span style="font-size: 12px; color: #8E979C">Letters, digits, . _ - · not used by another link, a removed link or a site</span></label>
+<sc-if value="{{hasRights}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 10px; border: 1px solid #4A4020; background: #1B1A14; max-width: 880px; box-sizing: border-box">
+<span style="font-size: 14px; font-weight: 600">The package asks for these rights</span>
+<sc-for list="{{rights}}" as="r" hint-placeholder-count="2"><div style="display: grid; grid-template-columns: 110px 1fr; gap: 10px; font-size: 13px"><span style="color: #A3ABAF">{{r.k}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: #ECE9E1">{{r.v}}</span></div></sc-for>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; padding-top: 4px"><input type="checkbox" checked="{{accepted}}" onChange="{{toggleAccept}}" style="width: 18px; height: 18px; accent-color: #E8893A">Accept requested rights</label>
+<span style="font-size: 12px; color: #8E979C">Without this the broker installs nothing. Grants change later with Grant Access; other values with the link’s params.</span>
+</div>
+</sc-if>
+</sc-if>
+
+<!-- RESULT -->
+<sc-if value="{{is.result}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 4px; max-width: 700px">
+<sc-for list="{{progress}}" as="p" hint-placeholder-count="6">
+<div style="display: flex; align-items: center; gap: 12px; min-height: 38px; font-size: 14px; color: {{p.text}}">
+<span style="width: 20px; height: 20px; flex: none; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{p.done}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+<sc-if value="{{p.now}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+<sc-if value="{{p.fail}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E07A5F" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></sc-if>
+<sc-if value="{{p.wait}}" hint-placeholder-val="{{false}}"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #5A6168; box-sizing: border-box"></span></sc-if>
+</span>
+<span style="flex: 1">{{p.t}}</span>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ph.done}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 8px; background: #15302A; border: 1px solid #36705F; max-width: 700px; box-sizing: border-box"><span style="font-size: 12px; color: #6CC4B0">success · true</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #C4EBE1; line-height: 1.5">{{answer}}</span></div>
+<sc-if value="{{isExternal}}" hint-placeholder-val="{{false}}"><div style="display: flex; flex-direction: column; gap: 6px; max-width: 700px"><span style="font-size: 14px; font-weight: 600">Start it on the other machine · token shown once</span><pre style="margin: 0; padding: 12px 14px; border-radius: 8px; background: #0B0D0F; border: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; color: #C5CBCE; white-space: pre-wrap">WYRM_SITE={{brokerName}} WYRM_LINK_ID={{linkName}} WYRM_ENDPOINT=tls/[BROKER ADDRESS]:7448 \
+WYRM_TOKEN_FILE=./token  ./{{linkName}}</pre></div></sc-if>
+<div style="display: flex; flex-direction: column; gap: 8px; max-width: 700px">
+<span style="font-size: 14px; font-weight: 600">Next: the link starts with an empty tree</span>
+<span style="font-size: 13px; color: #A3ABAF">Add its connections, devices and points with its Add actions.</span>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<a href="AddLinkB10.dc.html" style="height: 44px; padding: 0 18px; border-radius: 8px; background: {{accent}}; color: #0E1113; font-size: 15px; font-weight: 600; display: flex; align-items: center; text-decoration: none">Open {{linkName}} and add a connection</a>
+<button type="button" onClick="{{restart}}" style="height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 15px; cursor: pointer">Add another link</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ph.failed}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; border: 1px solid #5A3328; background: #1C1513; max-width: 700px">
+<span style="font-size: 12px; color: #E07A5F">success · false</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #F0A28D">process links need a tls/ listener on the broker</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">A process link talks to its broker over mTLS, and <span style="font-family: 'IBM Plex Mono', monospace">{{brokerName}}</span> has no <span style="font-family: 'IBM Plex Mono', monospace">tls/</span> listener. Nothing was installed. Add one to <span style="font-family: 'IBM Plex Mono', monospace">listen</span> in its wyrmd.json5 and install again, or install on another broker.</span>
+<div style="display: flex; flex-wrap: wrap; gap: 10px; padding-top: 4px">
+<button type="button" onClick="{{toRun}}" style="height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Choose another broker</button>
+<a href="System.dc.html" style="height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; color: #ECE9E1; font-size: 14px; display: flex; align-items: center; text-decoration: none">Open broker configuration</a>
+</div>
+</div>
+</sc-if>
+</sc-if>
+</div>
+
+<sc-if value="{{showFooter}}" hint-placeholder-val="{{true}}">
+<div style="padding: 14px 30px; border-top: 1px solid #252B30; background: #13171A; display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<button type="button" onClick="{{back}}" disabled="{{isFirst}}" style="height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 15px; cursor: pointer; opacity: {{backOp}}">Back</button>
+<span style="font-size: 13px; color: {{noteColor}}">{{footNote}}</span>
+<button type="button" onClick="{{next}}" disabled="{{blocked}}" style="margin-left: auto; height: 44px; padding: 0 22px; border-radius: 8px; border: 0; background: {{nextBg}}; color: {{nextInk}}; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer">{{nextLabel}}</button>
+</div>
+</sc-if>
+</main>
+
+<aside aria-label="Summary" style="flex: 1 1 280px; max-width: 320px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 20px 10px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{summaryTitle}}</span><span style="font-size: 12px; color: #8E979C">Your answers. Click a step on the left to change one.</span></div>
+<div style="padding: 0 20px 16px; display: flex; flex-direction: column">
+<sc-for list="{{summary}}" as="s" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid #1D2226"><span style="font-size: 12px; color: #8E979C">{{s.k}}</span><span style="font-size: 14px; color: {{s.ink}}; word-break: break-word">{{s.v}}</span></div>
+</sc-for>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"path":{"editor":"enum","default":"official","options":["official","custom"]},"startStep":{"editor":"int","default":1,"min":1,"max":4},"item":{"editor":"enum","default":"modbus","options":["modbus","postgres","s7","opcua"]},"check":{"editor":"enum","default":"ok","options":["ok","fail"]},"phase":{"editor":"enum","default":"done","options":["installing","done","failed"]},"broker":{"editor":"enum","default":"plant","options":["plant","line-2-edge"]},"accepted":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const path = st.path || pr.path || 'official';
+    const official = path === 'official';
+    const step = st.step || Number(pr.startStep) || 1;
+    const itemId = st.item || pr.item || 'modbus';
+    const cat = st.cat || 'All';
+    const method = st.method || 'zip';
+    const check = st.check || pr.check || 'ok';
+    const phase = st.phase || pr.phase || 'done';
+    const propAcc = pr.accepted === true || pr.accepted === 'true';
+    const accepted = st.accepted !== undefined ? st.accepted : propAcc;
+
+    const B3 = ['Embedded', 'Process', 'External'];
+    const OFF = [
+      { id: 'modbus', cat: 'Equipment', tag: 'MB', name: 'Modbus', desc: 'TCP, RTU over TCP, serial RTU · master and slave', src: 'builtin', modes: B3, note: '1 link already' },
+      { id: 'opcua', cat: 'Equipment', tag: 'OPC', name: 'OPC UA client', desc: 'Nodes of OPC UA servers as points', src: 'builtin', modes: B3, note: '1 link already' },
+      { id: 'bacnet', cat: 'Equipment', tag: 'BAC', name: 'BACnet/IP', desc: 'Who-Is/I-Am, RPM, BBMD, routed devices', src: 'builtin', modes: B3 },
+      { id: 's7', cat: 'Equipment', tag: 'S7', name: 'Siemens S7', desc: 'S7-300/400/1200/1500 over ISO-on-TCP', src: 'builtin', modes: B3 },
+      { id: 'snmp', cat: 'Equipment', tag: 'SNMP', name: 'SNMP', desc: 'v2c and v3 agents', src: 'builtin', modes: B3 },
+      { id: 'mqtt', cat: 'Equipment', tag: 'MQTT', name: 'MQTT', desc: 'Topics as points', src: 'builtin', modes: B3 },
+      { id: 'http', cat: 'Equipment', tag: 'HTTP', name: 'HTTP / REST', desc: 'JSON APIs polled on a schedule', src: 'builtin', modes: B3 },
+      { id: 'prometheus', cat: 'Equipment', tag: 'PROM', name: 'Prometheus', desc: 'Scrapes exporters into points', src: 'builtin', modes: B3 },
+      { id: 'postgres', cat: 'History sync', tag: 'PG', name: 'PostgreSQL / TimescaleDB', desc: 'Sends the historian’s journal to a database', src: 'repo', modes: ['WASM'],
+        rights: [{ k: 'Network', v: 'db.lan:5432, 10.0.5.0/24:5432' }, { k: 'Store', v: '1 MiB' }, { k: 'Memory', v: '64 MiB' }, { k: 'Call time', v: '2000 ms' }] },
+      { id: 'influxdb', cat: 'History sync', tag: 'INFX', name: 'InfluxDB 2.x / 3.x', desc: 'Line protocol, tags site and key', src: 'repo', modes: ['WASM'], rights: [{ k: 'Network', v: '10.0.5.20:8086' }] },
+      { id: 's3', cat: 'File stores', tag: 'S3', name: 'S3 and compatibles', desc: 'A bucket as a tree of folders and files', src: 'builtin', modes: B3 },
+      { id: 'localfs', cat: 'File stores', tag: 'FS', name: 'Local folder', desc: 'A directory of the host, USB/SD or a mount', src: 'builtin', modes: B3 }
+    ];
+    const CUSTOM = { id: 'acme-meter', tag: 'PKG', name: 'acme-meter 1.2.0', kind: 'process', modes: ['Process'], hosts: ['linux-aarch64'],
+      rights: [{ k: 'Grant', v: 'read on wy/{site}/downstream/modbus' }] };
+    const item = official ? (OFF.find((o) => o.id === itemId) || OFF[0]) : CUSTOM;
+    const defMode = item.modes[0];
+    const mode = st.mode && item.modes.indexOf(st.mode) >= 0 ? st.mode : defMode;
+    const linkName = official ? ({ modbus: 'modbus-line2', postgres: 'pg-history', s7: 's7-press', opcua: 'opc-scada' }[item.id] || item.id + '-1') : 'acme-meter';
+    const hasRights = !!(item.rights && item.rights.length);
+    const BR = [
+      { id: 'plant', role: 'this broker', host: 'linux-aarch64', cfg: true },
+      { id: 'line-2-edge', role: 'downstream', host: 'linux-x86_64', cfg: true },
+      { id: 'warehouse', role: 'downstream', host: 'linux-aarch64', cfg: false }
+    ];
+    const fits = (b) => !b.cfg ? 'config on its sys is not allowed from here (allow_config)' : (!official && CUSTOM.hosts.indexOf(b.host) < 0 ? 'no entry for this host in the package' : '');
+    const brokerId = st.broker && BR.find((b) => b.id === st.broker && !fits(b)) ? st.broker : (pr.broker || 'plant');
+    const brokerName = brokerId;
+    const brokers = BR.map((b) => { const why = fits(b), on = b.id === brokerId;
+      return { name: b.id, role: b.role, host: b.host, off: !!why, op: why ? 0.5 : 1, note: why || (b.id === 'plant' ? 'Studio is signed in here' : 'config allowed for this upstream'),
+        noteInk: why ? '#A3ABAF' : TEAL, dot: why ? '#5A6168' : TEAL, checked: on ? 'true' : 'false', border: on ? '1.5px solid ' + accent : '1px solid #252B30', bg: on ? '#1E1813' : '#161A1D',
+        pick: () => { if (!why) set({ broker: b.id }); } }; });
+
+    const SO = ['Choose', 'Where it runs', 'Install'];
+    const SC = ['Choose', 'Check', 'Where it runs', 'Install'];
+    const S = official ? SO : SC;
+    const last = S.length;
+    const key = official ? ['choose', 'run', 'result'][step - 1] : ['choose', 'check', 'run', 'result'][step - 1];
+    const cfile = 'acme-meter-1.2.0-linux-aarch64.zip';
+    const checkFailed = !official && check === 'fail';
+
+    const Q = {
+      choose: { q: 'What do you want to add?', why: 'Most links come from the official list: a driver built into wyrmd or a package from your repository. Bring your own package only when it is not there.' },
+      check: { q: checkFailed ? 'The package did not pass' : 'The package looks right', why: 'Before anything is installed, the archive and what is in it are checked: size, paths, the manifest and its fields, the protocol version, which hosts it has binaries for.' },
+      run: { q: 'Where should it run, and under what name?', why: official ? 'Choose the broker, then how the link runs on it. A built-in driver can run inside the broker, as its own process or on another machine.' : 'Choose the broker. Only brokers whose host the package was built for can take it; how it runs is set by the package kind (process).' },
+      result: { q: phase === 'failed' ? 'The broker did not install it' : (phase === 'installing' ? 'Installing ' + linkName + '…' : linkName + ' is installed'),
+        why: phase === 'failed' ? 'The broker answered success: false. Its message tells why.' : (phase === 'installing' ? 'This takes a few seconds. You can leave; it continues.' : 'It runs, has its own identity and has declared its branch.') }
+    };
+    const subs = official
+      ? [item.name, brokerName + ' · ' + mode.toLowerCase(), '']
+      : [method === 'zip' ? 'zip file' : method, checkFailed ? 'failed' : 'passed', brokerName + ' · ' + linkName, ''];
+    const steps = S.map((t, i) => {
+      const n = i + 1, done = n < step, cur = n === step;
+      return { title: t, sub: n < step ? subs[i] : (cur ? 'now' : ''), mark: done ? '✓' : String(n), current: cur ? 'step' : 'false',
+        bg: cur ? '#2A1F16' : 'transparent', ring: done ? TEAL : (cur ? accent : '#3A4249'), fill: done ? '#15302A' : 'transparent',
+        ink: done ? TEAL : (cur ? '#F3A766' : '#8E979C'), weight: cur ? 600 : 400, locked: n > step || step === last, op: n > step ? 0.55 : 1,
+        go: () => { if (n <= step && step !== last) set({ step: n }); } };
+    });
+    const tab = (on, p) => ({ sel: on ? 'true' : 'false', border: on ? '1.5px solid ' + accent : '1px solid #252B30', bg: on ? '#1E1813' : '#161A1D', pick: () => set({ path: p, step: 1, mode: null }) });
+    const CATS = ['All', 'Equipment', 'History sync', 'File stores'];
+    const cats = CATS.map((c) => ({ name: c, sel: c === cat ? 'true' : 'false', border: c === cat ? '#3A4249' : '#252B30', bg: c === cat ? '#22282D' : 'transparent', ink: c === cat ? '#ECE9E1' : '#A3ABAF', pick: () => set({ cat: c }) }));
+    const items = OFF.filter((o) => cat === 'All' || o.cat === cat).map((o) => {
+      const on = o.id === item.id;
+      return { tag: o.tag, name: o.name, desc: o.desc, hasNote: !!o.note, note: o.note || '', modes: o.modes.join(' · ').toLowerCase(),
+        srcLabel: o.src === 'builtin' ? 'built in' : 'package [VERSION]', srcBg: o.src === 'builtin' ? '#22282D' : '#15302A', srcInk: o.src === 'builtin' ? '#C5CBCE' : TEAL,
+        checked: on ? 'true' : 'false', border: on ? '1.5px solid ' + accent : '1px solid #252B30', bg: on ? '#1E1813' : '#161A1D', pick: () => set({ item: o.id, mode: null, accepted: false }) };
+    });
+    const M = [['zip', 'Zip file'], ['url', 'URL'], ['git', 'Git'], ['wasm', '.wasm']];
+    const methods = M.map((m) => ({ name: m[1], checked: m[0] === method ? 'true' : 'false', bg: m[0] === method ? '#2F373D' : 'transparent', ink: m[0] === method ? '#ECE9E1' : '#A3ABAF', weight: m[0] === method ? 600 : 400, pick: () => set({ method: m[0] }) }));
+    const meth = {}; M.forEach((m) => { meth[m[0]] = m[0] === method; });
+
+    const C = (t, d, s, mono) => ({ t, d, ok: s === 'ok', bad: s === 'bad', skip: s === 'skip', ink: s === 'skip' ? '#8E979C' : (s === 'bad' ? '#F0A28D' : '#ECE9E1'), dInk: s === 'bad' ? '#F0A28D' : '#8E979C', dFont: mono ? "'IBM Plex Mono', monospace" : 'inherit' });
+    const NC = 'not checked: needs the manifest';
+    const checks = [
+      C('Size and files', '4.8 MB zipped of 64 MiB · 11 MB unpacked of 256 MiB · 7 files of 1000', 'ok'),
+      C('Paths', 'relative only · no .. · no symlinks · regular files', 'ok'),
+      checkFailed ? C('Manifest', 'no wyrm-link.json at the zip root', 'bad', 1) : C('Manifest', 'wyrm-link.json at the root · name, version, kind, entries filled · no unknown fields', 'ok'),
+      checkFailed ? C('Link protocol', NC, 'skip') : C('Link protocol', 'built for 1 · the brokers speak 1', 'ok'),
+      checkFailed ? C('Binaries', NC, 'skip') : C('Binaries', 'linux-aarch64 → bin/acme-meter · the file is in the zip', 'ok', 1),
+      checkFailed ? C('Name and version', NC, 'skip') : C('Name and version', 'acme-meter is not installed on any broker yet', 'ok'),
+      checkFailed ? C('Rights it asks for', NC, 'skip') : C('Rights it asks for', '1 grant · you accept it on the next step', 'ok')
+    ];
+    const MF = (k, v, ink) => ({ k, v, ink: ink || '#ECE9E1' });
+    const manifest = checkFailed ? [MF('—', 'not found at the root', '#F0A28D'), MF('found', 'acme-meter/wyrm-link.json', '#A3ABAF'), MF('', 'acme-meter/bin/acme-meter', '#A3ABAF')] : [
+      MF('name', 'acme-meter'), MF('version', '1.2.0'), MF('description', 'Energy meters over the Acme serial protocol'),
+      MF('wyrm_link', '1'), MF('kind', 'process'),
+      MF('entries', 'linux-aarch64 → bin/acme-meter'),
+      MF('requester', 'wy/{site}/downstream/modbus · read')
+    ];
+    const MN = {
+      Embedded: 'Inside the broker process. Fastest; no isolation. Only for drivers built into wyrmd.',
+      Process: 'A child process the broker starts and watches: own mTLS identity, rlimits, a clean environment, restarts on a crash.',
+      External: 'Runs on another machine and connects with a certificate from this site. You get its token after install.',
+      WASM: 'Inside the broker, in the sandbox: no files, only the network it is allowed, memory and time limits.'
+    };
+    const ALL = item.modes;
+    const single = ALL.length === 1;
+    const modes = ALL.map((m) => { const ok = true, on = m === mode;
+      return { name: m, note: single ? MN[m] + ' Set by the package kind.' : MN[m], isDefault: !single && m === defMode, off: false, op: 1,
+        checked: on ? 'true' : 'false', border: on ? '1.5px solid ' + accent : '1px solid #252B30', bg: on ? '#1E1813' : '#161A1D', ring: on ? accent : '#5A6168', dot: on ? accent : 'transparent', pick: () => set({ mode: m }) }; });
+    const sel = official
+      ? { tag: item.tag, name: item.name, from: item.src === 'builtin' ? 'Built into wyrmd · nothing to download' : 'Package from your repository · SHA-256 checked against the index on download' }
+      : { tag: 'PKG', name: 'acme-meter 1.2.0', from: cfile + ' · checked · process package' };
+
+    const isPkg = !official || item.src === 'repo';
+    const ITEMS = isPkg
+      ? [official ? 'Download over HTTPS and check SHA-256 against the index' : 'Upload the zip (4.8 MB)', 'Unpack and check the package', hasRights ? 'Requested rights accepted' : 'No extra rights asked',
+         'Move into place: packages/' + (official ? item.id : 'acme-meter'), 'Record in the registry and the audit',
+         mode === 'Process' ? 'Start the process: certificate, token, router access list rebuilt' : (mode === 'External' ? 'Issue certificate and token; rebuild the router access list' : 'Start in the sandbox')]
+      : ['Register link ' + linkName, mode === 'Embedded' ? 'Start inside the broker' : 'Issue certificate and token; rebuild the router access list', mode === 'Process' ? 'Start the process and wait for its hello' : (mode === 'External' ? 'Wait for the program to connect' : 'Declare its branch')];
+    const at = phase === 'done' ? ITEMS.length : (phase === 'installing' ? Math.min(3, ITEMS.length - 1) : ITEMS.length - 1);
+    const progress = ITEMS.map((t, i) => {
+      const done = i < at, now = phase === 'installing' && i === at, fail = phase === 'failed' && i === at, wait = !done && !now && !fail;
+      return { t, done, now, fail, wait, text: wait ? '#8E979C' : (fail ? '#F0A28D' : '#ECE9E1') };
+    });
+    const answer = official
+      ? (item.src === 'builtin' ? 'link ' + linkName + ' installed (' + item.id + ', ' + mode.toLowerCase() + ')' : 'package ' + item.id + ' [VERSION] installed; link ' + linkName + ' installed; capabilities net ' + item.rights[0].v + ', store 1 MiB, memory 64 MiB, call 2000 ms')
+      : 'package acme-meter 1.2.0 installed; link acme-meter installed; grant wy/{site}/downstream/modbus read';
+
+    const summary = (official
+      ? [{ k: 'From', v: 'Official list' }, { k: 'Link', v: item.name }, { k: 'Broker', v: step >= 2 ? brokerName : '—' }, { k: 'Runs', v: step >= 2 ? mode : '—' }, { k: 'Name', v: step >= 2 ? linkName : '—' }, { k: 'Rights', v: hasRights ? (accepted ? 'accepted' : 'to accept') : 'none asked' }]
+      : [{ k: 'From', v: 'Custom package' }, { k: 'Archive', v: method === 'zip' ? cfile : method }, { k: 'Check', v: step >= 2 ? (checkFailed ? 'failed' : 'passed') : '—' }, { k: 'Broker', v: step >= 3 ? brokerName : '—' }, { k: 'Runs', v: step >= 3 ? mode : '—' }, { k: 'Name', v: step >= 3 ? linkName : '—' }, { k: 'Rights', v: step >= 3 ? (accepted ? 'accepted' : 'to accept') : '—' }]
+    ).map((s) => ({ ...s, ink: s.v === '—' ? '#8E979C' : '#ECE9E1' }));
+
+    const blocked = (key === 'run' && hasRights && !accepted) || (key === 'check' && checkFailed);
+    const nextLabel = key === 'run' ? 'Install' : (key === 'choose' && !official ? 'Check package' : 'Continue');
+    const footNote = key === 'run' && hasRights && !accepted ? 'Accept the requested rights to install' : (key === 'check' && checkFailed ? 'Choose a package built for this host' : '');
+    const is = { choose: key === 'choose', check: key === 'check', run: key === 'run', result: key === 'result' };
+    return {
+      brokers, brokerName, accent, steps, cats, items, methods, meth, checks, manifest, modes, sel, progress, summary, cfile, linkName, accepted, hasRights,
+      rights: item.rights || [], checkFailed, answer, is, cur: Q[key], isOfficial: official, isCustom: !official, isExternal: mode === 'External',
+      tabOff: tab(official, 'official'), tabCus: tab(!official, 'custom'),
+      pathLabel: official ? 'From the official list' : 'Custom package',
+      ph: { done: phase === 'done', failed: phase === 'failed' },
+      headNote: key === 'result' ? (phase === 'done' ? 'Installed · recorded in sys/audit' : (phase === 'failed' ? 'Nothing was installed' : 'Installing')) : 'Needs config on sys',
+      stepLabel: key === 'result' ? (phase === 'done' ? 'Done' : (phase === 'failed' ? 'Stopped' : 'Working')) : 'Step ' + step + ' of ' + (last - 1),
+      summaryTitle: key === 'result' && phase === 'done' ? 'Installed' : 'Your answers',
+      showFooter: key !== 'result', isFirst: step === 1, backOp: step === 1 ? 0.4 : 1, blocked,
+      nextBg: blocked ? '#3A2A1C' : accent, nextInk: blocked ? '#A3ABAF' : '#0E1113', nextLabel, footNote, noteColor: blocked ? AMBER : '#8E979C',
+      toggleAccept: () => set({ accepted: !accepted }),
+      next: () => {
+        if (blocked) return;
+        if (key === 'run') { set({ step: last, phase: 'installing' }); setTimeout(() => this.setState({ phase: 'done' }), 1800); return; }
+        set({ step: step + 1 });
+      },
+      back: () => set({ step: Math.max(1, step - 1) }),
+      toRun: () => set({ step: last - 1, phase: 'done' }),
+      restart: () => this.setState({ step: 1, accepted: false, phase: 'done', mode: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

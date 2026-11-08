@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — icons</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+<div style="max-width: 1200px; margin: 0 auto; padding: 64px 24px 96px; display: flex; flex-direction: column; gap: 64px">
+
+<header style="display: flex; flex-direction: column; gap: 16px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: {{accent}}">WYRM Studio · icons</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(30px, 4vw, 46px); line-height: 1.1; max-width: 860px">The shape says what it is. The dot says how it is.</h1>
+<p style="margin: 0; font-size: 17px; line-height: 1.6; color: #C5CBCE; max-width: 760px">One glyph per kind of node, used the same way in the tree, the flow canvas, search, breadcrumbs and the CLI docs. State never recolors the glyph: it is a small mark on its corner. Protocols are text tags, never vendor logos.</p>
+</header>
+
+<!-- Rules -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+<div style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 600">{{r.t}}</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">{{r.d}}</span>
+</div>
+</sc-for>
+</section>
+
+<!-- Node kinds -->
+<section style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">01 · Node kinds</span>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">What a node is</h2>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{kinds}}" as="k" hint-placeholder-count="12">
+<div style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: flex-end; gap: 14px; color: #C5CBCE">
+<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{k.d}}"></path></svg>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{k.d}}"></path></svg>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{k.d}}"></path></svg>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 600">{{k.name}}</span>
+<code style="font-size: 12px; color: #8E979C">{{k.key}}</code>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.4">{{k.note}}</span>
+</div>
+</div>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 13px; color: #8E979C">Shown at 32, 20 and 16 px. The 16 px one in ember is the selected state.</p>
+</section>
+
+<!-- State marks -->
+<section style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">02 · State marks</span>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">How a node is, on its corner</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.55">A 7 px mark at the bottom right, cut out of the ground by a 2 px ring. Fill, outline and dashes differ, so the states read without color.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{states}}" as="s" hint-placeholder-count="7">
+<div style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 14px">
+<span style="position: relative; width: 28px; height: 28px; flex: none; color: #C5CBCE; display: flex; align-items: center; justify-content: center">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{deviceD}}"></path></svg>
+<span style="position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: #13171A; display: flex; align-items: center; justify-content: center"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{s.fill}}; border: 1.5px {{s.line}} {{s.color}}; box-sizing: border-box"></span></span>
+</span>
+<span style="display: flex; flex-direction: column; gap: 2px"><code style="font-size: 13px; color: {{s.color}}">{{s.name}}</code><span style="font-size: 12px; color: #8E979C">{{s.use}}</span></span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<!-- Value types -->
+<section style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">03 · Value types</span>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">What a point holds</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.55">A 22 × 18 tag in Plex Mono 10 px, taken from <code style="color: #C5CBCE">~meta.type</code>. Used beside the point glyph in the tree, in flow ports and in drag ghosts.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<sc-for list="{{types}}" as="t" hint-placeholder-count="8">
+<div style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid #252B30; background: #13171A">
+<span style="min-width: 22px; height: 18px; padding: 0 3px; box-sizing: border-box; border-radius: 4px; background: #22282D; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{t.tag}}</span>
+<code style="font-size: 13px">{{t.name}}</code>
+<span style="font-size: 12px; color: #8E979C">{{t.ex}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<!-- Run modes and protocols -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">04 · Run modes</span>
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">Where a link runs</h2>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="4">
+<div style="padding: 14px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 12px">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C5CBCE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{m.d}}"></path></svg>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">{{m.name}}</span><span style="font-size: 12px; color: #8E979C">{{m.note}}</span></span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">05 · Protocols</span>
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">A link glyph plus a text tag</h2>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{protocols}}" as="p" hint-placeholder-count="12">
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #252B30; background: #13171A">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A3ABAF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{linkD}}"></path></svg>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">{{p.tag}}</span>
+<span style="font-size: 13px; color: #A3ABAF">{{p.name}}</span>
+</span>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 13px; color: #8E979C; line-height: 1.5">The tag comes from the link package. Two to four letters, upper case. No vendor marks anywhere in the product.</p>
+</div>
+</section>
+
+<!-- Actions -->
+<section style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">06 · Actions</span>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">What you can do to a node</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.55">The driver’s generated Add, Edit and Remove keep fixed glyphs. Any other action uses the run glyph unless its <code style="color: #C5CBCE">~meta</code> names one of these.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{actions}}" as="a" hint-placeholder-count="8">
+<div style="padding: 14px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{a.color}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.d}}"></path></svg>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">{{a.name}}</span><code style="font-size: 11px; color: #8E979C">{{a.key}}</code></span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<!-- In context -->
+<section style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">07 · In context</span>
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">A tree built only from these parts</h2>
+</div>
+<div style="max-width: 420px; padding: 8px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 1px">
+<sc-for list="{{sample}}" as="n" hint-placeholder-count="9">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 {{n.pad}}; border-radius: 6px; background: {{n.bg}}">
+<span style="position: relative; width: 18px; height: 18px; flex: none; color: {{n.ink}}; display: flex; align-items: center; justify-content: center">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg>
+<sc-if value="{{n.hasState}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; background: {{n.bg2}}; display: flex; align-items: center; justify-content: center"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{n.sfill}}; border: 1.5px {{n.sline}} {{n.scolor}}; box-sizing: border-box"></span></span></sc-if>
+</span>
+<sc-if value="{{n.hasType}}" hint-placeholder-val="{{false}}"><span style="min-width: 22px; height: 18px; padding: 0 3px; box-sizing: border-box; border-radius: 4px; background: #22282D; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{n.type}}</span></sc-if>
+<code style="flex: 1; font-size: 13px; color: {{n.text}}; font-weight: {{n.weight}}">{{n.name}}</code>
+<sc-if value="{{n.hasTag}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 3px; background: #22282D; color: #C5CBCE">{{n.tag}}</span></sc-if>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C">{{n.meta}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const D = {
+      site: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
+      section: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      link: 'M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5',
+      conn: 'M5 12h4M15 12h4M9 8h6v8H9z',
+      device: 'M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4',
+      point: 'M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M12 3v3M12 18v3',
+      action: 'M8 5v14l11-7z',
+      flow: 'M4.5 4h4A1.5 1.5 0 0 1 10 5.5v2A1.5 1.5 0 0 1 8.5 9h-4A1.5 1.5 0 0 1 3 7.5v-2A1.5 1.5 0 0 1 4.5 4zM15.5 15h4a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-2a1.5 1.5 0 0 1 1.5-1.5zM10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2',
+      storage: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+      profile: 'M3 12V4h8l10 10-8 8zM7 8h.01',
+      sys: 'M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM8 11V7a4 4 0 0 1 8 0v4',
+      watch: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 7v5l3 2'
+    };
+    const kinds = [
+      { name: 'Site', key: 'wy/<site>', note: 'One broker and its name space', d: D.site },
+      { name: 'Section', key: 'downstream · dataflows', note: 'Top-level folders of a site', d: D.section },
+      { name: 'Link', key: 'downstream/<link>', note: 'A connector that owns its branch', d: D.link },
+      { name: 'Connection', key: 'driver level 1', note: 'An endpoint: host:port, serial port', d: D.conn },
+      { name: 'Device', key: 'driver level 2', note: 'A PLC, meter or controller', d: D.device },
+      { name: 'Point', key: '~meta + ~val', note: 'A value; add its type tag', d: D.point },
+      { name: 'Action', key: '~act/<name>', note: 'Something you can invoke', d: D.action },
+      { name: 'Flow', key: 'dataflows/<id>', note: 'A graph of blocks', d: D.flow },
+      { name: 'Storage', key: 'storage/<path>', note: 'Values people and flows write', d: D.storage },
+      { name: 'Profile', key: 'pub/<profile>', note: 'A shared node type', d: D.profile },
+      { name: 'Watch group', key: 'historian', note: 'Points that are recorded', d: D.watch },
+      { name: 'System key', key: 'sys/**', note: 'Admin only, shown in raw view', d: D.sys }
+    ];
+    const S = (name, use, color, fill, line) => ({ name, use, color, fill, line: line || 'solid' });
+    const states = [
+      S('Connected', 'good, running', '#6CC4B0', '#6CC4B0'),
+      S('Connecting', 'or uncertain', '#E2C15A', 'transparent'),
+      S('Failed', 'or bad', '#E07A5F', '#E07A5F'),
+      S('Stopped', 'by a person', '#A3ABAF', '#A3ABAF'),
+      S('StoppedByParent', 'parent is down', '#A3ABAF', 'transparent'),
+      S('New', 'not started yet', '#A3ABAF', 'transparent', 'dashed'),
+      S('Quarantine', 'waits for Authorize', '#E2C15A', 'transparent', 'dashed')
+    ];
+    const types = [
+      { tag: '.0', name: 'number', ex: '64.1 °C' }, { tag: '#', name: 'integer', ex: '72' },
+      { tag: '01', name: 'bool', ex: 'on / off' }, { tag: 'Aa', name: 'string', ex: '"high"' },
+      { tag: '≡', name: 'enum', ex: 'auto · manual' }, { tag: '0x', name: 'bitmap', ex: '0x0010' },
+      { tag: 't', name: 'time', ex: '12:00:03' }, { tag: '{}', name: 'map', ex: 'structured value' }
+    ];
+    const modes = [
+      { name: 'Embedded', note: 'inside wyrmd', d: 'M4 4h16v16H4zM9 9h6v6H9z' },
+      { name: 'WASM', note: 'sandbox in wyrmd', d: 'M12 2l8.5 5v10L12 22l-8.5-5V7z' },
+      { name: 'Process', note: 'beside the broker', d: 'M3 5h12v10H3zM9 9h12v10H9' },
+      { name: 'External', note: 'another machine', d: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }
+    ];
+    const protocols = [
+      ['MB', 'Modbus'], ['OPC', 'OPC UA'], ['BAC', 'BACnet/IP'], ['S7', 'Siemens S7'], ['SNMP', 'SNMP'], ['MQTT', 'MQTT'],
+      ['HTTP', 'HTTP / REST'], ['PROM', 'Prometheus'], ['PG', 'PostgreSQL'], ['INFX', 'InfluxDB'], ['S3', 'S3 store'], ['DLMS', 'planned']
+    ].map((p) => ({ tag: p[0], name: p[1] }));
+    const A = (name, key, d, color) => ({ name, key, d, color: color || '#C5CBCE' });
+    const actions = [
+      A('Add', '~act/add_*', 'M12 5v14M5 12h14'),
+      A('Edit', '~act/edit', 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4'),
+      A('Remove', '~act/remove', 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13', '#E07A5F'),
+      A('Run', '~act/<any>', 'M8 5v14l11-7z'),
+      A('Returns rows', 'stream result', 'M4 6h16M4 12h16M4 18h10'),
+      A('Ping', '~act/ping', 'M2 12h4l3-8 4 16 3-8h6'),
+      A('Authorize', 'sys/quarantine', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4'),
+      A('Deploy', 'dataflows/~act/deploy', 'M12 19V5M5 12l7-7 7 7')
+    ];
+    const ST = { good: ['#6CC4B0', '#6CC4B0', 'solid'], warn: ['#E2C15A', 'transparent', 'solid'], bad: ['#E07A5F', '#E07A5F', 'solid'], quar: ['#E2C15A', 'transparent', 'dashed'] };
+    const N = (d, name, depth, o) => {
+      o = o || {}; const s = o.st ? ST[o.st] : null; const sel = !!o.sel;
+      return { d, name, pad: (10 + depth * 16) + 'px', hasState: !!s, scolor: s ? s[0] : '', sfill: s ? s[1] : '', sline: s ? s[2] : 'solid',
+        hasType: !!o.type, type: o.type || '', hasTag: !!o.tag, tag: o.tag || '', meta: o.meta || '',
+        bg: sel ? '#2A1F16' : 'transparent', bg2: sel ? '#2A1F16' : '#13171A', ink: sel ? accent : '#8E979C', text: sel ? '#ECE9E1' : '#C5CBCE', weight: sel ? 600 : 400 };
+    };
+    const sample = [
+      N(D.section, 'downstream', 0),
+      N(D.link, 'modbus', 1, { st: 'good', tag: 'MB' }),
+      N(D.conn, 'tcp-boiler', 2, { st: 'good' }),
+      N(D.device, 'plc1', 3, { st: 'good', sel: 1 }),
+      N(D.point, 't2', 4, { type: '.0', meta: '64.1' }),
+      N(D.point, 'pump', 4, { type: '01', meta: 'on' }),
+      N(D.action, 'rescan', 4, { meta: '3 params' }),
+      N(D.link, 'bacnet', 1, { st: 'bad', tag: 'BAC' }),
+      N(D.link, 'field-gw', 1, { st: 'quar' })
+    ];
+    const rules = [
+      { t: 'One glyph per kind', d: 'The same shape for a device in the tree, in a flow block, in search results and in a breadcrumb.' },
+      { t: 'State on the corner', d: 'The glyph stays neutral grey. Connected, failed or waiting is the mark at the bottom right.' },
+      { t: 'Ember means selected', d: 'Only the selected node’s glyph turns ember. Nothing else uses the accent on icons.' },
+      { t: 'Text for protocols', d: 'A link is always the plug glyph; MB, OPC or S7 is a tag beside it.' }
+    ];
+    return { accent, kinds, states, types, modes, protocols, actions, sample, rules, deviceD: D.device, linkD: D.link };
+  }
+}
+</script>
+</body>
+</html>

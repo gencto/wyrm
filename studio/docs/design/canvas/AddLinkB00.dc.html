@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a link · start</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span><span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<span style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span><code>plant</code></span>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span><input type="search" placeholder="Search, or type “add link”" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px"><kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd></label>
+<span style="margin-left: auto; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600">AD</span>
+</header>
+<div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>Explorer</a>
+<a href="#links" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>Flows</a>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 32px; display: flex; flex-direction: column; gap: 24px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Links on plant</h1>
+<p style="margin: 0; color: #A3ABAF; max-width: 640px">A link connects the site to equipment, a database or another program. Each one owns a branch of the tree.</p>
+</div>
+<a href="AddLinkO1.dc.html" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 8px; background: {{accent}}; color: #0E1113; font-size: 15px; font-weight: 600; box-shadow: 0 0 0 6px rgba(232,137,58,0.22)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a link</a>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow-x: auto">
+<div style="min-width: 640px">
+<sc-for list="{{rows}}" as="l" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 1.3fr 1.3fr 0.8fr 1.4fr; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; border-bottom: 1px solid #1D2226; box-sizing: border-box">
+<span style="display: flex; flex-direction: column; gap: 2px"><code style="font-size: 14px; font-weight: 600">{{l.name}}</code><span style="font-size: 12px; color: #8E979C">{{l.driver}}</span></span>
+<code style="font-size: 12px; color: #8E979C">{{l.branch}}</code>
+<span><span style="display: inline-flex; height: 24px; padding: 0 8px; align-items: center; border-radius: 4px; background: #22282D; color: #C5CBCE; font-size: 12px">{{l.mode}}</span></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: {{l.c}}"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{l.c}}"></span>{{l.state}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 1 1 260px; padding: 16px; border-radius: 10px; border: 1px dashed #3A4249; display: flex; flex-direction: column; gap: 6px"><span style="font-weight: 600">Also from Explorer</span><span style="font-size: 13px; color: #A3ABAF">An empty downstream shows “Add a link”.</span></div>
+<div style="flex: 1 1 260px; padding: 16px; border-radius: 10px; border: 1px dashed #3A4249; display: flex; flex-direction: column; gap: 6px"><span style="font-weight: 600">Also from anywhere</span><span style="font-size: 13px; color: #A3ABAF">⌘K, then type “add link”.</span></div>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const T = '#6CC4B0', C = '#E07A5F';
+    const rows = [
+      { name: 'modbus', driver: 'Modbus TCP / RTU', branch: 'downstream/modbus', mode: 'Process', state: 'Connected', c: T },
+      { name: 'opc-ua', driver: 'OPC UA', branch: 'downstream/opc-ua', mode: 'Embedded', state: 'Connected', c: T },
+      { name: 'bacnet', driver: 'BACnet/IP', branch: 'downstream/bacnet', mode: 'WASM', state: 'Failed', c: C }
+    ];
+    return { accent, rows };
+  }
+}
+</script>
+</body>
+</html>
