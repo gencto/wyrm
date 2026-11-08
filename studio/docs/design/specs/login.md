@@ -58,7 +58,7 @@ All values from the board's CSS. Use one `AnimationController` per loop, `vsync`
 | welcome | login done, tree loading | the form fades out (200 ms), then: large loader, `Welcome, <user>`, `Opening the tree of <site>…`, the bar, and two lines from `me()` and the first list: `<role> on <site> · reaches <sites>` and `<n> links · <n> flows · <n> waiting in quarantine` (only the parts known). Leave for the Studio shell when the root list arrives, shown at least 600 ms so it does not flash |
 
 ## 6. Gateway probe
-On open, on a recent chip and on leaving the URL field: a `GET <gateway>/api/me` without a session, timed. A 401 means the gateway is there: `<host> · answered in <n> ms`. Anything else in 5 s: unreachable. The board's line also shows the site and the wyrmd version; a gateway tells those only after login today, so before login show the host and the time (a public `/api/info` would be a gateway change, `docs/studio.md` §10).
+On open, on a recent chip and on leaving the URL field: a `GET <gateway>/api/me` without a session, timed. A 401 means the gateway is there: `<host> · answered in <n> ms`. Anything else in 5 s: unreachable. The board's line also shows the site and the wyrmd version; a gateway tells those only after login today, so before login show the host and the time (a public `/api/info` would be a gateway change, `docs/studio.md` §10 item 13).
 
 Recent gateways: the last five URLs that logged in, from `storage`; their dots are the last probe result. `Remember` keeps the URL list and the user, never the password. A standby URL is stored with the main one as a comma list and logged in with `WyrmGateway.loginAny`.
 
