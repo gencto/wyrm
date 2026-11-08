@@ -48,19 +48,27 @@ void main() {
     expect(TwoSwallowers(), isA<ReduxAction<AppState>>());
   });
 
-  test('and an assert stops it on dispatch, in a debug build', () {
-    final store = Store<AppState>(initialState: AppState.initial());
+  test(
+    'and an assert stops it on dispatch, in a debug build',
+    () {
+      final store = Store<AppState>(initialState: AppState.initial());
 
-    // Synchronously, out of the `dispatchAndWait` call itself rather than the
-    // future it would have returned: `Throttle.abortDispatch` runs the marker
-    // before the store has an action in flight. Awaiting the future instead
-    // never sees it.
-    expect(
-      () => store.dispatchAndWait(TwoSwallowers()),
-      throwsA(isA<AssertionError>()),
-    );
-    expect(TwoSwallowers.ran, isFalse, reason: 'the reducer must not have run');
-  }, skip: _assertsAreOff ? 'asserts are disabled in this run' : null);
+      // Synchronously, out of the `dispatchAndWait` call itself rather than the
+      // future it would have returned: `Throttle.abortDispatch` runs the marker
+      // before the store has an action in flight. Awaiting the future instead
+      // never sees it.
+      expect(
+        () => store.dispatchAndWait(TwoSwallowers()),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        TwoSwallowers.ran,
+        isFalse,
+        reason: 'the reducer must not have run',
+      );
+    },
+    skip: _assertsAreOff ? 'asserts are disabled in this run' : null,
+  );
 }
 
 /// Whether this run has asserts compiled out — a release build, where the whole

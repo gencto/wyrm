@@ -5,7 +5,8 @@ part 'login_state.freezed.dart';
 @freezed
 abstract class LoginState with _$LoginState {
   const factory LoginState({
-    String? email,
     String? password,
+    String? gateway,
+    String? user,
   }) = _LoginState;
 }

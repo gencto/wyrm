@@ -2,9 +2,9 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/connectivity/actions/set_connectivity_status_action.dart';
 import 'package:business/redux/language/actions/set_language_action.dart';
-import 'package:business/redux/login/actions/set_email_action.dart';
+import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
-import 'package:business/redux/registration/actions/set_confirm_password_action.dart';
+import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/session/actions/set_token_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:flutter/material.dart';
@@ -21,43 +21,36 @@ Store<AppState> _store([AppState? initial]) =>
     Store<AppState>(initialState: initial ?? AppState.initial());
 
 void main() {
-  group('the field setters write to their own slice', () {
-    test('SetEmailAction — login', () async {
+  group('the log-in setters write to the login slice', () {
+    test('SetGatewayAction', () async {
       final store = _store();
-      await store.dispatchAndWait(SetEmailAction('a@b.c'));
+      await store.dispatchAndWait(SetGatewayAction('http://127.0.0.1:8445'));
 
-      expect(store.state.login.email, 'a@b.c');
-      expect(
-        store.state.registration.email,
-        isNull,
-        reason: 'three slices declare an email; a setter writes to one',
-      );
+      expect(store.state.login.gateway, 'http://127.0.0.1:8445');
     });
 
-    test('SetPasswordAction — login', () async {
+    test('SetUserAction', () async {
+      final store = _store();
+      await store.dispatchAndWait(SetUserAction('admin'));
+
+      expect(store.state.login.user, 'admin');
+    });
+
+    test('SetPasswordAction', () async {
       final store = _store();
       await store.dispatchAndWait(SetPasswordAction('secret'));
 
       expect(store.state.login.password, 'secret');
-      expect(store.state.resetPassword.password, isNull);
-    });
-
-    test('SetConfirmPasswordAction — registration', () async {
-      final store = _store();
-      await store.dispatchAndWait(SetConfirmPasswordAction('secret'));
-
-      expect(store.state.registration.confirmPassword, 'secret');
-      expect(store.state.resetPassword.confirmPassword, isNull);
     });
 
     test('a null clears the field rather than being ignored', () async {
       // The connectors dispatch on every keystroke, so emptying the input has
       // to reach the store as null. A setter that treated null as "no change"
       // would leave the last typed value behind.
-      final store = _store(AppState.initial().copyWith.login(email: 'a@b.c'));
-      await store.dispatchAndWait(SetEmailAction(null));
+      final store = _store(AppState.initial().copyWith.login(user: 'admin'));
+      await store.dispatchAndWait(SetUserAction(null));
 
-      expect(store.state.login.email, isNull);
+      expect(store.state.login.user, isNull);
     });
   });
 

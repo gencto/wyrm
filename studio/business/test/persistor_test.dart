@@ -29,16 +29,35 @@ void main() {
           expectLater(persistor.readState(), completion(isNull)),
     );
 
-    test('restores the three persisted slices', () async {
+    test('restores theme, language and the last gateway and user', () async {
       await storage.put('themeMode', ThemeMode.dark.index);
       await storage.put('locale', 'uk');
-      await storage.put('token', 'tok');
+      await storage.put('gateway', 'http://127.0.0.1:8445');
+      await storage.put('user', 'admin');
 
       final state = await persistor.readState();
 
       expect(state?.theme.mode, ThemeMode.dark);
       expect(state?.language.locale, 'uk');
-      expect(state?.session.token, 'tok');
+      expect(state?.login.gateway, 'http://127.0.0.1:8445');
+      expect(state?.login.user, 'admin');
+    });
+
+    test('never restores a session or a password', () async {
+      // A session lives in the WebSocket client, which a restart does not
+      // bring back; a restored token would open screens with no broker.
+      await storage.put('token', 'tok');
+      await storage.put('user', 'admin');
+
+      final state = await persistor.readState();
+
+      expect(state?.session.token, isNull);
+      expect(state?.login.password, isNull);
+      expect(
+        storage.values.containsKey('token'),
+        isFalse,
+        reason: 'the key of older builds is deleted',
+      );
     });
 
     test('one persisted key is enough to rebuild a state', () async {
@@ -49,24 +68,21 @@ void main() {
       expect(state, isNotNull);
       expect(state?.language.locale, 'uk');
       expect(state?.theme.mode, ThemeMode.light, reason: 'falls back');
-      expect(state?.session.token, isNull);
     });
   });
 
   group('persistDifference', () {
     test('writes every slice on the first pass', () async {
       await persistor.persistDifference(
-        newState: AppState.initial(),
+        newState: AppState.initial().copyWith.login(user: 'admin'),
       );
 
-      expect(storage.values.keys, containsAll(['themeMode', 'locale']));
+      expect(storage.values.keys, containsAll(['themeMode', 'locale', 'user']));
     });
 
     test('writes nothing when nothing changed', () async {
-      final state = AppState.initial().copyWith.session(token: 'tok');
-      await persistor.persistDifference(
-        newState: state,
-      );
+      final state = AppState.initial().copyWith.login(user: 'admin');
+      await persistor.persistDifference(newState: state);
       await storage.clear();
 
       await persistor.persistDifference(
@@ -77,7 +93,7 @@ void main() {
       expect(storage.values, isEmpty);
     });
 
-    test('writes only the slice that changed', () async {
+    test('writes only the value that changed', () async {
       final before = AppState.initial();
       await storage.clear();
 
@@ -89,40 +105,37 @@ void main() {
       expect(storage.values.keys, ['locale']);
     });
 
-    test('a cleared token is deleted, not written as null', () async {
-      // The one asymmetric branch in the file. Writing null would leave a key
-      // whose presence says "there is a session" to `readState`, which checks
-      // for null keys to decide whether any state was persisted at all.
-      await storage.put('token', 'tok');
-      final before = AppState.initial().copyWith.session(token: 'tok');
+    test('a cleared value is deleted, not written as null', () async {
+      await storage.put('user', 'admin');
+      final before = AppState.initial().copyWith.login(user: 'admin');
 
       await persistor.persistDifference(
-        newState: before.copyWith.session(token: null),
+        newState: before.copyWith.login(user: null),
         lastPersistedState: before,
       );
 
-      expect(storage.values.containsKey('token'), isFalse);
+      expect(storage.values.containsKey('user'), isFalse);
     });
 
-    test('logging out and back in round-trips through readState', () async {
-      final loggedIn = AppState.initial().copyWith.session(token: 'tok');
+    test('the password and the token are never written', () async {
       await persistor.persistDifference(
-        newState: loggedIn,
-      );
-      await persistor.persistDifference(
-        newState: loggedIn.copyWith.session(token: null),
-        lastPersistedState: loggedIn,
+        newState: AppState.initial().copyWith
+            .login(user: 'admin', password: 'secret')
+            .copyWith
+            .session(token: 'user:admin'),
       );
 
-      expect((await persistor.readState())?.session.token, isNull);
+      expect(storage.values.values, isNot(contains('secret')));
+      expect(storage.values.values, isNot(contains('user:admin')));
     });
   });
 
   group('deleteState', () {
-    test('removes all three keys', () async {
+    test('removes every key', () async {
       await storage.put('themeMode', 1);
       await storage.put('locale', 'uk');
-      await storage.put('token', 'tok');
+      await storage.put('gateway', 'http://127.0.0.1:8445');
+      await storage.put('user', 'admin');
 
       await persistor.deleteState();
 
