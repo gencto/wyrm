@@ -1,12 +1,11 @@
 {
-    "name": "wyrm_studio",
-    "short_name": "wyrm_studio",
+    "name": "WYRM Studio",
+    "short_name": "WYRM Studio",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0E1113",
+    "theme_color": "#0E1113",
+    "description": "Configure and watch WYRM brokers: links, dataflows, sites and access.",
     "prefer_related_applications": false,
     "icons": [
         {
