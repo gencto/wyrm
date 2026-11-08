@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:ui/flows/flow_canvas.dart';
 
 // ignore: do_not_use_environment, a test parameter.
 const gateway = String.fromEnvironment('WYRM_GATEWAY');
@@ -127,6 +128,19 @@ void main() {
         await tester.tap(find.text('Edit dataflow').first);
         await settle(tester, 3500);
         await shot(tester, '03c_flow_editor');
+        // Blocks of the owner's concat check: a variable (one field Value)
+        // and concat (bound inputs show the values that come in).
+        for (final (b, n) in [('concat1', '03d'), ('string1', '03e')]) {
+          final f = find.descendant(
+            of: find.byType(FlowCanvas),
+            matching: find.text(b),
+          );
+          if (f.evaluate().isNotEmpty) {
+            await tester.tap(f.first, warnIfMissed: false);
+            await settle(tester, 800);
+            await shot(tester, '${n}_flow_$b');
+          }
+        }
         await tester.tap(find.byType(IconButton).last);
         await settle(tester);
       }
