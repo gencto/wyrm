@@ -43,3 +43,31 @@ jobs:
         working-directory: dart/wyrm_core
       - run: dart test
         working-directory: dart/wyrm_core
+  studio:
+    # WYRM Studio (ADR 0037, docs/studio.md §9). Informational until its first
+    # green run on GitHub. Drop continue-on-error once it passes.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install frx
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/main/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
+          echo "$HOME/.frx/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get
+      - run: dart run build_runner build --workspace
+      - run: frx doctor
+      - run: flutter analyze
+      - name: Tests
+        run: |
+          for p in app ui business models storage localization; do
+            if [ -d "$p/test" ]; then (cd "$p" && flutter test); fi
+          done
