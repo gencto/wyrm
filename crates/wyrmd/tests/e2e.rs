@@ -3038,7 +3038,11 @@ async fn flow_watch_streams_live_values() {
         .unwrap();
     let flow = format!("{flows}/live");
     let px = format!("{flow}/nodes/px");
-    let v = eventually("the echo of precision", 10, || last_val(&c, &px)).await;
+    // `x` sends its own 0 at start too: wait for the echo's 2
+    let v = eventually("the echo of precision", 10, || async {
+        last_val(&c, &px).await.filter(|v| v.as_f64() == Some(2.0))
+    })
+    .await;
     assert_eq!(v.as_f64(), Some(2.0));
     let mut st = c
         .invoke(&flow, "watch", m(&[("max_hz", Value::UInt(10))]))
