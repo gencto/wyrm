@@ -49,18 +49,23 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 25
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: studio
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
       - name: Install frx
+        # The installer pinned to the commit of tag v0.3.7.
         run: |
-          curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/main/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
+          curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/d2bbfaedc6c9710468e8215a063f1430d16ba73a/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
           echo "$HOME/.frx/bin" >> "$GITHUB_PATH"
       - run: flutter pub get
       - run: dart run build_runner build --workspace
