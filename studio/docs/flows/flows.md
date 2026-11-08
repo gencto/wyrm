@@ -10,7 +10,22 @@ sequenceDiagram
     actor User
     participant UI as FlowsPage
     participant VM as FlowsPageConnector
+    participant A1 as RetrieveFlowsAction
+    participant A2 as SetSelectedFlowAction
+    participant ST as AppState
     participant NAV as Router
+
+    User->>UI: onShow
+    UI->>VM: onShow()
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(flows.table, flows.view)
+    A1-->>-VM: ActionStatus
+
+    User->>UI: onRow
+    UI->>VM: onRow()
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(flows.selectedFlow)
 
     User->>UI: onTapFlowEditor
     UI->>VM: onTapFlowEditor()
@@ -19,6 +34,8 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
+| `onShow` | `RetrieveFlowsAction` | `flows.table, flows.view` |
+| `onRow` | `SetSelectedFlowAction` | `flows.selectedFlow` |
 | `onTapFlowEditor` | `GoAction.push` | — |
 
 `?` marks a dispatch that only runs under a condition.

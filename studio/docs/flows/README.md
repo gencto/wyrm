@@ -33,6 +33,7 @@ flowchart LR
     linkInstall -.->|"onClose"| links
     linkInstall -.->|"onBack"| links
     linkInstall -.->|"onResultAction"| links
+    flowEditor -.->|"onClose"| flows
 
     classDef frxEntry stroke-dasharray: 5 3
     class logIn,gallery,studio frxEntry
@@ -48,11 +49,11 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `StudioPage` | `/studio` | no | 8 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 10 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
-| `FlowsPage` | `/studio/flows` | no | 1 | [flows](flows.md) |
+| `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 0 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 0 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 0 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 0 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
-| `FlowEditorPage` | `/flow-editor/:id` | no | 0 | [flowEditor](flowEditor.md) |
+| `FlowEditorPage` | `/flow-editor/:id` | no | 13 | [flowEditor](flowEditor.md) |
