@@ -77,13 +77,27 @@ class SegmentedTabs extends StatelessWidget {
                         ),
                       ),
                       if (t.count case final n?)
-                        Text(
-                          n,
-                          style: TextStyle(
-                            fontSize: 12,
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 22),
+                          height: 22,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
                             color: t.countTone == .neutral
-                                ? c.text4
-                                : toneColor(c, t.countTone),
+                                ? c.ground4
+                                : toneTint(c, t.countTone),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Center(
+                            widthFactor: 1,
+                            child: Text(
+                              n,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: t.countTone == .neutral
+                                    ? c.text3
+                                    : toneColor(c, t.countTone),
+                              ),
+                            ),
                           ),
                         ),
                     ],

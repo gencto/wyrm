@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$QuarantineState {
 
- IMap<String, QuarantineEntry> get table; IList<String> get view; bool get holdUnknown; bool get allowAll; String? get selectedEntry;
+ IMap<String, QuarantineEntry> get table; IList<String> get view; String? get selectedEntry; IMap<String, IList<ParamSpec>> get forms;
 /// Create a copy of QuarantineState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $QuarantineStateCopyWith<QuarantineState> get copyWith => _$QuarantineStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is QuarantineState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.holdUnknown, holdUnknown) || other.holdUnknown == holdUnknown)&&(identical(other.allowAll, allowAll) || other.allowAll == allowAll)&&(identical(other.selectedEntry, selectedEntry) || other.selectedEntry == selectedEntry));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is QuarantineState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedEntry, selectedEntry) || other.selectedEntry == selectedEntry)&&(identical(other.forms, forms) || other.forms == forms));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),holdUnknown,allowAll,selectedEntry);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedEntry,forms);
 
 @override
 String toString() {
-  return 'QuarantineState(table: $table, view: $view, holdUnknown: $holdUnknown, allowAll: $allowAll, selectedEntry: $selectedEntry)';
+  return 'QuarantineState(table: $table, view: $view, selectedEntry: $selectedEntry, forms: $forms)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $QuarantineStateCopyWith<$Res>  {
   factory $QuarantineStateCopyWith(QuarantineState value, $Res Function(QuarantineState) _then) = _$QuarantineStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, QuarantineEntry> table, IList<String> view, bool holdUnknown, bool allowAll, String? selectedEntry
+ IMap<String, QuarantineEntry> table, IList<String> view, String? selectedEntry, IMap<String, IList<ParamSpec>> forms
 });
 
 
@@ -62,14 +62,13 @@ class _$QuarantineStateCopyWithImpl<$Res>
 
 /// Create a copy of QuarantineState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? holdUnknown = null,Object? allowAll = null,Object? selectedEntry = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? selectedEntry = freezed,Object? forms = null,}) {
   return _then(_self.copyWith(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, QuarantineEntry>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
-as IList<String>,holdUnknown: null == holdUnknown ? _self.holdUnknown : holdUnknown // ignore: cast_nullable_to_non_nullable
-as bool,allowAll: null == allowAll ? _self.allowAll : allowAll // ignore: cast_nullable_to_non_nullable
-as bool,selectedEntry: freezed == selectedEntry ? _self.selectedEntry : selectedEntry // ignore: cast_nullable_to_non_nullable
-as String?,
+as IList<String>,selectedEntry: freezed == selectedEntry ? _self.selectedEntry : selectedEntry // ignore: cast_nullable_to_non_nullable
+as String?,forms: null == forms ? _self.forms : forms // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<ParamSpec>>,
   ));
 }
 
@@ -81,14 +80,13 @@ as String?,
 
 
 class _QuarantineState implements QuarantineState {
-  const _QuarantineState({this.table = const IMapConst({}), this.view = const IListConst([]), this.holdUnknown = true, this.allowAll = false, this.selectedEntry});
+  const _QuarantineState({this.table = const IMapConst({}), this.view = const IListConst([]), this.selectedEntry, this.forms = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, QuarantineEntry> table;
 @override@JsonKey() final  IList<String> view;
-@override@JsonKey() final  bool holdUnknown;
-@override@JsonKey() final  bool allowAll;
 @override final  String? selectedEntry;
+@override@JsonKey() final  IMap<String, IList<ParamSpec>> forms;
 
 /// Create a copy of QuarantineState
 /// with the given fields replaced by the non-null parameter values.
@@ -100,16 +98,16 @@ _$QuarantineStateCopyWith<_QuarantineState> get copyWith => __$QuarantineStateCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _QuarantineState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.holdUnknown, holdUnknown) || other.holdUnknown == holdUnknown)&&(identical(other.allowAll, allowAll) || other.allowAll == allowAll)&&(identical(other.selectedEntry, selectedEntry) || other.selectedEntry == selectedEntry));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _QuarantineState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedEntry, selectedEntry) || other.selectedEntry == selectedEntry)&&(identical(other.forms, forms) || other.forms == forms));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),holdUnknown,allowAll,selectedEntry);
+int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedEntry,forms);
 
 @override
 String toString() {
-  return 'QuarantineState(table: $table, view: $view, holdUnknown: $holdUnknown, allowAll: $allowAll, selectedEntry: $selectedEntry)';
+  return 'QuarantineState(table: $table, view: $view, selectedEntry: $selectedEntry, forms: $forms)';
 }
 
 
@@ -120,7 +118,7 @@ abstract mixin class _$QuarantineStateCopyWith<$Res> implements $QuarantineState
   factory _$QuarantineStateCopyWith(_QuarantineState value, $Res Function(_QuarantineState) _then) = __$QuarantineStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, QuarantineEntry> table, IList<String> view, bool holdUnknown, bool allowAll, String? selectedEntry
+ IMap<String, QuarantineEntry> table, IList<String> view, String? selectedEntry, IMap<String, IList<ParamSpec>> forms
 });
 
 
@@ -137,14 +135,13 @@ class __$QuarantineStateCopyWithImpl<$Res>
 
 /// Create a copy of QuarantineState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? holdUnknown = null,Object? allowAll = null,Object? selectedEntry = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? selectedEntry = freezed,Object? forms = null,}) {
   return _then(_QuarantineState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, QuarantineEntry>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
-as IList<String>,holdUnknown: null == holdUnknown ? _self.holdUnknown : holdUnknown // ignore: cast_nullable_to_non_nullable
-as bool,allowAll: null == allowAll ? _self.allowAll : allowAll // ignore: cast_nullable_to_non_nullable
-as bool,selectedEntry: freezed == selectedEntry ? _self.selectedEntry : selectedEntry // ignore: cast_nullable_to_non_nullable
-as String?,
+as IList<String>,selectedEntry: freezed == selectedEntry ? _self.selectedEntry : selectedEntry // ignore: cast_nullable_to_non_nullable
+as String?,forms: null == forms ? _self.forms : forms // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<ParamSpec>>,
   ));
 }
 

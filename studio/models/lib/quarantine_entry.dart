@@ -9,6 +9,9 @@ abstract class QuarantineEntry with _$QuarantineEntry {
   const factory QuarantineEntry({
     required String cn,
 
+    /// The node under `sys/quarantine` (the CN made a key segment).
+    required String node,
+
     /// `link` or `broker`.
     @Default('link') String kind,
     String? from,

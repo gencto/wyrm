@@ -11,5 +11,6 @@ abstract class NodesState with _$NodesState {
     @Default(IListConst([])) IList<String> view,
     @Default(ISetConst({})) ISet<String> expanded,
     String? selectedNode,
+    @Default(IMapConst({})) IMap<String, IList<String>> results,
   }) = _NodesState;
 }

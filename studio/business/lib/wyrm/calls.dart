@@ -42,3 +42,23 @@ void requireSuccess(Value answer, String what) {
     throw UserException(what, reason: message);
   }
 }
+
+/// The current value of [key]: the first sample of a subscription (the
+/// broker answers it from its `~val` storage), or null when none comes
+/// within [wait].
+Future<Value?> readValue(
+  WyrmApi api,
+  String key, {
+  Duration wait = const Duration(seconds: 2),
+}) async {
+  try {
+    final e = await api
+        .subscribe(key)
+        .where((e) => e is ValSample)
+        .first
+        .timeout(wait);
+    return (e as ValSample).sample.v;
+  } on Object {
+    return null;
+  }
+}

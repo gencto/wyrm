@@ -28,6 +28,7 @@ flowchart LR
     logIn ==>|"onPressedLogIn (replace) [status.isCompletedOk]"| studio
     studio ==>|"onLogOut (replace)"| logIn
     links -->|"onTapLinkInstall"| linkInstall
+    links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
 
     classDef frxEntry stroke-dasharray: 5 3
@@ -43,7 +44,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 8 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 0 | [explorer](explorer.md) |
-| `LinksPage` | `/studio/links` | no | 1 | [links](links.md) |
+| `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 1 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 0 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 0 | [access](access.md) |

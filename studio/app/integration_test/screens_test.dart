@@ -86,6 +86,11 @@ void main() {
       await tester.tap(find.text(name).first);
       await settle(tester, 2500);
       await shot(tester, '0${i + 2}_${name.toLowerCase()}');
+      if (name == 'Links' && find.text('modbus').evaluate().isNotEmpty) {
+        await tester.tap(find.text('modbus').first);
+        await settle(tester);
+        await shot(tester, '0${i + 2}b_links_modbus');
+      }
     }
   }, skip: gateway.isEmpty);
 }

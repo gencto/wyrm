@@ -49,7 +49,10 @@ final class ActionRowVm extends Equatable {
   ];
 }
 
-/// 48 high and up; disabled rows keep their place and say why.
+/// Board *Studio · Links* inspector actions: a card (ground/2, line/1,
+/// radius 10) with the icon in a square, the title, one line, the code name;
+/// a danger row is coral on the bad tint; a disabled row keeps its place,
+/// dimmed, with the reason as its line.
 class ActionRow extends StatelessWidget {
   const ActionRow({required this.vm, this.onTap, super.key});
 
@@ -60,65 +63,88 @@ class ActionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final enabled = vm.enabled && onTap != null;
+    final danger = vm.tone == .bad;
+    final warn = vm.tone == .warn;
     final title = switch (vm.tone) {
-      _ when !vm.enabled => c.muted,
+      _ when !vm.enabled => c.text4,
       .bad => c.badText,
       .ember => c.emberSoft,
       _ => c.text1,
     };
-    final row = InkWell(
-      onTap: enabled ? () => onTap!(vm.id) : null,
-      borderRadius: Radii.segment,
-      hoverColor: c.ground3,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            spacing: 12,
-            children: [
-              if (vm.icon case final i?)
-                AppIcon(
-                  i,
-                  size: 18,
-                  color: vm.enabled
-                      ? (vm.tone == .bad ? c.bad : c.text3)
-                      : c.muted,
-                ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: .start,
-                  mainAxisSize: .min,
-                  spacing: 2,
-                  children: [
-                    Text(
-                      vm.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: .w500,
-                        color: title,
-                      ),
+    final (bg, line) = switch (vm.tone) {
+      _ when !vm.enabled => (c.ground1, c.line1),
+      .bad => (c.badTint, c.badLine),
+      .warn => (c.warnTint, c.warnLine),
+      _ => (c.ground2, c.line1),
+    };
+    return Material(
+      color: bg,
+      shape: RoundedRectangleBorder(
+        borderRadius: Radii.card,
+        side: BorderSide(color: line),
+      ),
+      child: InkWell(
+        onTap: enabled ? () => onTap!(vm.id) : null,
+        borderRadius: Radii.card,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Row(
+              spacing: 12,
+              children: [
+                if (vm.icon case final i?)
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: .center,
+                    decoration: BoxDecoration(
+                      color: danger
+                          ? c.badLine.withValues(alpha: 0.4)
+                          : (warn ? c.warnLine : c.ground4),
+                      borderRadius: Radii.segment,
                     ),
-                    if (vm.disabledReason ?? vm.description case final d?)
+                    child: AppIcon(
+                      i,
+                      size: 16,
+                      color: !vm.enabled
+                          ? c.muted
+                          : (danger ? c.bad : (warn ? c.warn : c.text2)),
+                    ),
+                  ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: .start,
+                    mainAxisSize: .min,
+                    spacing: 2,
+                    children: [
                       Text(
-                        d,
-                        maxLines: 2,
-                        overflow: .ellipsis,
+                        vm.title,
                         style: TextStyle(
-                          fontSize: 12,
-                          color: vm.enabled ? c.text3 : c.text4,
+                          fontSize: 14,
+                          fontWeight: .w500,
+                          color: title,
                         ),
                       ),
-                  ],
+                      if (vm.disabledReason ?? vm.description case final d?)
+                        Text(
+                          d,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: vm.enabled ? c.text3 : c.muted,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              if (vm.code case final code?)
-                Text(code, style: mono(size: 11, color: c.text4)),
-            ],
+                if (vm.code case final code?)
+                  Text(code, style: mono(size: 10, color: c.text4)),
+              ],
+            ),
           ),
         ),
       ),
     );
-    return vm.enabled ? row : Tooltip(message: vm.disabledReason, child: row);
   }
 }
