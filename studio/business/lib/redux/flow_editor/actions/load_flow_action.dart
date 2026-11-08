@@ -10,7 +10,9 @@ import '../models/flow_editor_state.dart';
 
 /// Opens [id] in the editor: the block catalogue (`dataflows` ▸
 /// `node_types`) and the newest definition (`dataflows/<id>` ▸ `history`);
-/// a new flow starts empty.
+/// a new flow starts empty. A draft of the same flow that differs from the
+/// deployed version is kept (closing the editor does not drop it) unless
+/// the broker has a newer version.
 class LoadFlowAction extends Action {
   LoadFlowAction(this.id, {this.isNew = false});
 
@@ -44,12 +46,30 @@ class LoadFlowAction extends Action {
         );
       }
     }
+    final held = flowEditor;
+    final keep =
+        !isNew &&
+        held.flowId == id &&
+        held.dirty &&
+        held.draft != null &&
+        held.version == draft.version;
     return state.copyWith(
       flowEditor: FlowEditorState(
         flowId: id,
-        draft: draft,
+        draft: keep ? held.draft : draft,
+        dirty: keep,
+        deployed: isNew ? null : draft,
         version: draft.version,
         types: types.lock,
+        palette: held.palette,
+        // The same flow read again (a redeploy) keeps its selection.
+        selectedBlock:
+            held.flowId == id &&
+                (keep ? held.draft : draft)!.blocks.containsKey(
+                  held.selectedBlock,
+                )
+            ? held.selectedBlock
+            : null,
       ),
     );
   }

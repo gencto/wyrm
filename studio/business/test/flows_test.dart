@@ -168,7 +168,11 @@ void main() {
         ..dispatchSync(AddBlockAction('scale', 300, 40))
         ..dispatchSync(ConnectPortsAction('level', 'out', 'scale1', 'in'));
       final d = s.state.flowEditor.draft!;
-      expect(d.blocks['scale1']!.cfg['input_max'], 1, reason: 'the default');
+      expect(
+        d.blocks['scale1']!.cfg['input_max'],
+        isNull,
+        reason: 'only choice defaults are written; the block shows the rest',
+      );
       expect(d.edges.where((e) => e.to == 'scale1'), hasLength(1));
       expect(s.state.flowEditor.dirty, isTrue);
 

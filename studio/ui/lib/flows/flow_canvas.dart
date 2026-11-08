@@ -1,123 +1,78 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
-import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/typography.dart';
+import 'flow_block_view.dart';
+import 'flow_legend.dart';
 
-/// One port row of a block.
-final class PortVm extends Equatable {
-  const PortVm({required this.name, this.value = '', this.wired = false});
-
-  final String name;
-
-  /// The parameter's value or the live value, shown on the right.
-  final String value;
-  final bool wired;
-
-  @override
-  List<Object?> get props => [name, value, wired];
-}
-
-/// One block on the canvas.
-final class FlowBlockVm extends Equatable {
-  const FlowBlockVm({
-    required this.id,
-    required this.title,
-    required this.tag,
-    required this.x,
-    required this.y,
-    this.subtitle = '',
-    this.tone = Tone.neutral,
-    this.inputs = const [],
-    this.outputs = const [],
-    this.selected = false,
-    this.footer,
-    this.footerTone = Tone.good,
-  });
-
-  final String id;
-
-  /// The block id; [subtitle] its type.
-  final String title;
-  final String subtitle;
-
-  /// `IN`, `OUT`, `FX`.
-  final String tag;
-
-  /// good (IN, teal), ember (OUT), neutral (logic).
-  final Tone tone;
-  final double x;
-  final double y;
-  final List<PortVm> inputs;
-  final List<PortVm> outputs;
-  final bool selected;
-
-  /// The live value with its quality.
-  final String? footer;
-  final Tone footerTone;
-
-  @override
-  List<Object?> get props => [
-    id,
-    title,
-    subtitle,
-    tag,
-    tone,
-    x,
-    y,
-    inputs,
-    outputs,
-    selected,
-    footer,
-    footerTone,
-  ];
-}
-
-/// One wire: `<from>.<fromPort>` → `<to>.<toPort>`.
+/// One wire: output `<from>.<fromPort>` → input `<to>.<toPort>`.
 final class FlowWireVm extends Equatable {
-  const FlowWireVm(this.from, this.fromPort, this.to, this.toPort);
+  const FlowWireVm(
+    this.from,
+    this.fromPort,
+    this.to,
+    this.toPort, {
+    this.writes = false,
+    this.warning,
+    this.warningNote = '',
+  });
 
   final String from;
   final String fromPort;
   final String to;
   final String toPort;
 
+  /// It writes to a device (into a writable point, a `set` or an `invoke`):
+  /// ember; everything else reads a value: teal.
+  final bool writes;
+
+  /// A chip on the wire (`fires at deploy`: a parameter's echo into a
+  /// device sends at start, ADR 0038 §6), with [warningNote] as its tooltip.
+  final String? warning;
+  final String warningNote;
+
   @override
-  List<Object?> get props => [from, fromPort, to, toPort];
+  List<Object?> get props => [
+    from,
+    fromPort,
+    to,
+    toPort,
+    writes,
+    warning,
+    warningNote,
+  ];
 }
 
-/// Board *Flow editor · fields, bindings, properties*: blocks with one row
-/// per port on a dotted grid, S-curve wires (teal into a block, ember
-/// into a block that writes). Drag a block by its header; tap an output,
-/// then an input, to wire them; double tap an input to unwire it; drop a
-/// palette entry to add a block.
+/// The canvas of the flow editor (spec §3–§5): blocks on a dot grid, S-curve
+/// wires from a field's right port to another's left port, the legend
+/// pinned bottom-left. A palette entry dropped on the canvas places a block
+/// there; a tap on the empty canvas clears the selection.
 class FlowCanvas extends StatefulWidget {
   const FlowCanvas({
     required this.blocks,
     required this.wires,
-    required this.onSelect,
+    required this.actions,
+    required this.onClear,
     required this.onMove,
-    required this.onConnect,
-    required this.onDisconnect,
     required this.onDrop,
+    this.legend,
     super.key,
   });
 
   final List<FlowBlockVm> blocks;
   final List<FlowWireVm> wires;
-  final ValueChanged<String?> onSelect;
+  final FlowBlockActions actions;
+
+  /// A tap on the empty canvas.
+  final VoidCallback onClear;
+
+  /// A block let go at (`x`, `y`).
   final void Function(String id, double x, double y) onMove;
-  final void Function(String from, String fromPort, String to, String toPort)
-  onConnect;
-  final void Function(String to, String toPort) onDisconnect;
 
   /// A palette entry (its id) dropped at a point of the canvas.
   final void Function(String entry, double x, double y) onDrop;
+  final FlowLegendVm? legend;
 
-  static const blockWidth = 230.0;
-  static const headerHeight = 38.0;
-  static const rowHeight = 28.0;
   static const size = Size(3000, 2000);
 
   @override
@@ -125,312 +80,173 @@ class FlowCanvas extends StatefulWidget {
 }
 
 class _FlowCanvasState extends State<FlowCanvas> {
-  (String, String)? _pending;
   final _drag = <String, Offset>{};
   final GlobalKey<State<StatefulWidget>> _key = GlobalKey();
 
-  static Offset portAt(FlowBlockVm b, String port, {required bool output}) {
-    final list = output ? b.outputs : b.inputs;
-    final i = list.indexWhere((p) => p.name == port);
-    final row = output ? b.inputs.length + i : i;
-    return Offset(
-      b.x + (output ? FlowCanvas.blockWidth : 0),
-      b.y +
-          FlowCanvas.headerHeight +
-          8 +
-          FlowCanvas.rowHeight * row +
-          FlowCanvas.rowHeight / 2,
-    );
-  }
-
-  FlowBlockVm _at(FlowBlockVm b) {
-    final d = _drag[b.id];
-    return d == null
-        ? b
-        : FlowBlockVm(
-            id: b.id,
-            title: b.title,
-            subtitle: b.subtitle,
-            tag: b.tag,
-            tone: b.tone,
-            x: d.dx,
-            y: d.dy,
-            inputs: b.inputs,
-            outputs: b.outputs,
-            selected: b.selected,
-            footer: b.footer,
-            footerTone: b.footerTone,
-          );
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final blocks = [for (final b in widget.blocks) _at(b)];
+    final blocks = [
+      for (final b in widget.blocks)
+        if (_drag[b.id] case final at?) b.at(at.dx, at.dy) else b,
+    ];
     final byId = {for (final b in blocks) b.id: b};
-    return DragTarget<String>(
-      onAcceptWithDetails: (d) {
-        final box = _key.currentContext?.findRenderObject() as RenderBox?;
-        final p = box?.globalToLocal(d.offset) ?? Offset.zero;
-        widget.onDrop(d.data, p.dx, p.dy);
+    final actions = FlowBlockActions(
+      onSelect: widget.actions.onSelect,
+      onBind: widget.actions.onBind,
+      onUnbind: widget.actions.onUnbind,
+      onDropEntry: widget.actions.onDropEntry,
+      onResize: widget.actions.onResize,
+      onMove: (id, delta) => setState(() {
+        final b = byId[id];
+        if (b == null) {
+          return;
+        }
+        final at = _drag[id] ?? Offset(b.x, b.y);
+        _drag[id] = Offset(
+          (at.dx + delta.dx).clamp(0, FlowCanvas.size.width - b.width),
+          (at.dy + delta.dy).clamp(0, FlowCanvas.size.height - 100),
+        );
+      }),
+      onMoveEnd: (id) {
+        final at = _drag.remove(id);
+        if (at != null) {
+          widget.onMove(id, at.dx, at.dy);
+        }
       },
-      builder: (context, _, _) => InteractiveViewer(
-        constrained: false,
-        minScale: 0.4,
-        maxScale: 1.6,
-        boundaryMargin: const EdgeInsets.all(200),
-        child: GestureDetector(
-          onTap: () {
-            setState(() => _pending = null);
-            widget.onSelect(null);
-          },
-          child: SizedBox(
-            key: _key,
-            width: FlowCanvas.size.width,
-            height: FlowCanvas.size.height,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _Grid(c.line1),
-                    foregroundPainter: _Wires(
-                      wires: widget.wires,
-                      byId: byId,
-                      teal: c.good,
-                      ember: c.ember,
+    );
+    return ColoredBox(
+      color: c.ground0,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DragTarget<Object>(
+              onWillAcceptWithDetails: (d) => d.data is String,
+              onAcceptWithDetails: (d) {
+                final box =
+                    _key.currentContext?.findRenderObject() as RenderBox?;
+                final p = box?.globalToLocal(d.offset) ?? Offset.zero;
+                widget.onDrop(d.data as String, p.dx, p.dy);
+              },
+              builder: (context, _, _) => InteractiveViewer(
+                constrained: false,
+                minScale: 0.4,
+                maxScale: 1.6,
+                boundaryMargin: const EdgeInsets.all(200),
+                child: GestureDetector(
+                  onTap: widget.onClear,
+                  child: SizedBox(
+                    key: _key,
+                    width: FlowCanvas.size.width,
+                    height: FlowCanvas.size.height,
+                    child: Stack(
+                      clipBehavior: .none,
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _Grid(c.line1),
+                            foregroundPainter: _Wires(
+                              wires: widget.wires,
+                              byId: byId,
+                              teal: c.good,
+                              ember: c.ember,
+                            ),
+                          ),
+                        ),
+                        for (final w in widget.wires)
+                          if (w.warning case final text?)
+                            if (_mid(byId, w) case final m?)
+                              Positioned(
+                                left: m.dx - 60,
+                                top: m.dy - 11,
+                                width: 120,
+                                child: Center(
+                                  child: _WarnChip(text, w.warningNote),
+                                ),
+                              ),
+                        for (final b in blocks)
+                          Positioned(
+                            left: b.x,
+                            top: b.y,
+                            child: FlowBlockView(
+                              key: ValueKey(b.id),
+                              vm: b,
+                              actions: actions,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-                for (final b in blocks)
-                  Positioned(
-                    left: b.x,
-                    top: b.y,
-                    width: FlowCanvas.blockWidth,
-                    child: _Block(
-                      vm: b,
-                      pending: _pending,
-                      onTap: () => widget.onSelect(b.id),
-                      onDrag: (delta) => setState(() {
-                        final at = _drag[b.id] ?? Offset(b.x, b.y);
-                        _drag[b.id] = Offset(
-                          (at.dx + delta.dx).clamp(
-                            0,
-                            FlowCanvas.size.width - FlowCanvas.blockWidth,
-                          ),
-                          (at.dy + delta.dy).clamp(
-                            0,
-                            FlowCanvas.size.height - 100,
-                          ),
-                        );
-                      }),
-                      onDragEnd: () {
-                        final at = _drag.remove(b.id);
-                        if (at != null) {
-                          widget.onMove(b.id, at.dx, at.dy);
-                        }
-                      },
-                      onOutput: (port) =>
-                          setState(() => _pending = (b.id, port)),
-                      onInput: (port) {
-                        final p = _pending;
-                        if (p != null) {
-                          widget.onConnect(p.$1, p.$2, b.id, port);
-                          setState(() => _pending = null);
-                        }
-                      },
-                      onUnwire: (port) => widget.onDisconnect(b.id, port),
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
-        ),
+          if (widget.legend case final l?)
+            Positioned(
+              left: 16,
+              bottom: 16,
+              right: 16,
+              child: IgnorePointer(
+                child: Align(
+                  alignment: .bottomLeft,
+                  child: FlowLegend(vm: l),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _Block extends StatelessWidget {
-  const _Block({
-    required this.vm,
-    required this.pending,
-    required this.onTap,
-    required this.onDrag,
-    required this.onDragEnd,
-    required this.onOutput,
-    required this.onInput,
-    required this.onUnwire,
-  });
+/// The middle of [w]'s curve, if both its ends are drawn.
+Offset? _mid(Map<String, FlowBlockVm> byId, FlowWireVm w) {
+  final p1 = byId[w.from]?.portAt(w.fromPort, output: true);
+  final p2 = byId[w.to]?.portAt(w.toPort, output: false);
+  if (p1 == null || p2 == null) {
+    return null;
+  }
+  final dx = _dx(p1, p2);
+  // A cubic at t = 1/2: (p1 + 3 c1 + 3 c2 + p2) / 8.
+  return Offset(
+    (p1.dx + 3 * (p1.dx + dx) + 3 * (p2.dx - dx) + p2.dx) / 8,
+    (p1.dy + 3 * p1.dy + 3 * p2.dy + p2.dy) / 8,
+  );
+}
 
-  final FlowBlockVm vm;
-  final (String, String)? pending;
-  final VoidCallback onTap;
-  final ValueChanged<Offset> onDrag;
-  final VoidCallback onDragEnd;
-  final ValueChanged<String> onOutput;
-  final ValueChanged<String> onInput;
-  final ValueChanged<String> onUnwire;
+double _dx(Offset p1, Offset p2) {
+  final half = (p2.dx - p1.dx).abs() / 2;
+  return half < 50 ? 50 : half;
+}
+
+/// The warning chip of a wire.
+class _WarnChip extends StatelessWidget {
+  const _WarnChip(this.text, this.note);
+
+  final String text;
+  final String note;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final (tagBg, tagFg) = switch (vm.tone) {
-      .good => (c.goodTint, c.good),
-      .ember => (c.emberTint, c.emberSoft),
-      _ => (c.ground4, c.text2),
-    };
-    Widget port(PortVm p, {required bool output}) {
-      final waiting = pending != null && !output;
-      final mine = pending == (vm.id, p.name);
-      final dot = GestureDetector(
-        onTap: () => output ? onOutput(p.name) : onInput(p.name),
-        onDoubleTap: output ? null : () => onUnwire(p.name),
-        child: Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            shape: .circle,
-            color: p.wired || mine ? (output ? c.good : c.good) : c.ground1,
-            border: .all(
-              color: mine ? c.ember : (waiting ? c.emberSoft : c.text4),
-              width: 1.5,
-            ),
-          ),
-        ),
-      );
-      return SizedBox(
-        height: FlowCanvas.rowHeight,
-        child: Row(
-          children: [
-            Transform.translate(
-              offset: const Offset(-7, 0),
-              child: output ? const SizedBox(width: 14) : dot,
-            ),
-            Expanded(
-              child: Text(
-                '${p.name}:',
-                overflow: .ellipsis,
-                style: mono(size: 12, color: c.text3),
-              ),
-            ),
-            if (p.value.isNotEmpty)
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 110),
-                child: Text(
-                  p.value,
-                  overflow: .ellipsis,
-                  textAlign: .right,
-                  style: mono(size: 12, color: output ? c.emberNew : c.text1),
-                ),
-              ),
-            Transform.translate(
-              offset: const Offset(7, 0),
-              child: output ? dot : const SizedBox(width: 14),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      child: DecoratedBox(
+    return Tooltip(
+      message: note,
+      child: Container(
+        height: 22,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: .center,
         decoration: BoxDecoration(
-          color: vm.selected ? const Color(0xFF1A1D1F) : c.ground2,
-          border: .all(
-            color: vm.selected ? c.ember : c.line2,
-            width: vm.selected ? 1.5 : 1,
-          ),
-          borderRadius: BorderRadius.circular(10),
+          color: c.warnTint,
+          border: .all(color: c.warnLine),
+          borderRadius: const BorderRadius.all(Radius.circular(11)),
         ),
-        child: Column(
-          crossAxisAlignment: .stretch,
-          children: [
-            GestureDetector(
-              onPanUpdate: (d) => onDrag(d.delta),
-              onPanEnd: (_) => onDragEnd(),
-              child: Container(
-                height: FlowCanvas.headerHeight,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: vm.tone == .good
-                      ? c.goodTint.withValues(alpha: 0.5)
-                      : (vm.tone == .ember ? c.emberTint : null),
-                  border: Border(bottom: BorderSide(color: c.line1)),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(10),
-                  ),
-                ),
-                child: Row(
-                  spacing: 8,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: tagBg,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        vm.tag,
-                        style: mono(size: 10, weight: .w600, color: tagFg),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        vm.title,
-                        overflow: .ellipsis,
-                        style: mono(weight: .w600, color: c.text1),
-                      ),
-                    ),
-                    Text(
-                      vm.subtitle,
-                      style: TextStyle(fontSize: 11, color: c.text4),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                children: [
-                  for (final p in vm.inputs) port(p, output: false),
-                  for (final p in vm.outputs) port(p, output: true),
-                ],
-              ),
-            ),
-            if (vm.footer case final f?)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: c.line1)),
-                ),
-                child: Text(
-                  f,
-                  overflow: .ellipsis,
-                  style: mono(
-                    size: 12,
-                    color: switch (vm.footerTone) {
-                      .bad => c.bad,
-                      .warn => c.warn,
-                      _ => c.good,
-                    },
-                  ),
-                ),
-              ),
-          ],
-        ),
+        child: Text(text, style: TextStyle(fontSize: 11, color: c.warn)),
       ),
     );
   }
 }
 
+/// A dot every 20 px (spec §1: radial #252B30, 1 px).
 class _Grid extends CustomPainter {
   _Grid(this.color);
 
@@ -439,8 +255,8 @@ class _Grid extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()..color = color;
-    for (var x = 0.0; x < size.width; x += 24) {
-      for (var y = 0.0; y < size.height; y += 24) {
+    for (var x = 10.0; x < size.width; x += 20) {
+      for (var y = 10.0; y < size.height; y += 20) {
         canvas.drawCircle(Offset(x, y), 1, p);
       }
     }
@@ -450,6 +266,8 @@ class _Grid extends CustomPainter {
   bool shouldRepaint(_Grid old) => old.color != color;
 }
 
+/// `M x1 y1 C x1+dx y1, x2−dx y2, x2 y2`, `dx = max(50, |x2−x1|/2)`,
+/// width 2 (spec §4).
 class _Wires extends CustomPainter {
   _Wires({
     required this.wires,
@@ -466,23 +284,22 @@ class _Wires extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final w in wires) {
-      final a = byId[w.from];
-      final b = byId[w.to];
-      if (a == null || b == null) {
+      final p1 = byId[w.from]?.portAt(w.fromPort, output: true);
+      final p2 = byId[w.to]?.portAt(w.toPort, output: false);
+      if (p1 == null || p2 == null) {
         continue;
       }
-      final p1 = _FlowCanvasState.portAt(a, w.fromPort, output: true);
-      final p2 = _FlowCanvasState.portAt(b, w.toPort, output: false);
-      final dx = ((p2.dx - p1.dx).abs() / 2).clamp(40, 200).toDouble();
+      final dx = _dx(p1, p2);
       final path = Path()
         ..moveTo(p1.dx, p1.dy)
         ..cubicTo(p1.dx + dx, p1.dy, p2.dx - dx, p2.dy, p2.dx, p2.dy);
       canvas.drawPath(
         path,
         Paint()
-          ..color = b.tone == .ember ? ember : teal
+          ..color = w.writes ? ember : teal
           ..style = .stroke
-          ..strokeWidth = 1.8,
+          ..strokeCap = .round
+          ..strokeWidth = 2,
       );
     }
   }

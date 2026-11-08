@@ -8,6 +8,7 @@ import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'flow_fields.dart';
 import 'values.dart';
 
 /// A `~def` (spec 06) as a [FlowDraft].
@@ -139,8 +140,15 @@ NodeType nodeTypeOf(Value m) {
             choices: texts(p['choices']).lock,
             defaultValue: toDart(p['default']),
             editor: str(p['editor']),
+            port: str(p['port']),
+            echo: boolean(p['echo']),
           ),
     ].lock,
+    portTypes: {
+      if (m['port_types'] case VMap(:final v))
+        for (final e in v.entries) e.key: ?str(e.value),
+    }.lock,
+    echoInputs: boolean(m['echo_inputs']),
   );
 }
 
@@ -197,21 +205,18 @@ String flowJson(Object? v) => const JsonEncoder.withIndent('  ').convert(v);
 /// The JSON text of a map or list field back as a value.
 Object? flowJsonDecode(String s) => jsonDecode(s);
 
-/// The height the editor draws block [b] at (header, rows, padding).
-double blockHeight(NodeType? t, FlowBlock b) {
-  final p = portsOf(t, b);
-  final rows = p.inputs.length + p.outputs.length;
-  return 38 + 16 + 28.0 * (rows == 0 ? 1 : rows) + 30;
-}
-
 /// [d] with its blocks laid out in columns by depth (sources left, sinks
 /// right) when the stored layout overlaps at the editor's block sizes; else
 /// [d] as it is.
 FlowDraft tidyIfOverlapping(FlowDraft d, Map<String, NodeType> types) {
-  const w = 230.0;
   final rects = {
     for (final b in d.blocks.values)
-      b.id: (b.x, b.y, b.x + w, b.y + blockHeight(types[b.type], b)),
+      b.id: (
+        b.x,
+        b.y,
+        b.x + blockWidthOf(roleOf(b.type)),
+        b.y + blockHeight(types[b.type], b),
+      ),
   };
   var overlap = false;
   final list = rects.values.toList();
@@ -249,7 +254,7 @@ FlowDraft tidyIfOverlapping(FlowDraft d, Map<String, NodeType> types) {
   for (final b in d.blocks.values) {
     final col = depth[b.id] ?? 0;
     final top = y[col] ?? 40;
-    blocks[b.id] = b.copyWith(x: 40 + 290.0 * col, y: top);
+    blocks[b.id] = b.copyWith(x: 40 + 300.0 * col, y: top);
     y[col] = top + blockHeight(types[b.type], b) + 28;
   }
   return d.copyWith(blocks: blocks.lock);

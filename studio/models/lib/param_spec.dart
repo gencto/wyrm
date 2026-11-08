@@ -22,5 +22,13 @@ abstract class ParamSpec with _$ParamSpec {
     String? editor,
     @Default(false) bool secret,
     String? description,
+
+    /// The input port that feeds it (`in.<name>`, ADR 0038 §2); null when
+    /// the catalog does not say or it has none.
+    String? port,
+
+    /// Whether it repeats as an output named like it (ADR 0038 §1); null
+    /// when the catalog does not say.
+    bool? echo,
   }) = _ParamSpec;
 }

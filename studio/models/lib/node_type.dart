@@ -23,5 +23,12 @@ abstract class NodeType with _$NodeType {
     @Default('') String dynOutPrefix,
     @Default(IListConst([])) IList<String> dynOutDefaults,
     @Default(IListConst([])) IList<ParamSpec> params,
+
+    /// The type of each port (`number`, `bool`, `any`, …; ADR 0038 §2).
+    @Default(IMapConst({})) IMap<String, String> portTypes,
+
+    /// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
+    /// when the catalog does not say.
+    bool? echoInputs,
   }) = _NodeType;
 }
