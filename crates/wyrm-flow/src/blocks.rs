@@ -326,7 +326,7 @@ fn shape(k: Kind) -> Shape {
         Kind::If => Shape {
             inputs: &[],
             params: vec![
-                param("op", s("="), false),
+                param("op", s("="), true),
                 param("then", Value::Bool(true), true),
                 param("else", Value::Bool(false), true),
             ],
@@ -335,7 +335,7 @@ fn shape(k: Kind) -> Shape {
         },
         Kind::Hub => Shape {
             inputs: &[],
-            params: vec![param("ignore_null", Value::Bool(true), false)],
+            params: vec![param("ignore_null", Value::Bool(true), true)],
             items: true,
             outputs: &[("out", Any), ("index", Number), ("on_change", Map)],
         },
@@ -355,15 +355,15 @@ fn shape(k: Kind) -> Shape {
         Kind::Trace => Shape {
             inputs: &[],
             params: vec![
-                param("tracing", Value::Bool(true), false),
-                param("msg", s("trace"), false),
+                param("tracing", Value::Bool(true), true),
+                param("msg", s("trace"), true),
             ],
             items: true,
             outputs: &[],
         },
         Kind::Concat => Shape {
             inputs: &[],
-            params: vec![param("strict", Value::Bool(false), false)],
+            params: vec![param("strict", Value::Bool(false), true)],
             items: true,
             outputs: &[("out", Any)],
         },
@@ -903,6 +903,13 @@ impl Node for Block {
             },
         };
         let name = name.to_owned();
+        // `if.op` takes only an operator it knows: another text is ignored (spec 06 0.2.20)
+        if self.kind == Kind::If
+            && name == "op"
+            && !matches!(&m.v, Value::Str(o) if IF_OPS.contains(&o.as_str()))
+        {
+            return;
+        }
         self.seen.insert(name.clone(), (m.q, m.t));
         if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
             self.params.insert(name.clone(), m.v);

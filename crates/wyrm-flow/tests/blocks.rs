@@ -498,7 +498,7 @@ fn config_is_checked() {
     // the ports: fixed ones, the parameters' ports, then the variable inputs
     let p = nodes::ports("if", &cfg(&[])).unwrap();
     let ins: Vec<&str> = p.inputs.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(ins, ["in.then", "in.else", "in.0", "in.1"]);
+    assert_eq!(ins, ["in.op", "in.then", "in.else", "in.0", "in.1"]);
 }
 
 /// Automated review of e89b1d4: a text a block makes is bounded (a `concat` in a loop would
@@ -583,4 +583,47 @@ async fn operand_constants() {
     assert!(nodes::ports("add", &cfg(&[("values", Value::UInt(1))])).is_err());
     assert!(wyrm_flow::blocks::takes_values("add"));
     assert!(!wyrm_flow::blocks::takes_values("stopwatch"));
+}
+
+/// Spec 06 0.2.20: the remaining block parameters take a sample on `in.<p>`.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_block_parameter_has_a_port() {
+    let e = env().await;
+    // if.op: a known operator replaces "=", another text is ignored
+    let mut i = build("if", &[]);
+    let sent = feed(i.as_mut(), &e.io, "in.0", good(Value::UInt(3)));
+    assert_eq!(on(&sent, "out"), Some(Value::Bool(false)));
+    feed(i.as_mut(), &e.io, "in.1", good(Value::UInt(1)));
+    let sent = feed(i.as_mut(), &e.io, "in.op", good(">"));
+    assert_eq!(on(&sent, "out"), Some(Value::Bool(true)));
+    assert_eq!(
+        on(&feed(i.as_mut(), &e.io, "in.op", good("xor")), "out"),
+        None
+    );
+    assert_eq!(
+        i.live_params().unwrap().1.get("op"),
+        Some(&Value::from(">"))
+    );
+    // concat.strict
+    let mut c = build("concat", &[]);
+    let sent = feed(c.as_mut(), &e.io, "in.0", good("a"));
+    assert_eq!(on(&sent, "out"), Some(Value::from("a")));
+    let sent = feed(c.as_mut(), &e.io, "in.strict", good(true));
+    assert_eq!(on(&sent, "out"), Some(Value::Null));
+    // hub.ignore_null
+    let mut h = build("hub", &[]);
+    assert_eq!(
+        on(&feed(h.as_mut(), &e.io, "in.0", good(Value::Null)), "out"),
+        None
+    );
+    feed(h.as_mut(), &e.io, "in.ignore_null", good(false));
+    let sent = feed(h.as_mut(), &e.io, "in.0", good(Value::Null));
+    assert_eq!(on(&sent, "out"), Some(Value::Null));
+    // trace.tracing, trace.msg
+    let mut t = build("trace", &[]);
+    feed(t.as_mut(), &e.io, "in.msg", good("hello"));
+    feed(t.as_mut(), &e.io, "in.tracing", good(false));
+    let p = t.live_params().unwrap().1;
+    assert_eq!(p.get("msg"), Some(&Value::from("hello")));
+    assert_eq!(p.get("tracing"), Some(&Value::Bool(false)));
 }

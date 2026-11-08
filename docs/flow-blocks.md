@@ -86,10 +86,10 @@ linear, as before.
 | Type | Inputs | Outputs | Parameters |
 |---|---|---|---|
 | `not` | `in` | `out` | — |
-| `if` | `in.then`, `in.else`, `in.<inputs>` | `out` | `op`, `then` (default true), `else` (default false), `inputs` |
-| `hub` | `in.<inputs>` | `out`, `index`, `on_change` | `ignore_null` (default true), `inputs` |
+| `if` | `in.op`, `in.then`, `in.else`, `in.<inputs>` | `out` | `op`, `then` (default true), `else` (default false), `inputs` |
+| `hub` | `in.ignore_null`, `in.<inputs>` | `out`, `index`, `on_change` | `ignore_null` (default true), `inputs` |
 | `stopwatch` | `reset`, `in.enabled`, `in.interval`, `in.step`, `in.modulo`, `in.loop`, `in.reset_value` | `out`, `on_loop` | the same names |
-| `trace` | `in.<inputs>` | — | `tracing` (default true), `msg` (default `trace`), `inputs` |
+| `trace` | `in.tracing`, `in.msg`, `in.<inputs>` | — | `tracing` (default true), `msg` (default `trace`), `inputs` |
 
 `if` sends `then` when the inputs pass `op`, else `else`:
 
@@ -123,7 +123,7 @@ and set it back after.
 
 | Type | Inputs | Outputs | What it gives |
 |---|---|---|---|
-| `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
+| `concat` | `in.strict`, `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
 ## Parameter ports of the other node types
