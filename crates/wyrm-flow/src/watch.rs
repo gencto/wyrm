@@ -2,10 +2,11 @@
 //! `dataflows/<id>/~act/ports` (one snapshot).
 //!
 //! Each flow has one [`Probe`]. Its node tasks record the last sample of every port and the
-//! effective parameters into it, but only while a watch (or a `ports` call) holds it open: with
-//! none open, a node task checks one atomic and does nothing more. So a port that had no sample
-//! since recording began is absent from a row. The values stay [`KEEP`] after the last watch
-//! closes, so an editor that opens its watch again at once keeps them.
+//! effective parameters into it from the start, watched or not (spec 06 0.2.18): one slot per
+//! port that had a sample, in a record of its own per node, so a node task locks only its own
+//! node's record and never waits for another node. A slot is overwritten in place: a number or
+//! a bool costs no allocation, a text, list or map is copied. Watches only wake on changes
+//! while one is open. So a variable that sent once at deploy shows in every later snapshot.
 //!
 //! Rows (CBOR maps, text keys; `[v, q]` with `q` the quality code):
 //! 1. `{t, snapshot: true, nodes: {<node>: {in: {<port>: [v, q]}, out: {…}, params: {<p>: v}}}}`;
@@ -19,7 +20,7 @@ use crate::def::FlowDef;
 use crate::nodes::{Msg, SinkOp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -41,8 +42,6 @@ pub const HEARTBEAT: Duration = Duration::from_secs(10);
 pub const TTL: Duration = Duration::from_secs(30 * 60);
 /// The action's `timeout_ms`: the gateway's idle wait per reply is this plus 5 s.
 pub const TIMEOUT_MS: u32 = 30_000;
-/// How long recorded values stay after the last watch closed.
-pub const KEEP: Duration = Duration::from_secs(5);
 /// How long an opening watch waits for the node tasks to give their parameters.
 const ASK_WAIT: Duration = Duration::from_millis(200);
 
@@ -87,25 +86,19 @@ struct SinkRec {
 
 #[derive(Debug, Default)]
 struct Data {
-    seq: u64,
-    nodes: BTreeMap<String, NodeRec>,
     /// A preview's sinks: the latest per node.
     sinks: BTreeMap<String, SinkRec>,
-    /// When the last watch closed.
-    idle_since: Option<Instant>,
     /// The node tasks that run, and the last request for parameters each answered.
     alive: BTreeMap<String, u64>,
-}
-
-impl Data {
-    fn node(&mut self, id: &str) -> &mut NodeRec {
-        self.nodes.entry(id.to_owned()).or_default()
-    }
 }
 
 /// The recorder of one flow's live values, shared by its node tasks and its watches.
 pub struct Probe {
     open: AtomicUsize,
+    /// The last change's number: every record takes the next one.
+    seq: AtomicU64,
+    /// One record per node of the flow, each behind its own lock.
+    nodes: BTreeMap<String, Mutex<NodeRec>>,
     data: Mutex<Data>,
     /// The record's `seq`, for the watches to wake on.
     wake: watch::Sender<u64>,
@@ -125,6 +118,12 @@ impl Probe {
             .collect();
         Arc::new(Self {
             open: AtomicUsize::new(0),
+            seq: AtomicU64::new(0),
+            nodes: def
+                .nodes
+                .keys()
+                .map(|id| (id.clone(), Mutex::new(NodeRec::default())))
+                .collect(),
             data: Mutex::new(Data::default()),
             wake: watch::channel(0).0,
             ask: watch::channel(0).0,
@@ -137,7 +136,19 @@ impl Probe {
         self.data.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Whether node tasks record: a watch holds the probe open.
+    /// The record of `node`, locked; `None` for a node the flow does not have.
+    fn node(&self, id: &str) -> Option<std::sync::MutexGuard<'_, NodeRec>> {
+        self.nodes
+            .get(id)
+            .map(|m| m.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn next_seq(&self) -> u64 {
+        self.seq.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Whether a watch (or a `ports` call, or a preview) holds the probe open: only then do
+    /// records wake anyone.
     pub fn on(&self) -> bool {
         self.open.load(Ordering::Relaxed) > 0
     }
@@ -174,16 +185,14 @@ impl Probe {
 
     /// A node task answers request `gen` with its live parameters (`None`: its config).
     pub(crate) fn answer(&self, node: &str, gen: u64, params: Option<&BTreeMap<String, Value>>) {
-        let changed = {
-            let mut d = self.lock();
-            if let Some(g) = d.alive.get_mut(node) {
-                *g = gen;
-            }
-            match params {
-                Some(p) => record_params(&mut d, node, p),
-                None => false,
-            }
+        // the parameters first: an asker that sees the answer sees them too
+        let changed = match (params, self.node(node)) {
+            (Some(p), Some(mut n)) => self.record_params(&mut n, p),
+            _ => false,
         };
+        if let Some(g) = self.lock().alive.get_mut(node) {
+            *g = gen;
+        }
         if changed {
             self.bump();
         }
@@ -194,35 +203,92 @@ impl Probe {
     pub(crate) fn record(
         &self,
         node: &str,
-        input: Option<(String, Value, Quality)>,
+        input: Option<(&str, &Value, Quality)>,
         outs: &[(String, Msg)],
         params: Option<&BTreeMap<String, Value>>,
     ) {
-        let changed = {
-            let mut d = self.lock();
-            let mut changed = false;
-            if let Some((port, v, q)) = input {
-                changed |= record_port(&mut d, node, true, &port, v, q);
-            }
-            for (port, m) in outs {
-                changed |= record_port(&mut d, node, false, port, m.v.clone(), m.q);
-            }
-            if let Some(p) = params {
-                changed |= record_params(&mut d, node, p);
-            }
-            changed
+        let Some(mut n) = self.node(node) else {
+            return;
         };
+        let mut changed = false;
+        if let Some((port, v, q)) = input {
+            changed |= self.record_port(&mut n, true, port, v, q);
+        }
+        for (port, m) in outs {
+            changed |= self.record_port(&mut n, false, port, &m.v, m.q);
+        }
+        if let Some(p) = params {
+            changed |= self.record_params(&mut n, p);
+        }
+        drop(n);
         if changed {
             self.bump();
         }
     }
 
+    /// The slot of `port` takes `v`, in place; `false` when it held that already.
+    fn record_port(&self, n: &mut NodeRec, input: bool, port: &str, v: &Value, q: Quality) -> bool {
+        let m = if input { &mut n.ins } else { &mut n.outs };
+        let seq = match m.get_mut(port) {
+            Some(x) if x.v == *v && x.q == q => return false,
+            Some(x) => {
+                let seq = self.next_seq();
+                x.v.clone_from(v);
+                x.q = q;
+                x.seq = seq;
+                seq
+            }
+            None => {
+                let seq = self.next_seq();
+                m.insert(
+                    port.to_owned(),
+                    PortRec {
+                        v: v.clone(),
+                        q,
+                        seq,
+                    },
+                );
+                seq
+            }
+        };
+        n.seq = seq;
+        true
+    }
+
+    fn record_params(&self, n: &mut NodeRec, params: &BTreeMap<String, Value>) -> bool {
+        let mut seq = None;
+        for (p, v) in params {
+            if n.params.get(p).is_some_and(|x| &x.v == v) {
+                continue;
+            }
+            let s = *seq.get_or_insert_with(|| self.next_seq());
+            match n.params.get_mut(p) {
+                Some(x) => {
+                    x.v.clone_from(v);
+                    x.seq = s;
+                }
+                None => {
+                    n.params.insert(
+                        p.clone(),
+                        ParamRec {
+                            v: v.clone(),
+                            seq: s,
+                        },
+                    );
+                }
+            }
+        }
+        if let Some(s) = seq {
+            n.seq = s;
+        }
+        seq.is_some()
+    }
+
     /// A preview's sink `node` would do `op` on `key` with `v` (the latest per node is kept).
     pub(crate) fn sink(&self, node: &str, op: SinkOp, key: &str, v: Value) {
         {
+            let seq = self.next_seq();
             let mut d = self.lock();
-            d.seq += 1;
-            let seq = d.seq;
             d.sinks.insert(
                 node.to_owned(),
                 SinkRec {
@@ -236,9 +302,11 @@ impl Probe {
         self.bump();
     }
 
+    /// Wake the open watches; with none open there is nobody to wake.
     fn bump(&self) {
-        let seq = self.lock().seq;
-        self.wake.send_replace(seq);
+        if self.on() {
+            self.wake.send_replace(self.seq.load(Ordering::Relaxed));
+        }
     }
 
     /// Wait (at most `max`) until `nodes` node tasks run and the flow is quiet: a round of
@@ -251,28 +319,17 @@ impl Probe {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
         while Instant::now() < deadline {
-            let before = self.lock().seq;
+            let before = self.seq.load(Ordering::Relaxed);
             self.ask_params().await;
-            if self.lock().seq == before {
+            if self.seq.load(Ordering::Relaxed) == before {
                 return;
             }
         }
     }
 
-    /// Hold the probe open: node tasks record until the guard drops.
+    /// Hold the probe open: records wake the watches until the guard drops.
     pub fn hold(self: &Arc<Self>) -> Hold {
-        let first = self.open.fetch_add(1, Ordering::Relaxed) == 0;
-        if first {
-            let mut d = self.lock();
-            // values older than the last watch may be stale: start again
-            if d.idle_since.is_some_and(|t| t.elapsed() > KEEP) {
-                for n in d.nodes.values_mut() {
-                    n.ins.clear();
-                    n.outs.clear();
-                }
-            }
-            d.idle_since = None;
-        }
+        self.open.fetch_add(1, Ordering::Relaxed);
         Hold(self.clone())
     }
 
@@ -296,26 +353,29 @@ impl Probe {
     /// Row 1: every recorded port and every parameter of the nodes in `only` (all: `None`),
     /// and the record's `seq`.
     fn snapshot(&self, only: Option<&BTreeSet<String>>) -> (Value, u64) {
-        let d = self.lock();
+        // the number before the records are read: a change while they are read comes again
+        // in the next row, never lost
+        let seen = self.seq.load(Ordering::Relaxed);
         let mut nodes = BTreeMap::new();
         for (id, statics) in &self.statics {
             if only.is_some_and(|o| !o.contains(id)) {
                 continue;
             }
-            let rec = d.nodes.get(id);
+            let rec = self.node(id);
             let ports = |pick: fn(&NodeRec) -> &BTreeMap<String, PortRec>| {
                 Value::Map(
-                    rec.map(|r| {
-                        pick(r)
-                            .iter()
-                            .map(|(p, x)| (p.clone(), sample(&x.v, x.q)))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                    rec.as_deref()
+                        .map(|r| {
+                            pick(r)
+                                .iter()
+                                .map(|(p, x)| (p.clone(), sample(&x.v, x.q)))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 )
             };
             let mut params = statics.clone();
-            if let Some(r) = rec {
+            if let Some(r) = rec.as_deref() {
                 for (p, x) in &r.params {
                     params.insert(p.clone(), x.v.clone());
                 }
@@ -330,17 +390,21 @@ impl Probe {
             );
         }
         let mut r = row(Some(true), nodes);
-        add_sinks(&mut r, &d, 0, only);
-        (r, d.seq)
+        add_sinks(&mut r, &self.lock(), 0, only);
+        (r, seen)
     }
 
     /// Row 2: what changed after `since`, or `None` when nothing did (in `only`); and the
     /// record's `seq`.
     fn changes(&self, since: u64, only: Option<&BTreeSet<String>>) -> (Option<Value>, u64) {
-        let d = self.lock();
+        let seen = self.seq.load(Ordering::Relaxed);
         let mut nodes = BTreeMap::new();
-        for (id, r) in &d.nodes {
-            if r.seq <= since || only.is_some_and(|o| !o.contains(id)) {
+        for (id, r) in &self.nodes {
+            if only.is_some_and(|o| !o.contains(id)) {
+                continue;
+            }
+            let r = r.lock().unwrap_or_else(|p| p.into_inner());
+            if r.seq <= since {
                 continue;
             }
             let ports = |m: &BTreeMap<String, PortRec>| -> BTreeMap<String, Value> {
@@ -368,8 +432,8 @@ impl Probe {
         }
         let mut r = row(Some(false), nodes);
         // a row of changes: nodes that changed, or sinks that acted
-        let out = (add_sinks(&mut r, &d, since, only) || has_nodes(&r)).then_some(r);
-        (out, d.seq)
+        let out = (add_sinks(&mut r, &self.lock(), since, only) || has_nodes(&r)).then_some(r);
+        (out, seen)
     }
 }
 
@@ -402,46 +466,13 @@ fn add_sinks(row: &mut Value, d: &Data, since: u64, only: Option<&BTreeSet<Strin
     true
 }
 
-/// Keeps a [`Probe`] recording; the last one to drop starts the [`KEEP`] time.
+/// Keeps a [`Probe`] open: its records wake the watches while one is held.
 pub struct Hold(Arc<Probe>);
 
 impl Drop for Hold {
     fn drop(&mut self) {
-        if self.0.open.fetch_sub(1, Ordering::Relaxed) == 1 {
-            self.0.lock().idle_since = Some(Instant::now());
-        }
+        self.0.open.fetch_sub(1, Ordering::Relaxed);
     }
-}
-
-fn record_port(d: &mut Data, node: &str, input: bool, port: &str, v: Value, q: Quality) -> bool {
-    let seq = d.seq + 1;
-    let n = d.node(node);
-    let m = if input { &mut n.ins } else { &mut n.outs };
-    if m.get(port).is_some_and(|x| x.v == v && x.q == q) {
-        return false;
-    }
-    m.insert(port.to_owned(), PortRec { v, q, seq });
-    n.seq = seq;
-    d.seq = seq;
-    true
-}
-
-fn record_params(d: &mut Data, node: &str, params: &BTreeMap<String, Value>) -> bool {
-    let seq = d.seq + 1;
-    let n = d.node(node);
-    let mut changed = false;
-    for (p, v) in params {
-        if n.params.get(p).is_some_and(|x| &x.v == v) {
-            continue;
-        }
-        n.params.insert(p.clone(), ParamRec { v: v.clone(), seq });
-        changed = true;
-    }
-    if changed {
-        n.seq = seq;
-        d.seq = seq;
-    }
-    changed
 }
 
 /// `[v, q]`.
@@ -784,15 +815,13 @@ mod tests {
     }
 
     #[test]
-    fn records_only_while_held() {
+    fn records_and_rows() {
         let p = Probe::new(&def());
         assert!(!p.on());
-        // nobody records without a watch (run_node checks `on`); a hold turns it on
-        let h = p.hold();
-        assert!(p.on());
+        // records are kept with no watch open (spec 06 0.2.18); a hold only wakes watches
         p.record(
             "r",
-            Some(("in".into(), Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5), Quality::Good)),
             &[("out".into(), m(1.5))],
             None,
         );
@@ -818,7 +847,7 @@ mod tests {
         p.record("r", None, &[("out".into(), m(3.0))], None);
         p.record(
             "r",
-            Some(("in".into(), Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5), Quality::Good)),
             &[],
             None,
         );
@@ -840,6 +869,8 @@ mod tests {
         assert_eq!(p.changes(seq, Some(&only)).0, None);
         let (snap, _) = p.snapshot(Some(&only));
         assert_eq!(get(&snap, &["nodes", "r"]), None);
+        let h = p.hold();
+        assert!(p.on());
         drop(h);
         assert!(!p.on());
     }
@@ -977,23 +1008,50 @@ mod tests {
         assert_eq!(get(&p.snapshot(Some(&only)).0, &["sinks"]), None);
     }
 
+    /// Spec 06 0.2.18: what was sent before any watch opened, long before, is in its snapshot;
+    /// a slot is overwritten in place; a node the flow does not have is not recorded.
     #[test]
-    fn values_stay_a_moment_after_the_last_watch() {
+    fn values_from_the_start_in_one_slot_per_port() {
         let p = Probe::new(&def());
-        let h = p.hold();
         p.record("r", None, &[("out".into(), m(1.0))], None);
-        drop(h);
-        let h = p.hold();
-        let (snap, _) = p.snapshot(None);
-        assert_eq!(get(&snap, &["nodes", "r", "out", "out"]), Some(&pair(1.0)));
-        drop(h);
-        // older than KEEP: cleared when the next watch opens
-        p.lock().idle_since = Some(Instant::now() - KEEP - Duration::from_secs(1));
+        p.record("r", None, &[("out".into(), m(2.0))], None);
+        p.record("zz", None, &[("out".into(), m(1.0))], None);
         let _h = p.hold();
         let (snap, _) = p.snapshot(None);
-        assert_eq!(
-            get(&snap, &["nodes", "r", "out"]),
-            Some(&Value::Map(BTreeMap::new()))
+        assert_eq!(get(&snap, &["nodes", "r", "out", "out"]), Some(&pair(2.0)));
+        assert_eq!(get(&snap, &["nodes", "zz"]), None);
+        assert_eq!(p.node("r").unwrap().outs.len(), 1, "one slot per port");
+    }
+
+    /// The cost of a record (spec 06 0.2.18, ADR 0038 §6): run by hand in release.
+    /// `cargo test -p wyrm-flow --release --lib record_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    fn record_cost() {
+        let p = Probe::new(&def());
+        let n = 1_000_000u32;
+        let time = |v: &dyn Fn(u32) -> Msg| {
+            let t0 = std::time::Instant::now();
+            for i in 0..n {
+                let out = [("out".to_owned(), v(i))];
+                p.record("r", Some(("in", &out[0].1.v, Quality::Good)), &out, None);
+            }
+            t0.elapsed().as_nanos() as f64 / f64::from(n)
+        };
+        // the message is built outside the record in a node too: subtract its cost
+        let build = |v: &dyn Fn(u32) -> Msg| {
+            let t0 = std::time::Instant::now();
+            for i in 0..n {
+                std::hint::black_box([("out".to_owned(), v(i))]);
+            }
+            t0.elapsed().as_nanos() as f64 / f64::from(n)
+        };
+        let num = |i: u32| m(f64::from(i));
+        let text = |i: u32| Msg::new(Value::Str(format!("value {i}")), Quality::Good, 1);
+        println!(
+            "record of one input and one output: number {:.0} ns, text {:.0} ns",
+            time(&num) - build(&num),
+            time(&text) - build(&text)
         );
     }
 

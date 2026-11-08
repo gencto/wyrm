@@ -176,9 +176,9 @@ which: per parameter `port` (`in.<p>` when it has one), `default` (typed: a
 number stays a number) and `echo`; per type `port_types` and `echo_inputs`.
 
 An editor shows the live values of a deployed flow with
-`dataflows/<id>/~act/watch` (spec 06, "Живі значення"). The engine records
-port values only while a watch is open, so a port shows a value from its first
-sample after the watch opened.
+`dataflows/<id>/~act/watch` (spec 06, "Живі значення"). The engine keeps the
+last sample of every port from the start (spec 06 0.2.18), so a variable that
+sent its value once at deploy shows in every later snapshot and in `ports`.
 
 An editor shows the live values of a draft that is not deployed with
 `dataflows/~act/preview {def}` (spec 06 0.2.16, ADR 0038 §5). The draft runs

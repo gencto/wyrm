@@ -288,9 +288,7 @@ async fn run_node(
                 echoed.insert(p.clone(), v);
             }
         }
-        if probe.on() {
-            probe.record(&id, None, &out.0, None);
-        }
+        probe.record(&id, None, &out.0, None);
         route(&routes, out).await;
     }
     let clock = |p: std::time::Duration, first: tokio::time::Instant| {
@@ -302,7 +300,6 @@ async fn run_node(
     let mut tick = period.map(|p| clock(p, tokio::time::Instant::now()));
     loop {
         let mut out = Out::default();
-        let mut inbound = None;
         let ok = tokio::select! {
             (port, m) = inbox.pop() => {
                 if !port.starts_with("__") {
@@ -310,9 +307,8 @@ async fn run_node(
                     if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
                         out.emit(&port, m.clone());
                     }
-                    if probe.on() {
-                        inbound = Some((port.clone(), m.v.clone(), m.q));
-                    }
+                    // the input's slot, before the node takes the sample (no copy of it)
+                    probe.record(&id, Some((&port, &m.v, m.q)), &[], None);
                 }
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.input(&port, m, &io, &mut out))).is_ok()
             }
@@ -347,14 +343,13 @@ async fn run_node(
                 }
             }
         }
-        if probe.on() {
-            let live = node.live_params().filter(|(r, _)| Some(*r) != rec_rev);
-            if let Some((r, _)) = live {
-                rec_rev = Some(r);
-            }
-            if inbound.is_some() || !out.0.is_empty() || live.is_some() {
-                probe.record(&id, inbound, &out.0, live.map(|(_, m)| m));
-            }
+        // the last sample of every port, watched or not (spec 06 0.2.18)
+        let live = node.live_params().filter(|(r, _)| Some(*r) != rec_rev);
+        if let Some((r, _)) = live {
+            rec_rev = Some(r);
+        }
+        if !out.0.is_empty() || live.is_some() {
+            probe.record(&id, None, &out.0, live.map(|(_, m)| m));
         }
         route(&routes, out).await;
         // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,

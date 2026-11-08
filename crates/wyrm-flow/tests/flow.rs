@@ -1128,6 +1128,54 @@ async fn watch_needs_the_rights_on_the_command_targets() {
     env.stop().await;
 }
 
+/// Spec 06 0.2.18 (the demo's `ahu2_ctl`): variables send once at deploy; `ports` long after,
+/// with no watch ever opened, still shows what they sent and what `concat` made of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn ports_show_what_was_sent_before_any_watch() {
+    let env = Env::start("from-start").await;
+    let def = map(&[
+        ("id", s("ahu")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                ("s3", map(&[("type", s("string")), ("value", s("AHU-"))])),
+                (
+                    "n",
+                    map(&[("type", s("number")), ("value", Value::UInt(2))]),
+                ),
+                ("c", map(&[("type", s("concat"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[edge("s3.out", "c.in.0"), edge("n.out", "c.in.1")]),
+        ),
+    ]);
+    env.deploy(def).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let snap = env
+        .client
+        .invoke_one(&format!("wy/{SITE}/dataflows/ahu"), "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    assert_eq!(
+        at(&snap, &["nodes", "s3", "out", "out"]),
+        Some(&pair(s("AHU-")))
+    );
+    assert_eq!(
+        at(&snap, &["nodes", "c", "in", "in.0"]),
+        Some(&pair(s("AHU-")))
+    );
+    assert_eq!(
+        at(&snap, &["nodes", "c", "out", "out"]),
+        Some(&pair(s("AHU-2")))
+    );
+    env.stop().await;
+}
+
 /// Spec 06 0.2.17: a parameter on its port changes the node's clock: a timer of one minute
 /// whose `period_ms` a variable sets to 20 ticks many times a second.
 #[tokio::test(flavor = "multi_thread")]
