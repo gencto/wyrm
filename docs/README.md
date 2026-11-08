@@ -18,6 +18,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |
 | [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with blocks: variables, math, if, hub, stopwatch, text |
 | [operations.md](operations.md) | run `wyrmd` under systemd or a container, know what a restart recovers and how fast, back up and restore `data_dir` |
+| [studio.md](studio.md) | build WYRM Studio, the Flutter app: layout, rules, the `frx` commands of each phase, every screen's broker calls |
 
 ## Protocol links
 
