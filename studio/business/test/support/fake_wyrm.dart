@@ -46,10 +46,23 @@ class FakeWyrmApi implements WyrmApi {
     return (lists[key] ??= StreamController<ListUpdate>.broadcast()).stream;
   }
 
+  /// What a new subscription of a pattern gets first (the broker answers a
+  /// subscription with the stored values).
+  final initial = <String, List<ValEvent>>{};
+
   @override
   Stream<ValEvent> subscribe(String pattern) {
     calls.add(Call('subscribe', pattern));
-    return (subs[pattern] ??= StreamController<ValEvent>.broadcast()).stream;
+    // ignore: close_sinks, a test's streams live as long as the test.
+    late final StreamController<ValEvent> c;
+    c = subs[pattern] ??= StreamController<ValEvent>.broadcast(
+      onListen: () {
+        for (final e in initial[pattern] ?? const <ValEvent>[]) {
+          scheduleMicrotask(() => c.add(e));
+        }
+      },
+    );
+    return c.stream;
   }
 
   @override

@@ -62,3 +62,32 @@ Future<Value?> readValue(
     return null;
   }
 }
+
+/// The current values under [pattern] (a `*` pattern): every sample that
+/// arrives within [wait], by key.
+Future<Map<String, Value>> readValues(
+  WyrmApi api,
+  String pattern, {
+  Duration wait = const Duration(milliseconds: 1200),
+}) async {
+  final out = <String, Value>{};
+  try {
+    await for (final e
+        in api
+            .subscribe(pattern)
+            .timeout(
+              wait,
+              onTimeout: (sink) => sink.close(),
+            )) {
+      if (e case ValSample(:final key, :final sample)) {
+        out[key] = sample.v;
+      }
+    }
+  } on Object {
+    // A refused or missing pattern reads as nothing.
+  }
+  return out;
+}
+
+/// Dart values as an argument map.
+Value valueOf(Map<String, Object?> args) => Value.from(args);
