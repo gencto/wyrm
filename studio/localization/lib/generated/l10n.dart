@@ -3163,10 +3163,10 @@ class S {
     return Intl.message('Flow id', name: 'flowName', desc: '', args: []);
   }
 
-  /// `Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.`
+  /// `Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.`
   String get flowPropertiesNote {
     return Intl.message(
-      'Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.',
+      'Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.',
       name: 'flowPropertiesNote',
       desc: '',
       args: [],
@@ -3248,10 +3248,10 @@ class S {
     );
   }
 
-  /// `Nothing changed since the last deploy.`
+  /// `Nothing to deploy`
   String get nothingToDeploy {
     return Intl.message(
-      'Nothing changed since the last deploy.',
+      'Nothing to deploy',
       name: 'nothingToDeploy',
       desc: '',
       args: [],
@@ -4230,6 +4230,293 @@ class S {
     return Intl.message(
       'API key secret',
       name: 'cfgApiKey',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `My blocks`
+  String get paletteMyBlocks {
+    return Intl.message(
+      'My blocks',
+      name: 'paletteMyBlocks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needs own blocks in the engine`
+  String get myBlocksReason {
+    return Intl.message(
+      'Needs own blocks in the engine',
+      name: 'myBlocksReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Find a block`
+  String get findBlock {
+    return Intl.message('Find a block', name: 'findBlock', desc: '', args: []);
+  }
+
+  /// `Find a point or action`
+  String get findInTree {
+    return Intl.message(
+      'Find a point or action',
+      name: 'findInTree',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Draft saved`
+  String get draftSaved {
+    return Intl.message('Draft saved', name: 'draftSaved', desc: '', args: []);
+  }
+
+  /// `Version {v} · deployed`
+  String versionDeployed(Object v) {
+    return Intl.message(
+      'Version $v · deployed',
+      name: 'versionDeployed',
+      desc: '',
+      args: [v],
+    );
+  }
+
+  /// `reads a value`
+  String get legendReads {
+    return Intl.message(
+      'reads a value',
+      name: 'legendReads',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `writes to a device`
+  String get legendWrites {
+    return Intl.message(
+      'writes to a device',
+      name: 'legendWrites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `free field`
+  String get legendFree {
+    return Intl.message('free field', name: 'legendFree', desc: '', args: []);
+  }
+
+  /// `no left port = read-only point`
+  String get legendReadOnly {
+    return Intl.message(
+      'no left port = read-only point',
+      name: 'legendReadOnly',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tree node`
+  String get kindTreeNode {
+    return Intl.message('Tree node', name: 'kindTreeNode', desc: '', args: []);
+  }
+
+  /// `Logic block`
+  String get kindLogic {
+    return Intl.message('Logic block', name: 'kindLogic', desc: '', args: []);
+  }
+
+  /// `Sink`
+  String get kindSink {
+    return Intl.message('Sink', name: 'kindSink', desc: '', args: []);
+  }
+
+  /// `Action`
+  String get kindAction {
+    return Intl.message('Action', name: 'kindAction', desc: '', args: []);
+  }
+
+  /// `Flow`
+  String get kindFlow {
+    return Intl.message('Flow', name: 'kindFlow', desc: '', args: []);
+  }
+
+  /// `A bound field shows its source here and in the block; click the link icon to unbind.`
+  String get flowPropertiesNote2 {
+    return Intl.message(
+      'A bound field shows its source here and in the block; click the link icon to unbind.',
+      name: 'flowPropertiesNote2',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not bound`
+  String get notBound {
+    return Intl.message('not bound', name: 'notBound', desc: '', args: []);
+  }
+
+  /// `{n, plural, =1{1 input} other{{n} inputs}}`
+  String inputsCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 input',
+      other: '$n inputs',
+      name: 'inputsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Add an input`
+  String get addInput {
+    return Intl.message('Add an input', name: 'addInput', desc: '', args: []);
+  }
+
+  /// `Remove the last input`
+  String get removeInput {
+    return Intl.message(
+      'Remove the last input',
+      name: 'removeInput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unbind`
+  String get unbind {
+    return Intl.message('Unbind', name: 'unbind', desc: '', args: []);
+  }
+
+  /// `Drag an output here to bind`
+  String get bindHint {
+    return Intl.message(
+      'Drag an output here to bind',
+      name: 'bindHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deployed by`
+  String get factDeployedBy {
+    return Intl.message(
+      'Deployed by',
+      name: 'factDeployedBy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `May write`
+  String get factMayWrite {
+    return Intl.message('May write', name: 'factMayWrite', desc: '', args: []);
+  }
+
+  /// `Reads`
+  String get factReads {
+    return Intl.message('Reads', name: 'factReads', desc: '', args: []);
+  }
+
+  /// `Writes`
+  String get factWrites {
+    return Intl.message('Writes', name: 'factWrites', desc: '', args: []);
+  }
+
+  /// `Problems`
+  String get problems {
+    return Intl.message('Problems', name: 'problems', desc: '', args: []);
+  }
+
+  /// `Point`
+  String get treePoint {
+    return Intl.message('Point', name: 'treePoint', desc: '', args: []);
+  }
+
+  /// `on a block: adds it as a field. On the canvas: a new block of that node.`
+  String get treePointNote {
+    return Intl.message(
+      'on a block: adds it as a field. On the canvas: a new block of that node.',
+      name: 'treePointNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Action`
+  String get treeAction {
+    return Intl.message('Action', name: 'treeAction', desc: '', args: []);
+  }
+
+  /// `a block that runs it when run when turns true; its arguments are fields.`
+  String get treeActionNote {
+    return Intl.message(
+      'a block that runs it when run when turns true; its arguments are fields.',
+      name: 'treeActionNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} in`
+  String actionInputs(Object n) {
+    return Intl.message('$n in', name: 'actionInputs', desc: '', args: [n]);
+  }
+
+  /// `A point of the tree. A read-only point has no input; binding into a writable one writes ~set.`
+  String get noteTreeNode {
+    return Intl.message(
+      'A point of the tree. A read-only point has no input; binding into a writable one writes ~set.',
+      name: 'noteTreeNode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Dragged from the tree. Runs when run when turns true.`
+  String get noteAction {
+    return Intl.message(
+      'Dragged from the tree. Runs when run when turns true.',
+      name: 'noteAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Live values`
+  String get factLive {
+    return Intl.message('Live values', name: 'factLive', desc: '', args: []);
+  }
+
+  /// `You cannot read every source and target of this flow`
+  String get liveRefused {
+    return Intl.message(
+      'You cannot read every source and target of this flow',
+      name: 'liveRefused',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `fires at deploy`
+  String get firesAtDeploy {
+    return Intl.message(
+      'fires at deploy',
+      name: 'firesAtDeploy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A parameter sends its value when the flow starts, so this writes at every deploy.`
+  String get firesAtDeployNote {
+    return Intl.message(
+      'A parameter sends its value when the flow starts, so this writes at every deploy.',
+      name: 'firesAtDeployNote',
       desc: '',
       args: [],
     );

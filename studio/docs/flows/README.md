@@ -37,6 +37,7 @@ flowchart LR
     linkInstall -.->|"onBack"| frxBack
     linkInstall -.->|"onResultAction"| frxBack
     flowEditor -.->|"onClose"| flows
+    flowEditor ==>|"onLogo (navigate)"| explorer
 
     classDef frxEntry stroke-dasharray: 5 3
     class logIn,studio frxEntry
@@ -59,4 +60,4 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 4 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
-| `FlowEditorPage` | `/flow-editor/:id` | no | 13 | [flowEditor](flowEditor.md) |
+| `FlowEditorPage` | `/flow-editor/:id` | no | 20 | [flowEditor](flowEditor.md) |

@@ -486,6 +486,15 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns palette
   String get palette => _state.flowEditor.palette;
+
+  /// Returns ports
+  IMap<String, LiveValue> get ports => _state.flowEditor.ports;
+
+  /// Returns deployed
+  FlowDraft? get deployed => _state.flowEditor.deployed;
+
+  /// Returns watchRefused
+  String? get watchRefused => _state.flowEditor.watchRefused;
 }
 
 extension type SelectTasks(AppState _state) {

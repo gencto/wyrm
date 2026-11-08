@@ -37,6 +37,11 @@ class FakeWyrmApi implements WyrmApi {
   final subs = <String, StreamController<ValEvent>>{};
   final histories = <String, List<HistRow>>{};
 
+  /// Actions (`key ▸ action`) answered by a stream the test drives: each
+  /// call opens a controller of its own, kept in [opened] in call order.
+  final streamed = <String>{};
+  final opened = <String, List<StreamController<Value>>>{};
+
   WyrmException _missing(String what) =>
       WyrmException.of(Status.notFound, 'no answer for $what');
 
@@ -79,6 +84,12 @@ class FakeWyrmApi implements WyrmApi {
     final id = '$key ▸ $action';
     if (errors[id] case final e?) {
       throw e;
+    }
+    if (streamed.contains(id)) {
+      final c = StreamController<Value>();
+      (opened[id] ??= []).add(c);
+      yield* c.stream;
+      return;
     }
     final rows = invokes[id];
     if (rows == null) {
