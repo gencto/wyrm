@@ -50,7 +50,7 @@ class AppPersistor extends Persistor<AppState> {
 
     return AppState.initial().copyWith(
       theme: ThemeState(
-        mode: ThemeMode.values[themeIndex ?? ThemeMode.light.index],
+        mode: ThemeMode.values[themeIndex ?? ThemeMode.dark.index],
       ),
       language: LanguageState(locale: locale ?? 'en'),
       login: LoginState(gateway: gateway, user: user),

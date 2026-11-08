@@ -6,6 +6,6 @@ part 'theme_state.freezed.dart';
 @freezed
 abstract class ThemeState with _$ThemeState {
   const factory ThemeState({
-    @Default(ThemeMode.light) ThemeMode mode,
+    @Default(ThemeMode.dark) ThemeMode mode,
   }) = _ThemeState;
 }

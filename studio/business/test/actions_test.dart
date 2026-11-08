@@ -57,9 +57,9 @@ void main() {
   group('the single-value setters', () {
     test('SetThemeModeAction', () async {
       final store = _store();
-      await store.dispatchAndWait(SetThemeModeAction(ThemeMode.dark));
+      await store.dispatchAndWait(SetThemeModeAction(ThemeMode.light));
 
-      expect(store.state.theme.mode, ThemeMode.dark);
+      expect(store.state.theme.mode, ThemeMode.light);
     });
 
     test('SetLanguageAction', () async {
@@ -85,12 +85,12 @@ void main() {
   });
 
   group('AppState.initial()', () {
-    test('starts logged out, online, light and English', () {
+    test('starts logged out, online, dark and English', () {
       final state = AppState.initial();
 
       expect(state.session.token, isNull);
       expect(state.connectivity.isAvailable, isTrue);
-      expect(state.theme.mode, ThemeMode.light);
+      expect(state.theme.mode, ThemeMode.dark);
       expect(state.language.locale, 'en');
     });
 

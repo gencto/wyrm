@@ -67,7 +67,7 @@ void main() {
 
       expect(state, isNotNull);
       expect(state?.language.locale, 'uk');
-      expect(state?.theme.mode, ThemeMode.light, reason: 'falls back');
+      expect(state?.theme.mode, ThemeMode.dark, reason: 'falls back');
     });
   });
 

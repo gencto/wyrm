@@ -29,7 +29,7 @@ void main() {
       expect(r.login.user, isNull);
       expect(r.login.password, isNull);
       expect(r.session.token, isNull);
-      expect(r.theme.mode, ThemeMode.light);
+      expect(r.theme.mode, ThemeMode.dark);
       expect(r.language.locale, 'en');
     });
 

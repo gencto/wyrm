@@ -11,6 +11,22 @@
 part of 'app_router.dart';
 
 /// generated route for
+/// [GalleryPageConnector]
+class GalleryRoute extends PageRouteInfo<void> {
+  const GalleryRoute({List<PageRouteInfo>? children})
+    : super(GalleryRoute.name, initialChildren: children);
+
+  static const String name = 'GalleryRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const GalleryPageConnector();
+    },
+  );
+}
+
+/// generated route for
 /// [HomePageConnector]
 class HomeRoute extends PageRouteInfo<void> {
   const HomeRoute({List<PageRouteInfo>? children})

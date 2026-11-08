@@ -77,7 +77,7 @@ as ThemeMode,
 
 
 class _ThemeState implements ThemeState {
-  const _ThemeState({this.mode = ThemeMode.light});
+  const _ThemeState({this.mode = ThemeMode.dark});
   
 
 @override@JsonKey() final  ThemeMode mode;
