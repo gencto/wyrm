@@ -17,6 +17,7 @@ sequenceDiagram
     participant A5 as SetThemeModeAction
     participant A6 as SetLanguageAction
     participant ST as AppState
+    participant NAV as Router
 
     User->>UI: gateway.onChanged
     UI->>VM: gateway()
@@ -44,6 +45,9 @@ sequenceDiagram
     A4->>ST: copyWith(session, site, login)
     A4--xVM: UserException
     A4-->>-VM: ActionStatus
+    alt status.isCompletedOk
+        VM->>NAV: GoAction.replace StudioRoute
+    end
 
     User->>UI: theme.onChanged
     UI->>VM: theme()
@@ -61,7 +65,7 @@ sequenceDiagram
 | `gateway.onChanged` | `SetGatewayAction` | `login.gateway` |
 | `user.onChanged` | `SetUserAction` | `login.user` |
 | `password.onChanged` | `SetPasswordAction` | `login.password` |
-| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction` | `login.gateway`, `session, site, login` |
+| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction`, `GoAction.replace` ? | `login.gateway`, `session, site, login` |
 | `theme.onChanged` | `SetThemeModeAction` | `theme.mode` |
 | `language.onChanged` | `SetLanguageAction` | `language.locale` |
 

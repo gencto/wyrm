@@ -1,11 +1,22 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:flutter/material.dart';
 
+import '../connectors/access_page_connector.dart';
+import '../connectors/assistant_page_connector.dart';
+import '../connectors/explorer_page_connector.dart';
+import '../connectors/flow_editor_page_connector.dart';
+import '../connectors/flows_page_connector.dart';
 import '../connectors/gallery_page_connector.dart';
-import '../connectors/home_page_connector.dart';
+import '../connectors/history_page_connector.dart';
+import '../connectors/link_install_page_connector.dart';
+import '../connectors/links_page_connector.dart';
 import '../connectors/log_in_page_connector.dart';
+import '../connectors/sites_page_connector.dart';
 import '../connectors/splash_page_connector.dart';
+import '../connectors/studio_page_connector.dart';
+import '../connectors/system_page_connector.dart';
 
 part 'app_router.gr.dart';
 
@@ -36,8 +47,23 @@ class AppRouter extends RootStackRouter {
   List<AutoRoute> get routes => [
     AutoRoute(page: SplashRoute.page, path: '/splash', initial: true),
     AutoRoute(page: LogInRoute.page, path: '/login'),
-    AutoRoute(page: HomeRoute.page, path: '/home'),
     AutoRoute(page: GalleryRoute.page, path: '/gallery'),
+    AutoRoute(
+      page: StudioRoute.page,
+      path: '/studio',
+      children: [
+        AutoRoute(page: ExplorerRoute.page, path: 'explorer'),
+        AutoRoute(page: LinksRoute.page, path: 'links'),
+        AutoRoute(page: FlowsRoute.page, path: 'flows'),
+        AutoRoute(page: HistoryRoute.page, path: 'history'),
+        AutoRoute(page: AccessRoute.page, path: 'access'),
+        AutoRoute(page: SitesRoute.page, path: 'sites'),
+        AutoRoute(page: AssistantRoute.page, path: 'assistant'),
+        AutoRoute(page: SystemRoute.page, path: 'system'),
+      ],
+    ),
+    AutoRoute(page: LinkInstallRoute.page, path: '/link-install'),
+    AutoRoute(page: FlowEditorRoute.page, path: '/flow-editor/:id'),
   ];
 }
 
@@ -72,7 +98,7 @@ class _AuthGuard extends AutoRouteGuard with Selectors {
     // Splash is a pure gate: bounce straight to the right area.
     if (name == SplashRoute.name) {
       resolver.redirectUntil(
-        loggedIn ? const HomeRoute() : const LogInRoute(),
+        loggedIn ? const StudioRoute() : const LogInRoute(),
         replace: true,
       );
       return;
@@ -84,7 +110,7 @@ class _AuthGuard extends AutoRouteGuard with Selectors {
       return;
     }
     if (loggedIn && inAuthArea) {
-      resolver.redirectUntil(const HomeRoute(), replace: true);
+      resolver.redirectUntil(const StudioRoute(), replace: true);
       return;
     }
     resolver.next();

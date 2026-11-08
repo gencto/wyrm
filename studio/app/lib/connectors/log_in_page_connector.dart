@@ -12,6 +12,8 @@ import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
 
 import '../common/validators.dart';
+import '../navigation/app_router.dart';
+import '../navigation/go_action.dart';
 
 @RoutePage()
 class LogInPageConnector extends StatelessWidget {
@@ -70,7 +72,12 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       if (login.gateway == null) {
         dispatchSync(SetGatewayAction(defaultGateway));
       }
-      await dispatchAndWait(LogInAction());
+      final status = await dispatchAndWait(LogInAction());
+      // The auth guard is re-run by the token's listenable, but auto_route
+      // 11 does not redirect away from a resolved route on it: go there.
+      if (status.isCompletedOk) {
+        dispatch(GoAction.replace(const StudioRoute()));
+      }
     },
     theme: FieldVm(
       value: theme.mode,

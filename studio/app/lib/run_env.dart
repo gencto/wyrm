@@ -63,9 +63,11 @@ Future<void> runEnv(Environment env) async {
     await windowManager.ensureInitialized();
 
     const windowOptions = WindowOptions(
-      size: Size(800, 640),
+      // The canvas boards are 1440 wide; Studio is dense and desktop first.
+      size: Size(1440, 900),
       center: true,
-      minimumSize: Size(320, 640),
+      minimumSize: Size(360, 600),
+      title: 'WYRM Studio',
     );
 
     unawaited(

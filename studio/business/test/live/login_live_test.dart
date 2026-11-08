@@ -14,6 +14,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:storage/storage.dart';
 
@@ -73,6 +74,22 @@ void main() {
       s.state.links.table.values.every((l) => l.driver.isNotEmpty),
       isTrue,
     );
+    await (s.dependencies! as AppDependencies).detach();
+  }, skip: skip);
+
+  test('RetrieveSitesAction finds the brokers below and above', () async {
+    final s = store();
+    await s.dispatchAndWait(SetGatewayAction(gateway));
+    await s.dispatchAndWait(SetUserAction(user));
+    await s.dispatchAndWait(SetPasswordAction(password));
+    await s.dispatchAndWait(LogInAction());
+
+    await s.dispatchAndWait(RetrieveSitesAction());
+
+    final sites = s.state.site.choices.map((c) => c.site).toList();
+    expect(sites.first, s.state.site.name);
+    expect(sites.length, greaterThan(1), reason: 'the demo is a chain: $sites');
+    expect(SelectSite(s.state).levelOn('wy/${sites.first}/sys'), 'config');
     await (s.dependencies! as AppDependencies).detach();
   }, skip: skip);
 }

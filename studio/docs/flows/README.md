@@ -10,11 +10,28 @@ flowchart LR
         logIn["LogInPage · /login"]
     end
     splash(["SplashPage · /splash"])
-    home["HomePage · /home"]
     gallery["GalleryPage · /gallery"]
+    subgraph frxTabs_studio["StudioPage · tabs"]
+        studio["StudioPage · /studio"]
+        explorer["ExplorerPage · /studio/explorer"]
+        links["LinksPage · /studio/links"]
+        flows["FlowsPage · /studio/flows"]
+        history["HistoryPage · /studio/history"]
+        access["AccessPage · /studio/access"]
+        sites["SitesPage · /studio/sites"]
+        assistant["AssistantPage · /studio/assistant"]
+        system["SystemPage · /studio/system"]
+    end
+    linkInstall["LinkInstallPage · /link-install"]
+    flowEditor["FlowEditorPage · /flow-editor/:id"]
+
+    logIn ==>|"onPressedLogIn (replace) [status.isCompletedOk]"| studio
+    studio ==>|"onLogOut (replace)"| logIn
+    links -->|"onTapLinkInstall"| linkInstall
+    flows -->|"onTapFlowEditor"| flowEditor
 
     classDef frxEntry stroke-dasharray: 5 3
-    class logIn,home,gallery frxEntry
+    class logIn,gallery,studio frxEntry
 ```
 
 Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it, when there is exactly one). Thick: a hop that replaces the stack. `⚡` marks navigation dispatched from a reducer rather than the view-model. A dashed border means nothing pushes that screen — you arrive by path, deep link or a guard redirect.
@@ -23,5 +40,15 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | --- | --- | --- | --- | --- |
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
 | `LogInPage` | `/login` | yes | 6 | [logIn](logIn.md) |
-| `HomePage` | `/home` | no | 1 | [home](home.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
+| `StudioPage` | `/studio` | no | 8 | [studio](studio.md) |
+| `ExplorerPage` | `/studio/explorer` | no | 0 | [explorer](explorer.md) |
+| `LinksPage` | `/studio/links` | no | 1 | [links](links.md) |
+| `FlowsPage` | `/studio/flows` | no | 1 | [flows](flows.md) |
+| `HistoryPage` | `/studio/history` | no | 0 | [history](history.md) |
+| `AccessPage` | `/studio/access` | no | 0 | [access](access.md) |
+| `SitesPage` | `/studio/sites` | no | 0 | [sites](sites.md) |
+| `AssistantPage` | `/studio/assistant` | no | 0 | [assistant](assistant.md) |
+| `SystemPage` | `/studio/system` | no | 0 | [system](system.md) |
+| `LinkInstallPage` | `/link-install` | no | 0 | [linkInstall](linkInstall.md) |
+| `FlowEditorPage` | `/flow-editor/:id` | no | 0 | [flowEditor](flowEditor.md) |
