@@ -991,8 +991,18 @@ const OPEN_WAIT: Duration = Duration::from_secs(30);
 /// Follow the active broker until it has been away for this host's
 /// takeover time ([`Outcome::Takeover`]) or `shutdown` resolves.
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
+    follow_with(cfg, crate::arbiter::Arbiters::of(cfg)?, shutdown).await
+}
+
+/// [`follow`] with the caller's arbiters: after [`Outcome::Takeover`] their
+/// [`granted_at`](crate::arbiter::Arbiters::granted_at) is the takeover's
+/// grant, from which the active renews the lease.
+pub async fn follow_with(
+    cfg: &Config,
+    arbiters: Option<crate::arbiter::Arbiters>,
+    shutdown: impl Future<Output = ()>,
+) -> Result<Outcome, Error> {
     let sb = cfg.standby.as_ref().ok_or("no standby section")?;
-    let arbiters = crate::arbiter::Arbiters::of(cfg)?;
     // With arbiters an active that cannot renew its lease steps down once
     // its standby has been quiet for STANDBY_QUIET: never take over before.
     let takeover = match &arbiters {
@@ -1246,6 +1256,7 @@ pub async fn lease_lost(
             let h = held.lock().unwrap_or_else(|p| p.into_inner());
             (h.lost, h.until)
         };
+        ctl.set_arbiter_lease(until.filter(|_| !lost));
         if lost {
             return "another broker holds the arbiters' lease";
         }

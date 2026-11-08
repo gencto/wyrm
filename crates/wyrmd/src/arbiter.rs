@@ -46,6 +46,8 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_FRAME: u32 = 4096;
 /// Longest holder name.
 const MAX_HOLDER: usize = 64;
+/// Lifetime of an arbiter's certificate (the site CA lasts until 2046).
+const ARBITER_DAYS: i64 = 20 * 365;
 
 /// What the arbiter answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,12 +257,14 @@ pub fn issue(cfg: &Config, host: &str, out: &Path) -> Result<(), Error> {
     }
     let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
     std::fs::create_dir_all(out)?;
-    pki.issue(
+    // nothing renews it on the arbiter's host: it lasts as the CA does
+    pki.issue_lasting(
         &format!("arbiter:{}", cfg.site),
         &[host.to_owned()],
         true,
         out,
         "arbiter",
+        ARBITER_DAYS,
     )?;
     let files = ArbiterFiles {
         dir: out.to_path_buf(),
@@ -379,13 +383,20 @@ pub enum Verdict {
     Unknown,
 }
 
-/// A broker's side: its arbiters and its holder name.
+/// A broker's side: its arbiters and its holder name. Clones share the
+/// time of the last granted request.
 #[derive(Clone)]
 pub struct Arbiters {
+    cfg: Config,
     list: Vec<String>,
     holder: String,
-    tls: tokio_rustls::TlsConnector,
+    /// `arbiter:<site>`: the only server certificate taken.
+    server_cn: String,
     ttl: Duration,
+    /// When the last request a majority granted was sent.
+    granted: Arc<Mutex<Option<std::time::Instant>>>,
+    /// The last round had no answer at all (warned once per change).
+    silent: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Arbiters {
@@ -394,21 +405,23 @@ impl Arbiters {
         let Some(sb) = cfg.standby.as_ref().filter(|s| !s.arbiter.is_empty()) else {
             return Ok(None);
         };
-        let cert = crate::standby::standby_cert(cfg)?;
-        let key = PrivateKeyDer::from_pem_file(&cert.key)
-            .map_err(|e| format!("{}: {e}", cert.key.display()))?;
-        let tls = rustls::ClientConfig::builder_with_provider(provider())
-            .with_safe_default_protocol_versions()
-            .map_err(|e| e.to_string())?
-            .with_root_certificates(roots(&cfg.data_dir.join("pki/ca.pem"))?)
-            .with_client_auth_cert(certs(&cert.cert)?, key)
-            .map_err(|e| format!("standby certificate: {e}"))?;
-        Ok(Some(Self {
+        let me = Self {
+            cfg: cfg.clone(),
             list: sb.arbiter.clone(),
-            holder: host_id(&cfg.data_dir)?,
-            tls: tokio_rustls::TlsConnector::from(Arc::new(tls)),
+            // the peer differs on the two hosts: a data_dir copied from the
+            // other host (its host.id with it) still holds another name
+            holder: format!(
+                "{}-{}",
+                host_id(&cfg.data_dir)?,
+                hex::encode(&wyrm_admin::control::replication::sha256(sb.peer.as_bytes())[..4])
+            ),
+            server_cn: format!("arbiter:{}", cfg.site),
             ttl: sb.lease_ttl(),
-        }))
+            granted: Arc::default(),
+            silent: Arc::default(),
+        };
+        me.connector()?;
+        Ok(Some(me))
     }
 
     /// The lease time this broker asks for.
@@ -416,36 +429,99 @@ impl Arbiters {
         self.ttl
     }
 
-    async fn one(&self, addr: &str, op: &str) -> Option<Answer> {
+    /// When the last request that a majority granted was sent (the lease
+    /// runs from no earlier than that on the arbiters).
+    pub fn granted_at(&self) -> Option<std::time::Instant> {
+        *self.granted.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// A TLS connector from the current `standby:<site>` certificate
+    /// (issued again when it is due: a broker runs longer than one).
+    fn connector(&self) -> Result<tokio_rustls::TlsConnector, Error> {
+        let cert = crate::standby::standby_cert(&self.cfg)?;
+        let key = PrivateKeyDer::from_pem_file(&cert.key)
+            .map_err(|e| format!("{}: {e}", cert.key.display()))?;
+        let tls = rustls::ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .map_err(|e| e.to_string())?
+            .with_root_certificates(roots(&self.cfg.data_dir.join("pki/ca.pem"))?)
+            .with_client_auth_cert(certs(&cert.cert)?, key)
+            .map_err(|e| format!("standby certificate: {e}"))?;
+        Ok(tokio_rustls::TlsConnector::from(Arc::new(tls)))
+    }
+
+    async fn one(
+        &self,
+        tls: &tokio_rustls::TlsConnector,
+        addr: &str,
+        op: &str,
+    ) -> Result<Answer, String> {
         let host = addr
-            .rsplit_once(':')?
+            .rsplit_once(':')
+            .ok_or("no port")?
             .0
             .trim_start_matches('[')
             .trim_end_matches(']');
-        let name = ServerName::try_from(host.to_owned()).ok()?;
+        let name = ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?;
         tokio::time::timeout(TIMEOUT, async {
-            let tcp = tokio::net::TcpStream::connect(addr).await.ok()?;
-            let mut s = self.tls.connect(name, tcp).await.ok()?;
-            write_frame(&mut s, &request_value(op, &self.holder, self.ttl))
+            let tcp = tokio::net::TcpStream::connect(addr)
                 .await
-                .ok()?;
-            parse_answer(read_frame(&mut s).await.ok()?)
+                .map_err(|e| e.to_string())?;
+            let mut s = tls
+                .connect(name, tcp)
+                .await
+                .map_err(|e| format!("tls: {e}"))?;
+            // the site CA signs more than arbiters (links, brokers below):
+            // only an `arbiter:<site>` certificate answers for the lease
+            let cn = s
+                .get_ref()
+                .1
+                .peer_certificates()
+                .and_then(|c| c.first())
+                .and_then(|c| common_name(c));
+            if cn.as_deref() != Some(self.server_cn.as_str()) {
+                return Err(format!("certificate {cn:?}: not {}", self.server_cn));
+            }
+            write_frame(&mut s, &request_value(op, &self.holder, self.ttl)).await?;
+            parse_answer(read_frame(&mut s).await?).ok_or_else(|| "bad answer".to_owned())
         })
         .await
-        .ok()
-        .flatten()
+        .map_err(|_| "no answer within 1 s".to_owned())?
     }
 
     async fn all(&self, op: &str) -> Vec<Option<Answer>> {
+        let tls = match self.connector() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("arbiter: {e}");
+                return vec![None; self.list.len()];
+            }
+        };
         let mut set = tokio::task::JoinSet::new();
         for (i, a) in self.list.iter().enumerate() {
-            let (me, a, op) = (self.clone(), a.clone(), op.to_owned());
-            set.spawn(async move { (i, me.one(&a, &op).await) });
+            let (me, tls, a, op) = (self.clone(), tls.clone(), a.clone(), op.to_owned());
+            set.spawn(async move { (i, a.clone(), me.one(&tls, &a, &op).await) });
         }
         let mut out = vec![None; self.list.len()];
+        let mut why = Vec::new();
         while let Some(r) = set.join_next().await {
-            if let Ok((i, a)) = r {
-                out[i] = a;
+            match r {
+                Ok((i, _, Ok(a))) => out[i] = Some(a),
+                Ok((_, addr, Err(e))) => why.push(format!("{addr}: {e}")),
+                Err(_) => {}
+            }
+        }
+        // a broken arbiter path (an expired certificate, a firewall) shows
+        let silent = out.iter().all(Option::is_none);
+        if silent
+            != self
+                .silent
+                .swap(silent, std::sync::atomic::Ordering::Relaxed)
+        {
+            if silent {
+                tracing::warn!("arbiter: none answers ({})", why.join("; "));
+            } else {
+                tracing::info!("arbiter: answers again");
             }
         }
         out
@@ -453,15 +529,16 @@ impl Arbiters {
 
     /// Ask every arbiter for the lease (or renew it).
     pub async fn hold(&self) -> Verdict {
+        let sent = std::time::Instant::now();
         let answers = self.all("hold").await;
         let verdict = tally(&answers);
-        if verdict != Verdict::Granted {
-            if let Some(Some(Answer::Held { holder, .. })) = answers
-                .iter()
-                .find(|a| matches!(a, Some(Answer::Held { .. })))
-            {
-                tracing::debug!(%holder, "arbiter: the lease is held by another broker");
-            }
+        if verdict == Verdict::Granted {
+            *self.granted.lock().unwrap_or_else(|p| p.into_inner()) = Some(sent);
+        } else if let Some(Some(Answer::Held { holder, .. })) = answers
+            .iter()
+            .find(|a| matches!(a, Some(Answer::Held { .. })))
+        {
+            tracing::debug!(%holder, "arbiter: the lease is held by another broker");
         }
         verdict
     }
@@ -478,6 +555,7 @@ impl Arbiters {
 
     /// Give the lease up (a step-down, a stop).
     pub async fn release(&self) {
+        *self.granted.lock().unwrap_or_else(|p| p.into_inner()) = None;
         let _ = self.all("release").await;
     }
 }
@@ -533,20 +611,20 @@ pub struct Held {
 }
 
 /// Renew the lease every second into `state` until the task is dropped.
-/// `granted_at` is when the lease was taken (by [`Arbiters::acquire`]).
-pub async fn keep(arb: Arbiters, state: Arc<Mutex<Held>>, granted_at: std::time::Instant) {
+/// It starts from the last grant of `arb` (the takeover's
+/// [`Arbiters::acquire`], shared by its clones).
+pub async fn keep(arb: Arbiters, state: Arc<Mutex<Held>>) {
     let margin = Duration::from_secs(1);
-    state.lock().unwrap_or_else(|p| p.into_inner()).until =
-        Some(granted_at + arb.ttl().saturating_sub(margin));
+    let lease = arb.ttl().saturating_sub(margin);
+    state.lock().unwrap_or_else(|p| p.into_inner()).until = arb.granted_at().map(|g| g + lease);
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
-        let sent = std::time::Instant::now();
         let v = arb.hold().await;
         let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
         match v {
-            Verdict::Granted => s.until = Some(sent + arb.ttl().saturating_sub(margin)),
+            Verdict::Granted => s.until = arb.granted_at().map(|g| g + lease),
             Verdict::Lost => {
                 if !s.lost {
                     tracing::warn!("arbiter: another broker holds the lease");

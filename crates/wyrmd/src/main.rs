@@ -272,7 +272,7 @@ async fn run(args: Args) -> Result<(), Error> {
 /// and follows again when the primary is back.
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wyrmd::standby::{follow, isolated, lease_lost, primary_is_back, Outcome};
+    use wyrmd::standby::{follow_with, isolated, lease_lost, primary_is_back, Outcome};
     let exe = std::env::current_exe()?;
     let arbiters = wyrmd::arbiter::Arbiters::of(&cfg)?;
     if arbiters.is_none() {
@@ -284,17 +284,16 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
         .map(|s| s.peer.clone())
         .unwrap_or_default();
     loop {
-        match follow(&cfg, stop_signal()).await? {
+        match follow_with(&cfg, arbiters.clone(), stop_signal()).await? {
             Outcome::Stopped => return Ok(()),
             Outcome::Takeover => {}
         }
-        // the lease was granted just now (`follow` took it): renewed from
-        // here on, counted from a second earlier than this
+        // `follow` took the lease (its send time is in the shared
+        // arbiters): renewed from here on, before the daemon opens
         let held = std::sync::Arc::new(std::sync::Mutex::new(wyrmd::arbiter::Held::default()));
-        let keeper = arbiters.clone().map(|a| {
-            let since = std::time::Instant::now() - std::time::Duration::from_secs(1);
-            AbortOnDrop(tokio::spawn(wyrmd::arbiter::keep(a, held.clone(), since)))
-        });
+        let keeper = arbiters
+            .clone()
+            .map(|a| AbortOnDrop(tokio::spawn(wyrmd::arbiter::keep(a, held.clone()))));
         let daemon = Daemon::open(cfg.clone(), exe.clone())?;
         wyrmd::standby::mark_active(&cfg.data_dir);
         let ctl = daemon.control();

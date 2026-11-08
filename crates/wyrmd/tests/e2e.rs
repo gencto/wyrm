@@ -8925,6 +8925,20 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         .expect("a set on the new active");
     drop(c);
     install_external_mock(s_tcp, "ext3").await;
+    // it was active: what it wrote then and the new active does not hold
+    // (a link's private file, a storage node) is moved aside, not lost
+    std::fs::create_dir_all(a_dir.join("standby")).unwrap();
+    std::fs::write(a_dir.join("standby/active"), b"").unwrap();
+    std::fs::create_dir_all(a_dir.join("links/ghost/data")).unwrap();
+    std::fs::write(a_dir.join("links/ghost/data/page"), b"written in the split").unwrap();
+    {
+        let st = wyrm_storage::Store::open(&a_dir.join("storage")).unwrap();
+        st.apply(
+            vec![("split".to_owned(), wyrm_storage::Rec::folder())],
+            Vec::new(),
+        )
+        .unwrap();
+    }
     // the old active follows the new one and drops its forked history
     let cfg = standby_config(&a_dir, s_quic, a_quic, false);
     let (stop, rx) = oneshot::channel::<()>();
@@ -8939,24 +8953,40 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         (s > 0 && a == s && a_dir.join("state.stale.1").is_dir()).then_some(())
     })
     .await;
-    // the fork is reported once: an audit record and `sys/standby_forks` on the new active
-    eventually("the fork reported to the new active", 20, || async {
-        (env.ctl.standby_forks() == 1 && !a_dir.join("standby/forks").exists()).then_some(())
+    // each set is reported once: an audit record and `sys/standby_forks` on the new active
+    eventually("the sets reported to the new active", 20, || async {
+        (env.ctl.standby_forks() == 3
+            && !a_dir.join("standby/forks").exists()
+            && !a_dir.join("standby/active").exists())
+        .then_some(())
     })
     .await;
-    let forked: Vec<_> = env
+    let forked: std::collections::BTreeMap<String, String> = env
         .ctl
         .audit_tail(50)
         .into_iter()
         .filter(|r| r.op == "standby_forked")
+        .map(|r| (r.key, r.detail))
         .collect();
-    assert_eq!(forked.len(), 1, "{forked:?}");
-    assert_eq!(forked[0].key, "state");
-    assert!(
-        forked[0].detail.contains("state.stale.1"),
-        "{}",
-        forked[0].detail
+    assert_eq!(
+        forked.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["files", "state", "storage"],
+        "{forked:?}"
     );
+    assert!(forked["state"].contains("state.stale.1"), "{forked:?}");
+    let stale = std::fs::read_dir(a_dir.join("standby/stale"))
+        .unwrap()
+        .flatten()
+        .next()
+        .expect("a stale set")
+        .path();
+    assert_eq!(
+        std::fs::read(stale.join("files/links/ghost/data/page")).unwrap(),
+        b"written in the split"
+    );
+    assert!(!a_dir.join("links/ghost/data/page").exists());
+    let tree = std::fs::read_to_string(stale.join("storage.json")).unwrap();
+    assert!(tree.contains("split"), "{tree}");
     let _ = stop.send(());
     assert_eq!(
         follower.await.unwrap().unwrap(),
@@ -9306,11 +9336,8 @@ async fn arbiter_keeps_a_split_to_one_active() {
     })
     .await;
     let held = std::sync::Arc::new(std::sync::Mutex::new(wyrmd::arbiter::Held::default()));
-    let keeper = tokio::spawn(wyrmd::arbiter::keep(
-        a_arb.clone(),
-        held.clone(),
-        std::time::Instant::now() - Duration::from_secs(1),
-    ));
+    assert!(a_arb.granted_at().is_some());
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(a_arb.clone(), held.clone()));
 
     // the standby cannot see the active (a dead port), but sees the witness
     let s_cfg = with_arbiter(&s_dir, free_port(), s_quic);
@@ -9339,11 +9366,7 @@ async fn arbiter_keeps_a_split_to_one_active() {
     assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
     let _keep = stop;
     // the former active comes back: told that another host has it, it steps down
-    let keeper = tokio::spawn(wyrmd::arbiter::keep(
-        a_arb.clone(),
-        held.clone(),
-        std::time::Instant::now(),
-    ));
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(a_arb.clone(), held.clone()));
     let why = tokio::time::timeout(
         Duration::from_secs(10),
         wyrmd::standby::lease_lost(held.clone(), &env.ctl),
@@ -9351,10 +9374,80 @@ async fn arbiter_keeps_a_split_to_one_active() {
     .await
     .expect("the former active steps down");
     assert!(why.contains("another broker"), "{why}");
+    assert_eq!(env.ctl.arbiter_lease_s(), 0.0, "not held");
     keeper.abort();
     let _ = arb_stop.send(());
     arbiter.await.unwrap().unwrap();
     env.stop().await;
+}
+
+/// ADR 0036, amendment 2026-11-08, the real `wyrmd` process: with an
+/// arbiter it takes over only once the arbiter grants the lease, steps
+/// down when the lease runs out (the arbiter is gone, no standby asks)
+/// though the witness still answers, and takes over again with a new
+/// arbiter.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broker_without_its_lease_steps_down() {
+    let _heavy = HEAVY.lock().await;
+    let (dir, arb_dir) = (temp_dir("lease"), temp_dir("lease-arbiter"));
+    let env = Env::start_in(&dir, "").await;
+    env.stop().await;
+    let (tcp, arb_port) = (free_port(), free_port());
+    let text = standby_text(&dir, tcp, free_port(), free_port(), true, 2, witness_port()).replace(
+        "witness: [",
+        &format!(r#"arbiter: ["127.0.0.1:{arb_port}"], witness: ["#),
+    );
+    wyrmd::arbiter::issue(&Config::from_json5(&text).unwrap(), "127.0.0.1", &arb_dir).unwrap();
+    let cfg = dir.with_extension("json5");
+    std::fs::write(&cfg, &text).unwrap();
+    let start_arbiter = || {
+        let (stop, rx) = oneshot::channel::<()>();
+        let d = arb_dir.clone();
+        let task = tokio::spawn(async move {
+            wyrmd::arbiter::serve_with(
+                &d,
+                &format!("127.0.0.1:{arb_port}"),
+                Duration::from_secs(1),
+                async {
+                    let _ = rx.await;
+                },
+            )
+            .await
+        });
+        (stop, task)
+    };
+    let mut broker = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .arg("-c")
+        .arg(&cfg)
+        .env("RUST_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let up = || std::net::TcpStream::connect(("127.0.0.1", tcp)).is_ok();
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    assert!(!up(), "no takeover without the arbiter's lease");
+    let (stop, task) = start_arbiter();
+    eventually("active with the lease", 30, || async { up().then_some(()) }).await;
+    let _ = stop.send(());
+    task.await.unwrap().unwrap();
+    eventually("the lease ran out: stepped down", 30, || async {
+        (!up()).then_some(())
+    })
+    .await;
+    assert!(
+        broker.try_wait().unwrap().is_none(),
+        "the process follows on"
+    );
+    let (stop, task) = start_arbiter();
+    eventually("active again with a new lease", 40, || async {
+        up().then_some(())
+    })
+    .await;
+    let _ = broker.kill();
+    let _ = broker.wait();
+    let _ = stop.send(());
+    let _ = task.await;
 }
 
 /// ADR 0036: a standby whose active is away takes over only while it

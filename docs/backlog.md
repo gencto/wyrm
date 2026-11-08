@@ -435,11 +435,11 @@ before 1.0. Estimates in person-days, tests included.
   aside its WAL records, files and storage tree and reports each set to
   the active (audit `standby_forked`, `sys/standby_forks`); lease arbiters
   (`standby.arbiter`, `wyrmd arbiter issue|serve`) keep a split where both
-  hosts reach a witness to one active. Left: the arbiter is optional (a
-  pair without one keeps the old gap, with a warning); the arbiters'
-  leases are not shown in `sys`; no real-process test of the arbiter path
-  in `run_with_standby` (the e2e drives `follow`, `keep` and `lease_lost`
-  in one process); the standby's history marks are in memory, so after a
-  restart of the standby a sink further behind than its first new page
-  keeps its older cursor.
+  hosts reach a witness to one active (`sys/arbiter_lease_s`). Left: the
+  arbiter is optional (a pair without one keeps the old gap, with a
+  warning); the standby's history marks are in memory, so after a restart
+  of the standby a sink further behind than its first new page keeps its
+  older cursor; a sink created on the other host during a split may miss
+  the former active's own rows that never reached the other host; the
+  arbiter is not in the Docker compose files.
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

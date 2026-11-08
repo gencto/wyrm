@@ -657,6 +657,23 @@ impl Control {
         });
     }
 
+    /// Until when this broker holds the arbiters' lease (ADR 0036), as its
+    /// daemon's owner keeps it; `None`: no arbiters, or not held.
+    pub fn set_arbiter_lease(&self, until: Option<std::time::Instant>) {
+        *self.arbiter_lease.lock().unwrap_or_else(|p| p.into_inner()) = until;
+    }
+
+    /// Seconds left of the arbiters' lease (`sys/arbiter_lease_s`).
+    pub fn arbiter_lease_s(&self) -> f64 {
+        self.arbiter_lease
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .map_or(0.0, |u| {
+                u.saturating_duration_since(std::time::Instant::now())
+                    .as_secs_f64()
+            })
+    }
+
     /// Sets of records the standby moved aside after a healed split and
     /// reported to this broker (`sys/standby_forks`).
     pub fn standby_forks(&self) -> u64 {

@@ -289,8 +289,12 @@ Set it up:
    hosts and start them again, one after the other.
 
 The arbiter checks that a broker's certificate is `standby:<site>` from
-the site's CA; nobody else (links, downstream brokers) can take the
-lease. Its directory holds no private key of the site, only its own.
+the site's CA, and the brokers check that the arbiter's is
+`arbiter:<site>`; nobody else (links, downstream brokers) can take or
+grant the lease. Its directory holds no private key of the site, only its
+own; its certificate lasts 20 years. The active shows the seconds left of
+its lease as `sys/arbiter_lease_s` (0: none) and logs a warning when no
+arbiter answers.
 
 Caution: one arbiter is a single point: when it is down while the
 standby is down too, the active steps down. Run three arbiters on three
