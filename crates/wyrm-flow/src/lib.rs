@@ -14,5 +14,6 @@ pub mod nodes;
 pub mod runtime;
 pub mod script;
 pub mod store;
+pub mod watch;
 
 pub use engine::{command_targets, Engine, EngineStart, FlowHost};

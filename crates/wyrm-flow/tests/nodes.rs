@@ -314,6 +314,17 @@ async fn delay_filter_scale_timer() {
     assert_eq!(num(&out[0]), 7.0);
     assert_eq!(out[0].1.q, Quality::Uncertain);
     assert_eq!(out[0].1.t, 9);
+    // ADR 0038: effective parameters, the defaults included; a range port changes one, a
+    // sample that is not a finite number does not
+    let (rev, p) = s.live_params().unwrap();
+    assert_eq!(p.get("k"), Some(&Value::Float(2.0)));
+    assert_eq!(p.get("output_max"), Some(&Value::UInt(100)));
+    feed(s.as_mut(), &e.io, "in.input_max", g(10.0, 1));
+    feed(s.as_mut(), &e.io, "in.input_min", m("x", Quality::Good, 1));
+    let (rev2, p) = s.live_params().unwrap();
+    assert_eq!(rev2, rev + 1);
+    assert_eq!(p.get("input_max"), Some(&Value::Float(10.0)));
+    assert_eq!(p.get("input_min"), Some(&Value::UInt(0)));
 
     let mut t = build("timer", &[("period_ms", Value::UInt(100))]);
     assert_eq!(t.tick_every(), Some(std::time::Duration::from_millis(100)));

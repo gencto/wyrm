@@ -2976,6 +2976,104 @@ async fn flow_commands_a_link_through_wyrmd() {
     env.stop().await;
 }
 
+/// ADR 0038: a flow's live values through `watch` (a stream) and `ports` (one snapshot), and an
+/// echo output feeding another block.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_watch_streams_live_values() {
+    let env = Env::start("flow-watch", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    let def = m(&[
+        ("id", s("live")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                (
+                    "r",
+                    m(&[("type", s("round")), ("precision", Value::UInt(2))]),
+                ),
+                ("x", m(&[("type", s("number"))])),
+                ("show", m(&[("type", s("publish")), ("node", s("show"))])),
+                ("px", m(&[("type", s("publish")), ("node", s("px"))])),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "r.in"),
+                edge("r.out", "show.in"),
+                // the parameter `precision` as an output
+                edge("r.precision", "x.in"),
+                edge("x.out", "px.in"),
+            ]),
+        ),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/live");
+    let px = format!("{flow}/nodes/px");
+    let v = eventually("the echo of precision", 10, || last_val(&c, &px)).await;
+    assert_eq!(v.as_f64(), Some(2.0));
+    let mut st = c
+        .invoke(&flow, "watch", m(&[("max_hz", Value::UInt(10))]))
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(Value::Bool(true)));
+    assert_eq!(
+        at(&first, &["nodes", "r", "params", "precision"]),
+        Some(Value::UInt(2))
+    );
+    // the mock's samples reach the round block and its output
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let row = loop {
+        assert!(tokio::time::Instant::now() < deadline, "no row with r.out");
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        if at(&row, &["nodes", "r", "out", "out"]).is_some() {
+            break row;
+        }
+    };
+    assert_eq!(at(&row, &["snapshot"]), Some(Value::Bool(false)));
+    let Some(Value::Array(pair)) = at(&row, &["nodes", "r", "out", "out"]) else {
+        panic!("[v, q]: {row:?}")
+    };
+    assert!(pair[0].as_f64().is_some(), "{pair:?}");
+    let snap = c
+        .invoke_one(&flow, "ports", m(&[("nodes", Value::Array(vec![s("r")]))]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(at(&snap, &["nodes", "r", "in", "in"]).is_some(), "{snap:?}");
+    drop(st);
+    env.stop().await;
+}
+
 /// Iteration 4: an edge broker connects to a central broker over QUIC with
 /// mTLS, each side trusting the other's CA only on that link. A client of
 /// the central broker lists and reads the edge's links; it cannot write.

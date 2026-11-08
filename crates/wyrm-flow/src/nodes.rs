@@ -59,10 +59,29 @@ impl PortType {
     }
 }
 
+/// What an echo output repeats (ADR 0038 §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EchoOf {
+    /// The parameter of the same name: its effective value, at start and on every change.
+    Param,
+    /// The input of the same name: every sample, before the node handles it.
+    Input,
+}
+
+/// An output that repeats a field of the node: built only when an edge reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Echo {
+    pub name: String,
+    pub ty: PortType,
+    pub of: EchoOf,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Ports {
     pub inputs: Vec<(String, PortType)>,
     pub outputs: Vec<(String, PortType)>,
+    /// The echo outputs (`crate::catalog`), apart from the declared ones.
+    pub echoes: Vec<Echo>,
 }
 
 impl Ports {
@@ -70,16 +89,23 @@ impl Ports {
         Self {
             inputs: inputs.iter().map(|(n, t)| ((*n).to_owned(), *t)).collect(),
             outputs: outputs.iter().map(|(n, t)| ((*n).to_owned(), *t)).collect(),
+            echoes: Vec::new(),
         }
     }
 
-    /// `out`, `event`, or `out.<name>` for a named output.
+    /// `out`, `event`, or `out.<name>` for a named output; else an echo output of that name.
     pub fn output(&self, port: &str) -> Option<PortType> {
         let p = port.strip_prefix("out.").unwrap_or(port);
         self.outputs
             .iter()
             .find(|(n, _)| n == port || n == p)
             .map(|(_, t)| *t)
+            .or_else(|| self.echo(port).map(|e| e.ty))
+    }
+
+    /// The echo output `port`, if the node has one.
+    pub fn echo(&self, port: &str) -> Option<&Echo> {
+        self.echoes.iter().find(|e| e.name == port)
     }
 
     pub fn input(&self, port: &str) -> Option<PortType> {
@@ -199,8 +225,15 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
 /// `k × · + b`.
 const SCALE_RANGE: &[&str] = &["input_min", "input_max", "output_min", "output_max"];
 
-/// Ports and config validation of a node type (compiler step 3).
+/// Ports and config validation of a node type (compiler step 3), with the echo outputs of its
+/// fields (ADR 0038 §1).
 pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+    let mut p = declared_ports(ty, cfg)?;
+    p.echoes = crate::catalog::echoes(ty, &p);
+    Ok(p)
+}
+
+fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     use PortType::*;
     if let Some(r) = crate::blocks::ports(ty, cfg) {
         return r;
@@ -238,6 +271,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports {
                 inputs: ins.into_iter().map(|n| (n, Any)).collect(),
                 outputs: vec![("out".into(), Any)],
+                echoes: Vec::new(),
             }
         }
         "scale" => {
@@ -257,6 +291,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports {
                 inputs: ins,
                 outputs: vec![("out".into(), Number), ("input_out_of_range".into(), Bool)],
+                echoes: Vec::new(),
             }
         }
         "deadband" => {
@@ -350,6 +385,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports {
                 inputs: w.inputs.into_iter().map(|n| (n, Any)).collect(),
                 outputs: w.outputs.into_iter().map(|n| (n, Any)).collect(),
+                echoes: Vec::new(),
             }
         }
         other => return Err(format!("type: unknown node type {other}")),
@@ -428,6 +464,12 @@ pub trait Node: Send {
         None
     }
     fn restore(&mut self, _state: &Value) {}
+    /// The effective value of each parameter, for a node whose parameters change while it runs
+    /// (a sample on `in.<p>`, or the node itself), with a counter that grows on every change
+    /// (ADR 0038). `None`: the parameters are the config ([`crate::catalog::effective_params`]).
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        None
+    }
 }
 
 fn truthy(v: &Value) -> bool {
@@ -669,6 +711,9 @@ struct Scale {
     b: f64,
     /// `[input_min, input_max, output_min, output_max]` once one is given.
     range: Option<[f64; 4]>,
+    /// The effective parameters (ADR 0038): the config, then the samples on the range ports.
+    params: BTreeMap<String, Value>,
+    rev: u64,
 }
 
 impl Scale {
@@ -693,6 +738,9 @@ impl Node for Scale {
             if let Some(x) = m.v.as_f64().filter(|x| x.is_finite()) {
                 let r = self.range.get_or_insert([0.0, 1.0, 0.0, 100.0]);
                 r[i] = x;
+                self.params
+                    .insert(SCALE_RANGE[i].to_owned(), Value::Float(x));
+                self.rev += 1;
             }
             return;
         }
@@ -715,6 +763,10 @@ impl Node for Scale {
         if y.is_finite() {
             out.emit("out", Msg::new(Value::Float(y), m.q, m.t));
         }
+    }
+
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        Some((self.rev, &self.params))
     }
 }
 
@@ -1242,6 +1294,8 @@ pub fn build_with(
             k: num("k", 1.0)?,
             b: num("b", 0.0)?,
             range: Scale::range_from(cfg),
+            params: crate::catalog::effective_params("scale", cfg),
+            rev: 0,
         }),
         "deadband" => Box::new(Deadband {
             abs: f(cfg, "abs")?,

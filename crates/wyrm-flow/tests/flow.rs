@@ -798,3 +798,253 @@ async fn logic_blocks_in_a_deployed_flow() {
     .await;
     env.stop().await;
 }
+
+fn at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(v, |v, k| match v {
+        Value::Map(m) => m.get(*k),
+        _ => None,
+    })
+}
+
+fn keys(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::Map(m)) => m.keys().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A source, a round block whose parameter and input feed other blocks (ADR 0038 §1).
+fn watched(version: u64) -> Value {
+    map(&[
+        ("id", s("w")),
+        ("version", Value::UInt(version)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "a",
+                    map(&[("type", s("subscribe")), ("key", s("downstream/mock/p0"))]),
+                ),
+                (
+                    "r",
+                    map(&[("type", s("round")), ("precision", Value::UInt(1))]),
+                ),
+                ("x", map(&[("type", s("number"))])),
+                ("out", map(&[("type", s("publish")), ("node", s("out"))])),
+                ("prec", map(&[("type", s("publish")), ("node", s("prec"))])),
+                ("rin", map(&[("type", s("publish")), ("node", s("rin"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[
+                edge("a.out", "r.in"),
+                edge("r.out", "out.in"),
+                // a parameter's echo and an input's echo
+                edge("r.precision", "x.in"),
+                edge("x.out", "prec.in"),
+                edge("r.in", "rin.in"),
+            ]),
+        ),
+    ])
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn echo_outputs_feed_other_blocks() {
+    let env = Env::start("echo").await;
+    env.deploy(watched(1)).await.unwrap();
+    // the parameter's effective value, sent once at start
+    wait("precision echo", || {
+        env.last("w/nodes/prec")
+            .filter(|s| s.v.as_f64() == Some(1.0))
+    })
+    .await;
+    // the input's samples, as the block got them; the block rounds them
+    let rin = wait("input echo", || env.last("w/nodes/rin")).await;
+    let out = wait("rounded", || env.last("w/nodes/out")).await;
+    assert!(rin.v.as_f64().is_some() && out.v.as_f64().is_some());
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_streams_live_values() {
+    let env = Env::start("watch").await;
+    env.deploy(watched(1)).await.unwrap();
+    let flow = format!("wy/{SITE}/dataflows/w");
+    let mut st = env
+        .client
+        .invoke(&flow, "watch", map(&[("max_hz", Value::UInt(4))]))
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(&Value::Bool(true)));
+    assert!(matches!(at(&first, &["t"]), Some(Value::UInt(_))));
+    assert_eq!(
+        at(&first, &["nodes", "r", "params", "precision"]),
+        Some(&Value::UInt(1))
+    );
+    assert_eq!(
+        keys(at(&first, &["nodes"])),
+        ["a", "out", "prec", "r", "rin", "x"]
+    );
+    // changes: the samples the round block takes and sends, at most 4 rows a second
+    let t0 = tokio::time::Instant::now();
+    let mut rows = 0;
+    let mut seen_in = false;
+    while t0.elapsed() < Duration::from_millis(1600) {
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        assert_eq!(at(&row, &["snapshot"]), Some(&Value::Bool(false)));
+        if let Some(Value::Array(pair)) = at(&row, &["nodes", "r", "in", "in"]) {
+            assert!(pair[0].as_f64().is_some());
+            assert_eq!(pair[1], Value::UInt(0), "quality good");
+            seen_in = true;
+        }
+        // the wired echo goes out, the unwired ones are never built
+        for k in keys(at(&row, &["nodes", "r", "out"])) {
+            assert!(["out", "in"].contains(&k.as_str()), "r.{k}");
+        }
+        if at(&row, &["nodes", "a"]).is_some() {
+            assert_eq!(keys(at(&row, &["nodes", "a", "out"])), ["out"]);
+        }
+        rows += 1;
+    }
+    assert!(seen_in, "a change row with r.in");
+    assert!((2..=8).contains(&rows), "{rows} rows in 1.6 s at 4 Hz");
+    // `ports`: row 1, here while the watch records
+    let snap = env
+        .client
+        .invoke_one(&flow, "ports", map(&[("nodes", arr(&[s("r")]))]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(keys(at(&snap, &["nodes"])), ["r"]);
+    assert!(at(&snap, &["nodes", "r", "out", "out"]).is_some());
+    // a redeploy ends the watch with its version
+    env.deploy(watched(2)).await.unwrap();
+    let last = loop {
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        if at(&row, &["redeployed"]).is_some() {
+            break row;
+        }
+    };
+    assert_eq!(at(&last, &["redeployed"]), Some(&Value::UInt(2)));
+    assert!(st.next().await.is_none(), "the stream ended");
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_needs_the_rights_on_the_sources() {
+    use wyrm_core::ptok::Grant;
+    use wyrm_core::Perm;
+    let env = Env::start("watch-rights").await;
+    env.deploy(watched(1)).await.unwrap();
+    let flow = format!("wy/{SITE}/dataflows/w");
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    // may read the flow, not its source
+    let tokens = SigningTokens::new(key.clone(), SITE)
+        .subject("user:viewer")
+        .max(Perm::Read)
+        .grants(vec![Grant {
+            k: format!("wy/{SITE}/dataflows/**"),
+            p: Perm::Read,
+        }]);
+    let viewer = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(tokens))
+        .with_timeout(Duration::from_secs(3));
+    for action in ["watch", "ports"] {
+        let e = match viewer.invoke(&flow, action, map(&[])).await {
+            Ok(mut s) => s.next().await.unwrap().unwrap_err(),
+            Err(e) => e,
+        };
+        assert_eq!(
+            e.status,
+            wyrm_core::status::StatusCode::Known(wyrm_core::Status::PermissionDenied),
+            "{action}: {e}"
+        );
+        // the SDK sends `permission_denied` without its text (the engine names the key)
+    }
+    // with the right on the source it opens
+    let tokens = SigningTokens::new(key, SITE)
+        .subject("user:viewer")
+        .max(Perm::Read)
+        .grants(vec![
+            Grant {
+                k: format!("wy/{SITE}/dataflows/**"),
+                p: Perm::Read,
+            },
+            Grant {
+                k: format!("wy/{SITE}/downstream/mock/**"),
+                p: Perm::Read,
+            },
+        ]);
+    let reader = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(tokens))
+        .with_timeout(Duration::from_secs(3));
+    let snap = reader
+        .invoke_one(&flow, "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&snap, &["snapshot"]), Some(&Value::Bool(true)));
+    // bad arguments
+    let e = env
+        .client
+        .invoke_one(&flow, "ports", map(&[("nodes", arr(&[s("nope")]))]))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        e.status,
+        wyrm_core::status::StatusCode::Known(wyrm_core::Status::InvalidParameter),
+        "{e}"
+    );
+    env.stop().await;
+}
+
+/// The engine cannot see a caller that went away: a caller's watches past the cap end its
+/// oldest one, and another caller's are `busy`.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_caps_end_the_same_callers_oldest() {
+    let env = Env::start("watch-caps").await;
+    env.deploy(watched(1)).await.unwrap();
+    let flow = format!("wy/{SITE}/dataflows/w");
+    let mut open = Vec::new();
+    for _ in 0..wyrm_flow::watch::MAX_PER_FLOW {
+        let mut st = env.client.invoke(&flow, "watch", map(&[])).await.unwrap();
+        st.next().await.unwrap().unwrap();
+        open.push(st);
+    }
+    // a dropped stream still holds its place: the engine never hears of it
+    drop(open.pop());
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let other = WyrmClient::new(env.session.clone())
+        .with_tokens(Arc::new(
+            SigningTokens::new(key, SITE).subject("user:other"),
+        ))
+        .with_timeout(Duration::from_secs(3));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let e = other
+        .invoke(&flow, "watch", map(&[]))
+        .await
+        .unwrap()
+        .next()
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        e.status,
+        wyrm_core::status::StatusCode::Known(wyrm_core::Status::Busy),
+        "{e}"
+    );
+    // the same caller again: its oldest watch ends, the new one runs
+    let mut st = env.client.invoke(&flow, "watch", map(&[])).await.unwrap();
+    st.next().await.unwrap().unwrap();
+    let mut oldest = open.remove(0);
+    let ended = tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(r) = oldest.next().await {
+            r.unwrap();
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the oldest watch ended");
+    env.stop().await;
+}

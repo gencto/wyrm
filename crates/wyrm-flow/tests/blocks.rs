@@ -422,6 +422,16 @@ async fn stopwatch_counts_loops_resets_and_keeps_its_count() {
         );
     }
     assert_eq!(last, [Value::Int(1), Value::Int(2)]);
+    // ADR 0038: its effective parameters, changed by the block itself (stopped at modulo)
+    let (rev, params) = once.live_params().unwrap();
+    assert!(rev > 0);
+    assert_eq!(params.get("enabled"), Some(&Value::Bool(false)));
+    assert_eq!(params.get("step"), Some(&Value::Int(1)), "a default");
+    // and by a sample on a parameter's port
+    feed(&mut *once, io, "in.step", good(Value::Int(5)));
+    let (rev2, params) = once.live_params().unwrap();
+    assert!(rev2 > rev);
+    assert_eq!(params.get("step"), Some(&Value::Int(5)));
 }
 
 #[tokio::test(flavor = "multi_thread")]

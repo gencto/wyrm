@@ -19,7 +19,7 @@ ADR 0019 chose Deploy-only: no live `~set` of a field.
 - For each parameter `p` of a node: an output port **`p`** carrying the parameter's **effective** value (config or default, replaced by the last sample on `in.<p>` where that port exists). It sends once when the node starts and then on every change.
 - For each input port `x` that is not a parameter's port (`in`, `in.0`, `in.1`, …): an output port **`x`** that repeats every sample the node receives on `x`, before the node handles it.
 - Names: the output is named exactly like the parameter or the input (`scale1.input_min`, `if1.in.0`). Edges already split at the first dot (`def.rs` `endpoint`), so `a.in.0` is node `a`, port `in.0`.
-- A clash with an existing output of the node (a parameter named like an output) keeps the existing output; that field has no echo output and the catalog says so (`echo: false`).
+- A clash with an existing output of the node (a parameter named like an output) keeps the existing output; that field has no echo output and the catalog says so (`echo: false`). An input's echo comes before a parameter's: `latch` has the input `reset` and the parameter `reset`, so the parameter has no echo (`echo: false`). This is the only static clash today.
 - Cost: an echo output that no edge reads is never built. The compiler knows the edges; the runtime does not copy a sample for an unwired echo.
 
 ### 2. The catalog says what a field is (additive)
@@ -46,6 +46,16 @@ Level `read`, same rights check, returns row 1 of §3. For tools (`wyrm-agent`, 
 - **Live preview of an undeployed draft** (`dataflows/~act/preview {def, ttl_s}`) needs sinks that cannot write by construction (no `set`/`invoke` built at all), reads with the caller's rights, caps on concurrent previews, a TTL and no persistence. It comes in its own pull request with its own section here.
 - **Live `~set` of a field** stays out (ADR 0019): a field changes by Deploy.
 - Older node types (`alarm`, `window`, `deadband`, `delay`, `expression`, `scale` `k`/`b`) get `in.<p>` ports later, one by one, as the editor needs them.
+
+### 6. Implementation notes (2026-11-08, §1–§4 built; spec 06 0.2.15)
+- **Echo types:** an input's echo has the input's port type; a parameter's echo is `number`, `bool` or `map` as the parameter's catalog type, every other type (`string`, `dynamic`, `array`) `any`. Every parameter has an echo, `inputs`/`outputs`/`args` included, and every node type, `wasm` included (there a declared output keeps its name over an echo at compile time).
+- **`port_types`** lists the fixed inputs and outputs, the dynamic ports of their `default` names (`in.0`, `in.1`) and every echo output; dynamic ports of other names are `any`.
+- **A parameter's echo sends at start**, so an edge from it to `invoke`/`set` fires a command at deploy (the one exception to ADR 0032's rule; `docs/flow-blocks.md` warns).
+- **The caller's going is not seen.** The SDK keeps a stream's reply channel open until the action ends, and a reply to a gone requester does not fail, so a dropped watch lives until its ttl. At a cap, a new watch of the same subject (`origin`, else `sub`) ends that subject's oldest watch (on the flow; at the site cap, anywhere on the site); another subject's watch is `busy`. An editor that reopens on every start stays within the caps.
+- **`permission_denied`** travels without its text (the SDK never sends one with that status); the engine's error names the first key, but the requester gets the status only.
+- **Snapshots** hold only what was recorded: a port with no sample since recording began is absent from `in`/`out` (all three maps are always in row 1). Recorded values stay 5 s after the last watch closes, so a watch opened again at once keeps them. `ports` holds the recorder for its own call only, so its port values come from an open watch.
+- **Ends:** ttl, remove and an engine stop end the stream without a row; a redeploy ends it with `{t, redeployed: <version>}`. `nodes` absent or empty = every node; an unknown id is `invalid_parameter`; `max_hz` outside (0, 20] is `invalid_parameter`.
+- Stop/start, reload and a panic restart keep the watches (one recorder per deployed version).
 
 *If wrong:* a field that should not feed other blocks gets an output anyway (harmless while unwired); a watch that misses a sample between two periods shows the latest value only, which is what an editor needs.
 
