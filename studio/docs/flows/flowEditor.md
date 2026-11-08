@@ -417,7 +417,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `FlowEditorPageConnector` — 8 dispatches
+- `FlowEditorPageConnector` — 11 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |

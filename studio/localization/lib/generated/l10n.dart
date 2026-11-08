@@ -4345,10 +4345,10 @@ class S {
     return Intl.message('Flow', name: 'kindFlow', desc: '', args: []);
   }
 
-  /// `A bound field shows its source here and in the block; click the link icon to unbind.`
+  /// `A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.`
   String get flowPropertiesNote2 {
     return Intl.message(
-      'A bound field shows its source here and in the block; click the link icon to unbind.',
+      'A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.',
       name: 'flowPropertiesNote2',
       desc: '',
       args: [],
@@ -4575,6 +4575,86 @@ class S {
   /// `Form`
   String get blockForm {
     return Intl.message('Form', name: 'blockForm', desc: '', args: []);
+  }
+
+  /// `Go to source`
+  String get goToSource {
+    return Intl.message('Go to source', name: 'goToSource', desc: '', args: []);
+  }
+
+  /// `bound`
+  String get boundMark {
+    return Intl.message('bound', name: 'boundMark', desc: '', args: []);
+  }
+
+  /// `would write {value}`
+  String wouldWrite(String value) {
+    return Intl.message(
+      'would write $value',
+      name: 'wouldWrite',
+      desc: '',
+      args: [value],
+    );
+  }
+
+  /// `would run on {value}`
+  String wouldRun(String value) {
+    return Intl.message(
+      'would run on $value',
+      name: 'wouldRun',
+      desc: '',
+      args: [value],
+    );
+  }
+
+  /// `preview`
+  String get previewTag {
+    return Intl.message('preview', name: 'previewTag', desc: '', args: []);
+  }
+
+  /// `Values`
+  String get factValues {
+    return Intl.message('Values', name: 'factValues', desc: '', args: []);
+  }
+
+  /// `a preview of the draft; nothing is written`
+  String get valuesPreview {
+    return Intl.message(
+      'a preview of the draft; nothing is written',
+      name: 'valuesPreview',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the deployed version`
+  String get valuesDeployed {
+    return Intl.message(
+      'the deployed version',
+      name: 'valuesDeployed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The draft does not run: {message}`
+  String previewInvalid(String message) {
+    return Intl.message(
+      'The draft does not run: $message',
+      name: 'previewInvalid',
+      desc: '',
+      args: [message],
+    );
+  }
+
+  /// `This field sends its value when the flow starts, so this wire writes at every deploy.`
+  String get firesAtStartNote {
+    return Intl.message(
+      'This field sends its value when the flow starts, so this wire writes at every deploy.',
+      name: 'firesAtStartNote',
+      desc: '',
+      args: [],
+    );
   }
 }
 

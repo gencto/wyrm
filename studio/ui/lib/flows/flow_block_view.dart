@@ -22,9 +22,11 @@ enum BlockKindVm {
 /// write into a device (ember).
 enum PortMark { none, free, bound, write }
 
-/// The colour of a field's value: plain, bound (from another field), bad
-/// quality.
-enum ValueTone { plain, bound, bad }
+/// The colour of a field's value: plain, bound (the value that comes in
+/// along its wire, accent), bad quality, stale (the draft no longer runs:
+/// the last value of its preview, grey), ghost (what a sink would write in
+/// a preview, nothing written).
+enum ValueTone { plain, bound, bad, stale, ghost }
 
 /// A field one drags from: block [block], engine output [port].
 final class FieldRefVm extends Equatable {
@@ -53,6 +55,7 @@ final class FieldRowVm extends Equatable {
     this.inMark = PortMark.none,
     this.outMark = PortMark.none,
     this.dropTarget = false,
+    this.outAliases = const [],
   });
 
   /// The field's id within its block.
@@ -79,6 +82,13 @@ final class FieldRowVm extends Equatable {
   /// Lit as where a dragged point lands (dashed ember box).
   final bool dropTarget;
 
+  /// Other engine outputs a wire may leave this field by (a variable's old
+  /// `value` and `in` echoes); a new wire uses [outPort].
+  final List<String> outAliases;
+
+  /// Whether a wire out of [port] leaves this row.
+  bool sends(String port) => port == outPort || outAliases.contains(port);
+
   @override
   List<Object?> get props => [
     id,
@@ -91,6 +101,7 @@ final class FieldRowVm extends Equatable {
     inMark,
     outMark,
     dropTarget,
+    outAliases,
   ];
 }
 
@@ -134,9 +145,14 @@ final class FlowBlockVm extends Equatable {
     this.rows = const [],
     this.variadic,
     this.selected = false,
+    this.tag,
   });
 
   final String id;
+
+  /// A small chip in the header after the title (`preview`: a sink's value
+  /// is what it would write).
+  final String? tag;
 
   /// The node id, mono.
   final String title;
@@ -165,6 +181,7 @@ final class FlowBlockVm extends Equatable {
     rows: rows,
     variadic: variadic,
     selected: selected,
+    tag: tag,
   );
 
   static const headerHeight = 32.0;
@@ -209,7 +226,7 @@ final class FlowBlockVm extends Equatable {
   /// right edge), at the centre of its row.
   Offset? portAt(String port, {required bool output}) {
     final i = rows.indexWhere(
-      (r) => (output ? r.outPort : r.inPort) == port,
+      (r) => output ? r.sends(port) : r.inPort == port,
     );
     if (i < 0) {
       return null;
@@ -232,6 +249,7 @@ final class FlowBlockVm extends Equatable {
     rows,
     variadic,
     selected,
+    tag,
   ];
 }
 
@@ -293,8 +311,9 @@ final class FlowBlockActions {
   }) => null;
 }
 
-/// How a row is lit while a wire is dragged over it.
-enum RowLight { none, takes, refuses }
+/// How a row is lit: while a wire is dragged over it (takes, refuses), or
+/// as the source of the bound field under the pointer (source).
+enum RowLight { none, takes, refuses, source }
 
 /// A block of the flow editor (spec §3): a header with its kind chip, mono
 /// title and type, then one row per field with its value and ports. The
@@ -318,6 +337,7 @@ class FlowBlockView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final tag = vm.tag;
     final (headerFill, ink) = switch (vm.kind) {
       .node => (c.goodTint, c.good),
       .logic => (c.ground4, c.text2),
@@ -389,6 +409,26 @@ class FlowBlockView extends StatelessWidget {
                       style: mono(weight: .w600, color: c.text1),
                     ),
                   ),
+                  if (tag != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.emberTint,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(3),
+                        ),
+                      ),
+                      child: Text(
+                        tag,
+                        style: mono(
+                          size: 9,
+                          color: c.emberSoft,
+                        ).copyWith(height: 1.2),
+                      ),
+                    ),
                   Expanded(
                     child: Text(
                       vm.type,
@@ -508,6 +548,11 @@ class _FieldRow extends StatelessWidget {
                     color: c.goodLine,
                     fill: c.good.withValues(alpha: 0.14),
                   ),
+                  RowLight.source => _Dashed(
+                    color: c.good,
+                    fill: c.good.withValues(alpha: 0.10),
+                    solid: true,
+                  ),
                   RowLight.none => _Dashed(
                     color: c.emberLine,
                     fill: c.ember.withValues(alpha: 0.12),
@@ -541,8 +586,10 @@ class _FieldRow extends StatelessWidget {
                         .plain => c.text1,
                         .bound => c.emberNew,
                         .bad => c.bad,
+                        .stale => c.muted,
+                        .ghost => c.emberSoft.withValues(alpha: 0.75),
                       },
-                    ),
+                    ).copyWith(fontStyle: vm.tone == .ghost ? .italic : null),
                   ),
                 ),
               ],
@@ -623,12 +670,14 @@ class _ToolButton extends StatelessWidget {
   }
 }
 
-/// A dashed box with a fill: where a dragged point lands.
+/// A dashed box with a fill: where a dragged point lands; [solid] draws
+/// the border whole (the source of a hovered binding).
 class _Dashed extends CustomPainter {
-  _Dashed({required this.color, required this.fill});
+  _Dashed({required this.color, required this.fill, this.solid = false});
 
   final Color color;
   final Color fill;
+  final bool solid;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -642,6 +691,10 @@ class _Dashed extends CustomPainter {
       ..style = .stroke
       ..strokeWidth = 1;
     final path = Path()..addRRect(r);
+    if (solid) {
+      canvas.drawPath(path, p);
+      return;
+    }
     for (final m in path.computeMetrics()) {
       for (var d = 0.0; d < m.length; d += 6) {
         canvas.drawPath(m.extractPath(d, d + 3), p);
@@ -650,5 +703,6 @@ class _Dashed extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_Dashed old) => old.color != color || old.fill != fill;
+  bool shouldRepaint(_Dashed old) =>
+      old.color != color || old.fill != fill || old.solid != solid;
 }

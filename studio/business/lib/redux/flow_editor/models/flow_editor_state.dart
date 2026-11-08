@@ -22,5 +22,9 @@ abstract class FlowEditorState with _$FlowEditorState {
     @Default(IMapConst({})) IMap<String, LiveValue> ports,
     FlowDraft? deployed,
     String? watchRefused,
+    @Default(IMapConst({})) IMap<String, LiveValue> previewPorts,
+    @Default(IMapConst({})) IMap<String, LiveValue> previewSinks,
+    String? previewError,
+    String? previewOff,
   }) = _FlowEditorState;
 }

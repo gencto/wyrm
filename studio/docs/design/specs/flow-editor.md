@@ -35,12 +35,24 @@ Numbered inputs `in.0`, `in.1` read `Input 1`, `Input 2`. Names a user or a devi
 ### Forms
 A type that does one of two things shows the form in use, never both sets of fields: `scale` is `k × in + b` (rows Input · Factor · Offset · Output; Factor and Offset have no left port: the engine has no `in.k`, `in.b`) or `Range` (Input · Input min · Input max · Output min · Output max · Output · Input out of range, each range field with both ports). The inspector's first row `Form` picks it; switching removes the other form's config and the wires into and out of its fields, and `Range` writes its four parameters so the definition says the form. A definition with both forms (the engine maps from the range, then applies `k`, `b`) shows both.
 
-### Fields from `node_types` (the rule the app does not follow yet)
-A block shows **fields**, not engine port names. For a node type with parameters `P` and ports `in`, `in.<p>`, `out`, …:
+### One field = one entity (owner decision 2026-11-08)
+A block's input and its value are ONE thing, as in DGLux: one row holds the field's value, its binding and what it feeds. Never a row for the value, another for the input and a third for the echo.
+- A field `p` = parameter `p` ∪ input `in.<p>` ∪ echo output `p`.
+- The main value of a variable block (`number`, `string`, `bool`, `const`: input `in`, parameter `value`, output `out`) is ONE field `Value` (DGLux: the one property `value`). `const` has no input. A typed editor in the inspector: a number box, a text field, a toggle.
+- An operator's operands (`in`, `in.0`, `in.1`, …) are fields with a value and both ports; its result (`out`, `quotient`, …) is a field `Output` with a right port only. `scale`: `in` is `Input`, `out` is `Output`.
+- Binding INTO a field is an edge to its engine input (`in.<p>`, or `in` for a variable's `Value`); binding OUT of a field is an edge from its echo or output (`out` for a variable's `Value`, `p` for a parameter). An older edge from a variable's echo `value` or `in` draws on the `Value` row.
+- Order as DGLux: operands, parameters, variable inputs, the parameters DGLux draws after them (`if` Then, Else; `concat` Strict; `hub` Ignore null), results.
+- **A bound field shows the VALUE that comes in, never the path** (no `← block.field`). The wire and its highlight show the source: the pointer over a bound field lights its wire and the source row. A bound field with nothing known yet shows nothing, not the typed value the binding replaces.
+
+The mapping per block type: `docs/flow-blocks.md` "How the editor shows each block".
+
+### Fields from `node_types`
+For a node type with parameters `P` and ports `in`, `in.<p>`, `out`, …:
 
 | Engine | Row label | Value shown | Left port (input) | Right port (output) |
 |---|---|---|---|---|
-| parameter `p` (with port `in.<p>`) | label of `p` (`Input min`; never `in.p`) | the parameter's value, else its default | yes | yes |
+| parameter `p` (with port `in.<p>`) | label of `p` (`Input min`; never `in.p`) | bound: the value that comes in; else the parameter's value, else its default | yes | yes |
+| a variable's `value` (`in`, `value`, `out`) | `Value` | what it sends, else what comes in, else its value | yes (`const`: no) | yes (`out`) |
 | parameter `p` (no `in.<p>`) | label of `p` (`Factor`) | the value | no | yes |
 | input port `in` | `Input` | the last sample (live) | yes | yes |
 | numbered inputs `in.0`, `in.1` | `Input 1`, `Input 2` | the last sample | yes | yes |
@@ -51,7 +63,8 @@ A block shows **fields**, not engine port names. For a node type with parameters
 
 So `scale` in its range form reads `Input · Input min 0 · Input max 4095 · Output min 0 · Output max 100 · Output 92.6 · Input out of range false`, each with its value; `modulo` reads `Input · Modulo 10 · Quotient · Remainder`. Every block type, field by field: `docs/flow-blocks.md` "How the editor shows each block".
 
-- Value colours: bound `#F6C59A`, bad quality `#E07A5F`, otherwise `#ECE9E1`.
+- Value colours: bound `#F6C59A` (the value that comes in), bad quality `#E07A5F`, stale `#5A6168` (an invalid draft: the preview's last values), ghost italic ember (what a sink would write in a preview), otherwise `#ECE9E1`.
+- A sink with a preview value has a `preview` chip after its title and reads `would write <value>` (`invoke`: `would run on <value>`) on its input row.
 - Ports: 10 × 10 circles centred on the block edge (17 px outside the body padding), at the row's vertical centre. Free: ring 2 `#5A6168`, no fill. Bound: filled and ringed teal; an input bound by a write (into a device point, `set`, `invoke`) ember.
 - Variadic blocks (`case`, `if` with several inputs, `add`): a tool row under the fields, top border: `−` `+` (28 × 28) and `<n> cases` / `<n> inputs`.
 
@@ -75,11 +88,19 @@ Pinned bottom-left over the canvas (sticky, `rgba(19,23,26,0.92)`, border `#252B
 - Header: kind label (`Tree node`, `Logic block`, `Sink`, `My block`; 12/600 uppercase), title mono 18/600, note 12 `#8E979C` (the type's description).
 - A block with two forms (§3 Forms) first has a `Form` row: a dropdown.
 - One row per field (min height 44, columns 104 · 1fr · 32, bottom border `#1D2226`): label 13 `#A3ABAF` with the engine name under it (mono 10 `#8E979C`, when it differs) · editor · link button. A wire dragged from the canvas and let go on a row binds it.
-  - bound: a chip `← <block>.<field>` (teal on `#15302A`, ember on `#2A1F16` when it writes);
+  - bound: the value that comes in, read only, mono 12 in the accent colour in a frame (teal; ember when it writes), with a small `bound` mark; no path. The link button opens a menu: `Go to source` (selects the source block), `Unbind`;
   - enum: a dropdown; free input: a text field 32 high mono 12;
   - output only: the value and `→ <targets>` or `not bound`.
-- Footer: `Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.` and `A bound field shows its source here and in the block; click the link icon to unbind.`
-- **Nothing selected** (proposed): label `FLOW`, the flow id, version, deployed by and when, `maxperm`, the problems of the last validation (each clickable, selecting its block). Never an empty panel.
+- Footer: `Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.` and `A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.`
+- **Nothing selected** (proposed): label `FLOW`, the flow id, version, deployed by and when, `maxperm`, `Values` (`a preview of the draft; nothing is written` or `the deployed version`), the problems of the last validation and the preview's compiler message (`The draft does not run: …`; each clickable, selecting its block). Never an empty panel.
+
+### Live values of a draft
+Values show for the draft being edited, not only the deployed version. While the draft runs otherwise than the deployed version (its layout aside), Studio runs it as a preview: `dataflows/~act/preview {def, max_hz}` (no layout, no version; id `draft` for a new flow), the same rows as `watch` plus `sinks: [{node, op, key, value}]` — what `set`/`invoke`/`publish` would do; nothing is written. `FlowPreviewService`:
+1. opens it 300 ms after the last edit; the same definition again (a block moved) does not reopen; an edit ends the preview before at once;
+2. opens it again when it ends (ttl 10 min), after a back-off on a failure or `busy`;
+3. `invalid_parameter`: the compiler message goes to the flow summary, the last values stay, greyed; the next edit tries again;
+4. `not_found` / `not_supported` (a broker without preview) and `permission_denied`: it stops asking until the next login; the editor quietly shows the watch's and the definition's values.
+A draft equal to the deployed version ends the preview: the watch shows it. Where no sample is known, a field follows its wire in the draft back to the source field's value (a variable's or parameter's typed value, a point's tree value).
 
 ## 7. Tree tab (board `FlowTree`)
 The palette shows the tree; a point dropped on a block adds it as a field of that block (the target row lights with a dashed ember box); dropped on the canvas it becomes a tree-node block. An action dropped anywhere becomes an `ACT` block whose fields are the action's parameters, plus `run when` (input) and `ok`, `code`, `message` (outputs). Point rows: tag (`.0`, `01`, `≡`, `Aa`) + mono name + live value; action rows ember with `ACT` and the number of inputs.
@@ -113,3 +134,9 @@ The palette shows the tree; a point dropped on a block adds it as a field of tha
 3. Rows read engine names with a colon (`input_min:`): human labels (§3 Labels).
 4. `scale` showed `k`, `b` and the range at once; outputs without values: forms (§3 Forms) and a field-by-field review of every type (`docs/flow-blocks.md`).
 
+## 11. Owner's findings (2026-11-08, third review) and what changed
+1. "A block's input and its value are one entity": one row per field (§3 One field = one entity); a variable is one field `Value`.
+2. "We need the VALUE that comes with the binding, not the path": no `← block.field` in rows or the inspector; the bound value in the accent colour; the source by the lit wire and row on hover, `Go to source` in the link menu.
+3. "Blocks do not work in real time, concat does not work": the watch (ADR 0038 §6) records only from its opening, so a value sent once at start (a `string`, then `concat`) is never seen; and a draft had no values at all. Now the draft runs as a preview, and a field without a sample follows its wire to the source's typed value. Engine gaps: `docs/flow-blocks.md`.
+4. Data-type blocks redone: `number`, `string`, `bool`, `const` are one field `Value` with a typed editor.
+5. Every block checked against the DGLux block of the same purpose: order as DGLux (`if` Then, Else after the inputs; `concat` Strict after them).

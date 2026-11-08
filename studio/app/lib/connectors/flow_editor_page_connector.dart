@@ -11,6 +11,7 @@ import 'package:business/redux/flow_editor/actions/disconnect_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/move_block_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/preview_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/rebind_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_block_action.dart';
 import 'package:business/redux/flow_editor/actions/resize_inputs_action.dart';
@@ -60,8 +61,8 @@ const _sources = {
 };
 const _sinks = {'set', 'invoke', 'publish'};
 
-/// Blocks that send their `value` parameter on `out`.
-const _variables = {'number', 'string', 'bool', 'const'};
+/// A value with no time: what the definition says a field holds.
+final _typedTime = DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true);
 
 @RoutePage()
 class FlowEditorPageConnector extends StatelessWidget {
@@ -84,10 +85,16 @@ class FlowEditorPageConnector extends StatelessWidget {
           ..dispatchSync(WatchKeysAction(now.watch))
           ..dispatchSync(UnwatchKeysAction(before.watch));
       }
+      // The draft runs as a preview while it differs from the deployed
+      // version (debounced by the service).
+      if (before.run != now.run) {
+        store.dispatchSync(PreviewFlowAction());
+      }
     },
     onDispose: (store) => store
       ..dispatchSync(UnwatchKeysAction(_watch(store.state, id)))
-      ..dispatchSync(WatchFlowAction(null)),
+      ..dispatchSync(WatchFlowAction(null))
+      ..dispatchSync(PreviewFlowAction(stop: true)),
     builder: (context, vm) => FlowEditorPage(
       flowsLabel: S.current.wsFlows,
       flowLabel: vm.flowLabel,
@@ -161,6 +168,10 @@ class FlowEditorPageConnector extends StatelessWidget {
       onFieldUnbind: vm.onFieldUnbind,
       onFieldBind: vm.onFieldBind,
       onProblem: vm.onProblem,
+      onGoToSource: vm.onProblem,
+      unbindLabel: S.current.unbind,
+      goToSourceLabel: S.current.goToSource,
+      boundLabel: S.current.boundMark,
       removeLabel: S.current.removeBlock,
       onRemove: vm.onRemove,
       onLogo: vm.onLogo,
@@ -170,8 +181,11 @@ class FlowEditorPageConnector extends StatelessWidget {
   Future<void> _open(Store<AppState> store) async {
     final isNew = id == newFlowId;
     await store.dispatchAndWait(LoadFlowAction(isNew ? '' : id, isNew: isNew));
-    // Live values exist for the deployed version only (ADR 0038 §3, §5).
-    store.dispatchSync(WatchFlowAction(isNew ? null : id));
+    // The deployed version's live values (ADR 0038 §3); a draft that
+    // differs from it runs as a preview (`dataflows` ▸ `preview`).
+    store
+      ..dispatchSync(WatchFlowAction(isNew ? null : id))
+      ..dispatchSync(PreviewFlowAction());
     await store.dispatchAndWait(ValidateFlowAction());
   }
 
@@ -237,6 +251,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final busy = state.wait.isWaitingForType<DeployFlowAction>();
     final edges = d?.edges ?? const IListConst<FlowEdge>([]);
     final blocks = d?.blocks ?? const IMapConst<String, FlowBlock>({});
+    final run = d == null ? null : previewDefOf(d);
+    final previewing = _previewing;
     final fields = {
       for (final x in blocks.values)
         x.id: fieldsOf(types[x.type], x, edges: edges),
@@ -250,20 +266,20 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                 edges.any(
                   (e) =>
                       (e.to == x.id && e.toPort == f.inPort) ||
-                      (e.from == x.id && e.fromPort == f.outPort),
+                      (e.from == x.id && f.sends(e.fromPort)),
                 ))
               f,
         ],
     };
-    String labelOf(String block, String port) =>
-        fields[block]?.where((f) => f.outPort == port).firstOrNull?.label ??
-        port;
+    LiveValue? Function(String) look(FlowBlock x) =>
+        _live(x, root, fields, previewing: previewing);
     String inLabelOf(String block, String port) =>
         fields[block]?.where((f) => f.inPort == port).firstOrNull?.label ??
         port;
 
     return _Vm(
       watch: FlowEditorPageConnector._watch(state, connector.id),
+      run: run,
       flowLabel: id.isNotEmpty ? id : S.current.newDataflow,
       blockLabel: sel,
       state: switch (ed) {
@@ -284,17 +300,26 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       palette: ed.palette == 'tree' ? _tree(root, blocks) : _catalog(ed.types),
       blocks: [
         for (final x in blocks.values)
-          _block(x, types[x.type], rows[x.id]!, d!, root, x.id == sel),
+          _block(
+            x,
+            types[x.type],
+            rows[x.id]!,
+            d!,
+            look(x),
+            x.id == sel,
+            previewing: previewing,
+          ),
       ],
       wires: [
         for (final e in edges)
           () {
             final writes = writingTypes.contains(blocks[e.to]?.type);
-            // A parameter's echo sends at start: into a device it writes at
-            // every deploy (ADR 0038 §6).
+            // A parameter's echo and a variable's value send at start: into
+            // a device they write at every deploy (ADR 0038 §6,
+            // `blocks.rs`).
             final fromParam =
                 fields[e.from]
-                    ?.where((f) => f.outPort == e.fromPort)
+                    ?.where((f) => f.sends(e.fromPort))
                     .firstOrNull
                     ?.kind ==
                 FieldKind.param;
@@ -305,7 +330,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               e.toPort,
               writes: writes,
               warning: writes && fromParam ? S.current.firesAtDeploy : null,
-              warningNote: S.current.firesAtDeployNote,
+              warningNote: S.current.firesAtStartNote,
             );
           }(),
       ],
@@ -341,9 +366,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                   choices: [for (final f in formsOf(b.type)) f.label],
                 ),
               for (final f in fields[b.id]!)
-                _inspectorRow(b, f, d!, root, labelOf, inLabelOf),
+                _inspectorRow(b, f, d!, look(b), inLabelOf),
             ],
-      summary: b == null ? _summary(root, id, d, problems) : null,
+      summary: b == null
+          ? _summary(root, id, d, problems, previewing: previewing)
+          : null,
       onDeploy: () => unawaited(dispatchAndWait(DeployFlowAction())),
       onValidate: () => unawaited(dispatchAndWait(ValidateFlowAction())),
       onClose: () => dispatch(GoAction.pop()),
@@ -376,7 +403,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             port,
             param: old?.spec?.name,
             keep: old != null && old.typed
-                ? ed.ports[portKey('in', oldBlock, oldPort)]?.value
+                ? _shown[portKey('in', oldBlock, oldPort)]?.value
                 : null,
           ),
         );
@@ -473,6 +500,21 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     );
   }
 
+  /// Whether the draft's values come from its preview: it runs otherwise
+  /// than the deployed version (its layout aside) and the broker has a
+  /// preview.
+  bool get _previewing {
+    final d = flowEditor.draft;
+    final dep = flowEditor.deployed;
+    return d != null &&
+        flowEditor.previewOff == null &&
+        (dep == null || previewDefOf(dep) != previewDefOf(d));
+  }
+
+  /// The live values the blocks show now: the preview's or the watch's.
+  IMap<String, LiveValue> get _shown =>
+      _previewing ? flowEditor.previewPorts : flowEditor.ports;
+
   /// Unbinds the field [row] of [block]; a typed parameter keeps the last
   /// value it had.
   void _unbind(String block, String row) {
@@ -491,7 +533,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     if (f == null || port == null) {
       return;
     }
-    final last = flowEditor.ports[portKey('in', block, port)]?.value;
+    final last = _shown[portKey('in', block, port)]?.value;
     dispatchSync(
       DisconnectEdgeAction(
         block,
@@ -612,29 +654,44 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     return path.take(path.length - 1).join(' / ');
   }
 
-  /// The values of [b]'s fields: the watch's (only for a block the deployed
-  /// version has, with the same type), else the tree's own value of the
-  /// point a `subscribe` reads or a `set` writes.
+  /// The values of [b]'s fields, by key of [portKey].
+  ///
+  /// While the draft runs as a preview ([previewing]) every block reads the
+  /// preview's values; else a block the deployed version has unchanged
+  /// reads the watch's, and the point a `subscribe` reads or a `set` writes
+  /// its tree value.
   ///
   /// The engine records a port only from its first sample after the watch
-  /// opened (ADR 0038 §6), so a slow point or a value sent once at start
-  /// shows nothing there. What such a field holds is still known, and is
-  /// shown: an input fed by a wire of the deployed version holds the last
-  /// value of its source; a variable (`number`, `string`, `bool`, `const`)
-  /// sends its `value`; a parameter's echo output is the parameter.
-  LiveValue? Function(String) _live(FlowBlock b, String root, [int hops = 0]) {
-    final dep = flowEditor.deployed?.blocks[b.id];
-    final same = dep != null && dep.type == b.type;
+  /// or the preview opened (ADR 0038 §6), so a slow point or a value sent
+  /// once at start shows nothing there. What such a field holds is still
+  /// known, and is shown: an input bound by a wire of the draft holds the
+  /// value of its source field; a field's echo (a variable's `Value`, a
+  /// parameter) what comes into it, else its typed value; an input's echo
+  /// what came in.
+  LiveValue? Function(String) _live(
+    FlowBlock b,
+    String root,
+    Map<String, List<FlowField>> fields, {
+    required bool previewing,
+    int hops = 0,
+  }) {
+    final ed = flowEditor;
+    final d = ed.draft;
+    final dep = ed.deployed?.blocks[b.id];
+    final same = dep != null && dep.type == b.type && dep.cfg == b.cfg;
+    final ports = previewing ? ed.previewPorts : (same ? ed.ports : null);
     final point = pointOf(b);
-    final flow = flowEditor.draft?.id ?? '';
-    final pub = _published(root, flow, b);
+    final flow = d?.id ?? '';
+    final pub = previewing || !same ? null : _published(root, flow, b);
     final tree = pub != null
         ? live.values[pub]
         : (point == null || b.type == 'invoke'
               ? null
               : live.values[_full(root, point)]);
-    return (k) {
-      final v = same ? flowEditor.ports[k] : null;
+    final inPrefix = portKey('in', b.id, '');
+    final outPrefix = portKey('out', b.id, '');
+    LiveValue? look(String k) {
+      final v = ports?[k];
       if (v != null) {
         return v;
       }
@@ -644,31 +701,35 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                   (b.type == 'set' || b.type == 'publish'))) {
         return tree;
       }
-      if (!same || hops > 4) {
+      if (d == null || hops > 6) {
         return null;
       }
-      final inPrefix = portKey('in', b.id, '');
-      final outPrefix = portKey('out', b.id, '');
       if (k.startsWith(inPrefix)) {
         final port = k.substring(inPrefix.length);
-        final wire = flowEditor.deployed?.edges
+        final wire = d.edges
             .where((e) => e.to == b.id && e.toPort == port)
             .firstOrNull;
-        final src = wire == null
-            ? null
-            : flowEditor.deployed?.blocks[wire.from];
-        if (wire != null && src != null) {
-          return _live(src, root, hops + 1)(
-            portKey('out', src.id, wire.fromPort),
-          );
+        final src = wire == null ? null : d.blocks[wire.from];
+        if (wire == null || src == null) {
+          return null;
         }
-      } else if (k.startsWith(outPrefix)) {
-        final port = k.substring(outPrefix.length);
+        return _live(
+          src,
+          root,
+          fields,
+          previewing: previewing,
+          hops: hops + 1,
+        )(portKey('out', src.id, wire.fromPort));
+      }
+      if (!k.startsWith(outPrefix)) {
+        return null;
+      }
+      final port = k.substring(outPrefix.length);
+      if (!previewing && same) {
         // An output wired straight into a publish block sent what that
         // block last published.
-        for (final e
-            in flowEditor.deployed?.edges ?? const IListConst<FlowEdge>([])) {
-          final to = flowEditor.deployed?.blocks[e.to];
+        for (final e in ed.deployed?.edges ?? const IListConst<FlowEdge>([])) {
+          final to = ed.deployed?.blocks[e.to];
           final key = to == null ? null : _published(root, flow, to);
           if (e.from == b.id && e.fromPort == port && key != null) {
             if (live.values[key] case final v?) {
@@ -676,13 +737,29 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             }
           }
         }
-        final param = port == 'out' && _variables.contains(b.type)
-            ? 'value'
-            : port;
-        return flowEditor.ports[portKey('param', b.id, param)];
       }
-      return null;
-    };
+      final f = fields[b.id]
+          ?.where((f) => f.sends(port) && f.kind != FieldKind.output)
+          .firstOrNull;
+      if (f == null) {
+        return null;
+      }
+      final inPort = f.inPort;
+      if (inPort != null &&
+          d.edges.any((e) => e.to == b.id && e.toPort == inPort)) {
+        return look(portKey('in', b.id, inPort));
+      }
+      if (f.kind == FieldKind.input) {
+        return inPort == null ? null : look(portKey('in', b.id, inPort));
+      }
+      if (ports?[portKey('param', b.id, f.name)] case final v?) {
+        return v;
+      }
+      final typed = b.cfg[f.name] ?? f.spec?.defaultValue;
+      return typed == null ? null : LiveValue(time: _typedTime, value: typed);
+    }
+
+    return look;
   }
 
   FlowBlockVm _block(
@@ -690,13 +767,20 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     NodeType? t,
     List<FlowField> rows,
     FlowDraft d,
-    String root,
-    bool selected,
-  ) {
+    LiveValue? Function(String) live,
+    bool selected, {
+    required bool previewing,
+  }) {
     final role = roleOf(b.type);
     final writes = writingTypes.contains(b.type);
-    final live = _live(b, root);
+    final root = site.root ?? '';
     final point = pointOf(b);
+    // What a sink would write in the preview (nothing is written).
+    final ghost = previewing && _sinks.contains(b.type)
+        ? flowEditor.previewSinks[b.id]
+        : null;
+    // The draft no longer runs: the preview's last values, greyed.
+    final stale = previewing && flowEditor.previewError != null;
     final info = point == null ? null : nodes.table[_full(root, point)];
     final v = variadicOf(t, b);
     return FlowBlockVm(
@@ -717,6 +801,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       y: b.y,
       width: blockWidthOf(role),
       selected: selected,
+      tag: ghost == null ? null : S.current.previewTag,
       rows: [
         for (final f in rows)
           () {
@@ -728,16 +813,32 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               unit: info?.unit,
               choices: info?.choices.unlock ?? const [],
             );
+            final wouldDo = ghost != null && f.inPort == 'in'
+                ? (b.type == 'invoke'
+                      ? S.current.wouldRun(valueText(ghost.value))
+                      : S.current.wouldWrite(
+                          valueText(
+                            ghost.value,
+                            unit: info?.unit,
+                            choices: info?.choices.unlock ?? const [],
+                          ),
+                        ))
+                : null;
             return FieldRowVm(
               id: f.id,
               label: f.label,
               name: f.name,
-              value: value.text,
-              tone: value.bad
-                  ? ValueTone.bad
-                  : (value.bound ? ValueTone.bound : ValueTone.plain),
+              value: wouldDo ?? value.text,
+              tone: switch (value) {
+                _ when wouldDo != null => ValueTone.ghost,
+                FieldValue(bad: true) => ValueTone.bad,
+                FieldValue(live: true) when stale => ValueTone.stale,
+                FieldValue(bound: true) => ValueTone.bound,
+                _ => ValueTone.plain,
+              },
               inPort: f.inPort,
               outPort: f.outPort,
+              outAliases: f.outAliases,
               inMark: f.inPort == null
                   ? PortMark.none
                   : (!value.bound
@@ -745,9 +846,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                         : (writes ? PortMark.write : PortMark.bound)),
               outMark: f.outPort == null
                   ? PortMark.none
-                  : (d.edges.any(
-                          (e) => e.from == b.id && e.fromPort == f.outPort,
-                        )
+                  : (d.edges.any((e) => e.from == b.id && f.sends(e.fromPort))
                         ? PortMark.bound
                         : PortMark.free),
             );
@@ -794,8 +893,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     FlowBlock b,
     FlowField f,
     FlowDraft d,
-    String root,
-    String Function(String block, String port) labelOf,
+    LiveValue? Function(String) live,
     String Function(String block, String port) inLabelOf,
   ) {
     final into = f.inPort == null
@@ -806,17 +904,20 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final targets = [
       if (f.outPort != null)
         for (final e in d.edges)
-          if (e.from == b.id && e.fromPort == f.outPort)
+          if (e.from == b.id && f.sends(e.fromPort))
             '${e.to}.${inLabelOf(e.to, e.toPort)}',
     ];
     final hint = f.spec?.description ?? '';
     if (into != null) {
+      // The value that comes in, not where it comes from (owner decision
+      // 2026-11-08): the wire shows the source, `Go to source` selects it.
       return InspectorRowVm(
         id: f.id,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.bound,
-        source: '${into.from}.${labelOf(into.from, into.fromPort)}',
+        value: fieldValue(b, f, d, live).text,
+        sourceBlock: into.from,
         writes: writingTypes.contains(b.type),
         inPort: f.inPort,
         hint: hint,
@@ -853,7 +954,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         value: v == null ? '' : (v is String ? v : jsonEncode(v)),
       );
     }
-    final value = fieldValue(b, f, d, _live(b, root)).text;
+    final value = fieldValue(b, f, d, live).text;
     if (f.kind == FieldKind.output) {
       return InspectorRowVm(
         id: f.id,
@@ -880,8 +981,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     String root,
     String id,
     FlowDraft? d,
-    IList<String> problems,
-  ) {
+    IList<String> problems, {
+    required bool previewing,
+  }) {
     final own = live.values['$root/dataflows/$id'];
     final val = own?.value is Map
         ? own!.value! as Map
@@ -910,7 +1012,13 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             own == null ? by : '$by · ${_ago(own.time)}',
           ),
         if (maxperm != null) (S.current.factMayWrite, maxperm),
-        if (flowEditor.watchRefused == 'permission_denied')
+        if (d != null && (previewing || flowEditor.deployed != null))
+          (
+            S.current.factValues,
+            previewing ? S.current.valuesPreview : S.current.valuesDeployed,
+          ),
+        if (flowEditor.watchRefused == 'permission_denied' ||
+            flowEditor.previewOff == 'permission_denied')
           (S.current.factLive, S.current.liveRefused),
         if (keys != null && keys.reads.isNotEmpty)
           (S.current.factReads, keys.reads.join(', ')),
@@ -919,6 +1027,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ],
       problemsLabel: S.current.problems,
       problems: [
+        // The broker's compiler refused the draft's preview.
+        if (flowEditor.previewError case final m? when previewing)
+          ProblemVm(S.current.previewInvalid(m), block: _blockIn(m, ids)),
         for (final p in problems) ProblemVm(p, block: _blockIn(p, ids)),
       ],
     );
@@ -986,6 +1097,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 class _Vm extends Vm {
   _Vm({
     required this.watch,
+    required this.run,
     required this.flowLabel,
     required this.blockLabel,
     required this.state,
@@ -1025,6 +1137,7 @@ class _Vm extends Vm {
   }) : super(
          equals: [
            watch,
+           run,
            flowLabel,
            blockLabel,
            state,
@@ -1047,6 +1160,10 @@ class _Vm extends Vm {
   /// What the editor subscribes to (Tree tab parents, block points, the
   /// flow's `~val`).
   final List<String> watch;
+
+  /// What the draft runs as (its definition, layout aside): a change runs
+  /// it again as a preview.
+  final Object? run;
   final String flowLabel;
   final String? blockLabel;
   final String state;

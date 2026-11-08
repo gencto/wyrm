@@ -12,11 +12,16 @@ import 'flow_mapper.dart';
 import 'value_text.dart';
 
 // The flow editor draws a block as fields, not as engine ports
-// (studio/docs/design/specs/flow-editor.md §3, ADR 0038): one row per
-// parameter and per input with its value, a left port where the engine
-// takes an input and a right port where the field feeds other blocks.
-// Edges in the definition stay engine ports (`in.<p>`, `in`, `in.0`, `out`,
-// and the echo outputs named like the field).
+// (studio/docs/design/specs/flow-editor.md §3, ADR 0038; owner decision
+// 2026-11-08): a field is ONE entity — its value, its binding and what it
+// feeds — on one row. A field `p` is the parameter `p`, its input
+// `in.<p>` and its echo output `p`; the main value of a variable block
+// (`number`, `string`, `bool`, `const`: input `in`, parameter `value`,
+// output `out`) is one field `Value`; an operator's operands (`in`,
+// `in.0`, …) are fields with both ports, its result (`out`, `remainder`, …)
+// a field with a right port only. Edges in the definition stay engine
+// ports: binding INTO a field is an edge to its input, binding OUT of it an
+// edge from its output.
 
 /// What a field is in the engine.
 enum FieldKind {
@@ -89,6 +94,8 @@ final class FlowField {
     this.outPort,
     this.spec,
     this.onBlock = true,
+    this.outAliases = const [],
+    this.variable = false,
   });
 
   /// Unique within the block: `p:<name>`, `in:<port>`, `out:<port>`,
@@ -117,6 +124,18 @@ final class FlowField {
   /// Drawn as a row of the block; the inspector lists every field.
   final bool onBlock;
 
+  /// Other engine outputs that leave this field: a variable's `value` and
+  /// `in` echoes, which an older definition may have wired. A new binding
+  /// out of the field always uses [outPort].
+  final List<String> outAliases;
+
+  /// The main value of a variable block (`Value`): the parameter `value`,
+  /// the input `in` and the output `out` as one field.
+  final bool variable;
+
+  /// Whether an edge out of [port] leaves this field.
+  bool sends(String port) => port == outPort || outAliases.contains(port);
+
   /// A parameter whose value is typed (the def's `cfg`).
   bool get typed => kind == FieldKind.param;
 
@@ -129,11 +148,26 @@ final class FlowField {
       other.kind == kind &&
       other.inPort == inPort &&
       other.outPort == outPort &&
-      other.onBlock == onBlock;
+      other.onBlock == onBlock &&
+      other.variable == variable &&
+      _same(other.outAliases, outAliases);
+
+  static bool _same(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
 
   @override
-  int get hashCode =>
-      Object.hash(id, name, label, kind, inPort, outPort, onBlock);
+  int get hashCode => Object.hash(
+    id,
+    name,
+    label,
+    kind,
+    inPort,
+    outPort,
+    onBlock,
+    variable,
+    Object.hashAll(outAliases),
+  );
 
   @override
   String toString() =>
@@ -435,6 +469,27 @@ List<FlowField> fieldsOf(
       ),
     ];
   }
+  // A variable (`number`, `string`, `bool`, `const`): its input, its
+  // parameter and its output are one field, as in DGLux (spec §3).
+  if (isVariable(t)) {
+    final p = t.params.first;
+    return [
+      FlowField(
+        id: 'p:${p.name}',
+        name: p.name,
+        label: fieldLabel(b.type, p.name, spec: p),
+        kind: .param,
+        spec: p,
+        inPort: t.inputs.contains('in') ? 'in' : null,
+        outPort: 'out',
+        outAliases: [
+          if (p.echo ?? true) p.name,
+          if (t.inputs.contains('in') && (t.echoInputs ?? true)) 'in',
+        ],
+        variable: true,
+      ),
+    ];
+  }
   final role = roleOf(b.type);
   final ports = portsOf(t, b);
   final sink = _sinks.contains(b.type);
@@ -545,11 +600,43 @@ List<FlowField> fieldsOf(
         ),
   ];
   // A sink names what it writes before the value it writes (`publish`:
-  // node, value).
+  // node, value). Elsewhere the parameters DGLux draws after the variable
+  // inputs ([tailParams]: `if` then, else; `concat` strict) come after them.
+  final tail = tailParams[b.type] ?? const <String>{};
+  final head = [
+    for (final f in params)
+      if (!tail.contains(f.name)) f,
+  ];
+  final after = [
+    for (final f in params)
+      if (tail.contains(f.name)) f,
+  ];
   return role == BlockRole.sink
       ? [...params, ...fixed, ...dyn, ...args, ...outs]
-      : [...fixed, ...params, ...dyn, ...args, ...outs];
+      : [...fixed, ...head, ...dyn, ...after, ...args, ...outs];
 }
+
+/// Parameters drawn after a block's variable inputs, as DGLux draws them
+/// (its schema's `tail`): `if` reads Operation · Input 1… · Then · Else ·
+/// Output, `concat` Input 1… · Strict · Output, `hub` Input 1… · Ignore
+/// null · Output · Index · On change.
+const tailParams = <String, Set<String>>{
+  'if': {'then', 'else'},
+  'concat': {'strict'},
+  'hub': {'ignore_null'},
+};
+
+/// Whether blocks of [t] are variables: one parameter `value`, at most the
+/// input `in`, the one output `out` (`number`, `string`, `bool`, `const`).
+bool isVariable(NodeType? t) =>
+    t != null &&
+    t.params.length == 1 &&
+    t.params.first.name == 'value' &&
+    t.outputs.length == 1 &&
+    t.outputs.first == 'out' &&
+    t.inputs.every((p) => p == 'in') &&
+    t.dynInParam == null &&
+    t.dynOutParam == null;
 
 /// The rows of [b] drawn on the canvas.
 List<FlowField> rowsOf(
@@ -702,7 +789,12 @@ String portKey(String dir, String node, String port) => '$dir:$node.$port';
 
 /// What a field shows.
 final class FieldValue {
-  const FieldValue(this.text, {this.bound = false, this.bad = false});
+  const FieldValue(
+    this.text, {
+    this.bound = false,
+    this.bad = false,
+    this.live = false,
+  });
 
   final String text;
 
@@ -711,13 +803,21 @@ final class FieldValue {
 
   /// Its quality is bad.
   final bool bad;
+
+  /// It is a sample (live), not a typed value.
+  final bool live;
 }
 
-/// The value [f] of block [b] shows: a bound field its last sample (else
-/// its typed value), a parameter its typed value or default, an input or an
-/// output its last sample. [live] reads `flowEditor.ports` (keys of
-/// [portKey]) and, for a point, the tree's own value. A sample of a point
-/// reads with its [unit] and [choices].
+/// The value [f] of block [b] shows (spec §3, owner decision 2026-11-08):
+/// a bound field the value that comes in along its wire, never the path;
+/// an unbound parameter its typed value or default; an input or an output
+/// its last sample; a variable's `Value` what it sends (`out`), else what
+/// came in, else its typed value. [live] reads the live values (keys of
+/// [portKey]); the editor's [live] also follows a wire of the draft back
+/// to its source when the input has no sample of its own. A bound field
+/// with nothing known shows nothing rather than a typed value that the
+/// binding replaces. A sample of a point reads with its [unit] and
+/// [choices].
 FieldValue fieldValue(
   FlowBlock b,
   FlowField f,
@@ -735,12 +835,23 @@ FieldValue fieldValue(
     case FieldKind.param:
       final p = f.spec!;
       final typed = b.cfg[p.name] ?? p.defaultValue;
-      sample = bound
-          ? (live(portKey('in', b.id, f.inPort!)) ??
-                live(portKey('param', b.id, p.name)))
-          : null;
-      shown =
-          sample?.value ?? typed ?? live(portKey('param', b.id, p.name))?.value;
+      if (f.variable) {
+        sample =
+            live(portKey('out', b.id, f.outPort!)) ??
+            (bound ? live(portKey('in', b.id, f.inPort!)) : null);
+        shown =
+            sample?.value ??
+            (bound
+                ? null
+                : typed ?? live(portKey('param', b.id, p.name))?.value);
+      } else if (bound) {
+        sample =
+            live(portKey('in', b.id, f.inPort!)) ??
+            live(portKey('param', b.id, p.name));
+        shown = sample?.value;
+      } else {
+        shown = typed ?? live(portKey('param', b.id, p.name))?.value;
+      }
       if (sample == null && shown == null) {
         return FieldValue('', bound: bound);
       }
@@ -773,5 +884,6 @@ FieldValue fieldValue(
     },
     bound: bound,
     bad: sample?.quality == Quality.bad,
+    live: sample != null,
   );
 }

@@ -542,7 +542,7 @@
     "kindSink": "Вихід",
     "kindAction": "Дія",
     "kindFlow": "Потік",
-    "flowPropertiesNote2": "Зв’язане поле показує своє джерело тут і в блоці; натисніть значок зв’язку, щоб розв’язати.",
+    "flowPropertiesNote2": "Зв’язане поле показує значення, яке надходить; його зв’язок і джерело світяться, коли на нього навести. Значок зв’язку веде до джерела або розв’язує.",
     "notBound": "не зв’язано",
     "inputsCount": "{n, plural, =1{1 вхід} few{{n} входи} other{{n} входів}}",
     "addInput": "Додати вхід",
@@ -572,5 +572,18 @@
     "refuseType": "{from} не підходить до {to}",
     "@refuseType": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
     "refuseLoop": "Це замикає цикл (лише через delay)",
-    "blockForm": "Форма"
+    "blockForm": "Форма",
+    "goToSource": "До джерела",
+    "boundMark": "зв’язано",
+    "wouldWrite": "записав би {value}",
+    "@wouldWrite": {"placeholders": {"value": {"type": "String"}}},
+    "wouldRun": "запустив би на {value}",
+    "@wouldRun": {"placeholders": {"value": {"type": "String"}}},
+    "previewTag": "перегляд",
+    "factValues": "Значення",
+    "valuesPreview": "перегляд чернетки; нічого не записано",
+    "valuesDeployed": "розгорнута версія",
+    "previewInvalid": "Чернетка не запускається: {message}",
+    "@previewInvalid": {"placeholders": {"message": {"type": "String"}}},
+    "firesAtStartNote": "Це поле надсилає своє значення під час запуску потоку, тож цей зв’язок пише при кожному розгортанні."
 }

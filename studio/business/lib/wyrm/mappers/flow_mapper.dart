@@ -84,7 +84,21 @@ FlowDraft flowDraftOf(String id, Value def) {
 /// The definition of [d] at [version], with the editor's layout; a flow
 /// that sets or invokes gets `permissions.maxperm: write` when it has none
 /// (spec 06 rule 7).
-Value defOf(FlowDraft d, int version) {
+Value defOf(FlowDraft d, int version) => Value.from(_defMap(d, version));
+
+/// What `dataflows` ▸ `preview {def}` runs for [d]: its definition without
+/// the layout and the version, so moving a block changes nothing, and with
+/// an id (`draft`) when the flow has none yet. Two drafts with the same
+/// preview definition run alike.
+Value previewDefOf(FlowDraft d) {
+  final m = _defMap(d, 0)..remove('layout');
+  if (d.id.isEmpty) {
+    m['id'] = 'draft';
+  }
+  return Value.from(m);
+}
+
+Map<String, Object?> _defMap(FlowDraft d, int version) {
   final rest = Map<String, Object?>.of(d.rest.unlock);
   final commands = d.blocks.values.any(
     (b) => b.type == 'set' || b.type == 'invoke',
@@ -92,7 +106,7 @@ Value defOf(FlowDraft d, int version) {
   if (commands && rest['permissions'] == null) {
     rest['permissions'] = {'maxperm': 'write'};
   }
-  return Value.from({
+  return {
     ...rest,
     'id': d.id,
     'version': version,
@@ -106,7 +120,7 @@ Value defOf(FlowDraft d, int version) {
     'layout': {
       for (final b in d.blocks.values) b.id: [b.x.round(), b.y.round()],
     },
-  });
+  };
 }
 
 /// One entry of `node_types`.

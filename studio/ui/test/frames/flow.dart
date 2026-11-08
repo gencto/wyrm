@@ -62,7 +62,7 @@ const _legend = FlowLegendVm(
 
 const _footer = [
   'Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.',
-  'A bound field shows its source here and in the block; click the link icon to unbind.',
+  'A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.',
 ];
 
 List<PaletteEntryVm> _blocks() => const [
@@ -375,7 +375,8 @@ List<InspectorRowVm> _caseRows(int cases) => [
     name: 'Input',
     engine: 'input',
     editor: FieldEditorVm.bound,
-    source: 'tankInfo.state',
+    value: 'high',
+    sourceBlock: 'tank',
     inPort: 'input',
   ),
   for (var i = 0; i < cases; i++) ...[
@@ -437,7 +438,8 @@ FlowEditorPage flowWriteWire() => _bind(
       id: 'fan',
       name: 'fan',
       editor: FieldEditorVm.bound,
-      source: 'case.output',
+      value: '100 %',
+      sourceBlock: 'case',
       writes: true,
       inPort: 'fan',
     ),
@@ -674,7 +676,8 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       name: 'Run when',
       engine: 'run when',
       editor: FieldEditorVm.bound,
-      source: 'if.out',
+      value: 'true',
+      sourceBlock: 'if',
       writes: true,
       inPort: 'run when',
     ),
@@ -804,7 +807,8 @@ FlowEditorPage flowScale({required bool range}) {
         name: 'Input',
         engine: 'in',
         editor: FieldEditorVm.bound,
-        source: 'raw.level_raw',
+        value: '3790',
+        sourceBlock: 'raw',
         inPort: 'in',
       ),
       if (range) ...[
@@ -848,3 +852,233 @@ FlowEditorPage flowScale({required bool range}) {
     ],
   );
 }
+
+/// The blocks of a small text flow (owner's review 2026-11-08): variables
+/// are one field `Value` each; `concat` reads Input 1, Input 2, Strict,
+/// Output; a bound field shows the value that comes in.
+List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
+  FlowBlockVm(
+    id: 'greeting',
+    title: 'greeting',
+    type: 'string',
+    x: 40 + _m,
+    y: 60 + _m,
+    selected: selected == 'greeting',
+    rows: [
+      _r('value', 'Hello, ', outs: 'bound'),
+    ],
+  ),
+  FlowBlockVm(
+    id: 'who',
+    title: 'who',
+    type: 'string',
+    x: 40 + _m,
+    y: 180 + _m,
+    selected: selected == 'who',
+    rows: [_r('value', 'tank 3', outs: 'bound')],
+  ),
+  FlowBlockVm(
+    id: 'limit',
+    title: 'limit',
+    type: 'number',
+    x: 40 + _m,
+    y: 320 + _m,
+    selected: selected == 'limit',
+    rows: [_r('value', preview ? '70' : '25', outs: 'bound')],
+  ),
+  FlowBlockVm(
+    id: 'armed',
+    title: 'armed',
+    type: 'bool',
+    x: 40 + _m,
+    y: 440 + _m,
+    selected: selected == 'armed',
+    rows: [_r('value', 'true')],
+  ),
+  FlowBlockVm(
+    id: 'text',
+    title: 'text',
+    type: 'concat',
+    x: 340 + _m,
+    y: 80 + _m,
+    selected: selected == 'text',
+    rows: [
+      _r(
+        'in.0',
+        'Hello, ',
+        ins: 'bound',
+        tone: ValueTone.bound,
+        label: 'Input 1',
+      ),
+      _r(
+        'in.1',
+        'tank 3',
+        ins: 'bound',
+        tone: ValueTone.bound,
+        label: 'Input 2',
+      ),
+      _r('strict', 'false', ins: '', label: 'Strict'),
+      _r('out', 'Hello, tank 3', ins: '', outs: 'bound'),
+    ],
+    variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+  ),
+  FlowBlockVm(
+    id: 'cmd',
+    title: 'cmd',
+    type: 'scale',
+    x: 340 + _m,
+    y: 340 + _m,
+    selected: selected == 'cmd',
+    rows: [
+      _r('in', preview ? '70' : '25', ins: 'bound', tone: ValueTone.bound),
+      _r('k', '1.01', ins: '', label: 'Factor'),
+      _r('b', '0', ins: '', label: 'Offset'),
+      _r('out', preview ? '70.7' : '25.25', ins: '', outs: 'bound'),
+    ],
+  ),
+  FlowBlockVm(
+    id: 'show',
+    title: 'show',
+    type: 'publish',
+    kind: BlockKindVm.sink,
+    x: 660 + _m,
+    y: 100 + _m,
+    width: 210,
+    tag: preview ? 'preview' : null,
+    rows: [
+      _r('node', 'banner', ins: '', outs: '', label: 'Value name'),
+      _r(
+        'in',
+        preview ? 'would write Hello, tank 3' : 'Hello, tank 3',
+        outs: '',
+        ins: 'bound',
+        tone: preview ? ValueTone.ghost : ValueTone.bound,
+        label: 'Value',
+      ),
+    ],
+  ),
+  FlowBlockVm(
+    id: 'knob',
+    title: 'knob',
+    type: 'mockdev/bench/rig1',
+    kind: BlockKindVm.node,
+    x: 660 + _m,
+    y: 360 + _m,
+    width: 210,
+    tag: preview ? 'preview' : null,
+    rows: [
+      _r(
+        'in',
+        preview ? 'would write 70.7' : '25.3',
+        ins: 'write',
+        outs: '',
+        tone: preview ? ValueTone.ghost : ValueTone.bound,
+        label: 'knob',
+      ),
+    ],
+  ),
+];
+
+const _textWires = [
+  FlowWireVm('greeting', 'value', 'text', 'in.0'),
+  FlowWireVm('who', 'value', 'text', 'in.1'),
+  FlowWireVm('text', 'out', 'show', 'in'),
+  FlowWireVm('limit', 'value', 'cmd', 'in'),
+  FlowWireVm(
+    'cmd',
+    'out',
+    'knob',
+    'in',
+    writes: true,
+  ),
+];
+
+/// A variable block selected: one field `Value` (a number box), its input
+/// and its output one entity.
+FlowEditorPage flowVariable() => _bind(
+  flow: 'banner',
+  selected: 'limit',
+  kind: 'Logic block',
+  title: 'limit',
+  note: 'A number: sent at start, and again when in brings another.',
+  blocks: _textBlocks('limit'),
+  wires: _textWires,
+  rows: const [
+    InspectorRowVm(
+      id: 'value',
+      name: 'Value',
+      engine: 'value',
+      editor: FieldEditorVm.text,
+      value: '25',
+      inPort: 'in',
+      hint: 'The value at start (default 0).',
+    ),
+  ],
+);
+
+/// `concat` selected: its inputs show the values that come in (no path),
+/// the inspector the same, read only, with the bound mark.
+FlowEditorPage flowBoundValue() => _bind(
+  flow: 'banner',
+  selected: 'text',
+  kind: 'Logic block',
+  title: 'text',
+  note: 'The inputs as one text.',
+  blocks: _textBlocks('text'),
+  wires: _textWires,
+  rows: const [
+    InspectorRowVm(
+      id: 'in.0',
+      name: 'Input 1',
+      engine: 'in.0',
+      editor: FieldEditorVm.bound,
+      value: 'Hello, ',
+      sourceBlock: 'greeting',
+      inPort: 'in.0',
+    ),
+    InspectorRowVm(
+      id: 'in.1',
+      name: 'Input 2',
+      engine: 'in.1',
+      editor: FieldEditorVm.bound,
+      value: 'tank 3',
+      sourceBlock: 'who',
+      inPort: 'in.1',
+    ),
+    InspectorRowVm(
+      id: 'strict',
+      name: 'Strict',
+      engine: 'strict',
+      editor: FieldEditorVm.toggle,
+      value: 'false',
+    ),
+    InspectorRowVm(
+      id: 'out',
+      name: 'Output',
+      engine: 'out',
+      editor: FieldEditorVm.output,
+      value: 'Hello, tank 3',
+      targets: '→ show.Value',
+    ),
+  ],
+);
+
+/// The draft differs from the deployed version (`limit` 25 → 70): its
+/// values come from the preview, the sinks show what they would write.
+FlowEditorPage flowPreviewSink() => _bind(
+  flow: 'banner',
+  selected: null,
+  blocks: _textBlocks('', preview: true),
+  wires: _textWires,
+  summary: const FlowSummaryVm(
+    label: 'Flow',
+    title: 'banner',
+    facts: [
+      ('Version', '3'),
+      ('Deployed by', 'user:admin · 2 h ago'),
+      ('May write', 'write'),
+      ('Values', 'a preview of the draft; nothing is written'),
+      ('Writes', 'downstream/mockdev/bench/rig1/knob'),
+    ],
+  ),
+);
