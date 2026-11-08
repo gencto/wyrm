@@ -6,6 +6,7 @@ import 'package:business/wyrm/mappers/package_info_mapper.dart';
 import 'package:business/wyrm/mappers/param_spec_mapper.dart';
 import 'package:business/wyrm/mappers/peer_mapper.dart';
 import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
+import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/link_mode.dart';
@@ -47,6 +48,24 @@ void main() {
       expect(n.isAction, isTrue);
       expect(n.profile, 'wy:link');
       expect(n.type, isNull);
+    });
+
+    test('an interned profile code is its name (the tree icon reads it)', () {
+      // edge `downstream/modbus` lists `is: {code: 6}`, `upstream/central`
+      // `{code: 9}`, `downstream/mock/g0` `{code: 1}`.
+      String? profile(int code) => nodeInfoOf(
+        'wy/edge/downstream',
+        Child('n', wire(NodeMeta(is_: TCode(code)))),
+      ).profile;
+
+      expect(
+        [profile(6), profile(9), profile(1)],
+        [
+          'wy:link',
+          'wy:broker',
+          'wy:folder',
+        ],
+      );
     });
 
     test('a writable value: its type, unit, level and choices', () {
@@ -276,6 +295,50 @@ void main() {
           'a': [1, 2.5, true, null, 'x'],
         },
       );
+    });
+  });
+
+  group('valueText', () {
+    // edge `sys/log_level`: enum ["error","warn","info","debug","trace"], v 2;
+    // `downstream/modbus/line1/status` (wy:df-status), v 2 is Connected.
+    const levels = ['error', 'warn', 'info', 'debug', 'trace'];
+    const status = [
+      'Unknown',
+      'Connecting',
+      'Connected',
+      'Failed',
+      'Stopped',
+      'Stopped by Parent',
+    ];
+
+    test('an enum index is its name', () {
+      expect(valueText(2, choices: levels), 'info');
+      expect(valueText(2, choices: status), 'Connected');
+      expect(valueText(0, choices: status), 'Unknown');
+      expect(valueText(2.0, choices: levels), 'info');
+    });
+
+    test('an index out of range is the number', () {
+      expect(valueText(9, choices: levels), '9');
+      expect(valueText(-1, choices: levels), '-1');
+    });
+
+    test('a unit follows a number only, never an enum', () {
+      expect(valueText(2, choices: levels, unit: 'ms'), 'info');
+      expect(valueText(9, choices: levels, unit: 'ms'), '9');
+      expect(valueText(21.5, unit: '°C'), '21.5 °C');
+      expect(valueText(true, unit: '°C'), 'true');
+      expect(valueText('high', unit: '°C'), 'high');
+    });
+
+    test('numbers are rounded for reading; structures are JSON', () {
+      expect(valueText(1.0 / 3), '0.333');
+      expect(valueText(1234.56), '1234.6');
+      expect(valueText(20.0), '20');
+      expect(valueText(7), '7');
+      expect(valueText(null), 'null');
+      expect(valueText({'a': 1}), '{"a":1}');
+      expect(valueText([1, 2]), '[1,2]');
     });
   });
 }

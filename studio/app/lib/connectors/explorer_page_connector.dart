@@ -18,6 +18,7 @@ import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
+import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
 import 'package:models/action_info.dart';
@@ -30,6 +31,7 @@ import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
@@ -154,21 +156,6 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       if (_parent(k) == key) ?nodes.table[k],
   ];
 
-  String _icon(NodeInfo n) {
-    final p = n.profile ?? '';
-    return switch (p) {
-      _ when n.type != null => 'node_point',
-      'wy:link' => 'node_link',
-      'wy:broker' => 'node_site',
-      _ when p.contains('connection') || p.contains('conn') => 'node_conn',
-      _ when p.contains('device') => 'node_device',
-      _ when p.contains('flow') => 'node_flow',
-      _ when p.contains('watch') => 'node_watch',
-      _ when p.contains('profile') => 'node_profile',
-      _ => 'node_section',
-    };
-  }
-
   (Tone, String)? _linkDot(String key) {
     if (_parent(key) != '$_root/downstream') {
       return null;
@@ -218,7 +205,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           id: key,
           name: name,
           depth: depth,
-          icon: section ? 'node_section' : _icon(info!),
+          icon: AppIcon.nodeName(
+            key: key,
+            root: _root,
+            profile: info?.profile,
+            type: info?.type,
+          ),
           hasChildren: section || (info?.hasChildren ?? false),
           expanded: open,
           selected: key == selected,
@@ -266,6 +258,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     final actions = detail?.actions.unlock ?? const <ActionInfo>[];
     final tab = nodes.tab;
     final dot = sel == null ? null : _linkDot(sel);
+    final histChoices = sel == null ? const <String>[] : _choices(sel);
     return _Vm(
       treeLabel: S.current.treeOf(site.viewed ?? ''),
       tree: _rows(),
@@ -345,7 +338,16 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
               id: '$i',
               cells: [
                 CellVm(title: _time(h.time), monospace: true),
-                CellVm(title: h.text, monospace: true),
+                CellVm(
+                  title: switch (h.value) {
+                    final num n when histChoices.isNotEmpty => valueText(
+                      n,
+                      choices: histChoices,
+                    ),
+                    _ => h.text,
+                  },
+                  monospace: true,
+                ),
                 CellVm(title: h.quality ?? '—', tone: _toneOf(h.quality)),
               ],
             ),
@@ -383,9 +385,19 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     );
   }
 
+  /// The enum names of [key]: a list carries none, the full meta does.
+  List<String> _choices(String key) {
+    final d = nodes.detail[key]?.choices;
+    if (d != null && d.isNotEmpty) {
+      return d.unlock;
+    }
+    return nodes.table[key]?.choices.unlock ?? const [];
+  }
+
   RowVm _pointRow(NodeInfo p, {required bool selected}) {
     final v = live.values[p.key];
     final staged = changes.table['set:${p.key}'];
+    final choices = _choices(p.key);
     return RowVm(
       id: p.key,
       selected: selected,
@@ -395,9 +407,9 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         CellVm(
           title: staged != null
               ? '${staged.to} ●'
-              : _value(v, p.unit, choices: p.choices.unlock),
+              : _value(v, p.unit, choices: choices),
           subtitle: staged != null
-              ? S.current.wasValue(_value(v, p.unit))
+              ? S.current.wasValue(_value(v, p.unit, choices: choices))
               : null,
           monospace: true,
         ),
@@ -430,26 +442,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     LiveValue? v,
     String? unit, {
     List<String> choices = const [],
-  }) {
-    if (v == null) {
-      return '—';
-    }
-    final x = v.value;
-    if (x is int && x >= 0 && x < choices.length) {
-      return choices[x];
-    }
-    final s = switch (x) {
-      null => 'null',
-      final double d =>
-        d
-            .toStringAsFixed(d.abs() >= 100 ? 1 : 3)
-            .replaceFirst(RegExp(r'\.?0+$'), ''),
-      final Map<String, Object?> m => jsonEncode(m),
-      final List<Object?> l => jsonEncode(l),
-      _ => '$x',
-    };
-    return unit == null ? s : '$s $unit';
-  }
+  }) => v == null ? '—' : valueText(v.value, choices: choices, unit: unit);
 
   static String _time(DateTime t) {
     final l = t.toLocal();
@@ -570,12 +563,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     if (isPoint) {
       final v = live.values[sel];
       final writable = d?.writable ?? info?.writable;
-      final choices = d?.choices ?? info?.choices;
+      final choices = _choices(sel);
       final type = d?.type ?? info?.type;
       return PointInspectorVm(
         name: sel.split('/').last,
         display: d?.display ?? info?.display,
-        value: _value(v, d?.unit ?? info?.unit),
+        value: _value(v, d?.unit ?? info?.unit, choices: choices),
         quality: switch (v?.quality) {
           Quality.good => QualityMarkVm(
             label: 'good · ${_time(v!.time)}',
@@ -620,14 +613,17 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                 kind: switch (type) {
                   'bool' => ParamKind.toggle,
                   'number' => ParamKind.number,
-                  _ when choices != null && choices.isNotEmpty =>
-                    ParamKind.choice,
+                  _ when choices.isNotEmpty => ParamKind.choice,
                   _ => ParamKind.text,
                 },
-                value: v?.value is num || v?.value is bool || v?.value is String
-                    ? v?.value
-                    : null,
-                choices: choices?.unlock ?? const [],
+                value: switch (v?.value) {
+                  // An enum is edited by its name and staged as its index.
+                  final int i when choices.isNotEmpty =>
+                    i >= 0 && i < choices.length ? choices[i] : null,
+                  final Object x when x is num || x is bool || x is String => x,
+                  _ => null,
+                },
+                choices: choices,
                 onChanged: (_) {},
               ),
         readOnlyReason: writable == null
@@ -674,11 +670,15 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       return;
     }
     if (values.containsKey('value')) {
+      final choices = _choices(sel);
+      final value = values['value'];
       dispatchSync(
         StageValueAction(
           sel,
-          values['value'],
-          from: _value(live.values[sel], null),
+          value is String && choices.contains(value)
+              ? choices.indexOf(value)
+              : value,
+          from: _value(live.values[sel], null, choices: choices),
         ),
       );
     }

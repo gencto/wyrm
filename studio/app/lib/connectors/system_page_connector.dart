@@ -8,6 +8,7 @@ import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
 import 'package:business/redux/system/actions/set_log_level_action.dart';
+import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
@@ -253,9 +254,8 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
 
   /// `sys/log_level` is an enum code of `error`…`trace`.
   String? get _level => switch (live.values['$_sys/log_level']?.value) {
-    final int i when i >= 0 && i < _logLevels.length => _logLevels[i],
-    final String s => s,
-    _ => null,
+    null => null,
+    final Object v => valueText(v, choices: _logLevels),
   };
 
   static String _duration(double s) {

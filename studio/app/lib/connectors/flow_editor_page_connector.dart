@@ -18,7 +18,9 @@ import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
+import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
 import 'package:models/flow_block.dart';
@@ -29,6 +31,7 @@ import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 
@@ -51,9 +54,22 @@ class FlowEditorPageConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    onInit: (store) => unawaited(_open(store)),
-    onDispose: (store) =>
-        store.dispatchSync(UnwatchKeysAction(_watch(store.state, id))),
+    onInit: (store) {
+      // What the first view-model watches; later changes are diffed below.
+      store.dispatchSync(WatchKeysAction(_treeWatch(store.state)));
+      unawaited(_open(store));
+    },
+    onWillChange: (context, store, before, now) {
+      // The Tree tab shows the live values of its points.
+      if (!listEquals(before.watch, now.watch)) {
+        store
+          ..dispatchSync(WatchKeysAction(now.watch))
+          ..dispatchSync(UnwatchKeysAction(before.watch));
+      }
+    },
+    onDispose: (store) => store
+      ..dispatchSync(UnwatchKeysAction(_watch(store.state, id)))
+      ..dispatchSync(UnwatchKeysAction(_treeWatch(store.state))),
     builder: (context, vm) => FlowEditorPage(
       crumbs: vm.crumbs,
       status: vm.status,
@@ -100,6 +116,19 @@ class FlowEditorPageConnector extends StatelessWidget {
     await store.dispatchAndWait(ValidateFlowAction());
   }
 
+  /// The parents of the Tree tab's points, while it is shown.
+  static List<String> _treeWatch(AppState s) {
+    if (SelectFlowEditor(s).palette != 'tree') {
+      return const [];
+    }
+    final nodes = SelectNodes(s);
+    return {
+      for (final k in nodes.view)
+        if (nodes.table[k]?.type != null)
+          '${k.substring(0, k.lastIndexOf('/'))}/*',
+    }.toList();
+  }
+
   static List<String> _watch(AppState s, String id) {
     final root = SelectSite(s).root;
     return [if (root != null && id != newFlowId) '$root/dataflows/$id/nodes/*'];
@@ -134,6 +163,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final busy =
         ed.version >= 0 && state.wait.isWaitingForType<DeployFlowAction>();
     return _Vm(
+      watch: FlowEditorPageConnector._treeWatch(state),
       crumbs: [
         S.current.wsFlows,
         if (id.isNotEmpty) id else S.current.newDataflow,
@@ -165,9 +195,20 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                   PaletteEntryVm(
                     id: 'key:$k',
                     title: n.name,
-                    tag: 'PT',
-                    group: k.split('/').skip(3).take(1).join(),
-                    detail: k.split('/').skip(3).join('/'),
+                    tag: AppIcon.typeTag(n.type),
+                    group: _group(k),
+                    detail: k.split('/').skip(2).join('/'),
+                    point: true,
+                    value: switch (live.values[k]) {
+                      null => null,
+                      final v => valueText(
+                        v.value,
+                        choices:
+                            nodes.detail[k]?.choices.unlock ??
+                            n.choices.unlock,
+                        unit: n.unit,
+                      ),
+                    },
                   ),
             ]
           : [
@@ -266,6 +307,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     }
   }
 
+  /// The palette group of a tree point: the path of its parent below the
+  /// site, without `downstream` (`modbus / tcp-tank`, `storage / tank`).
+  static String _group(String key) {
+    final parts = key.split('/').skip(2).toList();
+    final path = parts.first == 'downstream' ? parts.skip(1) : parts;
+    return path.take(path.length - 1).join(' / ');
+  }
+
   static String _tag(String type) =>
       _sources.contains(type) ? 'IN' : (_sinks.contains(type) ? 'OUT' : 'FX');
 
@@ -319,7 +368,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   /// (`dataflows/<id>/nodes/<block>`).
   String? live_(String root, String flow, String block) {
     final v = live.values['$root/dataflows/$flow/nodes/$block'];
-    return v == null ? null : '${v.value} · ${v.quality.name}';
+    return v == null ? null : '${valueText(v.value)} · ${v.quality.name}';
   }
 
   static Object? _parse(Object? v, String type) {
@@ -340,6 +389,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.watch,
     required this.crumbs,
     required this.status,
     required this.statusTone,
@@ -367,6 +417,7 @@ class _Vm extends Vm {
     required this.onRemove,
   }) : super(
          equals: [
+           watch,
            crumbs,
            status,
            statusTone,
@@ -385,6 +436,8 @@ class _Vm extends Vm {
          ],
        );
 
+  /// What the Tree tab subscribes to (`<parent>/*` of its points).
+  final List<String> watch;
   final List<String> crumbs;
   final String status;
   final Tone statusTone;
