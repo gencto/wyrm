@@ -1,13 +1,14 @@
-//! Node and action meta of the messenger's tree (ADR 0037), paths relative to the link root:
+//! Node and action meta of a messenger link's tree (ADR 0037), paths relative to the link root;
+//! what a platform cannot do (users, command buttons, blocks) is not declared:
 //!
 //! ```text
-//! ""                      add_telegram, add_slack (config)
+//! ""                      add_bot (config)
 //! stats/…                 bots, sent, failed, rejected
 //! <bot>                   attr kind
 //!   status                no_token | checking | ready | waiting | failed | disabled
 //!   error, username, sent, failed, dropped, queued, rejected, last_sent
 //!   enabled               writable at config
-//!   send (write); send_raw, add_recipient, add_template, invite_user (Telegram),
+//!   send (write); send_raw, add_recipient, add_template, invite_user (inbound platforms),
 //!   set_token, test_connection, edit, remove (config)
 //!   recipients/<r>        attrs chat, thread, commands; send (write); edit, remove (config)
 //!   templates/<t>         attrs kind, format, to, values; send, preview (write); edit, remove (config)
@@ -28,7 +29,7 @@ pub const STAT_NAMES: [&str; 4] = ["bots", "sent", "failed", "rejected"];
 pub const BOT_LEAVES: [(&str, TypeCode, &str); 9] = [
     ("status", TypeCode::Enum, "no_token (Set Token), checking, ready, waiting (after an error), failed (see error), disabled"),
     ("error", TypeCode::String, "The last error."),
-    ("username", TypeCode::String, "The bot's own name on the platform (@… on Telegram)."),
+    ("username", TypeCode::String, "The bot's own name on the platform."),
     ("sent", TypeCode::Number, "Messages delivered since the link started."),
     ("failed", TypeCode::Number, "Messages the platform refused."),
     ("dropped", TypeCode::Number, "Messages the full queue let go."),
@@ -52,7 +53,7 @@ pub const USER_LEAVES: [(&str, TypeCode, &str); 7] = [
     (
         "chat_id",
         TypeCode::String,
-        "The paired Telegram account (numeric id).",
+        "The paired chat account (its numeric id).",
     ),
     ("paired", TypeCode::String, "UTC time of pairing."),
     (
@@ -142,7 +143,7 @@ fn bot_form(kind: Kind, add: bool) -> ActionMeta {
             choice("Default Format", &formats(kind), "Markup of messages that name none."),
         )
         .param("queue_max", number("Queue", "Messages kept while the platform is slow (500)."));
-    if kind == Kind::Telegram {
+    if kind.inbound {
         a = a
             .param(
                 "commands",
@@ -172,7 +173,7 @@ fn bot_form(kind: Kind, add: bool) -> ActionMeta {
 
 pub fn add_bot(kind: Kind) -> (String, ActionMeta) {
     (
-        format!("add_{}", kind.name()),
+        "add_bot".to_owned(),
         bot_form(kind, true)
             .display(format!("Add {} Bot", kind.display()))
             .group(GROUP_NEW),
@@ -187,19 +188,13 @@ fn recipient_form(kind: Kind, add: bool) -> ActionMeta {
             text("Name", "The recipient's node name.").required(true),
         );
     }
-    let chat_about = match kind {
-        Kind::Telegram => "A chat id (-1001234567890), @channel, or user:<paired user>.",
-        Kind::Slack => "A channel id (C0123456789); invite the bot to the channel.",
-    };
-    let thread_about = match kind {
-        Kind::Telegram => "A forum topic id (message_thread_id).",
-        Kind::Slack => "A thread_ts to reply in.",
-    };
+    let chat_about = kind.chat_about;
+    let thread_about = kind.thread_about;
     a = a
         .param("chat", text("Chat", chat_about).required(add))
         .param("thread", text("Thread", thread_about))
         .param("silent", flag("Silent", "Deliver without a sound."));
-    if kind == Kind::Telegram {
+    if kind.inbound {
         a = a.param(
             "commands",
             flag(
@@ -231,14 +226,14 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
             )
             .editor(EDITOR_TEXTAREA),
         )
-        .param("media", text("Media", "Photo or document: an https:// URL (or a Telegram file_id)."))
+        .param("media", text("Media", "Photo or document: an https:// URL (or the platform's file id)."))
         .param("lat", text("Latitude", "Location: a number or a placeholder."))
         .param("lon", text("Longitude", "Location: a number or a placeholder."))
         .param(
             "buttons",
             text(
                 "Buttons",
-                "One row per line, buttons split by ;; — Label | https://… (Telegram also Label | /command)",
+                "One row per line, buttons split by ;; — Label | https://… (Label | /command where the platform takes commands)",
             )
             .editor(EDITOR_TEXTAREA),
         )
@@ -249,9 +244,9 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
         )
         .param("to", text("To", "Recipients when a send names none, comma separated."))
         .param("silent", flag("Silent", "Deliver without a sound."))
-        .param("protect", flag("Protect", "Telegram: no forwarding or saving."))
+        .param("protect", flag("Protect", "No forwarding or saving, where the platform offers it."))
         .param("preview", flag("Link Preview", "Show link previews."));
-    if kind == Kind::Slack {
+    if kind.blocks {
         a = a.param(
             "blocks",
             text(
@@ -330,17 +325,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
             ActionMeta::new()
                 .display("Send Raw Request")
                 .level(Perm::Config)
-                .param(
-                    "method",
-                    text(
-                        "Method",
-                        match kind {
-                            Kind::Telegram => "A Bot API method: sendPoll, sendMediaGroup, editMessageText, pinChatMessage, …",
-                            Kind::Slack => "A Web API method: chat.update, reactions.add, pins.add, …",
-                        },
-                    )
-                    .required(true),
-                )
+                .param("method", text("Method", kind.raw_about).required(true))
                 .param(
                     "params",
                     text("Parameters", "JSON object; the chat must be a recipient's.")
@@ -381,7 +366,10 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
                 .level(Perm::Config)
                 .result(ActionResult::Type(TypeCode::Map)),
         ),
-        ("edit", bot_form(kind, false).display("Edit").group(GROUP_EDIT)),
+        (
+            "edit",
+            bot_form(kind, false).display("Edit").group(GROUP_EDIT),
+        ),
         (
             "remove",
             ActionMeta::new()
@@ -390,7 +378,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
                 .level(Perm::Config),
         ),
     ];
-    if kind == Kind::Telegram {
+    if kind.inbound {
         out.push((
             "invite_user",
             user_form(true)

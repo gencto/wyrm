@@ -1,10 +1,11 @@
-//! The messenger against a fake Telegram Bot API and Slack Web API on loopback: templates and
-//! their escaping, recipients, pairing and chat commands within three bounds, rate limits and
-//! markup fallbacks, restarts.
+//! The Telegram link against a fake Bot API on loopback: templates and their escaping,
+//! recipients, pairing and chat commands within three bounds, rate limits and markup fallbacks,
+//! restarts.
 
-mod common;
+use wyrm_link_telegram::TelegramLink;
+use wyrm_messenger::testkit::{engineer, map, narrow, s, Api, TG_TOKEN};
 
-use common::{engineer, map, narrow, s, Api, SimHost, SLACK_TOKEN, TG_TOKEN};
+type SimHost = wyrm_messenger::testkit::SimHost<TelegramLink>;
 use serde_json::json;
 use wyrm_core::{Status, Value};
 use wyrm_link_api::Who;
@@ -15,7 +16,7 @@ fn telegram(api: &Api) -> SimHost {
     h.start();
     h.invoke(
         "",
-        "add_telegram",
+        "add_bot",
         map(&[
             ("name", s("ops")),
             ("api_url", s(&api.url())),
@@ -306,7 +307,7 @@ fn a_writer_sets_and_runs_actions_within_the_inviters_rights() {
                 ("level", s("write")),
                 (
                     "select",
-                    s("wy/s/downstream/mock\nwy/s/downstream/messenger"),
+                    s("wy/s/downstream/mock\nwy/s/downstream/telegram"),
                 ),
             ]),
         )
@@ -337,7 +338,7 @@ fn a_writer_sets_and_runs_actions_within_the_inviters_rights() {
     assert_eq!(h.requests[1].1.as_deref(), Some("reset"));
     h.until("answered", |_| !api.calls("answerCallbackQuery").is_empty());
     // the messenger itself is never written from a chat
-    api.private(77, "/set downstream/messenger/ops/enabled false");
+    api.private(77, "/set downstream/telegram/ops/enabled false");
     h.until("refused", |_| api.texts_to(77).len() == 4);
     assert!(api
         .texts_to(77)
@@ -431,105 +432,6 @@ fn groups_are_recipients_or_left_and_codes_sent_there_are_void() {
 }
 
 #[test]
-fn slack_posts_with_the_bearer_token_and_block_kit() {
-    let api = Api::start();
-    let mut h = SimHost::new(api.port);
-    h.start();
-    h.invoke(
-        "",
-        "add_slack",
-        map(&[("name", s("eng")), ("api_url", s(&api.url()))]),
-    )
-    .unwrap();
-    // Slack bots only send for now
-    assert!(h
-        .invoke(
-            "",
-            "add_slack",
-            map(&[
-                ("name", s("x")),
-                ("api_url", s(&api.url())),
-                ("commands", Value::Bool(true))
-            ])
-        )
-        .is_err());
-    assert!(!h.actions["eng"].iter().any(|(n, _)| n == "invite_user"));
-    h.invoke("eng", "set_token", map(&[("token", s("xoxb-wrong"))]))
-        .unwrap();
-    h.until("failed", |h| h.text("eng/status") == "failed");
-    assert!(h.text("eng/error").contains("invalid_auth"));
-    h.invoke("eng", "set_token", map(&[("token", s(SLACK_TOKEN))]))
-        .unwrap();
-    h.until("ready", |h| h.text("eng/status") == "ready");
-    h.invoke(
-        "eng",
-        "add_recipient",
-        map(&[("name", s("alerts")), ("chat", s("C0123ABCD"))]),
-    )
-    .unwrap();
-    h.invoke(
-        "eng",
-        "add_template",
-        map(&[
-            ("name", s("card")),
-            ("text", s("{{who}}: {{temp:.0}}")),
-            ("blocks", s(r#"[{"type":"section","text":{"type":"mrkdwn","text":"*{{who}}* is at {{temp:.1}}"}}]"#)),
-            ("values", s("temp = wy/s/downstream/mock/d1/temp")),
-            ("to", s("alerts")),
-        ]),
-    )
-    .unwrap();
-    h.invoke(
-        "eng/templates/card",
-        "send",
-        map(&[("who", s("Boiler \"A\""))]),
-    )
-    .unwrap();
-    h.until("sent", |h| h.num("eng/sent") == 1);
-    let c = &api.calls("chat.postMessage")[0];
-    assert!(c
-        .headers
-        .iter()
-        .any(|(k, v)| k == "authorization" && v == &format!("Bearer {SLACK_TOKEN}")));
-    assert_eq!(c.body["channel"], "C0123ABCD");
-    assert_eq!(
-        c.body["blocks"][0]["text"]["text"],
-        "*Boiler \"A\"* is at 21.5"
-    );
-    assert_eq!(c.body["text"], "Boiler \"A\": 21");
-    // a raw request only to a recipient's channel, only offered methods
-    let e = h
-        .invoke(
-            "eng",
-            "send_raw",
-            map(&[
-                ("method", s("chat.postMessage")),
-                ("params", s(r#"{"channel":"C999","text":"x"}"#)),
-            ]),
-        )
-        .unwrap_err();
-    assert_eq!(e.status, Status::PermissionDenied);
-    assert!(h
-        .invoke("eng", "send_raw", map(&[("method", s("users.list"))]))
-        .is_err());
-    let r = h
-        .invoke(
-            "eng",
-            "send_raw",
-            map(&[
-                ("method", s("reactions.add")),
-                (
-                    "params",
-                    s(r#"{"channel":"C0123ABCD","name":"eyes","timestamp":"1.2"}"#),
-                ),
-            ]),
-        )
-        .unwrap();
-    let Value::Map(r) = r else { panic!() };
-    assert_eq!(r.get("ok"), Some(&Value::Bool(true)));
-}
-
-#[test]
 fn definitions_and_the_token_survive_a_restart_and_a_moved_endpoint_drops_the_token() {
     let api = Api::start();
     let mut h = telegram(&api);
@@ -579,7 +481,7 @@ fn definitions_and_the_token_survive_a_restart_and_a_moved_endpoint_drops_the_to
     assert_eq!(h.text("ops/status"), "no_token");
     // a host outside the link's net is refused at Add
     let e = h
-        .invoke("", "add_telegram", map(&[("name", s("x"))]))
+        .invoke("", "add_bot", map(&[("name", s("x"))]))
         .unwrap_err();
     assert!(e.msg.contains("net allowlist"), "{e}");
     // removing a bot removes its store

@@ -1,0 +1,25 @@
+[package]
+name = "wyrm-messenger"
+description = "The core of the messenger links (ADR 0037): bots, recipients, templates escaped for the markup, a paced queue, chat users paired by one-time codes; each chat platform is a link crate with its own Platform (links/telegram, links/slack)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+# `testkit`: a host on a `BufferHost` and a fake chat API on loopback, for the links' tests.
+testkit = []
+
+[dependencies]
+# Only crates that build for wasm32-unknown-unknown: every messenger link runs as a WASM component too.
+wyrm-core.workspace = true
+wyrm-link-api.workspace = true
+# The bounded HTTP/1.1 client over the host's TCP/TLS.
+wyrm-history-sync.workspace = true
+# JSON bodies of the chat APIs (the WYRM wire stays CBOR, principle 5).
+serde_json.workspace = true
+# Pairing codes are kept as SHA-256 only.
+sha2.workspace = true

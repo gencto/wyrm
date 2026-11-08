@@ -1,25 +1,22 @@
-//! `messenger`: Telegram and Slack bots (ADR 0037) as a portable link (ADR 0023). One source runs
-//! as a process (`--features process`) and as a WASM component (`--features wasm`).
+//! `wyrm-messenger`: the core of the messenger links (ADR 0037) — Telegram (`links/telegram`),
+//! Slack (`links/slack`) and whatever chat platform comes next. A link crate describes its
+//! platform once ([`api::Platform`]: API paths, request bodies, reply classes, what it can do)
+//! and runs `Messenger<its platform>` as a portable link (ADR 0023): embedded, as a process or as
+//! a WASM component. Everything the platforms share lives here:
 //!
-//! A bot is added with `add_telegram` or `add_slack` and its token goes in with ▸ Set Token (the
-//! link's sealed store; never a param, never shown). What a bot can send is set up as nodes:
-//!
-//! - **recipients** (`<bot>/recipients/<r>`): the only chats the bot writes to — a chat id,
-//!   `@channel`, a Slack channel, or `user:<paired user>`; forum topic / thread, silent.
-//! - **templates** (`<bot>/templates/<t>`): kind (text, photo, document, location), format
-//!   (Telegram HTML / MarkdownV2 / plain, Slack mrkdwn / plain / Block Kit), text with
-//!   `{{placeholders}}` filled from the send, from live values the template binds and from
-//!   built-ins, buttons, silent / protect / preview, default recipients. Each template gets a
-//!   Send action whose parameters are its own variables, so a flow, the alarm link or an
-//!   operator sends `templates/high_temp ▸ send {to, name, limit}` without knowing the API.
-//! - **ad hoc**: `<bot> ▸ send {to, text, …}`, and `send_raw {method, params}` (config) for
-//!   whatever else the platform offers (polls, media groups, edits, reactions), still only to
-//!   recipient chats.
-//!
-//! Telegram bots also read updates (`getUpdates`, no inbound port): chat **users**
-//! (`<bot>/users/<u>`) are invited by an operator, pair their account with a one-time code
-//! (`/start <code>`), and then give `/get`, `/set` and `/do` within their own level and keys,
-//! the rights of who invited them and the link's grants ([`auth`]). Everyone else is ignored.
+//! - **bots**: `add_bot`, its token by ▸ Set Token (the link's sealed store; never a param, never
+//!   shown), `status`, counters, a queue with the platform's pacing, back-off and hold on 429.
+//! - **recipients** (`<bot>/recipients/<r>`): the only chats a bot writes to.
+//! - **templates** (`<bot>/templates/<t>`): kind (text, photo, document, location), format (what
+//!   the platform takes: HTML, MarkdownV2, mrkdwn, plain, blocks), text with `{{placeholders}}`
+//!   filled from the send, from live values the template binds and from built-ins, escaped for
+//!   the markup ([`render`]); buttons; each template gets a Send action whose parameters are its
+//!   own variables.
+//! - **ad hoc** `send` and `send_raw {method, params}` (config) for whatever else the platform
+//!   offers, only to recipient chats.
+//! - **chat users** (`<bot>/users/<u>`) on platforms that read updates: invited by an operator,
+//!   paired with a one-time code (`/start <code>`), then `/get`, `/set`, `/do` within their own
+//!   level and keys, the rights of who invited them and the link's grants ([`auth`]).
 //!
 //! Params: `site` (the host's site: relative keys in chat commands, `{{site}}`), `own` (the
 //! link's own key: never written from a chat), `net` (the link's allowlist as text, so an Add
@@ -30,9 +27,14 @@ pub mod auth;
 pub mod model;
 pub mod render;
 mod store;
+#[cfg(test)]
+mod test_platforms;
+#[cfg(feature = "testkit")]
+pub mod testkit;
 pub mod tree;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::marker::PhantomData;
 
 use serde_json::{json, Value as Json};
 use wyrm_core::{Perm, Quality, Sample, Status, Value};
@@ -41,14 +43,13 @@ use wyrm_history_sync::sigv4;
 use wyrm_link_api::{App, AppError, Host, Level, ReqId, Rights, SubId, TimerId, Who};
 
 use api::{Body, Fail, Outgoing, Update};
+pub use api::{Chat, Platform};
 use model::{BotDef, Form, Kind, Map, MsgKind, Recipient, Template, User, UserStatus};
 
 /// Messages sent in one event of a bot.
 const SENDS_PER_TICK: usize = 4;
 /// The queue is looked at again this soon while it holds messages.
 const FLUSH_MS: u64 = 200;
-/// Telegram: one message per chat per second.
-const PER_CHAT_US: u64 = 1_000_000;
 const FIRST_BACKOFF_MS: u64 = 1_000;
 const MAX_BACKOFF_MS: u64 = 60_000;
 /// A message that failed this often on the network is dropped.
@@ -96,25 +97,16 @@ fn caller_rights(who: &Who, what: &str) -> Result<Rights, AppError> {
     })
 }
 
-/// A token as the platforms issue them: printable, no spaces.
+/// A token as the platforms issue them: printable, no spaces, in the platform's shape.
 fn check_token(kind: Kind, t: &str) -> Result<(), AppError> {
     let printable = !t.is_empty()
         && t.len() <= 256
         && t.bytes()
             .all(|b| b.is_ascii_graphic() && b != b'/' && b != b'?' && b != b'#');
-    let shaped = match kind {
-        Kind::Telegram => t.split_once(':').is_some_and(|(id, rest)| {
-            !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) && rest.len() >= 20
-        }),
-        Kind::Slack => t.starts_with("xox"),
-    };
-    if printable && shaped {
+    if printable && (kind.check_token)(t) {
         Ok(())
     } else {
-        Err(invalid(match kind {
-            Kind::Telegram => "token: 123456789:AA… from @BotFather",
-            Kind::Slack => "token: a bot token, xoxb-…",
-        }))
+        Err(invalid(kind.token_hint))
     }
 }
 
@@ -334,44 +326,28 @@ impl Bot {
                 self.def.timeout_ms,
             )
         });
-        let bearer;
-        let (path, mut headers) = match self.def.kind {
-            Kind::Telegram => (format!("{}/bot{token}/{method}", ep.base), Vec::new()),
-            Kind::Slack => {
-                bearer = format!("Bearer {token}");
-                (
-                    format!("{}/api/{method}", ep.base),
-                    vec![("Authorization", bearer.as_str())],
-                )
-            }
-        };
+        let kind = self.def.kind;
+        let path = (kind.path)(&ep.base, &token, method);
+        let bearer = format!("Bearer {token}");
+        let mut headers = Vec::new();
+        if kind.bearer {
+            headers.push(("Authorization", bearer.as_str()));
+        }
         headers.push(("Content-Type", "application/json; charset=utf-8"));
         let bytes = body.to_string().into_bytes();
-        // the path holds the Telegram token: errors are built from the reply only, never from it
+        // the path may hold the token: errors are built from the reply only, never from it
         let r = http
             .request(host, "POST", &path, &headers, &bytes)
             .map_err(|e| Fail::Transient(e.message().to_owned()))?;
-        api::reply(self.def.kind, r.status, &r.body)
+        (kind.reply)(r.status, &r.body)
     }
 
-    /// `getMe` / `auth.test`: the token works, and whose bot it is.
+    /// The platform's identify call (`getMe`, `auth.test`): the token works, and whose bot it is.
     fn identify(&mut self, host: &mut dyn Host) -> Result<Json, Fail> {
-        match self.def.kind {
-            Kind::Telegram => {
-                let me = self.call(host, "getMe", &json!({}))?;
-                self.username = me["username"].as_str().unwrap_or("").to_owned();
-                Ok(me)
-            }
-            Kind::Slack => {
-                let me = self.call(host, "auth.test", &json!({}))?;
-                self.username = format!(
-                    "{} ({})",
-                    me["user"].as_str().unwrap_or(""),
-                    me["team"].as_str().unwrap_or("")
-                );
-                Ok(me)
-            }
-        }
+        let kind = self.def.kind;
+        let me = self.call(host, kind.identify, &json!({}))?;
+        self.username = (kind.identity)(&me);
+        Ok(me)
     }
 
     fn back_off(&mut self, now: u64, msg: String) {
@@ -418,14 +394,14 @@ impl Bot {
                 break;
             };
             let counted = !matches!(front.body, Body::Answer { .. } | Body::Leave);
-            if self.def.kind == Kind::Telegram && counted {
+            if self.def.kind.per_chat_us > 0 && counted {
                 if let Some(t) = self.last_chat.get(&front.chat) {
-                    if now < t + PER_CHAT_US {
+                    if now < t + self.def.kind.per_chat_us {
                         break;
                     }
                 }
             }
-            let (method, body) = api::request(self.def.kind, front);
+            let (method, body) = (self.def.kind.request)(front);
             n += 1;
             match self.call(host, &method, &body) {
                 Ok(_) => {
@@ -494,20 +470,18 @@ impl Bot {
         }
     }
 
-    /// Read Telegram updates; commands of paired users come back to be run.
+    /// Read updates (platforms with inbound); commands of paired users come back to be run.
     fn poll(&mut self, host: &mut dyn Host, now: u64, site: Option<&str>) -> Vec<Inbound> {
-        if self.def.kind != Kind::Telegram || !self.def.commands || now < self.next_poll {
+        let kind = self.def.kind;
+        if !kind.inbound || !self.def.commands || now < self.next_poll {
             return Vec::new();
         }
         self.next_poll = now + self.def.poll_s * 1_000_000;
         let offset = store::offset(host, self.name());
-        let body = json!({
-            "offset": offset,
-            "timeout": 0,
-            "limit": UPDATES_PER_POLL,
-            "allowed_updates": ["message", "edited_message", "channel_post", "callback_query", "my_chat_member"],
-        });
-        let result = match self.call(host, "getUpdates", &body) {
+        let Some((method, body)) = (kind.poll)(offset, UPDATES_PER_POLL) else {
+            return Vec::new();
+        };
+        let result = match self.call(host, &method, &body) {
             Ok(r) => r,
             Err(f) => {
                 self.failed_call(host, now, f);
@@ -516,7 +490,7 @@ impl Bot {
         };
         let mut out = Vec::new();
         let mut next = offset;
-        for u in api::updates(&result) {
+        for u in (kind.updates)(&result) {
             next = next.max(u.id() + 1);
             if let Some(i) = self.update(host, now, u, site) {
                 out.push(i);
@@ -784,7 +758,7 @@ impl Bot {
                 if !self.queue.is_empty() {
                     d = Some(FLUSH_MS);
                 }
-                if self.def.kind == Kind::Telegram && self.def.commands {
+                if self.def.kind.inbound && self.def.commands {
                     let p = until(self.next_poll).max(1);
                     d = Some(d.map_or(p, |x| x.min(p)));
                 }
@@ -822,7 +796,8 @@ struct Rendered {
     preview: bool,
 }
 
-pub struct Messenger {
+/// A messenger link on platform `C` (`Messenger<Telegram>`, `Messenger<Slack>`).
+pub struct Messenger<C: Chat> {
     site: Option<String>,
     own: Option<String>,
     net: Option<String>,
@@ -839,6 +814,7 @@ pub struct Messenger {
     reqs: HashMap<u64, Pending>,
     stats_shown: BTreeMap<&'static str, u64>,
     removed: (u64, u64, u64),
+    chat: PhantomData<C>,
 }
 
 struct Params {
@@ -863,7 +839,7 @@ fn params_of(config: Value) -> Result<Params, AppError> {
     })
 }
 
-impl Messenger {
+impl<C: Chat> Messenger<C> {
     fn bot(&self, name: &str) -> Result<&Bot, AppError> {
         self.bots
             .get(name)
@@ -948,7 +924,7 @@ impl Messenger {
         host.declare_node(&tree::leaf(n, "enabled"), tree::enabled_node());
         host.declare_node(&tree::leaf(n, "recipients"), wyrm_core::NodeMeta::folder());
         host.declare_node(&tree::leaf(n, "templates"), wyrm_core::NodeMeta::folder());
-        if def.kind == Kind::Telegram {
+        if def.kind.inbound {
             host.declare_node(&tree::leaf(n, "users"), wyrm_core::NodeMeta::folder());
         }
         for (a, meta) in tree::bot_actions(def.kind) {
@@ -1227,7 +1203,7 @@ impl Messenger {
                 origin: name.into(),
                 attempts: 0,
             };
-            let (method, body) = api::request(b.def.kind, &m);
+            let (method, body) = (b.def.kind.request)(&m);
             return Ok(Value::Map(Map::from([
                 ("method".into(), Value::Str(method)),
                 ("body".into(), Value::Str(body.to_string())),
@@ -1278,7 +1254,7 @@ impl Messenger {
         let f = Form(args);
         let method = f.required("method").map_err(invalid)?;
         let b = self.bot_mut(bot)?;
-        api::raw_method_allowed(b.def.kind, &method).map_err(invalid)?;
+        b.def.kind.raw_method_allowed(&method).map_err(invalid)?;
         let params: Json = match f.text("params").map_err(invalid)? {
             None => json!({}),
             Some(p) => {
@@ -1288,7 +1264,7 @@ impl Messenger {
         if !params.is_object() {
             return Err(invalid("params: a JSON object"));
         }
-        if let Some(chat) = api::raw_chat(b.def.kind, &params) {
+        if let Some(chat) = (b.def.kind.raw_chat)(&params) {
             let known = b.recipients.values().any(|r| r.chat == chat)
                 || b.users.values().any(|(u, _)| {
                     u.status == UserStatus::Active
@@ -1565,7 +1541,9 @@ impl Messenger {
 
     fn load(&mut self, host: &mut dyn Host) {
         for name in store::index(host, store::BOTS) {
-            let def = match store::get(host, &store::bot(&name)).map(|v| BotDef::from_value(&v)) {
+            let def = match store::get(host, &store::bot(&name))
+                .map(|v| BotDef::from_value(&v, C::PLATFORM))
+            {
                 Some(Ok(d)) => d,
                 Some(Err(e)) => {
                     host.log(Level::Error, &format!("bot {name}: {e}"));
@@ -1854,7 +1832,7 @@ impl Messenger {
                 self.resync_watches(host);
                 Ok(Value::Null)
             }
-            "invite_user" if kind == Kind::Telegram => {
+            "invite_user" if kind.inbound => {
                 let name = Form(&m)
                     .required("name")
                     .map_err(invalid)?
@@ -1993,7 +1971,7 @@ impl Messenger {
                 self.resync_watches(host);
                 Ok(Value::Null)
             }
-            ("users", _) if kind == Kind::Telegram => {
+            ("users", _) if kind.inbound => {
                 let (mut u, old_rights) = self
                     .bot(bot)?
                     .users
@@ -2076,16 +2054,14 @@ impl Messenger {
     }
 }
 
-impl App for Messenger {
-    const NAME: &'static str = "messenger";
-    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+impl<C: Chat> App for Messenger<C> {
+    const NAME: &'static str = C::PLATFORM.name;
+    const VERSION: &'static str = C::VERSION;
 
     fn start(host: &mut dyn Host, config: Value) -> Result<Self, AppError> {
         let Params { site, own, net } = params_of(config)?;
-        for kind in Kind::ALL {
-            let (name, a) = tree::add_bot(kind);
-            host.declare_action("", &name, a);
-        }
+        let (name, a) = tree::add_bot(C::PLATFORM);
+        host.declare_action("", &name, a);
         host.declare_node(tree::STATS, wyrm_core::NodeMeta::folder());
         for n in tree::STAT_NAMES {
             host.declare_node(
@@ -2107,6 +2083,7 @@ impl App for Messenger {
             reqs: HashMap::new(),
             stats_shown: BTreeMap::new(),
             removed: (0, 0, 0),
+            chat: PhantomData,
         };
         app.load(host);
         let now = host.now_us();
@@ -2153,10 +2130,10 @@ impl App for Messenger {
         };
         match segs.as_slice() {
             [] => {
-                let kind = action
-                    .strip_prefix("add_")
-                    .and_then(Kind::from_name)
-                    .ok_or_else(|| AppError::new(Status::NotSupported, action.to_owned()))?;
+                if action != "add_bot" {
+                    return Err(AppError::new(Status::NotSupported, action.to_owned()));
+                }
+                let kind = C::PLATFORM;
                 let name = Form(&m).required("name").map_err(invalid)?;
                 let mut fields = m.clone();
                 fields.remove("name");
@@ -2248,7 +2225,3 @@ impl App for Messenger {
         }
     }
 }
-
-// Only on wasm32: natively the exports would be bare global symbols.
-#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
-wyrm_link_guest::export!(Messenger);

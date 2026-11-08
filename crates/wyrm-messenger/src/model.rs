@@ -8,6 +8,7 @@ use std::net::IpAddr;
 use wyrm_core::{Perm, Value};
 use wyrm_link_api::net::NetPolicy;
 
+use crate::api::Platform;
 use crate::render;
 
 pub type Map = BTreeMap<String, Value>;
@@ -21,62 +22,8 @@ pub const MAX_SELECT: usize = 16;
 pub const MAX_TEMPLATE_TEXT: usize = 4096;
 pub const MAX_BLOCKS: usize = 16 << 10;
 
-/// The chat platform of a bot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Telegram,
-    Slack,
-}
-
-impl Kind {
-    pub const ALL: [Kind; 2] = [Kind::Telegram, Kind::Slack];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Kind::Telegram => "telegram",
-            Kind::Slack => "slack",
-        }
-    }
-
-    pub fn display(self) -> &'static str {
-        match self {
-            Kind::Telegram => "Telegram",
-            Kind::Slack => "Slack",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|k| k.name() == s)
-    }
-
-    pub fn default_api(self) -> &'static str {
-        match self {
-            Kind::Telegram => "https://api.telegram.org",
-            Kind::Slack => "https://slack.com",
-        }
-    }
-
-    pub fn default_format(self) -> Format {
-        match self {
-            Kind::Telegram => Format::Html,
-            Kind::Slack => Format::Mrkdwn,
-        }
-    }
-
-    pub fn formats(self) -> &'static [Format] {
-        match self {
-            Kind::Telegram => &[Format::Html, Format::Markdown, Format::Plain],
-            Kind::Slack => &[Format::Mrkdwn, Format::Plain],
-        }
-    }
-
-    pub fn secret_about(self) -> &'static str {
-        match self {
-            Kind::Telegram => "The bot token from @BotFather (123456:ABC…).",
-            Kind::Slack => "The bot user OAuth token (xoxb-…), scope chat:write.",
-        }
-    }
-}
+/// The chat platform of a bot: the link's [`Platform`] (one per link).
+pub type Kind = &'static Platform;
 
 /// How a message's text is marked up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -401,9 +348,12 @@ impl BotDef {
                     format!("format: one of {}", names.join(", "))
                 })?,
         };
-        let commands = f.flag("commands", kind == Kind::Telegram)?;
-        if commands && kind == Kind::Slack {
-            return Err("commands: Slack bots only send for now (ADR 0037)".into());
+        let commands = f.flag("commands", kind.inbound)?;
+        if commands && !kind.inbound {
+            return Err(format!(
+                "commands: {} bots only send (ADR 0037)",
+                kind.display
+            ));
         }
         Ok(Self {
             name: name.to_owned(),
@@ -425,7 +375,7 @@ impl BotDef {
     pub fn to_value(&self) -> Value {
         let mut m = Map::new();
         m.insert("name".into(), Value::Str(self.name.clone()));
-        m.insert("kind".into(), Value::Str(self.kind.name().into()));
+        m.insert("kind".into(), Value::Str(self.kind.name.into()));
         m.insert("enabled".into(), Value::Bool(self.enabled));
         m.insert("api_url".into(), Value::Str(self.api_url.clone()));
         if let Some(c) = &self.ca_pem {
@@ -451,13 +401,15 @@ impl BotDef {
         m
     }
 
-    pub fn from_value(v: &Value) -> Result<Self, String> {
+    pub fn from_value(v: &Value, kind: Kind) -> Result<Self, String> {
         let Value::Map(m) = v else {
             return Err("bot: not a map".into());
         };
         let f = Form(m);
         let name = f.required("name")?;
-        let kind = Kind::from_name(&f.required("kind")?).ok_or("bot: unknown kind")?;
+        if f.required("kind")? != kind.name {
+            return Err(format!("bot: not a {} bot", kind.display));
+        }
         let mut rest = m.clone();
         rest.remove("name");
         rest.remove("kind");
@@ -490,24 +442,14 @@ impl Recipient {
         check_chat(kind, &chat)?;
         let thread = f.text("thread")?.map(|t| t.trim().to_owned());
         if let Some(t) = &thread {
-            let ok = match kind {
-                Kind::Telegram => t.parse::<u64>().is_ok(),
-                Kind::Slack => t.split_once('.').is_some_and(|(a, b)| {
-                    !a.is_empty()
-                        && !b.is_empty()
-                        && a.bytes().chain(b.bytes()).all(|c| c.is_ascii_digit())
-                }),
-            };
-            if !ok {
-                return Err(match kind {
-                    Kind::Telegram => "thread: a forum topic id (a number)".into(),
-                    Kind::Slack => "thread: a thread_ts (1700000000.000100)".into(),
-                });
-            }
+            (kind.check_thread)(t)?;
         }
         let commands = f.flag("commands", false)?;
-        if commands && kind == Kind::Slack {
-            return Err("commands: Slack bots only send for now (ADR 0037)".into());
+        if commands && !kind.inbound {
+            return Err(format!(
+                "commands: {} bots only send (ADR 0037)",
+                kind.display
+            ));
         }
         Ok(Self {
             name: name.to_owned(),
@@ -548,37 +490,15 @@ impl Recipient {
 
 pub fn check_chat(kind: Kind, chat: &str) -> Result<(), String> {
     if let Some(u) = chat.strip_prefix("user:") {
-        if kind == Kind::Slack {
-            return Err("chat: user:<name> is for paired Telegram users".into());
+        if !kind.inbound {
+            return Err(format!(
+                "chat: user:<name> is for paired users; {} bots have none",
+                kind.display
+            ));
         }
         return check_name(u, "chat user");
     }
-    let ok = match kind {
-        Kind::Telegram => {
-            let digits = chat.strip_prefix('-').unwrap_or(chat);
-            (!digits.is_empty() && digits.len() <= 20 && digits.bytes().all(|b| b.is_ascii_digit()))
-                || chat.strip_prefix('@').is_some_and(|u| {
-                    (5..=32).contains(&u.len())
-                        && u.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                })
-        }
-        Kind::Slack => {
-            (2..=32).contains(&chat.len())
-                && chat
-                    .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-        }
-    };
-    if ok {
-        Ok(())
-    } else {
-        Err(match kind {
-            Kind::Telegram => {
-                format!("chat {chat:?}: a chat id (-1001234567890), @channel or user:<paired user>")
-            }
-            Kind::Slack => format!("chat {chat:?}: a channel id (C0123456789)"),
-        })
-    }
+    (kind.check_chat)(chat)
 }
 
 // ---------- template ----------
@@ -661,8 +581,8 @@ impl Template {
             _ => {}
         }
         if !blocks.is_empty() {
-            if kind != Kind::Slack {
-                return Err("blocks: Slack only".into());
+            if !kind.blocks {
+                return Err(format!("blocks: not for {}", kind.display));
             }
             if blocks.len() > MAX_BLOCKS {
                 return Err(format!("blocks: at most {MAX_BLOCKS} bytes"));
@@ -692,8 +612,8 @@ impl Template {
                 }
                 if button.is_url() {
                 } else if target.starts_with('/') {
-                    if kind == Kind::Slack {
-                        return Err("buttons: Slack buttons are links only for now".into());
+                    if !kind.command_buttons {
+                        return Err(format!("buttons: {} buttons are links only", kind.display));
                     }
                     if target.len() > 64 {
                         return Err("buttons: a command of at most 64 bytes".into());
@@ -986,6 +906,7 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_platforms::{CHATTY, QUIET};
 
     fn m(pairs: &[(&str, &str)]) -> Map {
         pairs
@@ -996,59 +917,50 @@ mod tests {
 
     #[test]
     fn bot_defaults_and_bounds() {
-        let b = BotDef::parse(
-            "ops",
-            Kind::Telegram,
-            &Map::new(),
-            Some("api.telegram.org:443"),
-        )
-        .unwrap();
-        assert_eq!(b.endpoint.host, "api.telegram.org");
+        let b = BotDef::parse("ops", &CHATTY, &Map::new(), Some("api.chatty.example:443")).unwrap();
+        assert_eq!(b.endpoint.host, "api.chatty.example");
         assert_eq!(b.format, Format::Html);
         assert!(b.commands);
-        let e = BotDef::parse("ops", Kind::Telegram, &Map::new(), Some("slack.com:443"));
+        let e = BotDef::parse("ops", &CHATTY, &Map::new(), Some("quiet.example:443"));
         assert!(e.unwrap_err().contains("not in the link's net"));
-        let e = BotDef::parse("ops", Kind::Slack, &m(&[("format", "html")]), None);
+        let e = BotDef::parse("ops", &QUIET, &m(&[("format", "html")]), None);
         assert!(e.is_err());
         let e = BotDef::parse(
             "ops",
-            Kind::Telegram,
+            &CHATTY,
             &m(&[("api_url", "http://example.com")]),
             None,
         );
         assert!(e.unwrap_err().contains("https only"));
-        assert!(BotDef::parse("Ops", Kind::Telegram, &Map::new(), None).is_err());
-        let b2 = BotDef::from_value(&b.to_value()).unwrap();
+        assert!(BotDef::parse("Ops", &CHATTY, &Map::new(), None).is_err());
+        let b2 = BotDef::from_value(&b.to_value(), &CHATTY).unwrap();
         assert_eq!(b, b2);
     }
 
     #[test]
     fn recipients_by_platform() {
-        assert!(Recipient::parse("g", Kind::Telegram, &m(&[("chat", "-1001234567890")])).is_ok());
-        assert!(Recipient::parse("g", Kind::Telegram, &m(&[("chat", "@plant_alerts")])).is_ok());
-        assert!(Recipient::parse("g", Kind::Telegram, &m(&[("chat", "user:ann")])).is_ok());
-        assert!(Recipient::parse("g", Kind::Telegram, &m(&[("chat", "ann")])).is_err());
-        assert!(Recipient::parse("g", Kind::Slack, &m(&[("chat", "C0123ABC")])).is_ok());
-        assert!(Recipient::parse("g", Kind::Slack, &m(&[("chat", "user:ann")])).is_err());
+        assert!(Recipient::parse("g", &CHATTY, &m(&[("chat", "-1001234567890")])).is_ok());
+        assert!(Recipient::parse("g", &CHATTY, &m(&[("chat", "@plant_alerts")])).is_ok());
+        assert!(Recipient::parse("g", &CHATTY, &m(&[("chat", "user:ann")])).is_ok());
+        assert!(Recipient::parse("g", &CHATTY, &m(&[("chat", "ann")])).is_err());
+        assert!(Recipient::parse("g", &QUIET, &m(&[("chat", "C0123ABC")])).is_ok());
+        assert!(Recipient::parse("g", &QUIET, &m(&[("chat", "user:ann")])).is_err());
         assert!(Recipient::parse(
             "g",
-            Kind::Slack,
+            &QUIET,
             &m(&[("chat", "C0123ABC"), ("thread", "1700000000.000100")])
         )
         .is_ok());
-        assert!(Recipient::parse(
-            "g",
-            Kind::Telegram,
-            &m(&[("chat", "-100123"), ("thread", "x")])
-        )
-        .is_err());
+        assert!(
+            Recipient::parse("g", &CHATTY, &m(&[("chat", "-100123"), ("thread", "x")])).is_err()
+        );
     }
 
     #[test]
     fn templates_validate_their_parts() {
         let t = Template::parse(
             "high",
-            Kind::Telegram,
+            &CHATTY,
             &m(&[
                 ("text", "<b>{{name}}</b>: {{temp:.1}} °C at {{now}}"),
                 ("values", "temp = wy/s/downstream/plc/t1"),
@@ -1063,31 +975,28 @@ mod tests {
         assert_eq!(t.vars().unwrap(), vec!["name".to_owned()]);
         assert_eq!(t.buttons[0].len(), 2);
         assert_eq!(t.to, vec!["ops", "night"]);
-        assert_eq!(
-            Template::from_value(&t.to_value(), Kind::Telegram).unwrap(),
-            t
-        );
-        assert!(Template::parse("x", Kind::Telegram, &m(&[("kind", "photo")])).is_err());
-        assert!(Template::parse("x", Kind::Telegram, &m(&[("text", "{{oops")])).is_err());
+        assert_eq!(Template::from_value(&t.to_value(), &CHATTY).unwrap(), t);
+        assert!(Template::parse("x", &CHATTY, &m(&[("kind", "photo")])).is_err());
+        assert!(Template::parse("x", &CHATTY, &m(&[("text", "{{oops")])).is_err());
         assert!(Template::parse(
             "x",
-            Kind::Slack,
+            &QUIET,
             &m(&[("text", "a"), ("buttons", "Ack | /do x")])
         )
         .is_err());
         assert!(Template::parse(
             "x",
-            Kind::Slack,
+            &QUIET,
             &m(&[(
                 "blocks",
                 r#"[{"type":"section","text":{"type":"mrkdwn","text":"{{a}}"}}]"#
             )])
         )
         .is_ok());
-        assert!(Template::parse("x", Kind::Slack, &m(&[("blocks", "{nope")])).is_err());
+        assert!(Template::parse("x", &QUIET, &m(&[("blocks", "{nope")])).is_err());
         assert!(Template::parse(
             "x",
-            Kind::Telegram,
+            &CHATTY,
             &m(&[("text", "a"), ("values", "now = wy/s/x")])
         )
         .is_err());

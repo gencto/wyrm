@@ -1,8 +1,7 @@
-//! `SimHost`: the messenger on a `BufferHost` with other links' values in memory and real TCP to
-//! loopback, where a fake Telegram Bot API / Slack Web API answers in a thread. Each event's
-//! commands are applied as the portable runtime does.
-
-#![allow(dead_code)]
+//! Test kit of the messenger links (feature `testkit`): `SimHost<A>` runs a link's app on a
+//! `BufferHost` with other links' values in memory and real TCP to loopback, where [`Api`] (a
+//! fake Telegram Bot API and Slack Web API) answers in a thread. Each event's commands are
+//! applied as the portable runtime does. A new platform adds its routes to [`Api`].
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -14,7 +13,6 @@ use serde_json::{json, Value as Json};
 use wyrm_core::{Perm, Quality, Sample, Status, Value};
 use wyrm_link_api::buffer::{store_cost, BufferHost, Command, Counts, Limits, Services};
 use wyrm_link_api::{App, AppError, ConnId, ReqId, SubId, TimerId, Who};
-use wyrm_link_messenger::Messenger;
 
 pub const SITE: &str = "wy/s";
 pub const TG_TOKEN: &str = "123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
@@ -121,10 +119,10 @@ enum Ev {
     Reply(u64, Result<Value, AppError>),
 }
 
-pub struct SimHost {
+pub struct SimHost<A: App> {
     buf: BufferHost,
     shared: Arc<Mutex<Shared>>,
-    pub app: Option<Messenger>,
+    pub app: Option<A>,
     pub values: BTreeMap<String, Value>,
     pub nodes: BTreeMap<String, Option<Value>>,
     /// Actions declared per node path.
@@ -141,7 +139,7 @@ pub struct SimHost {
 pub fn engineer() -> Who {
     Who {
         subject: Some("user:eng".into()),
-        grants: vec![("wy/s/downstream/messenger/**".into(), Perm::Config)],
+        grants: vec![("wy/s/downstream/**".into(), Perm::Config)],
         authority: Some(vec![("wy/s/**".into(), Perm::Config)]),
     }
 }
@@ -150,11 +148,8 @@ pub fn engineer() -> Who {
 pub fn narrow() -> Who {
     Who {
         subject: Some("user:nina".into()),
-        grants: vec![("wy/s/downstream/messenger/**".into(), Perm::Config)],
-        authority: Some(vec![
-            ("wy/s/downstream/messenger/**".into(), Perm::Config),
-            ("wy/s/downstream/mock/**".into(), Perm::Read),
-        ]),
+        grants: vec![("wy/s/downstream/**".into(), Perm::Config)],
+        authority: Some(vec![("wy/s/downstream/mock/**".into(), Perm::Read)]),
     }
 }
 
@@ -171,7 +166,7 @@ pub fn s(v: &str) -> Value {
     Value::Str(v.into())
 }
 
-impl SimHost {
+impl<A: App> SimHost<A> {
     pub fn new(port: u16) -> Self {
         let shared = Arc::new(Mutex::new(Shared {
             now_us: 1_800_000_000_000_000,
@@ -183,7 +178,7 @@ impl SimHost {
         };
         let params = map(&[
             ("site", s("s")),
-            ("own", s("wy/s/downstream/messenger")),
+            ("own", s(&format!("wy/s/downstream/{}", A::NAME))),
             ("net", s(&format!("127.0.0.1:{port}"))),
         ]);
         let mut values = BTreeMap::new();
@@ -286,7 +281,7 @@ impl SimHost {
                     self.requests.push((key, Some(action), args));
                     self.queue.push_back(Ev::Reply(id, Ok(Value::Null)));
                 }
-                Command::List(..) => panic!("the messenger never lists"),
+                Command::List(..) => panic!("a messenger link never lists"),
                 Command::Log(_, m) => self.logs.push(m),
             }
         }
@@ -294,7 +289,7 @@ impl SimHost {
     }
 
     pub fn start(&mut self) {
-        let app = Messenger::start(&mut self.buf, self.params.clone()).expect("start");
+        let app = A::start(&mut self.buf, self.params.clone()).expect("start");
         self.app = Some(app);
         self.apply();
         self.settle();
@@ -448,7 +443,7 @@ fn sample(v: Value, t: u64) -> Sample {
     }
 }
 
-impl Drop for SimHost {
+impl<A: App> Drop for SimHost<A> {
     fn drop(&mut self) {
         if let Some(mut a) = self.app.take() {
             a.stop(&mut self.buf);

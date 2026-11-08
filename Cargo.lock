@@ -6944,20 +6944,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wyrm-link-messenger"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sha2",
- "wyrm-core",
- "wyrm-history-sync",
- "wyrm-link-api",
- "wyrm-link-guest",
- "wyrm-link-portable",
- "wyrm-link-sdk",
-]
-
-[[package]]
 name = "wyrm-link-mock"
 version = "0.1.0"
 dependencies = [
@@ -7206,6 +7192,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-link-slack"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wyrm-core",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+ "wyrm-messenger",
+]
+
+[[package]]
 name = "wyrm-link-snmp"
 version = "0.1.0"
 dependencies = [
@@ -7222,6 +7221,19 @@ dependencies = [
  "wyrm-link-sdk",
  "wyrm-link-snmp",
  "zeroize",
+]
+
+[[package]]
+name = "wyrm-link-telegram"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wyrm-core",
+ "wyrm-link-api",
+ "wyrm-link-guest",
+ "wyrm-link-portable",
+ "wyrm-link-sdk",
+ "wyrm-messenger",
 ]
 
 [[package]]
@@ -7303,6 +7315,17 @@ dependencies = [
  "wyrm-link-sdk",
  "zenoh",
  "zeroize",
+]
+
+[[package]]
+name = "wyrm-messenger"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "wyrm-core",
+ "wyrm-history-sync",
+ "wyrm-link-api",
 ]
 
 [[package]]

@@ -35,10 +35,13 @@
 #                    Hub, AWS IoT Core; an operator grants read on each root
 #                    an upstream selects and lists the platforms in net
 #     uplink-process the same app as a process package
-#     messenger      Telegram and Slack bots (ADR 0037, links/messenger) as a
-#                    WASM package; an operator grants read on what templates
-#                    and chat users name and lists the APIs in net
-#     messenger-process the same app as a process package
+#     telegram       Telegram bots (ADR 0037, links/telegram) as a WASM package;
+#                    an operator grants read on what templates and chat users
+#                    name and lists api.telegram.org:443 in net
+#     telegram-process the same app as a process package
+#     slack          Slack bots (ADR 0037, links/slack), send only; net
+#                    slack.com:443
+#     slack-process  the same app as a process package
 #     postgres-process history sync to PostgreSQL (ADR 0026) as a process
 #                    package: the demo's alarm records (examples/agent)
 #   out/register.wasm, out/tcp-ping.wasm   components for "Install Link ▸ from WASM"
@@ -88,10 +91,11 @@ $WYR link pack --manifest-path "$ALARM" --kind process --name alarm-process --ou
 UPLINK=$ROOT/links/uplink/Cargo.toml
 $WYR link pack --manifest-path "$UPLINK" --out "$ZIPS"
 $WYR link pack --manifest-path "$UPLINK" --kind process --name uplink-process --out "$ZIPS"
-# and the messenger (ADR 0037)
-MESSENGER=$ROOT/links/messenger/Cargo.toml
-$WYR link pack --manifest-path "$MESSENGER" --out "$ZIPS"
-$WYR link pack --manifest-path "$MESSENGER" --kind process --name messenger-process --out "$ZIPS"
+# and the messenger links (ADR 0037), one per chat platform
+for CHAT in telegram slack; do
+  $WYR link pack --manifest-path "$ROOT/links/$CHAT/Cargo.toml" --out "$ZIPS"
+  $WYR link pack --manifest-path "$ROOT/links/$CHAT/Cargo.toml" --kind process --name "$CHAT-process" --out "$ZIPS"
+done
 # and one history sync link, for the alarm sink of examples/agent/uplink-and-alarm-export.json
 $WYR link pack --manifest-path "$ROOT/links/postgres/Cargo.toml" --kind process \
   --name postgres-process --out "$ZIPS"
