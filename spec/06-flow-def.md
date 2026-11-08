@@ -37,7 +37,7 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 
 `layout` належить редактору (ADR 0019): ключ — `node_id`, значення — два скінченні числа. Він не входить до конфігу ноди, тож переміщення ноди не скидає її стан при гарячій заміні.
 
-Каталог типів нод для редактора: `dataflows/~act/node_types` (рівень `read`) повертає масив `{type, category, description, inputs, outputs, dyn_inputs?, dyn_outputs?, port_types, echo_inputs?, params: [{name, type, required, description, choices?, default?, editor?, port?, echo}]}`; `dyn_inputs`/`dyn_outputs` = `{param, prefix, default}` — порти, які дає параметр (`expression`: `in.<name>` з `inputs`; `wasm`: `inputs`/`outputs`).
+Каталог типів нод для редактора: `dataflows/~act/node_types` (рівень `read`) повертає масив `{type, category, description, inputs, outputs, dyn_inputs?, dyn_outputs?, port_types, echo_inputs?, values? (0.2.19), params: [{name, type, required, description, choices?, default?, editor?, port?, echo}]}`; `dyn_inputs`/`dyn_outputs` = `{param, prefix, default}` — порти, які дає параметр (`expression`: `in.<name>` з `inputs`; `wasm`: `inputs`/`outputs`).
 
 Поля 0.2.15 (ADR 0038, лише додані):
 - `params[].default` — типізоване значення для кожного параметра, що його має: число лишається числом, `choices` — рядком, список імен — масивом (`inputs` блоків: `["0", "1"]`). Без default поля немає.

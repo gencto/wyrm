@@ -3078,7 +3078,7 @@ async fn flow_watch_streams_live_values() {
     env.stop().await;
 }
 
-/// ADR 0038 §5: a preview of a draft with a `set` into the mock link streams live values and
+/// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
 /// reports the write, but nothing reaches the link (no audit record, the point never holds the
 /// value); the same draft deployed writes (the control).
 #[tokio::test(flavor = "multi_thread")]
@@ -3125,11 +3125,23 @@ async fn flow_preview_streams_a_draft_and_writes_nothing() {
                     m(&[("type", s("number")), ("value", Value::UInt(4242))]),
                 ),
                 ("w", m(&[("type", s("set")), ("path", s(target))])),
+                (
+                    "go",
+                    m(&[
+                        ("type", s("invoke")),
+                        ("path", s("downstream/mock")),
+                        ("action", s("reset")),
+                    ]),
+                ),
             ]),
         ),
         (
             "edges",
-            Value::Array(vec![edge("a.out", "r.in"), edge("x.out", "w.in")]),
+            Value::Array(vec![
+                edge("a.out", "r.in"),
+                edge("x.out", "w.in"),
+                edge("x.out", "go.in"),
+            ]),
         ),
         ("permissions", m(&[("maxperm", s("write"))])),
     ]);
@@ -3188,10 +3200,10 @@ async fn flow_preview_streams_a_draft_and_writes_nothing() {
         "the variable's start value is in the snapshot"
     );
     // the mock's values flow through the draft, and the write is reported, not done
-    let (mut flowed, mut reported) = (false, false);
+    let (mut flowed, mut reported, mut invoked) = (false, false, false);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let mut rows = vec![first];
-    while !(flowed && reported) {
+    while !(flowed && reported && invoked) {
         assert!(tokio::time::Instant::now() < deadline, "rows: {rows:?}");
         let row = rows.last().cloned().unwrap();
         flowed |= at(&row, &["nodes", "r", "out", "out"]).is_some();
@@ -3200,6 +3212,11 @@ async fn flow_preview_streams_a_draft_and_writes_nothing() {
                 at(x, &["op"]) == Some(s("set"))
                     && at(x, &["key"]) == Some(Value::from(format!("{point}/~set")))
                     && at(x, &["value"]).and_then(|v| v.as_f64()) == Some(4242.0)
+            });
+            invoked |= sinks.iter().any(|x| {
+                at(x, &["op"]) == Some(s("invoke"))
+                    && at(x, &["key"])
+                        == Some(Value::from(format!("wy/{SITE}/downstream/mock/~act/reset")))
             });
         }
         rows.push(st.next().await.unwrap().unwrap().unwrap());

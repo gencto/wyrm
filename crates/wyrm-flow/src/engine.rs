@@ -1182,8 +1182,14 @@ impl Link for Engine {
         let mut st = self.shared.lock().await;
         // previews end first: each stops its sandbox
         st.previews.cancel_all();
-        for t in std::mem::take(&mut st.preview_tasks) {
-            let _ = tokio::time::timeout(Duration::from_secs(2), t).await;
+        for mut t in std::mem::take(&mut st.preview_tasks) {
+            // a preview that does not stop in time is cut: its runtime goes with the task
+            if tokio::time::timeout(Duration::from_secs(2), &mut t)
+                .await
+                .is_err()
+            {
+                t.abort();
+            }
         }
         let ids: Vec<String> = st.flows.keys().cloned().collect();
         for id in ids {
