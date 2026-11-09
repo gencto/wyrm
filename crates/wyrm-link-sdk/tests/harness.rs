@@ -679,6 +679,50 @@ async fn stop_drops_liveliness_and_closes_ctx() {
     assert!(ctx.set_dynamic("ahu1", true).await.is_err());
 }
 
+/// A driver that is slow to drop, as one that closes a store or a port.
+struct SlowDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl Link for SlowDrop {
+    const NAME: &'static str = "slow-drop";
+    const VERSION: &'static str = "0.1.0";
+    type Config = Arc<std::sync::atomic::AtomicBool>;
+
+    async fn start(dropped: Self::Config, _ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        Ok(Self(dropped))
+    }
+}
+
+impl Drop for SlowDrop {
+    fn drop(&mut self) {
+        std::thread::sleep(Duration::from_millis(50));
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// When `stop` returns, the driver value is gone: what it owned (the flow engine's store
+/// and its lock) can be opened again at once by the next instance (ADR 0036 restarts).
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_returns_after_the_driver_is_dropped() {
+    let session = zenoh::open(wyrm_link_sdk::harness::isolated_config())
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = wyrm_link_sdk::spawn::<SlowDrop>(
+            session.clone(),
+            wyrm_link_sdk::LinkConfig::new(SITE, "slow-drop"),
+            dropped.clone(),
+        )
+        .await
+        .unwrap();
+        handle.stop().await;
+        assert!(
+            dropped.load(std::sync::atomic::Ordering::SeqCst),
+            "stop returned before the driver was dropped"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn data_dir_reaches_ctx() {
     let (h, _) = harness().await;
