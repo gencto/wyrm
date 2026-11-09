@@ -63,6 +63,8 @@ final class FlowWireVm extends Equatable {
 ///   an output) picks its wire up: let go on another input, it moves
 ///   there; on the empty canvas, it unbinds;
 /// - a double click or an Alt-click on a bound input unbinds it;
+/// - the pointer over a bound field lights its wire and its source row (the
+///   field shows the value that comes in, not where it comes from);
 /// - the empty canvas pans, and so do two fingers on a trackpad; a click
 ///   on it clears the selection.
 ///
@@ -177,6 +179,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
   /// The last click on a row, for a double click: block, row, when.
   (String, String, Duration)? _lastClick;
 
+  /// The bound field under the pointer: block and row id.
+  (String, String)? _hover;
+
   TransformationController get _ctl =>
       widget.controller ?? (_own ??= TransformationController());
 
@@ -221,6 +226,33 @@ class _FlowCanvasState extends State<FlowCanvas> {
   static bool _bound(FieldRowVm r) =>
       r.inPort != null &&
       (r.inMark == PortMark.bound || r.inMark == PortMark.write);
+
+  void _hoverAt(PointerHoverEvent e) {
+    final p = e.localPosition;
+    final b = _blockAt(_blocks, p);
+    final i = b?.rowAt(p);
+    final next = b != null && i != null && _bound(b.rows[i])
+        ? (b.id, b.rows[i].id)
+        : null;
+    if (next != _hover) {
+      setState(() => _hover = next);
+    }
+  }
+
+  /// The wire into the bound field under the pointer.
+  FlowWireVm? _hovered(Map<String, FlowBlockVm> byId) {
+    final h = _hover;
+    if (h == null) {
+      return null;
+    }
+    final port = byId[h.$1]?.rows
+        .where((r) => r.id == h.$2)
+        .firstOrNull
+        ?.inPort;
+    return widget.wires
+        .where((w) => w.to == h.$1 && w.toPort == port)
+        .firstOrNull;
+  }
 
   void _down(PointerDownEvent e) {
     if (e.buttons != kPrimaryButton) {
@@ -459,131 +491,154 @@ class _FlowCanvasState extends State<FlowCanvas> {
         ? RowLight.none
         : (wire!.refusal == null ? RowLight.takes : RowLight.refuses);
     final pending = wire == null ? null : _pending(wire, byId);
-    return ColoredBox(
-      key: _view,
-      color: c.ground0,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: DragTarget<String>(
-              onAcceptWithDetails: (d) {
-                final p = _local(d.offset) - FlowCanvas.dropGrab;
-                widget.onDrop(
-                  d.data,
-                  FlowCanvas.snap(p.dx.clamp(0, FlowCanvas.size.width)),
-                  FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
-                );
-              },
-              builder: (context, _, _) => InteractiveViewer(
-                transformationController: _ctl,
-                constrained: false,
-                panEnabled: false,
-                minScale: 0.4,
-                maxScale: 1.6,
-                boundaryMargin: const EdgeInsets.all(200),
-                child: Listener(
-                  behavior: .opaque,
-                  onPointerDown: _down,
-                  onPointerMove: _move,
-                  onPointerUp: _up,
-                  // Two fingers on a trackpad scroll the canvas; the viewer
-                  // keeps pinch zoom.
-                  onPointerPanZoomUpdate: (e) =>
-                      _ctl.value = Matrix4.translationValues(
-                        e.panDelta.dx,
-                        e.panDelta.dy,
-                        0,
-                      )..multiply(_ctl.value),
-                  onPointerCancel: (_) => setState(() {
-                    _press = null;
-                    fieldDropHover.value = null;
-                  }),
-                  child: SizedBox(
-                    key: _key,
-                    width: FlowCanvas.size.width,
-                    height: FlowCanvas.size.height,
-                    child: Stack(
-                      clipBehavior: .none,
-                      children: [
-                        Positioned.fill(
-                          child: CustomPaint(
-                            painter: _Grid(c.line1),
-                            foregroundPainter: _Wires(
-                              wires: wires,
-                              byId: byId,
-                              teal: c.good,
-                              ember: c.ember,
-                            ),
-                          ),
-                        ),
-                        for (final b in blocks)
-                          Positioned(
-                            left: b.x,
-                            top: b.y,
-                            child: FlowBlockView(
-                              key: ValueKey(b.id),
-                              vm: b,
-                              actions: widget.actions,
-                              lit: wire?.over?.$1 == b.id
-                                  ? wire!.over!.$2
-                                  : null,
-                              light: light,
-                            ),
-                          ),
-                        // The selected block's wires over the blocks.
-                        Positioned.fill(
-                          child: IgnorePointer(
+    // The pointer over a bound field: its wire over the blocks, its source
+    // row lit.
+    final hovered = _press == null ? _hovered(byId) : null;
+    final source = hovered == null
+        ? null
+        : byId[hovered.from]?.rows
+              .where((r) => r.sends(hovered.fromPort))
+              .firstOrNull
+              ?.id;
+    if (hovered != null && !front.contains(hovered)) {
+      front.add(hovered);
+    }
+    return MouseRegion(
+      onExit: (_) {
+        if (_hover != null) {
+          setState(() => _hover = null);
+        }
+      },
+      child: ColoredBox(
+        key: _view,
+        color: c.ground0,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DragTarget<String>(
+                onAcceptWithDetails: (d) {
+                  final p = _local(d.offset) - FlowCanvas.dropGrab;
+                  widget.onDrop(
+                    d.data,
+                    FlowCanvas.snap(p.dx.clamp(0, FlowCanvas.size.width)),
+                    FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
+                  );
+                },
+                builder: (context, _, _) => InteractiveViewer(
+                  transformationController: _ctl,
+                  constrained: false,
+                  panEnabled: false,
+                  minScale: 0.4,
+                  maxScale: 1.6,
+                  boundaryMargin: const EdgeInsets.all(200),
+                  child: Listener(
+                    behavior: .opaque,
+                    onPointerHover: _hoverAt,
+                    onPointerDown: _down,
+                    onPointerMove: _move,
+                    onPointerUp: _up,
+                    // Two fingers on a trackpad scroll the canvas; the viewer
+                    // keeps pinch zoom.
+                    onPointerPanZoomUpdate: (e) =>
+                        _ctl.value = Matrix4.translationValues(
+                          e.panDelta.dx,
+                          e.panDelta.dy,
+                          0,
+                        )..multiply(_ctl.value),
+                    onPointerCancel: (_) => setState(() {
+                      _press = null;
+                      fieldDropHover.value = null;
+                    }),
+                    child: SizedBox(
+                      key: _key,
+                      width: FlowCanvas.size.width,
+                      height: FlowCanvas.size.height,
+                      child: Stack(
+                        clipBehavior: .none,
+                        children: [
+                          Positioned.fill(
                             child: CustomPaint(
-                              painter: _Wires(
-                                wires: front,
+                              painter: _Grid(c.line1),
+                              foregroundPainter: _Wires(
+                                wires: wires,
                                 byId: byId,
                                 teal: c.good,
                                 ember: c.ember,
-                                pending: pending,
-                                pendingColor: wire?.refusal != null
-                                    ? c.bad
-                                    : c.good,
                               ),
                             ),
                           ),
-                        ),
-                        for (final w in wires)
-                          if (w.warning case final text?)
-                            if (_mid(byId, w) case final m?)
-                              Positioned(
-                                left: m.dx - 60,
-                                top: m.dy - 11,
-                                width: 120,
-                                child: Center(
-                                  child: _WarnChip(text, w.warningNote),
+                          for (final b in blocks)
+                            Positioned(
+                              left: b.x,
+                              top: b.y,
+                              child: FlowBlockView(
+                                key: ValueKey(b.id),
+                                vm: b,
+                                actions: widget.actions,
+                                lit: wire?.over?.$1 == b.id
+                                    ? wire!.over!.$2
+                                    : (hovered?.from == b.id ? source : null),
+                                light: wire?.over?.$1 == b.id
+                                    ? light
+                                    : RowLight.source,
+                              ),
+                            ),
+                          // The selected block's wires over the blocks.
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _Wires(
+                                  wires: front,
+                                  byId: byId,
+                                  teal: c.good,
+                                  ember: c.ember,
+                                  pending: pending,
+                                  pendingColor: wire?.refusal != null
+                                      ? c.bad
+                                      : c.good,
+                                  highlight: hovered,
                                 ),
                               ),
-                        if (wire?.refusal case final why?)
-                          Positioned(
-                            left: wire!.pointer.dx + 14,
-                            top: wire.pointer.dy + 12,
-                            child: IgnorePointer(child: _Refusal(why)),
+                            ),
                           ),
-                      ],
+                          for (final w in wires)
+                            if (w.warning case final text?)
+                              if (_mid(byId, w) case final m?)
+                                Positioned(
+                                  left: m.dx - 60,
+                                  top: m.dy - 11,
+                                  width: 120,
+                                  child: Center(
+                                    child: _WarnChip(text, w.warningNote),
+                                  ),
+                                ),
+                          if (wire?.refusal case final why?)
+                            Positioned(
+                              left: wire!.pointer.dx + 14,
+                              top: wire.pointer.dy + 12,
+                              child: IgnorePointer(child: _Refusal(why)),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          if (widget.legend case final l?)
-            Positioned(
-              left: 16,
-              bottom: 16,
-              right: 16,
-              child: IgnorePointer(
-                child: Align(
-                  alignment: .bottomLeft,
-                  child: FlowLegend(vm: l),
+            if (widget.legend case final l?)
+              Positioned(
+                left: 16,
+                bottom: 16,
+                right: 16,
+                child: IgnorePointer(
+                  child: Align(
+                    alignment: .bottomLeft,
+                    child: FlowLegend(vm: l),
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -707,9 +762,13 @@ class _Wires extends CustomPainter {
     required this.ember,
     this.pending,
     this.pendingColor = Colors.transparent,
+    this.highlight,
   });
 
   final List<FlowWireVm> wires;
+
+  /// The wire of the bound field under the pointer: drawn wider.
+  final FlowWireVm? highlight;
   final Map<String, FlowBlockVm> byId;
   final Color teal;
   final Color ember;
@@ -731,13 +790,25 @@ class _Wires extends CustomPainter {
       if (p1 == null || p2 == null) {
         continue;
       }
+      final lit = w == highlight;
+      final color = w.writes ? ember : teal;
+      if (lit) {
+        canvas.drawPath(
+          _curve(p1, p2),
+          Paint()
+            ..color = color.withValues(alpha: 0.25)
+            ..style = .stroke
+            ..strokeCap = .round
+            ..strokeWidth = 8,
+        );
+      }
       canvas.drawPath(
         _curve(p1, p2),
         Paint()
-          ..color = w.writes ? ember : teal
+          ..color = color
           ..style = .stroke
           ..strokeCap = .round
-          ..strokeWidth = 2,
+          ..strokeWidth = lit ? 3 : 2,
       );
     }
     if (pending case (final p1, final p2)) {
@@ -759,5 +830,6 @@ class _Wires extends CustomPainter {
       old.wires != wires ||
       old.byId != byId ||
       old.pending != pending ||
-      old.pendingColor != pendingColor;
+      old.pendingColor != pendingColor ||
+      old.highlight != highlight;
 }

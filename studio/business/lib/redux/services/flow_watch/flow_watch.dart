@@ -179,49 +179,8 @@ class FlowWatchService extends DisposableServiceInterface {
       _pending.clear();
       _reset = true;
     }
-    if (r['nodes'] case VMap(:final v)) {
-      for (final MapEntry(key: node, value: ports) in v.entries) {
-        for (final dir in const ['in', 'out']) {
-          if (ports[dir] case VMap(:final v)) {
-            for (final MapEntry(key: port, value: s) in v.entries) {
-              _pending[portKey(dir, node, port)] = _sample(s, t);
-            }
-          }
-        }
-        if (ports['params'] case VMap(:final v)) {
-          for (final MapEntry(key: p, value: x) in v.entries) {
-            _pending[portKey('param', node, p)] = LiveValue(
-              time: t,
-              value: toDart(x),
-            );
-          }
-        }
-      }
-    }
+    flowRowPorts(r, t, _pending);
     _schedule();
-  }
-
-  /// `[v, q]`, q a quality code or name.
-  static LiveValue _sample(Value s, DateTime t) {
-    final (v, q) = switch (s) {
-      VArray(:final v) when v.length >= 2 => (v[0], v[1]),
-      VArray(:final v) when v.length == 1 => (v[0], null),
-      _ => (s, null),
-    };
-    final code = integer(q);
-    final quality = switch (q) {
-      VStr(:final v) => Quality.fromName(v),
-      _ => code == null ? null : Quality.fromCode(code),
-    };
-    return LiveValue(
-      time: t,
-      value: toDart(v),
-      quality: switch (quality) {
-        Quality.uncertain => m.Quality.uncertain,
-        Quality.bad => m.Quality.bad,
-        _ => m.Quality.good,
-      },
-    );
   }
 
   void _schedule() => _flush ??= Timer(flushEvery, flush);
@@ -260,4 +219,52 @@ class FlowWatchService extends DisposableServiceInterface {
     _flush?.cancel();
     _flush = null;
   }
+}
+
+/// The port values of one row of `watch` or `preview` (ADR 0038 §3): each
+/// node's `in` and `out` samples and its `params`, keyed by [portKey], put
+/// into [into].
+void flowRowPorts(Value r, DateTime t, Map<String, LiveValue> into) {
+  if (r['nodes'] case VMap(:final v)) {
+    for (final MapEntry(key: node, value: ports) in v.entries) {
+      for (final dir in const ['in', 'out']) {
+        if (ports[dir] case VMap(:final v)) {
+          for (final MapEntry(key: port, value: s) in v.entries) {
+            into[portKey(dir, node, port)] = flowSample(s, t);
+          }
+        }
+      }
+      if (ports['params'] case VMap(:final v)) {
+        for (final MapEntry(key: p, value: x) in v.entries) {
+          into[portKey('param', node, p)] = LiveValue(
+            time: t,
+            value: toDart(x),
+          );
+        }
+      }
+    }
+  }
+}
+
+/// A sample `[v, q]` of a row, q a quality code or name.
+LiveValue flowSample(Value s, DateTime t) {
+  final (v, q) = switch (s) {
+    VArray(:final v) when v.length >= 2 => (v[0], v[1]),
+    VArray(:final v) when v.length == 1 => (v[0], null),
+    _ => (s, null),
+  };
+  final code = integer(q);
+  final quality = switch (q) {
+    VStr(:final v) => Quality.fromName(v),
+    _ => code == null ? null : Quality.fromCode(code),
+  };
+  return LiveValue(
+    time: t,
+    value: toDart(v),
+    quality: switch (quality) {
+      Quality.uncertain => m.Quality.uncertain,
+      Quality.bad => m.Quality.bad,
+      _ => m.Quality.good,
+    },
+  );
 }

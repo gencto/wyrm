@@ -30,5 +30,10 @@ abstract class NodeType with _$NodeType {
     /// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
     /// when the catalog does not say.
     bool? echoInputs,
+
+    /// Whether its operand inputs (`in`, the variable inputs) take a typed
+    /// constant in the node's config `values` (catalog `values: true`, ADR
+    /// 0038 §7).
+    @Default(false) bool takesValues,
   }) = _NodeType;
 }

@@ -517,6 +517,18 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns watchRefused
   String? get watchRefused => _state.flowEditor.watchRefused;
+
+  /// Returns previewPorts
+  IMap<String, LiveValue> get previewPorts => _state.flowEditor.previewPorts;
+
+  /// Returns previewSinks
+  IMap<String, LiveValue> get previewSinks => _state.flowEditor.previewSinks;
+
+  /// Returns previewError
+  String? get previewError => _state.flowEditor.previewError;
+
+  /// Returns previewOff
+  String? get previewOff => _state.flowEditor.previewOff;
 }
 
 extension type SelectTasks(AppState _state) {
