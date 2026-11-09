@@ -818,9 +818,12 @@ fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> 
 }
 
 /// `trigger` (ADR 0040 §2): the caller itself may do what the block does, on the block's
-/// target: `write` on the key of the command (`…/~act/<a>`, `…/~set`) by its `auth` (spec 04).
-/// The flow's own token only says that its deployer could.
-fn triggers(n: &def::NodeDef, who: &Caller, site: &str) -> Result<(), LinkError> {
+/// target (`…/~act/<a>`, `…/~set`), by its `auth` (spec 04). The level is the one the deploy
+/// asked of the deployer's proof ([`proves_targets`]): the flow's token for the target carries
+/// up to `maxperm`, so the caller needs `max(maxperm, write)`. A caller with less could
+/// otherwise run through the flow what it may not run itself. The flow's own token only says
+/// that its deployer could.
+fn triggers(n: &def::NodeDef, maxperm: Perm, who: &Caller, site: &str) -> Result<(), LinkError> {
     let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
     let Some(target) = crate::nodes::command_target(&n.ty, &n.cfg) else {
         return Ok(());
@@ -831,8 +834,12 @@ fn triggers(n: &def::NodeDef, who: &Caller, site: &str) -> Result<(), LinkError>
             "trigger needs the rights of the caller: a token with `auth` (spec 04)".into(),
         ));
     };
-    if !holds_key(auth, &full, Perm::Write) {
-        return Err(denied(format!("{full}: the caller may not write it")));
+    let needed = maxperm.max(Perm::Write);
+    if !holds_key(auth, &full, needed) {
+        return Err(denied(format!(
+            "{full}: the caller does not hold {} on it",
+            needed.name()
+        )));
     }
     Ok(())
 }
@@ -1223,7 +1230,7 @@ impl Link for Engine {
                             "node: {node} is not a block that trigger runs (invoke, set)"
                         ))
                     })?;
-                triggers(n, who, &self.site)?;
+                triggers(n, f.def.maxperm, who, &self.site)?;
                 let inbox = f
                     .run
                     .as_ref()
@@ -1508,5 +1515,75 @@ mod tests {
         .unwrap();
         let e = check_sources(&bad, "s").unwrap_err();
         assert!(e.0.contains("nodes.a.key_scope"), "{e}");
+    }
+
+    /// ADR 0040 §2 (security review): `trigger` asks of the caller what the deploy asked of
+    /// the deployer's proof, `max(maxperm, write)` on the block's target. A flow whose token
+    /// carried `config` must not be run by a caller that holds only `write` there.
+    #[test]
+    fn trigger_needs_the_level_of_the_flows_token() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let mut def = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "cmd",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/l/dev")),
+                            ("action", s("edit")),
+                        ]),
+                    ),
+                    ("w", m(&[("type", s("set")), ("path", s("storage/out"))])),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ]))
+        .unwrap();
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let cmd = def.nodes["cmd"].clone();
+        let set = def.nodes["w"].clone();
+        let writer = caller(Some(vec![g("wy/s/**", Perm::Write)]));
+        let reader = caller(Some(vec![g("wy/s/**", Perm::Read)]));
+        let admin = caller(Some(vec![g("wy/s/**", Perm::Config)]));
+        // a flow at `write`: write on the target is enough, read is not, no `auth` neither
+        triggers(&cmd, def.maxperm, &writer, "s").unwrap();
+        triggers(&set, def.maxperm, &writer, "s").unwrap();
+        let e = triggers(&cmd, def.maxperm, &reader, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(triggers(&cmd, def.maxperm, &caller(None), "s").is_err());
+        // write elsewhere is not write on the target; a deny on the target comes first
+        let elsewhere = caller(Some(vec![g("wy/s/storage/**", Perm::Write)]));
+        assert!(triggers(&cmd, def.maxperm, &elsewhere, "s").is_err());
+        let holed = caller(Some(vec![
+            g("wy/s/downstream/l/dev/**", Perm::Read),
+            g("wy/s/**", Perm::Config),
+        ]));
+        assert!(triggers(&cmd, def.maxperm, &holed, "s").is_err());
+        // a flow whose token carries `config` (the compiler caps `maxperm` at write today;
+        // the gate must hold if that cap ever moves): a writer is refused, an admin is not
+        def.maxperm = Perm::Config;
+        let e = triggers(&cmd, def.maxperm, &writer, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/l/dev/~act/edit: the caller does not hold config"),
+            "{e}"
+        );
+        assert!(triggers(&set, def.maxperm, &writer, "s").is_err());
+        triggers(&cmd, def.maxperm, &admin, "s").unwrap();
+        // a flow at `read` still needs write: a trigger is a command
+        def.maxperm = Perm::Read;
+        assert!(triggers(&cmd, def.maxperm, &reader, "s").is_err());
+        triggers(&cmd, def.maxperm, &writer, "s").unwrap();
     }
 }

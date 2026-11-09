@@ -251,7 +251,8 @@ this rule: a variable wired to `in` of a `set` or an `invoke` still acts at
 deploy. Wire `trigger` where a deploy must do nothing.
 
 The `trigger` action is the block's button in the editor. It needs level
-`write` on the flow, and the caller needs `write` on the block's own target.
+`write` on the flow, and the caller needs `write` on the block's own target
+(the flow's `maxperm` when that is higher).
 It works on a deployed flow that runs. In a preview a command block shows what
 it would send (`sinks`), fires `sent`, and never `ok` or `error`.
 
