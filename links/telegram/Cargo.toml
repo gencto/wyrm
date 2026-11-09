@@ -1,0 +1,46 @@
+[package]
+name = "wyrm-link-telegram"
+description = "Telegram bots (ADR 0039): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the WASM component (`--features wasm`, wasm32-unknown-unknown);
+# rlib: the process binary and the tests
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wyrm-link-telegram"
+required-features = ["process"]
+
+[features]
+process = ["dep:wyrm-link-sdk", "wyrm-link-sdk/process", "dep:wyrm-link-portable"]
+wasm = ["dep:wyrm-link-guest"]
+
+[dependencies]
+wyrm-messenger.workspace = true
+wyrm-link-api.workspace = true
+serde_json.workspace = true
+wyrm-link-guest = { workspace = true, optional = true }
+wyrm-link-sdk = { workspace = true, optional = true }
+wyrm-link-portable = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-messenger = { workspace = true, features = ["testkit"] }
+wyrm-core.workspace = true
+serde_json.workspace = true
+
+# `wyr link pack` (ADR 0021, 0023): a `wasm` package; `examples/packages/build.sh` also packs
+# the binary (`--kind process --name telegram-process`). An operator grants `read (and `write` for /set and /do) on the roots that templates and chat users name`
+# (`sys/links/<id>/~act/grant`, ADR 0013) and lists `api.telegram.org:443` in `net`.
+[package.metadata.wyrm-link]
+name = "telegram"
+description = "Telegram bots (ADR 0039): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
+kind = "wasm"
+features = ["process"]
+capabilities = { store_mb = 2, call_ms = 10000 }
