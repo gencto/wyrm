@@ -1,7 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/move_block_action.dart';
+import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/preview_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -543,7 +543,7 @@ void main() {
         expect(previews(), isEmpty, reason: 'the watch shows it');
 
         s
-          ..dispatchSync(MoveBlockAction('limit', 200, 200))
+          ..dispatchSync(MoveBlocksAction(const {'limit': (200, 200)}))
           ..dispatchSync(PreviewFlowAction());
         await debounce();
         expect(previews(), isEmpty, reason: 'the layout runs nothing');

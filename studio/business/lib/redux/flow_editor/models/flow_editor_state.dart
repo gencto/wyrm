@@ -27,5 +27,10 @@ abstract class FlowEditorState with _$FlowEditorState {
     String? previewError,
     String? previewOff,
     String? viewedField,
+    @Default(ISetConst({})) ISet<String> selection,
+    @Default(IListConst([])) IList<FlowDraft> undo,
+    @Default(IListConst([])) IList<FlowDraft> redo,
+    String? undoTag,
+    String? clipboard,
   }) = _FlowEditorState;
 }

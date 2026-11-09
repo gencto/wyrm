@@ -45,6 +45,8 @@ final class InspectorRowVm extends Equatable {
     this.targets = '',
     this.inPort,
     this.hint = '',
+    this.pinned,
+    this.pinLocked = false,
   });
 
   /// The field's id within its block.
@@ -78,8 +80,36 @@ final class InspectorRowVm extends Equatable {
   /// The parameter's description, as a tooltip.
   final String hint;
 
+  /// Whether the field is a row of the block on the canvas (spec §12);
+  /// null: the row has no pin (the `Form` row).
+  final bool? pinned;
+
+  /// A bound field stays on the block: its pin cannot be taken off.
+  final bool pinLocked;
+
+  /// The same row with its pin: on the block or not, and whether a wire
+  /// holds it there.
+  InspectorRowVm pin({required bool pinned, required bool locked}) =>
+      InspectorRowVm(
+        id: id,
+        name: name,
+        editor: editor,
+        engine: engine,
+        value: value,
+        choices: choices,
+        sourceBlock: sourceBlock,
+        writes: writes,
+        targets: targets,
+        inPort: inPort,
+        hint: hint,
+        pinned: pinned,
+        pinLocked: locked,
+      );
+
   @override
   List<Object?> get props => [
+    pinned,
+    pinLocked,
     id,
     name,
     engine,
@@ -143,6 +173,10 @@ class FieldInspector extends StatelessWidget {
     required this.onProblem,
     this.onGoToSource,
     this.onView,
+    this.onPin,
+    this.pinLabel = 'Pin to block',
+    this.unpinLabel = 'Unpin from block',
+    this.pinLockedLabel = 'A bound field stays on the block',
     this.viewLabel = 'View value',
     this.kindLabel = '',
     this.title = '',
@@ -182,6 +216,13 @@ class FieldInspector extends StatelessWidget {
   /// null: rows have none.
   final ValueChanged<String>? onView;
   final String viewLabel;
+
+  /// The pin before a row's label: puts the field on the block or takes
+  /// it off (spec §12); null: rows have none.
+  final void Function(String id, {required bool pinned})? onPin;
+  final String pinLabel;
+  final String unpinLabel;
+  final String pinLockedLabel;
   final String removeLabel;
   final VoidCallback? onRemove;
   final String unbindLabel;
@@ -244,6 +285,10 @@ class FieldInspector extends StatelessWidget {
                           onGoToSource: onGoToSource,
                           onView: onView,
                           viewLabel: viewLabel,
+                          onPin: onPin,
+                          pinLabel: pinLabel,
+                          unpinLabel: unpinLabel,
+                          pinLockedLabel: pinLockedLabel,
                           unbindLabel: unbindLabel,
                           bindLabel: bindLabel,
                           goToSourceLabel: goToSourceLabel,
@@ -361,8 +406,9 @@ class FieldInspector extends StatelessWidget {
   }
 }
 
-/// One field: label (engine name under it) · editor · link button · view
-/// button (104 · 1fr · 28 · 28, min 44 high). Every value ellipsizes in
+/// One field: pin · label (engine name under it) · editor · link button ·
+/// view button (18 · 86 · 1fr · 28 · 28, min 44 high; 104 for the label
+/// of a row without a pin). Every value ellipsizes in
 /// its cell; the viewer shows it whole.
 class _Row extends StatelessWidget {
   const _Row({
@@ -373,6 +419,10 @@ class _Row extends StatelessWidget {
     required this.onGoToSource,
     required this.onView,
     required this.viewLabel,
+    required this.onPin,
+    required this.pinLabel,
+    required this.unpinLabel,
+    required this.pinLockedLabel,
     required this.unbindLabel,
     required this.bindLabel,
     required this.goToSourceLabel,
@@ -380,6 +430,10 @@ class _Row extends StatelessWidget {
   });
 
   final InspectorRowVm vm;
+  final void Function(String id, {required bool pinned})? onPin;
+  final String pinLabel;
+  final String unpinLabel;
+  final String pinLockedLabel;
   final ValueChanged<String>? onView;
   final String viewLabel;
   final void Function(String id, String value) onChanged;
@@ -396,6 +450,9 @@ class _Row extends StatelessWidget {
     final c = context.colors;
     final bound = vm.editor == FieldEditorVm.bound;
     final takes = vm.inPort != null;
+    final pin = onPin;
+    final pinned = vm.pinned;
+    final hasPin = pin != null && pinned != null;
     Widget row(bool lit) => Container(
       constraints: const BoxConstraints(minHeight: 44),
       decoration: BoxDecoration(
@@ -404,8 +461,36 @@ class _Row extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (hasPin)
+            SizedBox(
+              width: 18,
+              height: 32,
+              child: Tooltip(
+                message: vm.pinLocked
+                    ? pinLockedLabel
+                    : (pinned ? unpinLabel : pinLabel),
+                waitDuration: const Duration(milliseconds: 400),
+                child: InkWell(
+                  key: ValueKey('pin-${vm.id}'),
+                  borderRadius: const BorderRadius.all(Radius.circular(4)),
+                  onTap: vm.pinLocked
+                      ? null
+                      : () => pin(vm.id, pinned: !pinned),
+                  child: Align(
+                    alignment: .centerLeft,
+                    child: AppIcon(
+                      'ui_pin',
+                      size: 14,
+                      color: !pinned
+                          ? c.muted
+                          : (vm.pinLocked ? c.good : c.emberSoft),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           SizedBox(
-            width: 104,
+            width: hasPin ? 86 : 104,
             child: Tooltip(
               message: vm.hint,
               child: Column(

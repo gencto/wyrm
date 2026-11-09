@@ -9,29 +9,37 @@ import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/disconnect_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/move_block_action.dart';
+import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/paste_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/preview_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/rebind_edge_action.dart';
-import 'package:business/redux/flow_editor/actions/remove_block_action.dart';
+import 'package:business/redux/flow_editor/actions/redo_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/resize_inputs_action.dart';
+import 'package:business/redux/flow_editor/actions/select_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_form_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
+import 'package:business/redux/flow_editor/actions/set_clipboard_action.dart';
+import 'package:business/redux/flow_editor/actions/set_field_pin_action.dart';
 import 'package:business/redux/flow_editor/actions/set_operand_value_action.dart';
 import 'package:business/redux/flow_editor/actions/set_palette_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
 import 'package:business/redux/flow_editor/actions/set_viewed_field_action.dart';
+import 'package:business/redux/flow_editor/actions/undo_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/watch_flow_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
@@ -45,6 +53,8 @@ import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
+import 'package:ui/flows/flow_menu.dart';
+import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/value_viewer.dart';
@@ -194,6 +204,25 @@ class FlowEditorPageConnector extends StatelessWidget {
       copyLabel: S.current.copyValue,
       copiedLabel: S.current.copiedValue,
       closeLabel: S.current.closeLabel,
+      onSelectMany: vm.onSelectMany,
+      onCommand: vm.onCommand,
+      menu: vm.menu,
+      onPin: vm.onPin,
+      onViewField: vm.onViewField,
+      onFieldPin: vm.onFieldPin,
+      pinLabel: S.current.pinField,
+      unpinLabel: S.current.unpinField,
+      pinLockedLabel: S.current.pinLocked,
+      onSaveViewer: vm.onSaveViewer,
+      validateViewer: vm.validateViewer,
+      editLabel: S.current.viewerEdit,
+      saveLabel: S.current.viewerSave,
+      cancelLabel: S.current.cancel,
+      saveHint: S.current.viewerSaveHint(
+        flowOnMac ? 'Cmd+Enter' : 'Ctrl+Enter',
+      ),
+      deployAskTitle: S.current.deployAskTitle,
+      deployAskMessage: S.current.deployAskMessage(vm.flowLabel),
     ),
   );
 
@@ -276,19 +305,23 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       for (final x in blocks.values)
         x.id: fieldsOf(types[x.type], x, edges: edges),
     };
-    // Rows a block draws: its own, and any field a wire touches.
+    // Rows a block draws: its pinned fields (spec §12): the user's choice,
+    // else the type's default, and always a field a wire touches.
     final rows = {
       for (final x in blocks.values)
         x.id: [
           for (final f in fields[x.id]!)
-            if (f.onBlock ||
-                edges.any(
-                  (e) =>
-                      (e.to == x.id && e.toPort == f.inPort) ||
-                      (e.from == x.id && f.sends(e.fromPort)),
-                ))
-              f,
+            if (fieldPinned(x, f, edges)) f,
         ],
+    };
+    final selection = ed.selection;
+    // The field the viewer shows: its block and its field.
+    final viewed = switch (ed.viewedField?.split('/')) {
+      [final vb, ...final rest] when blocks[vb] != null => (
+        blocks[vb]!,
+        fields[vb]!.where((f) => f.id == rest.join('/')).firstOrNull,
+      ),
+      _ => null,
     };
     LiveValue? Function(String) look(FlowBlock x) =>
         _live(x, root, fields, previewing: previewing);
@@ -301,7 +334,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       watch: FlowEditorPageConnector._watch(state, connector.id),
       run: run,
       flowLabel: id.isNotEmpty ? id : S.current.newDataflow,
-      blockLabel: sel,
+      blockLabel:
+          sel ??
+          (selection.length > 1 ? S.current.fmBlocks(selection.length) : null),
       state: switch (ed) {
         _ when d == null => S.current.loading,
         _ when busy => S.current.deploying,
@@ -326,7 +361,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             rows[x.id]!,
             d!,
             look(x),
-            x.id == sel,
+            selection.contains(x.id),
             previewing: previewing,
           ),
       ],
@@ -386,7 +421,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                   choices: [for (final f in formsOf(b.type)) f.label],
                 ),
               for (final f in fields[b.id]!)
-                _inspectorRow(b, f, d!, look(b), inLabelOf),
+                _inspectorRow(b, f, d!, look(b), inLabelOf).pin(
+                  pinned: fieldPinned(b, f, edges),
+                  locked: fieldBound(b, f, edges),
+                ),
             ],
       summary: b == null
           ? _summary(root, id, d, problems, previewing: previewing)
@@ -430,8 +468,43 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ),
       onDrop: _add,
       onClear: () => dispatchSync(SetSelectedBlockAction(null)),
-      onMove: (x, px, py) => dispatchSync(MoveBlockAction(x, px, py)),
+      onMove: (to, {required nudge}) => dispatchSync(
+        MoveBlocksAction({
+          for (final MapEntry(:key, :value) in to.entries)
+            key: (value.dx, value.dy),
+        }, tag: nudge ? 'nudge' : null),
+      ),
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),
+      onSelectMany: (ids, {required add, required toggle}) =>
+          dispatchSync(SelectBlocksAction(ids, add: add, toggle: toggle)),
+      onCommand: _command,
+      menu: (ids, block, row) => _menu(ids, block, row, fields),
+      onPin: (block, field, {required pinned}) =>
+          dispatchSync(SetFieldPinAction(block, field, pinned: pinned)),
+      onFieldPin: (field, {required pinned}) {
+        if (sel != null) {
+          dispatchSync(SetFieldPinAction(sel, field, pinned: pinned));
+        }
+      },
+      onViewField: (block, row) =>
+          dispatchSync(SetViewedFieldAction('$block/$row')),
+      onSaveViewer: (text) {
+        if (viewed case (final vb, final f?)) {
+          _setField(vb, f, text);
+        }
+      },
+      validateViewer: (text) {
+        final edit = switch (viewed) {
+          (final vb, final f?) => fieldEditOf(vb, f, edges).edit,
+          _ => null,
+        };
+        return switch (edit == null ? null : fieldEditError(text, edit)) {
+          null => null,
+          FieldEditError.number => S.current.viewerBadNumber,
+          FieldEditError.json => S.current.viewerBadJson,
+          FieldEditError.toggle => S.current.viewerBadBool,
+        };
+      },
       onBind: (from, to, port) =>
           dispatchSync(ConnectPortsAction(from.block, from.port, to, port)),
       onUnbind: _unbind,
@@ -506,27 +579,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           return;
         }
         final f = fields[b.id]!.where((x) => x.id == row).firstOrNull;
-        if (f == null) {
-          return;
-        }
-        if (f.operand) {
-          dispatchSync(
-            SetOperandValueAction(b.id, f.inPort!, _typed(text, 'dynamic')),
-          );
-        } else if (f.kind == FieldKind.arg) {
-          final args = Map<String, Object?>.of(
-            (b.cfg['args'] as Map?)?.cast<String, Object?>() ?? const {},
-          );
-          args[f.name] = _typed(text, 'dynamic');
-          dispatchSync(SetBlockParamAction(b.id, 'args', args));
-        } else if (f.spec case final p?) {
-          dispatchSync(
-            SetBlockParamAction(
-              b.id,
-              p.name,
-              p.choices.isNotEmpty ? text : _typed(text, p.type),
-            ),
-          );
+        if (f != null) {
+          _setField(b, f, text);
         }
       },
       onFieldUnbind: (row) {
@@ -543,12 +597,234 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         }
       },
       onProblem: (x) => dispatchSync(SetSelectedBlockAction(x)),
-      onRemove: sel == null ? null : () => dispatchSync(RemoveBlockAction(sel)),
+      onRemove: sel == null
+          ? null
+          : () => dispatchSync(RemoveBlocksAction([sel])),
       onLogo: () => dispatch(GoAction.navigate(const ExplorerRoute())),
       panelWidths: WorkspacePanels.flowEditor.widths(panels.widths),
       onPanelWidth: (side, w) => dispatchSync(
         SetPanelWidthAction(WorkspacePanels.flowEditor.slot(side), w),
       ),
+    );
+  }
+
+  /// Types [text] into field [f] of block [b]: what the inspector's row
+  /// and the value viewer's Save both do (spec §15). The field's kind reads
+  /// the text (a number, a bool, JSON; `fieldEditOf`, `typedText`); a
+  /// parameter goes into the config, an operand into `values`, an
+  /// argument into `args`. A field that is not typed (bound, an output)
+  /// changes nothing.
+  void _setField(FlowBlock b, FlowField f, String text) {
+    final edit = fieldEditOf(
+      b,
+      f,
+      flowEditor.draft?.edges ?? const IListConst<FlowEdge>([]),
+    ).edit;
+    if (edit == null) {
+      return;
+    }
+    final value = typedText(text, edit);
+    if (f.operand) {
+      dispatchSync(SetOperandValueAction(b.id, f.inPort!, value));
+    } else if (f.kind == FieldKind.arg) {
+      final args = Map<String, Object?>.of(
+        (b.cfg['args'] as Map?)?.cast<String, Object?>() ?? const {},
+      );
+      args[f.name] = value;
+      dispatchSync(SetBlockParamAction(b.id, 'args', args));
+    } else if (f.spec case final p?) {
+      dispatchSync(SetBlockParamAction(b.id, p.name, value));
+    }
+  }
+
+  /// A command of the canvas, from a key or from its context menu (spec
+  /// §13). The state is read when the command comes: the clipboard and
+  /// the history change without the page being rebuilt.
+  void _command(FlowCommand command, {Offset? at}) {
+    final ed = SelectFlowEditor(currentState());
+    final d = ed.draft;
+    if (d == null) {
+      return;
+    }
+    final ids = ed.selection.unlock;
+    switch (command) {
+      case .copy:
+        _copy(d, ids);
+      case .cut:
+        if (_copy(d, ids)) {
+          dispatchSync(RemoveBlocksAction(ids));
+        }
+      case .paste:
+        unawaited(_paste(at));
+      case .duplicate:
+        final picked = [
+          for (final b in d.blocks.values)
+            if (ids.contains(b.id)) b,
+        ];
+        if (picked.isNotEmpty) {
+          // Beside the originals, one grid step down and to the right.
+          dispatchSync(
+            PasteBlocksAction(
+              clipTextOf(d, ids),
+              picked.map((b) => b.x).reduce((a, b) => a < b ? a : b) + 20,
+              picked.map((b) => b.y).reduce((a, b) => a < b ? a : b) + 20,
+            ),
+          );
+        }
+      case .delete:
+        dispatchSync(RemoveBlocksAction(ids));
+      case .undo:
+        dispatchSync(UndoFlowAction());
+      case .redo:
+        dispatchSync(RedoFlowAction());
+      case .escape:
+        // The viewer first, then the selection.
+        if (ed.viewedField != null) {
+          dispatchSync(SetViewedFieldAction(null));
+        } else {
+          dispatchSync(SetSelectedBlockAction(null));
+        }
+      // The canvas and the page answer the rest; custom blocks wait for
+      // the engine (ADR 0040).
+      case .selectAll ||
+          .marquee ||
+          .addToSelection ||
+          .moveSelection ||
+          .nudgeLeft ||
+          .nudgeRight ||
+          .nudgeUp ||
+          .nudgeDown ||
+          .unbind ||
+          .pan ||
+          .zoom ||
+          .zoomIn ||
+          .zoomOut ||
+          .zoomReset ||
+          .zoomFit ||
+          .viewValue ||
+          .searchPalette ||
+          .deploy ||
+          .help ||
+          .fields ||
+          .unpin ||
+          .createCustomBlock ||
+          .editCustomBlock:
+        break;
+    }
+  }
+
+  /// Copies the blocks [ids]: into the editor's own clipboard (it lasts
+  /// from one flow to the next) and, as the same JSON, onto the system's
+  /// (another window pastes it). False when there is nothing to copy.
+  bool _copy(FlowDraft d, Set<String> ids) {
+    final text = clipTextOf(d, ids);
+    if (text == null) {
+      return false;
+    }
+    dispatchSync(SetClipboardAction(text));
+    unawaited(_systemCopy(text));
+    return true;
+  }
+
+  static Future<void> _systemCopy(String text) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } on Object {
+      // No system clipboard here: the editor's own still pastes.
+    }
+  }
+
+  /// Pastes at [at] what the system clipboard holds; a text that is not
+  /// blocks pastes nothing. Only where there is no system clipboard (or it
+  /// is empty) the editor's own copy is pasted.
+  Future<void> _paste(Offset? at) async {
+    String? text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } on Object {
+      text = null;
+    }
+    final own = SelectFlowEditor(currentState()).clipboard;
+    dispatchSync(
+      PasteBlocksAction(
+        text == null || text.isEmpty ? own : text,
+        at?.dx ?? 60,
+        at?.dy ?? 60,
+      ),
+    );
+  }
+
+  /// The context menu (spec §13) opened on [block] (and its [row]) with the
+  /// selection [ids], or on the empty canvas.
+  FlowMenuVm _menu(
+    Set<String> ids,
+    String? block,
+    String? row,
+    Map<String, List<FlowField>> fields,
+  ) {
+    final ed = SelectFlowEditor(currentState());
+    final d = ed.draft;
+    final b = block == null ? null : d?.blocks[block];
+    final edges = d?.edges ?? const IListConst<FlowEdge>([]);
+    final none = ids.isEmpty ? S.current.fmNothingSelected : null;
+    final one = ids.length == 1 && b != null;
+    FlowPinVm pinOf(FlowField f) => FlowPinVm(
+      id: f.id,
+      label: f.label,
+      pinned: fieldPinned(b!, f, edges),
+      lockedReason: fieldBound(b, f, edges) ? S.current.fmBound : null,
+    );
+    final own = one ? fields[b.id] ?? const <FlowField>[] : const <FlowField>[];
+    final onRow = row == null
+        ? null
+        : own.where((f) => f.id == row).firstOrNull;
+    return FlowMenuVm(
+      title: one
+          ? b.id
+          : (ids.length > 1
+                ? S.current.fmBlocks(ids.length)
+                : (d == null || d.id.isEmpty ? S.current.fmCanvas : d.id)),
+      subtitle: one
+          ? b.type
+          : (ids.length > 1 ? '' : S.current.fmBlocks(d?.blocks.length ?? 0)),
+      fields: [for (final f in own) pinOf(f)],
+      unpin: onRow == null ? null : pinOf(onRow),
+      items: [
+        FlowMenuItemVm(.cut, disabledReason: none),
+        FlowMenuItemVm(.copy, disabledReason: none),
+        const FlowMenuItemVm(.paste),
+        FlowMenuItemVm(.duplicate, disabledReason: none),
+        FlowMenuItemVm(.delete, disabledReason: none, danger: ids.isNotEmpty),
+        const FlowMenuItemVm(.selectAll, divider: true),
+        if (ids.isEmpty) ...[
+          FlowMenuItemVm(
+            .undo,
+            divider: true,
+            disabledReason: ed.undo.isEmpty ? S.current.fmNothingToUndo : null,
+          ),
+          FlowMenuItemVm(
+            .redo,
+            disabledReason: ed.redo.isEmpty ? S.current.fmNothingToRedo : null,
+          ),
+        ],
+        if (one) ...[
+          const FlowMenuItemVm(.fields, divider: true),
+          if (onRow != null) const FlowMenuItemVm(.unpin),
+        ],
+        // Custom blocks wait for sub-flows in the engine (ADR 0040); the
+        // cut of a selection into one is ready (`extractSubflow`).
+        if (ids.isNotEmpty)
+          FlowMenuItemVm(
+            .createCustomBlock,
+            divider: true,
+            disabledReason: S.current.fmNeedsEngine,
+          ),
+        if (one)
+          FlowMenuItemVm(
+            .editCustomBlock,
+            disabledReason: S.current.fmNeedsEngine,
+          ),
+      ],
     );
   }
 
@@ -978,6 +1254,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         : nodes.table[_full(site.root ?? '', point)];
     final at = f.kind == FieldKind.input || f.kind == FieldKind.output;
     final v = fieldValue(b, f, d, live);
+    final how = fieldEditOf(b, f, d.edges);
+    final text = fieldEditText(b, f);
     return valueViewerOf(
       title: '${b.id}.${f.name}',
       value: v.raw,
@@ -987,6 +1265,31 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       quality: switch (v.quality) {
         final q? => qualityMarkOf(q),
         null => null,
+      },
+    ).typed(
+      edit: switch (how.edit) {
+        null => null,
+        FieldEdit.choice => ViewerEditVm(
+          kind: .choice,
+          text: text,
+          choices: f.spec?.choices.unlock ?? const [],
+        ),
+        FieldEdit.toggle => ViewerEditVm(
+          kind: .toggle,
+          text: text == 'true' ? 'true' : 'false',
+        ),
+        FieldEdit.number => ViewerEditVm(kind: .number, text: text),
+        FieldEdit.json => ViewerEditVm(kind: .json, text: text),
+        FieldEdit.text || FieldEdit.any => ViewerEditVm(
+          kind: .text,
+          text: text,
+        ),
+      },
+      locked: switch (how.locked) {
+        null => null,
+        FieldLocked.bound => S.current.viewerLockedBound,
+        FieldLocked.output => S.current.viewerLockedOutput,
+        FieldLocked.input => S.current.viewerLockedInput,
       },
     );
   }
@@ -1180,35 +1483,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     }
     return S.current.agoDays(d.inDays);
   }
-
-  /// A typed text as the parameter's type: a number, a bool, JSON for a
-  /// structure; text otherwise.
-  static Object? _typed(String v, String type) {
-    final s = v.trim();
-    switch (type) {
-      case 'number' || 'int':
-        return num.tryParse(s) ?? v;
-      case 'bool':
-        return s == 'true' ? true : (s == 'false' ? false : v);
-      case 'map' || 'array':
-        try {
-          return flowJsonDecode(v);
-        } on FormatException {
-          return v;
-        }
-      case 'dynamic':
-        if (s.isEmpty) {
-          return v;
-        }
-        try {
-          return flowJsonDecode(s);
-        } on FormatException {
-          return v;
-        }
-      default:
-        return v;
-    }
-  }
 }
 
 /// The view-model holds the part of the Store state the dumb-widget needs.
@@ -1258,6 +1532,14 @@ class _Vm extends Vm {
     required this.viewer,
     required this.onView,
     required this.onCloseViewer,
+    required this.onSelectMany,
+    required this.onCommand,
+    required this.menu,
+    required this.onPin,
+    required this.onFieldPin,
+    required this.onViewField,
+    required this.onSaveViewer,
+    required this.validateViewer,
   }) : super(
          equals: [
            window,
@@ -1316,8 +1598,21 @@ class _Vm extends Vm {
   final ValueChanged<String> onPick;
   final void Function(String entry, double x, double y) onDrop;
   final VoidCallback onClear;
-  final void Function(String id, double x, double y) onMove;
+  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
   final ValueChanged<String> onSelect;
+  final void Function(
+    Set<String> ids, {
+    required bool add,
+    required bool toggle,
+  })
+  onSelectMany;
+  final void Function(FlowCommand command, {Offset? at}) onCommand;
+  final FlowMenuVm Function(Set<String> ids, String? block, String? row) menu;
+  final void Function(String block, String field, {required bool pinned}) onPin;
+  final void Function(String field, {required bool pinned}) onFieldPin;
+  final void Function(String block, String row) onViewField;
+  final ValueChanged<String> onSaveViewer;
+  final String? Function(String text) validateViewer;
   final void Function(FieldRefVm from, String block, String toPort) onBind;
   final void Function(String block, String rowId) onUnbind;
   final void Function(

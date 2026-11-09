@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'validate_flow_action.dart';
@@ -32,6 +34,9 @@ class DisconnectEdgeAction extends Action {
         edges: d.edges.removeWhere((e) => e.to == to && e.toPort == toPort),
       ),
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

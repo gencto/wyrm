@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
 
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'validate_flow_action.dart';
@@ -24,14 +26,26 @@ class ConnectPortsAction extends Action {
     }
     unawaited(dispatchAndWait(ValidateFlowAction()));
     return state.copyWith.flowEditor(
-      draft: d.copyWith(
-        edges: d.edges
-            .removeWhere((e) => e.to == to && e.toPort == toPort)
-            .add(
-              FlowEdge(from: from, fromPort: fromPort, to: to, toPort: toPort),
-            ),
+      // A field that gets a wire is pinned to its block (spec §12).
+      draft: pinBound(
+        flowEditor.types,
+        d.copyWith(
+          edges: d.edges
+              .removeWhere((e) => e.to == to && e.toPort == toPort)
+              .add(
+                FlowEdge(
+                  from: from,
+                  fromPort: fromPort,
+                  to: to,
+                  toPort: toPort,
+                ),
+              ),
+        ),
       ),
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

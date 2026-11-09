@@ -146,17 +146,17 @@ sequenceDiagram
     UI->>VM: onPick()
     alt entry.startsWith('type:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt entry.startsWith('key:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt entry.startsWith('act:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
@@ -176,17 +176,17 @@ sequenceDiagram
     UI->>VM: onDrop()
     alt entry.startsWith('type:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt entry.startsWith('key:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt entry.startsWith('act:')
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
@@ -205,7 +205,7 @@ sequenceDiagram
     User->>UI: onClear
     UI->>VM: onClear()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.selectedBlock)
+    A1->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
 ```
 
 ## onMove
@@ -216,13 +216,13 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as MoveBlockAction
+    participant A1 as MoveBlocksAction
     participant ST as AppState
 
     User->>UI: onMove
     UI->>VM: onMove()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
 ```
 
 ## onSelect
@@ -239,7 +239,159 @@ sequenceDiagram
     User->>UI: onSelect
     UI->>VM: onSelect()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.selectedBlock)
+    A1->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
+```
+
+## onSelectMany
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SelectBlocksAction
+    participant ST as AppState
+
+    User->>UI: onSelectMany
+    UI->>VM: onSelectMany()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.selection, flowEditor.selectedBlock)
+```
+
+## onCommand
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetClipboardAction
+    participant A2 as RemoveBlocksAction
+    participant A3 as PasteBlocksAction
+    participant A4 as UndoFlowAction
+    participant A5 as RedoFlowAction
+    participant A6 as SetViewedFieldAction
+    participant A7 as SetSelectedBlockAction
+    participant ST as AppState
+
+    User->>UI: onCommand
+    UI->>VM: onCommand()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.clipboard)
+    alt _copy(d, ids)
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+    A3->>ST: dispatchAndWait(ValidateFlowAction)
+    alt picked.isNotEmpty
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A3->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+    A2->>ST: dispatchAndWait(ValidateFlowAction)
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
+    A4->>ST: dispatchAndWait(ValidateFlowAction)
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
+    A5->>ST: dispatchAndWait(ValidateFlowAction)
+    alt ed.viewedField != null
+        VM->>A6: dispatchSync
+        A6->>ST: copyWith(flowEditor.viewedField)
+        VM->>A7: dispatchSync
+        A7->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
+    end
+```
+
+## onPin
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetFieldPinAction
+    participant ST as AppState
+
+    User->>UI: onPin
+    UI->>VM: onPin()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+```
+
+## onFieldPin
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetFieldPinAction
+    participant ST as AppState
+
+    User->>UI: onFieldPin
+    UI->>VM: onFieldPin()
+    alt sel != null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+    end
+```
+
+## onViewField
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetViewedFieldAction
+    participant ST as AppState
+
+    User->>UI: onViewField
+    UI->>VM: onViewField()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.viewedField)
+```
+
+## onSaveViewer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetOperandValueAction
+    participant A2 as SetBlockParamAction
+    participant ST as AppState
+
+    User->>UI: onSaveViewer
+    UI->>VM: onSaveViewer()
+    alt f.operand
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt f.kind == FieldKind.arg
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt f.spec
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
+    end
 ```
 
 ## onBind
@@ -256,7 +408,7 @@ sequenceDiagram
     User->>UI: onBind
     UI->>VM: onBind()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -274,7 +426,7 @@ sequenceDiagram
     User->>UI: onUnbind
     UI->>VM: onUnbind()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -292,7 +444,7 @@ sequenceDiagram
     User->>UI: onRebind
     UI->>VM: onRebind()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -310,7 +462,7 @@ sequenceDiagram
     User->>UI: onDropEntry
     UI->>VM: onDropEntry()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -328,7 +480,7 @@ sequenceDiagram
     User->>UI: onResize
     UI->>VM: onResize()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -349,22 +501,22 @@ sequenceDiagram
     UI->>VM: onFieldChanged()
     alt form != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt f.operand
         VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A2->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt f.kind == FieldKind.arg
         VM->>A3: dispatchSync
-        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A3->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt f.spec
         VM->>A3: dispatchSync
-        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A3->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
@@ -383,7 +535,7 @@ sequenceDiagram
     User->>UI: onFieldUnbind
     UI->>VM: onFieldUnbind()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -402,7 +554,7 @@ sequenceDiagram
     UI->>VM: onFieldBind()
     alt b != null && port != null && from.block != b.id
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
@@ -421,7 +573,7 @@ sequenceDiagram
     User->>UI: onProblem
     UI->>VM: onProblem()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.selectedBlock)
+    A1->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
 ```
 
 ## onRemove
@@ -432,13 +584,13 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as RemoveBlockAction
+    participant A1 as RemoveBlocksAction
     participant ST as AppState
 
     User->>UI: onRemove
     UI->>VM: onRemove()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
@@ -487,21 +639,27 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
 | `onClose` | `GoAction.pop` | — |
 | `onPaletteTab` | `SetPaletteAction` ? | `flowEditor.palette` |
-| `onPick` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
-| `onDrop` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
-| `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
-| `onMove` | `MoveBlockAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
-| `onBind` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onRebind` | `RebindEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onDropEntry` | `AddBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
-| `onResize` | `ResizeInputsAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onFieldChanged` | `SetBlockFormAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
-| `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onFieldBind` | `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty` |
-| `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
-| `onRemove` | `RemoveBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onPick` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onDrop` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
+| `onMove` | `MoveBlocksAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
+| `onSelectMany` | `SelectBlocksAction` | `flowEditor.selection, flowEditor.selectedBlock` |
+| `onCommand` | `SetClipboardAction`, `RemoveBlocksAction` ?, `PasteBlocksAction`, `PasteBlocksAction` ?, `RemoveBlocksAction`, `UndoFlowAction`, `RedoFlowAction`, `SetViewedFieldAction` ?, `SetSelectedBlockAction` ? | `flowEditor.clipboard`, `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.viewedField`, `flowEditor.selectedBlock, flowEditor.selection` |
+| `onPin` | `SetFieldPinAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onFieldPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onViewField` | `SetViewedFieldAction` | `flowEditor.viewedField` |
+| `onSaveViewer` | `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onBind` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onRebind` | `RebindEdgeAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onDropEntry` | `AddBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onResize` | `ResizeInputsAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onFieldChanged` | `SetBlockFormAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onFieldBind` | `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
+| `onRemove` | `RemoveBlocksAction` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onLogo` | `GoAction.navigate` | — |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 

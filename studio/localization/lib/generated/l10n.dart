@@ -5908,6 +5908,551 @@ class S {
     );
   }
 
+  /// `Keyboard and mouse`
+  String get scTitle {
+    return Intl.message(
+      'Keyboard and mouse',
+      name: 'scTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Keys work while no text field has the focus.`
+  String get scNote {
+    return Intl.message(
+      'Keys work while no text field has the focus.',
+      name: 'scNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Selection`
+  String get scGroupSelect {
+    return Intl.message('Selection', name: 'scGroupSelect', desc: '', args: []);
+  }
+
+  /// `Editing`
+  String get scGroupEdit {
+    return Intl.message('Editing', name: 'scGroupEdit', desc: '', args: []);
+  }
+
+  /// `View and flow`
+  String get scGroupView {
+    return Intl.message(
+      'View and flow',
+      name: 'scGroupView',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `or`
+  String get scOr {
+    return Intl.message('or', name: 'scOr', desc: '', args: []);
+  }
+
+  /// `Space`
+  String get scSpace {
+    return Intl.message('Space', name: 'scSpace', desc: '', args: []);
+  }
+
+  /// `click`
+  String get scClick {
+    return Intl.message('click', name: 'scClick', desc: '', args: []);
+  }
+
+  /// `double click`
+  String get scDoubleClick {
+    return Intl.message(
+      'double click',
+      name: 'scDoubleClick',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `drag`
+  String get scDrag {
+    return Intl.message('drag', name: 'scDrag', desc: '', args: []);
+  }
+
+  /// `drag on empty canvas`
+  String get scDragEmpty {
+    return Intl.message(
+      'drag on empty canvas',
+      name: 'scDragEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `drag a header`
+  String get scDragHeader {
+    return Intl.message(
+      'drag a header',
+      name: 'scDragHeader',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `middle button drag`
+  String get scMiddleDrag {
+    return Intl.message(
+      'middle button drag',
+      name: 'scMiddleDrag',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `wheel / two fingers`
+  String get scScroll {
+    return Intl.message(
+      'wheel / two fingers',
+      name: 'scScroll',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `wheel`
+  String get scWheel {
+    return Intl.message('wheel', name: 'scWheel', desc: '', args: []);
+  }
+
+  /// `pinch`
+  String get scPinch {
+    return Intl.message('pinch', name: 'scPinch', desc: '', args: []);
+  }
+
+  /// `10 steps`
+  String get scNudgeFar {
+    return Intl.message('10 steps', name: 'scNudgeFar', desc: '', args: []);
+  }
+
+  /// `Select all`
+  String get scSelectAll {
+    return Intl.message('Select all', name: 'scSelectAll', desc: '', args: []);
+  }
+
+  /// `Select with a marquee`
+  String get scMarquee {
+    return Intl.message(
+      'Select with a marquee',
+      name: 'scMarquee',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add to or take from the selection`
+  String get scAddToSelection {
+    return Intl.message(
+      'Add to or take from the selection',
+      name: 'scAddToSelection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Move the selection`
+  String get scMoveSelection {
+    return Intl.message(
+      'Move the selection',
+      name: 'scMoveSelection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Move by one grid step`
+  String get scNudge {
+    return Intl.message(
+      'Move by one grid step',
+      name: 'scNudge',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cancel, clear the selection`
+  String get scEscape {
+    return Intl.message(
+      'Cancel, clear the selection',
+      name: 'scEscape',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy`
+  String get scCopy {
+    return Intl.message('Copy', name: 'scCopy', desc: '', args: []);
+  }
+
+  /// `Cut`
+  String get scCut {
+    return Intl.message('Cut', name: 'scCut', desc: '', args: []);
+  }
+
+  /// `Paste`
+  String get scPaste {
+    return Intl.message('Paste', name: 'scPaste', desc: '', args: []);
+  }
+
+  /// `Duplicate`
+  String get scDuplicate {
+    return Intl.message('Duplicate', name: 'scDuplicate', desc: '', args: []);
+  }
+
+  /// `Delete`
+  String get scDelete {
+    return Intl.message('Delete', name: 'scDelete', desc: '', args: []);
+  }
+
+  /// `Undo`
+  String get scUndo {
+    return Intl.message('Undo', name: 'scUndo', desc: '', args: []);
+  }
+
+  /// `Redo`
+  String get scRedo {
+    return Intl.message('Redo', name: 'scRedo', desc: '', args: []);
+  }
+
+  /// `Unbind a field`
+  String get scUnbind {
+    return Intl.message('Unbind a field', name: 'scUnbind', desc: '', args: []);
+  }
+
+  /// `Pan`
+  String get scPan {
+    return Intl.message('Pan', name: 'scPan', desc: '', args: []);
+  }
+
+  /// `Zoom`
+  String get scZoom {
+    return Intl.message('Zoom', name: 'scZoom', desc: '', args: []);
+  }
+
+  /// `Zoom in`
+  String get scZoomIn {
+    return Intl.message('Zoom in', name: 'scZoomIn', desc: '', args: []);
+  }
+
+  /// `Zoom out`
+  String get scZoomOut {
+    return Intl.message('Zoom out', name: 'scZoomOut', desc: '', args: []);
+  }
+
+  /// `Zoom to 100 %`
+  String get scZoomReset {
+    return Intl.message(
+      'Zoom to 100 %',
+      name: 'scZoomReset',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Fit all blocks`
+  String get scZoomFit {
+    return Intl.message(
+      'Fit all blocks',
+      name: 'scZoomFit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `View the value under the pointer`
+  String get scViewValue {
+    return Intl.message(
+      'View the value under the pointer',
+      name: 'scViewValue',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Find a block`
+  String get scSearchPalette {
+    return Intl.message(
+      'Find a block',
+      name: 'scSearchPalette',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deploy (asks first)`
+  String get scDeploy {
+    return Intl.message(
+      'Deploy (asks first)',
+      name: 'scDeploy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This card`
+  String get scHelp {
+    return Intl.message('This card', name: 'scHelp', desc: '', args: []);
+  }
+
+  /// `Fields`
+  String get fmFields {
+    return Intl.message('Fields', name: 'fmFields', desc: '', args: []);
+  }
+
+  /// `Fields on the block`
+  String get fmFieldsTitle {
+    return Intl.message(
+      'Fields on the block',
+      name: 'fmFieldsTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unpin from block`
+  String get fmUnpin {
+    return Intl.message(
+      'Unpin from block',
+      name: 'fmUnpin',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unpin “{label}” from block`
+  String fmUnpinField(String label) {
+    return Intl.message(
+      'Unpin “$label” from block',
+      name: 'fmUnpinField',
+      desc: '',
+      args: [label],
+    );
+  }
+
+  /// `Create custom block…`
+  String get fmCreateCustom {
+    return Intl.message(
+      'Create custom block…',
+      name: 'fmCreateCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit custom block`
+  String get fmEditCustom {
+    return Intl.message(
+      'Edit custom block',
+      name: 'fmEditCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `bound`
+  String get fmBound {
+    return Intl.message('bound', name: 'fmBound', desc: '', args: []);
+  }
+
+  /// `Needs custom blocks in the engine`
+  String get fmNeedsEngine {
+    return Intl.message(
+      'Needs custom blocks in the engine',
+      name: 'fmNeedsEngine',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Select a block first`
+  String get fmNothingSelected {
+    return Intl.message(
+      'Select a block first',
+      name: 'fmNothingSelected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing to undo`
+  String get fmNothingToUndo {
+    return Intl.message(
+      'Nothing to undo',
+      name: 'fmNothingToUndo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing to redo`
+  String get fmNothingToRedo {
+    return Intl.message(
+      'Nothing to redo',
+      name: 'fmNothingToRedo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count} blocks`
+  String fmBlocks(int count) {
+    return Intl.message(
+      '$count blocks',
+      name: 'fmBlocks',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Canvas`
+  String get fmCanvas {
+    return Intl.message('Canvas', name: 'fmCanvas', desc: '', args: []);
+  }
+
+  /// `Pin to block`
+  String get pinField {
+    return Intl.message('Pin to block', name: 'pinField', desc: '', args: []);
+  }
+
+  /// `Unpin from block`
+  String get unpinField {
+    return Intl.message(
+      'Unpin from block',
+      name: 'unpinField',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A bound field stays on the block`
+  String get pinLocked {
+    return Intl.message(
+      'A bound field stays on the block',
+      name: 'pinLocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit`
+  String get viewerEdit {
+    return Intl.message('Edit', name: 'viewerEdit', desc: '', args: []);
+  }
+
+  /// `Save`
+  String get viewerSave {
+    return Intl.message('Save', name: 'viewerSave', desc: '', args: []);
+  }
+
+  /// `{keys} saves · Esc cancels`
+  String viewerSaveHint(String keys) {
+    return Intl.message(
+      '$keys saves · Esc cancels',
+      name: 'viewerSaveHint',
+      desc: '',
+      args: [keys],
+    );
+  }
+
+  /// `Read only: a wire feeds this field. Unbind it to type a value.`
+  String get viewerLockedBound {
+    return Intl.message(
+      'Read only: a wire feeds this field. Unbind it to type a value.',
+      name: 'viewerLockedBound',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read only: the block computes this output.`
+  String get viewerLockedOutput {
+    return Intl.message(
+      'Read only: the block computes this output.',
+      name: 'viewerLockedOutput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read only: this input holds no typed value. Bind an output to it.`
+  String get viewerLockedInput {
+    return Intl.message(
+      'Read only: this input holds no typed value. Bind an output to it.',
+      name: 'viewerLockedInput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not a number`
+  String get viewerBadNumber {
+    return Intl.message(
+      'Not a number',
+      name: 'viewerBadNumber',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not a JSON map or list`
+  String get viewerBadJson {
+    return Intl.message(
+      'Not a JSON map or list',
+      name: 'viewerBadJson',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `true or false`
+  String get viewerBadBool {
+    return Intl.message(
+      'true or false',
+      name: 'viewerBadBool',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Empty: the field goes back to its default`
+  String get viewerEmpty {
+    return Intl.message(
+      'Empty: the field goes back to its default',
+      name: 'viewerEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deploy this flow?`
+  String get deployAskTitle {
+    return Intl.message(
+      'Deploy this flow?',
+      name: 'deployAskTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The draft of “{flow}” replaces the version that runs now.`
+  String deployAskMessage(String flow) {
+    return Intl.message(
+      'The draft of “$flow” replaces the version that runs now.',
+      name: 'deployAskMessage',
+      desc: '',
+      args: [flow],
+    );
+  }
+
   /// `Language`
   String get menuLanguage {
     return Intl.message('Language', name: 'menuLanguage', desc: '', args: []);

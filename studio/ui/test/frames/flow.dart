@@ -7,6 +7,7 @@ import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
+import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
@@ -314,6 +315,8 @@ FlowEditorPage _bind({
   List<FlowWireVm>? wires,
   String flow = 'tank-level',
   ValueViewerVm? viewer,
+  Set<String> hidden = const {},
+  bool pins = false,
 }) => FlowEditorPage(
   flowsLabel: 'Flows',
   flowLabel: flow,
@@ -338,7 +341,7 @@ FlowEditorPage _bind({
   wires: wires ?? _bindWires,
   blockActions: _actions,
   onClear: () {},
-  onMove: (_, _, _) {},
+  onMove: (_, {required nudge}) {},
   onDrop: (_, _, _) {},
   legend: _legend,
   inspectorKind: kind,
@@ -356,6 +359,188 @@ FlowEditorPage _bind({
   onView: _id,
   viewer: viewer,
   onCloseViewer: () {},
+  onSelectMany: (_, {required add, required toggle}) {},
+  onCommand: (_, {at}) {},
+  onPin: (_, _, {required pinned}) {},
+  onViewField: (_, _) {},
+  onFieldPin: pins ? (_, {required pinned}) {} : null,
+  onSaveViewer: _id,
+  validateViewer: (text) =>
+      text.contains('oops') ? 'Not a JSON map or list' : null,
+  saveHint: 'Cmd+Enter saves · Esc cancels',
+  menu: (ids, block, row) => _menu(
+    ids,
+    block,
+    row,
+    blocks ?? _bindBlocks(selected ?? '', cases: cases),
+    hidden,
+  ),
+);
+
+/// The context menu as the app builds it: of one block (with its fields),
+/// of several, or of the canvas.
+FlowMenuVm _menu(
+  Set<String> ids,
+  String? block,
+  String? row,
+  List<FlowBlockVm> blocks,
+  Set<String> hidden,
+) {
+  final b = blocks.where((b) => b.id == block).firstOrNull;
+  final one = ids.length == 1 && b != null;
+  final none = ids.isEmpty ? 'Select a block first' : null;
+  FlowPinVm pin(String id, String label, {bool bound = false}) => FlowPinVm(
+    id: id,
+    label: label,
+    pinned: !hidden.contains(id),
+    lockedReason: bound ? 'bound' : null,
+  );
+  final fields = [
+    if (one)
+      for (final r in b.rows)
+        pin(
+          r.id,
+          r.label,
+          bound:
+              r.inMark == PortMark.bound ||
+              r.inMark == PortMark.write ||
+              r.outMark == PortMark.bound,
+        ),
+    if (one)
+      for (final id in hidden) pin(id, _label(id)),
+  ];
+  return FlowMenuVm(
+    title: one
+        ? b.title
+        : (ids.length > 1 ? '${ids.length} blocks' : 'tank-level'),
+    subtitle: one
+        ? (b.type.isEmpty ? 'case' : b.type)
+        : (ids.length > 1 ? '' : '${blocks.length} blocks'),
+    fields: fields,
+    unpin: row == null ? null : fields.where((f) => f.id == row).firstOrNull,
+    items: [
+      FlowMenuItemVm(.cut, disabledReason: none),
+      FlowMenuItemVm(.copy, disabledReason: none),
+      const FlowMenuItemVm(.paste),
+      FlowMenuItemVm(.duplicate, disabledReason: none),
+      FlowMenuItemVm(.delete, disabledReason: none, danger: ids.isNotEmpty),
+      const FlowMenuItemVm(.selectAll, divider: true),
+      if (ids.isEmpty) ...const [
+        FlowMenuItemVm(.undo, divider: true),
+        FlowMenuItemVm(.redo, disabledReason: 'Nothing to redo'),
+      ],
+      if (one) ...[
+        const FlowMenuItemVm(.fields, divider: true),
+        if (row != null) const FlowMenuItemVm(.unpin),
+      ],
+      if (ids.isNotEmpty)
+        const FlowMenuItemVm(
+          .createCustomBlock,
+          divider: true,
+          disabledReason: 'Needs custom blocks in the engine',
+        ),
+      if (one)
+        const FlowMenuItemVm(
+          .editCustomBlock,
+          disabledReason: 'Needs custom blocks in the engine',
+        ),
+    ],
+  );
+}
+
+/// FlowBind with `case` selected and two of its fields taken off the
+/// block (`Operation`, `Else`): they stay in the inspector, their pins
+/// grey; bound fields keep theirs (spec §12).
+FlowEditorPage flowPins() {
+  const hidden = {'op', 'else'};
+  return _bind(
+    selected: 'case',
+    kind: 'Logic block',
+    title: 'case',
+    note: 'Compares input with each case; output takes the matching then.',
+    hidden: hidden,
+    pins: true,
+    blocks: [
+      for (final b in _bindBlocks('case'))
+        if (b.id == 'case')
+          FlowBlockVm(
+            id: b.id,
+            title: b.title,
+            x: b.x,
+            y: b.y,
+            type: b.type,
+            kind: b.kind,
+            width: b.width,
+            selected: true,
+            variadic: b.variadic,
+            rows: [
+              for (final r in b.rows)
+                if (!hidden.contains(r.id)) r,
+            ],
+          )
+        else
+          b,
+    ],
+    rows: [
+      for (final r in _caseRows(2))
+        r.pin(
+          pinned: !hidden.contains(r.id),
+          locked: r.id == 'input' || r.id == 'output',
+        ),
+    ],
+  );
+}
+
+/// FlowBind with three blocks selected (a marquee's result): the flow's
+/// summary in the inspector, `3 blocks` in the path.
+FlowEditorPage flowSelection() {
+  const picked = {'case', 'script', 'plcR'};
+  return _bind(
+    selected: null,
+    title: '3 blocks',
+    blocks: [
+      for (final b in _bindBlocks(''))
+        b.marked(selected: picked.contains(b.id)),
+    ],
+    summary: const FlowSummaryVm(
+      label: 'Flow',
+      title: 'tank-level',
+      facts: [('Version', '4'), ('Values', 'the deployed version')],
+    ),
+  );
+}
+
+/// The viewer of a typed map (`show.meta`), with its Edit button: the
+/// test opens the editor.
+FlowEditorPage flowViewerEdit({bool locked = false}) => flowLongOutput(
+  viewer: ValueViewerVm(
+    title: locked ? 'text.in.1' : 'show.meta',
+    type: locked ? 'string' : 'map',
+    size: locked ? '5 chars' : '3 keys',
+    copy: '',
+    content: locked
+        ? const TextContentVm(['world'])
+        : const JsonContentVm(
+            JsonNodeVm(
+              kind: .object,
+              text: '3 keys',
+              children: [
+                JsonNodeVm(key: 'unit', kind: .string, text: '"%"'),
+                JsonNodeVm(key: 'display', kind: .string, text: '"Tank 3"'),
+                JsonNodeVm(key: 'max', kind: .number, text: '100'),
+              ],
+            ),
+          ),
+    edit: locked
+        ? null
+        : const ViewerEditVm(
+            kind: .json,
+            text: '{\n  "unit": "%",\n  "display": "Tank 3",\n  "max": 100\n}',
+          ),
+    locked: locked
+        ? 'Read only: a wire feeds this field. Unbind it to type a value.'
+        : null,
+  ),
 );
 
 InspectorRowVm _text(String name, String value) => InspectorRowVm(
@@ -670,7 +855,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   ],
   blockActions: _actions,
   onClear: () {},
-  onMove: (_, _, _) {},
+  onMove: (_, {required nudge}) {},
   onDrop: (_, _, _) {},
   legend: _legend,
   inspectorKind: 'Action',

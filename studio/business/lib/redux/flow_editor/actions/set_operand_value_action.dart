@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -33,6 +36,14 @@ class SetOperandValueAction extends Action {
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
       dirty: true,
+      undo: undoPush(
+        flowEditor.undo,
+        d,
+        tag: 'operand:$id/$port',
+        lastTag: flowEditor.undoTag,
+      ),
+      redo: const IListConst([]),
+      undoTag: 'operand:$id/$port',
     );
   }
 }

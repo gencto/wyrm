@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'validate_flow_action.dart';
@@ -26,6 +28,14 @@ class SetBlockParamAction extends Action {
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
       dirty: true,
+      undo: undoPush(
+        flowEditor.undo,
+        d,
+        tag: 'param:$id/$name',
+        lastTag: flowEditor.undoTag,
+      ),
+      redo: const IListConst([]),
+      undoTag: 'param:$id/$name',
     );
   }
 }
