@@ -388,6 +388,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           ? _summary(root, id, d, problems, previewing: previewing)
           : null,
       viewer: switch (ed.viewedField?.split('/')) {
+        // The Form row: the form's name.
+        [final vb, 'form'] when blocks[vb] != null => switch (formOf(
+          blocks[vb]!,
+          edges,
+        )) {
+          final form? => valueViewerOf(title: '$vb.form', value: form.label),
+          null => null,
+        },
         [final vb, ...final rest] when d != null && blocks[vb] != null =>
           _viewer(
             blocks[vb]!,
@@ -398,7 +406,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         _ => null,
       },
       onView: (row) {
-        if (sel != null && row != 'form') {
+        if (sel != null) {
           dispatchSync(SetViewedFieldAction('$sel/$row'));
         }
       },

@@ -321,8 +321,8 @@ Rules:
 | `scale`, form `k × in + b` | Input ⇄ · Factor ⇄ · Offset ⇄ · Output → | `in`; `in.k` → `k`, `in.b` → `b`; `out` | Form | Form dropdown | none (spec 06 0.2.17) |
 | `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | `in.input_min` → `input_min`, … | Form | Form dropdown | none (DGLux: the same six fields) |
 | `deadband` | Input ⇄ · Absolute change ⇄ · Percent change ⇄ · Output → | `in`; `in.abs` → `abs`, `in.pct` → `pct` | — | — | none (spec 06 0.2.17) |
-| `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `function`, `max_samples` have no input |
-| `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad_quality` config only | — | On bad quality dropdown | `on_bad_quality` has no input |
+| `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `fn`, `max_samples` have no input |
+| `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad` config only | — | On bad quality dropdown | `on_bad` has no input |
 | `publish` | Value name · Value ← | `in` | Meta | — | — |
 | `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
 | `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
@@ -343,5 +343,5 @@ port the engine adds shows without an editor change. Parameters the engine
 has no input for show no left port, and a wire dragged onto them is refused
 with `<field> takes no input: type its value`. Today these are `expression`
 `expr`, `trigger`, `quality`; `filter` `expr`; `latch` its
-parameter `reset`; `window` `kind`, `function`, `max_samples`; `alarm`
-`on_bad_quality`; and the sinks' parameters.
+parameter `reset`; `window` `kind`, `fn`, `max_samples`; `alarm` `on_bad`;
+and the sinks' parameters (`crates/wyrm-flow/src/catalog.rs`).
