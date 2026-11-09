@@ -26,7 +26,7 @@ class SetOperandValueAction extends Action {
     }
     final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
     final cfg = cfgWithOperandValue(t, b, port, value);
-    if (cfg == null || cfg == b.cfg) {
+    if (cfg == null || sameCfg(cfg, b.cfg)) {
       return null;
     }
     unawaited(dispatchAndWait(ValidateFlowAction()));

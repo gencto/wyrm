@@ -688,7 +688,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final ed = flowEditor;
     final d = ed.draft;
     final dep = ed.deployed?.blocks[b.id];
-    final same = dep != null && dep.type == b.type && dep.cfg == b.cfg;
+    final same = dep != null && dep.type == b.type && sameCfg(dep.cfg, b.cfg);
     final ports = previewing ? ed.previewPorts : (same ? ed.ports : null);
     final point = pointOf(b);
     final flow = d?.id ?? '';

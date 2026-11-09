@@ -199,6 +199,12 @@ NodeType nodeTypeOf(Value m) {
   );
 }
 
+/// Whether two node configs say the same: compared as values, so a map or
+/// a list inside (`values`, `args`, `meta`) counts by its content, not by
+/// identity (an `IMap` compares its entries with `==`).
+bool sameCfg(IMap<String, Object?> a, IMap<String, Object?> b) =>
+    identical(a, b) || Value.from(a.unlock) == Value.from(b.unlock);
+
 // ---------- operand constants (ADR 0038 §7, spec 06 0.2.19) ----------
 
 /// The config key of the operand constants: `values: {<port>: <value>}`.

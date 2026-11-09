@@ -147,6 +147,25 @@ void main() {
       );
     });
 
+    test('configs compare by content: a values map is no identity', () {
+      final a = {
+        'values': {'in.0': 'AHU-'},
+      }.lock;
+      final b = {
+        'values': {'in.0': 'AHU-'},
+      }.lock;
+      expect(sameCfg(a, b), isTrue);
+      expect(
+        sameCfg(
+          a,
+          {
+            'values': {'in.0': 'AHU'},
+          }.lock,
+        ),
+        isFalse,
+      );
+    });
+
     test('a ~def round trip keeps values', () {
       final def = Value.from({
         'id': 'f',
