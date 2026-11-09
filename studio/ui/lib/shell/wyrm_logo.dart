@@ -5,27 +5,34 @@ import '../theme/typography.dart';
 
 /// The WYRM mark (five beads, the middle one filled) and the wordmark.
 class WyrmLogo extends StatelessWidget {
-  const WyrmLogo({this.showStudio = true, super.key});
+  const WyrmLogo({this.showStudio = true, this.large = false, super.key});
 
   /// Adds `Studio` after the wordmark.
   final bool showStudio;
+
+  /// The log-in hero's size (docs/design/specs/login.md §2): wordmark 18
+  /// spaced 0.08 em, `Studio` 15, 12 apart.
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Row(
       mainAxisSize: .min,
-      spacing: 10,
+      spacing: large ? 12 : 10,
       children: [
         CustomPaint(size: const Size(44, 26), painter: _Beads(c.ember)),
         Text(
           'WYRM',
-          style: wordmark(size: 16, color: c.text1).copyWith(
-            letterSpacing: 1.28,
+          style: wordmark(size: large ? 18 : 16, color: c.text1).copyWith(
+            letterSpacing: large ? 1.44 : 1.28,
           ),
         ),
         if (showStudio)
-          Text('Studio', style: TextStyle(fontSize: 14, color: c.text3)),
+          Text(
+            'Studio',
+            style: TextStyle(fontSize: large ? 15 : 14, color: c.text3),
+          ),
       ],
     );
   }

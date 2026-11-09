@@ -24,6 +24,7 @@ final class TreeRowVm extends Equatable {
     this.dotLabel,
     this.meta,
     this.hasHistory = false,
+    this.marked = false,
   });
 
   /// The node's key.
@@ -55,6 +56,9 @@ final class TreeRowVm extends Equatable {
   /// The point has a history store.
   final bool hasHistory;
 
+  /// Added to the selection for Copy keys (⌘/Shift-click).
+  final bool marked;
+
   @override
   List<Object?> get props => [
     id,
@@ -70,6 +74,7 @@ final class TreeRowVm extends Equatable {
     dotLabel,
     meta,
     hasHistory,
+    marked,
   ];
 }
 
@@ -83,6 +88,7 @@ class TreeRow extends StatelessWidget {
     required this.vm,
     this.onTap,
     this.onToggle,
+    this.onMore,
     this.height = 40,
     super.key,
   });
@@ -90,6 +96,9 @@ class TreeRow extends StatelessWidget {
   final TreeRowVm vm;
   final ValueChanged<String>? onTap;
   final ValueChanged<String>? onToggle;
+
+  /// The `⋯` button of the selected row: the node menu at that point.
+  final void Function(String id, Offset at)? onMore;
   final double height;
 
   @override
@@ -104,7 +113,7 @@ class TreeRow extends StatelessWidget {
         height: height,
         padding: EdgeInsets.only(left: 10.0 + vm.depth * 16, right: 10),
         decoration: BoxDecoration(
-          color: sel ? c.emberTint : null,
+          color: sel ? c.emberTint : (vm.marked ? c.ground3 : null),
           borderRadius: Radii.segment,
         ),
         child: Row(
@@ -131,6 +140,7 @@ class TreeRow extends StatelessWidget {
             Expanded(
               child: Text(
                 vm.name,
+                maxLines: 1,
                 overflow: .ellipsis,
                 style: mono(
                   weight: sel ? .w600 : .w400,
@@ -152,6 +162,20 @@ class TreeRow extends StatelessWidget {
               Tooltip(
                 message: vm.dotLabel ?? '',
                 child: StateMark(mark: Mark.dot, color: toneColor(c, t)),
+              ),
+            if (sel && onMore != null)
+              GestureDetector(
+                onTapUp: (d) => onMore!(vm.id, d.globalPosition),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  alignment: .center,
+                  decoration: BoxDecoration(
+                    color: Color.lerp(c.emberTint, c.emberLine, 0.35),
+                    borderRadius: Radii.segment,
+                  ),
+                  child: AppIcon('ui_more', size: 16, color: c.emberSoft),
+                ),
               ),
           ],
         ),

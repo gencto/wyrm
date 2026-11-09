@@ -2432,10 +2432,10 @@ class S {
     );
   }
 
-  /// `Values update live. Edits are staged in this session; nothing is written until you apply.`
+  /// `Values update live. Edits are staged in this session; nothing is written to the device until you apply.`
   String get pointsNote {
     return Intl.message(
-      'Values update live. Edits are staged in this session; nothing is written until you apply.',
+      'Values update live. Edits are staged in this session; nothing is written to the device until you apply.',
       name: 'pointsNote',
       desc: '',
       args: [],
@@ -2572,16 +2572,6 @@ class S {
   /// `staged`
   String get tagStaged {
     return Intl.message('staged', name: 'tagStaged', desc: '', args: []);
-  }
-
-  /// `Right-click a node or press and hold to see its actions. sys/** is edited in Links, Access, Sites and System.`
-  String get treeNote {
-    return Intl.message(
-      'Right-click a node or press and hold to see its actions. sys/** is edited in Links, Access, Sites and System.',
-      name: 'treeNote',
-      desc: '',
-      args: [],
-    );
   }
 
   /// `Tree · {site}`
@@ -3163,10 +3153,10 @@ class S {
     return Intl.message('Flow id', name: 'flowName', desc: '', args: []);
   }
 
-  /// `Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.`
+  /// `Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.`
   String get flowPropertiesNote {
     return Intl.message(
-      'Every field has a value, an input and an output. Type a value, or tap an output and then an input to bind; double-tap an input to unbind. Drag blocks from the palette, points from Tree.',
+      'Every field has a value, an input and an output. Type a value, or drag from any output onto it to bind.',
       name: 'flowPropertiesNote',
       desc: '',
       args: [],
@@ -3248,10 +3238,10 @@ class S {
     );
   }
 
-  /// `Nothing changed since the last deploy.`
+  /// `Nothing to deploy`
   String get nothingToDeploy {
     return Intl.message(
-      'Nothing changed since the last deploy.',
+      'Nothing to deploy',
       name: 'nothingToDeploy',
       desc: '',
       args: [],
@@ -4233,6 +4223,1699 @@ class S {
       desc: '',
       args: [],
     );
+  }
+
+  /// `The tree shows data only.`
+  String get treeNoteLead {
+    return Intl.message(
+      'The tree shows data only.',
+      name: 'treeNoteLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `is edited in`
+  String get treeNoteMiddle {
+    return Intl.message(
+      'is edited in',
+      name: 'treeNoteMiddle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `and`
+  String get andWord {
+    return Intl.message('and', name: 'andWord', desc: '', args: []);
+  }
+
+  /// `Filter`
+  String get filter {
+    return Intl.message('Filter', name: 'filter', desc: '', args: []);
+  }
+
+  /// `Copy key`
+  String get copyKey {
+    return Intl.message('Copy key', name: 'copyKey', desc: '', args: []);
+  }
+
+  /// `Copy keys`
+  String get copyKeys {
+    return Intl.message('Copy keys', name: 'copyKeys', desc: '', args: []);
+  }
+
+  /// `Key copied`
+  String get keyCopied {
+    return Intl.message('Key copied', name: 'keyCopied', desc: '', args: []);
+  }
+
+  /// `{count} keys copied`
+  String keysCopied(Object count) {
+    return Intl.message(
+      '$count keys copied',
+      name: 'keysCopied',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Value copied`
+  String get valueCopied {
+    return Intl.message(
+      'Value copied',
+      name: 'valueCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ping`
+  String get ping {
+    return Intl.message('Ping', name: 'ping', desc: '', args: []);
+  }
+
+  /// `Add point`
+  String get addPoint {
+    return Intl.message('Add point', name: 'addPoint', desc: '', args: []);
+  }
+
+  /// `Import CSV or DSA tree`
+  String get importPoints {
+    return Intl.message(
+      'Import CSV or DSA tree',
+      name: 'importPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apply profile`
+  String get applyProfile {
+    return Intl.message(
+      'Apply profile',
+      name: 'applyProfile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Filter points`
+  String get filterPoints {
+    return Intl.message(
+      'Filter points',
+      name: 'filterPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Register`
+  String get colRegister {
+    return Intl.message('Register', name: 'colRegister', desc: '', args: []);
+  }
+
+  /// `Unit`
+  String get colUnit {
+    return Intl.message('Unit', name: 'colUnit', desc: '', args: []);
+  }
+
+  /// `Poll`
+  String get colPoll {
+    return Intl.message('Poll', name: 'colPoll', desc: '', args: []);
+  }
+
+  /// `What`
+  String get colOp {
+    return Intl.message('What', name: 'colOp', desc: '', args: []);
+  }
+
+  /// `Result`
+  String get colResult {
+    return Intl.message('Result', name: 'colResult', desc: '', args: []);
+  }
+
+  /// `was`
+  String get wasWord {
+    return Intl.message('was', name: 'wasWord', desc: '', args: []);
+  }
+
+  /// `No points yet`
+  String get noPointsYet {
+    return Intl.message(
+      'No points yet',
+      name: 'noPointsYet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count} selected`
+  String nSelected(Object count) {
+    return Intl.message(
+      '$count selected',
+      name: 'nSelected',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Set poll…`
+  String get setPoll {
+    return Intl.message('Set poll…', name: 'setPoll', desc: '', args: []);
+  }
+
+  /// `Record in history…`
+  String get recordInHistory {
+    return Intl.message(
+      'Record in history…',
+      name: 'recordInHistory',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove…`
+  String get removeEllipsis {
+    return Intl.message('Remove…', name: 'removeEllipsis', desc: '', args: []);
+  }
+
+  /// `Clear`
+  String get clearSelection {
+    return Intl.message('Clear', name: 'clearSelection', desc: '', args: []);
+  }
+
+  /// `not applied`
+  String get notApplied {
+    return Intl.message('not applied', name: 'notApplied', desc: '', args: []);
+  }
+
+  /// `stale`
+  String get stale {
+    return Intl.message('stale', name: 'stale', desc: '', args: []);
+  }
+
+  /// `last read {time}`
+  String lastRead(Object time) {
+    return Intl.message(
+      'last read $time',
+      name: 'lastRead',
+      desc: '',
+      args: [time],
+    );
+  }
+
+  /// `unit {unit}`
+  String unitNumber(Object unit) {
+    return Intl.message(
+      'unit $unit',
+      name: 'unitNumber',
+      desc: '',
+      args: [unit],
+    );
+  }
+
+  /// `device`
+  String get kindDevice {
+    return Intl.message('device', name: 'kindDevice', desc: '', args: []);
+  }
+
+  /// `connection`
+  String get kindConnection {
+    return Intl.message(
+      'connection',
+      name: 'kindConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `link`
+  String get kindLink {
+    return Intl.message('link', name: 'kindLink', desc: '', args: []);
+  }
+
+  /// `node`
+  String get kindNode {
+    return Intl.message('node', name: 'kindNode', desc: '', args: []);
+  }
+
+  /// `Point`
+  String get insPoint {
+    return Intl.message('Point', name: 'insPoint', desc: '', args: []);
+  }
+
+  /// `Action`
+  String get insAction {
+    return Intl.message('Action', name: 'insAction', desc: '', args: []);
+  }
+
+  /// `Device`
+  String get insDevice {
+    return Intl.message('Device', name: 'insDevice', desc: '', args: []);
+  }
+
+  /// `Connection`
+  String get insConnection {
+    return Intl.message(
+      'Connection',
+      name: 'insConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Link`
+  String get insLink {
+    return Intl.message('Link', name: 'insLink', desc: '', args: []);
+  }
+
+  /// `Node`
+  String get insNode {
+    return Intl.message('Node', name: 'insNode', desc: '', args: []);
+  }
+
+  /// `Register`
+  String get secRegister {
+    return Intl.message('Register', name: 'secRegister', desc: '', args: []);
+  }
+
+  /// `Value`
+  String get secValue {
+    return Intl.message('Value', name: 'secValue', desc: '', args: []);
+  }
+
+  /// `Polling`
+  String get secPolling {
+    return Intl.message('Polling', name: 'secPolling', desc: '', args: []);
+  }
+
+  /// `Write`
+  String get secWrite {
+    return Intl.message('Write', name: 'secWrite', desc: '', args: []);
+  }
+
+  /// `What the tree will publish`
+  String get secPublish {
+    return Intl.message(
+      'What the tree will publish',
+      name: 'secPublish',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Parameters`
+  String get secParameters {
+    return Intl.message(
+      'Parameters',
+      name: 'secParameters',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Diagnostics`
+  String get secDiagnostics {
+    return Intl.message(
+      'Diagnostics',
+      name: 'secDiagnostics',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Attributes`
+  String get secAttributes {
+    return Intl.message(
+      'Attributes',
+      name: 'secAttributes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `staged · was {was}`
+  String stagedWas(Object was) {
+    return Intl.message(
+      'staged · was $was',
+      name: 'stagedWas',
+      desc: '',
+      args: [was],
+    );
+  }
+
+  /// `Turning this on needs {level} level`
+  String writableNeeds(Object level) {
+    return Intl.message(
+      'Turning this on needs $level level',
+      name: 'writableNeeds',
+      desc: '',
+      args: [level],
+    );
+  }
+
+  /// `Area`
+  String get fieldArea {
+    return Intl.message('Area', name: 'fieldArea', desc: '', args: []);
+  }
+
+  /// `Address`
+  String get fieldAddress {
+    return Intl.message('Address', name: 'fieldAddress', desc: '', args: []);
+  }
+
+  /// `Data type`
+  String get fieldDataType {
+    return Intl.message('Data type', name: 'fieldDataType', desc: '', args: []);
+  }
+
+  /// `Word order`
+  String get fieldWordOrder {
+    return Intl.message(
+      'Word order',
+      name: 'fieldWordOrder',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unit`
+  String get fieldUnit {
+    return Intl.message('Unit', name: 'fieldUnit', desc: '', args: []);
+  }
+
+  /// `Scale`
+  String get fieldScale {
+    return Intl.message('Scale', name: 'fieldScale', desc: '', args: []);
+  }
+
+  /// `Offset`
+  String get fieldOffset {
+    return Intl.message('Offset', name: 'fieldOffset', desc: '', args: []);
+  }
+
+  /// `Precision`
+  String get fieldPrecision {
+    return Intl.message(
+      'Precision',
+      name: 'fieldPrecision',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Bit`
+  String get fieldBit {
+    return Intl.message('Bit', name: 'fieldBit', desc: '', args: []);
+  }
+
+  /// `Registers`
+  String get fieldRegisters {
+    return Intl.message(
+      'Registers',
+      name: 'fieldRegisters',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Writable`
+  String get fieldWritable {
+    return Intl.message('Writable', name: 'fieldWritable', desc: '', args: []);
+  }
+
+  /// `Writable by the master`
+  String get fieldWritableByMaster {
+    return Intl.message(
+      'Writable by the master',
+      name: 'fieldWritableByMaster',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set by the data type: its _wswap, _bswap or _wbswap suffix.`
+  String get wordOrderReason {
+    return Intl.message(
+      'Set by the data type: its _wswap, _bswap or _wbswap suffix.',
+      name: 'wordOrderReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The driver has no {param} parameter.`
+  String noParamReason(Object param) {
+    return Intl.message(
+      'The driver has no $param parameter.',
+      name: 'noParamReason',
+      desc: '',
+      args: [param],
+    );
+  }
+
+  /// `This point has no edit action.`
+  String get noEditReason {
+    return Intl.message(
+      'This point has no edit action.',
+      name: 'noEditReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This node has no ping action: the driver pings by itself (cfg ping).`
+  String get noPingReason {
+    return Intl.message(
+      'This node has no ping action: the driver pings by itself (cfg ping).',
+      name: 'noPingReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker has no action to apply a profile to a device yet.`
+  String get noProfileReason {
+    return Intl.message(
+      'The broker has no action to apply a profile to a device yet.',
+      name: 'noProfileReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This node has no {action} action.`
+  String noActionReason(Object action) {
+    return Intl.message(
+      'This node has no $action action.',
+      name: 'noActionReason',
+      desc: '',
+      args: [action],
+    );
+  }
+
+  /// `Recording a point is set up in History (watch groups).`
+  String get noHistoryAction {
+    return Intl.message(
+      'Recording a point is set up in History (watch groups).',
+      name: 'noHistoryAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker has no call to send a request to an admin yet.`
+  String get askAdminReason {
+    return Intl.message(
+      'The broker has no call to send a request to an admin yet.',
+      name: 'askAdminReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The audit needs config on sys/audit.`
+  String get auditNeeds {
+    return Intl.message(
+      'The audit needs config on sys/audit.',
+      name: 'auditNeeds',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `done`
+  String get auditDone {
+    return Intl.message('done', name: 'auditDone', desc: '', args: []);
+  }
+
+  /// `refused ({code})`
+  String auditRefused(Object code) {
+    return Intl.message(
+      'refused ($code)',
+      name: 'auditRefused',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `Select a point in the table to see its history.`
+  String get pickAPoint {
+    return Intl.message(
+      'Select a point in the table to see its history.',
+      name: 'pickAPoint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Site {site} · applied with your rights: {user}, {role} ({level})`
+  String rightsLine(Object site, Object user, Object role, Object level) {
+    return Intl.message(
+      'Site $site · applied with your rights: $user, $role ($level)',
+      name: 'rightsLine',
+      desc: '',
+      args: [site, user, role, level],
+    );
+  }
+
+  /// `{count, plural, =1{Apply 1 change} other{Apply {count} changes}}`
+  String applyChanges(num count) {
+    return Intl.plural(
+      count,
+      one: 'Apply 1 change',
+      other: 'Apply $count changes',
+      name: 'applyChanges',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Ask an admin for {count}`
+  String askAdminFor(Object count) {
+    return Intl.message(
+      'Ask an admin for $count',
+      name: 'askAdminFor',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Each write is checked by the link and recorded in {audit}. A value shows only after it is read back.`
+  String reviewNote(Object audit) {
+    return Intl.message(
+      'Each write is checked by the link and recorded in $audit. A value shows only after it is read back.',
+      name: 'reviewNote',
+      desc: '',
+      args: [audit],
+    );
+  }
+
+  /// `Close`
+  String get closeLabel {
+    return Intl.message('Close', name: 'closeLabel', desc: '', args: []);
+  }
+
+  /// `Discard all`
+  String get discardAll {
+    return Intl.message('Discard all', name: 'discardAll', desc: '', args: []);
+  }
+
+  /// `{kind} · {count} actions`
+  String menuSubtitle(Object kind, Object count) {
+    return Intl.message(
+      '$kind · $count actions',
+      name: 'menuSubtitle',
+      desc: '',
+      args: [kind, count],
+    );
+  }
+
+  /// `Other`
+  String get menuOther {
+    return Intl.message('Other', name: 'menuOther', desc: '', args: []);
+  }
+
+  /// `No records for this node in the last 500 of sys/audit.`
+  String get noAuditHere {
+    return Intl.message(
+      'No records for this node in the last 500 of sys/audit.',
+      name: 'noAuditHere',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `My blocks`
+  String get paletteMyBlocks {
+    return Intl.message(
+      'My blocks',
+      name: 'paletteMyBlocks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needs own blocks in the engine`
+  String get myBlocksReason {
+    return Intl.message(
+      'Needs own blocks in the engine',
+      name: 'myBlocksReason',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Find a block`
+  String get findBlock {
+    return Intl.message('Find a block', name: 'findBlock', desc: '', args: []);
+  }
+
+  /// `Find a point or action`
+  String get findInTree {
+    return Intl.message(
+      'Find a point or action',
+      name: 'findInTree',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Draft saved`
+  String get draftSaved {
+    return Intl.message('Draft saved', name: 'draftSaved', desc: '', args: []);
+  }
+
+  /// `Version {v} · deployed`
+  String versionDeployed(Object v) {
+    return Intl.message(
+      'Version $v · deployed',
+      name: 'versionDeployed',
+      desc: '',
+      args: [v],
+    );
+  }
+
+  /// `reads a value`
+  String get legendReads {
+    return Intl.message(
+      'reads a value',
+      name: 'legendReads',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `writes to a device`
+  String get legendWrites {
+    return Intl.message(
+      'writes to a device',
+      name: 'legendWrites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `free field`
+  String get legendFree {
+    return Intl.message('free field', name: 'legendFree', desc: '', args: []);
+  }
+
+  /// `no left port = read-only point`
+  String get legendReadOnly {
+    return Intl.message(
+      'no left port = read-only point',
+      name: 'legendReadOnly',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tree node`
+  String get kindTreeNode {
+    return Intl.message('Tree node', name: 'kindTreeNode', desc: '', args: []);
+  }
+
+  /// `Logic block`
+  String get kindLogic {
+    return Intl.message('Logic block', name: 'kindLogic', desc: '', args: []);
+  }
+
+  /// `Sink`
+  String get kindSink {
+    return Intl.message('Sink', name: 'kindSink', desc: '', args: []);
+  }
+
+  /// `Action`
+  String get kindAction {
+    return Intl.message('Action', name: 'kindAction', desc: '', args: []);
+  }
+
+  /// `Flow`
+  String get kindFlow {
+    return Intl.message('Flow', name: 'kindFlow', desc: '', args: []);
+  }
+
+  /// `A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.`
+  String get flowPropertiesNote2 {
+    return Intl.message(
+      'A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.',
+      name: 'flowPropertiesNote2',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not bound`
+  String get notBound {
+    return Intl.message('not bound', name: 'notBound', desc: '', args: []);
+  }
+
+  /// `{n, plural, =1{1 input} other{{n} inputs}}`
+  String inputsCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 input',
+      other: '$n inputs',
+      name: 'inputsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Add an input`
+  String get addInput {
+    return Intl.message('Add an input', name: 'addInput', desc: '', args: []);
+  }
+
+  /// `Remove the last input`
+  String get removeInput {
+    return Intl.message(
+      'Remove the last input',
+      name: 'removeInput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 case} other{{n} cases}}`
+  String pairsCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 case',
+      other: '$n cases',
+      name: 'pairsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Add a case`
+  String get addPair {
+    return Intl.message('Add a case', name: 'addPair', desc: '', args: []);
+  }
+
+  /// `Remove the last case`
+  String get removePair {
+    return Intl.message(
+      'Remove the last case',
+      name: 'removePair',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unbind`
+  String get unbind {
+    return Intl.message('Unbind', name: 'unbind', desc: '', args: []);
+  }
+
+  /// `Drag an output here to bind`
+  String get bindHint {
+    return Intl.message(
+      'Drag an output here to bind',
+      name: 'bindHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deployed by`
+  String get factDeployedBy {
+    return Intl.message(
+      'Deployed by',
+      name: 'factDeployedBy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `May write`
+  String get factMayWrite {
+    return Intl.message('May write', name: 'factMayWrite', desc: '', args: []);
+  }
+
+  /// `Reads`
+  String get factReads {
+    return Intl.message('Reads', name: 'factReads', desc: '', args: []);
+  }
+
+  /// `Writes`
+  String get factWrites {
+    return Intl.message('Writes', name: 'factWrites', desc: '', args: []);
+  }
+
+  /// `Problems`
+  String get problems {
+    return Intl.message('Problems', name: 'problems', desc: '', args: []);
+  }
+
+  /// `Point`
+  String get treePoint {
+    return Intl.message('Point', name: 'treePoint', desc: '', args: []);
+  }
+
+  /// `on a block: adds it as a field. On the canvas: a new block of that node.`
+  String get treePointNote {
+    return Intl.message(
+      'on a block: adds it as a field. On the canvas: a new block of that node.',
+      name: 'treePointNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Action`
+  String get treeAction {
+    return Intl.message('Action', name: 'treeAction', desc: '', args: []);
+  }
+
+  /// `a block that runs it when run when turns true; its arguments are fields.`
+  String get treeActionNote {
+    return Intl.message(
+      'a block that runs it when run when turns true; its arguments are fields.',
+      name: 'treeActionNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} in`
+  String actionInputs(Object n) {
+    return Intl.message('$n in', name: 'actionInputs', desc: '', args: [n]);
+  }
+
+  /// `A point of the tree. A read-only point has no input; binding into a writable one writes ~set.`
+  String get noteTreeNode {
+    return Intl.message(
+      'A point of the tree. A read-only point has no input; binding into a writable one writes ~set.',
+      name: 'noteTreeNode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Dragged from the tree. Runs when run when turns true.`
+  String get noteAction {
+    return Intl.message(
+      'Dragged from the tree. Runs when run when turns true.',
+      name: 'noteAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Live values`
+  String get factLive {
+    return Intl.message('Live values', name: 'factLive', desc: '', args: []);
+  }
+
+  /// `You cannot read every source and target of this flow`
+  String get liveRefused {
+    return Intl.message(
+      'You cannot read every source and target of this flow',
+      name: 'liveRefused',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `fires at deploy`
+  String get firesAtDeploy {
+    return Intl.message(
+      'fires at deploy',
+      name: 'firesAtDeploy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A parameter sends its value when the flow starts, so this writes at every deploy.`
+  String get firesAtDeployNote {
+    return Intl.message(
+      'A parameter sends its value when the flow starts, so this writes at every deploy.',
+      name: 'firesAtDeployNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Contents`
+  String get tabContents {
+    return Intl.message('Contents', name: 'tabContents', desc: '', args: []);
+  }
+
+  /// `folder`
+  String get kindFolder {
+    return Intl.message('folder', name: 'kindFolder', desc: '', args: []);
+  }
+
+  /// `dataflow`
+  String get kindDataflow {
+    return Intl.message('dataflow', name: 'kindDataflow', desc: '', args: []);
+  }
+
+  /// `storage`
+  String get kindStorage {
+    return Intl.message('storage', name: 'kindStorage', desc: '', args: []);
+  }
+
+  /// `broker`
+  String get kindBroker {
+    return Intl.message('broker', name: 'kindBroker', desc: '', args: []);
+  }
+
+  /// `Folder`
+  String get insFolder {
+    return Intl.message('Folder', name: 'insFolder', desc: '', args: []);
+  }
+
+  /// `Storage`
+  String get insStorage {
+    return Intl.message('Storage', name: 'insStorage', desc: '', args: []);
+  }
+
+  /// `Broker`
+  String get insBroker {
+    return Intl.message('Broker', name: 'insBroker', desc: '', args: []);
+  }
+
+  /// `State`
+  String get secState {
+    return Intl.message('State', name: 'secState', desc: '', args: []);
+  }
+
+  /// `Since`
+  String get factSince {
+    return Intl.message('Since', name: 'factSince', desc: '', args: []);
+  }
+
+  /// `deployed by {who}`
+  String deployedByWho(Object who) {
+    return Intl.message(
+      'deployed by $who',
+      name: 'deployedByWho',
+      desc: '',
+      args: [who],
+    );
+  }
+
+  /// `{count, plural, =0{no children} =1{1 child} other{{count} children}}`
+  String childCount(num count) {
+    return Intl.plural(
+      count,
+      zero: 'no children',
+      one: '1 child',
+      other: '$count children',
+      name: 'childCount',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Nothing under this node.`
+  String get noChildren {
+    return Intl.message(
+      'Nothing under this node.',
+      name: 'noChildren',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Select a row: a node opens in the tree, a value opens in the inspector.`
+  String get childrenNote {
+    return Intl.message(
+      'Select a row: a node opens in the tree, a value opens in the inspector.',
+      name: 'childrenNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Opening the editor needs read on this flow.`
+  String get noReadFlow {
+    return Intl.message(
+      'Opening the editor needs read on this flow.',
+      name: 'noReadFlow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Name`
+  String get colName {
+    return Intl.message('Name', name: 'colName', desc: '', args: []);
+  }
+
+  /// `Kind`
+  String get colKind {
+    return Intl.message('Kind', name: 'colKind', desc: '', args: []);
+  }
+
+  /// `Outputs cannot be bound`
+  String get refuseOutput {
+    return Intl.message(
+      'Outputs cannot be bound',
+      name: 'refuseOutput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{field} takes no input: type its value`
+  String refuseNoInput(String field) {
+    return Intl.message(
+      '$field takes no input: type its value',
+      name: 'refuseNoInput',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `A block cannot feed itself`
+  String get refuseSelf {
+    return Intl.message(
+      'A block cannot feed itself',
+      name: 'refuseSelf',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{from} does not fit {to}`
+  String refuseType(String from, String to) {
+    return Intl.message(
+      '$from does not fit $to',
+      name: 'refuseType',
+      desc: '',
+      args: [from, to],
+    );
+  }
+
+  /// `This closes a loop (only a delay may)`
+  String get refuseLoop {
+    return Intl.message(
+      'This closes a loop (only a delay may)',
+      name: 'refuseLoop',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Form`
+  String get blockForm {
+    return Intl.message('Form', name: 'blockForm', desc: '', args: []);
+  }
+
+  /// `Go to source`
+  String get goToSource {
+    return Intl.message('Go to source', name: 'goToSource', desc: '', args: []);
+  }
+
+  /// `bound`
+  String get boundMark {
+    return Intl.message('bound', name: 'boundMark', desc: '', args: []);
+  }
+
+  /// `would write {value}`
+  String wouldWrite(String value) {
+    return Intl.message(
+      'would write $value',
+      name: 'wouldWrite',
+      desc: '',
+      args: [value],
+    );
+  }
+
+  /// `would run on {value}`
+  String wouldRun(String value) {
+    return Intl.message(
+      'would run on $value',
+      name: 'wouldRun',
+      desc: '',
+      args: [value],
+    );
+  }
+
+  /// `preview`
+  String get previewTag {
+    return Intl.message('preview', name: 'previewTag', desc: '', args: []);
+  }
+
+  /// `Values`
+  String get factValues {
+    return Intl.message('Values', name: 'factValues', desc: '', args: []);
+  }
+
+  /// `a preview of the draft; nothing is written`
+  String get valuesPreview {
+    return Intl.message(
+      'a preview of the draft; nothing is written',
+      name: 'valuesPreview',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the deployed version`
+  String get valuesDeployed {
+    return Intl.message(
+      'the deployed version',
+      name: 'valuesDeployed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The draft does not run: {message}`
+  String previewInvalid(String message) {
+    return Intl.message(
+      'The draft does not run: $message',
+      name: 'previewInvalid',
+      desc: '',
+      args: [message],
+    );
+  }
+
+  /// `This field sends its value when the flow starts, so this wire writes at every deploy.`
+  String get firesAtStartNote {
+    return Intl.message(
+      'This field sends its value when the flow starts, so this wire writes at every deploy.',
+      name: 'firesAtStartNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `to a broker’s gateway. Your role there decides what you can change.`
+  String get logInLead {
+    return Intl.message(
+      'to a broker’s gateway. Your role there decides what you can change.',
+      name: 'logInLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Gateway`
+  String get gateway {
+    return Intl.message('Gateway', name: 'gateway', desc: '', args: []);
+  }
+
+  /// `Remember the gateway and user on this computer`
+  String get rememberGatewayAndUser {
+    return Intl.message(
+      'Remember the gateway and user on this computer',
+      name: 'rememberGatewayAndUser',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Signing in…`
+  String get signingIn {
+    return Intl.message('Signing in…', name: 'signingIn', desc: '', args: []);
+  }
+
+  /// `Reaching {host}`
+  String stepReaching(Object host) {
+    return Intl.message(
+      'Reaching $host',
+      name: 'stepReaching',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Checking user and password`
+  String get stepChecking {
+    return Intl.message(
+      'Checking user and password',
+      name: 'stepChecking',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading your role and sites`
+  String get stepReading {
+    return Intl.message(
+      'Reading your role and sites',
+      name: 'stepReading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.`
+  String get wrongPassword {
+    return Intl.message(
+      'User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.',
+      name: 'wrongPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Can’t reach this gateway`
+  String get cantReachGateway {
+    return Intl.message(
+      'Can’t reach this gateway',
+      name: 'cantReachGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker may be restarting or this computer is on another network.`
+  String get unreachableAdvice {
+    return Intl.message(
+      'The broker may be restarting or this computer is on another network.',
+      name: 'unreachableAdvice',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its standby answers at`
+  String get standbyAnswersAt {
+    return Intl.message(
+      'Its standby answers at',
+      name: 'standbyAnswersAt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Try again`
+  String get tryAgain {
+    return Intl.message('Try again', name: 'tryAgain', desc: '', args: []);
+  }
+
+  /// `Use the standby`
+  String get useStandby {
+    return Intl.message(
+      'Use the standby',
+      name: 'useStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `TLS · certificate of the {site} CA`
+  String tlsCertificateOf(Object site) {
+    return Intl.message(
+      'TLS · certificate of the $site CA',
+      name: 'tlsCertificateOf',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Add a standby gateway`
+  String get addStandby {
+    return Intl.message(
+      'Add a standby gateway',
+      name: 'addStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby: {host}`
+  String standbyIs(Object host) {
+    return Intl.message(
+      'Standby: $host',
+      name: 'standbyIs',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Standby gateway`
+  String get standbyGateway {
+    return Intl.message(
+      'Standby gateway',
+      name: 'standbyGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio {version} · {language}`
+  String studioVersion(Object version, Object language) {
+    return Intl.message(
+      'Studio $version · $language',
+      name: 'studioVersion',
+      desc: '',
+      args: [version, language],
+    );
+  }
+
+  /// `English`
+  String get languageName {
+    return Intl.message('English', name: 'languageName', desc: '', args: []);
+  }
+
+  /// `{host} · answered in {ms} ms`
+  String gatewayAnswered(Object host, Object ms) {
+    return Intl.message(
+      '$host · answered in $ms ms',
+      name: 'gatewayAnswered',
+      desc: '',
+      args: [host, ms],
+    );
+  }
+
+  /// `No answer from {host}`
+  String gatewayNoAnswer(Object host) {
+    return Intl.message(
+      'No answer from $host',
+      name: 'gatewayNoAnswer',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Checking the gateway`
+  String get checkingGateway {
+    return Intl.message(
+      'Checking the gateway',
+      name: 'checkingGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Welcome, {user}`
+  String welcomeUser(Object user) {
+    return Intl.message(
+      'Welcome, $user',
+      name: 'welcomeUser',
+      desc: '',
+      args: [user],
+    );
+  }
+
+  /// `Opening the tree of {site}…`
+  String openingTreeOf(Object site) {
+    return Intl.message(
+      'Opening the tree of $site…',
+      name: 'openingTreeOf',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Opening the tree`
+  String get openingTree {
+    return Intl.message(
+      'Opening the tree',
+      name: 'openingTree',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{role} on {site}`
+  String roleOnSite(Object role, Object site) {
+    return Intl.message(
+      '$role on $site',
+      name: 'roleOnSite',
+      desc: '',
+      args: [role, site],
+    );
+  }
+
+  /// `reaches {sites}`
+  String reachesSites(Object sites) {
+    return Intl.message(
+      'reaches $sites',
+      name: 'reachesSites',
+      desc: '',
+      args: [sites],
+    );
+  }
+
+  /// `{first} and {last}`
+  String listAnd(Object first, Object last) {
+    return Intl.message(
+      '$first and $last',
+      name: 'listAnd',
+      desc: '',
+      args: [first, last],
+    );
+  }
+
+  /// `{n, plural, =1{1 link} other{{n} links}}`
+  String linksCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 link',
+      other: '$n links',
+      name: 'linksCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Show password`
+  String get showPassword {
+    return Intl.message(
+      'Show password',
+      name: 'showPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Hide password`
+  String get hidePassword {
+    return Intl.message(
+      'Hide password',
+      name: 'hidePassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every device, link and site`
+  String get heroHeadline1 {
+    return Intl.message(
+      'Every device, link and site',
+      name: 'heroHeadline1',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `in one living tree.`
+  String get heroHeadline2 {
+    return Intl.message(
+      'in one living tree.',
+      name: 'heroHeadline2',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.`
+  String get heroLead {
+    return Intl.message(
+      'Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.',
+      name: 'heroLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `values flowing`
+  String get legendValues {
+    return Intl.message(
+      'values flowing',
+      name: 'legendValues',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `commands`
+  String get legendCommands {
+    return Intl.message('commands', name: 'legendCommands', desc: '', args: []);
+  }
+
+  /// `The animation is decoration; it stops when the system asks for less motion.`
+  String get legendNote {
+    return Intl.message(
+      'The animation is decoration; it stops when the system asks for less motion.',
+      name: 'legendNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the tree of {site}`
+  String preloadTree(Object site) {
+    return Intl.message(
+      'Reading the tree of $site',
+      name: 'preloadTree',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Reading the flows`
+  String get preloadFlows {
+    return Intl.message(
+      'Reading the flows',
+      name: 'preloadFlows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the flow blocks`
+  String get preloadBlocks {
+    return Intl.message(
+      'Reading the flow blocks',
+      name: 'preloadBlocks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the links`
+  String get preloadLinks {
+    return Intl.message(
+      'Reading the links',
+      name: 'preloadLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the sites`
+  String get preloadSites {
+    return Intl.message(
+      'Reading the sites',
+      name: 'preloadSites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{step} · later`
+  String preloadLater(Object step) {
+    return Intl.message(
+      '$step · later',
+      name: 'preloadLater',
+      desc: '',
+      args: [step],
+    );
+  }
+
+  /// `Updating…`
+  String get updating {
+    return Intl.message('Updating…', name: 'updating', desc: '', args: []);
+  }
+
+  /// `View value`
+  String get viewValue {
+    return Intl.message('View value', name: 'viewValue', desc: '', args: []);
+  }
+
+  /// `Copy`
+  String get copyValue {
+    return Intl.message('Copy', name: 'copyValue', desc: '', args: []);
+  }
+
+  /// `Copied`
+  String get copiedValue {
+    return Intl.message('Copied', name: 'copiedValue', desc: '', args: []);
+  }
+
+  /// `{count, plural, =1{1 key} other{{count} keys}}`
+  String sizeKeys(int count) {
+    return Intl.plural(
+      count,
+      one: '1 key',
+      other: '$count keys',
+      name: 'sizeKeys',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 item} other{{count} items}}`
+  String sizeItems(int count) {
+    return Intl.plural(
+      count,
+      one: '1 item',
+      other: '$count items',
+      name: 'sizeItems',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 char} other{{count} chars}}`
+  String sizeChars(int count) {
+    return Intl.plural(
+      count,
+      one: '1 char',
+      other: '$count chars',
+      name: 'sizeChars',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 line} other{{count} lines}}`
+  String sizeLines(int count) {
+    return Intl.plural(
+      count,
+      one: '1 line',
+      other: '$count lines',
+      name: 'sizeLines',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 byte} other{{count} bytes}}`
+  String sizeBytes(int count) {
+    return Intl.plural(
+      count,
+      one: '1 byte',
+      other: '$count bytes',
+      name: 'sizeBytes',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{… 1 more byte} other{… {count} more bytes}}`
+  String moreBytes(int count) {
+    return Intl.plural(
+      count,
+      one: '… 1 more byte',
+      other: '… $count more bytes',
+      name: 'moreBytes',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Language`
+  String get menuLanguage {
+    return Intl.message('Language', name: 'menuLanguage', desc: '', args: []);
+  }
+
+  /// `Theme`
+  String get menuTheme {
+    return Intl.message('Theme', name: 'menuTheme', desc: '', args: []);
   }
 }
 

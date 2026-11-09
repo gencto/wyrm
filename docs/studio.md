@@ -153,11 +153,14 @@ One PR each, in this order: Links (§7.2) → Add a link (§7.3) → Explorer (�
 ## 5. Connection layer
 
 ### 5.1 Login and session
-`LogInAction` (waiting, blocking):
+`LogInAction` (waiting; not blocking since the log-in page shows its own progress, `studio/docs/design/specs/login.md` §3.6–3.7):
+0. A timed `GET /api/me` of each gateway until one answers (`WyrmLogin.probe`); none answers → `login.failure` = `unreachable` with the reason. `login.step` follows the page's three steps (0 reaching, 1 checking, 2 reading); a refused password → `login.failure` = `wrong`. Both are thrown as `UserException`s without a dialog: the page shows them inline.
 1. `WyrmGateway.login(Uri.parse(gateway), user: user, password: password)`; for several gateways (standby, ADR 0036) `WyrmGateway.loginAny([...])`.
 2. `gw.me()` → `site`, `role` into `SiteState` (`SetGatewayAction` and the fields of phase 2).
 3. `gw.client()` → a `ReconnectingClient`; hand it to `WyrmConnectionService.attach(client)` (§5.2).
-4. `session.token` = the gateway session (the auth guard reacts to it). The password is never stored; the gateway URL and user are (`storage`, settings).
+4. `session.token` = the gateway session (the auth guard reacts to it). The password is never stored; the gateway URL and user are (`storage`, settings), and the last five gateways that logged in (`login.recent`) — all three only while `login.remember` is on.
+
+After it the page shows the welcome and dispatches `OpenTreeAction`, then goes to the Studio shell. `OpenTreeAction` preloads, in this order, what the first screens need (`studio/docs/design/specs/login.md` §5.1): the tree root (live lists of `downstream`, `dataflows`, `storage`; only `downstream` opens in the tree), the flows, the flow block catalogue (`flows.blockTypes`, kept for the session and the site; `LoadFlowAction` reads it first, `ViewSiteAction` clears it), the links and the site choices. Each step waits at most 2 s, the whole welcome at least 600 ms and at most 5 s; what is not ready goes on in the background. The preload dispatches its reads with `quiet = true` (`Action.quiet`, set per dispatch): a failure is logged and fails the dispatch, but opens no dialog. `ProbeGatewayAction` probes the gateway field on open, on a recent chip and on leaving the field (`login.probes`: ms, -1 no answer).
 
 `LogOutAction`: close the client, clear `session`, `site`, every table (`*.table` back to empty), stop the services' subscriptions.
 
@@ -167,7 +170,7 @@ Each service is two halves (template rule): `<Name>Service` talks to `WyrmApi` a
 | Service | Opens | Dispatches |
 |---|---|---|
 | `WyrmConnectionService` | `ReconnectingClient.connection` (`Stream<bool>`) | `SetConnectedAction(value)`; on `false` the shell shows the offline banner; on `true` again every screen's Retrieve action reruns |
-| `TreeWatchService` | `list(key)` for each expanded node (`nodes.expanded`), closed when collapsed | `ListUpdate` → `AddNodesAction` (Refreshed/Added/Changed) and a remove; `Disconnected` → mark the branch stale |
+| `TreeWatchService` | `list(key)` for each expanded node (`nodes.expanded`), closed when collapsed; also `dataflows` and `storage` from the log-in preload (§5.1), listed without being expanded. A list that answered once is in `nodes.listed` | `ListUpdate` → `AddNodesAction` (Refreshed/Added/Changed) and a remove; `Disconnected` → mark the branch stale |
 | `LiveValuesService` | one `subscribe(key)` per key in `live.watched` (opened and closed as the set changes) | buffers `ValEvent`s; at most every 200 ms one `SetLiveValuesAction(IMap<String, LiveValue>)` with the changed keys only |
 | `AgentTasksService` | `subscribe('wy/<site>/downstream/<agent>/tasks/*/~val')` (public: `{state}` only), then `get` of `tasks/<id>` `~state` for the ones in view | `AddTasksAction` with the full record when the state changes |
 
@@ -207,7 +210,7 @@ Edit `ui/lib/theme/common.dart` (`_darkBrand`, `_darkNeutrals`) to these values.
 
 The roles without a Material slot (good/warn/bad fills and lines, selected fill, ember line) are fields of `AppColors` (`ui/lib/theme/extensions/colors.dart`), read as `context.colors.goodFill`; add them to the class by hand and let `frx watch` regenerate `colors.g.theme.dart`.
 
-Radii: chip 4, control 6, input and button 8, card 10–12 (`AppRadii.segment = 6`, `control = 8`, `input = button = 8`, `card = 12`). Spacing stays 4/8/16/24/32. Row height 40 (lists), 48 (actions), 56 (table rows); touch targets ≥ 40.
+Radii: chip 4, control 6, input and button 8, card 10–12 (`AppRadii.segment = 6`, `control = 8`, `input = button = 8`, `card = 12`). Spacing stays 4/8/16/24/32. Row height 40 (lists), 48 (actions), 56 (table rows; the Explorer points table is 40, `studio/docs/design/specs/explorer.md` §3); touch targets ≥ 40.
 
 ### 6.2 Type
 IBM Plex Sans 400/500/600 for text, IBM Plex Mono 400/500/600 for keys, values and codes, Unbounded 700 for the logo only. Bundle the TTF files in `ui/assets/fonts/` and declare them in `ui/pubspec.yaml` (`fonts:`); no `google_fonts`. Sizes: 26 page title, 20 inspector title, 16 section, 14 body, 13 rows, 12 meta and labels (uppercase 0.06 em for section labels), 11 tags.
@@ -224,7 +227,7 @@ IBM Plex Sans 400/500/600 for text, IBM Plex Mono 400/500/600 for keys, values a
 | `node_` | tree node kinds: site, section, link, conn, device, point, action, flow, storage, profile, sys, watch |
 | `mode_` | link run modes: embedded, process, wasm, external |
 | `action_` | link actions: play, stop, edit, hist, key, grant, log, up, trash, block, lock |
-| `ui_` | add, close, check, search, chevron_down, chevron_right, bind, send, file, spinner |
+| `ui_` | add, close, check, search, chevron_down, chevron_right, bind, view, send, file, spinner |
 
 After `frx watch`, `Assets.svg.icons.wsLinks.svg(colorFilter: …)`. One `AppIcon` widget (`frx add-widget app_icon -k view --dir indicators`) takes a name and a size (16/20/24) and tints with the current `IconTheme`.
 
@@ -247,6 +250,7 @@ Each with `frx add-widget <name> -k <kind> --dir <dir>`, its `…Vm` beside it.
 | `step_list` | view / indicators | the stepper of Add a link |
 | `progress_list` | view / indicators | done / now / failed / waiting rows (installs, plan runs) |
 | `check_list` | view / indicators | archive checks: ok / failed / skipped with mono detail |
+| `side_panels` | container / containers | a workspace with a resizable left and right panel (Explorer, flow editor, History): 8 px handles on the inner borders, ember on hover/drag/focus, double click resets, ←/→ 16 px, center ≥ 480 (panels shrink to their min first); bounds left 200–520, right 280–640; widths come in and go out through `onChanged`, kept per viewer in `PanelsState.widths` and persisted as `panelWidth.<workspace>.<panel>` (a bad stored value falls back to the default) |
 
 ### 6.6 Forms from `~meta`
 One mapper in `business/lib/wyrm/mappers/param_spec_mapper.dart` reads an action's parameters or a link's `cfg` into `ParamSpec`s; the connector turns each into the template's view models:
@@ -262,6 +266,37 @@ One mapper in `business/lib/wyrm/mappers/param_spec_mapper.dart` reads an action
 
 The same `param_form` draws link parameters (Links › Edit params), action arguments (Explorer › action flyout, Action detail), install parameters, and the arguments of a plan step (Assistant, read-only unless the plan is being edited).
 
+### 6.7 States: first load and refresh (stale while revalidate)
+One rule for every workspace (decided 2026-11-08):
+
+1. **First load** — a read is in flight and the workspace holds nothing yet: the workspace shows its own empty or loading state (`Loading…` in the table, an empty log, a skeleton).
+2. **Refresh** — a read is in flight and the workspace already holds data (a tab shown again, a site reconnected, a list read again): the content **stays on screen and stays usable**. A thin indeterminate strip (`RefreshFrame`, 2 px, ember, the log-in bar's sweep, 1.4 s) lies over the top edge of the workspace content, so nothing moves, and where the workspace has a status line — the line under a `PageHeader` title — it ends in `· Updating…` (12, `text4`). Under reduced motion the strip stands still at 60 %. Assistive technology reads `Updating…`.
+3. **At rest** — no strip, no label.
+
+Where it is built: `refreshing(Workspace)` in `SelectComposites` (`business/lib/redux/selectors.dart`) is true when one of the workspace's `Retrieve…` actions is in `Wait` **and** its slice holds data; commands in flight (Start, Deploy, Install, Apply) do not count. `StudioPageConnector` puts the set of refreshing workspaces in its view-model and wraps the active tab in `RefreshFrame`; `PageHeader` reads the label from the frame (`RefreshScope`). A `Retrieve…` action never empties its table before its answer arrives; a connector never shows `Loading…` while it holds data.
+
+| Workspace | Reads that count | Holds data when | `Updating…` shown |
+|---|---|---|---|
+| Explorer | node detail, node history, links | `nodes.table` | no status line: strip only |
+| Links | links, quarantine, packages | links or quarantine | header line |
+| Flows | flows | `flows.table` | header line |
+| History | historian, series | watch groups | no status line: strip only |
+| Access | users and grants | users or grants | header line |
+| Sites | peers, sites, quarantine, links | peers or site choices | header line |
+| Assistant | agent, tasks | tasks or the agent | no status line: strip only |
+| System | log | log lines | no status line: strip only |
+
+Golden: `ui/test/goldens/links_refreshing.png` (the Links board, refreshing, the strip half way).
+
+### 6.8 Value viewer
+Owner request 2026-11-09: a field's or a point's whole value in a window of its own, styled by its type, live.
+
+- **Where**: the eye (`ui_view`) at the end of every inspector row of the flow editor (after the link button; columns 104 · 1fr · 28 · 28) and beside the value of the Explorer's point inspector. Every value cell of the inspector ends in an ellipsis; the viewer shows the value whole.
+- **Window** (`ui/lib/overlays/floating_window.dart`): floats over the page, not modal (the page stays usable around it); moved by its title row, resized by its bottom-right corner (min 280 × 180, first 440 × 380, kept inside the page); the close button or Esc closes it. One is open at a time: opening another field reuses it in place.
+- **Content** (`ValueViewer`, `ui/lib/overlays/value_viewer.dart`): the title in mono (`<block>.<engine name>`, or the point key under the site; a key too long loses its start: `…/plc1/level`), the type and size (`map · 6 keys`, `string · 412 chars · 4 lines`, `bytes · 14 bytes`), `Copy` (the raw value: indented JSON, a text as itself, bytes as hex), close. The body by type: a map or a list, or a text that is a JSON map or list, as a tree (`ui/lib/trees/json_tree.dart`: chevrons open and close each level; keys `text2`, strings `good`, numbers `emberSoft`, bools `warn`, `null` `text4`, brackets `text4`); a text in mono, wrapped, with line numbers; a number mono 28 with its unit (an enum by its name, `= <index>` beside it); a bool as a mark and its word; `Uint8List` (only that: a JSON list of ints stays a list) as a hex dump, 16 bytes a row, at most 16 KiB; nothing known `no value`. A sample's quality and time at the foot.
+- **State**: `flowEditor.viewedField` (`<block>/<field id>`) and `nodes.viewedPoint` (a full key), set by `SetViewedFieldAction` / `SetViewedPointAction`; the connectors build the `ValueViewerVm` in `fromStore` (one mapper: `app/lib/common/value_viewer.dart`), so the window follows each new sample. A viewed field whose block is gone closes it; loading another flow closes it; Explorer keeps the viewed point subscribed when the tree moves on.
+- **Goldens**: `flow_long_value` (no cell overflows), `flow_viewer_json`, `flow_viewer_text`, `explorer_viewer`.
+
 ## 7. Screens
 
 For each screen: canvas boards, route, state, broker calls, widgets. Keys are relative to `wy/<site>/` unless written in full.
@@ -269,7 +304,8 @@ For each screen: canvas boards, route, state, broker calls, widgets. Keys are re
 ### 7.1 Shell
 Boards: every screen's rail and top bar. Route: `StudioRoute` (tabs: explorer, links, flows, history, access, sites, assistant, system).
 - Rail: `AutoTabsScaffold` with a custom tab bar on the left (76 px), icon + label, accent on the current one; System at the bottom. Below 800 px wide: bottom navigation with five tabs and a More sheet.
-- Top bar: logo, site switcher (the logged-in site and the sites it reaches: `upstream/*`, `downstream/*` peers), search (⌘K: go to a key, an action or a link), account (user, role, Log out).
+- Top bar: logo, site switcher (the logged-in site and the sites it reaches: `upstream/*`, `downstream/*` peers), search (⌘K: go to a key, an action or a link), account.
+- Account menu (owner decision 2026-11-09: the language and theme switchers left the log-in page and live here): a tap on the avatar opens `AccountMenu` (`ui/lib/overlays/account_menu.dart`) under it, in the node menu's frame (300 wide, radius 10, `ground2`, border `line3`): the user (mono 600) and the role, then `Language` (`LanguageSwitcher`: English / Українська, the endonyms) and `Theme` (`ThemeSwitcher`: `ui_moon` / `ui_sun`), then `Log out`. A pick dispatches `SetLanguageAction` / `SetThemeModeAction` at once (both persisted) and the menu stays open showing it, its own words in the new language; `Log out` closes it and runs `LogOutAction`. Golden: `explorer_account_menu`.
 - Offline banner from `site.connected`.
 
 ### 7.2 Links
@@ -317,6 +353,7 @@ On `success: false` show the message and the way out (`process links need a tls/
 ### 7.4 Explorer
 Boards: *Studio · Explorer*, *Explorer · Actions of a node*, *Action · contract, trigger and runs*, *WYRM Studio — property sheet*. Tab: explorer. State: `nodes`, `live`.
 - Tree: lazy, one `list()` per expanded node (§5.2); icons by node kind (§6.4); a history mark from `hasHistory`; `sys/**` is not in the tree (it is in Links, Access, Sites, System).
+- Frames by node kind (explorer.md §3a, proposed): the kind comes from place, profile and actions (`nodeKindOf`); only a device shows Points, Ping, Add point, Import and Apply profile; a flow shows its `~val` state (state, version, deployed by, since, error), **Edit dataflow** (route `FlowEditorRoute(id)`) and Parameters · Actions · Audit; a link, connection, broker, storage node or folder shows a Contents table of its children. The title is the node's name in mono; the display name is the end of the one-line subtitle (ellipsis, tooltip).
 - Layout, columns, inspector, selection, copy and staging: **[`studio/docs/design/specs/explorer.md`](../studio/docs/design/specs/explorer.md)** (it replaces the line that stood here, which contradicted the board: the points table has select, Point, Register, Type, Unit, Poll, Value, Quality, Write and no Time). Writes go through staging and the review drawer, then `set(key/~set, value)`, level from `~meta`.
 - Actions: from `meta(key).actions`, grouped by `group`, each opening `param_form`; the result rows and the error `{code, message}`; runs remembered for the session.
 - Property sheet: `~meta` fields, profile, overlays.
@@ -339,7 +376,15 @@ Boards: *Studio · Sites*, *Sites · Chain, a broker waits*, *Sites · Star*, *S
 ### 7.6 Flows
 Boards: *Studio · Flows*, *Flow editor · fields, bindings, properties*, *Flow editor · drag points and actions from the tree*, *Flow · inside an own block*, *Flow · Repeat*. Tab: flows; route `FlowEditorRoute(id)`. State: `flows`, `flow_editor`.
 - List: `children('dataflows')`, each `dataflows/<id>` `~val`; versions from `invoke('dataflows/<id>', 'history')`.
-- Editor: palette from `invoke('dataflows', 'node_types')` (type, category, ports, parameters); how ports become fields, values and ports on each row: **[`studio/docs/design/specs/flow-editor.md`](../studio/docs/design/specs/flow-editor.md) §3** (rows are fields, never `in.<parameter>` labels; every parameter shows its value and has an output); tree tab: drag a point onto a block (a field) or onto the canvas (a node block), drag an action (a block of its inputs plus ok, code, message).
+- Editor: palette from `invoke('dataflows', 'node_types')` (type, category, ports, parameters; with ADR 0038 also per parameter `port`, typed `default`, `echo`, per type `port_types`, `echo_inputs`); how ports become fields, values and ports on each row: **[`studio/docs/design/specs/flow-editor.md`](../studio/docs/design/specs/flow-editor.md) §3** (rows are fields, never `in.<parameter>` labels; every parameter shows its value and has an output). The field model is `business/lib/wyrm/mappers/flow_fields.dart` (`fieldsOf`): a parameter `p` takes the input `port` the catalog names, else `in.<p>` when the type lists it; a field's output is its echo named like it (ADR 0038 §1), never an existing output's name; inputs take their echo names before parameters (`catalog.rs` `echoes`), so `latch`'s input `reset` has an echo and its parameter `reset` has none. Edges stay engine ports (`a.input_min → b.in.0`). Binding wins over the typed value; unbinding writes the last sample into `cfg`. The − / + of a variable block edit its `inputs` list (never below the type's default count) and drop the wires of the input removed. Only choice defaults are written when a block is added; the other defaults are shown as values (writing them would change what a block means: a range parameter puts `scale` in its range form).
+- Live values: `invoke('dataflows/<id>', 'watch', {max_hz: 4})` (ADR 0038 §3) while the editor is open on a deployed flow (`FlowWatchService`, batched every 50 ms); a snapshot, then changes; a redeploy (`{redeployed}`) reloads the definition when the draft equals the deployed one; an end opens it again (1 s after a stream with rows, then doubling up to 30 s). `not_supported`/`not_found`/`invalid_parameter` stop it quietly (a broker without the action: the editor shows config values and defaults), `permission_denied` stops it and the flow summary says `You cannot read every source and target of this flow`. Values are shown only for blocks the deployed version has with the same type (no draft preview, ADR 0038 §5); a `subscribe`/`set` block falls back to its point's own `~val`. The old lookup of `dataflows/<id>/nodes/<block>` is gone (that key exists for `publish` only).
+- **Labels (owner decision 2026-11-08):** a row reads a human label, never the engine name: the catalog's `display` when it has one, else an override (`in` → `Input`, `out` → `Output`, `k` → `Factor`, `b` → `Offset`, `ms` → `Delay (ms)`, `<type>.<param>` for a parameter of one type: `latch.reset` → `Reset mode`), else sentence case with spaces and a unit suffix in brackets (`input_min` → `Input min`, `size_s` → `Size (s)`); numbered inputs `in.0`, `in.1` read `Input 1`, `Input 2`; names the user or the device gave (a point, an `expression` variable, a `wasm` port, an `invoke` argument) stay as given. No colon. The engine name is the row's tooltip and stands small and mono under the label in the inspector. Labels are English, like the catalog's descriptions. Rule and table: `flow_fields.dart` `fieldLabel`, `fieldLabelOverrides`, `outputLabelOverrides`; per type: `docs/flow-blocks.md` "How the editor shows each block".
+- **Binding is drag and drop along a wire** (DGLux): the canvas reads the pointer itself (`FlowCanvas`, one `Listener` inside the `InteractiveViewer`, geometry from `FlowBlockVm`), so a dragged block or wire stays under the pointer at any zoom and scroll. Press a field (its right port or anywhere on its row) and move 3 px: an S-curve follows the pointer from the field's right port; a row that takes it lights teal and the wire snaps to its left port; a row that refuses lights red and a chip by the pointer says why (`Outputs cannot be bound`, `Factor takes no input: type its value`, `A block cannot feed itself`, `number does not fit bool`, `This closes a loop (only a delay may)`; `bindRefusal` in `flow_fields.dart`, the engine's port types and validation step 5); let go on it, it binds (`ConnectPortsAction`, one wire per input); on the empty canvas, nothing. On a bound input the left port (or the whole row of a field without an output) picks its wire up: let go on another input, it moves there (`RebindEdgeAction`); on the empty canvas, it unbinds (the parameter keeps its last value). A double click or an Alt-click on a bound input unbinds; so does the inspector's link icon. A wire let go on a row of the inspector binds that field (`FieldDropZone`, found by a hit test as DGLux's `field_drop.dart`; a new wire only: a picked-up wire moves between canvas inputs, and the inspector does not check the refusals, validation does). Wires are drawn behind the blocks, the selected block's on top. The header moves a block, snapped to the 20 px grid when let go; a palette entry lands with the pointer on its header; the empty canvas pans, and so do two fingers on a trackpad (pinch and the wheel zoom).
+- **Forms:** a type that does one of two things shows the form in use (`BlockForm`, `formsOf`): `scale` is `k × in + b` (Factor, Offset) or `Range` (Input min … Output max, `Input out of range`); the inspector's `Form` row picks it (`SetBlockFormAction`): the other form's parameters and the wires into and out of its fields leave the definition, and the range form writes its four parameters (the definition then says the form). A loaded definition with both forms shows both.
+- **Live values the watch has not seen:** the engine records a port from its first sample after the watch opened, so a slow point or a value sent once at start is absent there. The editor still shows what is known, for the deployed version only: an input fed by a deployed wire shows its source's value, a variable (`number`, `string`, `bool`, `const`) its `value`, an echo its parameter, a `publish` input and the output wired straight into it what the block last published (`dataflows/<id>/nodes/<node>`).
+- A wire from a parameter's echo into `set`/`invoke` carries a `fires at deploy` chip (a parameter's echo sends at start, ADR 0038 §6).
+- Top bar: `Draft saved` (teal dot) while the draft differs from the deployed version (compared as definitions), else `Version <n> · deployed` and Deploy outlined and off (`Nothing to deploy`). The draft lives in the store: closing and reopening the same flow keeps it while the broker has no newer version; it is not written to disk.
+- Tree tab: points of the tree the Explorer has loaded and the actions of nodes whose `~meta` it has read; a point on the canvas → a `subscribe` block, on an input row → a `subscribe` block wired into that field; an action → an `invoke` block (`on: rising`, `args` from the action's parameters, its `in` reads `run when`). Spec 06 has no several-point tree node, so "a point on a block adds it as a field" means wiring it into an input of that block.
 - Validate as you edit: `invoke('dataflows', 'validate', {def})` (debounced, `ValidateFlowAction` with `debounce`); Deploy: `invoke('dataflows', 'deploy', {def})` with `version` + 1 and `layout`; the gateway adds the proofs (ADR 0008, 0033).
 - Own blocks and Repeat need engine support (§10 items 8, 9); until then they stay design-only and are not in the palette.
 
@@ -404,6 +449,7 @@ Every string in `localization/lib/l10n/intl_en.arb` and `intl_uk.arb`, read in c
           done
 ```
 - Before a PR: `frx doctor`, `frx flow --md` (the flow docs are checked by doctor), `frx graph --fail-on-orphans`.
+- The job takes the newest stable Flutter (`channel: stable`, no version): its analyzer can be stricter than a local SDK (2026-11-09: Flutter 3.47.9 in CI, 3.44.4 locally; 3.47's linter flags a conditional expression inside a `for`/`if` collection element (`prefer_if_elements_to_conditional_expressions`) and `unawaited(...)` around a call annotated `@awaitNotRequired` (`unnecessary_unawaited`), which 3.44's `discarded_futures` still asks for). Before a PR, run `flutter analyze` from `studio/` with the current stable too (`puro`/`fvm`), then restore `pubspec.lock` and `flutter pub get` with the local SDK. Code clean on both: an `if`/`else` element instead of `?:` in a collection, `controller.forward().ignore()` for a ticker started from a sync method.
 
 ## 10. What the broker side still needs
 Each item is a change on the Rust side with its own ADR or spec line; Studio shows the feature only when it exists.

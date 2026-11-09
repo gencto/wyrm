@@ -205,6 +205,7 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.historian != next.historian) 'historian',
       if (prev.access != next.access) 'access',
       if (prev.system != next.system) 'system',
+      if (prev.panels != next.panels) 'panels',
     ];
   }
 }

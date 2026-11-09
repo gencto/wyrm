@@ -22,7 +22,7 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
-## fields.onChanged
+## onView
 
 ```mermaid
 sequenceDiagram
@@ -30,14 +30,32 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockParamAction
+    participant A1 as SetViewedFieldAction
     participant ST as AppState
 
-    User->>UI: fields.onChanged
-    UI->>VM: fields()
+    User->>UI: onView
+    UI->>VM: onView()
+    alt sel != null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.viewedField)
+    end
+```
+
+## onCloseViewer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetViewedFieldAction
+    participant ST as AppState
+
+    User->>UI: onCloseViewer
+    UI->>VM: onCloseViewer()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
-    A1->>ST: dispatchAndWait(ValidateFlowAction)
+    A1->>ST: copyWith(flowEditor.viewedField)
 ```
 
 ## onDeploy
@@ -55,7 +73,7 @@ sequenceDiagram
     UI->>VM: onDeploy()
     VM->>+A1: dispatchAndWait
     Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft)
+    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft, flowEditor.deployed)
     A1->>ST: dispatchAndWait(RetrieveFlowsAction)
     A1-->>-VM: ActionStatus
 ```
@@ -107,8 +125,10 @@ sequenceDiagram
 
     User->>UI: onPaletteTab
     UI->>VM: onPaletteTab()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.palette)
+    alt t != 'my'
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.palette)
+    end
 ```
 
 ## onPick
@@ -130,6 +150,11 @@ sequenceDiagram
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
     alt entry.startsWith('key:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt entry.startsWith('act:')
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
@@ -159,9 +184,14 @@ sequenceDiagram
         A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
+    alt entry.startsWith('act:')
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
 ```
 
-## onSelect
+## onClear
 
 ```mermaid
 sequenceDiagram
@@ -172,8 +202,8 @@ sequenceDiagram
     participant A1 as SetSelectedBlockAction
     participant ST as AppState
 
-    User->>UI: onSelect
-    UI->>VM: onSelect()
+    User->>UI: onClear
+    UI->>VM: onClear()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.selectedBlock)
 ```
@@ -195,7 +225,24 @@ sequenceDiagram
     A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
 ```
 
-## onConnect
+## onSelect
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetSelectedBlockAction
+    participant ST as AppState
+
+    User->>UI: onSelect
+    UI->>VM: onSelect()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.selectedBlock)
+```
+
+## onBind
 
 ```mermaid
 sequenceDiagram
@@ -206,14 +253,14 @@ sequenceDiagram
     participant A1 as ConnectPortsAction
     participant ST as AppState
 
-    User->>UI: onConnect
-    UI->>VM: onConnect()
+    User->>UI: onBind
+    UI->>VM: onBind()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
-## onDisconnect
+## onUnbind
 
 ```mermaid
 sequenceDiagram
@@ -224,11 +271,157 @@ sequenceDiagram
     participant A1 as DisconnectEdgeAction
     participant ST as AppState
 
-    User->>UI: onDisconnect
-    UI->>VM: onDisconnect()
+    User->>UI: onUnbind
+    UI->>VM: onUnbind()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
     A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onRebind
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as RebindEdgeAction
+    participant ST as AppState
+
+    User->>UI: onRebind
+    UI->>VM: onRebind()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onDropEntry
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as AddBlockAction
+    participant ST as AppState
+
+    User->>UI: onDropEntry
+    UI->>VM: onDropEntry()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onResize
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as ResizeInputsAction
+    participant ST as AppState
+
+    User->>UI: onResize
+    UI->>VM: onResize()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onFieldChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetBlockFormAction
+    participant A2 as SetOperandValueAction
+    participant A3 as SetBlockParamAction
+    participant ST as AppState
+
+    User->>UI: onFieldChanged
+    UI->>VM: onFieldChanged()
+    alt form != null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt f.operand
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A2->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt f.kind == FieldKind.arg
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+    alt f.spec
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+```
+
+## onFieldUnbind
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as DisconnectEdgeAction
+    participant ST as AppState
+
+    User->>UI: onFieldUnbind
+    UI->>VM: onFieldUnbind()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+    A1->>ST: dispatchAndWait(ValidateFlowAction)
+```
+
+## onFieldBind
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as ConnectPortsAction
+    participant ST as AppState
+
+    User->>UI: onFieldBind
+    UI->>VM: onFieldBind()
+    alt b != null && port != null && from.block != b.id
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A1->>ST: dispatchAndWait(ValidateFlowAction)
+    end
+```
+
+## onProblem
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetSelectedBlockAction
+    participant ST as AppState
+
+    User->>UI: onProblem
+    UI->>VM: onProblem()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.selectedBlock)
 ```
 
 ## onRemove
@@ -249,25 +442,68 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
+## onLogo
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant NAV as Router
+
+    User->>UI: onLogo
+    UI->>VM: onLogo()
+    VM->>NAV: GoAction.navigate ExplorerRoute
+```
+
+## onPanelWidth
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetPanelWidthAction
+    participant ST as AppState
+
+    User->>UI: onPanelWidth
+    UI->>VM: onPanelWidth()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(panels.widths)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
-- `FlowEditorPageConnector` — 8 dispatches
+- `FlowEditorPageConnector` — 11 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `nameField.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
-| `fields.onChanged` | `SetBlockParamAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft` |
+| `onView` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
+| `onCloseViewer` | `SetViewedFieldAction` | `flowEditor.viewedField` |
+| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft, flowEditor.deployed` |
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
 | `onClose` | `GoAction.pop` | — |
-| `onPaletteTab` | `SetPaletteAction` | `flowEditor.palette` |
-| `onPick` | `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
-| `onDrop` | `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
-| `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
+| `onPaletteTab` | `SetPaletteAction` ? | `flowEditor.palette` |
+| `onPick` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onDrop` | `AddBlockAction` ?, `AddBlockAction` ?, `AddBlockAction` ? | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
 | `onMove` | `MoveBlockAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onConnect` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onDisconnect` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
+| `onBind` | `ConnectPortsAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onRebind` | `RebindEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onDropEntry` | `AddBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onResize` | `ResizeInputsAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onFieldChanged` | `SetBlockFormAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
+| `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
+| `onFieldBind` | `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty` |
+| `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
 | `onRemove` | `RemoveBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
+| `onLogo` | `GoAction.navigate` | — |
+| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 
 `?` marks a dispatch that only runs under a condition.
 

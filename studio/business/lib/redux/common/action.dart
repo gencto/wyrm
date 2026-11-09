@@ -6,11 +6,37 @@ import '../../environment.dart';
 import '../app_state.dart';
 
 abstract class Action extends ReduxAction<AppState> with Selectors {
+  Action({this.quiet = false});
+
   /// Injected services for this store (see [AppDependencies]).
   AppDependencies get deps => store.dependencies! as AppDependencies;
 
   /// The store environment (base URL, prod/dev, …).
   Environment get env => store.environment! as Environment;
+
+  /// Set on one dispatch — `dispatch(RetrieveLinksAction(quiet: true))` —
+  /// when nobody asked for this run: a failure is still logged and still
+  /// fails the dispatch, but it opens no dialog. An action offers it by
+  /// passing `super.quiet` from its constructor.
+  ///
+  /// A read the app starts by itself (the log-in preload,
+  /// docs/design/specs/login.md §5.1) may fail on rights the user does not
+  /// have or finish after the page that started it is gone; a dialog then
+  /// would be about something the user never did. The same action dispatched
+  /// from a screen keeps its dialog.
+  final bool quiet;
+
+  @override
+  Object? wrapError(Object error, StackTrace stackTrace) {
+    final wrapped = super.wrapError(error, stackTrace);
+    if (!quiet || wrapped == null) {
+      return wrapped;
+    }
+    return switch (wrapped) {
+      final UserException e => e.withDialog(false),
+      _ => UserException('$wrapped').withDialog(false),
+    };
+  }
 }
 
 /// Registers the action in `Wait` while it runs, so a selector can read that it

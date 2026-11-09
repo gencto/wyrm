@@ -145,6 +145,8 @@ class DetailInspector extends StatelessWidget {
                   children: [
                     Text(
                       vm.title,
+                      maxLines: 2,
+                      overflow: .ellipsis,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     if (vm.pill case final p?) StatusPill(vm: p, dense: true),

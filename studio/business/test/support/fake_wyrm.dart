@@ -37,6 +37,21 @@ class FakeWyrmApi implements WyrmApi {
   final subs = <String, StreamController<ValEvent>>{};
   final histories = <String, List<HistRow>>{};
 
+  /// Actions (`key ▸ action`) answered by a stream the test drives: each
+  /// call opens a controller of its own, kept in [opened] in call order.
+  final streamed = <String>{};
+  final opened = <String, List<StreamController<Value>>>{};
+
+  /// How long a call waits before it answers, by `key` (children, meta) or
+  /// `key ▸ action` (invoke): a slow broker.
+  final delays = <String, Duration>{};
+
+  Future<void> _delay(String id) async {
+    if (delays[id] case final d?) {
+      await Future<void>.delayed(d);
+    }
+  }
+
   WyrmException _missing(String what) =>
       WyrmException.of(Status.notFound, 'no answer for $what');
 
@@ -77,8 +92,15 @@ class FakeWyrmApi implements WyrmApi {
   Stream<Value> invoke(String key, String action, [Value? args]) async* {
     calls.add(Call('invoke', key, action: action, args: args));
     final id = '$key ▸ $action';
+    await _delay(id);
     if (errors[id] case final e?) {
       throw e;
+    }
+    if (streamed.contains(id)) {
+      final c = StreamController<Value>();
+      (opened[id] ??= []).add(c);
+      yield* c.stream;
+      return;
     }
     final rows = invokes[id];
     if (rows == null) {
@@ -92,15 +114,32 @@ class FakeWyrmApi implements WyrmApi {
   @override
   Future<NodeMeta> meta(String key) async {
     calls.add(Call('meta', key));
-    if (errors[key] case final e?) {
-      throw e;
+    metaInFlight++;
+    if (metaInFlight > metaMaxInFlight) {
+      metaMaxInFlight = metaInFlight;
     }
-    return metas[key] ?? (throw _missing(key));
+    try {
+      if (metaDelay > Duration.zero) {
+        await Future<void>.delayed(metaDelay);
+      }
+      if (errors[key] case final e?) {
+        throw e;
+      }
+      return metas[key] ?? (throw _missing(key));
+    } finally {
+      metaInFlight--;
+    }
   }
+
+  /// How long a `meta` answer takes, and how many were open at once.
+  Duration metaDelay = Duration.zero;
+  var metaInFlight = 0;
+  var metaMaxInFlight = 0;
 
   @override
   Future<List<Child>> children(String key) async {
     calls.add(Call('children', key));
+    await _delay(key);
     if (errors[key] case final e?) {
       throw e;
     }
@@ -192,11 +231,20 @@ class FakeSession implements WyrmSession {
 
 /// Opens [session], or throws [error]; records what it was asked.
 class FakeLogin implements WyrmLogin {
-  FakeLogin({FakeSession? session, this.error})
-    : session = session ?? FakeSession();
+  FakeLogin({
+    FakeSession? session,
+    this.error,
+    this.answer = const GatewayProbe.answered(12),
+  }) : session = session ?? FakeSession();
 
   final FakeSession session;
   final Object? error;
+
+  /// What every [probe] finds.
+  final GatewayProbe answer;
+
+  /// The gateways [probe] was asked about, in order.
+  final probed = <Uri>[];
   List<Uri>? gateways;
   String? user;
   String? password;
@@ -214,6 +262,15 @@ class FakeLogin implements WyrmLogin {
       throw e;
     }
     return session;
+  }
+
+  @override
+  Future<GatewayProbe> probe(
+    Uri gateway, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    probed.add(gateway);
+    return answer;
   }
 }
 

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowEditorState {
 
- String? get flowId; FlowDraft? get draft; bool get dirty; IList<String> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; String? get state; String? get message; String get palette;
+ String? get flowId; FlowDraft? get draft; bool get dirty; IList<String> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; String? get state; String? get message; String get palette; IMap<String, LiveValue> get ports; FlowDraft? get deployed; String? get watchRefused; IMap<String, LiveValue> get previewPorts; IMap<String, LiveValue> get previewSinks; String? get previewError; String? get previewOff; String? get viewedField;
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $FlowEditorStateCopyWith<FlowEditorState> get copyWith => _$FlowEditorStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.state, state) || other.state == state)&&(identical(other.message, message) || other.message == message)&&(identical(other.palette, palette) || other.palette == palette));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.state, state) || other.state == state)&&(identical(other.message, message) || other.message == message)&&(identical(other.palette, palette) || other.palette == palette)&&(identical(other.ports, ports) || other.ports == ports)&&(identical(other.deployed, deployed) || other.deployed == deployed)&&(identical(other.watchRefused, watchRefused) || other.watchRefused == watchRefused)&&(identical(other.previewPorts, previewPorts) || other.previewPorts == previewPorts)&&(identical(other.previewSinks, previewSinks) || other.previewSinks == previewSinks)&&(identical(other.previewError, previewError) || other.previewError == previewError)&&(identical(other.previewOff, previewOff) || other.previewOff == previewOff)&&(identical(other.viewedField, viewedField) || other.viewedField == viewedField));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,state,message,palette);
+int get hashCode => Object.hash(runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,state,message,palette,ports,deployed,watchRefused,previewPorts,previewSinks,previewError,previewOff,viewedField);
 
 @override
 String toString() {
-  return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, state: $state, message: $message, palette: $palette)';
+  return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, state: $state, message: $message, palette: $palette, ports: $ports, deployed: $deployed, watchRefused: $watchRefused, previewPorts: $previewPorts, previewSinks: $previewSinks, previewError: $previewError, previewOff: $previewOff, viewedField: $viewedField)';
 }
 
 
@@ -45,11 +45,11 @@ abstract mixin class $FlowEditorStateCopyWith<$Res>  {
   factory $FlowEditorStateCopyWith(FlowEditorState value, $Res Function(FlowEditorState) _then) = _$FlowEditorStateCopyWithImpl;
 @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette
+ String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette, IMap<String, LiveValue> ports, FlowDraft? deployed, String? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, String? previewError, String? previewOff, String? viewedField
 });
 
 
-$FlowDraftCopyWith<$Res>? get draft;
+$FlowDraftCopyWith<$Res>? get draft;$FlowDraftCopyWith<$Res>? get deployed;
 
 }
 /// @nodoc
@@ -62,7 +62,7 @@ class _$FlowEditorStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,}) {
   return _then(_self.copyWith(
 flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_non_nullable
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
@@ -74,7 +74,15 @@ as IList<NodeType>,version: null == version ? _self.version : version // ignore:
 as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
-as String,
+as String,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
+as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
+as String?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,previewSinks: null == previewSinks ? _self.previewSinks : previewSinks // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,previewError: freezed == previewError ? _self.previewError : previewError // ignore: cast_nullable_to_non_nullable
+as String?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
+as String?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 /// Create a copy of FlowEditorState
@@ -89,6 +97,18 @@ $FlowDraftCopyWith<$Res>? get draft {
   return $FlowDraftCopyWith<$Res>(_self.draft!, (value) {
     return _then(_self.copyWith(draft: value));
   });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowDraftCopyWith<$Res>? get deployed {
+    if (_self.deployed == null) {
+    return null;
+  }
+
+  return $FlowDraftCopyWith<$Res>(_self.deployed!, (value) {
+    return _then(_self.copyWith(deployed: value));
+  });
 }
 }
 
@@ -98,7 +118,7 @@ $FlowDraftCopyWith<$Res>? get draft {
 
 
 class _FlowEditorState implements FlowEditorState {
-  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.state, this.message, this.palette = 'blocks'});
+  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.state, this.message, this.palette = 'blocks', this.ports = const IMapConst({}), this.deployed, this.watchRefused, this.previewPorts = const IMapConst({}), this.previewSinks = const IMapConst({}), this.previewError, this.previewOff, this.viewedField});
   
 
 @override final  String? flowId;
@@ -111,6 +131,14 @@ class _FlowEditorState implements FlowEditorState {
 @override final  String? state;
 @override final  String? message;
 @override@JsonKey() final  String palette;
+@override@JsonKey() final  IMap<String, LiveValue> ports;
+@override final  FlowDraft? deployed;
+@override final  String? watchRefused;
+@override@JsonKey() final  IMap<String, LiveValue> previewPorts;
+@override@JsonKey() final  IMap<String, LiveValue> previewSinks;
+@override final  String? previewError;
+@override final  String? previewOff;
+@override final  String? viewedField;
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
@@ -122,16 +150,16 @@ _$FlowEditorStateCopyWith<_FlowEditorState> get copyWith => __$FlowEditorStateCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.state, state) || other.state == state)&&(identical(other.message, message) || other.message == message)&&(identical(other.palette, palette) || other.palette == palette));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.state, state) || other.state == state)&&(identical(other.message, message) || other.message == message)&&(identical(other.palette, palette) || other.palette == palette)&&(identical(other.ports, ports) || other.ports == ports)&&(identical(other.deployed, deployed) || other.deployed == deployed)&&(identical(other.watchRefused, watchRefused) || other.watchRefused == watchRefused)&&(identical(other.previewPorts, previewPorts) || other.previewPorts == previewPorts)&&(identical(other.previewSinks, previewSinks) || other.previewSinks == previewSinks)&&(identical(other.previewError, previewError) || other.previewError == previewError)&&(identical(other.previewOff, previewOff) || other.previewOff == previewOff)&&(identical(other.viewedField, viewedField) || other.viewedField == viewedField));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,state,message,palette);
+int get hashCode => Object.hash(runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,state,message,palette,ports,deployed,watchRefused,previewPorts,previewSinks,previewError,previewOff,viewedField);
 
 @override
 String toString() {
-  return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, state: $state, message: $message, palette: $palette)';
+  return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, state: $state, message: $message, palette: $palette, ports: $ports, deployed: $deployed, watchRefused: $watchRefused, previewPorts: $previewPorts, previewSinks: $previewSinks, previewError: $previewError, previewOff: $previewOff, viewedField: $viewedField)';
 }
 
 
@@ -142,11 +170,11 @@ abstract mixin class _$FlowEditorStateCopyWith<$Res> implements $FlowEditorState
   factory _$FlowEditorStateCopyWith(_FlowEditorState value, $Res Function(_FlowEditorState) _then) = __$FlowEditorStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette
+ String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette, IMap<String, LiveValue> ports, FlowDraft? deployed, String? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, String? previewError, String? previewOff, String? viewedField
 });
 
 
-@override $FlowDraftCopyWith<$Res>? get draft;
+@override $FlowDraftCopyWith<$Res>? get draft;@override $FlowDraftCopyWith<$Res>? get deployed;
 
 }
 /// @nodoc
@@ -159,7 +187,7 @@ class __$FlowEditorStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,}) {
   return _then(_FlowEditorState(
 flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_non_nullable
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
@@ -171,7 +199,15 @@ as IList<NodeType>,version: null == version ? _self.version : version // ignore:
 as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
-as String,
+as String,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
+as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
+as String?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,previewSinks: null == previewSinks ? _self.previewSinks : previewSinks // ignore: cast_nullable_to_non_nullable
+as IMap<String, LiveValue>,previewError: freezed == previewError ? _self.previewError : previewError // ignore: cast_nullable_to_non_nullable
+as String?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
+as String?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -186,6 +222,18 @@ $FlowDraftCopyWith<$Res>? get draft {
 
   return $FlowDraftCopyWith<$Res>(_self.draft!, (value) {
     return _then(_self.copyWith(draft: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowDraftCopyWith<$Res>? get deployed {
+    if (_self.deployed == null) {
+    return null;
+  }
+
+  return $FlowDraftCopyWith<$Res>(_self.deployed!, (value) {
+    return _then(_self.copyWith(deployed: value));
   });
 }
 }

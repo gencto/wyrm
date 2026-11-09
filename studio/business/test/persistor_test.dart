@@ -1,7 +1,9 @@
 import 'package:business/persistor.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/panel_slot.dart';
 import 'package:storage/storage.dart';
 
 /// [AppPersistor] is the one module here that can silently lose a user's data,
@@ -130,12 +132,68 @@ void main() {
     });
   });
 
+  group('panel widths', () {
+    AppState withWidths(Map<PanelSlot, double> w) =>
+        AppState.initial().copyWith.panels(widths: w.lock);
+
+    test('round-trip through the storage', () async {
+      final state = withWidths({
+        PanelSlot.explorerTree: 340,
+        PanelSlot.explorerInspector: 300.5,
+        PanelSlot.flowPalette: 240,
+      });
+      await persistor.persistDifference(newState: state);
+
+      expect(storage.values['panelWidth.explorer.tree'], 340);
+      final read = await persistor.readState();
+
+      expect(read?.panels.widths, state.panels.widths);
+      expect(read?.panels.widths[PanelSlot.historyGroups], isNull);
+    });
+
+    test('widths alone are enough to rebuild a state', () async {
+      await storage.put('panelWidth.history.groups', 300);
+
+      final state = await persistor.readState();
+
+      expect(state?.panels.widths[PanelSlot.historyGroups], 300.0);
+      expect(state?.theme.mode, ThemeMode.dark, reason: 'falls back');
+    });
+
+    test('a bad stored width falls back to the default', () async {
+      await storage.put('panelWidth.explorer.tree', 'wide');
+      await storage.put('panelWidth.explorer.inspector', -20);
+      await storage.put('panelWidth.flowEditor.palette', double.nan);
+      await storage.put('locale', 'uk');
+
+      final state = await persistor.readState();
+
+      expect(state?.panels.widths, isEmpty);
+    });
+
+    test('writes only the width that changed', () async {
+      final before = withWidths({PanelSlot.explorerTree: 300});
+      await storage.clear();
+
+      await persistor.persistDifference(
+        newState: withWidths({
+          PanelSlot.explorerTree: 300,
+          PanelSlot.flowInspector: 400,
+        }),
+        lastPersistedState: before,
+      );
+
+      expect(storage.values, {'panelWidth.flowEditor.inspector': 400.0});
+    });
+  });
+
   group('deleteState', () {
     test('removes every key', () async {
       await storage.put('themeMode', 1);
       await storage.put('locale', 'uk');
       await storage.put('gateway', 'http://127.0.0.1:8445');
       await storage.put('user', 'admin');
+      await storage.put('panelWidth.explorer.tree', 300);
 
       await persistor.deleteState();
 

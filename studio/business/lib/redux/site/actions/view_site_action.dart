@@ -34,6 +34,8 @@ class ViewSiteAction extends Action {
         table: const IMapConst({}),
         view: const IListConst([]),
       ),
+      // Each site has its own block catalogue.
+      flows: state.flows.copyWith(blockTypes: const IListConst([])),
     );
   }
 

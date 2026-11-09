@@ -26,8 +26,8 @@ flowchart LR
     flowEditor["FlowEditorPage · /flow-editor/:id"]
     frxBack(["◀ back"])
 
-    logIn ==>|"onPressedLogIn (replace) [status.isCompletedOk]"| studio
     studio ==>|"onLogOut (replace)"| logIn
+    explorer -->|"onTapFlowEditor"| flowEditor
     links -->|"onTapLinkInstall"| linkInstall
     links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
@@ -36,7 +36,8 @@ flowchart LR
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
     linkInstall -.->|"onResultAction"| frxBack
-    flowEditor -.->|"onClose"| flows
+    flowEditor -.->|"onClose"| frxBack
+    flowEditor ==>|"onLogo (navigate)"| explorer
 
     classDef frxEntry stroke-dasharray: 5 3
     class logIn,studio frxEntry
@@ -47,16 +48,16 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | Screen | Path | Logged out | Use cases | Flow |
 | --- | --- | --- | --- | --- |
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
-| `LogInPage` | `/login` | yes | 6 | [logIn](logIn.md) |
+| `LogInPage` | `/login` | yes | 8 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
-| `StudioPage` | `/studio` | no | 8 | [studio](studio.md) |
-| `ExplorerPage` | `/studio/explorer` | no | 10 | [explorer](explorer.md) |
+| `StudioPage` | `/studio` | no | 10 | [studio](studio.md) |
+| `ExplorerPage` | `/studio/explorer` | no | 28 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |
-| `HistoryPage` | `/studio/history` | no | 4 | [history](history.md) |
+| `HistoryPage` | `/studio/history` | no | 5 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 4 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
-| `FlowEditorPage` | `/flow-editor/:id` | no | 13 | [flowEditor](flowEditor.md) |
+| `FlowEditorPage` | `/flow-editor/:id` | no | 24 | [flowEditor](flowEditor.md) |

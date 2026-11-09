@@ -12,6 +12,10 @@ import 'redux/services/agent_tasks/agent_tasks.dart';
 import 'redux/services/agent_tasks/agent_tasks_dispatcher.dart';
 import 'redux/services/connectivity/connectivity.dart';
 import 'redux/services/connectivity/connectivity_dispatcher.dart';
+import 'redux/services/flow_preview/flow_preview.dart';
+import 'redux/services/flow_preview/flow_preview_dispatcher.dart';
+import 'redux/services/flow_watch/flow_watch.dart';
+import 'redux/services/flow_watch/flow_watch_dispatcher.dart';
 import 'redux/services/live_values/live_values.dart';
 import 'redux/services/live_values/live_values_dispatcher.dart';
 import 'redux/services/tree_watch/tree_watch.dart';
@@ -65,6 +69,8 @@ class AppDependencies {
     liveValues.attach(session.api, _store.state.live.watched.keys);
     treeWatch.attach(session.api, _store.state.nodes.expanded);
     agentTasks.attach(session.api);
+    flowWatch.attach(session.api);
+    flowPreview.attach(session.api);
     if (old != null && !identical(old, session)) {
       await old.close();
     }
@@ -78,6 +84,8 @@ class AppDependencies {
     liveValues.detach();
     treeWatch.detach();
     agentTasks.detach();
+    flowWatch.detach();
+    flowPreview.detach();
     await old?.close();
   }
 
@@ -124,6 +132,16 @@ class AppDependencies {
     listener: AgentTasksDispatcher(store: _store),
   );
 
+  /// The live values of the flow open in the editor (ADR 0038 §3).
+  late final flowWatch = FlowWatchService(
+    listener: FlowWatchDispatcher(store: _store),
+  );
+
+  /// The live values of the draft being edited (`dataflows` ▸ `preview`).
+  late final flowPreview = FlowPreviewService(
+    listener: FlowPreviewDispatcher(store: _store),
+  );
+
   late final connectivity = ConnectivityService(
     listener: ConnectivityDispatcher(store: _store),
   );
@@ -136,5 +154,7 @@ class AppDependencies {
     await liveValues.start();
     await treeWatch.start();
     await agentTasks.start();
+    await flowWatch.start();
+    await flowPreview.start();
   }
 }

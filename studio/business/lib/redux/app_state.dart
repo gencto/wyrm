@@ -15,6 +15,7 @@ import 'live/models/live_state.dart';
 import 'login/models/login_state.dart';
 import 'nodes/models/nodes_state.dart';
 import 'packages/models/packages_state.dart';
+import 'panels/models/panels_state.dart';
 import 'peers/models/peers_state.dart';
 import 'quarantine/models/quarantine_state.dart';
 import 'session/models/session_state.dart';
@@ -51,6 +52,7 @@ abstract class AppState with _$AppState {
     required HistorianState historian,
     required AccessState access,
     required SystemState system,
+    required PanelsState panels,
     required Wait wait,
   }) = _AppState;
 
@@ -76,6 +78,7 @@ abstract class AppState with _$AppState {
     historian: HistorianState(),
     access: AccessState(),
     system: SystemState(),
+    panels: PanelsState(),
     wait: Wait.empty,
   );
 }

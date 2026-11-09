@@ -137,7 +137,7 @@ class ChangeCard extends StatelessWidget {
   }
 }
 
-/// The words of the review panel, localized by the connector.
+/// The words of the review drawer, localized by the connector.
 final class ReviewLabels {
   const ReviewLabels({
     required this.title,
@@ -146,22 +146,45 @@ final class ReviewLabels {
     required this.empty,
     required this.note,
     required this.refused,
+    this.rights = '',
+    this.ask,
+    this.askReason,
+    this.audit = '',
+    this.close = 'Close',
   });
 
   /// `3 staged changes`.
   final String title;
+
+  /// `Apply 2 changes`.
   final String apply;
   final String discard;
   final String empty;
 
-  /// One line under the title.
+  /// The footer sentence; [audit] in it is drawn as code.
   final String note;
+
+  /// `sys/audit/modbus`, inside [note].
+  final String audit;
+
+  /// `Site plant · applied with your rights: olena, operator (write)`.
+  final String rights;
+
+  /// `Ask an admin for 1`, when some changes need a level the user lacks.
+  final String? ask;
+
+  /// Why Ask an admin is disabled.
+  final String? askReason;
 
   /// The title of a refusal (`The broker refused a change`).
   final String refused;
+  final String close;
 }
 
-/// The right panel of Review and apply.
+/// The review drawer of Review and apply (docs/design/specs/explorer.md §7):
+/// 500 wide on the right over a scrim, the title and whose rights apply,
+/// one card per change, the note on audit and read-back, then Apply for the
+/// changes the user may make and Ask an admin for the others.
 class ReviewPanel extends StatelessWidget {
   const ReviewPanel({
     required this.cards,
@@ -170,6 +193,7 @@ class ReviewPanel extends StatelessWidget {
     required this.onDiscard,
     required this.onClose,
     required this.onRemove,
+    this.onAsk,
     this.error,
     this.applying = false,
     super.key,
@@ -181,6 +205,7 @@ class ReviewPanel extends StatelessWidget {
   final VoidCallback onDiscard;
   final VoidCallback onClose;
   final ValueChanged<String> onRemove;
+  final VoidCallback? onAsk;
 
   /// The broker's refusal of the last apply.
   final String? error;
@@ -189,93 +214,159 @@ class ReviewPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final blocked = cards.any((x) => !x.allowed);
-    return Container(
-      width: 400,
-      decoration: BoxDecoration(
-        color: c.ground1,
-        border: Border(left: BorderSide(color: c.line1)),
-      ),
-      child: Column(
-        crossAxisAlignment: .stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 8, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    labels.title,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  onPressed: onClose,
-                  icon: AppIcon('ui_close', size: 18, color: c.text3),
-                ),
-              ],
+    final allowed = cards.where((x) => x.allowed).length;
+    final cut = labels.audit.isEmpty ? -1 : labels.note.indexOf(labels.audit);
+    return LayoutBuilder(
+      builder: (context, box) => Container(
+        width: box.maxWidth < 500 ? box.maxWidth : 500,
+        decoration: BoxDecoration(
+          color: c.ground1,
+          border: Border(left: BorderSide(color: c.line2)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x66000000),
+              blurRadius: 48,
+              offset: Offset(-24, 0),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Text(
-              labels.note,
-              style: TextStyle(fontSize: 13, color: c.text3),
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(18),
-              children: [
-                if (error case final e?) ...[
-                  Notice(
-                    vm: NoticeVm(
-                      message: labels.refused,
-                      detail: e,
-                      tone: .bad,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: .stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 20, 14, 16),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: c.line1)),
+              ),
+              child: Row(
+                crossAxisAlignment: .start,
+                spacing: 8,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: .start,
+                      spacing: 6,
+                      children: [
+                        Text(
+                          labels.title,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: .w600,
+                            color: c.text1,
+                          ),
+                        ),
+                        if (labels.rights.isNotEmpty)
+                          Text(
+                            labels.rights,
+                            style: TextStyle(fontSize: 13, color: c.text3),
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                ],
-                if (cards.isEmpty)
-                  Text(
-                    labels.empty,
-                    style: TextStyle(fontSize: 13, color: c.text4),
+                  if (cards.isNotEmpty)
+                    Button.quiet(
+                      label: labels.discard,
+                      size: .small,
+                      onPressed: onDiscard,
+                    ),
+                  Tooltip(
+                    message: labels.close,
+                    child: InkWell(
+                      onTap: onClose,
+                      borderRadius: Radii.button,
+                      child: SizedBox.square(
+                        dimension: 40,
+                        child: Center(
+                          child: AppIcon('ui_close', size: 18, color: c.text3),
+                        ),
+                      ),
+                    ),
                   ),
-                for (final card in cards) ...[
-                  ChangeCard(vm: card, onRemove: onRemove),
-                  const SizedBox(height: 10),
                 ],
-              ],
+              ),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: c.line1)),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(22, 16, 22, 16),
+                children: [
+                  if (error case final e?) ...[
+                    Notice(
+                      vm: NoticeVm(
+                        message: labels.refused,
+                        detail: e,
+                        tone: .bad,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (cards.isEmpty)
+                    Text(
+                      labels.empty,
+                      style: TextStyle(fontSize: 13, color: c.text4),
+                    ),
+                  for (final card in cards) ...[
+                    ChangeCard(vm: card, onRemove: onRemove),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
             ),
-            child: Row(
-              spacing: 10,
-              children: [
-                Expanded(
-                  child: Button.primary(
-                    label: labels.apply,
-                    size: .commit,
-                    expand: true,
-                    onPressed: cards.isEmpty || blocked || applying
-                        ? null
-                        : onApply,
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: c.line1)),
+              ),
+              child: Column(
+                crossAxisAlignment: .stretch,
+                spacing: 12,
+                children: [
+                  Text.rich(
+                    cut < 0
+                        ? TextSpan(text: labels.note)
+                        : TextSpan(
+                            children: [
+                              TextSpan(text: labels.note.substring(0, cut)),
+                              TextSpan(
+                                text: labels.audit,
+                                style: mono(color: c.text2),
+                              ),
+                              TextSpan(
+                                text: labels.note.substring(
+                                  cut + labels.audit.length,
+                                ),
+                              ),
+                            ],
+                          ),
+                    style: TextStyle(fontSize: 13, color: c.text3),
                   ),
-                ),
-                Button.quiet(
-                  label: labels.discard,
-                  size: .commit,
-                  onPressed: cards.isEmpty ? null : onDiscard,
-                ),
-              ],
+                  Row(
+                    spacing: 10,
+                    children: [
+                      Expanded(
+                        child: Button.primary(
+                          label: labels.apply,
+                          size: .commit,
+                          expand: true,
+                          onPressed: allowed == 0 || applying ? null : onApply,
+                        ),
+                      ),
+                      if (labels.ask case final ask?)
+                        Expanded(
+                          child: Button.secondary(
+                            label: ask,
+                            size: .commit,
+                            expand: true,
+                            disabledReason: labels.askReason,
+                            onPressed: onAsk,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

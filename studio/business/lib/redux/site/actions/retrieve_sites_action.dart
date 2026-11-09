@@ -11,7 +11,7 @@ import '../../common/action.dart';
 /// and the brokers above it (`sys/upstream/<u>`). A site the user may not
 /// list is left out, not reported.
 class RetrieveSitesAction extends Action with WaitingAction {
-  RetrieveSitesAction({this.depth = 4});
+  RetrieveSitesAction({this.depth = 4, super.quiet});
 
   final int depth;
 

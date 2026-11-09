@@ -16,6 +16,8 @@ class StudioShell extends StatelessWidget {
     required this.onSelect,
     required this.child,
     this.offline,
+    this.drawer,
+    this.onScrim,
     this.more = 'More',
     super.key,
   });
@@ -29,6 +31,11 @@ class StudioShell extends StatelessWidget {
 
   /// The offline banner's text, or null while connected.
   final String? offline;
+
+  /// A drawer over everything on the right, on a scrim (Review and apply,
+  /// docs/design/specs/explorer.md §7); a tap on the scrim is [onScrim].
+  final Widget? drawer;
+  final VoidCallback? onScrim;
   final String more;
 
   /// Narrower than this, the rail moves to the bottom.
@@ -41,25 +48,40 @@ class StudioShell extends StatelessWidget {
       return Scaffold(
         backgroundColor: context.colors.ground0,
         body: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              topBar(compact),
-              if (offline case final m?) OfflineBanner(message: m),
-              Expanded(
-                child: compact
-                    ? child
-                    : Row(
-                        crossAxisAlignment: .stretch,
-                        children: [
-                          WorkspaceRail(
-                            items: rail,
-                            selected: selected,
-                            onSelect: onSelect,
-                          ),
-                          Expanded(child: child),
-                        ],
-                      ),
+              Positioned.fill(
+                child: Column(
+                  children: [
+                    topBar(compact),
+                    if (offline case final m?) OfflineBanner(message: m),
+                    Expanded(
+                      child: compact
+                          ? child
+                          : Row(
+                              crossAxisAlignment: .stretch,
+                              children: [
+                                WorkspaceRail(
+                                  items: rail,
+                                  selected: selected,
+                                  onSelect: onSelect,
+                                ),
+                                Expanded(child: child),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
               ),
+              if (drawer case final d?) ...[
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: onScrim,
+                    child: const ColoredBox(color: Color(0xA8050708)),
+                  ),
+                ),
+                Positioned(top: 0, right: 0, bottom: 0, child: d),
+              ],
             ],
           ),
         ),

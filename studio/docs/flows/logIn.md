@@ -13,14 +13,17 @@ sequenceDiagram
     participant A1 as SetGatewayAction
     participant A2 as SetUserAction
     participant A3 as SetPasswordAction
-    participant A4 as LogInAction
-    participant A5 as SetThemeModeAction
-    participant A6 as SetLanguageAction
+    participant A4 as ProbeGatewayAction
+    participant A5 as SetRememberAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: gateway.onChanged
     UI->>VM: gateway()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(login.gateway)
+
+    User->>UI: standby.onChanged
+    UI->>VM: standby()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(login.gateway)
 
@@ -34,40 +37,45 @@ sequenceDiagram
     VM->>A3: dispatchSync
     A3->>ST: copyWith(login.password)
 
-    User->>UI: onPressedLogIn
-    UI->>VM: onPressedLogIn()
-    alt login.gateway == null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(login.gateway)
-    end
+    User->>UI: onGatewayLeave
+    UI->>VM: onGatewayLeave()
     VM->>+A4: dispatchAndWait
-    Note over A4: WaitingAction · BlockingAction · async
-    A4->>ST: copyWith(session, site, login)
-    A4--xVM: UserException
+    Note over A4: WaitingAction · async
+    A4->>ST: copyWith(login.probes)
     A4-->>-VM: ActionStatus
-    alt status.isCompletedOk
-        VM->>NAV: GoAction.replace StudioRoute
-    end
 
-    User->>UI: theme.onChanged
-    UI->>VM: theme()
+    User->>UI: onRecent
+    UI->>VM: onRecent()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(login.gateway)
+    VM->>+A4: dispatchAndWait
+    Note over A4: WaitingAction · async
+    A4->>ST: copyWith(login.probes)
+    A4-->>-VM: ActionStatus
+
+    User->>UI: remember.onChanged
+    UI->>VM: remember()
     VM->>A5: dispatchSync
-    A5->>ST: copyWith(theme.mode)
+    A5->>ST: copyWith(login.remember)
 
-    User->>UI: language.onChanged
-    UI->>VM: language()
-    VM->>A6: dispatchSync
-    A6->>ST: copyWith(language.locale)
+    User->>UI: onUseStandby
+    UI->>VM: onUseStandby()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(login.gateway)
+
+    Note over UI: not drawn — LogInPageConnector: 5 dispatches
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `gateway.onChanged` | `SetGatewayAction` | `login.gateway` |
+| `standby.onChanged` | `SetGatewayAction` | `login.gateway` |
 | `user.onChanged` | `SetUserAction` | `login.user` |
 | `password.onChanged` | `SetPasswordAction` | `login.password` |
-| `onPressedLogIn` | `SetGatewayAction` ?, `LogInAction`, `GoAction.replace` ? | `login.gateway`, `session, site, login` |
-| `theme.onChanged` | `SetThemeModeAction` | `theme.mode` |
-| `language.onChanged` | `SetLanguageAction` | `language.locale` |
+| `onGatewayLeave` | `ProbeGatewayAction` | `login.probes` |
+| `onRecent` | `SetGatewayAction`, `ProbeGatewayAction` | `login.gateway`, `login.probes` |
+| `remember.onChanged` | `SetRememberAction` | `login.remember` |
+| `onUseStandby` | `SetGatewayAction` | `login.gateway` |
 
 `?` marks a dispatch that only runs under a condition.
 

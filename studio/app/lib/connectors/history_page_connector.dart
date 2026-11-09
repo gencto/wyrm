@@ -7,6 +7,7 @@ import 'package:business/redux/historian/actions/retrieve_historian_action.dart'
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_selected_action.dart';
+import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
 import 'package:ui/buttons/action_row.dart';
@@ -14,10 +15,12 @@ import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/detail_inspector.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/containers/side_panels.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/pages/history_page.dart';
 import 'package:ui/tables/row_table.dart';
 
+import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
 import '../dialogs/node_action_dialog.dart';
 
@@ -63,6 +66,8 @@ class HistoryPageConnector extends StatelessWidget {
         footer: vm.footer,
         inspector: vm.inspector,
         onAction: (a) => vm.onAction(context, a),
+        panels: vm.panelWidths,
+        onPanelWidth: vm.onPanelWidth,
       ),
     ),
   );
@@ -84,6 +89,10 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
         ? ''
         : S.current.everySeconds(s == s.truncate() ? s.toInt() : s);
     return _Vm(
+      panelWidths: WorkspacePanels.history.widths(panels.widths),
+      onPanelWidth: (side, w) => dispatchSync(
+        SetPanelWidthAction(WorkspacePanels.history.slot(side), w),
+      ),
       configReason: site.needs('config', _base),
       groups: [
         for (final x in h.groups)
@@ -299,6 +308,8 @@ class _Vm extends Vm {
     required this.onGroup,
     required this.onRange,
     required this.onAction,
+    required this.panelWidths,
+    required this.onPanelWidth,
   }) : super(
          equals: [
            configReason,
@@ -311,6 +322,7 @@ class _Vm extends Vm {
            points,
            footer,
            inspector,
+           panelWidths,
          ],
        );
 
@@ -328,4 +340,6 @@ class _Vm extends Vm {
   final ValueChanged<String> onGroup;
   final ValueChanged<String> onRange;
   final Future<void> Function(BuildContext context, String action) onAction;
+  final SidePanelWidths panelWidths;
+  final void Function(PanelSide side, double width) onPanelWidth;
 }

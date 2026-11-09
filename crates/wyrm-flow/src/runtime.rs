@@ -124,20 +124,30 @@ impl Running {
         self.flush.send_modify(|g| *g += 1);
     }
 
-    /// Stop accepting, drain for at most 1 s, stop the tasks.
-    pub async fn stop(self) -> States {
+    /// Stop accepting, drain for at most 1 s, stop the tasks. When it returns, every node
+    /// task has ended: a task cut at the deadline is awaited after its abort, as an aborted
+    /// task is dropped only later by the runtime.
+    pub async fn stop(mut self) -> States {
         self.flush();
         let _ = self.stop.send(true);
-        for t in self.tasks {
-            let mut t = t;
-            if tokio::time::timeout(std::time::Duration::from_secs(1), &mut t)
-                .await
-                .is_err()
-            {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+        for mut t in std::mem::take(&mut self.tasks) {
+            if tokio::time::timeout_at(deadline, &mut t).await.is_err() {
                 t.abort();
+                let _ = t.await;
             }
         }
-        self.states
+        self.states.clone()
+    }
+}
+
+impl Drop for Running {
+    /// A run dropped without [`Running::stop`] (a preview cut at the engine's stop) takes
+    /// its node tasks with it instead of leaving them running.
+    fn drop(&mut self) {
+        for t in &self.tasks {
+            t.abort();
+        }
     }
 }
 

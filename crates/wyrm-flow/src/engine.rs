@@ -175,9 +175,10 @@ struct State {
     flows: BTreeMap<String, FlowRt>,
     /// The open watches of the site, for their caps.
     watches: Arc<Watches>,
-    /// The running previews of drafts (ADR 0038 §5), for their caps, and their tasks.
+    /// The running previews of drafts (ADR 0038 §5), for their caps.
     previews: Arc<Watches>,
-    preview_tasks: Vec<JoinHandle<()>>,
+    /// The tasks of previews, watches and `ports` answers: a stop ends and awaits them.
+    streams: Vec<JoinHandle<()>>,
 }
 
 type Shared = Arc<AsyncMutex<State>>;
@@ -395,7 +396,11 @@ impl State {
             return BTreeMap::new();
         };
         if let Some(s) = f.supervisor.take() {
+            // An aborted task is dropped later by the runtime, and the supervisor holds the
+            // engine's state (its store): wait until it is gone. Safe under the state lock:
+            // the supervisor waits only on that lock, its clock or its back-off.
             s.abort();
+            let _ = s.await;
         }
         let Some(run) = f.run.take() else {
             return BTreeMap::new();
@@ -589,8 +594,10 @@ async fn supervise(
                 {
                     let mut st = shared.lock().await;
                     if let Some(f) = st.flows.get_mut(&id) {
-                        // This task is the supervisor being replaced: detach first.
-                        f.supervisor = None;
+                        // This task stays the flow's supervisor through its back-off: a stop,
+                        // start or deploy meanwhile ends it (`halt`), so it never outlives the
+                        // engine (holding its store) nor starts a second run. `launch` below
+                        // puts the next run's supervisor in its place.
                         if let Some(run) = f.run.take() {
                             let states = run.stop().await;
                             let snap = states.lock().unwrap_or_else(|p| p.into_inner()).clone();
@@ -942,7 +949,7 @@ impl Link for Engine {
             flows: BTreeMap::new(),
             watches: Arc::new(Watches::default()),
             previews: Arc::new(crate::preview::registry()),
-            preview_tasks: Vec::new(),
+            streams: Vec::new(),
         }));
         let stored: Vec<Vec<u8>> = cfg.host.store().state().defs.values().cloned().collect();
         {
@@ -1028,8 +1035,8 @@ impl Link for Engine {
                     &st.host.artifacts,
                 )?;
                 let task = p.spawn(only, period, ticket, out);
-                st.preview_tasks.retain(|t| !t.is_finished());
-                st.preview_tasks.push(task);
+                st.streams.retain(|t| !t.is_finished());
+                st.streams.push(task);
                 return Ok(());
             }
             ("", "node_types") => {
@@ -1134,18 +1141,17 @@ impl Link for Engine {
                 reads_flow(&f.def, who, &self.site)?;
                 let only = live::only(&args, &f.def)?;
                 let probe = f.probe.clone();
+                st.streams.retain(|t| !t.is_finished());
                 if action == "ports" {
-                    drop(st);
-                    tokio::spawn(async move {
+                    st.streams.push(tokio::spawn(async move {
                         let row = live::ports(&probe, only.as_ref()).await;
                         let _ = out.reply(row).await;
-                    });
+                    }));
                     return Ok(());
                 }
                 let period = live::period(&args)?;
                 let ticket = st.watches.open(id, &deployer(who).unwrap_or_default())?;
-                drop(st);
-                tokio::spawn(async move {
+                st.streams.push(tokio::spawn(async move {
                     let rows = out.clone();
                     let cancel = ticket.cancelled();
                     let last = live::run(probe, only, period, live::TTL, cancel, move |v| {
@@ -1155,7 +1161,7 @@ impl Link for Engine {
                     .await;
                     let _ = out.done(last).await;
                     drop(ticket);
-                });
+                }));
                 return Ok(());
             }
             (id, "remove") => {
@@ -1178,24 +1184,28 @@ impl Link for Engine {
         Ok(())
     }
 
+    /// When it returns, nothing the engine started runs any more: previews, watches and
+    /// `ports` answers have ended, every flow is halted (its supervisor and node tasks
+    /// awaited). The SDK then drops the engine before `LinkHandle::stop` returns, so the
+    /// store and its lock are free for the next instance at once (ADR 0038 §6).
     async fn stop(&mut self) {
         let mut st = self.shared.lock().await;
-        // previews end first: each stops its sandbox
+        // streams end first: a preview stops its sandbox, a watch ends without a row
         st.previews.cancel_all();
-        for mut t in std::mem::take(&mut st.preview_tasks) {
-            // a preview that does not stop in time is cut: its runtime goes with the task
-            if tokio::time::timeout(Duration::from_secs(2), &mut t)
-                .await
-                .is_err()
-            {
+        for f in st.flows.values() {
+            f.probe.end(live::End::Gone);
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        for mut t in std::mem::take(&mut st.streams) {
+            // one that does not end in time is cut (a preview's runtime goes with its task)
+            // and awaited: an aborted task is dropped only later by the runtime
+            if tokio::time::timeout_at(deadline, &mut t).await.is_err() {
                 t.abort();
+                let _ = t.await;
             }
         }
         let ids: Vec<String> = st.flows.keys().cloned().collect();
         for id in ids {
-            if let Some(f) = st.flows.get(&id) {
-                f.probe.end(live::End::Gone);
-            }
             st.halt(&id).await;
         }
     }

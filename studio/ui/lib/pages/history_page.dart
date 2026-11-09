@@ -5,6 +5,7 @@ import '../buttons/segmented_tabs.dart';
 import '../charts/trend_chart.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
+import '../containers/side_panels.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -52,6 +53,8 @@ class HistoryPage extends StatelessWidget {
     this.pointsEmpty,
     this.footer,
     this.inspector,
+    this.panels = const SidePanelWidths(),
+    this.onPanelWidth,
     super.key,
   });
 
@@ -78,6 +81,10 @@ class HistoryPage extends StatelessWidget {
   final String? footer;
   final DetailInspectorVm? inspector;
   final ValueChanged<String> onAction;
+
+  /// The groups and inspector widths the viewer chose.
+  final SidePanelWidths panels;
+  final void Function(PanelSide side, double width)? onPanelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -223,14 +230,17 @@ class HistoryPage extends StatelessWidget {
             ],
           );
     return LayoutBuilder(
-      builder: (context, box) => Row(
-        crossAxisAlignment: .stretch,
-        children: [
-          left,
-          Expanded(child: center),
-          if (inspector != null && box.maxWidth >= 1100)
-            DetailInspector(vm: inspector!, onAction: onAction),
-        ],
+      builder: (context, box) => SidePanels(
+        left: SidePanel(width: panels.left, defaultWidth: 240, child: left),
+        center: center,
+        right: inspector != null && box.maxWidth >= 1100
+            ? SidePanel(
+                width: panels.right,
+                defaultWidth: 340,
+                child: DetailInspector(vm: inspector!, onAction: onAction),
+              )
+            : null,
+        onChanged: onPanelWidth,
       ),
     );
   }

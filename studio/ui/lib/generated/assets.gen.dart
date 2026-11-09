@@ -155,8 +155,25 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_close.svg
   SvgGenImage get uiClose => const SvgGenImage('assets/svg/icons/ui_close.svg');
 
+  /// File path: assets/svg/icons/ui_copy.svg
+  SvgGenImage get uiCopy => const SvgGenImage('assets/svg/icons/ui_copy.svg');
+
   /// File path: assets/svg/icons/ui_file.svg
   SvgGenImage get uiFile => const SvgGenImage('assets/svg/icons/ui_file.svg');
+
+  /// File path: assets/svg/icons/ui_filter.svg
+  SvgGenImage get uiFilter =>
+      const SvgGenImage('assets/svg/icons/ui_filter.svg');
+
+  /// File path: assets/svg/icons/ui_moon.svg
+  SvgGenImage get uiMoon => const SvgGenImage('assets/svg/icons/ui_moon.svg');
+
+  /// File path: assets/svg/icons/ui_more.svg
+  SvgGenImage get uiMore => const SvgGenImage('assets/svg/icons/ui_more.svg');
+
+  /// File path: assets/svg/icons/ui_profile.svg
+  SvgGenImage get uiProfile =>
+      const SvgGenImage('assets/svg/icons/ui_profile.svg');
 
   /// File path: assets/svg/icons/ui_search.svg
   SvgGenImage get uiSearch =>
@@ -168,6 +185,16 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_spinner.svg
   SvgGenImage get uiSpinner =>
       const SvgGenImage('assets/svg/icons/ui_spinner.svg');
+
+  /// File path: assets/svg/icons/ui_sun.svg
+  SvgGenImage get uiSun => const SvgGenImage('assets/svg/icons/ui_sun.svg');
+
+  /// File path: assets/svg/icons/ui_upload.svg
+  SvgGenImage get uiUpload =>
+      const SvgGenImage('assets/svg/icons/ui_upload.svg');
+
+  /// File path: assets/svg/icons/ui_view.svg
+  SvgGenImage get uiView => const SvgGenImage('assets/svg/icons/ui_view.svg');
 
   /// File path: assets/svg/icons/ws_access.svg
   SvgGenImage get wsAccess =>
@@ -233,10 +260,18 @@ class $AssetsSvgIconsGen {
     uiChevronDown,
     uiChevronRight,
     uiClose,
+    uiCopy,
     uiFile,
+    uiFilter,
+    uiMoon,
+    uiMore,
+    uiProfile,
     uiSearch,
     uiSend,
     uiSpinner,
+    uiSun,
+    uiUpload,
+    uiView,
     wsAccess,
     wsAssistant,
     wsExplorer,
