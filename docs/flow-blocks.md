@@ -243,6 +243,12 @@ WYRM Studio's flow editor draws a block as **fields**, one row each
 catalog (`dataflows/~act/node_types`) in `studio/business/lib/wyrm/mappers/flow_fields.dart`
 (`fieldsOf`, `fieldLabel`, `isVariable`, `tailParams`).
 
+**Pins (owner decision 2026-11-09, as DGLux `!ps`).** The rows below are a
+type's defaults: a block draws its *pinned* fields, and the inspector lists
+every field with a pin to put it on the block or take it off. A field with a
+wire is always a row. The user's choices travel in the definition's `layout`
+(`flow-editor.md` §12).
+
 **One field = one entity (owner decision 2026-11-08, as DGLux).** A field's
 value, its binding and what it feeds are one row, never three:
 
