@@ -70,6 +70,11 @@ impl<S: Send + 'static> Intake<S> {
         }
     }
 
+    /// Read the state.
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&S) -> T) -> T {
+        f(&self.lock().state)
+    }
+
     pub(crate) async fn next<T>(&self, mut f: impl FnMut(&mut S) -> Option<T>) -> T {
         std::future::poll_fn(|cx| self.poll(cx, &mut f)).await
     }

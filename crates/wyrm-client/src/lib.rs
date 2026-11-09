@@ -22,7 +22,8 @@ mod streams;
 pub mod tokens;
 
 pub use streams::{
-    EventStream, ListEvent, ValEvent, INVOKE_BUFFER, LIST_BUFFER, MAX_PENDING_KEYS, RELIABLE_BUFFER,
+    EventStream, ListEvent, ValEvent, INVOKE_BUFFER, LIST_BUFFER, MAX_PENDING_KEYS, MAX_RESYNCS,
+    MAX_STREAM_KEYS, RELIABLE_BUFFER,
 };
 pub use tokens::{SigningTokens, TokenSource};
 

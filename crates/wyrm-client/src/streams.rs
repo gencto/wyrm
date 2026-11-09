@@ -50,9 +50,15 @@ pub const INVOKE_BUFFER: usize = 1024;
 /// newest stored value. A pattern over more keys works as long as the
 /// consumer keeps up.
 pub const MAX_PENDING_KEYS: usize = 4096;
-/// Keys whose last handed-out `t` a value stream remembers, for the time
-/// order per key; one more key clears the memory and it starts again.
-const MAX_ORDER_KEYS: usize = 65_536;
+/// Distinct keys one value stream may hand out (`subscribe`, the gateway's
+/// too): it remembers the last `t` of each for the time order per key. One
+/// more ends the stream with `resource_exhausted`; subscribe a narrower
+/// pattern.
+pub const MAX_STREAM_KEYS: usize = 16_384;
+/// Reads of the stored values again (after more than [`MAX_PENDING_KEYS`]
+/// keys waited) in a row without the consumer catching up; one more ends
+/// the stream with `resource_exhausted`.
+pub const MAX_RESYNCS: u32 = 3;
 /// Events a stream task has already turned into `ListEvent`s and holds for
 /// its consumer; kept small, so a consumer that wakes up soon meets the
 /// fresh snapshot rather than old events.
@@ -61,6 +67,11 @@ const TASK_CHANNEL: usize = 16;
 /// What a stream reads from: a task's channel or an intake it polls itself.
 pub(crate) trait Source<T>: Send {
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>>;
+
+    /// Why the stream ended, when it hit a limit.
+    fn error(&self) -> Option<ClientError> {
+        None
+    }
 }
 
 impl<T: Send> Source<T> for mpsc::Receiver<T> {
@@ -97,6 +108,13 @@ impl<T> EventStream<T> {
     /// consumer keeps up.
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// After [`next`](Self::next) returned `None`: the limit that ended the
+    /// stream (`resource_exhausted`, see [`MAX_STREAM_KEYS`] and
+    /// [`MAX_RESYNCS`]), or `None` for a normal end.
+    pub fn error(&self) -> Option<ClientError> {
+        self.src.error()
     }
 }
 
@@ -380,7 +398,8 @@ struct Vals {
     policy: Policy,
     keep: KeyFilter,
     /// Per key, the `t` of the last sample handed to the consumer: one as old
-    /// or older is never handed out after it. At most [`MAX_ORDER_KEYS`] keys.
+    /// or older is never handed out after it. At most [`MAX_STREAM_KEYS`]
+    /// keys, never cleared.
     last_t: HashMap<String, u64>,
     /// Stored-value `get`s in flight (the first one and the reads again).
     gets: usize,
@@ -389,6 +408,10 @@ struct Vals {
     overflowed: bool,
     /// The live subscriber is gone (session closed).
     live_closed: bool,
+    /// Reads again since the consumer last caught up.
+    resyncs: u32,
+    /// A limit ended the stream.
+    failed: Option<ClientError>,
     dropped: Arc<AtomicU64>,
 }
 
@@ -409,12 +432,31 @@ impl Vals {
             gets,
             overflowed: false,
             live_closed: false,
+            resyncs: 0,
+            failed: None,
             dropped,
         }
     }
 
+    /// End the stream with `resource_exhausted`; what waits is freed.
+    fn fail(&mut self, message: String) {
+        let waiting = match &mut self.policy {
+            Policy::Latest { pending, order } => {
+                order.clear();
+                std::mem::take(pending).len()
+            }
+            Policy::Queue(q) => std::mem::take(q).len(),
+        };
+        self.dropped.fetch_add(waiting as u64, Ordering::Relaxed);
+        self.last_t = HashMap::new();
+        self.failed = Some(ClientError::new(
+            wyrm_core::Status::ResourceExhausted,
+            message,
+        ));
+    }
+
     fn push(&mut self, ev: ValEvent) {
-        if !(self.keep)(ev.key()) {
+        if self.failed.is_some() || !(self.keep)(ev.key()) {
             return;
         }
         if let ValEvent::Sample { key, sample, .. } = &ev {
@@ -468,6 +510,9 @@ impl Vals {
     }
 
     fn pop(&mut self) -> Option<Pop> {
+        if self.failed.is_some() {
+            return Some(Pop::End);
+        }
         loop {
             let ev = match &mut self.policy {
                 Policy::Latest { pending, order } => order
@@ -481,9 +526,11 @@ impl Vals {
                     if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
                         continue;
                     }
-                    if self.last_t.len() >= MAX_ORDER_KEYS && !self.last_t.contains_key(key) {
-                        // bounded: start the per-key order memory again
-                        self.last_t.clear();
+                    if self.last_t.len() >= MAX_STREAM_KEYS && !self.last_t.contains_key(key) {
+                        self.fail(format!(
+                            "the pattern matches more than {MAX_STREAM_KEYS} keys"
+                        ));
+                        return Some(Pop::End);
                     }
                     self.last_t.insert(key.clone(), sample.t);
                 }
@@ -493,10 +540,23 @@ impl Vals {
             }
             return Some(Pop::Event(ev));
         }
-        if self.overflowed && self.gets == 0 {
-            self.overflowed = false;
-            self.gets += 1;
-            return Some(Pop::Resync);
+        if self.gets == 0 {
+            if self.overflowed {
+                if self.resyncs >= MAX_RESYNCS {
+                    self.fail(format!(
+                        "consumer too slow: more than {MAX_PENDING_KEYS} keys waited \
+                         {} times in a row",
+                        MAX_RESYNCS + 1
+                    ));
+                    return Some(Pop::End);
+                }
+                self.overflowed = false;
+                self.resyncs += 1;
+                self.gets += 1;
+                return Some(Pop::Resync);
+            }
+            // nothing waits, nothing is read: the consumer caught up
+            self.resyncs = 0;
         }
         (self.live_closed && self.gets == 0).then_some(Pop::End)
     }
@@ -535,6 +595,10 @@ impl ValReader {
 }
 
 impl Source<ValEvent> for ValReader {
+    fn error(&self) -> Option<ClientError> {
+        self.intake.with(|v| v.failed.clone())
+    }
+
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ValEvent>> {
         loop {
             match self.intake.poll(cx, Vals::pop) {
@@ -740,6 +804,65 @@ mod tests {
             v.push(smp(&format!("k{k}"), 1));
         }
         assert_eq!(drain(&mut v).len(), 10, "only those not handed out yet");
+    }
+
+    /// Security review: a pattern over more keys than the buffer, with a
+    /// consumer that never catches up (every round brings newer values),
+    /// ends after `MAX_RESYNCS` reads again, never loops.
+    #[test]
+    fn reads_again_are_bounded() {
+        let mut v = latest(all());
+        let n = 2 * MAX_PENDING_KEYS as u64;
+        let mut resyncs = 0;
+        for round in 1..=20u64 {
+            // the stored values of this round, newer than the last ones
+            for k in 0..n {
+                v.push(smp(&format!("k{k}"), round));
+            }
+            v.gets = v.gets.saturating_sub(1); // this round's get ends
+                                               // the consumer takes what waits, then the stream decides
+            let next = loop {
+                match v.pop() {
+                    Some(Pop::Event(_)) => {}
+                    other => break other,
+                }
+            };
+            match next {
+                Some(Pop::Resync) => resyncs += 1,
+                Some(Pop::End) => break,
+                _ => panic!("round {round}: neither a read again nor the end"),
+            }
+        }
+        assert_eq!(resyncs, MAX_RESYNCS);
+        let e = v.failed.clone().expect("ended by a limit");
+        assert!(e.is(wyrm_core::Status::ResourceExhausted), "{e}");
+        assert!(matches!(v.pop(), Some(Pop::End)));
+    }
+
+    #[test]
+    fn a_consumer_that_catches_up_starts_the_count_again() {
+        let mut v = latest(all());
+        v.resyncs = MAX_RESYNCS;
+        v.gets = 0;
+        assert!(v.pop().is_none());
+        assert_eq!(v.resyncs, 0);
+    }
+
+    #[test]
+    fn the_keys_of_one_stream_are_bounded() {
+        let mut v = latest(all());
+        v.gets = 0;
+        for k in 0..MAX_STREAM_KEYS {
+            v.push(smp(&format!("k{k}"), 1));
+            assert!(matches!(v.pop(), Some(Pop::Event(_))));
+        }
+        v.push(smp("one-more", 1));
+        assert!(matches!(v.pop(), Some(Pop::End)));
+        let e = v.failed.clone().expect("ended by a limit");
+        assert!(e.is(wyrm_core::Status::ResourceExhausted), "{e}");
+        assert!(v.last_t.is_empty(), "freed");
+        v.push(smp("later", 2));
+        assert!(matches!(v.pop(), Some(Pop::End)));
     }
 
     #[test]

@@ -17,7 +17,10 @@
 //!   * `subscribe`: `sample {key, v, q, t, qual?}`, `removed {key}`;
 //!   * `invoke`: `value {v}` for every result but the last, which is the
 //!     `result` of the final `ok`;
-//!   * `closed {}` when a stream ends on the Zenoh side.
+//!   * `closed {}` when a stream ends on the Zenoh side; a `subscribe` that
+//!     hits a client limit (more than `wyrm_client::MAX_STREAM_KEYS` keys, a
+//!     socket that does not catch up) ends with `{id, ok: false, error}`
+//!     (`resource_exhausted`) instead.
 //!
 //! `meta` is the canonical `~meta` CBOR (spec 02) as a byte string, decoded
 //! with the SDK's `NodeMeta` codec. `status` is a spec-04 status code.
@@ -623,7 +626,12 @@ impl Conn {
                 return;
             }
         }
-        self.send(event_frame(id, "closed", [])).await;
+        // a stream ended by a limit (`resource_exhausted`: too many keys,
+        // or a socket that never catches up) ends with that error
+        match s.error() {
+            Some(e) => self.send(client_err(id, &e)).await,
+            None => self.send(event_frame(id, "closed", [])).await,
+        }
     }
 }
 
