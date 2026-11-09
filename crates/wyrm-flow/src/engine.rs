@@ -844,6 +844,56 @@ fn triggers(n: &def::NodeDef, maxperm: Perm, who: &Caller, site: &str) -> Result
     Ok(())
 }
 
+/// A library block's definition is at most this large (CBOR).
+const MAX_BLOCK_BYTES: usize = 256 * 1024;
+
+fn name_arg(args: &Value) -> Result<String, LinkError> {
+    match args {
+        Value::Map(m) => match m.get("name") {
+            Some(Value::Str(n)) => Ok(n.clone()),
+            _ => Err(LinkError::invalid_parameter("name: required string")),
+        },
+        _ => Err(LinkError::invalid_parameter("name: required string")),
+    }
+}
+
+/// A block of the library: its version and its definition.
+fn library_block(host: &FlowHost, name: &str) -> Option<(u64, Value)> {
+    let store = host.store();
+    let rec = store.state().blocks.get(name)?;
+    let v = wyrm_core::codec::from_slice::<Value>(&rec.cbor).ok()?;
+    Some((rec.version, v))
+}
+
+/// The library blocks that `block` (named `name`) uses, and the ones those use: name →
+/// definition. A block it names that the library does not hold is `invalid_parameter`.
+fn library_with(
+    host: &FlowHost,
+    name: &str,
+    block: &Value,
+) -> Result<BTreeMap<String, Value>, LinkError> {
+    let bad = |e: def::DefError| LinkError::invalid_parameter(e.0);
+    let mut found: BTreeMap<String, Value> = BTreeMap::new();
+    let mut todo: Vec<String> = def::parse_block(name, block)
+        .map_err(bad)?
+        .uses()
+        .into_iter()
+        .collect();
+    while let Some(dep) = todo.pop() {
+        if dep == name || found.contains_key(&dep) {
+            continue;
+        }
+        let (_, v) = library_block(host, &dep).ok_or_else(|| {
+            LinkError::invalid_parameter(format!(
+                "blocks.{name}: it uses the block {dep}, which the library does not hold"
+            ))
+        })?;
+        todo.extend(def::parse_block(&dep, &v).map_err(bad)?.uses());
+        found.insert(dep, v);
+    }
+    Ok(found)
+}
+
 /// The deployer's subject: the token-bound `origin`, else the token subject.
 fn deployer(who: &Caller) -> Option<String> {
     who.origin
@@ -975,6 +1025,47 @@ impl Link for Engine {
                 .level(Perm::Read),
         )
         .await?;
+        // the site's library of custom blocks (ADR 0040 §3): an editor copies a block from
+        // here into the definition it deploys
+        ctx.declare_action(
+            "",
+            "put_block",
+            ActionMeta::new()
+                .display("Put Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .param("def", def_param())
+                .result(ActionResult::Type(TypeCode::Map))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "remove_block",
+            ActionMeta::new()
+                .display("Remove Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "get_block",
+            ActionMeta::new()
+                .display("Get Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .result(ActionResult::Type(TypeCode::Map))
+                .level(Perm::Read),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "list_blocks",
+            ActionMeta::new()
+                .display("List Blocks")
+                .result(ActionResult::Type(TypeCode::Array))
+                .level(Perm::Read),
+        )
+        .await?;
         // the palette of an editor: types, ports, params (crate::catalog)
         ctx.declare_action(
             "",
@@ -1084,6 +1175,109 @@ impl Link for Engine {
             ("", "node_types") => {
                 drop(st);
                 return out.reply(crate::catalog::value()).await;
+            }
+            ("", "put_block") => {
+                let name = name_arg(&args)?;
+                let block = def_arg()?;
+                let cbor = wyrm_core::codec::to_vec(&block)
+                    .map_err(|e| LinkError::invalid_parameter(format!("def: {e}")))?;
+                if cbor.len() > MAX_BLOCK_BYTES {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "def: larger than {MAX_BLOCK_BYTES} bytes"
+                    )));
+                }
+                // it must work as a block: alone in a flow, with the library blocks it uses
+                let mut blocks = library_with(&st.host, &name, &block)?;
+                blocks.insert(name.clone(), block);
+                let probe = Value::Map(BTreeMap::from([
+                    ("id".to_owned(), Value::from("block")),
+                    ("blocks".to_owned(), Value::Map(blocks)),
+                    (
+                        "nodes".to_owned(),
+                        Value::Map(BTreeMap::from([(
+                            "b".to_owned(),
+                            Value::Map(BTreeMap::from([(
+                                "type".to_owned(),
+                                Value::Str(format!("{}{name}", def::BLOCK_PREFIX)),
+                            )])),
+                        )])),
+                    ),
+                ]));
+                compile(&probe, &st.host.artifacts, &st.host.site)
+                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                st.host.apply(Op::PutBlock {
+                    name: name.clone(),
+                    cbor,
+                })?;
+                let version = st
+                    .host
+                    .store()
+                    .state()
+                    .blocks
+                    .get(&name)
+                    .map_or(0, |b| b.version);
+                drop(st);
+                info!(block = %name, version, "custom block stored");
+                return out
+                    .reply(Value::Map(BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name)),
+                        ("version".to_owned(), Value::UInt(version)),
+                    ])))
+                    .await;
+            }
+            ("", "remove_block") => {
+                let name = name_arg(&args)?;
+                if !st.host.store().state().blocks.contains_key(&name) {
+                    return Err(LinkError::not_found(format!("block {name}")));
+                }
+                st.host.apply(Op::RemoveBlock(name))?;
+            }
+            ("", "get_block") => {
+                let name = name_arg(&args)?;
+                let (version, block) = library_block(&st.host, &name)
+                    .ok_or_else(|| LinkError::not_found(format!("block {name}")))?;
+                // with every library block it uses, so the editor copies all of them
+                let requires = library_with(&st.host, &name, &block)?;
+                drop(st);
+                return out
+                    .reply(Value::Map(BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name)),
+                        ("version".to_owned(), Value::UInt(version)),
+                        ("def".to_owned(), block),
+                        ("requires".to_owned(), Value::Map(requires)),
+                    ])))
+                    .await;
+            }
+            ("", "list_blocks") => {
+                let names: Vec<String> = st.host.store().state().blocks.keys().cloned().collect();
+                let mut rows = Vec::new();
+                for name in names {
+                    let Some((version, block)) = library_block(&st.host, &name) else {
+                        continue;
+                    };
+                    let mut row = BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name.clone())),
+                        ("version".to_owned(), Value::UInt(version)),
+                    ]);
+                    if let Ok(b) = def::parse_block(&name, &block) {
+                        let names =
+                            |n: Vec<String>| Value::Array(n.into_iter().map(Value::Str).collect());
+                        row.insert(
+                            "inputs".into(),
+                            names(b.inputs.iter().map(|i| i.name.clone()).collect()),
+                        );
+                        row.insert(
+                            "outputs".into(),
+                            names(b.outputs.iter().map(|o| o.name.clone()).collect()),
+                        );
+                        if let Some(d) = b.description {
+                            row.insert("description".into(), Value::Str(d));
+                        }
+                    }
+                    rows.push(Value::Map(row));
+                }
+                drop(st);
+                return out.reply(Value::Array(rows)).await;
             }
             ("", "validate") => {
                 let mut m = BTreeMap::new();

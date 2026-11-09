@@ -536,6 +536,12 @@ pub fn only(args: &Value, def: &FlowDef) -> Result<Option<BTreeSet<String>>, Lin
         let Value::Str(id) = v else {
             return Err(LinkError::invalid_parameter("nodes: a list of node ids"));
         };
+        // an instance of a custom block stands for its inner nodes (ADR 0040 §3)
+        if def.instances.contains_key(id) {
+            let inside = format!("{id}/");
+            out.extend(def.nodes.keys().filter(|n| n.starts_with(&inside)).cloned());
+            continue;
+        }
         if !def.nodes.contains_key(id) {
             return Err(LinkError::invalid_parameter(format!(
                 "nodes: {id} is not a node of {}",

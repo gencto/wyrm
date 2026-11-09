@@ -99,3 +99,48 @@ This is the alternative ADR 0038 §7 refused ("a start mark carried through ever
 
 **Found on the way.** Two command blocks with one target could not be deployed: `proves_targets` checked the target's proof once per block, and a proof token is taken once (`jti`, spec 04 0.2.11). It now checks one proof per target key.
 
+### 3. Custom blocks: a sub-flow as one block (spec 06 0.2.24)
+The owner selects blocks in the editor and says "create custom block", later "edit custom block" (`docs/studio.md` §10 item 8). The engine's part is small: the compiler replaces an instance by the block's nodes. The runtime, `watch`, `preview`, the rights checks and the proofs never see a custom block.
+
+**In the definition.**
+```
+"blocks": { "<name>": {
+  "description": tstr?,
+  "inputs":  [ { "name": tstr, "to": "<inner>.<port>" | [ "<inner>.<port>", … ], "default": any?, "description": tstr? } ],
+  "outputs": [ { "name": tstr, "from": "<inner>.<port>", "description": tstr? } ],
+  "nodes": { <inner_id>: { "type": tstr, …config } },
+  "edges": [ [ "<inner>.<port>", "<inner>.<port>" ] ],
+  "layout": { <inner_id>: [ x, y ] }?
+} }
+"nodes": { "<id>": { "type": "block:<name>", "values": { "<input>": <value> }? } }
+```
+- `inputs` and `outputs` are lists: an editor draws the fields in their order. A name is `[A-Za-z0-9_]+`, unique among inputs and outputs together. At most 64 of each; an input feeds 1 to 16 inner inputs.
+- **Parameters are inputs with a `default`.** The brief asked for `params`; a separate list would be a second kind of field. A field of an instance is an input: a constant (`values.<input>` of the instance, else the input's `default`) that a wire can replace, as every field since ADR 0038 §7.
+- An instance takes `values` only. Its ports are the block's inputs and outputs: `["x.out", "m1.a"]`, `["m1.out", "y.in"]`. An input is also an output of its name (`["m1.a", "z.in"]`): the echo of the first inner input it feeds.
+- At most 64 blocks in a definition, names `[A-Za-z0-9_]+`.
+
+**Inlining** (`def::parse`).
+- An inner node gets the id `<instance>/<inner>`; in a nested block `<instance>/<inner instance>/<inner>`. A `/` is the engine's: an author's id stays `[A-Za-z0-9_]+`.
+- An edge into an instance input becomes one edge per inner input it feeds; an edge from an instance output starts at the inner output.
+- A constant goes where the inner input keeps one: a parameter's port → that parameter's config; an operand of a logic block → its `values`; `arg.<name>` of an `invoke` → `args`; `in` of a variable → `value`; an input of an inner instance → that instance's `values`. An inner input that keeps no constant (`filter.in`, `set.in`) refuses one: `nodes.<id>.values.<input>: <inner>.<port> takes no constant`. So a constant never sends a sample, and ADR 0038 §7 holds inside a block.
+- An inner node's config hash is computed after the constants. Two instances with the same values have the same inner hashes; a redeploy keeps the state of every inner node that did not change.
+- A block may hold instances of other blocks of the same definition. Depth at most 4; a block that holds itself reaches that limit and is refused. The limit of 1000 nodes counts the expanded nodes.
+- The compiler's messages name the place as written: `blocks.mean.edges[0] in m1: …`, `edges[2]: m1 (mean) has no input x`.
+- A `publish` inside a block has the same `node` name in every instance, so such a block can be used once per flow (validation step 7a).
+- `~def` and the history keep the definition as it was sent, with `blocks`.
+
+**The inside in `watch`, `ports` and `preview`.** Rows carry the inner nodes under their ids: `nodes: {"m1/sum": {in, out, params}}`. The argument `nodes` takes an instance id and then means all its inner nodes (`nodes: ["m1"]`). An instance has no row of its own: its field `a` is the inner input `to[0]` of the block's input `a`, and its output is the inner output `from`. The editor has the block's definition and reads both there. The `trigger` action takes an inner id (`node: "m1/call"`).
+
+**The library** (`dataflows`, in the flow store, replicated with it; store SCHEMA 4).
+| Action | Level | Args | Answer |
+|---|---|---|---|
+| `put_block` | config | `name`, `def` (one block, the shape above) | `{name, version}`; each put is the next version |
+| `get_block` | read | `name` | `{name, version, def, requires: {<name>: def}}`: with every library block it uses |
+| `list_blocks` | read | — | `[{name, version, description?, inputs: [names], outputs: [names]}]` |
+| `remove_block` | config | `name` | — (`not_found` when absent) |
+- `put_block` checks the block as a deploy would: alone in a probe flow with the library blocks it uses (`invalid_parameter` with the compiler's message; a used block the library does not hold is refused). At most 256 blocks, 256 KiB each.
+- **A flow copies, it does not link.** The editor takes a block with `get_block` and writes it (and its `requires`) into the definition's `blocks`. The engine never reads the library when it compiles. Reasons: a deploy stays self-contained (the definition, its history and a rollback hold all of it; a standby and a downstream site need no library); the gateway and the tools compute command targets and proofs from the definition alone (`command_targets`); and a change in the library cannot change a running flow without a deploy and its rights checks. The cost: an update of a library block reaches a flow only when the editor copies it again. `version` tells the editor that a newer one exists.
+- A block holds config, not values; `read` is the level of `history`, which shows definitions too.
+
+*If wrong:* a team that wants one change to reach every flow needs "update all" in the editor (copy and deploy each flow); the engine side stays as it is.
+

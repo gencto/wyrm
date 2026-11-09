@@ -268,6 +268,54 @@ The `trigger` action is the block's button in the editor. It needs level
 It works on a deployed flow that runs. In a preview a command block shows what
 it would send (`sinks`), fires `sent`, and never `ok` or `error`.
 
+## Custom blocks
+
+A custom block is a sub-flow that a flow uses as one block (spec 06 0.2.24,
+ADR 0040 §3). The definition carries it in `blocks`; a node of type
+`block:<name>` is an instance.
+
+```json
+{
+  "blocks": {
+    "mean": {
+      "inputs": [
+        {"name": "a", "to": "sum.in.0"},
+        {"name": "b", "to": "sum.in.1"},
+        {"name": "k", "to": "div.in.1", "default": 2}
+      ],
+      "outputs": [{"name": "out", "from": "div.out"}],
+      "nodes": {"sum": {"type": "add"}, "div": {"type": "divide"}},
+      "edges": [["sum.out", "div.in.0"]]
+    }
+  },
+  "nodes": {"m1": {"type": "block:mean", "values": {"k": 4}}},
+  "edges": [["x.out", "m1.a"], ["y.out", "m1.b"], ["m1.out", "r.in"]]
+}
+```
+
+- The fields of an instance are the block's inputs and outputs, in their
+  order. A parameter is an input with a `default`.
+- `values` gives an input its constant for this instance. A wire replaces it.
+- The compiler replaces the instance by the inner nodes `m1/sum` and `m1/div`.
+  `watch`, `ports` and `preview` show them under these ids; `nodes: ["m1"]`
+  asks for all of them.
+- A block may hold other blocks, at most 4 deep. The 1000 nodes of a flow
+  count the inner nodes.
+- A constant goes only to an inner input that keeps one: a parameter's port,
+  an operand of a logic block, an argument of `invoke`, `in` of a variable.
+- A block with a `publish` inside can be used once in a flow.
+
+The library keeps blocks for every flow of the site:
+
+1. Store a block: `dataflows/~act/put_block {name, def}` (level `config`).
+2. Read it: `get_block {name}` gives `{name, version, def, requires}`.
+3. Copy `def` and every block of `requires` into `blocks` of the flow.
+4. Deploy the flow.
+
+`list_blocks` lists them; `remove_block {name}` removes one. A flow holds its
+own copy: a change in the library reaches a flow when the block is copied and
+the flow is deployed again.
+
 ## Fields as outputs
 
 Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This

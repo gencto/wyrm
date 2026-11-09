@@ -3105,6 +3105,14 @@ async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
                         m(&[("type", s("timer")), ("period_ms", Value::UInt(400))]),
                     ),
                     ("i", m(&[("type", s("modulo")), ("modulo", Value::UInt(2))])),
+                    // the mock's first folder holds the even points: p0 and p2
+                    (
+                        "twice",
+                        m(&[
+                            ("type", s("multiply")),
+                            ("values", m(&[("in.1", Value::UInt(2))])),
+                        ]),
+                    ),
                     (
                         "path",
                         m(&[
@@ -3125,7 +3133,8 @@ async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
                 "edges",
                 Value::Array(vec![
                     edge("t.out", "i.in"),
-                    edge("i.remainder", "path.in.1"),
+                    edge("i.remainder", "twice.in.0"),
+                    edge("twice.out", "path.in.1"),
                     edge("path.out", "sub.in.key"),
                     edge("sub.out", "val.in"),
                     edge("sub.key", "key.in"),
@@ -3167,19 +3176,26 @@ async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
             tokio::time::Instant::now() < deadline,
             "both keys: {seen:?}"
         );
-        if let Some(Value::Str(k)) = last_val(&c, &node("key")).await {
-            if last_val(&c, &node("val"))
-                .await
-                .is_some_and(|v| v.as_f64().is_some())
-            {
-                seen.insert(k);
+        // the key and a value of it, twice in a row: a value of the key before is gone by then
+        let read = || async {
+            let k = last_val(&c, &node("key")).await;
+            let v = last_val(&c, &node("val")).await;
+            match (k, v.and_then(|v| v.as_f64())) {
+                (Some(Value::Str(k)), Some(_)) => Some(k),
+                _ => None,
+            }
+        };
+        let first = read().await;
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        if let (Some(a), Some(b)) = (first, read().await) {
+            if a == b {
+                seen.insert(a);
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(
         seen.into_iter().collect::<Vec<_>>(),
-        ["downstream/mock/g0/p0", "downstream/mock/g0/p1"]
+        ["downstream/mock/g0/p0", "downstream/mock/g0/p2"]
     );
     // the same flow with a scope of one point: the other key is refused
     let mut narrow = def("downstream/mock/g0/p0");
@@ -3317,6 +3333,144 @@ async fn flow_action_block_runs_on_trigger_and_reports_events() {
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    env.stop().await;
+}
+
+/// ADR 0040 §3: a flow with a custom block through wyrmd. The block comes from the site's
+/// library (`put_block`, `get_block`) and is copied into the definition; its inner nodes run
+/// and show under `<instance>/<inner>`.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_with_a_custom_block_from_the_library() {
+    let env = Env::start("flow-block", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    // a point scaled and rounded: `in`, the field `factor` (default 10), `out`
+    let block = m(&[
+        (
+            "inputs",
+            Value::Array(vec![
+                m(&[("name", s("in")), ("to", s("mul.in.0"))]),
+                m(&[
+                    ("name", s("factor")),
+                    ("to", s("mul.in.1")),
+                    ("default", Value::UInt(10)),
+                ]),
+            ]),
+        ),
+        (
+            "outputs",
+            Value::Array(vec![m(&[("name", s("out")), ("from", s("r.out"))])]),
+        ),
+        (
+            "nodes",
+            m(&[
+                ("mul", m(&[("type", s("multiply"))])),
+                ("r", m(&[("type", s("round"))])),
+            ]),
+        ),
+        ("edges", Value::Array(vec![edge("mul.out", "r.in")])),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    let put = c
+        .invoke_one(
+            &flows,
+            "put_block",
+            m(&[("name", s("scaled")), ("def", block.clone())]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&put, &["version"]), Some(Value::UInt(1)));
+    let got = c
+        .invoke_one(&flows, "get_block", m(&[("name", s("scaled"))]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&got, &["def"]), Some(block));
+    let def = m(&[
+        ("id", s("blocks")),
+        ("version", Value::UInt(1)),
+        ("blocks", m(&[("scaled", at(&got, &["def"]).unwrap())])),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                ("x", m(&[("type", s("number")), ("value", Value::UInt(7))])),
+                ("live", m(&[("type", s("block:scaled"))])),
+                (
+                    "fixed",
+                    m(&[
+                        ("type", s("block:scaled")),
+                        ("values", m(&[("factor", Value::UInt(3))])),
+                    ]),
+                ),
+                ("l", m(&[("type", s("publish")), ("node", s("l"))])),
+                ("f", m(&[("type", s("publish")), ("node", s("f"))])),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "live.in"),
+                edge("x.out", "fixed.in"),
+                edge("live.out", "l.in"),
+                edge("fixed.out", "f.in"),
+            ]),
+        ),
+    ]);
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/blocks");
+    // 7 × 3, and the mock's point × 10, rounded
+    let f = eventually("the instance with its own factor", 10, || async {
+        last_val(&c, &format!("{flow}/nodes/f")).await
+    })
+    .await;
+    assert_eq!(f.as_f64(), Some(21.0));
+    let l = eventually("the instance fed by the mock", 10, || async {
+        last_val(&c, &format!("{flow}/nodes/l")).await
+    })
+    .await;
+    assert!(l.as_f64().is_some_and(|x| x.fract() == 0.0), "{l:?}");
+    // the inside of an instance
+    let snap = c
+        .invoke_one(
+            &flow,
+            "ports",
+            m(&[("nodes", Value::Array(vec![s("fixed")]))]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let Some(Value::Array(pair)) = at(&snap, &["nodes", "fixed/r", "out", "out"]) else {
+        panic!("[v, q]: {snap:?}")
+    };
+    assert_eq!(pair[0].as_f64(), Some(21.0), "{snap:?}");
+    assert!(at(&snap, &["nodes", "fixed/mul"]).is_some());
+    assert!(at(&snap, &["nodes", "live/mul"]).is_none());
     env.stop().await;
 }
 
