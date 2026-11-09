@@ -638,26 +638,19 @@ pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, String> {
 /// `config` user on `dataflows/**` read the audit stream and `sys/**` through a flow). Checked
 /// at deploy, at validate and when a stored flow starts again.
 fn check_sources(def: &FlowDef, site: &str) -> def::Result<()> {
-    let sections = ["downstream", "dataflows", "storage"].map(|s| format!("wy/{site}/{s}"));
-    for (id, n) in &def.nodes {
-        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
+    for r in crate::scope::reads(def) {
+        let at = format!("nodes.{}.{}", r.node, r.param);
+        if r.scope {
+            // a scope is a key expression inside the same sections (ADR 0040 §1)
+            crate::scope::Scope::new(site, &r.key)
+                .map_err(|e| def::DefError(format!("{at}: {e}")))?;
             continue;
         }
-        let Some(Value::Str(k)) = n.cfg.get("key") else {
-            continue;
-        };
-        let full = if k.starts_with("wy/") {
-            k.clone()
-        } else {
-            format!("wy/{site}/{}", k.trim_start_matches('/'))
-        };
-        let inside = sections.iter().any(|s| {
-            full.strip_prefix(s.as_str())
-                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
-        });
-        if !inside {
+        let full = crate::scope::full_key(site, &r.key);
+        if !crate::scope::in_sections(site, &full) {
             return Err(def::DefError(format!(
-                "nodes.{id}.key: a source reads this site's downstream, dataflows or storage only                  (wy/{site}/downstream/…), not {full}"
+                "{at}: a source reads this site's downstream, dataflows or storage only \
+                 (wy/{site}/downstream/…), not {full}"
             )));
         }
     }
@@ -728,24 +721,11 @@ fn reads_sources(raw: &Value, who: &Caller, site: &str) -> Result<(), LinkError>
 fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Result<(), LinkError> {
     use zenoh::key_expr::keyexpr;
     let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
-    for n in def.nodes.values() {
-        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
-            continue;
-        }
-        let Some(Value::Str(k)) = n.cfg.get("key") else {
-            continue;
-        };
-        let full = if k.starts_with("wy/") {
-            k.clone()
-        } else {
-            format!("wy/{site}/{}", k.trim_start_matches('/'))
-        };
+    for r in crate::scope::reads(def) {
+        // a scope is read as a whole: a key from the port may be any key inside it
+        let full = crate::scope::full_key(site, &r.key);
         // a key outside the site's sections is refused by the compiler, with its reason
-        let inside = ["downstream", "dataflows", "storage"].iter().any(|s| {
-            full.strip_prefix(&format!("wy/{site}/{s}"))
-                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
-        });
-        if !inside {
+        if !crate::scope::in_sections(site, &full) {
             continue;
         }
         let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
@@ -763,16 +743,33 @@ fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Resu
     Ok(())
 }
 
-/// Whether `auth` gives read on all of `full`: the first grant that touches it decides, and it
-/// must cover it whole (a deny grant on a part is never skipped).
+/// Whether `auth` gives read on all of `full` (a key, or a scope's key expression). The
+/// grants are taken in order, as a responder takes them (the first that matches a key decides
+/// for that key): a grant below `read` that touches `full` refuses it, a read grant that
+/// covers all of it accepts it, and a read grant that covers a part leaves the rest to the
+/// grants after it. So a deny grant on a part is never skipped (security review FLOW-1), and
+/// every key inside `full` is one the caller reads. For one concrete key this is the first
+/// grant that matches it.
 fn reads_key(auth: &[Grant], full: &str) -> bool {
     use zenoh::key_expr::keyexpr;
     let Ok(target) = keyexpr::new(full) else {
         return false;
     };
-    auth.iter()
-        .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)))
-        .is_some_and(|g| g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target)))
+    for g in auth {
+        let Ok(k) = keyexpr::new(&g.k) else {
+            continue;
+        };
+        if !k.intersects(target) {
+            continue;
+        }
+        if g.p < Perm::Read {
+            return false;
+        }
+        if k.includes(target) {
+            return true;
+        }
+    }
+    false
 }
 
 /// `watch` and `ports` (ADR 0038 §3): the caller reads every source and every command target
@@ -1338,5 +1335,105 @@ mod tests {
         reads_flow(&def, &all, "s").unwrap();
         // no `auth` at all
         assert!(reads_flow(&def, &caller(None), "s").is_err());
+    }
+
+    /// ADR 0040 §1: a scope is read whole. A deny grant on a part refuses it wherever it
+    /// stands before the grant that covers it; a read grant on a part leaves the rest to the
+    /// grants after it.
+    #[test]
+    fn a_scope_is_read_whole() {
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let scope = "wy/s/downstream/modbus/line1/**";
+        assert!(reads_key(&[g("wy/s/downstream/**", Perm::Read)], scope));
+        assert!(reads_key(&[g(scope, Perm::Read)], scope));
+        // a part only
+        assert!(!reads_key(
+            &[g("wy/s/downstream/modbus/line1/t1", Perm::Read)],
+            scope
+        ));
+        // a part, then the whole
+        assert!(reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/t1", Perm::Write),
+                g("wy/s/downstream/**", Perm::Read)
+            ],
+            scope
+        ));
+        // a deny on a part, before or after another part
+        assert!(!reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/secret/**", Perm::None),
+                g("wy/s/**", Perm::Read)
+            ],
+            scope
+        ));
+        assert!(!reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/t1", Perm::Read),
+                g("wy/s/downstream/modbus/line1/secret", Perm::None),
+                g("wy/s/**", Perm::Read)
+            ],
+            scope
+        ));
+        // a deny after the grant that covers it never applies
+        assert!(reads_key(
+            &[
+                g("wy/s/**", Perm::Read),
+                g("wy/s/downstream/modbus/line1/secret", Perm::None)
+            ],
+            scope
+        ));
+        assert!(!reads_key(&[], scope));
+        // the deploy check names the scope
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let def = def::parse(&m(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[
+                        ("type", Value::from("subscribe")),
+                        ("key", Value::from("downstream/modbus/line1/t1")),
+                        ("key_scope", Value::from("downstream/modbus/line1/**")),
+                    ]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        let one = caller(Some(vec![g("wy/s/downstream/modbus/line1/t1", Perm::Read)]));
+        let e = reads_sources_of(&def, &one, "s", "the deployer").unwrap_err();
+        assert!(
+            e.message
+                .contains("wy/s/downstream/modbus/line1/**: the deployer may not read it"),
+            "{e}"
+        );
+        assert!(reads_flow(&def, &one, "s").is_err());
+        let all = caller(Some(vec![g("wy/s/downstream/modbus/**", Perm::Read)]));
+        reads_sources_of(&def, &all, "s", "the deployer").unwrap();
+        reads_flow(&def, &all, "s").unwrap();
+        // the compiler's site check covers a scope
+        let bad = def::parse(&m(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[
+                        ("type", Value::from("subscribe")),
+                        ("key_scope", Value::from("wy/*/downstream/**")),
+                    ]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        let e = check_sources(&bad, "s").unwrap_err();
+        assert!(e.0.contains("nodes.a.key_scope"), "{e}");
     }
 }

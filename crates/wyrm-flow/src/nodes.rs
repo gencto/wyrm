@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
-use wyrm_client::{ValEvent, WyrmClient};
+use wyrm_client::WyrmClient;
 use wyrm_core::{Perm, Quality, Value};
 use wyrm_link_sdk::{now_us, LinkCtx};
 
@@ -220,6 +220,28 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
     }
 }
 
+/// The fields of a node type that name what it reads, each with the parameter that holds its
+/// scope: `(field, scope)`. The field is a config key and the port `in.<field>`; a value from
+/// the port is read only inside the scope (ADR 0040 §1, [`crate::scope`]).
+pub fn read_fields(ty: &str) -> &'static [(&'static str, &'static str)] {
+    match ty {
+        "subscribe" | "liveliness" => &[("key", "key_scope")],
+        _ => &[],
+    }
+}
+
+/// Config check of a read field: the key is a text, the scope is a text, and one of them is
+/// given (a node with a scope alone reads nothing until its port brings a key).
+fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), String> {
+    let key = s(cfg, field)?;
+    if s(cfg, scope)?.is_none() && key.is_none() {
+        return Err(format!(
+            "{field}: required (or {scope}, with in.{field} wired)"
+        ));
+    }
+    Ok(())
+}
+
 /// `scale`'s range parameters: given (in the config or on their ports), `in` is mapped from
 /// `input_min`…`input_max` to `output_min`…`output_max` (defaults 0, 1, 0, 100) before
 /// `k × · + b`.
@@ -273,10 +295,11 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         return r;
     }
     Ok(match ty {
-        "subscribe" => {
-            only(cfg, &["key"])?;
-            req_s(cfg, "key")?;
-            Ports::new(&[], &[("out", Any)])
+        "subscribe" | "liveliness" => {
+            only(cfg, &["key", "key_scope"])?;
+            read_field(cfg, "key", "key_scope")?;
+            let out = if ty == "liveliness" { Bool } else { Any };
+            Ports::new(&[("in.key", Any)], &[("out", out), ("error", Any)])
         }
         "timer" => {
             only(cfg, &["period_ms"])?;
@@ -290,11 +313,6 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             only(cfg, &["value"])?;
             cfg.get("value").ok_or("value: required")?;
             Ports::new(&[], &[("out", Any)])
-        }
-        "liveliness" => {
-            only(cfg, &["key"])?;
-            req_s(cfg, "key")?;
-            Ports::new(&[], &[("out", Bool)])
         }
         "expression" => {
             only(cfg, &["inputs", "expr", "trigger", "quality"])?;
@@ -538,73 +556,12 @@ fn truthy(v: &Value) -> bool {
 /// The I/O tasks a source started: they end with the node (a stop, a hot swap, the end of a
 /// preview), not later.
 #[derive(Default)]
-struct Tasks(Vec<tokio::task::JoinHandle<()>>);
+pub(crate) struct Tasks(pub(crate) Vec<tokio::task::JoinHandle<()>>);
 
 impl Drop for Tasks {
     fn drop(&mut self) {
         for t in &self.0 {
             t.abort();
-        }
-    }
-}
-
-struct Subscribe {
-    key: String,
-    last: Option<Value>,
-    tasks: Tasks,
-}
-
-impl Node for Subscribe {
-    fn start(&mut self, io: &Io) {
-        let pattern = io.full_key(&self.key);
-        let (io2, client) = (io.clone(), io.client.clone());
-        self.tasks.0.push(tokio::spawn(async move {
-            let Ok(mut s) = client.subscribe(&pattern).await else {
-                return;
-            };
-            while let Some(ev) = s.next().await {
-                if let ValEvent::Sample { key, sample, .. } = ev {
-                    (io2.inject)(
-                        "__src",
-                        Msg {
-                            v: sample.v,
-                            q: sample.q,
-                            t: sample.t,
-                            key: Some(key.into()),
-                        },
-                    );
-                }
-            }
-        }));
-        // Owner gone → `bad/disconnected` with the previous value.
-        let full = io.full_key(&self.key);
-        if let Some(owner) = wyrm_client::owner_key(&full).filter(|o| !o.contains('*')) {
-            let (io3, session) = (io.clone(), io.client.session().clone());
-            self.tasks.0.push(tokio::spawn(async move {
-                let Ok(sub) = session.liveliness().declare_subscriber(&owner).await else {
-                    return;
-                };
-                while let Ok(s) = sub.recv_async().await {
-                    if s.kind() == zenoh::sample::SampleKind::Delete {
-                        (io3.inject)("__lost", Msg::new(Value::Null, Quality::Bad, now_us()));
-                    }
-                }
-            }));
-        }
-    }
-
-    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
-        match port {
-            "__src" => {
-                self.last = Some(m.v.clone());
-                out.emit("out", m);
-            }
-            "__lost" => {
-                if let Some(v) = self.last.clone() {
-                    out.emit("out", Msg::new(v, Quality::Bad, m.t));
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -641,37 +598,6 @@ struct Const(Value);
 impl Node for Const {
     fn start(&mut self, io: &Io) {
         (io.inject)("__src", Msg::new(self.0.clone(), Quality::Good, now_us()));
-    }
-    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
-        if port == "__src" {
-            out.emit("out", m);
-        }
-    }
-}
-
-struct Liveliness {
-    key: String,
-    tasks: Tasks,
-}
-
-impl Node for Liveliness {
-    fn start(&mut self, io: &Io) {
-        let key = io.full_key(&self.key);
-        let (io2, session) = (io.clone(), io.client.session().clone());
-        self.tasks.0.push(tokio::spawn(async move {
-            let Ok(sub) = session
-                .liveliness()
-                .declare_subscriber(&key)
-                .history(true)
-                .await
-            else {
-                return;
-            };
-            while let Ok(s) = sub.recv_async().await {
-                let up = s.kind() == zenoh::sample::SampleKind::Put;
-                (io2.inject)("__src", Msg::new(Value::Bool(up), Quality::Good, now_us()));
-            }
-        }));
     }
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
         if port == "__src" {
@@ -1588,21 +1514,13 @@ pub fn build_with(
     }
     let num = |k: &str, d: f64| f(cfg, k).map(|x| x.unwrap_or(d));
     Ok(match ty {
-        "subscribe" => Box::new(Subscribe {
-            key: req_s(cfg, "key")?.to_owned(),
-            last: None,
-            tasks: Tasks::default(),
-        }),
+        "subscribe" | "liveliness" => Box::new(crate::sources::Source::new(ty, cfg)),
         "timer" => Box::new(Timer {
             period: Duration::from_secs_f64(num("period_ms", 1000.0)? / 1000.0),
             n: 0,
             live: Live::new("timer", cfg),
         }),
         "const" => Box::new(Const(cfg.get("value").cloned().unwrap_or(Value::Null))),
-        "liveliness" => Box::new(Liveliness {
-            key: req_s(cfg, "key")?.to_owned(),
-            tasks: Tasks::default(),
-        }),
         "expression" => {
             let inputs = names(cfg)?;
             let engine = script::engine();

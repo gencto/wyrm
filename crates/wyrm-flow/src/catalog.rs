@@ -47,6 +47,9 @@ pub struct Param {
     pub description: &'static str,
     /// UI hint (spec 02 `editor`): `textarea`, `duration`, …
     pub editor: Option<&'static str>,
+    /// The parameter that holds this field's scope (ADR 0040 §1): the field names what the
+    /// node reads, and a value from its port is read only inside that scope.
+    pub scope: Option<&'static str>,
 }
 
 /// Ports named by a parameter (`expression` inputs `in.<name>`, `wasm`
@@ -77,7 +80,13 @@ const fn p(name: &'static str, ty: &'static str, description: &'static str) -> P
         default: Def::None,
         description,
         editor: None,
+        scope: None,
     }
+}
+
+const fn sc(mut x: Param, scope: &'static str) -> Param {
+    x.scope = Some(scope);
+    x
 }
 
 const fn req(mut x: Param) -> Param {
@@ -121,23 +130,32 @@ const fn dl(mut x: Param, d: &'static [&'static str]) -> Param {
     x
 }
 
-const KEY: Param = req(p(
-    "key",
+const KEY: Param = sc(
+    req(p(
+        "key",
+        "string",
+        "A point of this site: downstream/<link>/…, storage/… or wy/<site>/… (may be absent when in.key brings it).",
+    )),
+    "key_scope",
+);
+
+const KEY_SCOPE: Param = p(
+    "key_scope",
     "string",
-    "A point of this site: downstream/<link>/…, storage/… or wy/<site>/…",
-));
+    "The keys in.key may name, a key expression: downstream/<link>/** (required when in.key is wired; the deployer must read all of it).",
+);
 
 /// Every node type, in the palette's order.
 pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "subscribe",
         category: "Sources",
-        description: "Values of a point as they change.",
-        inputs: &[],
-        outputs: &["out"],
+        description: "Values of a point as they change; in.key names another point inside key_scope.",
+        inputs: &["in.key"],
+        outputs: &["out", "error"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[KEY],
+        params: &[KEY, KEY_SCOPE],
     },
     NodeType {
         ty: "timer",
@@ -162,12 +180,12 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "liveliness",
         category: "Sources",
-        description: "Whether a node is alive (its liveliness token).",
-        inputs: &[],
-        outputs: &["out"],
+        description: "Whether a node is alive (its liveliness token); in.key names another node inside key_scope.",
+        inputs: &["in.key"],
+        outputs: &["out", "error"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[KEY],
+        params: &[KEY, KEY_SCOPE],
     },
     NodeType {
         ty: "expression",
@@ -613,6 +631,9 @@ pub fn value() -> Value {
                             .find(|i| param_of_port(t, i).is_some_and(|p| p.name == x.name))
                         {
                             m.insert("port".into(), Value::from(*port));
+                        }
+                        if let Some(scope) = x.scope {
+                            m.insert("scope".into(), Value::from(scope));
                         }
                         m.insert("echo".into(), Value::Bool(param_echo(t, x)));
                         Value::Map(m)

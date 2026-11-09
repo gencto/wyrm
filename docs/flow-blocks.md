@@ -171,6 +171,38 @@ value (or the default) at start, then the last good sample.
   node's clock starts again one period after the change. A sample that a
   `delay` already holds keeps its time.
 
+## A key from a port
+
+`subscribe` and `liveliness` read the key of their config. Their port `in.key`
+takes another key while the flow runs (spec 06 0.2.22, ADR 0040 §1): a text
+block builds a path, and the path drives the source.
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `subscribe` | `in.key` | `out`, `error` | `key` (the start key; may be absent with a scope), `key_scope` |
+| `liveliness` | `in.key` | `out`, `error` | `key`, `key_scope` |
+
+1. Give the node `key_scope`, a key expression of the keys the port may name:
+   `downstream/modbus/line1/**`. The compiler refuses an edge into `in.key`
+   without it.
+2. Deploy. The deployer must read all of the scope. `watch`, `ports` and
+   `preview` ask the same of their caller.
+3. Send a key to `in.key`: a text, one concrete key inside the scope
+   (`downstream/modbus/line1/t1`). A wildcard, a key of another site, a key
+   under `sys` and a value that is not a text are refused.
+
+- A new key ends the old read first. `out` is `null` with quality `uncertain`
+  until the new key's first sample.
+- A refused value reads nothing. `error` carries the reason as a text and goes
+  back to `null` with the next good key.
+- `null` on the port reads nothing and is no error.
+- Two changes are at least 100 ms apart. The latest value wins.
+- The output `key` (the parameter's echo) is the key in use.
+- `liveliness` sends nothing for a node that has no token, as before.
+
+УВАГА: the targets of `set` and `invoke` have no port. A flow changes what it
+writes and the arguments of an action, never where it writes (ADR 0040 §1a).
+
 ## Fields as outputs
 
 Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This
@@ -311,8 +343,8 @@ Rules:
 |---|---|---|---|---|---|
 | `number`, `string`, `bool` | Value ⇄ | Value = `in` → `value` → `out` | — | number box; text (`string`: multi-line in DGLux); toggle | none: DGLux has the one field `value` |
 | `const` | Value → | Value = `value` → `out` | — | JSON or text | no input (sent once at start) |
-| `subscribe` | `<point>` → | the point's value on `out` | Point (`key`) | — | — |
-| `liveliness` | `<node>` → | `out` | Point (`key`) | — | — |
+| `subscribe` | Point ⇄ · `<point>` → · Error → | `in.key` → `key`; the point's value on `out`; `error` | Scope (`key_scope`) | Point: a tree picker; bound: a wire | none (spec 06 0.2.22) |
+| `liveliness` | Node ⇄ · `<node>` → · Error → | `in.key` → `key`; `out`; `error` | Scope (`key_scope`) | as `subscribe` | none (spec 06 0.2.22) |
 | `timer` | Period (ms) ⇄ · Count → | `in.period_ms` → `period_ms`; `out` | — | — | none (spec 06 0.2.17) |
 | `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns | `expr`, `trigger`, `quality` have no input |
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |

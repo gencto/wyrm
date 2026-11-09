@@ -13,7 +13,9 @@ pub mod engine;
 pub mod nodes;
 pub mod preview;
 pub mod runtime;
+pub mod scope;
 pub mod script;
+mod sources;
 pub mod store;
 pub mod watch;
 

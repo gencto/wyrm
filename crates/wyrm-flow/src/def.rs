@@ -323,6 +323,21 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
             ));
         }
     }
+    // 4a. a read field that a port drives needs its scope (ADR 0040 §1)
+    for e in &def.edges {
+        let Some(n) = def.nodes.get(&e.to.node) else {
+            continue;
+        };
+        for (field, scope) in nodes::read_fields(&n.ty) {
+            if e.to.port == format!("in.{field}") && !n.cfg.contains_key(*scope) {
+                return err(format!(
+                    "nodes.{}.{scope}: required when in.{field} is wired (the keys it may \
+                     read, as downstream/<link>/**)",
+                    e.to.node
+                ));
+            }
+        }
+    }
     // 5. acyclic, except through `delay`
     let mut adj: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for e in &def.edges {

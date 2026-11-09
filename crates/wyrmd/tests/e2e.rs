@@ -3078,6 +3078,128 @@ async fn flow_watch_streams_live_values() {
     env.stop().await;
 }
 
+/// ADR 0040 §1: a text block builds a key, and the key drives a `subscribe` inside its scope.
+/// A timer walks two point names; a key outside the scope is refused and read by nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
+    let env = Env::start("flow-dyn-key", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let def = |scope: &str| {
+        m(&[
+            ("id", s("walk")),
+            ("version", Value::UInt(1)),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "t",
+                        m(&[("type", s("timer")), ("period_ms", Value::UInt(400))]),
+                    ),
+                    ("i", m(&[("type", s("modulo")), ("modulo", Value::UInt(2))])),
+                    (
+                        "path",
+                        m(&[
+                            ("type", s("concat")),
+                            ("values", m(&[("in.0", s("downstream/mock/g0/p"))])),
+                        ]),
+                    ),
+                    (
+                        "sub",
+                        m(&[("type", s("subscribe")), ("key_scope", s(scope))]),
+                    ),
+                    ("val", m(&[("type", s("publish")), ("node", s("val"))])),
+                    ("key", m(&[("type", s("publish")), ("node", s("key"))])),
+                    ("err", m(&[("type", s("publish")), ("node", s("err"))])),
+                ]),
+            ),
+            (
+                "edges",
+                Value::Array(vec![
+                    edge("t.out", "i.in"),
+                    edge("i.remainder", "path.in.1"),
+                    edge("path.out", "sub.in.key"),
+                    edge("sub.out", "val.in"),
+                    edge("sub.key", "key.in"),
+                    edge("sub.error", "err.in"),
+                ]),
+            ),
+        ])
+    };
+    let flows = format!("wy/{SITE}/dataflows");
+    // a wired key without a scope does not compile; a scope under `sys` neither
+    let mut bare = def("x");
+    if let Value::Map(d) = &mut bare {
+        if let Some(Value::Map(nodes)) = d.get_mut("nodes") {
+            nodes.insert(
+                "sub".into(),
+                m(&[
+                    ("type", s("subscribe")),
+                    ("key", s("downstream/mock/g0/p0")),
+                ]),
+            );
+        }
+    }
+    for refused in [bare, def("sys/**")] {
+        let e = c
+            .invoke_one(&flows, "deploy", m(&[("def", refused)]))
+            .await
+            .unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        assert!(e.message.contains("key_scope"), "{e}");
+    }
+    c.invoke_one(&flows, "deploy", m(&[("def", def("downstream/mock/g0/*"))]))
+        .await
+        .unwrap();
+    let node = |n: &str| format!("{flows}/walk/nodes/{n}");
+    let mut seen = std::collections::BTreeSet::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while seen.len() < 2 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "both keys: {seen:?}"
+        );
+        if let Some(Value::Str(k)) = last_val(&c, &node("key")).await {
+            if last_val(&c, &node("val"))
+                .await
+                .is_some_and(|v| v.as_f64().is_some())
+            {
+                seen.insert(k);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        ["downstream/mock/g0/p0", "downstream/mock/g0/p1"]
+    );
+    // the same flow with a scope of one point: the other key is refused
+    let mut narrow = def("downstream/mock/g0/p0");
+    if let Value::Map(d) = &mut narrow {
+        d.insert("version".into(), Value::UInt(2));
+    }
+    c.invoke_one(&flows, "deploy", m(&[("def", narrow)]))
+        .await
+        .unwrap();
+    let why = eventually("a key outside the scope is refused", 10, || async {
+        match last_val(&c, &node("err")).await {
+            Some(Value::Str(e)) => Some(e),
+            _ => None,
+        }
+    })
+    .await;
+    assert!(why.contains("outside the scope"), "{why}");
+    env.stop().await;
+}
+
 /// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
 /// reports the write, but nothing reaches the link (no audit record, the point never holds the
 /// value); the same draft deployed writes (the control).
