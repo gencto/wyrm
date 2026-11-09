@@ -350,3 +350,86 @@ fn the_action_block_names_its_ports() {
     let many: Vec<(String, Value)> = (0..65).map(|i| (format!("a{i}"), Value::Null)).collect();
     assert!(bad(Value::Map(many.into_iter().collect())).contains("at most 64"));
 }
+
+/// Owner decision 2026-11-09: one block, its behaviour set by its fields. `run_on_start` is
+/// off by default; on, the block runs exactly once, a settle time after its start.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_on_start_is_off_by_default_and_runs_exactly_once() {
+    let e = env().await;
+    let io = &e.io;
+    let tick = |n: &mut dyn Node| {
+        let mut out = Out::default();
+        n.tick(1, &mut out);
+        out.0.into_iter().map(|(p, _)| p).collect::<Vec<_>>()
+    };
+    // off: no clock at the start, nothing runs
+    let (mut n, probe) = capture("invoke", &[("args", map(&[("n", Value::UInt(3))]))]);
+    n.start(io);
+    assert_eq!(n.tick_every(), None);
+    assert_eq!(sink(&probe).await, None);
+    // on: one run after the settle time, with the start values of its arguments
+    let (mut n, probe) = capture(
+        "invoke",
+        &[
+            ("args", map(&[("n", Value::Null)])),
+            ("run_on_start", Value::Bool(true)),
+        ],
+    );
+    n.start(io);
+    assert_eq!(n.tick_every(), Some(Duration::from_millis(250)));
+    assert!(!n.first_tick_now());
+    assert!(!ran(&feed(&mut *n, io, "arg.n", good(5u64).at_start())));
+    assert!(ran(&tick(&mut *n)));
+    assert_eq!(sink(&probe).await, Some(map(&[("n", Value::UInt(5))])));
+    // exactly once: the clock is gone, and the interval takes over when there is one
+    assert_eq!(n.tick_every(), None);
+    let (mut n, _) = capture(
+        "invoke",
+        &[
+            ("run_on_start", Value::Bool(true)),
+            ("interval_ms", Value::UInt(1000)),
+        ],
+    );
+    n.start(io);
+    assert_eq!(n.tick_every(), Some(Duration::from_millis(250)));
+    assert!(ran(&tick(&mut *n)));
+    assert_eq!(n.tick_every(), Some(Duration::from_millis(1000)));
+    // a disabled block makes no start run, and not a late one either
+    let (mut n, probe) = capture(
+        "invoke",
+        &[
+            ("run_on_start", Value::Bool(true)),
+            ("enabled", Value::Bool(false)),
+        ],
+    );
+    n.start(io);
+    assert!(tick(&mut *n).is_empty());
+    feed(&mut *n, io, "in.enabled", good(true));
+    assert_eq!(n.tick_every(), None);
+    assert_eq!(sink(&probe).await, None);
+    // set: the value `in` got at the start is written once, also without auto_run
+    let (mut n, probe) = capture(
+        "set",
+        &[
+            ("auto_run", Value::Bool(false)),
+            ("run_on_start", Value::Bool(true)),
+        ],
+    );
+    n.start(io);
+    feed(&mut *n, io, "in", good(21u64).at_start());
+    assert_eq!(sink(&probe).await, None);
+    assert!(ran(&tick(&mut *n)));
+    assert_eq!(sink(&probe).await, Some(Value::UInt(21)));
+    // with auto_run the start value was written already: not twice
+    let (mut n, _) = capture("set", &[("run_on_start", Value::Bool(true))]);
+    n.start(io);
+    assert!(ran(&feed(&mut *n, io, "in", good(21u64).at_start())));
+    assert!(tick(&mut *n).is_empty());
+    // it is a bool
+    let cfg: BTreeMap<String, Value> = [
+        ("path".to_owned(), Value::from("downstream/m/p0")),
+        ("run_on_start".to_owned(), Value::UInt(1)),
+    ]
+    .into();
+    assert!(nodes::ports("set", &cfg).is_err());
+}

@@ -12,6 +12,12 @@
 //! `interval_ms`: a sample that was born at the start ([`Msg::start`]) only gives the field
 //! its value. `enabled: false` runs nothing.
 //!
+//! One block, its behaviour set by its fields (owner decision 2026-11-09): there is no block
+//! type per behaviour. `run_on_start: true` is the one sanctioned exception to the rule above,
+//! chosen per block: the block runs exactly once, [`START_SETTLE`] after the flow started (a
+//! deploy, a hot swap, a reload, a restart), so the start values of its arguments and of `in`
+//! are in. The default is false.
+//!
 //! Outputs: `sent` (an event when the request leaves), `ok` (an event on success), `error`
 //! (an event with `code` and `message`), `running`, `last_run`; `invoke` also `result` and the
 //! older `out`. In a preview ([`Mode::Preview`]) the node holds no client: it reports what it
@@ -34,6 +40,9 @@ use wyrm_link_sdk::now_us;
 pub const MIN_INTERVAL_MS: f64 = 100.0;
 /// The longest `interval_ms`: one day.
 pub const MAX_INTERVAL_MS: f64 = 86_400_000.0;
+/// With `run_on_start`: how long after its start a block makes its one run, so the start
+/// values of bound fields have arrived.
+pub const START_SETTLE: Duration = Duration::from_millis(250);
 /// Arguments of one `invoke` at most.
 pub const MAX_ARGS: usize = 64;
 /// Calls an `invoke` node holds while its caller is busy; more are refused with `busy`.
@@ -69,6 +78,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     b(cfg, "allow_bad", false)?;
     b(cfg, "auto_run", ty == "set")?;
     b(cfg, "enabled", true)?;
+    b(cfg, "run_on_start", false)?;
     if !interval_ok(f(cfg, "interval_ms")?.unwrap_or(0.0)) {
         return Err(format!(
             "interval_ms: 0 (off) or {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
@@ -96,6 +106,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 "interval_ms",
                 "auto_run",
                 "enabled",
+                "run_on_start",
             ],
         )?;
         req_s(cfg, "action")?;
@@ -117,6 +128,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 "interval_ms",
                 "auto_run",
                 "enabled",
+                "run_on_start",
             ],
         )?;
         one_of(cfg, "on", &["any", "change"], "change")?;
@@ -212,6 +224,8 @@ pub(crate) struct Command {
     sink: Sink,
     /// For the interval's runs: a tick has no `Io` of its own.
     io: Option<Io>,
+    /// `run_on_start`: the one run at the start is still to make.
+    start_run: bool,
 }
 
 /// An `invoke` or `set` node (config checked by [`ports`]), for a deployed flow or a preview.
@@ -262,6 +276,7 @@ pub(crate) fn build(ty: &str, id: &str, cfg: &Map, mode: &Mode) -> Result<Box<dy
         rev: 0,
         sink,
         io: None,
+        start_run: b(cfg, "run_on_start", false)?,
     }))
 }
 
@@ -565,6 +580,9 @@ impl Node for Command {
     }
 
     fn tick_every(&self) -> Option<Duration> {
+        if self.start_run {
+            return Some(START_SETTLE);
+        }
         (self.enabled && self.interval_ms >= MIN_INTERVAL_MS)
             .then(|| Duration::from_secs_f64(self.interval_ms / 1000.0))
     }
@@ -575,6 +593,22 @@ impl Node for Command {
     }
 
     fn tick(&mut self, _now: u64, out: &mut Out) {
+        // `run_on_start`: exactly one run, born at the start (its answers carry the mark, so
+        // they run no other command through a trigger). A disabled block makes none.
+        if std::mem::take(&mut self.start_run) {
+            // a `set` that already wrote its start value (`auto_run`) does not write it twice
+            let wrote = matches!(
+                &self.what,
+                What::Set {
+                    written: Some(_),
+                    ..
+                }
+            );
+            if let Some(io) = self.io.clone().filter(|_| !wrote) {
+                self.run(true, &io, out);
+            }
+            return;
+        }
         // a period is skipped while the run before it has not answered
         if self.running {
             return;

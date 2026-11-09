@@ -211,8 +211,8 @@ writes a point. Both are commands, and both have the same behaviour fields
 
 | Type | Inputs | Outputs | Parameters |
 |---|---|---|---|
-| `invoke` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `arg.<name>` | `out`, `result`, `sent`, `ok`, `error`, `running`, `last_run` | `path`, `action`, `args`, `on`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default false), `enabled` (default true) |
-| `set` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `sent`, `ok`, `error`, `running`, `last_run` | `path`, `on`, `deadband`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true) |
+| `invoke` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `arg.<name>` | `out`, `result`, `sent`, `ok`, `error`, `running`, `last_run` | `path`, `action`, `args`, `on`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default false), `enabled` (default true), `run_on_start` (default false) |
+| `set` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `sent`, `ok`, `error`, `running`, `last_run` | `path`, `on`, `deadband`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true), `run_on_start` (default false) |
 
 Arguments of `invoke`:
 
@@ -231,6 +231,7 @@ What runs a command:
 | `auto_run` | a sample on `arg.<name>` that changes the argument | see `in` |
 | `interval_ms` above 0 | every period | every period: the held value again |
 | the action `dataflows/<id>/~act/trigger {node}` | one run | one write of the held value |
+| `run_on_start: true` | one run, 250 ms after each start of the flow | one write of the value `in` got by then |
 
 - `enabled: false` stops every cause.
 - `interval_ms` is 0 (off) or 100 … 86 400 000. A period is skipped while the
@@ -249,6 +250,17 @@ first tick, the first sample of a `subscribe`) only fills the field. The first
 run of `interval_ms` is one full period after the start. `in` does not have
 this rule: a variable wired to `in` of a `set` or an `invoke` still acts at
 deploy. Wire `trigger` where a deploy must do nothing.
+
+There is one action block. A block that runs on a trigger, a block that runs
+at deploy and a periodic block are the same `invoke` with other fields; there
+is no block type per behaviour. The older `on` of `invoke` still works for
+`in`: `change` is what `trigger` does, and `rising` or `falling` is a
+`rising_edge` or `falling_edge` block wired into `trigger`.
+
+ОБЕРЕЖНО: `run_on_start: true` is the one exception to the rule above. The
+block then runs once at every start of the flow: each deploy, each hot swap,
+each reload and each broker restart. Set it only on a command that is safe to
+repeat.
 
 The `trigger` action is the block's button in the editor. It needs level
 `write` on the flow, and the caller needs `write` on the block's own target

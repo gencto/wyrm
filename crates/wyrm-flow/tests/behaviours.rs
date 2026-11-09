@@ -869,3 +869,62 @@ async fn a_preview_reports_sent_and_never_an_answer() {
     drop(st);
     env.stop().await;
 }
+
+/// `run_on_start` (owner decision 2026-11-09): the one sanctioned exception. A deployed block
+/// with it runs exactly once at each start; a preview reports the run and writes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_on_start_runs_exactly_once_at_each_start() {
+    let env = Env::start("act-start").await;
+    let flow_key = format!("wy/{SITE}/dataflows/act");
+    let def = |version: u64| {
+        let mut d = action(Value::UInt(3), &[("run_on_start", Value::Bool(true))]);
+        if let Value::Map(m) = &mut d {
+            m.insert("version".into(), Value::UInt(version));
+        }
+        d
+    };
+    env.deploy(def(1)).await.unwrap();
+    let ok = wait("the start run", || env.last("act/nodes/ok")).await;
+    assert_eq!(ev_id(&ok), Some(2), "sent is 1, ok is 2");
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(
+        ev_id(&env.last("act/nodes/ok").unwrap()),
+        Some(2),
+        "exactly one run"
+    );
+    assert_eq!(ev_id(&env.last("act/nodes/sent").unwrap()), Some(1));
+    // each start is one more run: a reload restarts the node
+    let before = env.last("act/nodes/sent").unwrap().t;
+    env.client
+        .invoke_one(&flow_key, "reload", map(&[]))
+        .await
+        .unwrap();
+    wait("the run of the second start", || {
+        env.last("act/nodes/sent").filter(|s| s.t > before)
+    })
+    .await;
+    // a preview of the same draft reports the run in `sinks` and never an answer
+    let mut st = env
+        .client
+        .invoke(
+            &format!("wy/{SITE}/dataflows"),
+            "preview",
+            map(&[("def", def(9)), ("max_hz", Value::UInt(20))]),
+        )
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(tokio::time::Instant::now() < deadline, "no sinks row");
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        let out = at(&row, &["nodes", "call", "out"]);
+        assert!(out.and_then(|o| at(o, &["ok"])).is_none(), "{row:?}");
+        if let Some(Value::Array(sinks)) = at(&row, &["sinks"]) {
+            assert_eq!(at(&sinks[0], &["op"]), Some(&s("invoke")));
+            assert_eq!(at(&sinks[0], &["value", "n"]), Some(&Value::UInt(3)));
+            break;
+        }
+    }
+    drop(st);
+    env.stop().await;
+}

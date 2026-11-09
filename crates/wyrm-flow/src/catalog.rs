@@ -335,6 +335,7 @@ pub const TYPES: &[NodeType] = &[
             INTERVAL_MS,
             db(p("auto_run", "bool", "Write when in brings a value (default true); false: only on trigger and interval_ms."), true),
             ENABLED,
+            RUN_ON_START,
         ],
     },
     NodeType {
@@ -359,6 +360,7 @@ pub const TYPES: &[NodeType] = &[
             INTERVAL_MS,
             db(p("auto_run", "bool", "Run when an argument changes on its port (default false)."), false),
             ENABLED,
+            RUN_ON_START,
         ],
     },
     NodeType {
@@ -584,6 +586,15 @@ const INTERVAL_MS: Param = di(
     0,
 );
 
+const RUN_ON_START: Param = db(
+    p(
+        "run_on_start",
+        "bool",
+        "WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).",
+    ),
+    false,
+);
+
 const ENABLED: Param = db(
     p("enabled", "bool", "false: nothing runs it (default true)."),
     true,
@@ -731,6 +742,45 @@ fn param_of_port<'a>(t: &'a NodeType, port: &str) -> Option<&'a Param> {
         return None;
     }
     t.params.iter().find(|x| x.name == name)
+}
+
+/// Where an input of a node keeps a constant, for a custom block's input that carries one
+/// (ADR 0040 §3).
+pub(crate) enum ConstAt {
+    /// The input is this parameter's port: the parameter's config.
+    Param(&'static str),
+    /// An operand of a logic block: config `values` (spec 06 0.2.19).
+    Operand,
+    /// An argument of an `invoke`: config `args`.
+    Arg(String),
+}
+
+/// Where input `port` of a node of type `ty` keeps a constant; `None`: it has none.
+pub(crate) fn const_at(ty: &str, port: &str) -> Option<ConstAt> {
+    let t = find(ty)?;
+    if let Some(x) = param_of_port(t, port) {
+        return Some(ConstAt::Param(x.name));
+    }
+    if ty == "invoke" {
+        if let Some(a) = port.strip_prefix("arg.") {
+            return Some(ConstAt::Arg(a.to_owned()));
+        }
+    }
+    // a variable's constant is its `value`
+    if matches!(ty, "number" | "string" | "bool") && port == "in" {
+        return Some(ConstAt::Param("value"));
+    }
+    (crate::blocks::takes_values(ty) && (port == "in" || port.starts_with("in.")))
+        .then_some(ConstAt::Operand)
+}
+
+/// The echo output of input `port` of a node of type `ty`: a parameter's port `in.<p>`
+/// echoes as `<p>`, another input under its own name (ADR 0038 §1).
+pub(crate) fn echo_of(ty: &str, port: &str) -> String {
+    match find(ty).and_then(|t| param_of_port(t, port)) {
+        Some(x) => x.name.to_owned(),
+        None => port.to_owned(),
+    }
 }
 
 /// Whether parameter `x` of `t` has its echo output: not when a fixed output or an input's echo
