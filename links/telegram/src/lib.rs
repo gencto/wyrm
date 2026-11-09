@@ -16,7 +16,7 @@
 //! component (`--features wasm`).
 
 use serde_json::{json, Value as Json};
-use wyrm_messenger::api::{parse_json, text_of, Body, Chat, Fail, Outgoing, Platform, Update};
+use wyrm_messenger::api::{parse_json, Body, Chat, Fail, Outgoing, Platform, RawMethod, Update};
 use wyrm_messenger::model::Format;
 use wyrm_messenger::{render, Messenger};
 
@@ -58,8 +58,11 @@ pub const TELEGRAM: Platform = Platform {
     request: telegram,
     reply: telegram_reply,
     identity: |me| me["username"].as_str().unwrap_or("").to_owned(),
-    raw_method,
-    raw_chat: |p| text_of(&p["chat_id"]),
+    raw_methods: RAW_METHODS,
+    // every Bot API param that names a chat or an account
+    raw_chat_params: &["chat_id", "from_chat_id", "user_id", "sender_chat_id"],
+    // inline and business messages name no chat the link can check
+    raw_refused_params: &["inline_message_id", "business_connection_id"],
     poll,
     updates,
 };
@@ -94,31 +97,50 @@ fn check_thread(t: &str) -> Result<(), String> {
         .map_err(|_| "thread: a forum topic id (a number)".into())
 }
 
-/// What `send_raw` may call: never what would take the updates or the bot away from the link.
-fn raw_method(method: &str) -> bool {
-    const DENIED: [&str; 6] = [
-        "getUpdates",
-        "setWebhook",
-        "deleteWebhook",
-        "logOut",
-        "close",
-        "setMyCommands",
-    ];
-    const PREFIXES: [&str; 9] = [
-        "send",
-        "edit",
-        "delete",
-        "pin",
-        "unpin",
-        "forward",
-        "copy",
-        "stop",
-        "setMessageReaction",
-    ];
-    !DENIED.contains(&method)
-        && (PREFIXES.iter().any(|p| method.starts_with(p))
-            || ["getChat", "getMe", "getChatMemberCount"].contains(&method))
-}
+const CHAT: &[&str] = &["chat_id"];
+const FROM: &[&str] = &["chat_id", "from_chat_id"];
+
+/// What `send_raw` may call, by exact name (fail closed): messages in a known chat, never
+/// what would take the updates or the bot away from the link (`getUpdates`, webhooks,
+/// `logOut`, `close`, commands, the bot's profile).
+const RAW_METHODS: &[RawMethod] = &[
+    RawMethod::new("sendMessage", CHAT),
+    RawMethod::new("sendPhoto", CHAT),
+    RawMethod::new("sendAudio", CHAT),
+    RawMethod::new("sendDocument", CHAT),
+    RawMethod::new("sendVideo", CHAT),
+    RawMethod::new("sendAnimation", CHAT),
+    RawMethod::new("sendVoice", CHAT),
+    RawMethod::new("sendVideoNote", CHAT),
+    RawMethod::new("sendMediaGroup", CHAT),
+    RawMethod::new("sendLocation", CHAT),
+    RawMethod::new("sendVenue", CHAT),
+    RawMethod::new("sendContact", CHAT),
+    RawMethod::new("sendPoll", CHAT),
+    RawMethod::new("sendDice", CHAT),
+    RawMethod::new("sendSticker", CHAT),
+    RawMethod::new("sendChatAction", CHAT),
+    RawMethod::new("editMessageText", CHAT),
+    RawMethod::new("editMessageCaption", CHAT),
+    RawMethod::new("editMessageMedia", CHAT),
+    RawMethod::new("editMessageLiveLocation", CHAT),
+    RawMethod::new("stopMessageLiveLocation", CHAT),
+    RawMethod::new("editMessageReplyMarkup", CHAT),
+    RawMethod::new("stopPoll", CHAT),
+    RawMethod::new("deleteMessage", CHAT),
+    RawMethod::new("deleteMessages", CHAT),
+    RawMethod::new("pinChatMessage", CHAT),
+    RawMethod::new("unpinChatMessage", CHAT),
+    RawMethod::new("unpinAllChatMessages", CHAT),
+    RawMethod::new("forwardMessage", FROM),
+    RawMethod::new("forwardMessages", FROM),
+    RawMethod::new("copyMessage", FROM),
+    RawMethod::new("copyMessages", FROM),
+    RawMethod::new("setMessageReaction", CHAT),
+    RawMethod::new("getChat", CHAT),
+    RawMethod::new("getChatMemberCount", CHAT),
+    RawMethod::new("getMe", &[]),
+];
 
 /// `getUpdates` after `offset`, without waiting (the link polls every `poll_s`).
 fn poll(offset: i64, limit: u64) -> Option<(String, Json)> {
@@ -457,6 +479,45 @@ mod tests {
         assert!(TELEGRAM.raw_method_allowed("getUpdates").is_err());
         assert!(TELEGRAM.raw_method_allowed("setWebhook").is_err());
         assert!(TELEGRAM.raw_method_allowed("../x").is_err());
+        // names a prefix list would have let through
+        for m in [
+            "deleteWebhook",
+            "deleteMyCommands",
+            "sendGift",
+            "editChatInviteLink",
+        ] {
+            assert!(TELEGRAM.raw_method_allowed(m).is_err(), "{m}");
+        }
+    }
+    #[test]
+    fn raw_requests_name_every_chat_and_fail_closed() {
+        let m = |n| TELEGRAM.raw_method_allowed(n).unwrap();
+        let chats = |n, p: Json| TELEGRAM.raw_chats(m(n), &p);
+        assert_eq!(
+            chats(
+                "forwardMessage",
+                json!({"chat_id": 1, "from_chat_id": -5, "message_id": 2})
+            ),
+            Ok(vec!["1".to_owned(), "-5".to_owned()])
+        );
+        // a chat in a secondary field is named even where the method does not list it
+        assert_eq!(
+            chats(
+                "sendMessage",
+                json!({"chat_id": 1, "user_id": 9, "text": "x"})
+            ),
+            Ok(vec!["1".to_owned(), "9".to_owned()])
+        );
+        // the method's chat missing, a chat that cannot be checked, a chat of the wrong shape
+        assert!(chats("sendPoll", json!({"question": "q"})).is_err());
+        assert!(chats("forwardMessage", json!({"chat_id": 1, "message_id": 2})).is_err());
+        assert!(chats(
+            "editMessageText",
+            json!({"inline_message_id": "x", "text": "y"})
+        )
+        .is_err());
+        assert!(chats("sendMessage", json!({"chat_id": [1, 2]})).is_err());
+        assert_eq!(chats("getMe", json!({})), Ok(vec![]));
     }
     #[test]
     fn updates_are_read() {

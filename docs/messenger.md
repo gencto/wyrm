@@ -81,7 +81,9 @@ them.
   `recipients/<r> ▸ send {text}` (write): a one-off message; only `{{site}}`, `{{bot}}`,
   `{{now}}` are filled in.
 - `<bot> ▸ send_raw {method, params}` (config): any other method of the platform's API the
-  link offers (its guide lists them); the chat must be a recipient's.
+  link offers, by exact name (its guide lists them); every param that names a chat or an
+  account must name a recipient's chat or a paired user's, and a request whose chat cannot be
+  checked is refused.
 
 ## Who may talk to a bot
 

@@ -588,8 +588,10 @@ impl Template {
                 return Err(format!("blocks: at most {MAX_BLOCKS} bytes"));
             }
             // placeholders render to JSON string content: the template must be JSON already
-            let probe = render::render(&blocks, render::Escape::Json, &|_, _| Some(String::new()))
-                .map_err(|e| format!("blocks: {e}"))?;
+            let probe = render::render(&blocks, render::Escape::JsonMrkdwn, &|_, _| {
+                Some(String::new())
+            })
+            .map_err(|e| format!("blocks: {e}"))?;
             match serde_json::from_str::<serde_json::Value>(&probe) {
                 Ok(serde_json::Value::Array(_)) => {}
                 _ => return Err("blocks: a JSON array of Block Kit blocks".into()),

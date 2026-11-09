@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value as Json};
 
-use crate::api::{Fail, Outgoing, Platform, Update};
+use crate::api::{Fail, Outgoing, Platform, RawMethod, Update};
 use crate::model::Format;
 
 fn numeric_or_at(c: &str) -> Result<(), String> {
@@ -63,8 +63,9 @@ pub const CHATTY: Platform = Platform {
     request,
     reply,
     identity: |_| String::new(),
-    raw_method: |_| true,
-    raw_chat: |_| None,
+    raw_methods: &[RawMethod::new("me", &[]), RawMethod::new("say", &["chat"])],
+    raw_chat_params: &["chat"],
+    raw_refused_params: &[],
     poll: |_, _| None,
     updates: |_| Vec::<Update>::new(),
 };

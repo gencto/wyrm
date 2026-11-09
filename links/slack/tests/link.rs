@@ -103,6 +103,23 @@ fn slack_posts_with_the_bearer_token_and_block_kit() {
         "*Boiler \"A\"* is at 21.5"
     );
     assert_eq!(c.body["text"], "Boiler \"A\": 21");
+    // a value in a Block Kit text is neither a mention nor a link
+    h.invoke(
+        "eng/templates/card",
+        "send",
+        map(&[("who", s("<!channel> <https://evil.example|click> & co"))]),
+    )
+    .unwrap();
+    h.until("sent", |h| h.num("eng/sent") == 2);
+    let c = &api.calls("chat.postMessage")[1];
+    assert_eq!(
+        c.body["blocks"][0]["text"]["text"],
+        "*&lt;!channel&gt; &lt;https://evil.example|click&gt; &amp; co* is at 21.5"
+    );
+    assert_eq!(
+        c.body["text"],
+        "&lt;!channel&gt; &lt;https://evil.example|click&gt; &amp; co: 21"
+    );
     // a raw request only to a recipient's channel, only offered methods
     let e = h
         .invoke(
@@ -133,4 +150,34 @@ fn slack_posts_with_the_bearer_token_and_block_kit() {
         .unwrap();
     let Value::Map(r) = r else { panic!() };
     assert_eq!(r.get("ok"), Some(&Value::Bool(true)));
+    // fail closed: an account beside the channel, no channel at all, a file, a prefix-only name
+    for (method, params) in [
+        (
+            "chat.postMessage",
+            r#"{"channel":"C0123ABCD","user":"U999","text":"x"}"#,
+        ),
+        ("reactions.add", r#"{"name":"eyes","timestamp":"1.2"}"#),
+        ("reactions.get", r#"{"channel":"C0123ABCD","file":"F1"}"#),
+        (
+            "chat.postEphemeral",
+            r#"{"channel":"C0123ABCD","user":"U1","text":"x"}"#,
+        ),
+    ] {
+        let e = h
+            .invoke(
+                "eng",
+                "send_raw",
+                map(&[("method", s(method)), ("params", s(params))]),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                e.status,
+                Status::PermissionDenied | Status::InvalidParameter
+            ),
+            "{method}: {e}"
+        );
+    }
+    assert_eq!(api.calls("chat.postMessage").len(), 2);
+    assert!(api.calls("chat.postEphemeral").is_empty());
 }

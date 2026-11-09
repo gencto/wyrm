@@ -376,6 +376,24 @@ fn a_writer_sets_and_runs_actions_within_the_inviters_rights() {
     h.until("rate limited", |_| {
         api.texts_to(77).iter().any(|t| t.contains("Too many"))
     });
+    // disabling needs no rights; enabling hands bob's write back, so a caller below it may not
+    h.invoke_as("ops/users/bob", "disable", Value::Null, &narrow())
+        .expect("disable");
+    assert_eq!(h.text("ops/users/bob/status"), "disabled");
+    let e = h
+        .invoke_as("ops/users/bob", "enable", Value::Null, &narrow())
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    assert_eq!(h.text("ops/users/bob/status"), "disabled");
+    let mut no_auth = engineer();
+    no_auth.authority = None;
+    let e = h
+        .invoke_as("ops/users/bob", "enable", Value::Null, &no_auth)
+        .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied);
+    h.invoke_as("ops/users/bob", "enable", Value::Null, &engineer())
+        .expect("enable");
+    assert_eq!(h.text("ops/users/bob/status"), "active");
 }
 
 #[test]
@@ -497,4 +515,62 @@ fn definitions_and_the_token_survive_a_restart_and_a_moved_endpoint_drops_the_to
     // removing a bot removes its store
     h.invoke("ops", "remove", Value::Null).unwrap();
     assert!(!h.store_has("b/ops") && !h.store_has("u/ops/dee") && !h.store_has("rights/u/ops/dee"));
+}
+
+#[test]
+fn send_raw_names_only_listed_methods_and_known_chats() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    let raw = |h: &mut SimHost, method: &str, params: &str| {
+        h.invoke(
+            "ops",
+            "send_raw",
+            map(&[("method", s(method)), ("params", s(params))]),
+        )
+    };
+    // a recipient's chat: sent
+    let r = raw(
+        &mut h,
+        "sendPoll",
+        r#"{"chat_id": -1001234567890, "question": "q", "options": ["a", "b"]}"#,
+    );
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(api.calls("sendPoll").len(), 1);
+    // the chat in a secondary field: forwarding out of a chat the bot does not know
+    let e = raw(
+        &mut h,
+        "forwardMessage",
+        r#"{"chat_id": -1001234567890, "from_chat_id": -555, "message_id": 1}"#,
+    )
+    .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied, "{e}");
+    // an account named beside a known chat
+    let e = raw(
+        &mut h,
+        "sendMessage",
+        r#"{"chat_id": -1001234567890, "user_id": 555, "text": "x"}"#,
+    )
+    .unwrap_err();
+    assert_eq!(e.status, Status::PermissionDenied, "{e}");
+    // the method's chat missing, an inline message, a method outside the list
+    let e = raw(
+        &mut h,
+        "forwardMessage",
+        r#"{"chat_id": -1001234567890, "message_id": 1}"#,
+    )
+    .unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter, "{e}");
+    let e = raw(
+        &mut h,
+        "editMessageText",
+        r#"{"inline_message_id": "x", "text": "y"}"#,
+    )
+    .unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter, "{e}");
+    for m in ["deleteWebhook", "deleteMyCommands", "setChatTitle"] {
+        let e = raw(&mut h, m, r#"{"chat_id": -1001234567890}"#).unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter, "{m}: {e}");
+    }
+    assert!(api.calls("forwardMessage").is_empty() && api.calls("sendMessage").is_empty());
+    assert!(api.calls("deleteWebhook").is_empty() && api.calls("editMessageText").is_empty());
 }

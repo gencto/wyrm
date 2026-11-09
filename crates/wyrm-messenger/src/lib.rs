@@ -1056,7 +1056,7 @@ impl<C: Chat> Messenger<C> {
                 .ok_or_else(|| invalid(format!("{what}: not a number after filling in")))
         };
         let body = if !t.blocks.is_empty() {
-            let blocks = r(&t.blocks, render::Escape::Json)?;
+            let blocks = r(&t.blocks, render::Escape::JsonMrkdwn)?;
             let blocks: Json = serde_json::from_str(&blocks)
                 .map_err(|e| invalid(format!("blocks: not JSON after filling in: {e}")))?;
             // the notification text has no markup of its own
@@ -1254,17 +1254,16 @@ impl<C: Chat> Messenger<C> {
         let f = Form(args);
         let method = f.required("method").map_err(invalid)?;
         let b = self.bot_mut(bot)?;
-        b.def.kind.raw_method_allowed(&method).map_err(invalid)?;
+        let kind = b.def.kind;
+        let m = kind.raw_method_allowed(&method).map_err(invalid)?;
         let params: Json = match f.text("params").map_err(invalid)? {
             None => json!({}),
             Some(p) => {
                 serde_json::from_str(&p).map_err(|e| invalid(format!("params: JSON: {e}")))?
             }
         };
-        if !params.is_object() {
-            return Err(invalid("params: a JSON object"));
-        }
-        if let Some(chat) = (b.def.kind.raw_chat)(&params) {
+        // fail closed: every chat the request names must be a recipient's or a paired user's
+        for chat in kind.raw_chats(m, &params).map_err(invalid)? {
             let known = b.recipients.values().any(|r| r.chat == chat)
                 || b.users.values().any(|(u, _)| {
                     u.status == UserStatus::Active
@@ -2025,6 +2024,11 @@ impl<C: Chat> Messenger<C> {
                         out = Self::code_reply(self.bot(bot)?, name, &code, exp);
                     }
                     "enable" => {
+                        // enabling hands the user's rights back to the paired account: only
+                        // someone who holds them may do it (as New Pairing Code and Edit); the
+                        // rights kept with the user stay the inviter's, so they never widen
+                        let r = caller_rights(who, "a chat user")?;
+                        Self::check_user_rights(&r, u.level, &u.select)?;
                         if u.chat_id.is_none() {
                             return Err(invalid("not paired: New Pairing Code"));
                         }

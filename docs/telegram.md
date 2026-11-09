@@ -29,11 +29,25 @@ presses it. `silent`, `protect` (no forwarding or saving), `preview` (link previ
 
 ## Raw requests
 
-`send_raw {method, params}` (config) for the rest of the Bot API: `send*` (polls, media groups,
-dice, …), `edit*`, `delete*`, `pin*`, `unpin*`, `forward*`, `copy*`, `stop*`,
-`setMessageReaction`, `getChat`, `getMe`, `getChatMemberCount`. `getUpdates`, webhooks,
-`logOut`, `close` and `setMyCommands` are not offered: they would take the bot's updates from
-the link.
+`send_raw {method, params}` (config) for the rest of the Bot API. It fails closed: only these
+methods, by exact name, are offered:
+
+- `sendMessage`, `sendPhoto`, `sendAudio`, `sendDocument`, `sendVideo`, `sendAnimation`,
+  `sendVoice`, `sendVideoNote`, `sendMediaGroup`, `sendLocation`, `sendVenue`, `sendContact`,
+  `sendPoll`, `sendDice`, `sendSticker`, `sendChatAction`;
+- `editMessageText`, `editMessageCaption`, `editMessageMedia`, `editMessageLiveLocation`,
+  `stopMessageLiveLocation`, `editMessageReplyMarkup`, `stopPoll`, `deleteMessage`,
+  `deleteMessages`, `pinChatMessage`, `unpinChatMessage`, `unpinAllChatMessages`,
+  `setMessageReaction`, `getChat`, `getChatMemberCount` (all need `chat_id`);
+- `forwardMessage`, `forwardMessages`, `copyMessage`, `copyMessages` (need `chat_id` and
+  `from_chat_id`);
+- `getMe`.
+
+Every `chat_id`, `from_chat_id`, `user_id` and `sender_chat_id` in the params must be a
+recipient's chat or a paired user's, whether the method needs it or not; a method's chat param
+that is missing refuses the request, and so do `inline_message_id` and `business_connection_id`
+(their chat cannot be checked). `getUpdates`, webhooks, `logOut`, `close`, commands and the bot's
+profile are never offered: they would take the bot's updates or the bot itself from the link.
 
 ```json
 {"method": "sendPoll", "params": "{\"chat_id\": -1001234567890, \"question\": \"Shift OK?\", \"options\": [\"yes\", \"no\"]}"}
@@ -76,7 +90,8 @@ written from a chat.
   Groups the bot is added to that are no recipient are left.
 - A code sent in a group is void at once; 5 wrong codes lock an account out for an hour.
 - Lost phone or new account: ▸ **New Pairing Code** (unpairs the old account). ▸ Disable /
-  Enable / Edit / Remove at any time.
+  Enable / Edit / Remove at any time. New Pairing Code, Enable and Edit hand the user's rights
+  to an account, so only an operator who holds the user's level on all its keys may run them.
 - Every rejected update counts in `<bot>/rejected` and the log; every command is logged with the
   user and key (never values). 20 commands a minute per user (`rate_per_min`).
 

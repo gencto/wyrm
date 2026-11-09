@@ -214,10 +214,15 @@ pub struct Platform {
     pub reply: fn(u16, &[u8]) -> Result<Json, Fail>,
     /// The bot's name from the identify call's result.
     pub identity: fn(&Json) -> String,
-    /// A `send_raw` method it offers.
-    pub raw_method: fn(&str) -> bool,
-    /// The chat a raw request names.
-    pub raw_chat: fn(&Json) -> Option<String>,
+    /// The methods `send_raw` offers, by exact name, each with the params that must name a
+    /// known chat (ADR 0039: fail closed).
+    pub raw_methods: &'static [RawMethod],
+    /// Every param of the API that names a chat or an account: whichever of them a raw request
+    /// carries must be a known chat, whether its method lists it or not.
+    pub raw_chat_params: &'static [&'static str],
+    /// Params that name a message or a chat the link cannot check (`inline_message_id`):
+    /// a raw request with one is refused.
+    pub raw_refused_params: &'static [&'static str],
     /// `(method, body)` that reads updates after `offset`; `None` without inbound.
     pub poll: fn(offset: i64, limit: u64) -> Option<(String, Json)>,
     pub updates: fn(&Json) -> Vec<Update>,
@@ -248,8 +253,8 @@ impl Platform {
         self.token_about
     }
 
-    /// `send_raw`'s check: a plain name the platform offers.
-    pub fn raw_method_allowed(&self, method: &str) -> Result<(), String> {
+    /// `send_raw`'s check of the name: a plain name the platform lists.
+    pub fn raw_method_allowed(&self, method: &str) -> Result<&'static RawMethod, String> {
         let plain = !method.is_empty()
             && method.len() <= 64
             && method
@@ -258,13 +263,56 @@ impl Platform {
         if !plain {
             return Err(format!("method {method:?}: a plain method name"));
         }
-        if (self.raw_method)(method) {
-            Ok(())
-        } else {
-            Err(format!(
-                "method {method}: not offered by send_raw (ADR 0039)"
-            ))
+        self.raw_methods
+            .iter()
+            .find(|m| m.name == method)
+            .ok_or_else(|| format!("method {method}: not offered by send_raw (ADR 0039)"))
+    }
+
+    /// The chats a raw request of `m` names, each to be checked against the known chats: every
+    /// chat param `m` needs must be there, every other chat param that is there is named too,
+    /// and a refused param or a chat param that is no string or number refuses the request.
+    pub fn raw_chats(&self, m: &RawMethod, params: &Json) -> Result<Vec<String>, String> {
+        let Json::Object(o) = params else {
+            return Err("params: a JSON object".into());
+        };
+        if let Some(p) = self.raw_refused_params.iter().find(|p| o.contains_key(**p)) {
+            return Err(format!(
+                "params: {p} is not offered by send_raw (its chat cannot be checked)"
+            ));
         }
+        if let Some(p) = m
+            .chats
+            .iter()
+            .find(|p| matches!(o.get(**p), None | Some(Json::Null)))
+        {
+            return Err(format!("params: {} needs {p} (a recipient's chat)", m.name));
+        }
+        let mut chats = Vec::new();
+        for p in self.raw_chat_params.iter().chain(m.chats) {
+            let Some(v) = o.get(*p) else { continue };
+            match text_of(v) {
+                Some(c) if !chats.contains(&c) => chats.push(c),
+                Some(_) => {}
+                None => return Err(format!("params: {p}: one chat, a string or a number")),
+            }
+        }
+        Ok(chats)
+    }
+}
+
+/// One method `send_raw` offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawMethod {
+    pub name: &'static str,
+    /// The params that must be there and name a known chat (`chat_id`, `from_chat_id`,
+    /// `channel`); empty for a method that names no chat (`getMe`, `auth.test`).
+    pub chats: &'static [&'static str],
+}
+
+impl RawMethod {
+    pub const fn new(name: &'static str, chats: &'static [&'static str]) -> Self {
+        Self { name, chats }
     }
 }
 

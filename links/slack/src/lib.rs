@@ -14,7 +14,7 @@
 //! component (`--features wasm`).
 
 use serde_json::{json, Value as Json};
-use wyrm_messenger::api::{parse_json, text_of, Body, Chat, Fail, Outgoing, Platform, Update};
+use wyrm_messenger::api::{parse_json, Body, Chat, Fail, Outgoing, Platform, RawMethod, Update};
 use wyrm_messenger::model::Format;
 use wyrm_messenger::{render, Messenger};
 
@@ -61,8 +61,11 @@ pub const SLACK: Platform = Platform {
             me["team"].as_str().unwrap_or("")
         )
     },
-    raw_method,
-    raw_chat: |p| text_of(&p["channel"]),
+    raw_methods: RAW_METHODS,
+    // every Web API param that names a conversation or an account
+    raw_chat_params: &["channel", "channel_id", "user", "users"],
+    // a file or a comment names no channel the link can check
+    raw_refused_params: &["file", "file_comment"],
     poll: |_, _| None,
     updates: |_| Vec::<Update>::new(),
 };
@@ -90,12 +93,27 @@ fn check_thread(t: &str) -> Result<(), String> {
     }
 }
 
-fn raw_method(method: &str) -> bool {
-    ["chat.", "reactions.", "pins."]
-        .iter()
-        .any(|p| method.starts_with(p))
-        || ["conversations.info", "auth.test"].contains(&method)
-}
+const CHANNEL: &[&str] = &["channel"];
+
+/// What `send_raw` may call, by exact name (fail closed): messages, reactions and pins in a
+/// recipient's channel, the channel's info, the token's identity.
+const RAW_METHODS: &[RawMethod] = &[
+    RawMethod::new("chat.postMessage", CHANNEL),
+    RawMethod::new("chat.update", CHANNEL),
+    RawMethod::new("chat.delete", CHANNEL),
+    RawMethod::new("chat.meMessage", CHANNEL),
+    RawMethod::new("chat.getPermalink", CHANNEL),
+    RawMethod::new("chat.scheduleMessage", CHANNEL),
+    RawMethod::new("chat.deleteScheduledMessage", CHANNEL),
+    RawMethod::new("reactions.add", CHANNEL),
+    RawMethod::new("reactions.remove", CHANNEL),
+    RawMethod::new("reactions.get", CHANNEL),
+    RawMethod::new("pins.add", CHANNEL),
+    RawMethod::new("pins.remove", CHANNEL),
+    RawMethod::new("pins.list", CHANNEL),
+    RawMethod::new("conversations.info", CHANNEL),
+    RawMethod::new("auth.test", &[]),
+];
 
 /// `(method, body)` of a Slack request.
 pub fn slack(m: &Outgoing) -> (String, Json) {
@@ -285,5 +303,28 @@ mod tests {
     fn raw_methods_are_bounded() {
         assert!(SLACK.raw_method_allowed("chat.update").is_ok());
         assert!(SLACK.raw_method_allowed("users.list").is_err());
+        // names a prefix list would have let through
+        for m in ["chat.postEphemeral", "chat.unfurl", "conversations.open"] {
+            assert!(SLACK.raw_method_allowed(m).is_err(), "{m}");
+        }
+    }
+    #[test]
+    fn raw_requests_name_every_channel_and_fail_closed() {
+        let m = |n| SLACK.raw_method_allowed(n).unwrap();
+        let chats = |n, p: Json| SLACK.raw_chats(m(n), &p);
+        assert_eq!(
+            chats(
+                "chat.update",
+                json!({"channel": "C1", "ts": "1.2", "text": "x"})
+            ),
+            Ok(vec!["C1".to_owned()])
+        );
+        assert_eq!(
+            chats("chat.postMessage", json!({"channel": "C1", "user": "U9"})),
+            Ok(vec!["C1".to_owned(), "U9".to_owned()])
+        );
+        assert!(chats("reactions.add", json!({"name": "eyes", "timestamp": "1.2"})).is_err());
+        assert!(chats("reactions.get", json!({"channel": "C1", "file": "F1"})).is_err());
+        assert_eq!(chats("auth.test", json!({})), Ok(vec![]));
     }
 }

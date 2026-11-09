@@ -19,15 +19,21 @@ in (`/invite @bot`).
 
 Formats `mrkdwn` (default; values escaped as `&amp;`, `&lt;`, `&gt;`) and `plain`. `blocks`
 takes Block Kit JSON, an array; put placeholders inside JSON strings
-(`"text": "*{{who}}* is at {{temp:.1}}"`), values are JSON-escaped there; `text` is the
-notification fallback. A `photo` is an image block; a `document` a link; a `location` an
+(`"text": "*{{who}}* is at {{temp:.1}}"`). A value filled in there is escaped for mrkdwn first
+(`&amp;`, `&lt;`, `&gt;`) and then for JSON, so it can be neither a mention (`<!channel>`) nor a
+link (`<https://…|text>`); in a `plain_text` object Slack shows those entities as the characters.
+`text` is the notification fallback. A `photo` is an image block; a `document` a link; a `location` an
 OpenStreetMap link. `buttons` are links only (an actions block). `preview` turns unfurls on.
 
 ## Raw requests
 
-`send_raw {method, params}` (config): `chat.*` (update, delete, scheduleMessage, …),
-`reactions.*`, `pins.*`, `conversations.info`, `auth.test`; the `channel` must be a
-recipient's.
+`send_raw {method, params}` (config) fails closed: only these methods, by exact name, are
+offered: `chat.postMessage`, `chat.update`, `chat.delete`, `chat.meMessage`,
+`chat.getPermalink`, `chat.scheduleMessage`, `chat.deleteScheduledMessage`, `reactions.add`,
+`reactions.remove`, `reactions.get`, `pins.add`, `pins.remove`, `pins.list`,
+`conversations.info` (all need `channel`) and `auth.test`. Every `channel`, `channel_id`, `user`
+and `users` in the params must be a recipient's channel; a missing `channel` refuses the
+request, and so do `file` and `file_comment` (their channel cannot be checked).
 
 ## Send only
 

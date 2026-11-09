@@ -20,8 +20,11 @@ pub enum Escape {
     MarkdownV2,
     /// Slack mrkdwn: `&`, `<`, `>`.
     Mrkdwn,
-    /// JSON string content (Slack blocks): the value goes between quotes the template has.
+    /// JSON string content: the value goes between quotes the template has.
     Json,
+    /// Slack Block Kit: mrkdwn first (`&`, `<`, `>`), then JSON string content, so a value
+    /// in a text object can be neither a mention (`<!channel>`) nor a link (`<url|text>`).
+    JsonMrkdwn,
 }
 
 pub fn escape(s: &str, how: Escape) -> String {
@@ -45,6 +48,15 @@ pub fn escape(s: &str, how: Escape) -> String {
                 let q = wyrm_history_sync::http::json_string(&c.to_string());
                 out.push_str(&q[1..q.len() - 1]);
             }
+            Escape::JsonMrkdwn => match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                c => {
+                    let q = wyrm_history_sync::http::json_string(&c.to_string());
+                    out.push_str(&q[1..q.len() - 1]);
+                }
+            },
         }
     }
     out
@@ -183,6 +195,22 @@ mod tests {
         .unwrap();
         assert_eq!(r, r#"{"x":"a\"b\n"}"#);
         assert_eq!(render("{{none}}!", Escape::None, &look).unwrap(), "!");
+    }
+
+    #[test]
+    fn block_kit_values_are_neither_mentions_nor_links() {
+        let tpl = r#"[{"type":"section","text":{"type":"mrkdwn","text":"*{{v}}*"}}]"#;
+        let r = render(tpl, Escape::JsonMrkdwn, &|_, _| {
+            Some("<!channel> <https://evil.example|click> \"a\" & b".into())
+        })
+        .unwrap();
+        assert_eq!(
+            r,
+            r#"[{"type":"section","text":{"type":"mrkdwn","text":"*&lt;!channel&gt; &lt;https://evil.example|click&gt; \"a\" &amp; b*"}}]"#
+        );
+        let j: serde_json::Value = serde_json::from_str(&r).unwrap();
+        let text = j[0]["text"]["text"].as_str().unwrap();
+        assert!(!text.contains('<') && !text.contains('>'), "{text}");
     }
 
     #[test]
