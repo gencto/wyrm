@@ -183,7 +183,8 @@ impl<L: Link> LinkHandle<L> {
             .map_err(|_| LinkError::new(Status::Closed, "link stopped"))?
     }
 
-    /// Stop taking requests, run `Link::stop` (≤ 10 s), drop liveliness.
+    /// Stop taking requests, run `Link::stop` (≤ 10 s), drop liveliness. When it returns,
+    /// the driver value is dropped too (whatever it owned is released).
     pub async fn stop(mut self) {
         self.query_task.abort();
         self.ctx.close();
@@ -529,6 +530,10 @@ async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<C
                     Ok(Err(_)) => warn!("link stop timed out"),
                     Err(()) => warn!("link stop panicked"),
                 }
+                // The driver goes before the answer: what it owns (a store and its lock, a
+                // port, a socket) is released when `LinkHandle::stop` returns, so a link
+                // started again at once can open it (ADR 0036 restarts).
+                drop(link);
                 let _ = tx.send(());
                 return;
             }

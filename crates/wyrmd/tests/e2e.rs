@@ -8705,6 +8705,86 @@ fn rss_kib(pid: u32) -> Option<u64> {
         .and_then(|n| n.parse().ok())
 }
 
+/// What `broker_restart_rto` shows when a wait fails: the links' states,
+/// the liveliness tokens under `downstream`, the `wyrmd link` processes
+/// with their parents and the last output of the process link `mockp`.
+async fn rto_diagnose(c: &WyrmClient, port: u16, tls: u16) -> String {
+    // What one session sees: the states and the tokens under `downstream`.
+    async fn view(c: &WyrmClient) -> String {
+        let mut out = String::new();
+        for l in ["mock", "mockp"] {
+            let s = last_val(c, &format!("wy/{SITE}/sys/links/{l}/state")).await;
+            out += &format!("  state {l}: {s:?} (0 installed, 1 starting, 2 connected)\n");
+        }
+        let mut tokens = Vec::new();
+        if let Ok(r) = c
+            .session()
+            .liveliness()
+            .get(format!("wy/{SITE}/downstream/*"))
+            .timeout(Duration::from_secs(2))
+            .await
+        {
+            while let Ok(r) = r.recv_async().await {
+                if let Ok(s) = r.result() {
+                    tokens.push(s.key_expr().to_string());
+                }
+            }
+        }
+        out += &format!("  tokens: {tokens:?}\n");
+        out
+    }
+    // The test's session, then a new one: when only the new one answers,
+    // the old session lost the router; when neither does, the router is stuck.
+    let mut out = format!("the test's session:\n{}", view(c).await);
+    let fresh = tokio::time::timeout(Duration::from_secs(5), client_on(port))
+        .await
+        .ok()
+        .flatten();
+    match &fresh {
+        Some(f) => out += &format!("a new session:\n{}", view(f).await),
+        None => out += "a new session: none in 5 s\n",
+    }
+    for (name, p) in [("tcp", port), ("tls", tls)] {
+        let open = std::net::TcpStream::connect(("127.0.0.1", p)).is_ok();
+        out += &format!("{name} port {p} accepts: {open}\n");
+    }
+    if let Ok(ps) = std::process::Command::new("ps")
+        .args(["-eo", "pid,ppid,args"])
+        .output()
+    {
+        for l in String::from_utf8_lossy(&ps.stdout).lines() {
+            if l.contains("wyrmd") {
+                out += &format!("ps: {}\n", l.trim());
+            }
+        }
+    }
+    let mut args = BTreeMap::new();
+    args.insert("lines".to_owned(), Value::UInt(60));
+    // on the new session when there is one: the test's may be the stuck one
+    match fresh
+        .as_ref()
+        .unwrap_or(c)
+        .invoke_one(
+            &format!("wy/{SITE}/sys/links/mockp"),
+            "get_log",
+            Value::Map(args),
+        )
+        .await
+    {
+        Ok(Some(Value::Array(rows))) => {
+            for r in rows {
+                if let Value::Map(m) = r {
+                    if let Some(Value::Str(t)) = m.get("message") {
+                        out += &format!("mockp: {t}\n");
+                    }
+                }
+            }
+        }
+        other => out += &format!("mockp get_log: {other:?}\n"),
+    }
+    out
+}
+
 /// ADR 0036, option 1: a broker killed with SIGKILL and started again brings
 /// every link back on its own (ADR 0003: links re-declare their subtree).
 /// A real `wyrmd` process, an embedded mock link and a mock link process;
@@ -8741,15 +8821,37 @@ async fn broker_restart_rto() {
         .unwrap();
         path
     };
+    // A `wyrmd` that is killed (SIGKILL) when dropped, also when the test
+    // panics: a failed run leaves no broker behind, and so (through
+    // `WYRM_PARENT_PID`) no link process either.
+    struct Wyrmd(std::process::Child);
+    impl Wyrmd {
+        fn kill(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    impl Drop for Wyrmd {
+        fn drop(&mut self) {
+            self.kill();
+        }
+    }
+    // `info`: the link process's own `connected` / `link process up` lines
+    // reach the test output (through the supervisor), with their times;
+    // the broker's own lines go to its stdout, which is dropped. A filter
+    // like `warn,<target>=info` is not enough: the first bare level caps
+    // every target (`wyrm_admin::logs`).
     let spawn = |cfg: &std::path::Path| {
-        Command::new(env!("CARGO_BIN_EXE_wyrmd"))
-            .arg("-c")
-            .arg(cfg)
-            .env("RUST_LOG", "warn")
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("spawn wyrmd")
+        Wyrmd(
+            Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+                .arg("-c")
+                .arg(cfg)
+                .env("RUST_LOG", "info")
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .expect("spawn wyrmd"),
+        )
     };
     let up = |p: u16| std::net::TcpStream::connect(("127.0.0.1", p)).is_ok();
 
@@ -8761,9 +8863,8 @@ async fn broker_restart_rto() {
     })
     .await;
     tokio::time::sleep(Duration::from_secs(2)).await;
-    let base_rss = rss_kib(base.id());
-    base.kill().unwrap();
-    base.wait().unwrap();
+    let base_rss = rss_kib(base.0.id());
+    base.kill();
 
     // The broker under test: one embedded and one process mock link.
     const LINKS: &str = r#"
@@ -8778,45 +8879,75 @@ async fn broker_restart_rto() {
     ];
     // Both links connected (state 2) and each publishing live samples on a
     // subscriber opened after the start: the links serve, not the storage.
-    let ready = |port: u16| {
+    // A wait that fails says which phase it was in and what the broker saw.
+    let ready = |port: u16, phase: &'static str| {
         let states = states.clone();
         async move {
             let c = eventually("broker listening", 30, || async { client_on(port).await }).await;
+            // A ring, not Zenoh's default FIFO: nobody reads these while the
+            // states are awaited, and a full FIFO (256 samples, under 2 s of
+            // this mock) blocks the session's receive path, so the state
+            // queries below would get no reply at all.
             let live = |link: &str| {
                 let c = &c;
                 let key = format!("wy/{SITE}/downstream/{link}/**/~val");
-                async move { c.session().declare_subscriber(key).await.unwrap() }
+                async move {
+                    c.session()
+                        .declare_subscriber(key)
+                        .with(zenoh::handlers::RingChannel::new(16))
+                        .await
+                        .unwrap()
+                }
             };
             let subs = (live("mock").await, live("mockp").await);
+            let t0 = tokio::time::Instant::now();
             for s in &states {
-                eventually(s, 30, || async {
-                    (last_val(&c, s).await == Some(Value::UInt(2))).then_some(())
-                })
-                .await;
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                // every change of the value read, with the time since `t0`
+                let mut seen: Vec<(u128, Option<Value>)> = Vec::new();
+                loop {
+                    let v = last_val(&c, s).await;
+                    if seen.last().map(|l| &l.1) != Some(&v) {
+                        seen.push((t0.elapsed().as_millis(), v.clone()));
+                    }
+                    if v == Some(Value::UInt(2)) {
+                        break;
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        panic!(
+                            "timeout: {s} ({phase}); read (ms, value): {seen:?}\n{}",
+                            rto_diagnose(&c, port, tls).await
+                        );
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
             }
             for (name, s) in [("mock", &subs.0), ("mockp", &subs.1)] {
-                tokio::time::timeout(Duration::from_secs(10), s.recv_async())
+                if tokio::time::timeout(Duration::from_secs(10), s.recv_async())
                     .await
-                    .unwrap_or_else(|_| panic!("no live sample from {name} in 10 s"))
-                    .unwrap();
+                    .is_err()
+                {
+                    panic!(
+                        "no live sample from {name} in 10 s ({phase})\n{}",
+                        rto_diagnose(&c, port, tls).await
+                    );
+                }
             }
         }
     };
 
     let mut broker = spawn(&cfg);
-    ready(port).await;
+    ready(port, "first start").await;
 
     // SIGKILL: no shutdown, no flush; the process links see their parent go.
     let killed = Instant::now();
-    broker.kill().unwrap();
-    broker.wait().unwrap();
+    broker.kill();
     let started = Instant::now();
     let mut broker = spawn(&cfg);
-    ready(port).await;
+    ready(port, "start after SIGKILL").await;
     let rto_start = started.elapsed();
     let rto_kill = killed.elapsed();
-    broker.kill().unwrap();
-    broker.wait().unwrap();
+    broker.kill();
 
     let base = base_rss
         .map(|k| format!("{:.1} MiB", k as f64 / 1024.0))

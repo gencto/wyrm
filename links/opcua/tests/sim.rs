@@ -1009,6 +1009,11 @@ async fn channel_renewal_keeps_values() {
     while tokio::time::Instant::now() < until {
         assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
         let v = val(&h, "c1/d1/double");
+        // a poll that comes late on a slow runner is honestly `uncertain`
+        // (stale); a renewal must never make a value `bad`
+        if let Some((_, q)) = &v {
+            assert_ne!(*q, Quality::Bad, "a value went bad during the renewal");
+        }
         if v != last {
             changes += 1;
             last = v;
@@ -1016,7 +1021,10 @@ async fn channel_renewal_keeps_values() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(changes >= 5, "{changes} changes in 3 s");
-    assert_eq!(last.unwrap().1, Quality::Good);
+    wait("the value good again", || {
+        val(&h, "c1/d1/double").is_some_and(|(_, q)| q == Quality::Good)
+    })
+    .await;
     h.stop().await;
 }
 

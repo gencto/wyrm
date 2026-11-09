@@ -4,6 +4,7 @@
 - Unknown CBOR keys must be ignored by decoders; never remove or renumber a key.
 - `cargo fmt`, `cargo clippy -D warnings`, `cargo test` before a PR.
 - Architecture decisions go to `docs/adr/` (one file per decision).
+- Tests: a Zenoh subscriber that the test does not read at once (it waits for something else first) uses `zenoh::handlers::RingChannel` or a callback, not the default FIFO. A full FIFO (256 samples) blocks the session's receive path, so every other query and subscriber on that session stops too (the `broker_restart_rto` flake, 2026-11-09). Product code has the same hazard and is not yet covered by this rule: `wyrm-client` `subscribe()` (`crates/wyrm-client/src/streams.rs`) reads its live FIFO only after the stored `get` and forwards it with back-pressure.
 
 ## Wire enums (code tables)
 
