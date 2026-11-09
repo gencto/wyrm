@@ -146,3 +146,44 @@ The owner selects blocks in the editor and says "create custom block", later "ed
 
 *If wrong:* a team that wants one change to reach every flow needs "update all" in the editor (copy and deploy each flow); the engine side stays as it is.
 
+### 4. The second set of blocks (spec 06 0.2.25)
+The DGLux palette (`tool/orig_block_palette.json`, `docs/block_audit.md`) was compared with the WYRM catalog. Taken: what a flow on a broker needs and the engine could not do with its blocks. Each block has a port for every parameter, typed defaults and `port_types` in the catalog, and rows in `docs/flow-blocks.md`. The catalog has 55 types (36 before).
+
+**Readers** (`src/readers.rs`; DGLux `loadValue`, `getChildren`/`listNode`):
+- `load_value`: one read of a point's stored value. Fields `key` (port `in.key`, scope `key_scope`), `interval_ms`, `auto_run` (default true), `enabled`; input `trigger`; outputs `out` (the value with its quality and time), `ok`, `error` (`{event, id, code, message}`), `running`, `last_run`.
+- `list_children`: the children of a node as a list of rows `{name, path, type?, display?, is?, unit?, writable, has_children}`, at most 1000 (more: `error` `resource_exhausted`). Fields `path` (port `in.path`, scope `path_scope`) and the same behaviour fields and outputs.
+- Both are sources for §1: their static key is checked as a source, their scope as a scope, at deploy and for `watch`/`ports`/`preview`. A refused key from the port is an `error` event with `invalid_parameter`.
+- A read is no command, so the start rule of §2 does not apply to `auto_run`: a reader reads at the start, and when its key changes. `trigger` still ignores a sample born at the start (the start read covers it). The latest read wins; a read without an answer after 5 s is `error` `timeout`. `load_value` reads the broker's value storage: a point that has no stored value is `not_found`.
+- The `trigger` action (§2) is for command blocks only. A reader has no button yet.
+
+**Text:** `substring` (`start`, `length`, by characters), `replace` (`from`, `to`; plain text, every occurrence), `split` (`separator`; a list of at most 1000 texts), `join` (`separator`). Results stay within 4 KiB (ADR 0032 §11); a longer one is `null` with quality `bad`.
+
+**Data:** `make_object` (a map of its named inputs: a map argument for an action), `make_array`, `get` (`path` `a.b.0` into maps and lists), `stats` (a list's `min`, `max`, `avg`, `sum`, `count`).
+
+**Events and state:** `changed` (`on_change`), `rising_edge`, `falling_edge` (`on_edge`), `counter` (`step`, `initial`, `reset`), `toggle` (`initial`, `reset`), `sample_and_hold` (`in`, `trigger`), `select` (`index`). These are what feeds `trigger` of §2. They follow the start rule: a sample born at the start gives the block its value and fires nothing, so `variable → rising_edge → trigger` does nothing at deploy while `alarm.out → rising_edge → trigger` fires on the first real alarm (for `rising_edge` nothing before counts as false). `counter` and `toggle` keep their state across a hot swap.
+
+**Time:** `debounce` (the last value after `ms` without another) and `throttle` (the first at once, then the latest at the end of each `ms`). They have a clock only while a value waits (a quarter of `ms`, 5 to 50 ms), so the value goes out at most that much late.
+
+**Left out, and why.**
+| DGLux / candidate | Why not now |
+|---|---|
+| `json_parse`, CSV parser and writer, table to JSON | Principle 5 keeps `serde_json` to user files, and the flow crate has no JSON parser. A parser for values from a port needs a size and depth bound and an owner decision on the dependency. |
+| `to_number`, `to_string`, `parseNumber` | The variables do it: a `number` or `string` block converts what comes on `in`. |
+| `string_format`, `formatNumber`, `trim`, `left`, `right`, `localize` | `concat`, `round.text` and `substring` cover the common cases; a format language is a design of its own. |
+| `now`, `format_time`, `time_range`, the date blocks | They need IANA time zones. `wyrm-schedule` has the bundled tzdb; whether the flow crate may depend on it is an owner decision. |
+| Table blocks (`table_filter`, sort, group by, join, rollup, aggregation, …) | WYRM has no table value. A list of maps (`list_children.out`) with `get`, `stats`, `length` and `expression` covers reading a column; a table type comes with DQL results in flows, if at all. |
+| `timer`/`interval` trigger source | `timer` exists; `interval_ms` on the block is the direct way. |
+| `min_max_avg` | It is `stats`. `row_count` is `length`. |
+| `regexp` in `case`, `router`, `eventGate`, `script`, `catchError`, `repeater`, statistics (median, mode, deviation), trigonometry, `power`, `root`, `log`, `factorial`, `bound` | `expression` (rhai) computes all of the math; no bounded regex engine in the crate (ADR 0038 §8); the others are DGLux page mechanics. |
+| Browser, file, zip, history and project blocks | They belong to a page, not to a broker. History in a flow is its own design (DQL, ADR 0025). |
+
+## Deferred
+- **Dynamic command targets** (`set.path`, `invoke.path`/`action` from a port): §1a. Needs pattern proofs in spec 04.
+- **A reader's button**: the `trigger` action for `load_value`/`list_children`, with read rights.
+- **Library blocks by reference** (a flow that follows the library's newest version): §3 chose copies.
+- **A row for an instance** in `watch` (its fields as one node): the editor maps them from the block's definition.
+- **An echo for every instance input fan-out**: an instance input's output is the echo of its first inner input only.
+- **`run_on_start` on a port**, and a start run that waits for bound arguments by cause instead of 250 ms.
+- **The blocks of the table above.**
+- **MCP and `wyrm-agent`** do not know the new actions (`trigger`, the library) by name; they reach them as any action.
+

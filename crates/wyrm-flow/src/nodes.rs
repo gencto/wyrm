@@ -244,14 +244,15 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
 /// the port is read only inside the scope (ADR 0040 §1, [`crate::scope`]).
 pub fn read_fields(ty: &str) -> &'static [(&'static str, &'static str)] {
     match ty {
-        "subscribe" | "liveliness" => &[("key", "key_scope")],
+        "subscribe" | "liveliness" | "load_value" => &[("key", "key_scope")],
+        "list_children" => &[("path", "path_scope")],
         _ => &[],
     }
 }
 
 /// Config check of a read field: the key is a text, the scope is a text, and one of them is
 /// given (a node with a scope alone reads nothing until its port brings a key).
-fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), String> {
+pub(crate) fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), String> {
     let key = s(cfg, field)?;
     if s(cfg, scope)?.is_none() && key.is_none() {
         return Err(format!(
@@ -450,6 +451,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports::new(&[("in", Any)], &[])
         }
         "invoke" | "set" => crate::commands::ports(ty, cfg)?,
+        "load_value" | "list_children" => crate::readers::ports(ty, cfg)?,
         "wasm" => {
             let w = WasmCfg::parse(cfg)?;
             Ports {
@@ -1416,6 +1418,7 @@ pub fn build_with(
             tx: None,
         }),
         "invoke" | "set" => crate::commands::build(ty, id, cfg, mode)?,
+        "load_value" | "list_children" => crate::readers::build(ty, cfg)?,
         "wasm" => {
             let store = artifacts.ok_or("wasm: no artifact store")?;
             Box::new(Wasm::new(WasmCfg::parse(cfg)?, store)?)

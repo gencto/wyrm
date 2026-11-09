@@ -146,6 +146,61 @@ and set it back after.
 | `concat` | `in.strict`, `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
+### The second set (spec 06 0.2.25, ADR 0040 §4)
+
+Every parameter below has the port `in.<parameter>`.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `substring` | `in` | `out` | `start` (default 0), `length` (default: to the end), counted in characters. |
+| `replace` | `in` | `out` | `from`, `to`: every `from` in the text becomes `to`. Plain text, no pattern. An empty `from` replaces nothing. |
+| `split` | `in` | `out` | `separator` (default `,`): a list of texts, at most 1000. An empty separator gives one item. |
+| `join` | `in` (a list) | `out` | `separator` (default `,`): the items as one text. |
+| `make_object` | `in.<inputs>` | `out` | A map: each input's name is a key. Use it for a map argument of an action. |
+| `make_array` | `in.<inputs>` | `out` | A list of the inputs, in their order. |
+| `get` | `in` | `out` | `path` (default empty): the value at `a.b.0` inside a map or a list; a number is an index. `null` when it is not there. |
+| `stats` | `in` (a list) | `min`, `max`, `avg`, `sum`, `count` | The numbers of the list. An empty list gives `count` 0 and `null` for the others. |
+| `changed` | `in` | `on_change` | An event when `in` differs from the sample before. The first sample only starts it. |
+| `rising_edge` | `in` | `on_edge` | An event when `in` becomes true. Nothing before counts as false. |
+| `falling_edge` | `in` | `on_edge` | An event when `in` becomes false after it was true. |
+| `counter` | `in`, `reset` | `out` | `step` (default 1), `initial` (default 0): each sample on `in` adds `step`; a true `reset` goes back to `initial`. |
+| `toggle` | `in`, `reset` | `out` | `initial` (default false): each sample on `in` flips the bool. |
+| `sample_and_hold` | `in`, `trigger` | `out` | The value `in` has when a sample comes on `trigger`. |
+| `select` | `in.<inputs>` | `out` | `index` (default 0): the input at that position, from 0; `null` when there is none. |
+| `debounce` | `in` | `out` | `ms` (default 500): the last value, once `ms` passed without another. |
+| `throttle` | `in` | `out` | `ms` (default 500): the first value at once, then the latest at the end of each period. |
+
+- A text result longer than 4 KiB, and a `split` of more than 1000 parts, is
+  `null` with quality `bad`.
+- `changed`, `rising_edge`, `falling_edge`, `counter`, `toggle` and
+  `sample_and_hold` do not act on a value that exists because the flow started
+  (a variable's start value, the first sample of a `subscribe`). Such a value
+  only gives the block where it starts from. So these blocks are safe in front
+  of a `trigger`.
+- `counter` and `toggle` keep their state across a hot swap.
+- `debounce` and `throttle` send their value at most a quarter of `ms` late
+  (5 to 50 ms).
+
+Readers:
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `load_value` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true) |
+| `list_children` | `trigger`, `in.path`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `ok`, `error`, `running`, `last_run` | `path`, `path_scope`, `interval_ms`, `auto_run`, `enabled` |
+
+- `load_value` reads the stored value of a point once. `out` carries it with
+  its quality and time. A point without a stored value gives `error` with
+  `not_found`.
+- `list_children` gives a list of rows, one per child:
+  `{name, path, type, display, is, unit, writable, has_children}` (`type`,
+  `display`, `is` and `unit` only where the child has them). At most 1000 rows.
+- `auto_run` reads at the start and when the key changes. A read is no command,
+  so it may run at deploy. `trigger` reads on an event or a changed value;
+  `interval_ms` reads every period.
+- `key` and `path` take another key on their port inside `key_scope` or
+  `path_scope`, as `subscribe` does (see "A key from a port"). A refused key is
+  an `error` event with `invalid_parameter`.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port

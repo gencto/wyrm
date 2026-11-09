@@ -13,6 +13,7 @@ pub mod def;
 pub mod engine;
 pub mod nodes;
 pub mod preview;
+mod readers;
 pub mod runtime;
 pub mod scope;
 pub mod script;

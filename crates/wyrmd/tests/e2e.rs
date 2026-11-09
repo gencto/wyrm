@@ -3474,6 +3474,104 @@ async fn flow_with_a_custom_block_from_the_library() {
     env.stop().await;
 }
 
+/// ADR 0040 §4: the readers through wyrmd. `list_children` lists a folder of the mock; a
+/// `get` block takes the second row's path; that path drives a `load_value` inside its scope,
+/// which reads the point's value from the broker's storage.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_readers_list_a_node_and_load_a_value() {
+    let env = Env::start("flow-readers", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let publish = |n: &str| m(&[("type", s("publish")), ("node", s(n))]);
+    let def = m(&[
+        ("id", s("rd")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "ls",
+                    m(&[
+                        ("type", s("list_children")),
+                        ("path", s("downstream/mock/g0")),
+                    ]),
+                ),
+                ("second", m(&[("type", s("get")), ("path", s("1.path"))])),
+                (
+                    "lv",
+                    m(&[
+                        ("type", s("load_value")),
+                        ("key_scope", s("downstream/mock/g0/*")),
+                    ]),
+                ),
+                ("rows", publish("rows")),
+                ("key", publish("key")),
+                ("val", publish("val")),
+                ("ok", publish("ok")),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("ls.out", "rows.in"),
+                edge("ls.out", "second.in"),
+                edge("second.out", "lv.in.key"),
+                edge("lv.key", "key.in"),
+                edge("lv.out", "val.in"),
+                edge("lv.ok", "ok.in"),
+            ]),
+        ),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let node = |n: &str| format!("{flows}/rd/nodes/{n}");
+    let rows = eventually("the rows of g0", 10, || async {
+        match last_val(&c, &node("rows")).await {
+            Some(Value::Array(a)) if !a.is_empty() => Some(a),
+            _ => None,
+        }
+    })
+    .await;
+    // the mock's first folder holds the even points
+    let names: Vec<String> = rows
+        .iter()
+        .filter_map(|r| match r {
+            Value::Map(r) => match r.get("name") {
+                Some(Value::Str(n)) => Some(n.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["p0", "p2", "p4", "p6"]);
+    let key = eventually("the key from the second row", 10, || async {
+        last_val(&c, &node("key"))
+            .await
+            .filter(|k| matches!(k, Value::Str(_)))
+    })
+    .await;
+    assert_eq!(key, s("downstream/mock/g0/p2"));
+    let val = eventually("the value of that point", 10, || async {
+        last_val(&c, &node("val"))
+            .await
+            .filter(|v| v.as_f64().is_some())
+    })
+    .await;
+    assert!(val.as_f64().is_some());
+    assert!(last_val(&c, &node("ok")).await.is_some());
+    env.stop().await;
+}
+
 /// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
 /// reports the write, but nothing reaches the link (no audit record, the point never holds the
 /// value); the same draft deployed writes (the control).

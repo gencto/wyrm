@@ -81,6 +81,11 @@ impl DynKey {
         self.decide(v, site, now)
     }
 
+    /// The full key in use.
+    pub(crate) fn current(&self) -> Option<&str> {
+        self.current.as_deref()
+    }
+
     /// A value waits for its time.
     pub(crate) fn waiting(&self) -> bool {
         self.waiting.is_some()

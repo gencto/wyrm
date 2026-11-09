@@ -1668,3 +1668,205 @@ fn the_largest_definition_compiles_in_bounded_time() {
     // measured 2026-11-09 (Apple M4 Max): 12 ms in a debug build, 2.6 ms in release
     assert!(took < Duration::from_millis(250), "{took:?}");
 }
+
+// ---------- D. the readers (ADR 0040 §4) ----------
+
+fn readers() -> Value {
+    flow(
+        "rd",
+        &[
+            // a static read at the start, then every 150 ms
+            (
+                "lv",
+                node(
+                    "load_value",
+                    &[
+                        ("key", s("downstream/mock/p0")),
+                        ("interval_ms", Value::UInt(150)),
+                    ],
+                ),
+            ),
+            // the children of the link, once at the start
+            (
+                "ls",
+                node("list_children", &[("path", s("downstream/mock"))]),
+            ),
+            // a key from a port: p1, then a point that is not there, then one outside the scope
+            ("t", node("timer", &[("period_ms", Value::UInt(400))])),
+            ("m3", node("modulo", &[("modulo", Value::UInt(3))])),
+            (
+                "pick",
+                node(
+                    "case",
+                    &[
+                        ("inputs", arr(&[s("c0"), s("k0"), s("c1"), s("k1")])),
+                        (
+                            "values",
+                            map(&[
+                                ("in.c0", Value::UInt(1)),
+                                ("in.k0", s("downstream/mock/p1")),
+                                ("in.c1", Value::UInt(2)),
+                                ("in.k1", s("downstream/mock/nope")),
+                            ]),
+                        ),
+                        ("else", s("downstream/other/p0")),
+                    ],
+                ),
+            ),
+            (
+                "dyn",
+                node("load_value", &[("key_scope", s("downstream/mock/*"))]),
+            ),
+            ("v", publish("v")),
+            ("ok", publish("ok")),
+            ("lerr", publish("lerr")),
+            ("rows", publish("rows")),
+            ("dv", publish("dv")),
+            ("dk", publish("dk")),
+            ("derr", publish("derr")),
+        ],
+        &[
+            ("lv.out", "v.in"),
+            ("lv.ok", "ok.in"),
+            ("lv.error", "lerr.in"),
+            ("ls.out", "rows.in"),
+            ("t.out", "m3.in"),
+            ("m3.remainder", "pick.in"),
+            ("pick.out", "dyn.in.key"),
+            ("dyn.out", "dv.in"),
+            ("dyn.key", "dk.in"),
+            ("dyn.error", "derr.in"),
+        ],
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn load_value_and_list_children_read_inside_their_scope() {
+    let env = Env::start("readers").await;
+    env.deploy(readers()).await.unwrap();
+    // The static read runs at the start and again every period. This in-memory session has
+    // no storage of values (wyrmd has one; its e2e test reads a value), so each read answers
+    // `not_found`: an `error` event per read, and never `ok`.
+    let err = wait("periodic reads", || {
+        env.last("rd/nodes/lerr").filter(|s| ev_id(s) >= Some(4))
+    })
+    .await;
+    assert_eq!(
+        at(&err.v, &["code"]),
+        Some(&Value::UInt(u64::from(Status::NotFound.code())))
+    );
+    assert!(env.last("rd/nodes/ok").is_none() && env.last("rd/nodes/v").is_none());
+    // the children of the mock: its two points, each a row
+    let rows = wait("the rows", || {
+        env.last("rd/nodes/rows").and_then(|s| match s.v {
+            Value::Array(a) => Some(a),
+            _ => None,
+        })
+    })
+    .await;
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(at(&rows[0], &["name"]), Some(&s("p0")));
+    assert_eq!(at(&rows[0], &["path"]), Some(&s("downstream/mock/p0")));
+    assert_eq!(at(&rows[0], &["type"]), Some(&s("number")));
+    assert_eq!(at(&rows[0], &["unit"]), Some(&s("°C")));
+    assert_eq!(at(&rows[0], &["writable"]), Some(&Value::Bool(true)));
+    assert_eq!(at(&rows[1], &["name"]), Some(&s("p1")));
+    // the key from the port: p1 is read
+    wait("the dynamic key is taken", || {
+        env.last("rd/nodes/dk")
+            .filter(|k| k.v == s("downstream/mock/p1"))
+    })
+    .await;
+    // a point that is not there: not_found; a key outside the scope: invalid_parameter
+    let mut codes = std::collections::BTreeSet::new();
+    wait("both errors", || {
+        if let Some(Value::UInt(c)) = env
+            .last("rd/nodes/derr")
+            .and_then(|s| at(&s.v, &["code"]).cloned())
+        {
+            codes.insert(c);
+        }
+        (codes.len() == 2).then_some(())
+    })
+    .await;
+    assert!(
+        codes.contains(&u64::from(Status::NotFound.code())),
+        "{codes:?}"
+    );
+    assert!(
+        codes.contains(&u64::from(Status::InvalidParameter.code())),
+        "{codes:?}"
+    );
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reader_is_a_source_for_the_rights_checks() {
+    let env = Env::start("reader-rights").await;
+    // a wired path needs its scope
+    let wired = |scope: Option<&str>| {
+        let mut cfg = vec![("path", s("downstream/mock"))];
+        if let Some(sc) = scope {
+            cfg.push(("path_scope", s(sc)));
+        }
+        flow(
+            "ls",
+            &[
+                ("k", node("string", &[])),
+                ("l", node("list_children", &cfg)),
+            ],
+            &[("k.out", "l.in.path")],
+        )
+    };
+    let e = def::compile(&wired(None)).unwrap_err();
+    assert!(
+        e.0.contains("nodes.l.path_scope: required when in.path is wired"),
+        "{e}"
+    );
+    // a reader outside the site's sections does not compile (as a subscribe)
+    let e = env
+        .deploy(flow(
+            "x",
+            &[("l", node("load_value", &[("key", s("sys/audit"))]))],
+            &[],
+        ))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("nodes.l.key"), "{e}");
+    let e = env.deploy(wired(Some("sys/**"))).await.unwrap_err();
+    assert!(e.message.contains("nodes.l.path_scope"), "{e}");
+    // the deployer reads the static path and all of the scope
+    let narrow = env.user(
+        "user:narrow",
+        &[
+            ("dataflows/**", Perm::Config),
+            ("downstream/mock", Perm::Read),
+        ],
+    );
+    let e = env
+        .deploy_as(&narrow, wired(Some("downstream/**")))
+        .await
+        .unwrap_err();
+    assert!(denied(&e), "{e}");
+    let wide = env.user(
+        "user:wide",
+        &[
+            ("dataflows/**", Perm::Config),
+            ("downstream/**", Perm::Read),
+        ],
+    );
+    env.deploy_as(&wide, wired(Some("downstream/**")))
+        .await
+        .unwrap();
+    // and so does whoever watches it
+    let e = first(
+        &narrow,
+        &format!("wy/{SITE}/dataflows/ls"),
+        "ports",
+        map(&[]),
+    )
+    .await
+    .unwrap_err();
+    assert!(denied(&e), "{e}");
+    env.stop().await;
+}
