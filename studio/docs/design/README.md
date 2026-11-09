@@ -1,6 +1,6 @@
 # Design reference
 
-`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 59, 2026-11-08). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
+`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 60, 2026-11-09). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
 
 The boards do not render on their own (they run inside the canvas). Read them as source:
 
@@ -20,6 +20,6 @@ The boards do not render on their own (they run inside the canvas). Read them as
 | Who controls what | `LinksRemote`, `LinksQuarantine`, `SitesChainQ`, `SitesStar`, `SitesTwoUp` | §7.2, §7.5 |
 | Assistant | `AssistantAsk`, `Assistant` (clickable), `AssistantRun`, `AssistantDone`, `AssistantFailed`, `AssistantRights`, `AssistantDrawer` | §7.8 |
 | Design system | `DesignSystem` (tokens, type, components, scrollbars), `Icons`, `PropertySheet` | §6 |
-| App icon | `AppIcon` (variants, every platform; its images in `canvas/icon/`) | `specs/app-icon.md` |
+| App icon | `AppIcon` (variants, every platform; its images are canvas uploads, `/_blob/<id>`, copied here by name to `canvas/icon/`) | `specs/app-icon.md` |
 
 Each frame is one golden test (`docs/studio.md` §9). When the canvas changes, refresh this folder in the same pull request as the code that follows it.
