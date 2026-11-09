@@ -170,7 +170,12 @@ async fn a_stalled_subscription_does_not_stall_the_session() {
     let published = (rounds * KEYS) as usize;
     assert!(vals.dropped() > 0, "the coalesced samples are reported");
     assert!(vals.dropped() as usize + got <= published);
-    assert!(got < published / 2, "{got} of {published}: not coalesced");
+    // the first `VALUE_BUFFER` in order, then the newest per key
+    assert!(got < published, "{got} of {published}: not coalesced");
+    assert!(
+        got >= wyrm_client::VALUE_BUFFER,
+        "{got}: the queue was not lossless"
+    );
     p.mock.stop().await;
 }
 

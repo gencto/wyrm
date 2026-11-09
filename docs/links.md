@@ -586,7 +586,7 @@ stream did not deliver; it stays 0 while the consumer keeps up.
 
 | Stream | When the consumer is behind |
 |---|---|
-| `subscribe` (`~val`) | One pending value per key; a newer `t` replaces an older one (values are state). After the stall the consumer gets the latest value, quality and time of every key, in time order per key. The replaced values count. At most `MAX_PENDING_KEYS` (4096) keys wait: a sample of one more key is dropped and counted, and when the consumer has taken what waits, the stream reads the stored values again, so that key still gets its newest stored value. If more than 4096 keys wait again after `MAX_RESYNCS` (3) such reads in a row, without the consumer catching up in between, the stream ends with `resource_exhausted` ("consumer too slow"). |
+| `subscribe` (`~val`) | Every sample, in arrival order, while at most `VALUE_BUFFER` (4096) wait: a consumer that is a little behind loses nothing. Only one more switches the stream to overflow mode until the consumer has taken what waits: one pending value per key, a newer `t` replaces an older one (values are state), and the replaced values count. After the stall the consumer gets the queued samples, then the latest value, quality and time of every key, in time order per key. At most `MAX_PENDING_KEYS` (4096) keys wait: a sample of one more key is dropped and counted, and when the consumer has taken what waits, the stream reads the stored values again, so that key still gets its newest stored value. If more than 4096 keys wait again after `MAX_RESYNCS` (3) such reads in a row, without the consumer catching up in between, the stream ends with `resource_exhausted` ("consumer too slow"). |
 | `subscribe_reliable` (QoS 2/3) | A queue of `RELIABLE_BUFFER` (4096) samples; the oldest beyond it is dropped and counted. |
 | `list` (`~meta`, liveliness) | Up to `LIST_BUFFER` (1024) events are held. One more discards them (counted), and the stream reads the children again and sends `Refreshed`, so the consumer's view is whole again. If the owner is gone, it sends `Disconnected(None)` and lists again when the owner is back. |
 | `invoke` (a stream action) | Up to `INVOKE_BUFFER` (1024) replies are held. One more ends the stream: the held replies, then `resource_exhausted` ("consumer too slow"). Results are never dropped one by one. |
@@ -602,9 +602,10 @@ WebSocket as the stream's error frame instead of `closed`.
 `subscribe_filtered(pattern, keep)` drops the keys
 `keep` refuses before they take room; the gateway passes the user's read
 grants, so a point the user may not read uses no memory. A consumer
-that must see every sample (a historian with All Data logging) loses
-intermediate samples only while it is behind; before this rule it stopped
-the session instead. The gateway forwards each stream to its WebSocket and
+that must see every sample (a historian with All Data logging, a flow
+counter) gets every sample unless more than 4096 wait; only then are
+intermediate samples lost, counted in `dropped()`; before this rule it
+stopped the session instead. The gateway forwards each stream to its WebSocket and
 waits there for room, so a slow socket only slows its own streams.
 
 A stream holds its buffer only while it lives: dropping it undeclares its

@@ -5,8 +5,10 @@
 //! stream owns ([`crate::intake`]), and a full buffer follows the policy of
 //! its stream kind instead of waiting for the consumer:
 //!
-//! * `subscribe`: one pending value per key, the newest wins (values are
-//!   state, not events); a replaced value counts in
+//! * `subscribe`: every sample, in arrival order, while at most
+//!   [`VALUE_BUFFER`] wait. Only beyond that (overflow mode, until the
+//!   consumer has caught up): one pending value per key, the newest wins
+//!   (values are state); a replaced value counts in
 //!   [`EventStream::dropped`]. At most [`MAX_PENDING_KEYS`] keys: a sample
 //!   of one more is dropped (counted) and the stored values are read again
 //!   when the consumer has caught up. A key filter (the gateway's read
@@ -43,8 +45,13 @@ pub const RELIABLE_BUFFER: usize = 4096;
 /// `invoke` replies held for a consumer that is behind; one more ends the
 /// stream with `resource_exhausted`.
 pub const INVOKE_BUFFER: usize = 1024;
-/// Keys a `subscribe` stream holds a pending value for while its consumer
-/// is behind (about 1 MiB of small values). A sample of one more key is
+/// `subscribe` events held in arrival order for a consumer that is behind;
+/// every sample is delivered while it fits. One more switches the stream to
+/// overflow mode (newest per key, [`MAX_PENDING_KEYS`]) until the consumer
+/// has taken what waits.
+pub const VALUE_BUFFER: usize = 4096;
+/// Keys a `subscribe` stream holds a pending value for in overflow mode
+/// (about 1 MiB of small values). A sample of one more key is
 /// dropped and counted; once the consumer has taken what is pending, the
 /// stream reads the stored values again, so such a key still ends with its
 /// newest stored value. A pattern over more keys works as long as the
@@ -382,9 +389,13 @@ pub(crate) type KeyFilter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// What the value buffer does with one more item.
 enum Policy {
-    /// One pending event per key, the newest wins, at most
-    /// [`MAX_PENDING_KEYS`] keys (`subscribe`).
+    /// `subscribe`: every event in arrival order while at most
+    /// [`VALUE_BUFFER`] wait (`queue`, lossless). One more switches to
+    /// overflow mode: one pending event per key, the newest wins, at most
+    /// [`MAX_PENDING_KEYS`] keys, handed out after the queue. Once those
+    /// are taken, the queue takes new events again.
     Latest {
+        queue: VecDeque<ValEvent>,
         pending: HashMap<String, ValEvent>,
         order: VecDeque<String>,
     },
@@ -441,9 +452,13 @@ impl Vals {
     /// End the stream with `resource_exhausted`; what waits is freed.
     fn fail(&mut self, message: String) {
         let waiting = match &mut self.policy {
-            Policy::Latest { pending, order } => {
+            Policy::Latest {
+                queue,
+                pending,
+                order,
+            } => {
                 order.clear();
-                std::mem::take(pending).len()
+                std::mem::take(pending).len() + std::mem::take(queue).len()
             }
             Policy::Queue(q) => std::mem::take(q).len(),
         };
@@ -466,7 +481,14 @@ impl Vals {
         }
         let lost =
             match &mut self.policy {
-                Policy::Latest { pending, order } => match pending.get_mut(ev.key()) {
+                // lossless while the queue has room and nothing is coalesced
+                Policy::Latest { queue, order, .. }
+                    if order.is_empty() && queue.len() < VALUE_BUFFER =>
+                {
+                    queue.push_back(ev);
+                    0
+                }
+                Policy::Latest { pending, order, .. } => match pending.get_mut(ev.key()) {
                     None if order.len() >= MAX_PENDING_KEYS => {
                         self.overflowed = true;
                         1
@@ -515,9 +537,16 @@ impl Vals {
         }
         loop {
             let ev = match &mut self.policy {
-                Policy::Latest { pending, order } => order
-                    .pop_front()
-                    .map(|k| pending.remove(&k).expect("ordered key is pending")),
+                // the queue first: what it holds is older than what is coalesced
+                Policy::Latest {
+                    queue,
+                    pending,
+                    order,
+                } => queue.pop_front().or_else(|| {
+                    order
+                        .pop_front()
+                        .map(|k| pending.remove(&k).expect("ordered key is pending"))
+                }),
                 Policy::Queue(q) => q.pop_front(),
             };
             let Some(ev) = ev else { break };
@@ -642,6 +671,7 @@ pub(crate) async fn subscribe(
     let s = client.session();
     let dropped = Arc::new(AtomicU64::new(0));
     let latest = Policy::Latest {
+        queue: VecDeque::new(),
         pending: HashMap::new(),
         order: VecDeque::new(),
     };
@@ -743,6 +773,7 @@ mod tests {
 
     fn latest(keep: KeyFilter) -> Vals {
         let p = Policy::Latest {
+            queue: VecDeque::new(),
             pending: HashMap::new(),
             order: VecDeque::new(),
         };
@@ -761,17 +792,27 @@ mod tests {
         .collect()
     }
 
+    /// Fill the lossless queue, so the next events go to overflow mode.
+    fn fill_queue(v: &mut Vals) {
+        for t in 1..=VALUE_BUFFER as u64 {
+            v.push(smp("fill", t));
+        }
+    }
+
     #[test]
-    fn latest_wins_per_key() {
+    fn every_sample_in_order_while_it_fits() {
         let mut v = latest(all());
         v.push(smp("a", 5)); // live during the stored get
         v.push(smp("b", 1));
-        v.push(smp("a", 3)); // stored, older: the live one stays
-        v.push(smp("b", 1)); // stored, the same: no loss
+        v.push(smp("a", 3)); // stored, older than a 5: never after it
+        v.push(smp("b", 1)); // stored, the same as b 1: once
         v.push(smp("a", 6));
         v.push(smp("b", 2));
-        assert_eq!(drain(&mut v), [smp("a", 6), smp("b", 2)]);
-        assert_eq!(v.dropped.load(Ordering::Relaxed), 3);
+        assert_eq!(
+            drain(&mut v),
+            [smp("a", 5), smp("b", 1), smp("a", 6), smp("b", 2)]
+        );
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 0, "nothing lost");
         v.push(smp("a", 4)); // older than what was handed out
         v.push(ValEvent::Removed("b".into()));
         assert_eq!(drain(&mut v), [ValEvent::Removed("b".into())]);
@@ -781,9 +822,44 @@ mod tests {
         assert!(matches!(v.pop(), Some(Pop::End)));
     }
 
+    /// The historian's case: quick samples of one key, fewer than the
+    /// queue holds, all arrive in order (All Data, Point Change).
+    #[test]
+    fn quick_samples_of_one_key_all_arrive() {
+        let mut v = latest(all());
+        let n = VALUE_BUFFER as u64;
+        for t in 1..=n {
+            v.push(smp("p", t));
+        }
+        let got = drain(&mut v);
+        assert_eq!(got.len() as u64, n);
+        assert!(got.iter().zip(1..).all(|(e, t)| *e == smp("p", t)));
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn beyond_the_queue_the_newest_per_key_wins_then_lossless_again() {
+        let mut v = latest(all());
+        fill_queue(&mut v);
+        v.push(smp("a", 1)); // overflow mode
+        v.push(smp("a", 2)); // replaces a 1
+        v.push(smp("a", 1)); // older: a 2 stays
+        v.push(smp("b", 7));
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 2);
+        let got = drain(&mut v);
+        assert_eq!(got.len(), VALUE_BUFFER + 2);
+        assert_eq!(got[VALUE_BUFFER..], [smp("a", 2), smp("b", 7)]);
+        // drained: every sample counts again
+        v.push(smp("a", 3));
+        v.push(smp("a", 4));
+        assert_eq!(drain(&mut v), [smp("a", 3), smp("a", 4)]);
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 2);
+    }
+
     #[test]
     fn pending_keys_are_bounded_and_read_again() {
         let mut v = latest(all());
+        fill_queue(&mut v);
         let n = MAX_PENDING_KEYS as u64 + 10;
         for k in 0..n {
             v.push(smp(&format!("k{k}"), 1));
@@ -793,7 +869,7 @@ mod tests {
         };
         assert_eq!(pending.len(), MAX_PENDING_KEYS);
         assert_eq!(v.dropped.load(Ordering::Relaxed), 10);
-        assert_eq!(drain(&mut v).len(), MAX_PENDING_KEYS);
+        assert_eq!(drain(&mut v).len(), VALUE_BUFFER + MAX_PENDING_KEYS);
         // the first stored get is still open: no second one yet
         assert!(v.pop().is_none());
         v.gets = 0; // it ends
@@ -812,15 +888,16 @@ mod tests {
     #[test]
     fn reads_again_are_bounded() {
         let mut v = latest(all());
-        let n = 2 * MAX_PENDING_KEYS as u64;
+        let n = (VALUE_BUFFER + 2 * MAX_PENDING_KEYS) as u64;
         let mut resyncs = 0;
         for round in 1..=20u64 {
             // the stored values of this round, newer than the last ones
             for k in 0..n {
                 v.push(smp(&format!("k{k}"), round));
             }
-            v.gets = v.gets.saturating_sub(1); // this round's get ends
-                                               // the consumer takes what waits, then the stream decides
+            // this round's get ends; the consumer takes what waits, and
+            // then the stream decides
+            v.gets = v.gets.saturating_sub(1);
             let next = loop {
                 match v.pop() {
                     Some(Pop::Event(_)) => {}
