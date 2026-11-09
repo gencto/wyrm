@@ -84,7 +84,21 @@ FlowDraft flowDraftOf(String id, Value def) {
 /// The definition of [d] at [version], with the editor's layout; a flow
 /// that sets or invokes gets `permissions.maxperm: write` when it has none
 /// (spec 06 rule 7).
-Value defOf(FlowDraft d, int version) {
+Value defOf(FlowDraft d, int version) => Value.from(_defMap(d, version));
+
+/// What `dataflows` ▸ `preview {def}` runs for [d]: its definition without
+/// the layout and the version, so moving a block changes nothing, and with
+/// an id (`draft`) when the flow has none yet. Two drafts with the same
+/// preview definition run alike.
+Value previewDefOf(FlowDraft d) {
+  final m = _defMap(d, 0)..remove('layout');
+  if (d.id.isEmpty) {
+    m['id'] = 'draft';
+  }
+  return Value.from(m);
+}
+
+Map<String, Object?> _defMap(FlowDraft d, int version) {
   final rest = Map<String, Object?>.of(d.rest.unlock);
   final commands = d.blocks.values.any(
     (b) => b.type == 'set' || b.type == 'invoke',
@@ -92,7 +106,7 @@ Value defOf(FlowDraft d, int version) {
   if (commands && rest['permissions'] == null) {
     rest['permissions'] = {'maxperm': 'write'};
   }
-  return Value.from({
+  return {
     ...rest,
     'id': d.id,
     'version': version,
@@ -106,7 +120,7 @@ Value defOf(FlowDraft d, int version) {
     'layout': {
       for (final b in d.blocks.values) b.id: [b.x.round(), b.y.round()],
     },
-  });
+  };
 }
 
 /// One entry of `node_types`.
@@ -149,6 +163,7 @@ NodeType nodeTypeOf(Value m) {
         for (final e in v.entries) e.key: ?str(e.value),
     }.lock,
     echoInputs: boolean(m['echo_inputs']),
+    takesValues: boolean(m['values']) ?? false,
   );
 }
 
@@ -182,6 +197,92 @@ NodeType nodeTypeOf(Value m) {
       ...dyn(t.dynOutParam, t.dynOutPrefix, t.dynOutDefaults),
     ],
   );
+}
+
+/// Whether two node configs say the same: compared as values, so a map or
+/// a list inside (`values`, `args`, `meta`) counts by its content, not by
+/// identity (an `IMap` compares its entries with `==`).
+bool sameCfg(IMap<String, Object?> a, IMap<String, Object?> b) =>
+    identical(a, b) || Value.from(a.unlock) == Value.from(b.unlock);
+
+// ---------- operand constants (ADR 0038 §7, spec 06 0.2.19) ----------
+
+/// The config key of the operand constants: `values: {<port>: <value>}`.
+const operandValuesKey = 'values';
+
+/// The inputs of [b] that take a typed constant in `values`: `in` (when the
+/// type has it and no parameter owns it) and the variable inputs
+/// (`in.<name>` of `inputs`), for a type whose catalog says `values: true`.
+/// Never a parameter's port (`in.op`, `in.precision`: the parameter's
+/// config is its constant), never `stopwatch.reset` and never a variable's
+/// `in` (its `value` is the constant): the catalog gives those types no
+/// `values`.
+List<String> operandPortsOf(NodeType? t, FlowBlock b) {
+  if (t == null || !t.takesValues) {
+    return const [];
+  }
+  final paramPorts = {
+    for (final p in t.params)
+      ?(p.port ?? (t.inputs.contains('in.${p.name}') ? 'in.${p.name}' : null)),
+  };
+  return [
+    if (t.inputs.contains('in') && !paramPorts.contains('in')) 'in',
+    for (final p in portsOf(t, b).inputs)
+      if (!t.inputs.contains(p) && !paramPorts.contains(p)) p,
+  ];
+}
+
+/// The constants of [b]'s operands, by port (`{in.0: "AHU-"}`).
+Map<String, Object?> operandValuesOf(FlowBlock b) =>
+    switch (b.cfg[operandValuesKey]) {
+      final Map<Object?, Object?> m => {
+        for (final e in m.entries)
+          if (e.key case final String k) k: e.value,
+      },
+      _ => const {},
+    };
+
+/// The constant typed into operand [port] of [b], or null.
+Object? operandValueOf(FlowBlock b, String port) => operandValuesOf(b)[port];
+
+/// [b]'s config with [value] as the constant of operand [port] (null or
+/// empty text removes it; an empty map removes `values`). Null when [port]
+/// takes no constant ([operandPortsOf]): the engine refuses it at compile
+/// (`values.<port>: not an operand input`).
+IMap<String, Object?>? cfgWithOperandValue(
+  NodeType? t,
+  FlowBlock b,
+  String port,
+  Object? value,
+) {
+  if (!operandPortsOf(t, b).contains(port)) {
+    return null;
+  }
+  final m = Map<String, Object?>.of(operandValuesOf(b));
+  if (value == null || value == '') {
+    m.remove(port);
+  } else {
+    m[port] = value;
+  }
+  return m.isEmpty
+      ? b.cfg.remove(operandValuesKey)
+      : b.cfg.add(operandValuesKey, m);
+}
+
+/// [cfg] without the constants of [ports] (inputs a resize removed).
+IMap<String, Object?> cfgWithoutOperands(
+  IMap<String, Object?> cfg,
+  Iterable<String> ports,
+) {
+  final b = FlowBlock(id: '', type: '', cfg: cfg);
+  final m = Map<String, Object?>.of(operandValuesOf(b));
+  if (!ports.any(m.containsKey)) {
+    return cfg;
+  }
+  ports.forEach(m.remove);
+  return m.isEmpty
+      ? cfg.remove(operandValuesKey)
+      : cfg.add(operandValuesKey, m);
 }
 
 /// The keys a flow reads (`subscribe` keys) and writes (`set`, `invoke`,

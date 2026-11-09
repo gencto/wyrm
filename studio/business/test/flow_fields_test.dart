@@ -240,16 +240,17 @@ void main() {
       expect((input.label, param.label), ('Reset', 'Reset mode'));
     });
 
-    test('if: op, then, else, the variable inputs by number, out', () {
+    test('if: op, the variable inputs by number, then, else, out', () {
+      // As DGLux draws it: then and else after the inputs (its `tail`).
       final b = block('if1', 'if', {'op': '>'});
       final rows = rowsOf(types['if'], b);
-      expect(names(rows), ['op', 'then', 'else', 'in.0', 'in.1', 'out']);
+      expect(names(rows), ['op', 'in.0', 'in.1', 'then', 'else', 'out']);
       expect(labels(rows), [
         'Operation',
-        'Then',
-        'Else',
         'Input 1',
         'Input 2',
+        'Then',
+        'Else',
         'Output',
       ]);
       final zero = rows.firstWhere((f) => f.name == 'in.0');
@@ -559,11 +560,12 @@ void main() {
       expect((input.text, input.bad), ('3790', true));
     });
 
-    test('a binding wins over the typed value', () {
+    test('a bound field shows the value that comes in, not the typed one', () {
       final v = fieldValue(b, f('input_max'), bound, live.get);
-      expect((v.text, v.bound), ('4000', true));
+      expect((v.text, v.bound, v.live), ('4000', true, true));
+      // Nothing known yet: nothing, not the typed 4095 the binding replaces.
       final none = fieldValue(b, f('input_max'), bound, (_) => null);
-      expect((none.text, none.bound), ('4095', true));
+      expect((none.text, none.bound), ('', true));
     });
   });
 

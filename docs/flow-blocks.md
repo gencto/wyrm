@@ -149,67 +149,103 @@ A tank level in percent, on a flow value, and a high alarm at 90 %:
 WYRM Studio's flow editor draws a block as **fields**, one row each
 (`studio/docs/design/specs/flow-editor.md` §3). It builds them from the
 catalog (`dataflows/~act/node_types`) in `studio/business/lib/wyrm/mappers/flow_fields.dart`
-(`fieldsOf`, `fieldLabel`). The rules:
+(`fieldsOf`, `fieldLabel`, `isVariable`, `tailParams`).
 
-1. A row reads a human label (owner decision 2026-11-08): the catalog's
-   `display`, else an override, else sentence case with a unit suffix in
-   brackets. Numbered inputs `in.0`, `in.1` read `Input 1`, `Input 2`. Names a
-   user or a device gave (points, `expression` variables, `wasm` ports,
-   `invoke` arguments) stay as given. The engine name is the row's tooltip and
-   stands under the label in the inspector.
-2. Ports: `⇄` a left port (the engine has an input for the field) and a right
-   port (its echo or its output); `→` a right port only; `←` a left port only.
-   Every field is also an output named like it (ADR 0038 §1): declared
-   outputs keep their names, then inputs take theirs, then parameters.
-3. A parameter is a row of the block when it has a port, belongs to the form
+**One field = one entity (owner decision 2026-11-08, as DGLux).** A field's
+value, its binding and what it feeds are one row, never three:
+
+- a field `p` of a block is the parameter `p` ∪ its input `in.<p>` ∪ its
+  echo output `p` (ADR 0038 §1);
+- the main value of a variable block (`number`, `string`, `bool`, `const`:
+  input `in`, parameter `value`, output `out`) is ONE field `Value`;
+- an operand (`in`, `in.0`, `in.1`, … that is no parameter's port) is a field
+  with both ports: its input and its echo;
+- a result (`out`, `quotient`, `remainder`, …) is a field with a right port
+  only.
+
+Binding INTO a field is an edge to its engine input (`in.<p>`; `in` for a
+variable's `Value`, an operand's own port); binding OUT of a field is an edge
+from its echo or output (`out` for a variable's `Value`, `p` for a
+parameter). Older definitions that wired a variable's echoes `value` or `in`
+still draw on the `Value` row; a new binding uses `out`.
+
+Rules:
+
+1. A row reads a human label: the catalog's `display`, else an override,
+   else sentence case with a unit suffix in brackets. Numbered inputs `in.0`,
+   `in.1` read `Input 1`, `Input 2`. Names a user or a device gave (points,
+   `expression` variables, `wasm` ports, `invoke` arguments) stay as given.
+   The engine name is the row's tooltip and stands under the label in the
+   inspector.
+2. Ports: `⇄` a left port (the engine has an input for the field) and a
+   right port (its echo or output); `→` a right port only; `←` a left port
+   only.
+3. Order: fixed operands, then the parameters, then the variable inputs,
+   then the parameters DGLux draws after them (`tailParams`: `if` then,
+   else; `concat` strict; `hub` ignore null), then the results. A sink names
+   what it writes before the value.
+4. A parameter is a row of the block when it has a port, belongs to the form
    in use, is set, has a default, is required, or is one of a pair the engine
    needs one of (`deadband` `abs`/`pct`, `alarm` `high`/`low`). Maps, lists
-   and the parameters of the variable inputs (`inputs`) are edited in the
-   inspector only.
-4. In the inspector a parameter with `choices` is a dropdown, a `bool` a
-   toggle, anything else a text field (numbers and JSON typed as the
-   parameter's type). A bound field shows its source; an output its value and
-   where it goes.
-5. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
-   parameters (the engine has them; the editor leaves them out so a sink stays
-   a sink). A `set` repeats what it writes on its point's row.
-6. Values are live for the deployed version (`dataflows/<id>/~act/watch`).
-   Where the watch has no sample yet the editor shows what is known: a wired
-   input its source's value, a variable its `value`, a `publish` input what it
-   last published.
+   and the list of variable inputs (`inputs`) are edited in the inspector
+   only.
+5. In the inspector a parameter with `choices` is a dropdown, a `bool` a
+   toggle, anything else a text field typed as the parameter's type (a
+   number, text, JSON).
+6. **A bound field shows the value that comes in along its wire, never the
+   path** (accent colour on the block; read only, framed, with a `bound` mark
+   in the inspector). The wire and the source row light when the pointer is
+   over the field; the inspector's link menu has `Go to source` and
+   `Unbind`. A bound field with nothing known yet shows nothing, not the
+   typed value the binding replaces.
+7. An operand of a type with catalog `values: true` holds a typed value:
+   the node's config `values: {"<port>": <value>}` (spec 06 0.2.19). A
+   binding replaces it; the typed value stays in the config and returns on
+   unbind. Never on a parameter's port, `stopwatch.reset` or a variable's
+   `in`. `case` reads its variable inputs as pairs: `Case 1`, `Then 1`, …
+8. Values are live. A draft that runs otherwise than the deployed version
+   (its layout aside) runs as a preview (`dataflows/~act/preview`): the
+   blocks show its values and each sink what it would write (`would write
+   70.7`, a `preview` tag; nothing is written). A draft equal to the
+   deployed version shows the watch's values (`dataflows/<id>/~act/watch`).
+   Where neither has a sample the editor follows the wire back to its
+   source field: a variable's or a parameter's typed value, a point's tree
+   value.
+9. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
+   parameters (the engine has them; the editor leaves them out so a sink
+   stays a sink). A `set` repeats what it writes on its point's row.
 
-| Type | Rows on the block, in order | Inspector only | Choices (dropdown) / toggles | Variable inputs | Changed 2026-11-08 |
+| Type | Fields on the block, in order | Field ← engine | Inspector only | Editors | Engine gap against the DGLux block |
 |---|---|---|---|---|---|
-| `subscribe` | `<point>` → (live value of the point) | Point (`key`) | — | — | label is the point's name |
-| `liveliness` | `<node>` → | Point (`key`) | — | — | as `subscribe` |
-| `timer` | Period (ms) → · Count → | — | — | — | `out` reads `Count` |
-| `const` | Value → · Output → | — | — | — | labels |
-| `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | Inputs (list) | Trigger `any`/`all`; Quality `worst`/`ignore`/`custom` | `in.<name>`, names as given, − / + | labels |
-| `filter` | Input ⇄ · Expression → · Output → | — | — | — | labels |
-| `latch` | Input ⇄ · Reset ⇄ · Reset mode · Output → | — | Reset mode `manual`/`auto` | — | the input `reset` has its echo (was missing); the parameter reads `Reset mode` |
-| `delay` | Input ⇄ · Delay (ms) → · Output → | — | — | — | labels |
-| `scale`, form `k × in + b` | Input ⇄ · Factor → · Offset → · Output → | Form | Form | — | form chosen in the inspector; no range rows; Factor and Offset have no left port |
-| `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | Form | Form | — | range rows only in this form; switching drops the other form's config and wires |
-| `deadband` | Input ⇄ · Absolute change → · Percent change → · Output → | — | — | — | `abs`, `pct` on the block (one is required) |
-| `window` | Input ⇄ · Size (s) → · Kind → · Function → · Max samples → · Output → | — | Kind `tumbling`/`sliding`; Function `avg`…`rate` | — | labels |
-| `alarm` | Input ⇄ · High → · Low → · Hysteresis → · Delay (s) → · Return delay (s) → · On bad quality → · Active → · Event → | — | On bad quality `hold`/`clear`/`raise` | — | `high`, `low` on the block; `out` reads `Active` |
-| `publish` | Value name · Value ← | Meta | — | — | labels; live value from `dataflows/<id>/nodes/<node>` |
-| `set` | `<point>` ⇄ | Point (`path`), Write on, Deadband, Allow bad quality | Write on `change`/`any`; Allow bad quality toggle | — | labels |
-| `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | Node (`path`), Args, Allow bad quality | Run on `any`/`rising`/`falling`/`change`; Allow bad quality toggle | — | `out` reads `Result`; Allow bad quality off the block |
-| `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | Config, Fuel, Memory (MB) | — | ports named by `inputs`/`outputs`, as given | labels |
-| `number`, `string`, `bool` | Input ⇄ · Value → · Output → | — | `bool` Value toggle | — | labels; Output shows `value` until the first sample |
-| `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | — | `in.0`, `in.1`, …, − / + (at least 2) | `in.0` reads `Input 1` |
-| `abs`, `not`, `length` | Input ⇄ · Output → | — | — | — | labels |
-| `round` | Input ⇄ · Precision ⇄ · Output → | — | — | — | labels |
-| `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | — | — | — | labels |
-| `if` | Operation → · Then ⇄ · Else ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | Operation `=`, `and`, `or`, `>`, `<`, `>=`, `<=` | − / + | labels |
-| `hub` | Ignore null → · Input 1 ⇄ · Input 2 ⇄ · … · Output → · Index → · On change → | — | Ignore null toggle | − / + | labels |
-| `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | — | Enabled, Loop toggles | — | labels |
-| `trace` | Tracing → · Message → · Input 1 ⇄ · Input 2 ⇄ · … | — | Tracing toggle | − / + | labels |
-| `concat` | Strict → · Input 1 ⇄ · Input 2 ⇄ · … · Output → | — | Strict toggle | − / + | labels |
+| `number`, `string`, `bool` | Value ⇄ | Value = `in` → `value` → `out` | — | number box; text (`string`: multi-line in DGLux); toggle | none: DGLux has the one field `value` |
+| `const` | Value → | Value = `value` → `out` | — | JSON or text | no input (sent once at start) |
+| `subscribe` | `<point>` → | the point's value on `out` | Point (`key`) | — | — |
+| `liveliness` | `<node>` → | `out` | Point (`key`) | — | — |
+| `timer` | Period (ms) → · Count → | `period_ms` (echo), `out` | — | — | `period_ms` has no input |
+| `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns | `expr`, `trigger`, `quality` have no input |
+| `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |
+| `latch` | Input ⇄ · Reset ⇄ · Reset mode · Output → | `in`, `reset` (operands); `reset` parameter (no echo: the input took the name) | — | Reset mode dropdown | parameter `reset` has no input and no echo |
+| `delay` | Input ⇄ · Delay (ms) → · Output → | `in`; `ms` | — | — | `ms` has no input; DGLux `delay` has `mode` |
+| `scale`, form `k × in + b` | Input ⇄ · Factor ⇄ · Offset ⇄ · Output → | `in`; `in.k` → `k`, `in.b` → `b`; `out` | Form | Form dropdown | none (spec 06 0.2.17) |
+| `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | `in.input_min` → `input_min`, … | Form | Form dropdown | none (DGLux: the same six fields) |
+| `deadband` | Input ⇄ · Absolute change → · Percent change → · Output → | `in`; `abs`, `pct` | — | — | `abs`, `pct` have no input |
+| `window` | Input ⇄ · Size (s) → · Kind → · Function → · Max samples → · Output → | `in`; parameters | — | Kind, Function dropdowns | parameters have no input |
+| `alarm` | Input ⇄ · High → · Low → · Hysteresis → · Delay (s) → · Return delay (s) → · On bad quality → · Active → · Event → | `in`; parameters | — | On bad quality dropdown | parameters have no input |
+| `publish` | Value name · Value ← | `in` | Meta | — | — |
+| `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
+| `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
+| `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | ports named by `inputs`/`outputs` | Config, Fuel, Memory (MB) | — | — |
+| `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | operands typed (`values`) | none (spec 06 0.2.19: an operand holds a typed value) |
+| `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `round` | Input ⇄ · Precision ⇄ · Min precision ⇄ · Output → · Text → | `in`; `in.precision` → `precision`, `in.min_precision` → `min_precision`; `out`, `text` | — | `in` typed (`values`) | none (spec 06 0.2.21: `text` is DGLux's text result) |
+| `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | `in`; `in.modulo` → `modulo` | — | — | — |
+| `if` | Operation ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Then ⇄ · Else ⇄ · Output → | `in.op` → `op`; `in.<n>`; `in.then` → `then`, `in.else` → `else` | — | Operation dropdown (`=`, `!=`, `and`, `or`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`); operands typed | none (spec 06 0.2.20, 0.2.21) |
+| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | `regexp` left out (spec 06 0.2.21) |
+| `hub` | Input 1 ⇄ · Input 2 ⇄ · … · Ignore null ⇄ · Output → · Index → · On change → | `in.<n>`; `in.ignore_null` → `ignore_null`; outputs | — | Ignore null toggle; operands typed | none |
+| `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
+| `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
+| `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
 
-Parameters the editor would bind but the engine has no input for (they show
-no left port, and a wire dragged onto them is refused with `<field> takes no
-input`): `scale` `k`, `b`; `alarm` `high`, `low`, `hysteresis`, `delay_s`,
-`return_delay_s`; `delay` `ms`; `window` `size_s`; `deadband` `abs`, `pct`;
-`timer` `period_ms`; `latch` `reset` (ADR 0038 §5 adds them one by one).
+Parameters the editor would bind but the engine has no input for show no
+left port, and a wire dragged onto them is refused with `<field> takes no
+input: type its value` (ADR 0038 §5 adds the ports one by one).

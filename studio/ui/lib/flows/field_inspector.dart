@@ -10,7 +10,9 @@ import 'flow_block_view.dart';
 
 /// How a field of the inspector is edited (spec §6).
 enum FieldEditorVm {
-  /// Bound: a chip `← <block>.<field>`, read-only.
+  /// Bound: the value that comes in along its wire, read-only, in the
+  /// accent colour in a frame, with a small `bound` mark; never the path
+  /// (the wire and its source row show where it comes from).
   bound,
 
   /// A choice: a dropdown of [InspectorRowVm.choices].
@@ -38,7 +40,7 @@ final class InspectorRowVm extends Equatable {
     this.engine = '',
     this.value = '',
     this.choices = const [],
-    this.source = '',
+    this.sourceBlock,
     this.writes = false,
     this.targets = '',
     this.inPort,
@@ -47,6 +49,7 @@ final class InspectorRowVm extends Equatable {
 
   /// The field's id within its block.
   final String id;
+
   /// What the row reads: `Input min`.
   final String name;
 
@@ -59,10 +62,11 @@ final class InspectorRowVm extends Equatable {
   final String value;
   final List<String> choices;
 
-  /// A bound field's source, `tankInfo.state`.
-  final String source;
+  /// The block a bound field's wire comes from: `Go to source` selects
+  /// it; it is not shown.
+  final String? sourceBlock;
 
-  /// The binding writes to a device (ember chip).
+  /// The binding writes to a device (ember frame).
   final bool writes;
 
   /// An output's `→ plc1.fan, …` or `not bound`.
@@ -82,7 +86,7 @@ final class InspectorRowVm extends Equatable {
     editor,
     value,
     choices,
-    source,
+    sourceBlock,
     writes,
     targets,
     inPort,
@@ -137,6 +141,7 @@ class FieldInspector extends StatelessWidget {
     required this.onUnbind,
     required this.onBind,
     required this.onProblem,
+    this.onGoToSource,
     this.kindLabel = '',
     this.title = '',
     this.note = '',
@@ -147,6 +152,8 @@ class FieldInspector extends StatelessWidget {
     this.onRemove,
     this.unbindLabel = 'Unbind',
     this.bindLabel = 'Drag an output here to bind',
+    this.goToSourceLabel = 'Go to source',
+    this.boundLabel = 'bound',
     super.key,
   });
 
@@ -164,10 +171,16 @@ class FieldInspector extends StatelessWidget {
   final ValueChanged<String> onUnbind;
   final void Function(String id, FieldRefVm from) onBind;
   final ValueChanged<String> onProblem;
+
+  /// `Go to source` of a bound field: selects the block its wire comes
+  /// from.
+  final ValueChanged<String>? onGoToSource;
   final String removeLabel;
   final VoidCallback? onRemove;
   final String unbindLabel;
   final String bindLabel;
+  final String goToSourceLabel;
+  final String boundLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -221,8 +234,11 @@ class FieldInspector extends StatelessWidget {
                           onChanged: onChanged,
                           onUnbind: onUnbind,
                           onBind: onBind,
+                          onGoToSource: onGoToSource,
                           unbindLabel: unbindLabel,
                           bindLabel: bindLabel,
+                          goToSourceLabel: goToSourceLabel,
+                          boundLabel: boundLabel,
                         ),
                       if (onRemove != null) ...[
                         const SizedBox(height: 16),
@@ -344,16 +360,22 @@ class _Row extends StatelessWidget {
     required this.onChanged,
     required this.onUnbind,
     required this.onBind,
+    required this.onGoToSource,
     required this.unbindLabel,
     required this.bindLabel,
+    required this.goToSourceLabel,
+    required this.boundLabel,
   });
 
   final InspectorRowVm vm;
   final void Function(String id, String value) onChanged;
   final ValueChanged<String> onUnbind;
   final void Function(String id, FieldRefVm from) onBind;
+  final ValueChanged<String>? onGoToSource;
   final String unbindLabel;
   final String bindLabel;
+  final String goToSourceLabel;
+  final String boundLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -398,23 +420,25 @@ class _Row extends StatelessWidget {
           SizedBox(
             width: 32,
             height: 32,
-            child: Tooltip(
-              message: bound ? unbindLabel : (takes ? bindLabel : ''),
-              child: InkWell(
-                onTap: bound ? () => onUnbind(vm.id) : null,
-                borderRadius: const BorderRadius.all(Radius.circular(6)),
-                child: Opacity(
-                  opacity: takes ? 1 : 0.35,
-                  child: Center(
-                    child: AppIcon(
-                      'ui_bind',
-                      size: 16,
-                      color: bound ? c.emberSoft : c.text4,
+            child: bound
+                ? _LinkMenu(
+                    icon: AppIcon('ui_bind', size: 16, color: c.emberSoft),
+                    items: [
+                      if (vm.sourceBlock case final from?
+                          when onGoToSource != null)
+                        (goToSourceLabel, () => onGoToSource!(from)),
+                      (unbindLabel, () => onUnbind(vm.id)),
+                    ],
+                  )
+                : Tooltip(
+                    message: takes ? bindLabel : '',
+                    child: Opacity(
+                      opacity: takes ? 1 : 0.35,
+                      child: Center(
+                        child: AppIcon('ui_bind', size: 16, color: c.text4),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -438,23 +462,35 @@ class _Row extends StatelessWidget {
     );
     switch (vm.editor) {
       case FieldEditorVm.bound:
-        final (bg, line, ink) = vm.writes
-            ? (c.emberTint, c.emberLine, c.emberNew)
-            : (c.goodTint, const Color(0xFF2F5C52), const Color(0xFFC4EBE1));
+        // As DGLux: the value that comes in, read only, in the accent
+        // colour in a frame; the wire on the canvas shows its source.
         return Container(
           height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          alignment: .centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: bg,
-            border: .all(color: line),
+            color: c.ground3,
+            border: .all(color: vm.writes ? c.emberLine : c.goodLine),
             borderRadius: const BorderRadius.all(Radius.circular(6)),
           ),
-          child: Text(
-            '← ${vm.source}',
-            maxLines: 1,
-            overflow: .ellipsis,
-            style: mono(size: 12, color: ink),
+          child: Row(
+            spacing: 8,
+            children: [
+              Expanded(
+                child: Text(
+                  vm.value.isEmpty ? '—' : vm.value,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: mono(size: 12, color: c.emberNew),
+                ),
+              ),
+              Text(
+                boundLabel,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: vm.writes ? c.emberSoft : c.good,
+                ),
+              ),
+            ],
           ),
         );
       case FieldEditorVm.choice:
@@ -597,6 +633,36 @@ class _TextEditorState extends State<_TextEditor> {
               filled: false,
             ),
       ),
+    );
+  }
+}
+
+/// The link button of a bound field: a menu of what can be done with its
+/// binding (`Go to source`, `Unbind`).
+class _LinkMenu extends StatelessWidget {
+  const _LinkMenu({required this.icon, required this.items});
+
+  final Widget icon;
+  final List<(String, VoidCallback)> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return PopupMenuButton<int>(
+      padding: EdgeInsets.zero,
+      tooltip: '',
+      color: c.ground3,
+      position: .under,
+      onSelected: (i) => items[i].$2(),
+      itemBuilder: (_) => [
+        for (final (i, (label, _)) in items.indexed)
+          PopupMenuItem(
+            value: i,
+            height: 36,
+            child: Text(label, style: TextStyle(fontSize: 13, color: c.text1)),
+          ),
+      ],
+      child: Center(child: icon),
     );
   }
 }

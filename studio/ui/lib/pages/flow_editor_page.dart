@@ -64,6 +64,10 @@ class FlowEditorPage extends StatelessWidget {
     this.onRemove,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
+    this.onGoToSource,
+    this.unbindLabel = 'Unbind',
+    this.goToSourceLabel = 'Go to source',
+    this.boundLabel = 'bound',
     super.key,
   });
 
@@ -124,6 +128,12 @@ class FlowEditorPage extends StatelessWidget {
   final ValueChanged<String> onProblem;
   final String removeLabel;
   final VoidCallback? onRemove;
+
+  /// `Go to source` of a bound field in the inspector: selects the block.
+  final ValueChanged<String>? onGoToSource;
+  final String unbindLabel;
+  final String goToSourceLabel;
+  final String boundLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -276,6 +286,10 @@ class FlowEditorPage extends StatelessWidget {
                     onUnbind: onFieldUnbind,
                     onBind: onFieldBind,
                     onProblem: onProblem,
+                    onGoToSource: onGoToSource,
+                    unbindLabel: unbindLabel,
+                    goToSourceLabel: goToSourceLabel,
+                    boundLabel: boundLabel,
                     removeLabel: removeLabel,
                     onRemove: onRemove,
                   ),
