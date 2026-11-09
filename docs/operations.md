@@ -95,11 +95,13 @@ The recovery time (RTO) of a restart is the sum of:
 2. the router build: the state is read from the snapshot and the WAL tail,
    the ACL generated, the listeners opened — one to three seconds;
 3. embedded links: started at once with the router;
-4. process links: spawned by the supervisor after the router is up, each
-   opens its mTLS session and sends `hello`; `hello` is retried with a
-   back-off of 1 s, ×2, capped at 5 s, which matters only for a link that
-   starts before the broker answers (a link under its own supervisor, or on
-   another host);
+4. process links: spawned by the supervisor when the admin attaches, which
+   is before the listeners open, so a link's first connect is usually
+   refused (one `cannot connect` warning per start) and its next one comes
+   1 s later; then it opens its mTLS session and sends `hello`. A refused
+   connect and `hello` are retried with a back-off of 1 s, ×2, capped at
+   5 s, which matters more for a link that starts before the broker
+   answers (a link under its own supervisor, or on another host);
 5. the first poll of every device, at that device's poll rate.
 
 The e2e test `broker_restart_rto` measures 2–5 for one embedded and one
@@ -107,7 +109,10 @@ process mock link: a real `wyrmd` process is killed with SIGKILL and started
 again at once; the clock stops when both links show `state` connected in
 `sys/links` and each has published a live sample to a subscriber opened
 after the restart. It also prints the resident memory of a broker that runs
-no link. Run it on the target hardware:
+no link. A failed wait names its phase (first start or start after
+SIGKILL) and shows what the test's session and a new session see, the link
+processes and the last output of the link process. Run it on the target
+hardware:
 
 ```bash
 cargo test --release -p wyrmd --test e2e broker_restart_rto -- --nocapture

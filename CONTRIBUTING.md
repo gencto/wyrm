@@ -4,6 +4,7 @@
 - Unknown CBOR keys must be ignored by decoders; never remove or renumber a key.
 - `cargo fmt`, `cargo clippy -D warnings`, `cargo test` before a PR.
 - Architecture decisions go to `docs/adr/` (one file per decision).
+- A Zenoh subscriber or query whose handler is not read at once (a test that waits for something else first) uses `zenoh::handlers::RingChannel` or a callback, never the default FIFO. A full FIFO (256 samples) blocks the session's receive path, so every other query and subscriber on that session stops too (the `broker_restart_rto` flake, 2026-11-09).
 
 ## Wire enums (code tables)
 
