@@ -165,6 +165,9 @@ class $AssetsSvgIconsGen {
   SvgGenImage get uiFilter =>
       const SvgGenImage('assets/svg/icons/ui_filter.svg');
 
+  /// File path: assets/svg/icons/ui_moon.svg
+  SvgGenImage get uiMoon => const SvgGenImage('assets/svg/icons/ui_moon.svg');
+
   /// File path: assets/svg/icons/ui_more.svg
   SvgGenImage get uiMore => const SvgGenImage('assets/svg/icons/ui_more.svg');
 
@@ -182,6 +185,9 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_spinner.svg
   SvgGenImage get uiSpinner =>
       const SvgGenImage('assets/svg/icons/ui_spinner.svg');
+
+  /// File path: assets/svg/icons/ui_sun.svg
+  SvgGenImage get uiSun => const SvgGenImage('assets/svg/icons/ui_sun.svg');
 
   /// File path: assets/svg/icons/ui_upload.svg
   SvgGenImage get uiUpload =>
@@ -254,11 +260,13 @@ class $AssetsSvgIconsGen {
     uiCopy,
     uiFile,
     uiFilter,
+    uiMoon,
     uiMore,
     uiProfile,
     uiSearch,
     uiSend,
     uiSpinner,
+    uiSun,
     uiUpload,
     wsAccess,
     wsAssistant,

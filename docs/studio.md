@@ -153,11 +153,14 @@ One PR each, in this order: Links (§7.2) → Add a link (§7.3) → Explorer (�
 ## 5. Connection layer
 
 ### 5.1 Login and session
-`LogInAction` (waiting, blocking):
+`LogInAction` (waiting; not blocking since the log-in page shows its own progress, `studio/docs/design/specs/login.md` §3.6–3.7):
+0. A timed `GET /api/me` of each gateway until one answers (`WyrmLogin.probe`); none answers → `login.failure` = `unreachable` with the reason. `login.step` follows the page's three steps (0 reaching, 1 checking, 2 reading); a refused password → `login.failure` = `wrong`. Both are thrown as `UserException`s without a dialog: the page shows them inline.
 1. `WyrmGateway.login(Uri.parse(gateway), user: user, password: password)`; for several gateways (standby, ADR 0036) `WyrmGateway.loginAny([...])`.
 2. `gw.me()` → `site`, `role` into `SiteState` (`SetGatewayAction` and the fields of phase 2).
 3. `gw.client()` → a `ReconnectingClient`; hand it to `WyrmConnectionService.attach(client)` (§5.2).
-4. `session.token` = the gateway session (the auth guard reacts to it). The password is never stored; the gateway URL and user are (`storage`, settings).
+4. `session.token` = the gateway session (the auth guard reacts to it). The password is never stored; the gateway URL and user are (`storage`, settings), and the last five gateways that logged in (`login.recent`) — all three only while `login.remember` is on.
+
+After it the page shows the welcome and dispatches `OpenTreeAction`, then goes to the Studio shell. `OpenTreeAction` preloads, in this order, what the first screens need (`studio/docs/design/specs/login.md` §5.1): the tree root (live lists of `downstream`, `dataflows`, `storage`; only `downstream` opens in the tree), the flows, the flow block catalogue (`flows.blockTypes`, kept for the session and the site; `LoadFlowAction` reads it first, `ViewSiteAction` clears it), the links and the site choices. Each step waits at most 2 s, the whole welcome at least 600 ms and at most 5 s; what is not ready goes on in the background. The preload dispatches its reads with `quiet = true` (`Action.quiet`, set per dispatch): a failure is logged and fails the dispatch, but opens no dialog. `ProbeGatewayAction` probes the gateway field on open, on a recent chip and on leaving the field (`login.probes`: ms, -1 no answer).
 
 `LogOutAction`: close the client, clear `session`, `site`, every table (`*.table` back to empty), stop the services' subscriptions.
 
@@ -167,7 +170,7 @@ Each service is two halves (template rule): `<Name>Service` talks to `WyrmApi` a
 | Service | Opens | Dispatches |
 |---|---|---|
 | `WyrmConnectionService` | `ReconnectingClient.connection` (`Stream<bool>`) | `SetConnectedAction(value)`; on `false` the shell shows the offline banner; on `true` again every screen's Retrieve action reruns |
-| `TreeWatchService` | `list(key)` for each expanded node (`nodes.expanded`), closed when collapsed | `ListUpdate` → `AddNodesAction` (Refreshed/Added/Changed) and a remove; `Disconnected` → mark the branch stale |
+| `TreeWatchService` | `list(key)` for each expanded node (`nodes.expanded`), closed when collapsed; also `dataflows` and `storage` from the log-in preload (§5.1), listed without being expanded. A list that answered once is in `nodes.listed` | `ListUpdate` → `AddNodesAction` (Refreshed/Added/Changed) and a remove; `Disconnected` → mark the branch stale |
 | `LiveValuesService` | one `subscribe(key)` per key in `live.watched` (opened and closed as the set changes) | buffers `ValEvent`s; at most every 200 ms one `SetLiveValuesAction(IMap<String, LiveValue>)` with the changed keys only |
 | `AgentTasksService` | `subscribe('wy/<site>/downstream/<agent>/tasks/*/~val')` (public: `{state}` only), then `get` of `tasks/<id>` `~state` for the ones in view | `AddTasksAction` with the full record when the state changes |
 
@@ -262,6 +265,28 @@ One mapper in `business/lib/wyrm/mappers/param_spec_mapper.dart` reads an action
 | `secret` | `FieldVm<String>` obscured, never prefilled | `PasswordFormField` |
 
 The same `param_form` draws link parameters (Links › Edit params), action arguments (Explorer › action flyout, Action detail), install parameters, and the arguments of a plan step (Assistant, read-only unless the plan is being edited).
+
+### 6.7 States: first load and refresh (stale while revalidate)
+One rule for every workspace (decided 2026-11-08):
+
+1. **First load** — a read is in flight and the workspace holds nothing yet: the workspace shows its own empty or loading state (`Loading…` in the table, an empty log, a skeleton).
+2. **Refresh** — a read is in flight and the workspace already holds data (a tab shown again, a site reconnected, a list read again): the content **stays on screen and stays usable**. A thin indeterminate strip (`RefreshFrame`, 2 px, ember, the log-in bar's sweep, 1.4 s) lies over the top edge of the workspace content, so nothing moves, and where the workspace has a status line — the line under a `PageHeader` title — it ends in `· Updating…` (12, `text4`). Under reduced motion the strip stands still at 60 %. Assistive technology reads `Updating…`.
+3. **At rest** — no strip, no label.
+
+Where it is built: `refreshing(Workspace)` in `SelectComposites` (`business/lib/redux/selectors.dart`) is true when one of the workspace's `Retrieve…` actions is in `Wait` **and** its slice holds data; commands in flight (Start, Deploy, Install, Apply) do not count. `StudioPageConnector` puts the set of refreshing workspaces in its view-model and wraps the active tab in `RefreshFrame`; `PageHeader` reads the label from the frame (`RefreshScope`). A `Retrieve…` action never empties its table before its answer arrives; a connector never shows `Loading…` while it holds data.
+
+| Workspace | Reads that count | Holds data when | `Updating…` shown |
+|---|---|---|---|
+| Explorer | node detail, node history, links | `nodes.table` | no status line: strip only |
+| Links | links, quarantine, packages | links or quarantine | header line |
+| Flows | flows | `flows.table` | header line |
+| History | historian, series | watch groups | no status line: strip only |
+| Access | users and grants | users or grants | header line |
+| Sites | peers, sites, quarantine, links | peers or site choices | header line |
+| Assistant | agent, tasks | tasks or the agent | no status line: strip only |
+| System | log | log lines | no status line: strip only |
+
+Golden: `ui/test/goldens/links_refreshing.png` (the Links board, refreshing, the strip half way).
 
 ## 7. Screens
 

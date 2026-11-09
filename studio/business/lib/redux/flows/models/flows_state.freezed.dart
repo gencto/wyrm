@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowsState {
 
- String? get query; IList<String> get view; IMap<String, FlowSummary> get table; String? get selectedFlow; IMap<String, Object> get defs;
+ String? get query; IList<String> get view; IMap<String, FlowSummary> get table; String? get selectedFlow; IMap<String, Object> get defs; IList<NodeType> get blockTypes;
 /// Create a copy of FlowsState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $FlowsStateCopyWith<FlowsState> get copyWith => _$FlowsStateCopyWithImpl<FlowsSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs)&&const DeepCollectionEquality().equals(other.blockTypes, blockTypes));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs);
+int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs,const DeepCollectionEquality().hash(blockTypes));
 
 @override
 String toString() {
-  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs)';
+  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs, blockTypes: $blockTypes)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $FlowsStateCopyWith<$Res>  {
   factory $FlowsStateCopyWith(FlowsState value, $Res Function(FlowsState) _then) = _$FlowsStateCopyWithImpl;
 @useResult
 $Res call({
- String? query, IList<String> view, IMap<String, FlowSummary> table, String? selectedFlow, IMap<String, Object> defs
+ String? query, IList<String> view, IMap<String, FlowSummary> table, String? selectedFlow, IMap<String, Object> defs, IList<NodeType> blockTypes
 });
 
 
@@ -62,14 +62,15 @@ class _$FlowsStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowsState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? query = freezed,Object? view = null,Object? table = null,Object? selectedFlow = freezed,Object? defs = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? query = freezed,Object? view = null,Object? table = null,Object? selectedFlow = freezed,Object? defs = null,Object? blockTypes = null,}) {
   return _then(_self.copyWith(
 query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
 as String?,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, FlowSummary>,selectedFlow: freezed == selectedFlow ? _self.selectedFlow : selectedFlow // ignore: cast_nullable_to_non_nullable
 as String?,defs: null == defs ? _self.defs : defs // ignore: cast_nullable_to_non_nullable
-as IMap<String, Object>,
+as IMap<String, Object>,blockTypes: null == blockTypes ? _self.blockTypes : blockTypes // ignore: cast_nullable_to_non_nullable
+as IList<NodeType>,
   ));
 }
 
@@ -81,7 +82,7 @@ as IMap<String, Object>,
 
 
 class _FlowsState implements FlowsState {
-  const _FlowsState({this.query, this.view = const IListConst([]), this.table = const IMapConst({}), this.selectedFlow, this.defs = const IMapConst({})});
+  const _FlowsState({this.query, this.view = const IListConst([]), this.table = const IMapConst({}), this.selectedFlow, this.defs = const IMapConst({}), this.blockTypes = const IListConst([])});
   
 
 @override final  String? query;
@@ -89,6 +90,7 @@ class _FlowsState implements FlowsState {
 @override@JsonKey() final  IMap<String, FlowSummary> table;
 @override final  String? selectedFlow;
 @override@JsonKey() final  IMap<String, Object> defs;
+@override@JsonKey() final  IList<NodeType> blockTypes;
 
 /// Create a copy of FlowsState
 /// with the given fields replaced by the non-null parameter values.
@@ -100,16 +102,16 @@ _$FlowsStateCopyWith<_FlowsState> get copyWith => __$FlowsStateCopyWithImpl<_Flo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs)&&const DeepCollectionEquality().equals(other.blockTypes, blockTypes));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs);
+int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs,const DeepCollectionEquality().hash(blockTypes));
 
 @override
 String toString() {
-  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs)';
+  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs, blockTypes: $blockTypes)';
 }
 
 
@@ -120,7 +122,7 @@ abstract mixin class _$FlowsStateCopyWith<$Res> implements $FlowsStateCopyWith<$
   factory _$FlowsStateCopyWith(_FlowsState value, $Res Function(_FlowsState) _then) = __$FlowsStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? query, IList<String> view, IMap<String, FlowSummary> table, String? selectedFlow, IMap<String, Object> defs
+ String? query, IList<String> view, IMap<String, FlowSummary> table, String? selectedFlow, IMap<String, Object> defs, IList<NodeType> blockTypes
 });
 
 
@@ -137,14 +139,15 @@ class __$FlowsStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowsState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? query = freezed,Object? view = null,Object? table = null,Object? selectedFlow = freezed,Object? defs = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? query = freezed,Object? view = null,Object? table = null,Object? selectedFlow = freezed,Object? defs = null,Object? blockTypes = null,}) {
   return _then(_FlowsState(
 query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
 as String?,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, FlowSummary>,selectedFlow: freezed == selectedFlow ? _self.selectedFlow : selectedFlow // ignore: cast_nullable_to_non_nullable
 as String?,defs: null == defs ? _self.defs : defs // ignore: cast_nullable_to_non_nullable
-as IMap<String, Object>,
+as IMap<String, Object>,blockTypes: null == blockTypes ? _self.blockTypes : blockTypes // ignore: cast_nullable_to_non_nullable
+as IList<NodeType>,
   ));
 }
 

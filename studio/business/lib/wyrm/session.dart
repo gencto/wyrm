@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:wyrm_client/wyrm_client.dart';
 
 /// Who the gateway says the user is (`GET /api/me`).
@@ -88,6 +91,23 @@ abstract interface class WyrmSession {
   Future<void> close();
 }
 
+/// What a timed `GET <gateway>/api/me` without a session found
+/// (docs/design/specs/login.md §6).
+final class GatewayProbe {
+  const GatewayProbe.answered(int this.ms) : reason = null;
+
+  const GatewayProbe.noAnswer(String this.reason) : ms = null;
+
+  /// How long the gateway took to answer; null when it did not.
+  final int? ms;
+
+  /// Why there is no answer: `connection refused`, `timed out`,
+  /// `certificate is not trusted`, …
+  final String? reason;
+
+  bool get answered => ms != null;
+}
+
 /// Opens a [WyrmSession]: the first of the gateways that accepts the login.
 abstract interface class WyrmLogin {
   Future<WyrmSession> open(
@@ -95,6 +115,11 @@ abstract interface class WyrmLogin {
     required String user,
     required String password,
   });
+
+  /// Asks [gateway] for `/api/me` without a session and times the answer. A
+  /// 401 means a gateway is there; anything else within [timeout] is no
+  /// answer. Never throws.
+  Future<GatewayProbe> probe(Uri gateway, {Duration timeout});
 }
 
 /// The real login: `WyrmGateway.loginAny` and a reconnecting client.
@@ -120,6 +145,51 @@ final class GatewayLogin implements WyrmLogin {
       rethrow;
     }
   }
+
+  @override
+  Future<GatewayProbe> probe(
+    Uri gateway, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final http = HttpClient()..connectionTimeout = timeout;
+    final watch = Stopwatch()..start();
+    try {
+      final req = await http
+          .getUrl(gateway.resolve('/api/me'))
+          .timeout(timeout);
+      final res = await req.close().timeout(timeout - watch.elapsed);
+      await res.drain<void>();
+      final ms = watch.elapsedMilliseconds;
+      // 401: a gateway, asking for a session. 200 cannot happen without one,
+      // but it is a gateway too.
+      return res.statusCode == HttpStatus.unauthorized ||
+              res.statusCode == HttpStatus.ok
+          ? GatewayProbe.answered(ms)
+          : GatewayProbe.noAnswer('answered HTTP ${res.statusCode}');
+    } on TimeoutException {
+      return const GatewayProbe.noAnswer('timed out');
+    } on HandshakeException {
+      return const GatewayProbe.noAnswer('certificate is not trusted');
+    } on TlsException {
+      return const GatewayProbe.noAnswer('certificate is not trusted');
+    } on SocketException catch (e) {
+      final refused = e.osError?.errorCode == 61 || e.osError?.errorCode == 111;
+      return GatewayProbe.noAnswer(
+        refused
+            ? 'connection refused after ${_seconds(watch.elapsed)}'
+            : e.message.isEmpty
+            ? 'no network route'
+            : e.message,
+      );
+    } on Object catch (e) {
+      return GatewayProbe.noAnswer('$e');
+    } finally {
+      http.close(force: true);
+    }
+  }
+
+  static String _seconds(Duration d) =>
+      d.inMilliseconds < 1000 ? '${d.inMilliseconds} ms' : '${d.inSeconds} s';
 }
 
 final class _GatewaySession implements WyrmSession {

@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/node_type.dart';
 
 part 'flows_state.freezed.dart';
 
@@ -12,5 +13,6 @@ abstract class FlowsState with _$FlowsState {
     @Default(IMapConst({})) IMap<String, FlowSummary> table,
     String? selectedFlow,
     @Default(IMapConst({})) IMap<String, Object> defs,
+    @Default(IListConst([])) IList<NodeType> blockTypes,
   }) = _FlowsState;
 }

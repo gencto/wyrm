@@ -23,7 +23,7 @@ sequenceDiagram
     User->>UI: onSite
     UI->>VM: onSite()
     VM->>A1: dispatch
-    A1->>ST: copyWith(site, nodes, links, quarantine, packages)
+    A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows)
     A1->>ST: dispatchAndWait(RetrieveLinksAction)
 
     User->>UI: onGoToKey
@@ -76,7 +76,7 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages` |
+| `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows` |
 | `onGoToKey` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |

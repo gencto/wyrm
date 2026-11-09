@@ -12,6 +12,8 @@ import '../../common/action.dart';
 /// (`{state, error, version, deployed_by}`) and its newest definition
 /// (`dataflows/<id>` ▸ `history`) for what it reads and writes.
 class RetrieveFlowsAction extends Action with WaitingAction {
+  RetrieveFlowsAction({super.quiet});
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;

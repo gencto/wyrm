@@ -28,5 +28,6 @@ abstract class NodesState with _$NodesState {
     @Default('') String pointFilter,
     @Default(ISetConst({})) ISet<String> marked,
     @Default(IListConst([])) IList<AuditEntry> audit,
+    @Default(ISetConst({})) ISet<String> listed,
   }) = _NodesState;
 }

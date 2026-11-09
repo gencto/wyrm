@@ -5408,6 +5408,418 @@ class S {
       args: [],
     );
   }
+
+  /// `to a broker’s gateway. Your role there decides what you can change.`
+  String get logInLead {
+    return Intl.message(
+      'to a broker’s gateway. Your role there decides what you can change.',
+      name: 'logInLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Gateway`
+  String get gateway {
+    return Intl.message('Gateway', name: 'gateway', desc: '', args: []);
+  }
+
+  /// `Remember the gateway and user on this computer`
+  String get rememberGatewayAndUser {
+    return Intl.message(
+      'Remember the gateway and user on this computer',
+      name: 'rememberGatewayAndUser',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Signing in…`
+  String get signingIn {
+    return Intl.message('Signing in…', name: 'signingIn', desc: '', args: []);
+  }
+
+  /// `Reaching {host}`
+  String stepReaching(Object host) {
+    return Intl.message(
+      'Reaching $host',
+      name: 'stepReaching',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Checking user and password`
+  String get stepChecking {
+    return Intl.message(
+      'Checking user and password',
+      name: 'stepChecking',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading your role and sites`
+  String get stepReading {
+    return Intl.message(
+      'Reading your role and sites',
+      name: 'stepReading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.`
+  String get wrongPassword {
+    return Intl.message(
+      'User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.',
+      name: 'wrongPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Can’t reach this gateway`
+  String get cantReachGateway {
+    return Intl.message(
+      'Can’t reach this gateway',
+      name: 'cantReachGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker may be restarting or this computer is on another network.`
+  String get unreachableAdvice {
+    return Intl.message(
+      'The broker may be restarting or this computer is on another network.',
+      name: 'unreachableAdvice',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its standby answers at`
+  String get standbyAnswersAt {
+    return Intl.message(
+      'Its standby answers at',
+      name: 'standbyAnswersAt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Try again`
+  String get tryAgain {
+    return Intl.message('Try again', name: 'tryAgain', desc: '', args: []);
+  }
+
+  /// `Use the standby`
+  String get useStandby {
+    return Intl.message(
+      'Use the standby',
+      name: 'useStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `TLS · certificate of the {site} CA`
+  String tlsCertificateOf(Object site) {
+    return Intl.message(
+      'TLS · certificate of the $site CA',
+      name: 'tlsCertificateOf',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Add a standby gateway`
+  String get addStandby {
+    return Intl.message(
+      'Add a standby gateway',
+      name: 'addStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby: {host}`
+  String standbyIs(Object host) {
+    return Intl.message(
+      'Standby: $host',
+      name: 'standbyIs',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Standby gateway`
+  String get standbyGateway {
+    return Intl.message(
+      'Standby gateway',
+      name: 'standbyGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio {version} · {language}`
+  String studioVersion(Object version, Object language) {
+    return Intl.message(
+      'Studio $version · $language',
+      name: 'studioVersion',
+      desc: '',
+      args: [version, language],
+    );
+  }
+
+  /// `English`
+  String get languageName {
+    return Intl.message('English', name: 'languageName', desc: '', args: []);
+  }
+
+  /// `{host} · answered in {ms} ms`
+  String gatewayAnswered(Object host, Object ms) {
+    return Intl.message(
+      '$host · answered in $ms ms',
+      name: 'gatewayAnswered',
+      desc: '',
+      args: [host, ms],
+    );
+  }
+
+  /// `No answer from {host}`
+  String gatewayNoAnswer(Object host) {
+    return Intl.message(
+      'No answer from $host',
+      name: 'gatewayNoAnswer',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `Checking the gateway`
+  String get checkingGateway {
+    return Intl.message(
+      'Checking the gateway',
+      name: 'checkingGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Welcome, {user}`
+  String welcomeUser(Object user) {
+    return Intl.message(
+      'Welcome, $user',
+      name: 'welcomeUser',
+      desc: '',
+      args: [user],
+    );
+  }
+
+  /// `Opening the tree of {site}…`
+  String openingTreeOf(Object site) {
+    return Intl.message(
+      'Opening the tree of $site…',
+      name: 'openingTreeOf',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Opening the tree`
+  String get openingTree {
+    return Intl.message(
+      'Opening the tree',
+      name: 'openingTree',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{role} on {site}`
+  String roleOnSite(Object role, Object site) {
+    return Intl.message(
+      '$role on $site',
+      name: 'roleOnSite',
+      desc: '',
+      args: [role, site],
+    );
+  }
+
+  /// `reaches {sites}`
+  String reachesSites(Object sites) {
+    return Intl.message(
+      'reaches $sites',
+      name: 'reachesSites',
+      desc: '',
+      args: [sites],
+    );
+  }
+
+  /// `{first} and {last}`
+  String listAnd(Object first, Object last) {
+    return Intl.message(
+      '$first and $last',
+      name: 'listAnd',
+      desc: '',
+      args: [first, last],
+    );
+  }
+
+  /// `{n, plural, =1{1 link} other{{n} links}}`
+  String linksCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 link',
+      other: '$n links',
+      name: 'linksCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Show password`
+  String get showPassword {
+    return Intl.message(
+      'Show password',
+      name: 'showPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Hide password`
+  String get hidePassword {
+    return Intl.message(
+      'Hide password',
+      name: 'hidePassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every device, link and site`
+  String get heroHeadline1 {
+    return Intl.message(
+      'Every device, link and site',
+      name: 'heroHeadline1',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `in one living tree.`
+  String get heroHeadline2 {
+    return Intl.message(
+      'in one living tree.',
+      name: 'heroHeadline2',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.`
+  String get heroLead {
+    return Intl.message(
+      'Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.',
+      name: 'heroLead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `values flowing`
+  String get legendValues {
+    return Intl.message(
+      'values flowing',
+      name: 'legendValues',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `commands`
+  String get legendCommands {
+    return Intl.message('commands', name: 'legendCommands', desc: '', args: []);
+  }
+
+  /// `The animation is decoration; it stops when the system asks for less motion.`
+  String get legendNote {
+    return Intl.message(
+      'The animation is decoration; it stops when the system asks for less motion.',
+      name: 'legendNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the tree of {site}`
+  String preloadTree(Object site) {
+    return Intl.message(
+      'Reading the tree of $site',
+      name: 'preloadTree',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Reading the flows`
+  String get preloadFlows {
+    return Intl.message(
+      'Reading the flows',
+      name: 'preloadFlows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the flow blocks`
+  String get preloadBlocks {
+    return Intl.message(
+      'Reading the flow blocks',
+      name: 'preloadBlocks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the links`
+  String get preloadLinks {
+    return Intl.message(
+      'Reading the links',
+      name: 'preloadLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the sites`
+  String get preloadSites {
+    return Intl.message(
+      'Reading the sites',
+      name: 'preloadSites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{step} · later`
+  String preloadLater(Object step) {
+    return Intl.message(
+      '$step · later',
+      name: 'preloadLater',
+      desc: '',
+      args: [step],
+    );
+  }
+
+  /// `Updating…`
+  String get updating {
+    return Intl.message('Updating…', name: 'updating', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

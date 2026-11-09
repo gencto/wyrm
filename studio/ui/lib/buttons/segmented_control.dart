@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -16,7 +17,10 @@ class Segment<T> {
   /// and a moon read instantly. Languages do not: the honest control for `en`
   /// versus `uk` shows those two words, and a flag would be wrong anyway
   /// (a flag is a country, not a language).
-  final IconData? icon;
+  ///
+  /// A name of the canvas icon set (`ui_sun`, `ui_moon`), drawn by [AppIcon]:
+  /// the set is bundled SVG, so it draws the same in a golden as in the app.
+  final String? icon;
 
   /// What assistive technology reads — and what is drawn when [icon] is null.
   final String label;
@@ -150,7 +154,7 @@ class _Segment<T> extends StatelessWidget {
                     context,
                   ).textTheme.labelMedium?.copyWith(color: ink),
                 )
-              : Icon(icon, size: _iconSize, color: ink),
+              : AppIcon(icon, size: _iconSize, color: ink),
         ),
       ),
     );

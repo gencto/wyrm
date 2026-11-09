@@ -11,9 +11,12 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:models/workspace.dart';
+import 'package:ui/containers/refresh_frame.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/search_palette.dart';
@@ -37,16 +40,8 @@ const List<PageRouteInfo> _tabs = [
   SystemRoute(),
 ];
 
-const _tabIds = [
-  'explorer',
-  'links',
-  'flows',
-  'history',
-  'access',
-  'sites',
-  'assistant',
-  'system',
-];
+/// The workspaces in rail order: their names are the search ids.
+final List<String> _tabIds = [for (final w in Workspace.values) w.name];
 
 const _icons = [
   'ws_explorer',
@@ -149,7 +144,15 @@ class StudioPageConnector extends StatelessWidget {
                       onClose: vm.onCloseReview,
                       onRemove: vm.onRemoveChange,
                     ),
-              child: child,
+              // Stale while revalidate (docs/studio.md §6.7): the
+              // workspace keeps its content while it reads again.
+              child: RefreshFrame(
+                refreshing: vm.refreshing.contains(
+                  Workspace.values[tabs.activeIndex],
+                ),
+                label: S.current.updating,
+                child: child,
+              ),
             ),
           ),
         ),
@@ -212,6 +215,10 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
     final quarantined = quarantine.view.length;
     return _Vm(
       connected: site.connected,
+      refreshing: {
+        for (final w in Workspace.values)
+          if (refreshing(w)) w,
+      }.lock,
       topBar: TopBarVm(
         site: viewed,
         siteDetail: route.isEmpty
@@ -317,6 +324,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
 class _Vm extends Vm {
   _Vm({
     required this.connected,
+    required this.refreshing,
     required this.topBar,
     required this.quarantineBadge,
     required this.reviewOpen,
@@ -340,6 +348,7 @@ class _Vm extends Vm {
   }) : super(
          equals: [
            connected,
+           refreshing,
            topBar,
            quarantineBadge,
            reviewOpen,
@@ -355,6 +364,10 @@ class _Vm extends Vm {
        );
 
   final bool connected;
+
+  /// The workspaces reading again what they show (`refreshing`); an
+  /// `ISet`, so two equal sets compare equal and do not rebuild the shell.
+  final ISet<Workspace> refreshing;
   final TopBarVm topBar;
   final String? quarantineBadge;
   final bool reviewOpen;

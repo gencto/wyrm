@@ -14,6 +14,7 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
+import 'package:models/login_failure.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
@@ -29,6 +30,7 @@ import 'package:models/staged_change.dart';
 import 'package:models/task_event.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
+import 'package:models/workspace.dart';
 
 import '../wyrm/keys.dart';
 import 'access/actions/retrieve_access_action.dart';
@@ -40,6 +42,7 @@ import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/retrieve_historian_action.dart';
+import 'historian/actions/retrieve_series_action.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -51,6 +54,9 @@ import 'links/actions/rollback_link_params_action.dart';
 import 'links/actions/start_link_action.dart';
 import 'links/actions/stop_link_action.dart';
 import 'login/actions/log_in_action.dart';
+import 'login/actions/probe_gateway_action.dart';
+import 'nodes/actions/retrieve_history_action.dart';
+import 'nodes/actions/retrieve_node_detail_action.dart';
 import 'nodes/actions/retrieve_nodes_action.dart';
 import 'packages/actions/retrieve_packages_action.dart';
 import 'peers/actions/retrieve_peers_action.dart';
@@ -126,6 +132,57 @@ extension SelectComposites on Selectors {
   /// flag and `isWaitingForType<T>` tests `flag is T`, so the mixin answers for
   /// every action carrying it and nothing here names any of them.
   bool get isBusy => state.wait.isWaitingForType<BlockingAction>();
+
+  /// [ws] is reading again data it already shows: stale while revalidate
+  /// (docs/studio.md §6.7). The workspace keeps its content and the shell
+  /// lays the sweep bar over it.
+  ///
+  /// **Two halves, both needed.** A read of the workspace is in flight — one
+  /// of the `Retrieve…` actions it dispatches when it is shown, read off
+  /// `Wait` like every other `isWaiting` — *and* its slice already holds
+  /// something to keep on screen. In flight with nothing held is a first
+  /// load, which stays the workspace's own empty or loading state.
+  ///
+  /// Only reads count. A command in flight (Start, Deploy, Install, Apply)
+  /// has its own busy control and is not a refresh.
+  bool refreshing(Workspace ws) {
+    final w = state.wait;
+    return switch (ws) {
+      .explorer =>
+        state.nodes.table.isNotEmpty &&
+            (w.isWaitingForType<RetrieveNodeDetailAction>() ||
+                w.isWaitingForType<RetrieveHistoryAction>() ||
+                w.isWaitingForType<RetrieveLinksAction>()),
+      .links =>
+        (state.links.table.isNotEmpty || state.quarantine.table.isNotEmpty) &&
+            (w.isWaitingForType<RetrieveLinksAction>() ||
+                w.isWaitingForType<RetrieveQuarantineAction>() ||
+                w.isWaitingForType<RetrievePackagesAction>()),
+      .flows =>
+        state.flows.table.isNotEmpty &&
+            w.isWaitingForType<RetrieveFlowsAction>(),
+      .history =>
+        state.historian.groups.isNotEmpty &&
+            (w.isWaitingForType<RetrieveHistorianAction>() ||
+                w.isWaitingForType<RetrieveSeriesAction>()),
+      .access =>
+        (state.access.users.isNotEmpty || state.access.grants.isNotEmpty) &&
+            w.isWaitingForType<RetrieveAccessAction>(),
+      .sites =>
+        (state.peers.table.isNotEmpty || state.site.choices.isNotEmpty) &&
+            (w.isWaitingForType<RetrievePeersAction>() ||
+                w.isWaitingForType<RetrieveSitesAction>() ||
+                w.isWaitingForType<RetrieveQuarantineAction>() ||
+                w.isWaitingForType<RetrieveLinksAction>()),
+      .assistant =>
+        (state.tasks.table.isNotEmpty || state.assistant.agent != null) &&
+            (w.isWaitingForType<RetrieveAgentAction>() ||
+                w.isWaitingForType<RetrieveTasksAction>()),
+      .system =>
+        state.system.log.isNotEmpty &&
+            w.isWaitingForType<RetrieveSystemLogAction>(),
+    };
+  }
 }
 
 extension type SelectConnectivity(AppState _state) {
@@ -144,6 +201,33 @@ extension type SelectLogin(AppState _state) {
 
   /// Returns user
   String? get user => _state.login.user;
+
+  /// Returns step
+  int get step => _state.login.step;
+
+  /// Returns recent
+  IList<String> get recent => _state.login.recent;
+
+  /// Returns probes
+  IMap<String, int> get probes => _state.login.probes;
+
+  /// Returns remember
+  bool get remember => _state.login.remember;
+
+  /// Returns failure
+  LoginFailure? get failure => _state.login.failure;
+
+  /// Returns reason
+  String? get reason => _state.login.reason;
+
+  /// Returns isProbing
+  bool get isProbing => _state.wait.isWaitingForType<ProbeGatewayAction>();
+
+  /// Returns preload
+  int get preload => _state.login.preload;
+
+  /// Returns preloadLate
+  IList<int> get preloadLate => _state.login.preloadLate;
 }
 
 extension type SelectSession(AppState _state) {
@@ -291,6 +375,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns audit
   IList<AuditEntry> get audit => _state.nodes.audit;
+
+  /// Returns listed
+  ISet<String> get listed => _state.nodes.listed;
 }
 
 extension type SelectLive(AppState _state) {
@@ -475,6 +562,9 @@ extension type SelectFlows(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveFlowsAction>();
+
+  /// Returns blockTypes
+  IList<NodeType> get blockTypes => _state.flows.blockTypes;
 }
 
 extension type SelectFlowEditor(AppState _state) {

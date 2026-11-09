@@ -12,6 +12,8 @@ import '../../common/action.dart';
 /// admin's `view=list` carries no `attr`). Link states are live values of
 /// `sys/links/*/state`, watched by the Links screen.
 class RetrieveLinksAction extends Action with WaitingAction {
+  RetrieveLinksAction({super.quiet});
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;
