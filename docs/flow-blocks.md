@@ -203,6 +203,58 @@ block builds a path, and the path drives the source.
 УВАГА: the targets of `set` and `invoke` have no port. A flow changes what it
 writes and the arguments of an action, never where it writes (ADR 0040 §1a).
 
+## The action block and the command behaviours
+
+`invoke` is the action block: an action of a node, dropped from the tree. `set`
+writes a point. Both are commands, and both have the same behaviour fields
+(spec 06 0.2.23, ADR 0040 §2).
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `invoke` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `arg.<name>` | `out`, `result`, `sent`, `ok`, `error`, `running`, `last_run` | `path`, `action`, `args`, `on`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default false), `enabled` (default true) |
+| `set` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `sent`, `ok`, `error`, `running`, `last_run` | `path`, `on`, `deadband`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true) |
+
+Arguments of `invoke`:
+
+1. Each key of `args` is one argument. Its value is the argument's constant:
+   `args: {setpoint: 21.5, mode: "auto"}`.
+2. Each argument has the port `arg.<name>`. A sample there replaces the
+   constant. Use `null` as the constant of an argument that only a wire gives.
+3. `"$in"` as a constant stands for the last value on `in`.
+
+What runs a command:
+
+| Cause | `invoke` | `set` |
+|---|---|---|
+| a sample on `in` | every sample that passes `on` | the value, when `auto_run` is true and it passes `on`/`deadband` |
+| `trigger` | an event, or a value that differs from the last one | the same: it writes the value that `in` holds |
+| `auto_run` | a sample on `arg.<name>` that changes the argument | see `in` |
+| `interval_ms` above 0 | every period | every period: the held value again |
+| the action `dataflows/<id>/~act/trigger {node}` | one run | one write of the held value |
+
+- `enabled: false` stops every cause.
+- `interval_ms` is 0 (off) or 100 … 86 400 000. A period is skipped while the
+  run before it has not answered.
+- `sent` fires when the request leaves, `ok` when the target answered, `error`
+  when it refused: `{event: "error", id, code, message}` with the status code
+  of spec 04. `running` is true between the two. `last_run` is the time of the
+  last `sent` in microseconds.
+- `invoke.result` is the last result. `invoke.out` stays: the result, or the
+  error text with quality `bad`.
+
+УВАГА: a deploy, a hot swap, a reload and a restart never run a command through
+`trigger`, `auto_run` or `interval_ms`. A value that exists because the flow
+started (a variable's start value, a `const`, a parameter's echo, a timer's
+first tick, the first sample of a `subscribe`) only fills the field. The first
+run of `interval_ms` is one full period after the start. `in` does not have
+this rule: a variable wired to `in` of a `set` or an `invoke` still acts at
+deploy. Wire `trigger` where a deploy must do nothing.
+
+The `trigger` action is the block's button in the editor. It needs level
+`write` on the flow, and the caller needs `write` on the block's own target.
+It works on a deployed flow that runs. In a preview a command block shows what
+it would send (`sinks`), fires `sent`, and never `ok` or `error`.
+
 ## Fields as outputs
 
 Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This
@@ -356,8 +408,8 @@ Rules:
 | `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `fn`, `max_samples` have no input |
 | `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad` config only | — | On bad quality dropdown | `on_bad` has no input |
 | `publish` | Value name · Value ← | `in` | Meta | — | — |
-| `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
-| `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
+| `set` | `<point>` ⇄ · Trigger ⇄ (unbound: a button, `~act/trigger`) · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Sent → · Ok → · Error → · Running → · Last run → | `in` → its echo `in`; `trigger`; `in.<p>` → `<p>` (spec 06 0.2.23) | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
+| `invoke` | Trigger ⇄ (unbound: a button, `~act/trigger`) · Run when ← · Action · `<argument>` ⇄ … · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Result → · Sent → · Ok → · Error → · Running → · Last run → | `trigger`; `in`; `arg.<name>` ⇄ (constant in `args`); `in.<p>` → `<p>`; `result`, `out` (spec 06 0.2.23) | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
 | `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | ports named by `inputs`/`outputs` | Config, Fuel, Memory (MB) | — | — |
 | `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | operands typed (`values`) | none (spec 06 0.2.19: an operand holds a typed value) |
 | `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |

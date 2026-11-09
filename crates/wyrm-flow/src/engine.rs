@@ -314,6 +314,17 @@ impl State {
                     .level(Perm::Read),
             )
             .await?;
+        // a run of one command block, asked for by a person or a tool (ADR 0040 §2)
+        self.ctx
+            .declare_action(
+                id,
+                "trigger",
+                ActionMeta::new()
+                    .display("Trigger")
+                    .param("node", ParamMeta::of(TypeCode::String).required(true))
+                    .level(Perm::Write),
+            )
+            .await?;
         let nodes = format!("{id}/nodes");
         if self.ctx.meta(&nodes).is_none() {
             self.ctx.declare_node(&nodes, NodeMeta::folder()).await?;
@@ -751,6 +762,11 @@ fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Resu
 /// every key inside `full` is one the caller reads. For one concrete key this is the first
 /// grant that matches it.
 fn reads_key(auth: &[Grant], full: &str) -> bool {
+    holds_key(auth, full, Perm::Read)
+}
+
+/// [`reads_key`] for any level: `auth` gives `need` on all of `full`.
+fn holds_key(auth: &[Grant], full: &str, need: Perm) -> bool {
     use zenoh::key_expr::keyexpr;
     let Ok(target) = keyexpr::new(full) else {
         return false;
@@ -762,7 +778,7 @@ fn reads_key(auth: &[Grant], full: &str) -> bool {
         if !k.intersects(target) {
             continue;
         }
-        if g.p < Perm::Read {
+        if g.p < need {
             return false;
         }
         if k.includes(target) {
@@ -801,6 +817,26 @@ fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> 
     Ok(())
 }
 
+/// `trigger` (ADR 0040 §2): the caller itself may do what the block does, on the block's
+/// target: `write` on the key of the command (`…/~act/<a>`, `…/~set`) by its `auth` (spec 04).
+/// The flow's own token only says that its deployer could.
+fn triggers(n: &def::NodeDef, who: &Caller, site: &str) -> Result<(), LinkError> {
+    let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
+    let Some(target) = crate::nodes::command_target(&n.ty, &n.cfg) else {
+        return Ok(());
+    };
+    let full = crate::scope::full_key(site, &target);
+    let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+        return Err(denied(
+            "trigger needs the rights of the caller: a token with `auth` (spec 04)".into(),
+        ));
+    };
+    if !holds_key(auth, &full, Perm::Write) {
+        return Err(denied(format!("{full}: the caller may not write it")));
+    }
+    Ok(())
+}
+
 /// The deployer's subject: the token-bound `origin`, else the token subject.
 fn deployer(who: &Caller) -> Option<String> {
     who.origin
@@ -833,7 +869,9 @@ fn proves_targets(
         format!("wy/{site}/downstream/"),
         format!("wy/{site}/storage/"),
     ];
-    for t in targets(&def, site) {
+    // one proof per target key: two blocks with one target share it (a token is taken once)
+    let unique: std::collections::BTreeSet<String> = targets(&def, site).into_iter().collect();
+    for t in unique {
         if !sections.iter().any(|s| t.starts_with(s)) || t.contains(['*', '$']) {
             return Err(LinkError::invalid_parameter(format!(
                 "{t}: command targets must be exact keys under {} or {}",
@@ -1160,6 +1198,41 @@ impl Link for Engine {
                     drop(ticket);
                 }));
                 return Ok(());
+            }
+            (id, "trigger") => {
+                // ADR 0040 §2: one run of a command block of a deployed, running flow, with
+                // the rights the block's target asks of the caller itself
+                let f = st
+                    .flows
+                    .get(id)
+                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+                let node = match &args {
+                    Value::Map(m) => match m.get("node") {
+                        Some(Value::Str(n)) => n.clone(),
+                        _ => return Err(LinkError::invalid_parameter("node: required string")),
+                    },
+                    _ => return Err(LinkError::invalid_parameter("node: required string")),
+                };
+                let n = f
+                    .def
+                    .nodes
+                    .get(&node)
+                    .filter(|n| crate::nodes::triggerable(&n.ty))
+                    .ok_or_else(|| {
+                        LinkError::invalid_parameter(format!(
+                            "node: {node} is not a block that trigger runs (invoke, set)"
+                        ))
+                    })?;
+                triggers(n, who, &self.site)?;
+                let inbox = f
+                    .run
+                    .as_ref()
+                    .and_then(|r| r.inboxes.get(&node))
+                    .ok_or_else(|| LinkError::not_supported("the flow is not running"))?;
+                inbox.push_now(
+                    "__trigger",
+                    crate::nodes::Msg::new(Value::Null, Quality::Good, now_us()),
+                );
             }
             (id, "remove") => {
                 if let Some(f) = st.flows.get(id) {

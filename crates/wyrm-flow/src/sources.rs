@@ -173,9 +173,13 @@ impl Source {
                 else {
                     return;
                 };
+                // the first answer is the state that was already there
+                let mut first = true;
                 while let Ok(s) = sub.recv_async().await {
                     let up = s.kind() == zenoh::sample::SampleKind::Put;
-                    (io2.inject)(&src, Msg::new(Value::Bool(up), Quality::Good, now_us()));
+                    let mut m = Msg::new(Value::Bool(up), Quality::Good, now_us());
+                    m.start = std::mem::take(&mut first);
+                    (io2.inject)(&src, m);
                 }
             }));
             return;
@@ -185,6 +189,8 @@ impl Source {
             let Ok(mut s) = client.subscribe(&pattern).await else {
                 return;
             };
+            // the first sample is the value the point already had
+            let mut first = true;
             while let Some(ev) = s.next().await {
                 if let ValEvent::Sample { key, sample, .. } = ev {
                     (io2.inject)(
@@ -194,6 +200,7 @@ impl Source {
                             q: sample.q,
                             t: sample.t,
                             key: Some(key.into()),
+                            start: std::mem::take(&mut first),
                         },
                     );
                 }

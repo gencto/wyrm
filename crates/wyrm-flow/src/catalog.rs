@@ -58,6 +58,9 @@ pub struct DynPorts {
     pub param: &'static str,
     pub prefix: &'static str,
     pub default: &'static [&'static str],
+    /// The parameter is a map and its keys name the ports (`invoke.args`: each argument is a
+    /// key, its value the argument's constant); else it is a list of names.
+    pub keys: bool,
 }
 
 pub struct NodeType {
@@ -197,6 +200,7 @@ pub const TYPES: &[NodeType] = &[
             param: "inputs",
             prefix: "in.",
             default: &[],
+            keys: false,
         }),
         dyn_outputs: None,
         params: &[
@@ -318,32 +322,43 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "set",
         category: "Outputs",
-        description: "Writes in to a point (a command: the deployer proves the right, ADR 0008).",
-        inputs: &["in"],
-        outputs: &[],
+        description: "Writes in to a point: when in changes (auto_run), on trigger, every interval_ms (a command: the deployer proves the right, ADR 0008).",
+        inputs: &["in", "trigger", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["sent", "ok", "error", "running", "last_run"],
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
             req(p("path", "string", "The point: downstream/<link>/… or storage/…")),
-            pick(p("on", "string", "Every sample, or a changed value only."), &["change", "any"], "change"),
+            pick(p("on", "string", "With auto_run: every sample, or a changed value only."), &["change", "any"], "change"),
             di(p("deadband", "number", "With on change: a smaller change is not written."), 0),
             db(p("allow_bad", "bool", "Write values of bad quality too."), false),
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Write when in brings a value (default true); false: only on trigger and interval_ms."), true),
+            ENABLED,
         ],
     },
     NodeType {
         ty: "invoke",
         category: "Outputs",
-        description: "Runs an action when in arrives (a command: the deployer proves the right, ADR 0008).",
-        inputs: &["in"],
-        outputs: &["out"],
-        dyn_inputs: None,
+        description: "The action block: runs an action of a node with its arguments, on trigger, on a changed argument (auto_run), every interval_ms or when in arrives (a command: the deployer proves the right, ADR 0008).",
+        inputs: &["in", "trigger", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["out", "result", "sent", "ok", "error", "running", "last_run"],
+        dyn_inputs: Some(DynPorts {
+            param: "args",
+            prefix: "arg.",
+            default: &[],
+            keys: true,
+        }),
         dyn_outputs: None,
         params: &[
             req(p("path", "string", "The node: downstream/<link>/… or storage/…")),
             req(p("action", "string", "The action's name.")),
-            p("args", "map", "Its arguments."),
-            pick(p("on", "string", "Every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
+            p("args", "map", "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in)."),
+            pick(p("on", "string", "For in: every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
             db(p("allow_bad", "bool", "Run on samples of bad quality too."), false),
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Run when an argument changes on its port (default false)."), false),
+            ENABLED,
         ],
     },
     NodeType {
@@ -356,11 +371,13 @@ pub const TYPES: &[NodeType] = &[
             param: "inputs",
             prefix: "",
             default: &["in"],
+            keys: false,
         }),
         dyn_outputs: Some(DynPorts {
             param: "outputs",
             prefix: "",
             default: &["out"],
+            keys: false,
         }),
         params: &[
             req(p("artifact", "string", "SHA-256 of the component (dataflows ▸ put_artifact).")),
@@ -558,11 +575,26 @@ pub const TYPES: &[NodeType] = &[
     },
 ];
 
+const INTERVAL_MS: Param = di(
+    p(
+        "interval_ms",
+        "number",
+        "Runs every this many milliseconds, first one full period after the start; 0: off (default), else 100 … 86 400 000.",
+    ),
+    0,
+);
+
+const ENABLED: Param = db(
+    p("enabled", "bool", "false: nothing runs it (default true)."),
+    true,
+);
+
 /// Variable inputs `in.<name>` of a block (default `in.0`, `in.1`).
 const ITEMS: DynPorts = DynPorts {
     param: "inputs",
     prefix: "in.",
     default: &["0", "1"],
+    keys: false,
 };
 
 const INPUTS: Param = dl(
@@ -593,11 +625,15 @@ fn texts(a: &[&str]) -> Value {
 }
 
 fn dyn_ports(d: &DynPorts) -> Value {
-    Value::Map(BTreeMap::from([
+    let mut m = BTreeMap::from([
         ("param".to_owned(), Value::from(d.param)),
         ("prefix".to_owned(), Value::from(d.prefix)),
         ("default".to_owned(), texts(d.default)),
-    ]))
+    ]);
+    if d.keys {
+        m.insert("keys".into(), Value::Bool(true));
+    }
+    Value::Map(m)
 }
 
 /// The catalog as the action answers it: one map per type.
@@ -661,6 +697,10 @@ pub fn value() -> Value {
                 // spec 06 0.2.19: the operand inputs take a constant in config `values`
                 if crate::blocks::takes_values(t.ty) {
                     m.insert("values".into(), Value::Bool(true));
+                }
+                // ADR 0040 §2: `dataflows/<id>/~act/trigger {node}` runs a node of this type
+                if crate::nodes::triggerable(t.ty) {
+                    m.insert("trigger".into(), Value::Bool(true));
                 }
                 Value::Map(m)
             })
@@ -865,6 +905,7 @@ mod tests {
             let mut all = cfg.clone();
             for x in t.params {
                 all.entry(x.name.to_owned()).or_insert(match x.ty {
+                    "number" if x.name == "interval_ms" => Value::UInt(1000),
                     "number" => Value::UInt(1),
                     "bool" => Value::Bool(false),
                     "map" => Value::Map(BTreeMap::new()),

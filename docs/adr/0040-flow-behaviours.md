@@ -41,3 +41,55 @@ The key is the hard one. The engine reads through the broker's own session, whic
 What a flow can change at run time on a command is its **arguments** (§2) and the value it writes. `publish.node` stays static too: it is a node of the tree, declared at deploy.
 
 *If wrong:* a scope that is too wide lets a flow read more points than its author meant, but never more than the deployer reads. A dynamic command target can be added later as a scope with pattern proofs without a change to this section.
+
+### 2. The action block: `invoke` with fields, behaviours and events (spec 06 0.2.23)
+A node action dropped from the tree becomes an `invoke` block. The type keeps its name and its old behaviour; it gains what the DGLux `invokeAction` block has.
+
+**Arguments are fields.** `args` stays one map. Each key is an argument: its value is the argument's constant, and the port `arg.<name>` replaces it with the last sample (the field rule of ADR 0038 §7: a typed value that a binding can replace). An argument without a constant is `null`. An argument is also an output `arg.<name>` (ADR 0038 §1). At most 64 arguments; a name is 1 to 128 bytes and does not start with `__`. The prefix `arg.` keeps arguments apart from the block's own ports: DGLux hides a clashing name behind a zero-width space, and WYRM does not do that. `"$in"` as a constant still stands for the last value on `in`. The catalog says `dyn_inputs: {param: "args", prefix: "arg.", default: [], keys: true}`: `keys` means the parameter is a map and its keys name the ports.
+
+**Behaviour fields** (config, and a port each):
+| Field | Port | Default | Meaning |
+|---|---|---|---|
+| `interval_ms` | `in.interval_ms` | 0 | Above 0: a run every period. 0 is off; else 100 … 86 400 000. A value from the port outside these is ignored. |
+| `auto_run` | `in.auto_run` | `invoke`: false · `set`: true | `invoke`: a sample on `arg.<name>` that changes the argument runs the action. `set`: a value on `in` is written (today's behaviour). |
+| `enabled` | `in.enabled` | true | False: nothing runs the block, the `trigger` action included. |
+
+**`trigger`** is an input without a config value. An event (`{event, id}`) runs the block. Any other value runs it when it differs from the last sample on `trigger`; the first real sample runs it. `null` runs nothing; a sample of bad quality runs nothing unless `allow_bad`. An unbound `trigger` is a button: see the action below.
+
+**`in`** keeps its meaning: `invoke` runs on every sample that passes `on`; `set` takes the value to write.
+
+**Outputs.**
+| Output | Type | When |
+|---|---|---|
+| `sent` | event | The request leaves the engine. |
+| `ok` | event | The target answered without an error. |
+| `error` | event `{event, id, code, message}` | The target, the transport or the node's queue refused. `code` is the status code (spec 04), `message` its text. |
+| `result` | any | `invoke` only: the last result. |
+| `running` | bool | True from the first run handed to the writer until the last one answered. |
+| `last_run` | number | The time of the last `sent`, µs since the epoch. |
+| `out` | any | `invoke` only, kept: the result with quality `good`, or the error text with quality `bad`. |
+One writer task per node keeps the order. `invoke` holds at most 256 calls; one more is refused with `error` `{code: busy}`. `set` writes the newest value. A period of `interval_ms` is skipped while the run before it has not answered.
+
+**`set`** gets the same fields where they make sense: `trigger` (write the held value now, `on`/`deadband` aside), `interval_ms` (write it again every period), `auto_run` (default true; false: `in` only holds the value), `enabled`, and the outputs `sent`, `ok`, `error`, `running`, `last_run`.
+
+**The start rule.** ADR 0032 §5 says a deploy never runs a command by itself. The new behaviours keep it by a mark on a sample, `born at the start`:
+1. what a node sends because the flow started: a variable's and a `const`'s start value, a parameter echo's start value, a clock's tick at the start (`timer` sends 1 at once), the first sample of a read (`subscribe`, `liveliness`, also after a new key: the value that was already there);
+2. everything a node sends while it handles a sample with the mark. The runtime carries the mark on, not the blocks: `variable → add → trigger` is marked, and so is the answer of a command that a marked sample ran.
+
+A sample with the mark on `trigger` only gives the port its value. A sample with the mark on `arg.<name>` only fills the argument. `interval_ms` counts from the start of the node (and from a change of the period, and from `enabled` going true): the first run is one full period later. So a deploy, a hot swap, a reload and a restart after a crash run no command through `trigger`, `auto_run` or `interval_ms`. Tests: `a_deploy_never_runs_a_command_through_the_new_behaviours` and `tests/commands.rs`.
+
+`in` is not part of the rule: a variable wired to `set.in` or `invoke.in` still writes at deploy, as ADR 0038 §6 warns. Changing that would change deployed flows. A flow that must not act at deploy uses `trigger`.
+
+This is the alternative ADR 0038 §7 refused ("a start mark carried through every block"), in a narrower form: one bool on a sample, set at five places and carried by the runtime, and it changes no existing port's behaviour. *Cost:* a point that has no value when the flow starts gives its first value with the mark, so a `trigger` bound to it misses that one sample.
+
+**`dataflows/<id>/~act/trigger {node}`** runs one block once.
+- Level `write` on `dataflows/<id>`. The caller's `auth` (spec 04) must also give `write` on the block's own target (`…/~act/<action>` or `…/~set`), by the same grant walk as §1. The flow's token only says that the deployer could; a button is pressed by a person, and that person needs the right. No `auth`: `permission_denied`.
+- `node` is an `invoke` or `set` of the flow (the catalog marks these types `trigger: true`); another node is `invalid_parameter`.
+- Only a deployed, running flow: a stopped flow or a flow in error is `not_supported` ("the flow is not running"). A preview has no such action.
+- The run goes into the node's inbox on an internal port, in order with its samples. It runs with the block's current arguments, whether `trigger` is wired or not. A disabled block ignores it.
+- The responder SDK audits the call as every action, with the caller as its subject; the target audits the command it gets with the subject `flow:<id>`, as every flow command.
+
+**Preview.** `set` and `invoke` in a preview are the same nodes without a client or a writer (`Sink::Capture`): they decide as a deployed node does, record what they would send in the row's `sinks`, fire `sent` and set `last_run`. They never fire `ok` or `error`, never set `result`, `out` or `running`: there is no answer, and a made-up `ok` would show a success that did not happen.
+
+**Found on the way.** Two command blocks with one target could not be deployed: `proves_targets` checked the target's proof once per block, and a proof token is taken once (`jti`, spec 04 0.2.11). It now checks one proof per target key.
+

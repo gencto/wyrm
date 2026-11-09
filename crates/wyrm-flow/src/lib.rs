@@ -8,6 +8,7 @@
 pub mod artifacts;
 pub mod blocks;
 pub mod catalog;
+mod commands;
 pub mod def;
 pub mod engine;
 pub mod nodes;

@@ -3200,6 +3200,126 @@ async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
     env.stop().await;
 }
 
+/// ADR 0040 §2: the action block against the mock link. A deploy runs nothing; the `trigger`
+/// action runs the block, which reports `sent`, `ok` and its result; an argument the mock
+/// refuses gives the `error` event with the status code.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_action_block_runs_on_trigger_and_reports_events() {
+    let env = Env::start("flow-action", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, k: &str| match v {
+        Value::Map(mm) => mm.get(k).cloned(),
+        _ => None,
+    };
+    let publish = |n: &str| m(&[("type", s("publish")), ("node", s(n))]);
+    // `n` comes from a variable: an argument is a field with a port
+    let def = |version: u64, n: i64| {
+        m(&[
+            ("id", s("act")),
+            ("version", Value::UInt(version)),
+            (
+                "nodes",
+                m(&[
+                    ("n", m(&[("type", s("number")), ("value", Value::Int(n))])),
+                    (
+                        "call",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/mock")),
+                            ("action", s("count")),
+                            ("args", m(&[("n", Value::Null)])),
+                            ("auto_run", Value::Bool(true)),
+                        ]),
+                    ),
+                    ("sent", publish("sent")),
+                    ("ok", publish("ok")),
+                    ("error", publish("error")),
+                    ("result", publish("result")),
+                ]),
+            ),
+            (
+                "edges",
+                Value::Array(vec![
+                    edge("n.out", "call.arg.n"),
+                    edge("call.sent", "sent.in"),
+                    edge("call.ok", "ok.in"),
+                    edge("call.error", "error.in"),
+                    edge("call.result", "result.in"),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ])
+    };
+    let flows = format!("wy/{SITE}/dataflows");
+    let deploy = |d: Value| {
+        let proofs = wyrm_flow::command_targets(&d, SITE)
+            .unwrap()
+            .into_iter()
+            .map(|t| {
+                let p = c.proof(&t).unwrap();
+                (t, Value::Bytes(p))
+            })
+            .collect();
+        m(&[("def", d), ("proofs", Value::Map(proofs))])
+    };
+    c.invoke_one(&flows, "deploy", deploy(def(1, 3)))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/act");
+    let node = |n: &str| format!("{flow}/nodes/{n}");
+    // the variable's start value filled the argument and ran nothing (auto_run is on)
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(last_val(&c, &node("sent")).await, None, "ran at deploy");
+    c.invoke_one(&flow, "trigger", m(&[("node", s("call"))]))
+        .await
+        .unwrap();
+    let ok = eventually("the ok event", 10, || async {
+        last_val(&c, &node("ok")).await
+    })
+    .await;
+    assert_eq!(at(&ok, "event"), Some(s("ok")));
+    let sent = last_val(&c, &node("sent")).await.unwrap();
+    assert_eq!(at(&sent, "event"), Some(s("sent")));
+    let result = eventually("the result", 10, || async {
+        last_val(&c, &node("result")).await
+    })
+    .await;
+    assert_eq!(result.as_f64(), Some(0.0), "the first row of count");
+    assert_eq!(last_val(&c, &node("error")).await, None);
+    // the same block with an argument the mock refuses
+    c.invoke_one(&flows, "deploy", deploy(def(2, -1)))
+        .await
+        .unwrap();
+    c.invoke_one(&flow, "trigger", m(&[("node", s("call"))]))
+        .await
+        .unwrap();
+    let err = eventually("the error event", 10, || async {
+        last_val(&c, &node("error")).await
+    })
+    .await;
+    assert_eq!(at(&err, "event"), Some(s("error")));
+    assert_eq!(
+        at(&err, "code"),
+        Some(Value::UInt(u64::from(wyrm_core::Status::OutOfRange.code())))
+    );
+    // a block that is not a command block is refused
+    let e = c
+        .invoke_one(&flow, "trigger", m(&[("node", s("n"))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    env.stop().await;
+}
+
 /// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
 /// reports the write, but nothing reaches the link (no audit record, the point never holds the
 /// value); the same draft deployed writes (the control).

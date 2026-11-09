@@ -1024,7 +1024,10 @@ impl Node for Block {
     fn start(&mut self, io: &Io) {
         // only a variable sends at start
         if matches!(self.kind, Kind::Number | Kind::Text | Kind::Bool) {
-            (io.inject)("__start", Msg::new(Value::Null, Quality::Good, now_us()));
+            (io.inject)(
+                "__start",
+                Msg::new(Value::Null, Quality::Good, now_us()).at_start(),
+            );
         }
     }
 

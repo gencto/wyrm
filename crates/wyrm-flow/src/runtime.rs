@@ -298,7 +298,7 @@ async fn run_node(
                 .and_then(|(_, m)| m.get(p).cloned())
                 .or_else(|| statics.get(p).cloned());
             if let Some(v) = v {
-                out.emit(p, Msg::new(v.clone(), Quality::Good, now));
+                out.emit(p, Msg::new(v.clone(), Quality::Good, now).at_start());
                 echoed.insert(p.clone(), v);
             }
         }
@@ -311,11 +311,20 @@ async fn run_node(
         iv
     };
     let mut period = node.tick_every();
-    let mut tick = period.map(|p| clock(p, tokio::time::Instant::now()));
+    let at_once = node.first_tick_now();
+    let mut tick = period.map(|p| {
+        let first = tokio::time::Instant::now();
+        clock(p, if at_once { first } else { first + p })
+    });
+    // A tick at the start is born at the start, and so is what a node sends while it handles
+    // a sample that was (ADR 0040 §2): the mark goes on with everything such a call sends.
+    let mut start_tick = at_once;
     loop {
         let mut out = Out::default();
+        let mut born_at_start = false;
         let ok = tokio::select! {
             (port, m) = inbox.pop() => {
+                born_at_start = m.start;
                 if !port.starts_with("__") {
                     // an input's echo goes out before the node handles the sample
                     if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
@@ -327,6 +336,7 @@ async fn run_node(
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.input(&port, m, &io, &mut out))).is_ok()
             }
             _ = async { match tick.as_mut() { Some(t) => { t.tick().await; } None => std::future::pending::<()>().await } } => {
+                born_at_start = std::mem::take(&mut start_tick);
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.tick(now_us(), &mut out))).is_ok()
             }
             Ok(()) = asks.changed() => {
@@ -340,6 +350,11 @@ async fn run_node(
             warn!(node = %id, "flow node panicked");
             let _ = panics.send(format!("nodes.{id}: panic"));
             return;
+        }
+        if born_at_start {
+            for (_, m) in &mut out.0 {
+                m.start = true;
+            }
         }
         if !echoes.params.is_empty() {
             if let Some((rev, live)) = node.live_params() {
@@ -370,6 +385,7 @@ async fn run_node(
         // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
         let now_every = node.tick_every();
         if now_every != period {
+            start_tick = false;
             period = now_every;
             tick = period.map(|p| clock(p, tokio::time::Instant::now() + p));
         }
