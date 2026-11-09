@@ -35,7 +35,9 @@ import 'package:ui/indicators/step_rail.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/link_install_page.dart';
+import 'package:ui/shell/window_bar.dart';
 
+import '../common/window.dart';
 import '../navigation/go_action.dart';
 
 /// A link name: a key segment of letters, digits, `.`, `_`, `-`.
@@ -54,6 +56,7 @@ class LinkInstallPageConnector extends StatelessWidget {
       unawaited(store.dispatchAndWait(RetrieveInstallCatalogAction()));
     },
     builder: (context, vm) => LinkInstallPage(
+      window: vm.window,
       labels: vm.labels,
       steps: vm.steps,
       step: vm.step,
@@ -137,6 +140,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
     }
     final last = key == 'result';
     return _Vm(
+      window: windowBar(fullScreen: window.fullScreen),
       labels: InstallLabels(
         crumb: S.current.linksOn(viewed),
         title: S.current.addALink,
@@ -592,6 +596,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.window,
     required this.labels,
     required this.steps,
     required this.step,
@@ -620,6 +625,7 @@ class _Vm extends Vm {
     required this.onResultAction,
   }) : super(
          equals: [
+           window,
            labels,
            steps,
            step,
@@ -639,6 +645,9 @@ class _Vm extends Vm {
            onStep != null,
          ],
        );
+
+  /// The frameless window's side of the top bar.
+  final WindowBarVm window;
 
   final InstallLabels labels;
   final List<StepVm> steps;

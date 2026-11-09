@@ -20,8 +20,10 @@ import 'package:ui/containers/welcome_panel.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
+import 'package:ui/shell/window_bar.dart';
 
 import '../common/validators.dart';
+import '../common/window.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -36,6 +38,7 @@ class LogInPageConnector extends StatelessWidget {
     // §6: the gateway in the field is probed as the page opens.
     onInit: (store) => unawaited(store.dispatchAndWait(ProbeGatewayAction())),
     builder: (context, vm) => LogInPage(
+      window: vm.window,
       gateway: vm.gateway,
       user: vm.user,
       password: vm.password,
@@ -136,6 +139,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     }
 
     return _Vm(
+      window: windowBar(fullScreen: window.fullScreen),
       gateway: FieldVm(
         value: main,
         validator: gatewayValidator,
@@ -289,6 +293,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.window,
     required this.gateway,
     required this.standby,
     required this.user,
@@ -313,6 +318,7 @@ class _Vm extends Vm {
     required this.welcome,
   }) : super(
          equals: [
+           window,
            gateway,
            standby,
            user,
@@ -334,6 +340,9 @@ class _Vm extends Vm {
            welcome,
          ],
        );
+
+  /// The frameless window's side of the top bar.
+  final WindowBarVm window;
 
   final FieldVm<String?> gateway;
   final FieldVm<String?> standby;

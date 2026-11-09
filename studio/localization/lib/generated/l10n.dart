@@ -6462,6 +6462,31 @@ class S {
   String get menuTheme {
     return Intl.message('Theme', name: 'menuTheme', desc: '', args: []);
   }
+
+  /// `Minimize`
+  String get windowMinimize {
+    return Intl.message('Minimize', name: 'windowMinimize', desc: '', args: []);
+  }
+
+  /// `Maximize`
+  String get windowMaximize {
+    return Intl.message('Maximize', name: 'windowMaximize', desc: '', args: []);
+  }
+
+  /// `Restore`
+  String get windowRestore {
+    return Intl.message('Restore', name: 'windowRestore', desc: '', args: []);
+  }
+
+  /// `Close window`
+  String get windowClose {
+    return Intl.message(
+      'Close window',
+      name: 'windowClose',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

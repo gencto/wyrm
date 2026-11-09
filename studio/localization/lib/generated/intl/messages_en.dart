@@ -1522,6 +1522,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "whyRunOfficial": MessageLookupByLibrary.simpleMessage(
       "Choose the broker, then how the link runs on it. A built-in driver can run inside the broker, as its own process or on another machine.",
     ),
+    "windowClose": MessageLookupByLibrary.simpleMessage("Close window"),
+    "windowMaximize": MessageLookupByLibrary.simpleMessage("Maximize"),
+    "windowMinimize": MessageLookupByLibrary.simpleMessage("Minimize"),
+    "windowRestore": MessageLookupByLibrary.simpleMessage("Restore"),
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),

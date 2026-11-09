@@ -96,6 +96,7 @@ mixin Selectors {
   SelectAccess get access => SelectAccess(state);
   SelectSystem get system => SelectSystem(state);
   SelectPanels get panels => SelectPanels(state);
+  SelectWindow get window => SelectWindow(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -761,4 +762,24 @@ extension type SelectSystem(AppState _state) {
 extension type SelectPanels(AppState _state) {
   /// Returns widths
   IMap<PanelSlot, double> get widths => _state.panels.widths;
+}
+
+extension type SelectWindow(AppState _state) {
+  /// Returns maximized
+  bool get maximized => _state.window.maximized;
+
+  /// Returns fullScreen
+  bool get fullScreen => _state.window.fullScreen;
+
+  /// Returns left
+  double? get left => _state.window.left;
+
+  /// Returns top
+  double? get top => _state.window.top;
+
+  /// Returns width
+  double? get width => _state.window.width;
+
+  /// Returns height
+  double? get height => _state.window.height;
 }

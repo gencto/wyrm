@@ -15,6 +15,7 @@ import '../indicators/check_list.dart';
 import '../indicators/step_rail.dart';
 import '../models/value_changed.dart';
 import '../overlays/log_view.dart';
+import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -214,6 +215,7 @@ class LinkInstallPage extends StatelessWidget {
     this.onNext,
     this.nextReason,
     this.nextIsInstall = false,
+    this.window = const WindowBarVm(),
     super.key,
   });
 
@@ -246,6 +248,9 @@ class LinkInstallPage extends StatelessWidget {
   final String? nextReason;
   final bool nextIsInstall;
 
+  /// The frameless window's side of the top bar (docs/studio.md §7.1).
+  final WindowBarVm window;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -256,33 +261,36 @@ class LinkInstallPage extends StatelessWidget {
           children: [
             Container(
               height: 56,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
-              child: Row(
-                spacing: 20,
-                children: [
-                  const WyrmLogo(showStudio: false),
-                  Text(
-                    labels.crumb,
-                    style: TextStyle(fontSize: 14, color: c.text3),
-                  ),
-                  Text('/', style: TextStyle(color: c.text4)),
-                  Text(
-                    labels.title,
-                    style: TextStyle(fontSize: 14, color: c.text1),
-                  ),
-                  const Spacer(),
-                  Text(
-                    labels.needs,
-                    style: TextStyle(fontSize: 12, color: c.text3),
-                  ),
-                  IconButton(
-                    onPressed: onClose,
-                    icon: AppIcon('ui_close', size: 18, color: c.text2),
-                  ),
-                ],
+              child: WindowBar(
+                vm: window,
+                padding: 16,
+                child: Row(
+                  spacing: 20,
+                  children: [
+                    const WyrmLogo(showStudio: false),
+                    Text(
+                      labels.crumb,
+                      style: TextStyle(fontSize: 14, color: c.text3),
+                    ),
+                    Text('/', style: TextStyle(color: c.text4)),
+                    Text(
+                      labels.title,
+                      style: TextStyle(fontSize: 14, color: c.text1),
+                    ),
+                    const Spacer(),
+                    Text(
+                      labels.needs,
+                      style: TextStyle(fontSize: 12, color: c.text3),
+                    ),
+                    IconButton(
+                      onPressed: onClose,
+                      icon: AppIcon('ui_close', size: 18, color: c.text2),
+                    ),
+                  ],
+                ),
               ),
             ),
             Expanded(

@@ -821,5 +821,9 @@
     "deployAskMessage": "The draft of “{flow}” replaces the version that runs now.",
     "@deployAskMessage": {"placeholders": {"flow": {"type": "String"}}},
     "menuLanguage": "Language",
-    "menuTheme": "Theme"
+    "menuTheme": "Theme",
+    "windowMinimize": "Minimize",
+    "windowMaximize": "Maximize",
+    "windowRestore": "Restore",
+    "windowClose": "Close window"
 }

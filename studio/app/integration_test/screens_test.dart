@@ -24,6 +24,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
+import 'package:ui/indicators/app_icon.dart';
+import 'package:window_manager/window_manager.dart';
 
 // ignore: do_not_use_environment, a test parameter.
 const gateway = String.fromEnvironment('WYRM_GATEWAY');
@@ -144,6 +146,11 @@ void main() {
 
   testWidgets('log in and visit every workspace', (tester) async {
     await runEnv(await Environment.dev());
+    // The window opens where the user left it and as large (once it is
+    // ready to show); the steps below count on the boards' 1440 × 900.
+    await settle(tester, 1000);
+    await windowManager.setSize(const Size(1440, 900));
+    await windowManager.center();
     await settle(tester, 2500);
     await shot(tester, '00_login');
 
@@ -275,7 +282,13 @@ void main() {
           }
         }
         await canvasTools(tester);
-        await tester.tap(find.byType(IconButton).last);
+        // The editor's own close, in its top bar: the inspector's eye
+        // buttons come after it.
+        await tester.tap(
+          find
+              .byWidgetPredicate((w) => w is AppIcon && w.name == 'ui_close')
+              .first,
+        );
         await settle(tester);
       }
       if (name == 'Assistant' && find.byType(TextField).evaluate().isNotEmpty) {

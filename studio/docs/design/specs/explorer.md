@@ -6,7 +6,7 @@ Boards: `Main` (device selected, a point selected, review drawer), `Actions` (no
 
 | Region | Size | Background | Border |
 |---|---|---|---|
-| Top bar | min height 56, padding 8 × 16, gap 12/20, wraps | `#0E1113` | bottom `#252B30` |
+| Top bar | min height 56, padding 8 × 16, gap 12/20, wraps; on the desktop it is the window's title bar (below) | `#0E1113` | bottom `#252B30` |
 | Rail | 76 | `#13171A` | right `#252B30` |
 | Tree | flex 1 1 260, max 300 | `#13171A` | right `#252B30` |
 | Workspace | flex 999 1 560 | `#0E1113` | — |
@@ -15,6 +15,8 @@ Boards: `Main` (device selected, a point selected, review drawer), `Actions` (no
 **Side panels are resizable (proposed; the boards are fixed).** Drag the inner border of the tree or the inspector to change its width: tree 200–520 (default 260, 240 below 1100 wide), inspector 280–640 (default 320); the workspace never gets less than 480, so on a narrow window both panels shrink to their minimum first. The 8 px handle shows the `col-resize` cursor and turns its 1 px border ember on hover, drag or focus; a double click restores the default; with the handle focused, ← and → move the border by 16 px. Each viewer's widths are kept across restarts (`SidePanels`, `docs/studio.md` §6.5).
 
 Top bar, left to right: logo (mark + `WYRM` Unbounded 700 16, letter-spacing 0.08 em + `Studio` 14 `#A3ABAF`) · site switcher (height 40, radius 8, border `#2F373D`, fill `#161A1D`: status dot 8, site name mono 14, **route** `via edge · central` 12 `#8E979C`, chevron) · search (flex 1 1 280, max 520, height 40, placeholder `Go to a node, action or link`, `⌘K` key cap) · right: **Review and apply** (ember filled, count badge 22 high on `#0E1113`, count text `#F3A766`; disabled outline when 0) · account avatar 40 round.
+
+**Owner decision 2026-11-09: no window frame on the desktop** (`docs/studio.md` §7.1; the boards draw none either). The top bar is the window's drag area; a double click on its empty space maximizes or restores. macOS: the native close, minimize and zoom buttons stay at the left and the logo starts at 92 instead of 16 (16 again in full screen). Windows and Linux: minimize, maximize / restore and close (46 × 32 each, icons 16) sit in the window's top right corner over the bar, and the bar's content ends 138 from the right edge; the Review drawer starts 32 lower, under them. The smallest window is 1180 × 680, so the inspector is always there on the desktop.
 
 ## 2. Tree
 - Header: `TREE · <SITE>` (12, 600, uppercase, 0.06 em, `#8E979C`).

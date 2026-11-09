@@ -821,5 +821,9 @@
     "deployAskMessage": "Чернетка «{flow}» замінить версію, що працює зараз.",
     "@deployAskMessage": {"placeholders": {"flow": {"type": "String"}}},
     "menuLanguage": "Мова",
-    "menuTheme": "Тема"
+    "menuTheme": "Тема",
+    "windowMinimize": "Згорнути",
+    "windowMaximize": "Розгорнути",
+    "windowRestore": "Відновити",
+    "windowClose": "Закрити вікно"
 }

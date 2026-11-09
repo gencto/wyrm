@@ -8,6 +8,7 @@ import '../overlays/account_menu.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
+import 'window_bar.dart';
 import 'wyrm_logo.dart';
 
 /// A site of the switcher.
@@ -87,6 +88,7 @@ class TopBar extends StatelessWidget {
     this.onTheme,
     this.compact = false,
     this.labels = const TopBarLabels(),
+    this.window = const WindowBarVm(),
     super.key,
   });
 
@@ -104,52 +106,59 @@ class TopBar extends StatelessWidget {
   final bool compact;
   final TopBarLabels labels;
 
+  /// The frameless window's side of the bar: room for its buttons, and
+  /// the bar as its drag area (docs/studio.md §7.1).
+  final WindowBarVm window;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
       height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: c.ground0,
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
-      child: Row(
-        spacing: compact ? 10 : 20,
-        children: [
-          WyrmLogo(showStudio: !compact),
-          // Site names and the route are user text: the switcher gives
-          // way before the buttons do.
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
-            child: _SiteSwitcher(vm: vm, onSite: onSite, compact: compact),
-          ),
-          if (!compact)
-            Flexible(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: _SearchBox(onTap: onSearch, hint: labels.search),
+      child: WindowBar(
+        vm: window,
+        padding: 16,
+        child: Row(
+          spacing: compact ? 10 : 20,
+          children: [
+            WyrmLogo(showStudio: !compact),
+            // Site names and the route are user text: the switcher gives
+            // way before the buttons do.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: _SiteSwitcher(vm: vm, onSite: onSite, compact: compact),
+            ),
+            if (!compact)
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: _SearchBox(onTap: onSearch, hint: labels.search),
+                ),
               ),
+            const Spacer(),
+            if (compact)
+              IconButton(
+                onPressed: onSearch,
+                icon: AppIcon('ui_search', color: c.text3),
+              ),
+            _ReviewButton(
+              count: vm.changes,
+              label: compact ? labels.reviewShort : labels.review,
+              reason: vm.reviewReason,
+              onTap: onReview,
             ),
-          const Spacer(),
-          if (compact)
-            IconButton(
-              onPressed: onSearch,
-              icon: AppIcon('ui_search', color: c.text3),
+            _Account(
+              vm: vm,
+              onLogOut: onLogOut,
+              onLanguage: onLanguage ?? (_) {},
+              onTheme: onTheme ?? (_) {},
             ),
-          _ReviewButton(
-            count: vm.changes,
-            label: compact ? labels.reviewShort : labels.review,
-            reason: vm.reviewReason,
-            onTap: onReview,
-          ),
-          _Account(
-            vm: vm,
-            onLogOut: onLogOut,
-            onLanguage: onLanguage ?? (_) {},
-            onTheme: onTheme ?? (_) {},
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -408,18 +417,18 @@ class _Account extends StatelessWidget {
         onTap: () {
           final box = context.findRenderObject()! as RenderBox;
           AccountMenu.show(
-              context,
-              at: box.localToGlobal(box.size.bottomRight(Offset.zero)),
-              vm: AccountMenuVm(
-                user: vm.user,
-                role: vm.role,
-                locale: vm.locale,
-                theme: vm.theme,
-              ),
-              onLanguage: onLanguage,
-              onTheme: onTheme,
-              onLogOut: onLogOut,
-            ).ignore();
+            context,
+            at: box.localToGlobal(box.size.bottomRight(Offset.zero)),
+            vm: AccountMenuVm(
+              user: vm.user,
+              role: vm.role,
+              locale: vm.locale,
+              theme: vm.theme,
+            ),
+            onLanguage: onLanguage,
+            onTheme: onTheme,
+            onLogOut: onLogOut,
+          ).ignore();
         },
         child: Container(
           width: 40,
