@@ -35,7 +35,7 @@ sequenceDiagram
 
     User->>UI: onView
     UI->>VM: onView()
-    alt sel != null && row != 'form'
+    alt sel != null
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.viewedField)
     end
