@@ -215,6 +215,16 @@ fn markup_that_does_not_parse_goes_again_as_plain_text_and_429_holds() {
         .expect("send");
     h.until("failed", |h| h.num("ops/failed") == 1);
     assert!(h.text("ops/error").contains("chat not found"));
+    // the token is in the request path: no error, value or log line carries it
+    let secret = TG_TOKEN.split(':').nth(1).unwrap();
+    assert!(
+        !h.logs.iter().any(|l| l.contains(secret)),
+        "a log line holds the token"
+    );
+    assert!(
+        !format!("{:?}", h.values).contains(secret),
+        "a value holds the token"
+    );
 }
 
 #[test]
