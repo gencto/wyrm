@@ -29,7 +29,7 @@ pub struct Inbox {
 impl Inbox {
     fn new(cap: usize, overflow: Overflow) -> Arc<Self> {
         Arc::new(Self {
-            q: Mutex::new(VecDeque::with_capacity(cap.min(1024))),
+            q: Mutex::new(VecDeque::new()),
             data: Notify::new(),
             space: Notify::new(),
             cap,
@@ -77,6 +77,11 @@ impl Inbox {
             }
             wait.await;
         }
+    }
+
+    /// Nothing waits in the queue.
+    fn is_empty(&self) -> bool {
+        self.lock().is_empty()
     }
 
     async fn pop(&self) -> (String, Msg) {
@@ -139,7 +144,9 @@ impl Running {
 /// Start `def`. `restored`: states of unchanged nodes (same id and hash).
 /// `io_for(node)` builds each node's I/O handle. A node panic is reported
 /// on `panics` and stops this run. `wasm` nodes load from `artifacts`. The node
-/// tasks record into `probe` while a watch holds it open (ADR 0038 §3).
+/// tasks record into `probe` while a watch holds it open (ADR 0038 §3). `mode`: a deployed
+/// flow, or a preview whose sinks only report (ADR 0038 §5).
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     def: &FlowDef,
     ports: &BTreeMap<String, Ports>,
@@ -148,6 +155,7 @@ pub fn start(
     panics: mpsc::UnboundedSender<String>,
     artifacts: Option<&Artifacts>,
     probe: Arc<Probe>,
+    mode: &nodes::Mode,
 ) -> Result<Running, String> {
     let inboxes: BTreeMap<String, Arc<Inbox>> = def
         .nodes
@@ -188,7 +196,7 @@ pub fn start(
     let (flush, flush_rx) = watch::channel(0u64);
     let mut built: Vec<(String, u32, Box<dyn Node>)> = Vec::new();
     for (id, n) in &def.nodes {
-        let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts)?;
+        let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts, mode)?;
         if let Some((hash, st)) = restored.get(id) {
             if *hash == n.hash {
                 node.restore(st);
@@ -253,9 +261,17 @@ async fn run_node(
         let _ = panics.send(format!("nodes.{id}: panic in start"));
         return;
     }
-    let _alive = Alive::new(&probe, &id);
+    // asks from here on are seen: an ask sent once this task is alive is never missed
     let mut asks = probe.asks();
     asks.borrow_and_update();
+    // the operands' constants are the inputs' values from the start
+    for (port, v) in node.seeds() {
+        probe.record(&id, Some((&port, &v, Quality::Good)), &[], None);
+    }
+    let _alive = Alive::new(&probe, &id);
+    // An ask is answered once the inbox is empty, so what start queued (a variable's
+    // value) is recorded and routed before the answer (a preview's snapshot has it).
+    let mut pending_ask: Option<u64> = None;
     let statics = probe.statics(&id);
     // The parameters' change counter as their echo outputs and the recorder last saw it.
     let rev_now = |node: &dyn Node| node.live_params().map(|(r, _)| r);
@@ -276,19 +292,18 @@ async fn run_node(
                 echoed.insert(p.clone(), v);
             }
         }
-        if probe.on() {
-            probe.record(&id, None, &out.0, None);
-        }
+        probe.record(&id, None, &out.0, None);
         route(&routes, out).await;
     }
-    let mut tick = node.tick_every().map(|p| {
-        let mut iv = tokio::time::interval(p);
+    let clock = |p: std::time::Duration, first: tokio::time::Instant| {
+        let mut iv = tokio::time::interval_at(first, p);
         iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         iv
-    });
+    };
+    let mut period = node.tick_every();
+    let mut tick = period.map(|p| clock(p, tokio::time::Instant::now()));
     loop {
         let mut out = Out::default();
-        let mut inbound = None;
         let ok = tokio::select! {
             (port, m) = inbox.pop() => {
                 if !port.starts_with("__") {
@@ -296,9 +311,8 @@ async fn run_node(
                     if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
                         out.emit(&port, m.clone());
                     }
-                    if probe.on() {
-                        inbound = Some((port.clone(), m.v.clone(), m.q));
-                    }
+                    // the input's slot, before the node takes the sample (no copy of it)
+                    probe.record(&id, Some((&port, &m.v, m.q)), &[], None);
                 }
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.input(&port, m, &io, &mut out))).is_ok()
             }
@@ -306,9 +320,7 @@ async fn run_node(
                 std::panic::catch_unwind(AssertUnwindSafe(|| node.tick(now_us(), &mut out))).is_ok()
             }
             Ok(()) = asks.changed() => {
-                let gen = *asks.borrow_and_update();
-                probe.answer(&id, gen, node.live_params().map(|(_, m)| m));
-                rec_rev = rev_now(node.as_ref());
+                pending_ask = Some(*asks.borrow_and_update());
                 true
             }
             _ = flush.changed() => { save(node.as_ref()); true }
@@ -335,16 +347,29 @@ async fn run_node(
                 }
             }
         }
-        if probe.on() {
-            let live = node.live_params().filter(|(r, _)| Some(*r) != rec_rev);
-            if let Some((r, _)) = live {
-                rec_rev = Some(r);
-            }
-            if inbound.is_some() || !out.0.is_empty() || live.is_some() {
-                probe.record(&id, inbound, &out.0, live.map(|(_, m)| m));
-            }
+        // the last sample of every port, watched or not (spec 06 0.2.18)
+        let live = node.live_params().filter(|(r, _)| Some(*r) != rec_rev);
+        if let Some((r, _)) = live {
+            rec_rev = Some(r);
+        }
+        if !out.0.is_empty() || live.is_some() {
+            probe.record(&id, None, &out.0, live.map(|(_, m)| m));
         }
         route(&routes, out).await;
+        // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,
+        // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
+        let now_every = node.tick_every();
+        if now_every != period {
+            period = now_every;
+            tick = period.map(|p| clock(p, tokio::time::Instant::now() + p));
+        }
+        if let Some(gen) = pending_ask {
+            if inbox.is_empty() {
+                pending_ask = None;
+                probe.answer(&id, gen, node.live_params().map(|(_, m)| m));
+                rec_rev = rev_now(node.as_ref());
+            }
+        }
     }
 }
 

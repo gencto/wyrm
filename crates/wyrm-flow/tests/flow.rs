@@ -316,6 +316,16 @@ fn compiler_checks() {
     );
     let e = def::compile(&with(s("left"))).unwrap_err();
     assert!(e.0.starts_with("layout.sum"), "{e}");
+    // at most MAX_NODES nodes (step 8): each is a task and an inbox
+    let many = |n: usize| {
+        let nodes = (0..n)
+            .map(|i| (format!("n{i}"), map(&[("type", s("not"))])))
+            .collect();
+        map(&[("id", s("many")), ("nodes", Value::Map(nodes))])
+    };
+    assert!(def::compile(&many(def::MAX_NODES)).is_ok());
+    let e = def::compile(&many(def::MAX_NODES + 1)).unwrap_err();
+    assert!(e.0.starts_with("nodes: 1001 nodes > 1000"), "{e}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -899,9 +909,9 @@ async fn watch_streams_live_values() {
             assert_eq!(pair[1], Value::UInt(0), "quality good");
             seen_in = true;
         }
-        // the wired echo goes out, the unwired ones are never built
+        // the outputs and the wired echo go out, the unwired echoes are never built
         for k in keys(at(&row, &["nodes", "r", "out"])) {
-            assert!(["out", "in"].contains(&k.as_str()), "r.{k}");
+            assert!(["out", "text", "in"].contains(&k.as_str()), "r.{k}");
         }
         if at(&row, &["nodes", "a"]).is_some() {
             assert_eq!(keys(at(&row, &["nodes", "a", "out"])), ["out"]);
@@ -1115,5 +1125,500 @@ async fn watch_needs_the_rights_on_the_command_targets() {
         .unwrap()
         .unwrap();
     assert_eq!(at(&snap, &["snapshot"]), Some(&Value::Bool(true)));
+    env.stop().await;
+}
+
+/// Spec 06 0.2.18 (the demo's `ahu2_ctl`): variables send once at deploy; `ports` long after,
+/// with no watch ever opened, still shows what they sent and what `concat` made of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn ports_show_what_was_sent_before_any_watch() {
+    let env = Env::start("from-start").await;
+    let def = map(&[
+        ("id", s("ahu")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                ("s3", map(&[("type", s("string")), ("value", s("AHU-"))])),
+                (
+                    "n",
+                    map(&[("type", s("number")), ("value", Value::UInt(2))]),
+                ),
+                ("c", map(&[("type", s("concat"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[edge("s3.out", "c.in.0"), edge("n.out", "c.in.1")]),
+        ),
+    ]);
+    env.deploy(def).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let snap = env
+        .client
+        .invoke_one(&format!("wy/{SITE}/dataflows/ahu"), "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    assert_eq!(
+        at(&snap, &["nodes", "s3", "out", "out"]),
+        Some(&pair(s("AHU-")))
+    );
+    assert_eq!(
+        at(&snap, &["nodes", "c", "in", "in.0"]),
+        Some(&pair(s("AHU-")))
+    );
+    assert_eq!(
+        at(&snap, &["nodes", "c", "out", "out"]),
+        Some(&pair(s("AHU-2")))
+    );
+    env.stop().await;
+}
+
+/// Spec 06 0.2.19 and ADR 0032's rule: operand constants are the inputs' values from the start
+/// (`ports` shows them), but they calculate nothing, so a deploy never fires the `set` they
+/// feed; the first real sample does.
+#[tokio::test(flavor = "multi_thread")]
+async fn operand_constants_never_fire_a_command_at_deploy() {
+    let env = Env::start("consts").await;
+    let spy = Spy::on(&env.session).await;
+    let def = |version: u64, bound: bool| {
+        let mut nodes = vec![
+            (
+                "sum",
+                map(&[
+                    ("type", s("add")),
+                    (
+                        "values",
+                        map(&[("in.0", Value::UInt(1)), ("in.1", Value::UInt(2))]),
+                    ),
+                ]),
+            ),
+            (
+                "w",
+                map(&[("type", s("set")), ("path", s("downstream/spy/x"))]),
+            ),
+        ];
+        let mut edges = vec![edge("sum.out", "w.in")];
+        if bound {
+            nodes.push((
+                "v",
+                map(&[("type", s("number")), ("value", Value::UInt(5))]),
+            ));
+            edges.push(edge("v.out", "sum.in.1"));
+        }
+        let nodes: Vec<(&str, Value)> = nodes;
+        map(&[
+            ("id", s("consts")),
+            ("version", Value::UInt(version)),
+            ("nodes", map(&nodes)),
+            ("edges", arr(&edges)),
+            ("permissions", map(&[("maxperm", s("write"))])),
+        ])
+    };
+    env.deploy(def(1, false)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(spy.commands(), 0, "a constant fired a command");
+    let snap = env
+        .client
+        .invoke_one(&format!("wy/{SITE}/dataflows/consts"), "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap();
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    assert_eq!(
+        at(&snap, &["nodes", "sum", "in", "in.0"]),
+        Some(&pair(Value::UInt(1)))
+    );
+    assert_eq!(at(&snap, &["nodes", "sum", "out"]), Some(&map(&[])));
+    // a binding wins: the variable's 5 replaces the constant 2 and calculates 1 + 5
+    env.deploy(def(2, true)).await.unwrap();
+    wait("the bound sum is written", || {
+        (spy.commands() >= 1).then_some(())
+    })
+    .await;
+    env.stop().await;
+}
+
+/// Spec 06 0.2.17: a parameter on its port changes the node's clock: a timer of one minute
+/// whose `period_ms` a variable sets to 20 ticks many times a second.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bound_period_changes_the_clock() {
+    let env = Env::start("bound-period").await;
+    let def = map(&[
+        ("id", s("clock")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "p",
+                    map(&[("type", s("number")), ("value", Value::UInt(20))]),
+                ),
+                (
+                    "t",
+                    map(&[("type", s("timer")), ("period_ms", Value::UInt(60_000))]),
+                ),
+                ("n", map(&[("type", s("publish")), ("node", s("n"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[edge("p.out", "t.in.period_ms"), edge("t.out", "n.in")]),
+        ),
+    ]);
+    env.deploy(def).await.unwrap();
+    wait("ticks at 20 ms", || {
+        env.last("clock/nodes/n")
+            .filter(|s| s.v.as_f64().is_some_and(|n| n >= 10.0))
+    })
+    .await;
+    env.stop().await;
+}
+
+// ---------- preview (ADR 0038 §5) ----------
+
+/// A stand-in link at `downstream/spy` that counts every command query it gets (`~set`,
+/// `~act/*`): the only queryable on its keys, so the count is exact.
+struct Spy {
+    count: Arc<std::sync::atomic::AtomicUsize>,
+    _q: zenoh::query::Queryable<()>,
+}
+
+impl Spy {
+    async fn on(session: &zenoh::Session) -> Self {
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n = count.clone();
+        let q = session
+            .declare_queryable(format!("wy/{SITE}/downstream/spy/**"))
+            .callback(move |q| {
+                let k = q.key_expr().as_str();
+                if k.contains("/~set") || k.contains("/~act/") {
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            })
+            .await
+            .unwrap();
+        Self { count, _q: q }
+    }
+
+    fn commands(&self) -> usize {
+        self.count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// The owner's case: two variables into `concat` into `set`; a source through `round` into
+/// `invoke` and `publish`. Every command aims at the spy.
+fn draft() -> Value {
+    map(&[
+        ("id", s("pv")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "a",
+                    map(&[("type", s("number")), ("value", Value::UInt(2))]),
+                ),
+                ("b", map(&[("type", s("string")), ("value", s("x"))])),
+                ("c", map(&[("type", s("concat"))])),
+                (
+                    "w",
+                    map(&[
+                        ("type", s("set")),
+                        ("path", s("downstream/spy/x")),
+                        ("on", s("any")),
+                    ]),
+                ),
+                (
+                    "src",
+                    map(&[("type", s("subscribe")), ("key", s("downstream/mock/p0"))]),
+                ),
+                (
+                    "r",
+                    map(&[("type", s("round")), ("precision", Value::UInt(1))]),
+                ),
+                (
+                    "go",
+                    map(&[
+                        ("type", s("invoke")),
+                        ("path", s("downstream/spy")),
+                        ("action", s("go")),
+                        ("args", map(&[("v", s("$in"))])),
+                    ]),
+                ),
+                ("show", map(&[("type", s("publish")), ("node", s("show"))])),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[
+                edge("a.out", "c.in.0"),
+                edge("b.out", "c.in.1"),
+                edge("c.out", "w.in"),
+                edge("src.out", "r.in"),
+                edge("r.out", "go.in"),
+                edge("r.out", "show.in"),
+            ]),
+        ),
+        ("permissions", map(&[("maxperm", s("write"))])),
+    ])
+}
+
+fn node_name(m: &std::collections::BTreeMap<String, Value>) -> String {
+    match m.get("node") {
+        Some(Value::Str(n)) => n.clone(),
+        _ => String::new(),
+    }
+}
+
+fn sinks_of(row: &Value) -> Vec<std::collections::BTreeMap<String, Value>> {
+    match at(row, &["sinks"]) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| match v {
+                Value::Map(m) => Some(m.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A preview streams `watch`'s rows from the start (the variables' start values in the
+/// snapshot), reports what its sinks would do, and sends no `~set` or `~act` query at all;
+/// the same definition deployed does (the control).
+#[tokio::test(flavor = "multi_thread")]
+async fn preview_runs_a_draft_and_writes_nothing() {
+    use std::collections::BTreeMap;
+    let env = Env::start("preview").await;
+    let spy = Spy::on(&env.session).await;
+    let root = format!("wy/{SITE}/dataflows");
+    let mut st = env
+        .client
+        .invoke(
+            &root,
+            "preview",
+            map(&[("def", draft()), ("max_hz", Value::UInt(10))]),
+        )
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(&Value::Bool(true)));
+    // recorded from the start: what the variables sent when they started
+    assert_eq!(
+        at(&first, &["nodes", "a", "out", "out"]),
+        Some(&arr(&[Value::UInt(2), Value::UInt(0)]))
+    );
+    assert_eq!(
+        at(&first, &["nodes", "b", "out", "out"]),
+        Some(&arr(&[s("x"), Value::UInt(0)]))
+    );
+    assert_eq!(
+        keys(at(&first, &["nodes"])),
+        ["a", "b", "c", "go", "r", "show", "src", "w"]
+    );
+    // the sinks: what each would do, never done
+    let mut seen: BTreeMap<String, BTreeMap<String, Value>> = sinks_of(&first)
+        .into_iter()
+        .map(|m| (node_name(&m), m))
+        .collect();
+    let t0 = tokio::time::Instant::now();
+    while seen.len() < 3 && t0.elapsed() < Duration::from_secs(5) {
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        for m in sinks_of(&row) {
+            seen.insert(node_name(&m), m);
+        }
+    }
+    let w = &seen["w"];
+    assert_eq!(w["op"], s("set"));
+    assert_eq!(w["key"], s("wy/test/downstream/spy/x/~set"));
+    assert_eq!(w["value"], s("2x"));
+    let go = &seen["go"];
+    assert_eq!(go["op"], s("invoke"));
+    assert_eq!(go["key"], s("wy/test/downstream/spy/~act/go"));
+    assert!(matches!(&go["value"], Value::Map(m) if m["v"].as_f64().is_some()));
+    let show = &seen["show"];
+    assert_eq!(show["op"], s("publish"));
+    assert_eq!(show["key"], s("wy/test/dataflows/pv/nodes/show"));
+    // values flow on, nothing is written, nothing is in the tree
+    let t1 = tokio::time::Instant::now();
+    while t1.elapsed() < Duration::from_millis(1500) {
+        st.next().await.unwrap().unwrap().unwrap();
+    }
+    assert_eq!(spy.commands(), 0, "a preview sent a command");
+    assert!(env.last("pv/nodes/show").is_none());
+    let names: Vec<String> = env
+        .client
+        .children(&root)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert!(!names.contains(&"pv".to_owned()), "{names:?}");
+    // the control: the same definition deployed writes to the spy
+    env.deploy(draft()).await.unwrap();
+    wait("deployed commands", || (spy.commands() >= 2).then_some(())).await;
+    drop(st);
+    env.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn preview_checks_the_draft_and_the_rights() {
+    use wyrm_core::ptok::Grant;
+    use wyrm_core::status::StatusCode;
+    use wyrm_core::{Perm, Status};
+    let env = Env::start("preview-checks").await;
+    let root = format!("wy/{SITE}/dataflows");
+    let err = |c: WyrmClient, args: Value| {
+        let root = root.clone();
+        async move {
+            match c.invoke(&root, "preview", args).await {
+                Ok(mut st) => st.next().await.unwrap().unwrap_err(),
+                Err(e) => e,
+            }
+        }
+    };
+    // the compiler's message
+    let bad = map(&[
+        ("id", s("pv")),
+        ("nodes", map(&[("x", map(&[("type", s("nope"))]))])),
+    ]);
+    let e = err(env.client.clone(), map(&[("def", bad)])).await;
+    assert_eq!(e.status, StatusCode::Known(Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("nodes.x"), "{e}");
+    let e = err(
+        env.client.clone(),
+        map(&[("def", draft()), ("max_hz", Value::UInt(21))]),
+    )
+    .await;
+    assert_eq!(e.status, StatusCode::Known(Status::InvalidParameter), "{e}");
+    // a reader of the flows who may not read the targets
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let viewer = |grants: Vec<&str>| {
+        let tokens = SigningTokens::new(key.clone(), SITE)
+            .subject("user:viewer")
+            .max(Perm::Read)
+            .grants(
+                grants
+                    .into_iter()
+                    .map(|k| Grant {
+                        k: format!("wy/{SITE}/{k}"),
+                        p: Perm::Read,
+                    })
+                    .collect(),
+            );
+        WyrmClient::new(env.session.clone())
+            .with_tokens(Arc::new(tokens))
+            .with_timeout(Duration::from_secs(3))
+    };
+    let e = err(
+        viewer(vec!["dataflows/**", "downstream/mock/**"]),
+        map(&[("def", draft())]),
+    )
+    .await;
+    assert_eq!(e.status, StatusCode::Known(Status::PermissionDenied), "{e}");
+    // with read on the sources and the targets it runs: no `write` needed
+    let reader = viewer(vec!["dataflows/**", "downstream/**"]);
+    let mut st = reader
+        .invoke(&root, "preview", map(&[("def", draft())]))
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(&Value::Bool(true)));
+    // `nodes` narrows the rows, sinks included
+    let mut st = reader
+        .invoke(
+            &root,
+            "preview",
+            map(&[("def", draft()), ("nodes", arr(&[s("w")]))]),
+        )
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(keys(at(&first, &["nodes"])), ["w"]);
+    for m in sinks_of(&first) {
+        assert_eq!(m["node"], s("w"));
+    }
+    env.stop().await;
+}
+
+/// Two previews per subject (a third ends that subject's oldest), sixteen per site (`busy`).
+#[tokio::test(flavor = "multi_thread")]
+async fn preview_caps() {
+    use wyrm_core::status::StatusCode;
+    use wyrm_core::Status;
+    use wyrm_flow::preview::{PER_SITE, PER_SUBJECT};
+    let env = Env::start("preview-caps").await;
+    let root = format!("wy/{SITE}/dataflows");
+    let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
+    let as_user = |n: usize| {
+        WyrmClient::new(env.session.clone())
+            .with_tokens(Arc::new(
+                SigningTokens::new(key.clone(), SITE).subject(format!("user:u{n}")),
+            ))
+            .with_timeout(Duration::from_secs(3))
+    };
+    // blocks only: no sources, no targets
+    let small = map(&[
+        ("id", s("small")),
+        (
+            "nodes",
+            map(&[
+                (
+                    "a",
+                    map(&[("type", s("number")), ("value", Value::UInt(1))]),
+                ),
+                ("n", map(&[("type", s("not"))])),
+            ]),
+        ),
+        ("edges", arr(&[edge("a.out", "n.in")])),
+    ]);
+    let open = |c: WyrmClient| {
+        let (root, small) = (root.clone(), small.clone());
+        async move {
+            let mut st = c
+                .invoke(&root, "preview", map(&[("def", small)]))
+                .await
+                .unwrap();
+            let first = st.next().await.unwrap();
+            (st, first)
+        }
+    };
+    let u0 = as_user(0);
+    let (mut oldest, first) = open(u0.clone()).await;
+    first.unwrap();
+    let mut held = Vec::new();
+    for _ in 1..PER_SUBJECT {
+        let (st, first) = open(u0.clone()).await;
+        first.unwrap();
+        held.push(st);
+    }
+    // the same subject once more: its oldest ends
+    let (st, first) = open(u0.clone()).await;
+    first.unwrap();
+    held.push(st);
+    let ended = tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(r) = oldest.next().await {
+            r.unwrap();
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the subject's oldest preview ended");
+    // the site: other subjects up to the cap, then busy
+    let mut n = 1;
+    while held.len() < PER_SITE {
+        let (st, first) = open(as_user(n)).await;
+        first.unwrap();
+        held.push(st);
+        if held.len() % PER_SUBJECT == 0 {
+            n += 1;
+        }
+    }
+    let (_st, first) = open(as_user(99)).await;
+    let e = first.unwrap_err();
+    assert_eq!(e.status, StatusCode::Known(Status::Busy), "{e}");
     env.stop().await;
 }

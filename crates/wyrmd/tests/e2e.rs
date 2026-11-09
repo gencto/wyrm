@@ -3078,6 +3078,189 @@ async fn flow_watch_streams_live_values() {
     env.stop().await;
 }
 
+/// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
+/// reports the write, but nothing reaches the link (no audit record, the point never holds the
+/// value); the same draft deployed writes (the control).
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_preview_streams_a_draft_and_writes_nothing() {
+    let env = Env::start("flow-preview", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    let target = "downstream/mock/g1/p1";
+    let def = m(&[
+        ("id", s("draft")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                (
+                    "r",
+                    m(&[("type", s("round")), ("precision", Value::UInt(1))]),
+                ),
+                (
+                    "x",
+                    m(&[("type", s("number")), ("value", Value::UInt(4242))]),
+                ),
+                ("w", m(&[("type", s("set")), ("path", s(target))])),
+                (
+                    "go",
+                    m(&[
+                        ("type", s("invoke")),
+                        ("path", s("downstream/mock")),
+                        ("action", s("reset")),
+                    ]),
+                ),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "r.in"),
+                edge("x.out", "w.in"),
+                edge("x.out", "go.in"),
+            ]),
+        ),
+        ("permissions", m(&[("maxperm", s("write"))])),
+    ]);
+    // what reaches the mock: its audit records (raw keys, no `~val`) and the point's values
+    let audit = c
+        .session()
+        .declare_subscriber(format!("wy/{SITE}/sys/audit/mock"))
+        .await
+        .unwrap();
+    let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let held = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let point = format!("wy/{SITE}/{target}");
+    let (w2, h2, c2, p2) = (writes.clone(), held.clone(), c.clone(), point.clone());
+    let spy = tokio::spawn(async move {
+        let mut vals = c2.subscribe(&p2).await.unwrap();
+        loop {
+            tokio::select! {
+                smp = audit.recv_async() => match smp {
+                    Ok(smp) => {
+                        let rec = wyrm_core::codec::from_slice::<Value>(&smp.payload().to_bytes());
+                        if let Ok(Value::Map(r)) = rec {
+                            let op = r.get("op").cloned().unwrap_or(Value::Null);
+                            if op == Value::from("set") || op == Value::from("invoke") {
+                                w2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    Err(_) => return,
+                },
+                ev = vals.next() => match ev {
+                    Some(wyrm_client::ValEvent::Sample { sample, .. }) => {
+                        if sample.v.as_f64() == Some(4242.0) {
+                            h2.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    Some(_) => {}
+                    None => return,
+                },
+            }
+        }
+    });
+    let flows = format!("wy/{SITE}/dataflows");
+    let mut st = c
+        .invoke(
+            &flows,
+            "preview",
+            m(&[("def", def.clone()), ("max_hz", Value::UInt(10))]),
+        )
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(Value::Bool(true)));
+    assert_eq!(
+        at(&first, &["nodes", "x", "out", "out"]),
+        Some(Value::Array(vec![Value::UInt(4242), Value::UInt(0)])),
+        "the variable's start value is in the snapshot"
+    );
+    // the mock's values flow through the draft, and the write is reported, not done
+    let (mut flowed, mut reported, mut invoked) = (false, false, false);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut rows = vec![first];
+    while !(flowed && reported && invoked) {
+        assert!(tokio::time::Instant::now() < deadline, "rows: {rows:?}");
+        let row = rows.last().cloned().unwrap();
+        flowed |= at(&row, &["nodes", "r", "out", "out"]).is_some();
+        if let Some(Value::Array(sinks)) = at(&row, &["sinks"]) {
+            reported |= sinks.iter().any(|x| {
+                at(x, &["op"]) == Some(s("set"))
+                    && at(x, &["key"]) == Some(Value::from(format!("{point}/~set")))
+                    && at(x, &["value"]).and_then(|v| v.as_f64()) == Some(4242.0)
+            });
+            invoked |= sinks.iter().any(|x| {
+                at(x, &["op"]) == Some(s("invoke"))
+                    && at(x, &["key"])
+                        == Some(Value::from(format!("wy/{SITE}/downstream/mock/~act/reset")))
+            });
+        }
+        rows.push(st.next().await.unwrap().unwrap().unwrap());
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        writes.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a command reached a link"
+    );
+    assert!(
+        !held.load(std::sync::atomic::Ordering::SeqCst),
+        "the point was written"
+    );
+    drop(st);
+    // the control: deployed, the same draft writes the point
+    let proofs = wyrm_flow::command_targets(&def, SITE)
+        .unwrap()
+        .into_iter()
+        .map(|t| {
+            let p = c.proof(&t).unwrap();
+            (t, Value::Bytes(p))
+        })
+        .collect();
+    c.invoke_one(
+        &flows,
+        "deploy",
+        m(&[("def", def), ("proofs", Value::Map(proofs))]),
+    )
+    .await
+    .unwrap();
+    eventually("the deployed draft writes", 10, || {
+        let (w, h) = (writes.clone(), held.clone());
+        async move {
+            (w.load(std::sync::atomic::Ordering::SeqCst) > 0
+                && h.load(std::sync::atomic::Ordering::SeqCst))
+            .then_some(())
+        }
+    })
+    .await;
+    spy.abort();
+    env.stop().await;
+}
+
 /// Iteration 4: an edge broker connects to a central broker over QUIC with
 /// mTLS, each side trusting the other's CA only on that link. A client of
 /// the central broker lists and reads the edge's links; it cannot write.

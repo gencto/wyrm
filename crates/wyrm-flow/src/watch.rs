@@ -2,10 +2,11 @@
 //! `dataflows/<id>/~act/ports` (one snapshot).
 //!
 //! Each flow has one [`Probe`]. Its node tasks record the last sample of every port and the
-//! effective parameters into it, but only while a watch (or a `ports` call) holds it open: with
-//! none open, a node task checks one atomic and does nothing more. So a port that had no sample
-//! since recording began is absent from a row. The values stay [`KEEP`] after the last watch
-//! closes, so an editor that opens its watch again at once keeps them.
+//! effective parameters into it from the start, watched or not (spec 06 0.2.18): one slot per
+//! port that had a sample, in a record of its own per node, so a node task locks only its own
+//! node's record and never waits for another node. A slot is overwritten in place: a number or
+//! a bool costs no allocation, a text, list or map is copied. Watches only wake on changes
+//! while one is open. So a variable that sent once at deploy shows in every later snapshot.
 //!
 //! Rows (CBOR maps, text keys; `[v, q]` with `q` the quality code):
 //! 1. `{t, snapshot: true, nodes: {<node>: {in: {<port>: [v, q]}, out: {…}, params: {<p>: v}}}}`;
@@ -16,10 +17,10 @@
 //!    remove, or when the engine stops.
 
 use crate::def::FlowDef;
-use crate::nodes::Msg;
+use crate::nodes::{Msg, SinkOp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -41,8 +42,6 @@ pub const HEARTBEAT: Duration = Duration::from_secs(10);
 pub const TTL: Duration = Duration::from_secs(30 * 60);
 /// The action's `timeout_ms`: the gateway's idle wait per reply is this plus 5 s.
 pub const TIMEOUT_MS: u32 = 30_000;
-/// How long recorded values stay after the last watch closed.
-pub const KEEP: Duration = Duration::from_secs(5);
 /// How long an opening watch waits for the node tasks to give their parameters.
 const ASK_WAIT: Duration = Duration::from_millis(200);
 
@@ -76,25 +75,30 @@ struct NodeRec {
     params: BTreeMap<String, ParamRec>,
 }
 
-#[derive(Debug, Default)]
-struct Data {
+/// What a preview's sink would have done last (ADR 0038 §5).
+#[derive(Debug, Clone)]
+struct SinkRec {
+    op: SinkOp,
+    key: String,
+    v: Value,
     seq: u64,
-    nodes: BTreeMap<String, NodeRec>,
-    /// When the last watch closed.
-    idle_since: Option<Instant>,
-    /// The node tasks that run, and the last request for parameters each answered.
-    alive: BTreeMap<String, u64>,
 }
 
-impl Data {
-    fn node(&mut self, id: &str) -> &mut NodeRec {
-        self.nodes.entry(id.to_owned()).or_default()
-    }
+#[derive(Debug, Default)]
+struct Data {
+    /// A preview's sinks: the latest per node.
+    sinks: BTreeMap<String, SinkRec>,
+    /// The node tasks that run, and the last request for parameters each answered.
+    alive: BTreeMap<String, u64>,
 }
 
 /// The recorder of one flow's live values, shared by its node tasks and its watches.
 pub struct Probe {
     open: AtomicUsize,
+    /// The last change's number: every record takes the next one.
+    seq: AtomicU64,
+    /// One record per node of the flow, each behind its own lock.
+    nodes: BTreeMap<String, Mutex<NodeRec>>,
     data: Mutex<Data>,
     /// The record's `seq`, for the watches to wake on.
     wake: watch::Sender<u64>,
@@ -114,6 +118,12 @@ impl Probe {
             .collect();
         Arc::new(Self {
             open: AtomicUsize::new(0),
+            seq: AtomicU64::new(0),
+            nodes: def
+                .nodes
+                .keys()
+                .map(|id| (id.clone(), Mutex::new(NodeRec::default())))
+                .collect(),
             data: Mutex::new(Data::default()),
             wake: watch::channel(0).0,
             ask: watch::channel(0).0,
@@ -126,7 +136,19 @@ impl Probe {
         self.data.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Whether node tasks record: a watch holds the probe open.
+    /// The record of `node`, locked; `None` for a node the flow does not have.
+    fn node(&self, id: &str) -> Option<std::sync::MutexGuard<'_, NodeRec>> {
+        self.nodes
+            .get(id)
+            .map(|m| m.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn next_seq(&self) -> u64 {
+        self.seq.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Whether a watch (or a `ports` call, or a preview) holds the probe open: only then do
+    /// records wake anyone.
     pub fn on(&self) -> bool {
         self.open.load(Ordering::Relaxed) > 0
     }
@@ -163,16 +185,14 @@ impl Probe {
 
     /// A node task answers request `gen` with its live parameters (`None`: its config).
     pub(crate) fn answer(&self, node: &str, gen: u64, params: Option<&BTreeMap<String, Value>>) {
-        let changed = {
-            let mut d = self.lock();
-            if let Some(g) = d.alive.get_mut(node) {
-                *g = gen;
-            }
-            match params {
-                Some(p) => record_params(&mut d, node, p),
-                None => false,
-            }
+        // the parameters first: an asker that sees the answer sees them too
+        let changed = match (params, self.node(node)) {
+            (Some(p), Some(mut n)) => self.record_params(&mut n, p),
+            _ => false,
         };
+        if let Some(g) = self.lock().alive.get_mut(node) {
+            *g = gen;
+        }
         if changed {
             self.bump();
         }
@@ -183,48 +203,133 @@ impl Probe {
     pub(crate) fn record(
         &self,
         node: &str,
-        input: Option<(String, Value, Quality)>,
+        input: Option<(&str, &Value, Quality)>,
         outs: &[(String, Msg)],
         params: Option<&BTreeMap<String, Value>>,
     ) {
-        let changed = {
-            let mut d = self.lock();
-            let mut changed = false;
-            if let Some((port, v, q)) = input {
-                changed |= record_port(&mut d, node, true, &port, v, q);
-            }
-            for (port, m) in outs {
-                changed |= record_port(&mut d, node, false, port, m.v.clone(), m.q);
-            }
-            if let Some(p) = params {
-                changed |= record_params(&mut d, node, p);
-            }
-            changed
+        let Some(mut n) = self.node(node) else {
+            return;
         };
+        let mut changed = false;
+        if let Some((port, v, q)) = input {
+            changed |= self.record_port(&mut n, true, port, v, q);
+        }
+        for (port, m) in outs {
+            changed |= self.record_port(&mut n, false, port, &m.v, m.q);
+        }
+        if let Some(p) = params {
+            changed |= self.record_params(&mut n, p);
+        }
+        drop(n);
         if changed {
             self.bump();
         }
     }
 
-    fn bump(&self) {
-        let seq = self.lock().seq;
-        self.wake.send_replace(seq);
+    /// The slot of `port` takes `v`, in place; `false` when it held that already.
+    fn record_port(&self, n: &mut NodeRec, input: bool, port: &str, v: &Value, q: Quality) -> bool {
+        let m = if input { &mut n.ins } else { &mut n.outs };
+        let seq = match m.get_mut(port) {
+            Some(x) if x.v == *v && x.q == q => return false,
+            Some(x) => {
+                let seq = self.next_seq();
+                x.v.clone_from(v);
+                x.q = q;
+                x.seq = seq;
+                seq
+            }
+            None => {
+                let seq = self.next_seq();
+                m.insert(
+                    port.to_owned(),
+                    PortRec {
+                        v: v.clone(),
+                        q,
+                        seq,
+                    },
+                );
+                seq
+            }
+        };
+        n.seq = seq;
+        true
     }
 
-    /// Hold the probe open: node tasks record until the guard drops.
-    pub fn hold(self: &Arc<Self>) -> Hold {
-        let first = self.open.fetch_add(1, Ordering::Relaxed) == 0;
-        if first {
-            let mut d = self.lock();
-            // values older than the last watch may be stale: start again
-            if d.idle_since.is_some_and(|t| t.elapsed() > KEEP) {
-                for n in d.nodes.values_mut() {
-                    n.ins.clear();
-                    n.outs.clear();
+    fn record_params(&self, n: &mut NodeRec, params: &BTreeMap<String, Value>) -> bool {
+        let mut seq = None;
+        for (p, v) in params {
+            if n.params.get(p).is_some_and(|x| &x.v == v) {
+                continue;
+            }
+            let s = *seq.get_or_insert_with(|| self.next_seq());
+            match n.params.get_mut(p) {
+                Some(x) => {
+                    x.v.clone_from(v);
+                    x.seq = s;
+                }
+                None => {
+                    n.params.insert(
+                        p.clone(),
+                        ParamRec {
+                            v: v.clone(),
+                            seq: s,
+                        },
+                    );
                 }
             }
-            d.idle_since = None;
         }
+        if let Some(s) = seq {
+            n.seq = s;
+        }
+        seq.is_some()
+    }
+
+    /// A preview's sink `node` would do `op` on `key` with `v` (the latest per node is kept).
+    pub(crate) fn sink(&self, node: &str, op: SinkOp, key: &str, v: Value) {
+        {
+            let seq = self.next_seq();
+            let mut d = self.lock();
+            d.sinks.insert(
+                node.to_owned(),
+                SinkRec {
+                    op,
+                    key: key.to_owned(),
+                    v,
+                    seq,
+                },
+            );
+        }
+        self.bump();
+    }
+
+    /// Wake the open watches; with none open there is nobody to wake.
+    fn bump(&self) {
+        if self.on() {
+            self.wake.send_replace(self.seq.load(Ordering::Relaxed));
+        }
+    }
+
+    /// Wait (at most `max`) until `nodes` node tasks run and the flow is quiet: a round of
+    /// asks in which no node recorded anything. Each task answers an ask once its inbox is
+    /// empty, so what the nodes sent at start (a variable's value, a parameter's echo) is in
+    /// the next snapshot. A busy flow (a source at 20 Hz) is never quiet: `max` bounds it.
+    pub async fn settle(&self, nodes: usize, max: Duration) {
+        let deadline = Instant::now() + max;
+        while self.lock().alive.len() < nodes && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        while Instant::now() < deadline {
+            let before = self.seq.load(Ordering::Relaxed);
+            self.ask_params().await;
+            if self.seq.load(Ordering::Relaxed) == before {
+                return;
+            }
+        }
+    }
+
+    /// Hold the probe open: records wake the watches until the guard drops.
+    pub fn hold(self: &Arc<Self>) -> Hold {
+        self.open.fetch_add(1, Ordering::Relaxed);
         Hold(self.clone())
     }
 
@@ -248,26 +353,29 @@ impl Probe {
     /// Row 1: every recorded port and every parameter of the nodes in `only` (all: `None`),
     /// and the record's `seq`.
     fn snapshot(&self, only: Option<&BTreeSet<String>>) -> (Value, u64) {
-        let d = self.lock();
+        // the number before the records are read: a change while they are read comes again
+        // in the next row, never lost
+        let seen = self.seq.load(Ordering::Relaxed);
         let mut nodes = BTreeMap::new();
         for (id, statics) in &self.statics {
             if only.is_some_and(|o| !o.contains(id)) {
                 continue;
             }
-            let rec = d.nodes.get(id);
+            let rec = self.node(id);
             let ports = |pick: fn(&NodeRec) -> &BTreeMap<String, PortRec>| {
                 Value::Map(
-                    rec.map(|r| {
-                        pick(r)
-                            .iter()
-                            .map(|(p, x)| (p.clone(), sample(&x.v, x.q)))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                    rec.as_deref()
+                        .map(|r| {
+                            pick(r)
+                                .iter()
+                                .map(|(p, x)| (p.clone(), sample(&x.v, x.q)))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 )
             };
             let mut params = statics.clone();
-            if let Some(r) = rec {
+            if let Some(r) = rec.as_deref() {
                 for (p, x) in &r.params {
                     params.insert(p.clone(), x.v.clone());
                 }
@@ -281,16 +389,22 @@ impl Probe {
                 ])),
             );
         }
-        (row(Some(true), nodes), d.seq)
+        let mut r = row(Some(true), nodes);
+        add_sinks(&mut r, &self.lock(), 0, only);
+        (r, seen)
     }
 
     /// Row 2: what changed after `since`, or `None` when nothing did (in `only`); and the
     /// record's `seq`.
     fn changes(&self, since: u64, only: Option<&BTreeSet<String>>) -> (Option<Value>, u64) {
-        let d = self.lock();
+        let seen = self.seq.load(Ordering::Relaxed);
         let mut nodes = BTreeMap::new();
-        for (id, r) in &d.nodes {
-            if r.seq <= since || only.is_some_and(|o| !o.contains(id)) {
+        for (id, r) in &self.nodes {
+            if only.is_some_and(|o| !o.contains(id)) {
+                continue;
+            }
+            let r = r.lock().unwrap_or_else(|p| p.into_inner());
+            if r.seq <= since {
                 continue;
             }
             let ports = |m: &BTreeMap<String, PortRec>| -> BTreeMap<String, Value> {
@@ -316,51 +430,49 @@ impl Probe {
             }
             nodes.insert(id.clone(), Value::Map(n));
         }
-        let out = (!nodes.is_empty()).then(|| row(Some(false), nodes));
-        (out, d.seq)
+        let mut r = row(Some(false), nodes);
+        // a row of changes: nodes that changed, or sinks that acted
+        let out = (add_sinks(&mut r, &self.lock(), since, only) || has_nodes(&r)).then_some(r);
+        (out, seen)
     }
 }
 
-/// Keeps a [`Probe`] recording; the last one to drop starts the [`KEEP`] time.
+fn has_nodes(row: &Value) -> bool {
+    matches!(row, Value::Map(m) if matches!(m.get("nodes"), Some(Value::Map(n)) if !n.is_empty()))
+}
+
+/// Adds `sinks: [{node, op, key, value}]` to `row`: each sink of a node in `only` (all: `None`)
+/// that acted after `since`, the latest per node. `false` when there is none (no key added).
+fn add_sinks(row: &mut Value, d: &Data, since: u64, only: Option<&BTreeSet<String>>) -> bool {
+    let list: Vec<Value> = d
+        .sinks
+        .iter()
+        .filter(|(n, s)| s.seq > since && only.is_none_or(|o| o.contains(*n)))
+        .map(|(n, s)| {
+            Value::Map(BTreeMap::from([
+                ("node".to_owned(), Value::from(n.as_str())),
+                ("op".to_owned(), Value::from(s.op.name())),
+                ("key".to_owned(), Value::from(s.key.as_str())),
+                ("value".to_owned(), s.v.clone()),
+            ]))
+        })
+        .collect();
+    if list.is_empty() {
+        return false;
+    }
+    if let Value::Map(m) = row {
+        m.insert("sinks".into(), Value::Array(list));
+    }
+    true
+}
+
+/// Keeps a [`Probe`] open: its records wake the watches while one is held.
 pub struct Hold(Arc<Probe>);
 
 impl Drop for Hold {
     fn drop(&mut self) {
-        if self.0.open.fetch_sub(1, Ordering::Relaxed) == 1 {
-            self.0.lock().idle_since = Some(Instant::now());
-        }
+        self.0.open.fetch_sub(1, Ordering::Relaxed);
     }
-}
-
-fn record_port(d: &mut Data, node: &str, input: bool, port: &str, v: Value, q: Quality) -> bool {
-    let seq = d.seq + 1;
-    let n = d.node(node);
-    let m = if input { &mut n.ins } else { &mut n.outs };
-    if m.get(port).is_some_and(|x| x.v == v && x.q == q) {
-        return false;
-    }
-    m.insert(port.to_owned(), PortRec { v, q, seq });
-    n.seq = seq;
-    d.seq = seq;
-    true
-}
-
-fn record_params(d: &mut Data, node: &str, params: &BTreeMap<String, Value>) -> bool {
-    let seq = d.seq + 1;
-    let n = d.node(node);
-    let mut changed = false;
-    for (p, v) in params {
-        if n.params.get(p).is_some_and(|x| &x.v == v) {
-            continue;
-        }
-        n.params.insert(p.clone(), ParamRec { v: v.clone(), seq });
-        changed = true;
-    }
-    if changed {
-        n.seq = seq;
-        d.seq = seq;
-    }
-    changed
 }
 
 /// `[v, q]`.
@@ -443,13 +555,14 @@ pub async fn ports(probe: &Arc<Probe>, only: Option<&BTreeSet<String>>) -> Value
     probe.snapshot(only).0
 }
 
-/// Run one watch: send rows through `send` (`false`: the caller is gone) until it ends, and
-/// return its last row. `cancel` ends it at once (a newer watch of the same caller took its
-/// place).
+/// Run one watch: send rows through `send` (`false`: the caller is gone) until it ends after
+/// `ttl` ([`TTL`] for a watch), and return its last row. `cancel` ends it at once (a newer
+/// watch of the same caller took its place).
 pub async fn run<F, Fut>(
     probe: Arc<Probe>,
     only: Option<BTreeSet<String>>,
     period: Duration,
+    ttl: Duration,
     mut cancel: watch::Receiver<bool>,
     mut send: F,
 ) -> Option<Value>
@@ -469,7 +582,7 @@ where
     if !send(first).await {
         return None;
     }
-    let ttl = Instant::now() + TTL;
+    let ttl = Instant::now() + ttl;
     let mut last = Instant::now();
     // the earliest time the next row of changes may go
     let mut next = Instant::now();
@@ -520,10 +633,20 @@ where
     }
 }
 
-/// The open watches of a site, for the caps.
-#[derive(Default)]
+/// The open watches of a site, for the caps: at most `per_flow` on one flow and `per_site` in
+/// all ([`MAX_PER_FLOW`] and [`MAX_PER_SITE`] by default). Previews use it with the subject in
+/// place of the flow (`crate::preview`).
 pub struct Watches {
     inner: Mutex<Reg>,
+    per_flow: usize,
+    per_site: usize,
+    what: &'static str,
+}
+
+impl Default for Watches {
+    fn default() -> Self {
+        Self::with_caps(MAX_PER_FLOW, MAX_PER_SITE, "watches")
+    }
 }
 
 #[derive(Default)]
@@ -560,8 +683,25 @@ impl Drop for Ticket {
 }
 
 impl Watches {
+    /// A registry with these caps; `what` names its entries in a `busy` error.
+    pub fn with_caps(per_flow: usize, per_site: usize, what: &'static str) -> Self {
+        Self {
+            inner: Mutex::new(Reg::default()),
+            per_flow,
+            per_site,
+            what,
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Reg> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// End every registered entry (the engine stops).
+    pub fn cancel_all(&self) {
+        for e in self.lock().list.drain(..) {
+            e.cancel.send_replace(true);
+        }
     }
 
     /// Open watches on `flow` (all flows: `None`).
@@ -578,14 +718,15 @@ impl Watches {
     /// away without a word, and an editor opens its watch again on every start. A cap full of
     /// other callers' watches is `busy`.
     pub fn open(self: &Arc<Self>, flow: &str, sub: &str) -> Result<Ticket, LinkError> {
+        let (per_flow, per_site, noun) = (self.per_flow, self.per_site, self.what);
         let mut r = self.lock();
         let busy = |what: &str| {
             LinkError::new(
                 Status::Busy,
-                format!("{what}: no more watches (at most {MAX_PER_FLOW} per flow, {MAX_PER_SITE} per site)"),
+                format!("{what}: no more {noun} (at most {per_flow} each, {per_site} per site)"),
             )
         };
-        if r.list.iter().filter(|e| e.flow == flow).count() >= MAX_PER_FLOW {
+        if r.list.iter().filter(|e| e.flow == flow).count() >= per_flow {
             let pos = r
                 .list
                 .iter()
@@ -594,7 +735,7 @@ impl Watches {
             let old = r.list.remove(pos);
             old.cancel.send_replace(true);
         }
-        if r.list.len() >= MAX_PER_SITE {
+        if r.list.len() >= per_site {
             let pos = r
                 .list
                 .iter()
@@ -674,15 +815,13 @@ mod tests {
     }
 
     #[test]
-    fn records_only_while_held() {
+    fn records_and_rows() {
         let p = Probe::new(&def());
         assert!(!p.on());
-        // nobody records without a watch (run_node checks `on`); a hold turns it on
-        let h = p.hold();
-        assert!(p.on());
+        // records are kept with no watch open (spec 06 0.2.18); a hold only wakes watches
         p.record(
             "r",
-            Some(("in".into(), Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5), Quality::Good)),
             &[("out".into(), m(1.5))],
             None,
         );
@@ -708,7 +847,7 @@ mod tests {
         p.record("r", None, &[("out".into(), m(3.0))], None);
         p.record(
             "r",
-            Some(("in".into(), Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5), Quality::Good)),
             &[],
             None,
         );
@@ -730,6 +869,8 @@ mod tests {
         assert_eq!(p.changes(seq, Some(&only)).0, None);
         let (snap, _) = p.snapshot(Some(&only));
         assert_eq!(get(&snap, &["nodes", "r"]), None);
+        let h = p.hold();
+        assert!(p.on());
         drop(h);
         assert!(!p.on());
     }
@@ -745,6 +886,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(500),
+            TTL,
             cancel,
             move |v| {
                 let tx = tx.clone();
@@ -801,6 +943,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel.clone(),
             send.clone(),
         )
@@ -815,6 +958,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel,
             send,
         ));
@@ -827,6 +971,7 @@ mod tests {
             p.clone(),
             None,
             Duration::from_millis(250),
+            TTL,
             cancel,
             |_| async { true },
         ));
@@ -835,23 +980,78 @@ mod tests {
         assert_eq!(task.await.unwrap(), None);
     }
 
+    /// ADR 0038 §5: a preview's sinks go with the snapshot and with change rows, the latest per
+    /// node; a row of sinks alone is a change row.
     #[test]
-    fn values_stay_a_moment_after_the_last_watch() {
+    fn sinks_in_rows() {
         let p = Probe::new(&def());
-        let h = p.hold();
+        let _h = p.hold();
+        let (snap, seq) = p.snapshot(None);
+        assert_eq!(get(&snap, &["sinks"]), None, "no sink acted yet");
+        p.sink("r", SinkOp::Set, "wy/s/downstream/l/x/~set", Value::UInt(1));
+        p.sink("r", SinkOp::Set, "wy/s/downstream/l/x/~set", Value::UInt(2));
+        let (ch, seq2) = p.changes(seq, None);
+        let ch = ch.expect("a row of sinks alone");
+        assert_eq!(get(&ch, &["snapshot"]), Some(&Value::Bool(false)));
+        assert_eq!(get(&ch, &["nodes"]), Some(&Value::Map(BTreeMap::new())));
+        let Some(Value::Array(sinks)) = get(&ch, &["sinks"]) else {
+            panic!("sinks: {ch:?}")
+        };
+        assert_eq!(sinks.len(), 1, "the latest per node");
+        assert_eq!(get(&sinks[0], &["value"]), Some(&Value::UInt(2)));
+        assert_eq!(get(&sinks[0], &["op"]), Some(&Value::from("set")));
+        assert_eq!(get(&sinks[0], &["node"]), Some(&Value::from("r")));
+        assert_eq!(p.changes(seq2, None).0, None);
+        // the snapshot holds every sink's latest; `nodes` filters them
+        assert!(get(&p.snapshot(None).0, &["sinks"]).is_some());
+        let only = BTreeSet::from(["t".to_owned()]);
+        assert_eq!(get(&p.snapshot(Some(&only)).0, &["sinks"]), None);
+    }
+
+    /// Spec 06 0.2.18: what was sent before any watch opened, long before, is in its snapshot;
+    /// a slot is overwritten in place; a node the flow does not have is not recorded.
+    #[test]
+    fn values_from_the_start_in_one_slot_per_port() {
+        let p = Probe::new(&def());
         p.record("r", None, &[("out".into(), m(1.0))], None);
-        drop(h);
-        let h = p.hold();
-        let (snap, _) = p.snapshot(None);
-        assert_eq!(get(&snap, &["nodes", "r", "out", "out"]), Some(&pair(1.0)));
-        drop(h);
-        // older than KEEP: cleared when the next watch opens
-        p.lock().idle_since = Some(Instant::now() - KEEP - Duration::from_secs(1));
+        p.record("r", None, &[("out".into(), m(2.0))], None);
+        p.record("zz", None, &[("out".into(), m(1.0))], None);
         let _h = p.hold();
         let (snap, _) = p.snapshot(None);
-        assert_eq!(
-            get(&snap, &["nodes", "r", "out"]),
-            Some(&Value::Map(BTreeMap::new()))
+        assert_eq!(get(&snap, &["nodes", "r", "out", "out"]), Some(&pair(2.0)));
+        assert_eq!(get(&snap, &["nodes", "zz"]), None);
+        assert_eq!(p.node("r").unwrap().outs.len(), 1, "one slot per port");
+    }
+
+    /// The cost of a record (spec 06 0.2.18, ADR 0038 §6): run by hand in release.
+    /// `cargo test -p wyrm-flow --release --lib record_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    fn record_cost() {
+        let p = Probe::new(&def());
+        let n = 1_000_000u32;
+        let time = |v: &dyn Fn(u32) -> Msg| {
+            let t0 = std::time::Instant::now();
+            for i in 0..n {
+                let out = [("out".to_owned(), v(i))];
+                p.record("r", Some(("in", &out[0].1.v, Quality::Good)), &out, None);
+            }
+            t0.elapsed().as_nanos() as f64 / f64::from(n)
+        };
+        // the message is built outside the record in a node too: subtract its cost
+        let build = |v: &dyn Fn(u32) -> Msg| {
+            let t0 = std::time::Instant::now();
+            for i in 0..n {
+                std::hint::black_box([("out".to_owned(), v(i))]);
+            }
+            t0.elapsed().as_nanos() as f64 / f64::from(n)
+        };
+        let num = |i: u32| m(f64::from(i));
+        let text = |i: u32| Msg::new(Value::Str(format!("value {i}")), Quality::Good, 1);
+        println!(
+            "record of one input and one output: number {:.0} ns, text {:.0} ns",
+            time(&num) - build(&num),
+            time(&text) - build(&text)
         );
     }
 

@@ -143,7 +143,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "timer",
         category: "Sources",
         description: "A count every period.",
-        inputs: &[],
+        inputs: &["in.period_ms"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -216,7 +216,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "delay",
         category: "Logic",
         description: "Every sample, later (also breaks a cycle).",
-        inputs: &["in"],
+        inputs: &["in", "in.ms"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -226,7 +226,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "scale",
         category: "Math",
         description: "out = k × in + b; with a range, in is first mapped from input_min…input_max to output_min…output_max.",
-        inputs: &["in", "in.input_min", "in.input_max", "in.output_min", "in.output_max"],
+        inputs: &["in", "in.k", "in.b", "in.input_min", "in.input_max", "in.output_min", "in.output_max"],
         outputs: &["out", "input_out_of_range"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -243,7 +243,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "deadband",
         category: "Math",
         description: "Passes a value that moved by more than abs or pct.",
-        inputs: &["in"],
+        inputs: &["in", "in.abs", "in.pct"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -256,7 +256,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "window",
         category: "Math",
         description: "One value per window of time: avg, min, max, sum, count or rate.",
-        inputs: &["in"],
+        inputs: &["in", "in.size_s"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -271,7 +271,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "alarm",
         category: "Alarms",
         description: "true while in is above high or below low (with hysteresis and delays); an event on each change.",
-        inputs: &["in"],
+        inputs: &["in", "in.high", "in.low", "in.hysteresis", "in.delay_s", "in.return_delay_s"],
         outputs: &["out", "event"],
         dyn_inputs: None,
         dyn_outputs: None,
@@ -403,12 +403,15 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "round",
         category: "Math",
-        description: "in rounded to precision places (0: an integer).",
-        inputs: &["in", "in.precision"],
-        outputs: &["out"],
+        description: "in rounded to precision places (0: an integer); text: the same with at least min_precision places.",
+        inputs: &["in", "in.precision", "in.min_precision"],
+        outputs: &["out", "text"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("precision", "number", "Places after the point, 0…20 (default 0)."), 0)],
+        params: &[
+            di(p("precision", "number", "Places after the point, 0…20 (default 0)."), 0),
+            p("min_precision", "number", "Fewest places in text: trailing zeros beyond go (default: precision)."),
+        ],
     },
     NodeType {
         ty: "modulo",
@@ -434,14 +437,14 @@ pub const TYPES: &[NodeType] = &[
         ty: "if",
         category: "Logic",
         description: "then when the inputs pass op, else otherwise.",
-        inputs: &["in.then", "in.else"],
+        inputs: &["in.op", "in.then", "in.else"],
         outputs: &["out"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "= all equal; and / or of the inputs; > < >= <= between each input and the next."),
-                &["=", "and", "or", ">", "<", ">=", "<="],
+                p("op", "string", "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
+                crate::blocks::IF_OPS,
                 "=",
             ),
             db(p("then", "dynamic", "Sent when it passes (default true)."), true),
@@ -453,7 +456,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "hub",
         category: "Logic",
         description: "The input that changed last: its value, its index and an event.",
-        inputs: &[],
+        inputs: &["in.ignore_null"],
         outputs: &["out", "index", "on_change"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
@@ -480,7 +483,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "trace",
         category: "Logic",
         description: "Writes msg and the inputs to the broker log at level trace.",
-        inputs: &[],
+        inputs: &["in.tracing", "in.msg"],
         outputs: &[],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
@@ -494,7 +497,7 @@ pub const TYPES: &[NodeType] = &[
         ty: "concat",
         category: "Text",
         description: "The inputs as one text.",
-        inputs: &[],
+        inputs: &["in.strict"],
         outputs: &["out"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
@@ -509,6 +512,31 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[],
+    },
+    NodeType {
+        ty: "case",
+        category: "Logic",
+        description: "The then of the first pair whose case in matches by op; else when none does.",
+        inputs: &["in", "in.op", "in.else"],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            pick(
+                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing)."),
+                crate::blocks::CASE_OPS,
+                "=",
+            ),
+            p("else", "dynamic", "Sent when no case matches (default null)."),
+            dl(
+                p(
+                    "inputs",
+                    "array",
+                    "Names of the variable inputs, in pairs: a case, then what it gives (default 0, 1). Give each its constant in values.",
+                ),
+                &["0", "1"],
+            ),
+        ],
     },
 ];
 
@@ -608,6 +636,10 @@ pub fn value() -> Value {
                 if t.dyn_inputs.is_some() || t.inputs.iter().any(|i| param_of_port(t, i).is_none())
                 {
                     m.insert("echo_inputs".into(), Value::Bool(true));
+                }
+                // spec 06 0.2.19: the operand inputs take a constant in config `values`
+                if crate::blocks::takes_values(t.ty) {
+                    m.insert("values".into(), Value::Bool(true));
                 }
                 Value::Map(m)
             })
@@ -825,7 +857,7 @@ mod tests {
             ports(t.ty, &all).unwrap_or_else(|e| panic!("{} with every param: {e}", t.ty));
         }
         assert!(ports("nope", &BTreeMap::new()).is_err());
-        assert_eq!(TYPES.len(), 35);
+        assert_eq!(TYPES.len(), 36);
         // every logic block is in the palette
         for b in crate::blocks::TYPES {
             assert!(TYPES.iter().any(|t| t.ty == *b), "{b} in the catalog");
@@ -895,7 +927,34 @@ mod tests {
             param("scale", "input_min").get("port"),
             Some(&Value::from("in.input_min"))
         );
-        assert_eq!(param("scale", "k").get("port"), None);
+        // spec 06 0.2.17: the older types' parameters an editor binds have ports
+        for (ty, p) in [
+            ("scale", "k"),
+            ("scale", "b"),
+            ("alarm", "high"),
+            ("alarm", "low"),
+            ("alarm", "hysteresis"),
+            ("alarm", "delay_s"),
+            ("alarm", "return_delay_s"),
+            ("delay", "ms"),
+            ("window", "size_s"),
+            ("deadband", "abs"),
+            ("deadband", "pct"),
+            ("timer", "period_ms"),
+        ] {
+            assert_eq!(
+                param(ty, p).get("port"),
+                Some(&Value::from(format!("in.{p}"))),
+                "{ty}.{p}"
+            );
+            assert_eq!(
+                param(ty, p).get("echo"),
+                Some(&Value::Bool(true)),
+                "{ty}.{p}"
+            );
+        }
+        assert_eq!(param("window", "kind").get("port"), None);
+        assert_eq!(param("alarm", "on_bad").get("port"), None);
         assert_eq!(
             param("stopwatch", "interval").get("default"),
             Some(&Value::Float(0.5))
@@ -923,10 +982,23 @@ mod tests {
             "a sample port is not listed"
         );
         assert_eq!(entry("add").get("echo_inputs"), Some(&Value::Bool(true)));
+        // spec 06 0.2.19: the blocks whose operands take a constant
+        for ty in [
+            "add", "concat", "if", "hub", "trace", "round", "not", "length",
+        ] {
+            assert_eq!(entry(ty).get("values"), Some(&Value::Bool(true)), "{ty}");
+        }
+        for ty in ["number", "stopwatch", "scale", "set"] {
+            assert_eq!(entry(ty).get("values"), None, "{ty}");
+        }
         assert_eq!(
             entry("timer").get("echo_inputs"),
             None,
-            "a source has no inputs"
+            "a timer's only input is its parameter's port"
+        );
+        assert_eq!(
+            pt("timer").get("in.period_ms"),
+            Some(&Value::from("number"))
         );
         for t in TYPES {
             let ports = ports(t.ty, &sample_cfg(t)).unwrap_or_else(|e| panic!("{}: {e}", t.ty));

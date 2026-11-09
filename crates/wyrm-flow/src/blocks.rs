@@ -43,6 +43,7 @@ pub const TYPES: &[&str] = &[
     "trace",
     "concat",
     "length",
+    "case",
 ];
 
 /// Variable inputs of one block at most.
@@ -174,6 +175,22 @@ fn push_text(out: &mut String, v: &Value) -> bool {
     ok(out)
 }
 
+/// `x` with `places` places after the point, its trailing zeros trimmed until `min` places
+/// remain (and the point, at none): `round`'s `text`.
+fn fixed(x: f64, places: i32, min: i32) -> String {
+    let mut s = format!("{x:.*}", usize::try_from(places).unwrap_or(0));
+    if let Some(dot) = s.find('.') {
+        let keep = dot + 1 + usize::try_from(min).unwrap_or(0);
+        while s.len() > keep && s.ends_with('0') {
+            s.pop();
+        }
+        if s.ends_with('.') {
+            s.pop();
+        }
+    }
+    s
+}
+
 /// A scalar as text, for `concat`: `null` is empty.
 fn text(v: &Value) -> String {
     match v {
@@ -216,6 +233,7 @@ enum Kind {
     Trace,
     Concat,
     Length,
+    Case,
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -263,6 +281,7 @@ fn kind(ty: &str) -> Option<Kind> {
         "trace" => Kind::Trace,
         "concat" => Kind::Concat,
         "length" => Kind::Length,
+        "case" => Kind::Case,
         _ => return None,
     })
 }
@@ -307,9 +326,13 @@ fn shape(k: Kind) -> Shape {
         },
         Kind::Round => Shape {
             inputs: &["in"],
-            params: vec![param("precision", Value::Int(0), true)],
+            params: vec![
+                param("precision", Value::Int(0), true),
+                // fewest places in `text`: trailing zeros beyond it go (default: precision)
+                param("min_precision", Value::Null, true),
+            ],
             items: false,
-            outputs: &[("out", Number)],
+            outputs: &[("out", Number), ("text", Any)],
         },
         Kind::Modulo => Shape {
             inputs: &["in"],
@@ -326,7 +349,7 @@ fn shape(k: Kind) -> Shape {
         Kind::If => Shape {
             inputs: &[],
             params: vec![
-                param("op", s("="), false),
+                param("op", s("="), true),
                 param("then", Value::Bool(true), true),
                 param("else", Value::Bool(false), true),
             ],
@@ -335,7 +358,7 @@ fn shape(k: Kind) -> Shape {
         },
         Kind::Hub => Shape {
             inputs: &[],
-            params: vec![param("ignore_null", Value::Bool(true), false)],
+            params: vec![param("ignore_null", Value::Bool(true), true)],
             items: true,
             outputs: &[("out", Any), ("index", Number), ("on_change", Map)],
         },
@@ -355,15 +378,15 @@ fn shape(k: Kind) -> Shape {
         Kind::Trace => Shape {
             inputs: &[],
             params: vec![
-                param("tracing", Value::Bool(true), false),
-                param("msg", s("trace"), false),
+                param("tracing", Value::Bool(true), true),
+                param("msg", s("trace"), true),
             ],
             items: true,
             outputs: &[],
         },
         Kind::Concat => Shape {
             inputs: &[],
-            params: vec![param("strict", Value::Bool(false), false)],
+            params: vec![param("strict", Value::Bool(false), true)],
             items: true,
             outputs: &[("out", Any)],
         },
@@ -372,6 +395,13 @@ fn shape(k: Kind) -> Shape {
             params: vec![],
             items: false,
             outputs: &[("out", Number)],
+        },
+        // the variable inputs are pairs: in.<1st> a case value, in.<2nd> what it gives, …
+        Kind::Case => Shape {
+            inputs: &["in"],
+            params: vec![param("op", s("="), true), param("else", Value::Null, true)],
+            items: true,
+            outputs: &[("out", Any)],
         },
     }
 }
@@ -416,6 +446,58 @@ pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, String>> {
     Some(check(k, cfg))
 }
 
+/// Whether block type `ty` has operand inputs that take a constant in config `values`
+/// (spec 06 0.2.19): `in` and the variable inputs, never a parameter's port, never `reset`,
+/// and not the variables (their `value` is the constant).
+pub fn takes_values(ty: &str) -> bool {
+    kind(ty).is_some_and(|k| has_operands(k, &shape(k)))
+}
+
+fn has_operands(k: Kind, sh: &Shape) -> bool {
+    !matches!(k, Kind::Number | Kind::Text | Kind::Bool) && (sh.items || sh.inputs.contains(&"in"))
+}
+
+/// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
+/// of the block (`in`, `in.<name>` of `inputs`); keyed by the input's name (`in`, `<name>`).
+fn constants(k: Kind, sh: &Shape, cfg: &Map) -> Result<BTreeMap<String, Value>, String> {
+    let Some(v) = cfg.get("values") else {
+        return Ok(BTreeMap::new());
+    };
+    let Value::Map(m) = v else {
+        return Err("values: expected a map {<input>: <value>}".into());
+    };
+    let items = if sh.items {
+        items(cfg, sh)?
+    } else {
+        Vec::new()
+    };
+    let mut out = BTreeMap::new();
+    for (port, v) in m {
+        let name = match port.as_str() {
+            "in" if sh.inputs.contains(&"in") => "in",
+            p => match p.strip_prefix("in.") {
+                Some(n) if items.iter().any(|i| i == n) => n,
+                _ => {
+                    return Err(format!(
+                        "values.{port}: not an operand input of {} (in, in.<inputs>)",
+                        kind_name(k)
+                    ))
+                }
+            },
+        };
+        out.insert(name.to_owned(), v.clone());
+    }
+    Ok(out)
+}
+
+fn kind_name(k: Kind) -> &'static str {
+    TYPES
+        .iter()
+        .copied()
+        .find(|t| kind(t) == Some(k))
+        .unwrap_or("block")
+}
+
 fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
     let sh = shape(k);
     let known: Vec<&str> = sh
@@ -423,18 +505,20 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
         .iter()
         .map(|p| p.name)
         .chain(sh.items.then_some("inputs"))
+        .chain(has_operands(k, &sh).then_some("values"))
         .collect();
     if let Some(x) = cfg.keys().find(|x| !known.contains(&x.as_str())) {
         return Err(format!("{x}: unknown field"));
     }
-    if k == Kind::If {
+    constants(k, &sh, cfg)?;
+    if let Some(ops) = ops_of(k) {
         let op = match cfg.get("op") {
             None => "=",
             Some(Value::Str(o)) => o.as_str(),
             Some(_) => return Err("op: expected a string".into()),
         };
-        if !IF_OPS.contains(&op) {
-            return Err(format!("op: one of {IF_OPS:?}"));
+        if !ops.contains(&op) {
+            return Err(format!("op: one of {ops:?}"));
         }
     }
     let mut inputs: Vec<(String, PortType)> = sh
@@ -466,7 +550,72 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
     })
 }
 
-const IF_OPS: &[&str] = &["=", "and", "or", ">", "<", ">=", "<="];
+/// `if`'s operators (spec 06 0.2.21 adds `!=`, `contains`, `starts_with`, `ends_with`).
+pub const IF_OPS: &[&str] = &[
+    "=",
+    "!=",
+    "and",
+    "or",
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "contains",
+    "starts_with",
+    "ends_with",
+];
+
+/// `case`'s operators: each compares `in` with a pair's case value.
+pub const CASE_OPS: &[&str] = &[
+    "=",
+    "!=",
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "contains",
+    "starts_with",
+    "ends_with",
+];
+
+/// The operators of a block with `op`.
+fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
+    match k {
+        Kind::If => Some(IF_OPS),
+        Kind::Case => Some(CASE_OPS),
+        _ => None,
+    }
+}
+
+/// `x op p` for the text operators, both as text; a `null` never matches. (`case` skips an
+/// empty case text first, as DGLux; in `if` an empty text is contained in every text.)
+fn text_op(op: &str, x: &Value, p: &Value) -> bool {
+    if *x == Value::Null || *p == Value::Null {
+        return false;
+    }
+    let (x, p) = (text(x), text(p));
+    match op {
+        "contains" => x.contains(&p),
+        "starts_with" => x.starts_with(&p),
+        _ => x.ends_with(&p),
+    }
+}
+
+/// `x op p` for the comparisons: as numbers (one that is not a number never matches).
+fn num_op(op: &str, x: &Value, p: &Value) -> bool {
+    match (num(x), num(p)) {
+        (Some(a), Some(b)) => {
+            let (a, b) = (a.f(), b.f());
+            match op {
+                ">" => a > b,
+                "<" => a < b,
+                ">=" => a >= b,
+                _ => a <= b,
+            }
+        }
+        _ => false,
+    }
+}
 
 /// A block of `ty` from `cfg`; `None` for a type this module does not have.
 pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn Node>, String>> {
@@ -490,7 +639,12 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
                 )
             })
             .collect();
+        // an operand's constant is its value until a sample replaces it; it calculates
+        // nothing by itself (spec 06 0.2.19)
+        let consts = constants(k, &sh, cfg)?;
         Ok(Box::new(Block {
+            consts: consts.clone(),
+            values: consts,
             kind: k,
             name: format!("{flow}/{id}"),
             param_ports: sh
@@ -502,7 +656,6 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             params,
             params_rev: 0,
             items,
-            values: BTreeMap::new(),
             seen: BTreeMap::new(),
             sent: BTreeMap::new(),
             events: 0,
@@ -524,8 +677,11 @@ struct Block {
     param_ports: Vec<&'static str>,
     /// The variable inputs' names, in order.
     items: Vec<String>,
-    /// The last sample of each input port (without `in.`; `in` and `reset` as they are).
+    /// The last sample of each input port (without `in.`; `in` and `reset` as they are),
+    /// seeded with the operands' constants.
     values: BTreeMap<String, Value>,
+    /// The operands' constants from config `values`, for `watch` (`Node::seeds`).
+    consts: BTreeMap<String, Value>,
     /// Quality and time of each input that has a sample.
     seen: BTreeMap<String, (Quality, u64)>,
     /// The last value and quality sent on each output.
@@ -655,7 +811,14 @@ impl Block {
                         N::F((n.f() * f).round() / f)
                     }
                 });
+                let text = v.map_or(Value::Null, |n| {
+                    // `places` places, trailing zeros trimmed down to `min_precision`
+                    let min = num(self.param("min_precision"))
+                        .map_or(places, |m| m.f().clamp(0.0, f64::from(places)) as i32);
+                    Value::Str(fixed(n.f(), places, min))
+                });
                 self.send("out", v.map_or(Value::Null, N::value), q, t, out);
+                self.send("text", text, q, t, out);
             }
             Kind::Modulo => {
                 let (quot, rem) = match (num(self.in_value()), num(self.param("modulo"))) {
@@ -706,11 +869,47 @@ impl Block {
                                 _ => false,
                             })
                     }
+                    // the first input against the others: none equal, or any as text
+                    "!=" => vs
+                        .split_first()
+                        .is_none_or(|(x, rest)| !rest.iter().any(|v| same(x, v))),
+                    "contains" | "starts_with" | "ends_with" => {
+                        vs.split_first().is_some_and(|(x, rest)| {
+                            let x = if *x == Value::Null {
+                                Value::Str(String::new())
+                            } else {
+                                x.clone()
+                            };
+                            rest.iter().any(|p| text_op(&op, &x, p))
+                        })
+                    }
                     _ => vs
                         .first()
                         .is_none_or(|first| vs.iter().all(|v| same(v, first))),
                 };
                 let v = self.param(if yes { "then" } else { "else" }).clone();
+                self.send("out", v, q, t, out);
+            }
+            Kind::Case => {
+                let x = self.in_value().clone();
+                let op = match self.param("op") {
+                    Value::Str(o) => o.clone(),
+                    _ => "=".into(),
+                };
+                let vs = self.item_values();
+                let hit = vs.as_chunks::<2>().0.iter().find(|[p, _]| {
+                    match op.as_str() {
+                        "=" => same(&x, p),
+                        "!=" => !same(&x, p),
+                        ">" | "<" | ">=" | "<=" => num_op(&op, &x, p),
+                        // an empty case text matches nothing (as DGLux)
+                        _ => !text(p).is_empty() && text_op(&op, &x, p),
+                    }
+                });
+                let v = match hit {
+                    Some(pair) => pair[1].clone(),
+                    None => self.param("else").clone(),
+                };
                 self.send("out", v, q, t, out);
             }
             Kind::Hub => {
@@ -842,6 +1041,12 @@ impl Node for Block {
             },
         };
         let name = name.to_owned();
+        // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
+        if let Some(ops) = ops_of(self.kind).filter(|_| name == "op") {
+            if !matches!(&m.v, Value::Str(o) if ops.contains(&o.as_str())) {
+                return;
+            }
+        }
         self.seen.insert(name.clone(), (m.q, m.t));
         if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
             self.params.insert(name.clone(), m.v);
@@ -887,5 +1092,19 @@ impl Node for Block {
 
     fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
         Some((self.params_rev, &self.params))
+    }
+
+    fn seeds(&self) -> Vec<(String, Value)> {
+        self.consts
+            .iter()
+            .map(|(n, v)| {
+                let port = if n == "in" {
+                    n.clone()
+                } else {
+                    format!("in.{n}")
+                };
+                (port, v.clone())
+            })
+            .collect()
     }
 }
