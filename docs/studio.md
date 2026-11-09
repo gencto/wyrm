@@ -227,7 +227,7 @@ IBM Plex Sans 400/500/600 for text, IBM Plex Mono 400/500/600 for keys, values a
 | `node_` | tree node kinds: site, section, link, conn, device, point, action, flow, storage, profile, sys, watch |
 | `mode_` | link run modes: embedded, process, wasm, external |
 | `action_` | link actions: play, stop, edit, hist, key, grant, log, up, trash, block, lock |
-| `ui_` | add, close, check, search, chevron_down, chevron_right, bind, send, file, spinner |
+| `ui_` | add, close, check, search, chevron_down, chevron_right, bind, view, send, file, spinner |
 
 After `frx watch`, `Assets.svg.icons.wsLinks.svg(colorFilter: …)`. One `AppIcon` widget (`frx add-widget app_icon -k view --dir indicators`) takes a name and a size (16/20/24) and tints with the current `IconTheme`.
 
@@ -287,6 +287,15 @@ Where it is built: `refreshing(Workspace)` in `SelectComposites` (`business/lib/
 | System | log | log lines | no status line: strip only |
 
 Golden: `ui/test/goldens/links_refreshing.png` (the Links board, refreshing, the strip half way).
+
+### 6.8 Value viewer
+Owner request 2026-11-09: a field's or a point's whole value in a window of its own, styled by its type, live.
+
+- **Where**: the eye (`ui_view`) at the end of every inspector row of the flow editor (after the link button; columns 104 · 1fr · 28 · 28) and beside the value of the Explorer's point inspector. Every value cell of the inspector ends in an ellipsis; the viewer shows the value whole.
+- **Window** (`ui/lib/overlays/floating_window.dart`): floats over the page, not modal (the page stays usable around it); moved by its title row, resized by its bottom-right corner (min 280 × 180, first 440 × 380, kept inside the page); the close button or Esc closes it. One is open at a time: opening another field reuses it in place.
+- **Content** (`ValueViewer`, `ui/lib/overlays/value_viewer.dart`): the title in mono (`<block>.<engine name>`, or the point key under the site; a key too long loses its start: `…/plc1/level`), the type and size (`map · 6 keys`, `string · 412 chars · 4 lines`, `bytes · 14 bytes`), `Copy` (the raw value: indented JSON, a text as itself, bytes as hex), close. The body by type: a map or a list, or a text that is a JSON map or list, as a tree (`ui/lib/trees/json_tree.dart`: chevrons open and close each level; keys `text2`, strings `good`, numbers `emberSoft`, bools `warn`, `null` `text4`, brackets `text4`); a text in mono, wrapped, with line numbers; a number mono 28 with its unit (an enum by its name, `= <index>` beside it); a bool as a mark and its word; `Uint8List` (only that: a JSON list of ints stays a list) as a hex dump, 16 bytes a row, at most 16 KiB; nothing known `no value`. A sample's quality and time at the foot.
+- **State**: `flowEditor.viewedField` (`<block>/<field id>`) and `nodes.viewedPoint` (a full key), set by `SetViewedFieldAction` / `SetViewedPointAction`; the connectors build the `ValueViewerVm` in `fromStore` (one mapper: `app/lib/common/value_viewer.dart`), so the window follows each new sample. A viewed field whose block is gone closes it; loading another flow closes it; Explorer keeps the viewed point subscribed when the tree moves on.
+- **Goldens**: `flow_long_value` (no cell overflows), `flow_viewer_json`, `flow_viewer_text`, `explorer_viewer`.
 
 ## 7. Screens
 

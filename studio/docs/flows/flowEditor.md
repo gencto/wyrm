@@ -22,6 +22,42 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(ValidateFlowAction)
 ```
 
+## onView
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetViewedFieldAction
+    participant ST as AppState
+
+    User->>UI: onView
+    UI->>VM: onView()
+    alt sel != null && row != 'form'
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(flowEditor.viewedField)
+    end
+```
+
+## onCloseViewer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as FlowEditorPage
+    participant VM as FlowEditorPageConnector
+    participant A1 as SetViewedFieldAction
+    participant ST as AppState
+
+    User->>UI: onCloseViewer
+    UI->>VM: onCloseViewer()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.viewedField)
+```
+
 ## onDeploy
 
 ```mermaid
@@ -445,6 +481,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `nameField.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
+| `onView` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
+| `onCloseViewer` | `SetViewedFieldAction` | `flowEditor.viewedField` |
 | `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft, flowEditor.deployed` |
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
 | `onClose` | `GoAction.pop` | — |

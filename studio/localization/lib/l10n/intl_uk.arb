@@ -731,5 +731,20 @@
     "preloadLinks": "Читання лінків",
     "preloadSites": "Читання сайтів",
     "preloadLater": "{step} · пізніше",
-    "updating": "Оновлення…"
+    "updating": "Оновлення…",
+    "viewValue": "Переглянути значення",
+    "copyValue": "Копіювати",
+    "copiedValue": "Скопійовано",
+    "sizeKeys": "{count, plural, one{{count} ключ} few{{count} ключі} other{{count} ключів}}",
+    "sizeItems": "{count, plural, one{{count} елемент} few{{count} елементи} other{{count} елементів}}",
+    "sizeChars": "{count, plural, one{{count} символ} few{{count} символи} other{{count} символів}}",
+    "sizeLines": "{count, plural, one{{count} рядок} few{{count} рядки} other{{count} рядків}}",
+    "sizeBytes": "{count, plural, one{{count} байт} few{{count} байти} other{{count} байтів}}",
+    "moreBytes": "{count, plural, one{… ще {count} байт} few{… ще {count} байти} other{… ще {count} байтів}}",
+    "@sizeKeys": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeItems": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeChars": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeLines": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
+    "@moreBytes": {"placeholders": {"count": {"type": "int"}}}
 }

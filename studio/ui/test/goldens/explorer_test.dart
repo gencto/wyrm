@@ -32,6 +32,10 @@ void main() {
   }
 
   testWidgets('point', (t) => shoot(t, 'explorer_point', explorerPoint()));
+  testWidgets(
+    'the point value in the viewer',
+    (t) => shoot(t, 'explorer_viewer', explorerViewer()),
+  );
   testWidgets('device', (t) => shoot(t, 'explorer_device', explorerDevice()));
   testWidgets('review', (t) => shoot(t, 'explorer_review', explorerReview()));
   testWidgets('empty', (t) => shoot(t, 'explorer_empty', explorerEmpty()));

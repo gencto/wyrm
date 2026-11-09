@@ -132,6 +132,18 @@ void main() {
     (t) => shoot(t, 'flow_operand', flowOperand()),
   );
   testWidgets(
+    'a long value ends in an ellipsis in every inspector cell',
+    (t) => shoot(t, 'flow_long_value', flowLongOutput()),
+  );
+  testWidgets(
+    'the value viewer: a map as a tree',
+    (t) => shoot(t, 'flow_viewer_json', flowViewerJson()),
+  );
+  testWidgets(
+    'the value viewer: a long text, numbered and wrapped',
+    (t) => shoot(t, 'flow_viewer_text', flowViewerText()),
+  );
+  testWidgets(
     'the Tree tab with a drag in progress',
     (t) => shoot(t, 'flow_tree_drag', flowTreeDrag()),
   );

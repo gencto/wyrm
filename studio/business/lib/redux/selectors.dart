@@ -378,6 +378,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns listed
   ISet<String> get listed => _state.nodes.listed;
+
+  /// Returns viewedPoint
+  String? get viewedPoint => _state.nodes.viewedPoint;
 }
 
 extension type SelectLive(AppState _state) {
@@ -621,6 +624,9 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns previewOff
   String? get previewOff => _state.flowEditor.previewOff;
+
+  /// Returns viewedField
+  String? get viewedField => _state.flowEditor.viewedField;
 }
 
 extension type SelectTasks(AppState _state) {

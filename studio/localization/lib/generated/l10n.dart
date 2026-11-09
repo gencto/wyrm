@@ -5820,6 +5820,93 @@ class S {
   String get updating {
     return Intl.message('Updating…', name: 'updating', desc: '', args: []);
   }
+
+  /// `View value`
+  String get viewValue {
+    return Intl.message('View value', name: 'viewValue', desc: '', args: []);
+  }
+
+  /// `Copy`
+  String get copyValue {
+    return Intl.message('Copy', name: 'copyValue', desc: '', args: []);
+  }
+
+  /// `Copied`
+  String get copiedValue {
+    return Intl.message('Copied', name: 'copiedValue', desc: '', args: []);
+  }
+
+  /// `{count, plural, =1{1 key} other{{count} keys}}`
+  String sizeKeys(int count) {
+    return Intl.plural(
+      count,
+      one: '1 key',
+      other: '$count keys',
+      name: 'sizeKeys',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 item} other{{count} items}}`
+  String sizeItems(int count) {
+    return Intl.plural(
+      count,
+      one: '1 item',
+      other: '$count items',
+      name: 'sizeItems',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 char} other{{count} chars}}`
+  String sizeChars(int count) {
+    return Intl.plural(
+      count,
+      one: '1 char',
+      other: '$count chars',
+      name: 'sizeChars',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 line} other{{count} lines}}`
+  String sizeLines(int count) {
+    return Intl.plural(
+      count,
+      one: '1 line',
+      other: '$count lines',
+      name: 'sizeLines',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 byte} other{{count} bytes}}`
+  String sizeBytes(int count) {
+    return Intl.plural(
+      count,
+      one: '1 byte',
+      other: '$count bytes',
+      name: 'sizeBytes',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{… 1 more byte} other{… {count} more bytes}}`
+  String moreBytes(int count) {
+    return Intl.plural(
+      count,
+      one: '… 1 more byte',
+      other: '… $count more bytes',
+      name: 'moreBytes',
+      desc: '',
+      args: [count],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

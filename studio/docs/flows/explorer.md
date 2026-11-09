@@ -516,6 +516,40 @@ sequenceDiagram
     VM->>NAV: GoAction.push FlowEditorRoute(id: id)
 ```
 
+## onViewPoint
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetViewedPointAction
+    participant ST as AppState
+
+    User->>UI: onViewPoint
+    UI->>VM: onViewPoint()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.viewedPoint)
+```
+
+## onCloseViewer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as SetViewedPointAction
+    participant ST as AppState
+
+    User->>UI: onCloseViewer
+    UI->>VM: onCloseViewer()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.viewedPoint)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `ExplorerPageConnector` — 2 dispatches
@@ -548,6 +582,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onSetPoll` | `StagePointEditAction` ? | `changes.table, changes.view` |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 | `onTapFlowEditor` | `GoAction.push` | — |
+| `onViewPoint` | `SetViewedPointAction` | `nodes.viewedPoint` |
+| `onCloseViewer` | `SetViewedPointAction` | `nodes.viewedPoint` |
 
 `?` marks a dispatch that only runs under a condition.
 

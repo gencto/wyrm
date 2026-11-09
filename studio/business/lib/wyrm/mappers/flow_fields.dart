@@ -847,9 +847,18 @@ final class FieldValue {
     this.bound = false,
     this.bad = false,
     this.live = false,
+    this.raw,
+    this.quality,
   });
 
   final String text;
+
+  /// The value itself, as [text] reads it in short: a map or a list whole,
+  /// for the field's viewer.
+  final Object? raw;
+
+  /// The quality of the sample behind it; null for a typed value.
+  final Quality? quality;
 
   /// An edge feeds it: the binding wins over the typed value.
   final bool bound;
@@ -947,5 +956,7 @@ FieldValue fieldValue(
     bound: bound,
     bad: sample?.quality == Quality.bad,
     live: sample != null,
+    raw: shown,
+    quality: sample?.quality,
   );
 }

@@ -17,6 +17,7 @@ import '../indicators/key_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../overlays/log_view.dart';
+import '../overlays/value_viewer.dart';
 import '../tables/points_table.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
@@ -308,6 +309,13 @@ class ExplorerPage extends StatelessWidget {
     this.busy = false,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
+    this.viewer,
+    this.onViewPoint,
+    this.onCloseViewer,
+    this.viewLabel = 'View value',
+    this.copyLabel = 'Copy',
+    this.copiedLabel = 'Copied',
+    this.closeLabel = 'Close',
     super.key,
   });
 
@@ -423,6 +431,17 @@ class ExplorerPage extends StatelessWidget {
   final SidePanelWidths panels;
   final void Function(PanelSide side, double width)? onPanelWidth;
 
+  /// The open value viewer of a point, live; null: none is open.
+  final ValueViewerVm? viewer;
+
+  /// The eye beside the point inspector's value: opens the viewer.
+  final VoidCallback? onViewPoint;
+  final VoidCallback? onCloseViewer;
+  final String viewLabel;
+  final String copyLabel;
+  final String copiedLabel;
+  final String closeLabel;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
@@ -444,26 +463,53 @@ class ExplorerPage extends StatelessWidget {
         width: wide ? 260 : 240,
       );
       final ins = inspector;
-      return SidePanels(
-        left: box.maxWidth >= 700
-            ? SidePanel(
-                width: panels.left,
-                defaultWidth: wide ? 260 : 240,
-                child: treePanel,
-              )
-            : null,
-        center: _workspace(context),
-        right: ins != null && wide
-            ? SidePanel(
-                width: panels.right,
-                defaultWidth: 320,
-                child: _inspector(context, ins),
-              )
-            : null,
-        onChanged: onPanelWidth,
+      // One stack whether a viewer is open or not, so the panels keep
+      // their state when it opens.
+      return Stack(
+        children: [
+          Positioned.fill(child: _panels(context, box, treePanel, ins)),
+          if (viewer case final v?)
+            Positioned.fill(
+              child: ValueViewer(
+                key: const ValueKey('value-viewer'),
+                vm: v,
+                onClose: onCloseViewer ?? () {},
+                copyLabel: copyLabel,
+                copiedLabel: copiedLabel,
+                closeLabel: closeLabel,
+              ),
+            ),
+        ],
       );
     },
   );
+
+  Widget _panels(
+    BuildContext context,
+    BoxConstraints box,
+    Widget treePanel,
+    ExplorerInspectorVm? ins,
+  ) {
+    final wide = box.maxWidth >= 1100;
+    return SidePanels(
+      left: box.maxWidth >= 700
+          ? SidePanel(
+              width: panels.left,
+              defaultWidth: wide ? 260 : 240,
+              child: treePanel,
+            )
+          : null,
+      center: _workspace(context),
+      right: ins != null && wide
+          ? SidePanel(
+              width: panels.right,
+              defaultWidth: 320,
+              child: _inspector(context, ins),
+            )
+          : null,
+      onChanged: onPanelWidth,
+    );
+  }
 
   Widget _button(ToolButtonVm b) {
     final onPressed = b.disabledReason != null || onTool == null
@@ -905,9 +951,21 @@ class ExplorerPage extends StatelessWidget {
               spacing: 10,
               children: [
                 Flexible(
-                  child: Text(ins.value, style: mono(size: 22, color: c.text1)),
+                  child: Text(
+                    ins.value,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: mono(size: 22, color: c.text1),
+                  ),
                 ),
                 QualityMark(vm: ins.quality, size: 12),
+                if (onViewPoint case final view?)
+                  IconButton(
+                    tooltip: viewLabel,
+                    visualDensity: .compact,
+                    onPressed: view,
+                    icon: AppIcon('ui_view', size: 16, color: c.text3),
+                  ),
               ],
             ),
           ],

@@ -89,7 +89,7 @@ Pinned bottom-left over the canvas (sticky, `rgba(19,23,26,0.92)`, border `#252B
 ## 6. Inspector
 - Header: kind label (`Tree node`, `Logic block`, `Sink`, `My block`; 12/600 uppercase), title mono 18/600, note 12 `#8E979C` (the type's description).
 - A block with two forms (§3 Forms) first has a `Form` row: a dropdown.
-- One row per field (min height 44, columns 104 · 1fr · 32, bottom border `#1D2226`): label 13 `#A3ABAF` with the engine name under it (mono 10 `#8E979C`, when it differs) · editor · link button. A wire dragged from the canvas and let go on a row binds it.
+- One row per field (min height 44, columns 104 · 1fr · 28 · 28, bottom border `#1D2226`): label 13 `#A3ABAF` with the engine name under it (mono 10 `#8E979C`, when it differs) · editor · link button · view button (`ui_view`, owner request 2026-11-09). A wire dragged from the canvas and let go on a row binds it. Every value ends in an ellipsis in its cell (an `Output` of `concat` overflowed by 7.7 px, owner 2026-11-09); the view button opens the value whole in the value viewer (`docs/studio.md` §6.8): a floating window titled `<block>.<field>`, live, styled by type.
   - bound: the value that comes in, read only, mono 12 in the accent colour in a frame (teal; ember when it writes), with a small `bound` mark; no path. The link button opens a menu: `Go to source` (selects the source block), `Unbind`;
   - enum: a dropdown; free input: a text field 32 high mono 12;
   - output only: the value and `→ <targets>` or `not bound`.

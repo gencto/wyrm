@@ -731,5 +731,20 @@
     "preloadLinks": "Reading the links",
     "preloadSites": "Reading the sites",
     "preloadLater": "{step} · later",
-    "updating": "Updating…"
+    "updating": "Updating…",
+    "viewValue": "View value",
+    "copyValue": "Copy",
+    "copiedValue": "Copied",
+    "sizeKeys": "{count, plural, =1{1 key} other{{count} keys}}",
+    "sizeItems": "{count, plural, =1{1 item} other{{count} items}}",
+    "sizeChars": "{count, plural, =1{1 char} other{{count} chars}}",
+    "sizeLines": "{count, plural, =1{1 line} other{{count} lines}}",
+    "sizeBytes": "{count, plural, =1{1 byte} other{{count} bytes}}",
+    "moreBytes": "{count, plural, =1{… 1 more byte} other{… {count} more bytes}}",
+    "@sizeKeys": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeItems": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeChars": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeLines": {"placeholders": {"count": {"type": "int"}}},
+    "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
+    "@moreBytes": {"placeholders": {"count": {"type": "int"}}}
 }

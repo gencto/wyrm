@@ -7,7 +7,10 @@ import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
+import 'package:ui/indicators/quality_mark.dart';
+import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
+import 'package:ui/trees/json_tree.dart';
 
 // The data of boards *Flow editor · fields, bindings, properties* (FlowBind)
 // and *· drag points and actions from the tree* (FlowTree), as
@@ -310,6 +313,7 @@ FlowEditorPage _bind({
   List<FlowBlockVm>? blocks,
   List<FlowWireVm>? wires,
   String flow = 'tank-level',
+  ValueViewerVm? viewer,
 }) => FlowEditorPage(
   flowsLabel: 'Flows',
   flowLabel: flow,
@@ -349,6 +353,9 @@ FlowEditorPage _bind({
   onProblem: _id,
   removeLabel: 'Remove block',
   onRemove: selected == null ? null : () {},
+  onView: _id,
+  viewer: viewer,
+  onCloseViewer: () {},
 );
 
 InspectorRowVm _text(String name, String value) => InspectorRowVm(
@@ -1336,4 +1343,138 @@ FlowEditorPage flowOperand() => _bind(
       targets: '→ show.Value',
     ),
   ],
+);
+
+/// The text a long `concat` sends: longer than its inspector cell.
+const _long =
+    'Hello, tank 3 — level 72.4 % at 12:00:03, inlet valve open, pump 2 '
+    'running at 1450 rpm, alarm limits 20 % and 90 %, operator olena';
+
+/// `concat` selected with a long Output (owner's review 2026-11-09: the
+/// row overflowed by 7.7 px): every value cell ends in an ellipsis, and
+/// each row ends in the eye that opens the viewer.
+FlowEditorPage flowLongOutput({ValueViewerVm? viewer}) => _bind(
+  flow: 'banner',
+  selected: 'text',
+  kind: 'Logic block',
+  title: 'text',
+  note: 'The inputs as one text.',
+  blocks: _textBlocks('text'),
+  wires: _textWires,
+  viewer: viewer,
+  rows: const [
+    InspectorRowVm(
+      id: 'in.0',
+      name: 'Input 1',
+      engine: 'in.0',
+      editor: FieldEditorVm.bound,
+      value: 'Hello, ',
+      sourceBlock: 'greeting',
+      inPort: 'in.0',
+    ),
+    InspectorRowVm(
+      id: 'in.1',
+      name: 'Input 2',
+      engine: 'in.1',
+      editor: FieldEditorVm.bound,
+      value: _long,
+      sourceBlock: 'who',
+      inPort: 'in.1',
+    ),
+    InspectorRowVm(
+      id: 'sep',
+      name: 'Separator',
+      engine: 'sep',
+      editor: FieldEditorVm.choice,
+      value: 'a long separator name that does not fit',
+      choices: ['', ' ', 'a long separator name that does not fit'],
+    ),
+    InspectorRowVm(
+      id: 'out',
+      name: 'Output',
+      engine: 'out',
+      editor: FieldEditorVm.output,
+      value: _long,
+      targets: '→ show.Value',
+    ),
+  ],
+);
+
+const _wraps =
+    'a third line after an empty one, long enough to wrap twice in the '
+    'window at its first width of 440 points, which is what this golden '
+    'shows';
+
+/// The viewer of `text.out` open over the editor: a long text in mono,
+/// wrapped, with line numbers.
+FlowEditorPage flowViewerText() => flowLongOutput(
+  viewer: const ValueViewerVm(
+    title: 'text.out',
+    type: 'string',
+    size: '412 chars · 4 lines',
+    copy: '',
+    quality: QualityMarkVm(label: 'good', tone: .good),
+    content: TextContentVm([
+      _long,
+      'next check in 5 s; last write by flow banner v3',
+      '',
+      _wraps,
+    ]),
+  ),
+);
+
+/// The viewer of a map (a `publish` input of a JSON object): a tree in
+/// the syntax colours, one map closed.
+FlowEditorPage flowViewerJson() => flowLongOutput(
+  viewer: const ValueViewerVm(
+    title: 'show.in',
+    type: 'map',
+    size: '6 keys',
+    copy: '',
+    quality: QualityMarkVm(label: 'good · 12:00:03', tone: .good),
+    content: JsonContentVm(
+      JsonNodeVm(
+        kind: .object,
+        text: '6 keys',
+        children: [
+          JsonNodeVm(key: 'tank', kind: .string, text: '"tank 3"'),
+          JsonNodeVm(key: 'level', kind: .number, text: '72.4'),
+          JsonNodeVm(key: 'armed', kind: .flag, text: 'true'),
+          JsonNodeVm(key: 'operator', kind: .nil, text: 'null'),
+          JsonNodeVm(
+            key: 'limits',
+            kind: .object,
+            text: '2 keys',
+            children: [
+              JsonNodeVm(key: 'low', kind: .number, text: '20'),
+              JsonNodeVm(key: 'high', kind: .number, text: '90'),
+            ],
+          ),
+          JsonNodeVm(
+            key: 'pumps',
+            kind: .array,
+            text: '2 items',
+            children: [
+              JsonNodeVm(
+                kind: .object,
+                text: '2 keys',
+                children: [
+                  JsonNodeVm(key: 'id', kind: .number, text: '1'),
+                  JsonNodeVm(key: 'on', kind: .flag, text: 'false'),
+                ],
+              ),
+              JsonNodeVm(
+                kind: .object,
+                text: '2 keys',
+                children: [
+                  JsonNodeVm(key: 'id', kind: .number, text: '2'),
+                  JsonNodeVm(key: 'rpm', kind: .number, text: '1450'),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  ),
 );

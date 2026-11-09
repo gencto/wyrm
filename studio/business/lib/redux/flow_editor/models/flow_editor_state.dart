@@ -26,5 +26,6 @@ abstract class FlowEditorState with _$FlowEditorState {
     @Default(IMapConst({})) IMap<String, LiveValue> previewSinks,
     String? previewError,
     String? previewOff,
+    String? viewedField,
   }) = _FlowEditorState;
 }

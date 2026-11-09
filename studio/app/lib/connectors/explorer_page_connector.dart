@@ -21,6 +21,7 @@ import 'package:business/redux/nodes/actions/set_history_range_action.dart';
 import 'package:business/redux/nodes/actions/set_point_filter_action.dart';
 import 'package:business/redux/nodes/actions/set_tab_action.dart';
 import 'package:business/redux/nodes/actions/set_tree_filter_action.dart';
+import 'package:business/redux/nodes/actions/set_viewed_point_action.dart';
 import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
@@ -57,6 +58,7 @@ import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/node_menu.dart';
+import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/tables/points_table.dart';
 import 'package:ui/tables/row_table.dart';
@@ -67,6 +69,7 @@ import '../common/flow_state.dart';
 import '../common/forms.dart';
 import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
+import '../common/value_viewer.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -303,6 +306,13 @@ class ExplorerPageConnector extends StatelessWidget {
               panels: vm.panelWidths,
               onPanelWidth: vm.onPanelWidth,
               onTapFlowEditor: vm.onTapFlowEditor,
+              viewer: vm.viewer,
+              onViewPoint: vm.onViewPoint,
+              onCloseViewer: vm.onCloseViewer,
+              viewLabel: S.current.viewValue,
+              copyLabel: S.current.copyValue,
+              copiedLabel: S.current.copiedValue,
+              closeLabel: S.current.closeLabel,
             ),
           ),
         ),
@@ -550,6 +560,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     return [
       '$_root/sys/links/*/state',
       if (sel != null) '$sel/*',
+      // The point in the value viewer stays live when the tree moves on.
+      ?nodes.viewedPoint,
       // A flow's state is its own `~val`.
       if (sel != null && _kind(sel, nodes.detail[sel]) == NodeKind.flow) sel,
     ];
@@ -902,6 +914,48 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         SetPanelWidthAction(WorkspacePanels.explorer.slot(side), w),
       ),
       onTapFlowEditor: (id) => dispatch(GoAction.push(FlowEditorRoute(id: id))),
+      viewer: _pointViewer(),
+      onViewPoint: switch (nodes.point) {
+        final p? => () => dispatchSync(SetViewedPointAction(p)),
+        null => null,
+      },
+      onCloseViewer: () => dispatchSync(SetViewedPointAction(null)),
+    );
+  }
+
+  /// The viewer of the point `nodes.viewedPoint`, live (owner request
+  /// 2026-11-09): titled by its key under the site, its value whole with
+  /// unit and quality.
+  ValueViewerVm? _pointViewer() {
+    final key = nodes.viewedPoint;
+    if (key == null) {
+      return null;
+    }
+    final v = live.values[key];
+    final pd = nodes.detail[key];
+    final info = nodes.table[key];
+    return valueViewerOf(
+      title: key.startsWith('$_root/') ? key.substring(_root.length + 1) : key,
+      value: v?.value,
+      known: v != null,
+      unit: pd?.unit ?? info?.unit,
+      choices: _choices(key),
+      quality: switch (v) {
+        null => null,
+        _ when !site.connected => QualityMarkVm(
+          label: S.current.stale,
+          tone: .neutral,
+          mark: .dashed,
+        ),
+        final s => () {
+          final q = qualityMarkOf(s.quality);
+          return QualityMarkVm(
+            label: '${q.label} · ${_time(s.time)}',
+            tone: q.tone,
+            mark: q.mark,
+          );
+        }(),
+      },
     );
   }
 
@@ -1796,6 +1850,9 @@ class _Vm extends Vm {
     required this.panelWidths,
     required this.onPanelWidth,
     required this.onTapFlowEditor,
+    required this.viewer,
+    required this.onViewPoint,
+    required this.onCloseViewer,
   }) : super(
          equals: [
            treeLabel,
@@ -1836,6 +1893,8 @@ class _Vm extends Vm {
            pointValue,
            busy,
            panelWidths,
+           viewer,
+           onViewPoint != null,
          ],
        );
 
@@ -1912,6 +1971,11 @@ class _Vm extends Vm {
   final Future<NodeMenuVm?> Function(String key) menuOf;
   final SidePanelWidths panelWidths;
   final void Function(PanelSide side, double width) onPanelWidth;
+
+  /// The open viewer of a point (`nodes.viewedPoint`), live.
+  final ValueViewerVm? viewer;
+  final VoidCallback? onViewPoint;
+  final VoidCallback onCloseViewer;
 
   /// Opens the flow editor on a flow id.
   final void Function(String) onTapFlowEditor;

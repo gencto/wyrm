@@ -193,6 +193,9 @@ class $AssetsSvgIconsGen {
   SvgGenImage get uiUpload =>
       const SvgGenImage('assets/svg/icons/ui_upload.svg');
 
+  /// File path: assets/svg/icons/ui_view.svg
+  SvgGenImage get uiView => const SvgGenImage('assets/svg/icons/ui_view.svg');
+
   /// File path: assets/svg/icons/ws_access.svg
   SvgGenImage get wsAccess =>
       const SvgGenImage('assets/svg/icons/ws_access.svg');
@@ -268,6 +271,7 @@ class $AssetsSvgIconsGen {
     uiSpinner,
     uiSun,
     uiUpload,
+    uiView,
     wsAccess,
     wsAssistant,
     wsExplorer,

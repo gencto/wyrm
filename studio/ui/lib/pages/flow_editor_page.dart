@@ -10,6 +10,7 @@ import '../flows/flow_canvas.dart';
 import '../flows/flow_legend.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../overlays/value_viewer.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -68,6 +69,13 @@ class FlowEditorPage extends StatelessWidget {
     this.unbindLabel = 'Unbind',
     this.goToSourceLabel = 'Go to source',
     this.boundLabel = 'bound',
+    this.viewer,
+    this.onView,
+    this.onCloseViewer,
+    this.viewLabel = 'View value',
+    this.copyLabel = 'Copy',
+    this.copiedLabel = 'Copied',
+    this.closeLabel = 'Close',
     super.key,
   });
 
@@ -134,6 +142,17 @@ class FlowEditorPage extends StatelessWidget {
   final String unbindLabel;
   final String goToSourceLabel;
   final String boundLabel;
+
+  /// The open value viewer of a field, live; null: none is open.
+  final ValueViewerVm? viewer;
+
+  /// The eye of an inspector row (its id): opens the viewer.
+  final ValueChanged<String>? onView;
+  final VoidCallback? onCloseViewer;
+  final String viewLabel;
+  final String copyLabel;
+  final String copiedLabel;
+  final String closeLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -240,60 +259,21 @@ class FlowEditorPage extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: SidePanels(
-                onChanged: onPanelWidth,
-                left: SidePanel(
-                  width: panels.left,
-                  defaultWidth: 220,
-                  child: BlockPalette(
-                    tabs: paletteTabs,
-                    tab: paletteTab,
-                    onTab: onPaletteTab,
-                    entries: palette,
-                    onPick: onPick,
-                    hint: searchHint,
-                    notes: paletteNotes,
-                    closed: paletteClosed,
-                  ),
-                ),
-                center: FlowCanvas(
-                  blocks: blocks,
-                  wires: wires,
-                  actions: blockActions,
-                  onClear: onClear,
-                  onMove: onMove,
-                  onDrop: onDrop,
-                  legend: legend,
-                ),
-                right: SidePanel(
-                  width: panels.right,
-                  defaultWidth: 320,
-                  child: FieldInspector(
-                    header: switch (nameField) {
-                      final f? => Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
-                        child: ParamField(vm: f),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: _panels()),
+                  if (viewer case final v?)
+                    Positioned.fill(
+                      child: ValueViewer(
+                        key: const ValueKey('value-viewer'),
+                        vm: v,
+                        onClose: onCloseViewer ?? () {},
+                        copyLabel: copyLabel,
+                        copiedLabel: copiedLabel,
+                        closeLabel: closeLabel,
                       ),
-                      null => null,
-                    },
-                    kindLabel: inspectorKind,
-                    title: inspectorTitle,
-                    note: inspectorNote,
-                    rows: inspectorRows,
-                    summary: summary,
-                    footer: inspectorFooter,
-                    onChanged: onFieldChanged,
-                    onUnbind: onFieldUnbind,
-                    onBind: onFieldBind,
-                    onProblem: onProblem,
-                    onGoToSource: onGoToSource,
-                    unbindLabel: unbindLabel,
-                    goToSourceLabel: goToSourceLabel,
-                    boundLabel: boundLabel,
-                    removeLabel: removeLabel,
-                    onRemove: onRemove,
-                  ),
-                ),
+                    ),
+                ],
               ),
             ),
           ],
@@ -301,6 +281,64 @@ class FlowEditorPage extends StatelessWidget {
       ),
     );
   }
+
+  Widget _panels() => SidePanels(
+    onChanged: onPanelWidth,
+    left: SidePanel(
+      width: panels.left,
+      defaultWidth: 220,
+      child: BlockPalette(
+        tabs: paletteTabs,
+        tab: paletteTab,
+        onTab: onPaletteTab,
+        entries: palette,
+        onPick: onPick,
+        hint: searchHint,
+        notes: paletteNotes,
+        closed: paletteClosed,
+      ),
+    ),
+    center: FlowCanvas(
+      blocks: blocks,
+      wires: wires,
+      actions: blockActions,
+      onClear: onClear,
+      onMove: onMove,
+      onDrop: onDrop,
+      legend: legend,
+    ),
+    right: SidePanel(
+      width: panels.right,
+      defaultWidth: 320,
+      child: FieldInspector(
+        header: switch (nameField) {
+          final f? => Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+            child: ParamField(vm: f),
+          ),
+          null => null,
+        },
+        kindLabel: inspectorKind,
+        title: inspectorTitle,
+        note: inspectorNote,
+        rows: inspectorRows,
+        summary: summary,
+        footer: inspectorFooter,
+        onChanged: onFieldChanged,
+        onUnbind: onFieldUnbind,
+        onBind: onFieldBind,
+        onProblem: onProblem,
+        onGoToSource: onGoToSource,
+        unbindLabel: unbindLabel,
+        goToSourceLabel: goToSourceLabel,
+        boundLabel: boundLabel,
+        removeLabel: removeLabel,
+        onRemove: onRemove,
+        onView: onView,
+        viewLabel: viewLabel,
+      ),
+    ),
+  );
 
   /// The logo: to Explorer (spec §1).
   final void Function() onLogo;

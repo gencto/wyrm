@@ -142,6 +142,8 @@ class FieldInspector extends StatelessWidget {
     required this.onBind,
     required this.onProblem,
     this.onGoToSource,
+    this.onView,
+    this.viewLabel = 'View value',
     this.kindLabel = '',
     this.title = '',
     this.note = '',
@@ -175,6 +177,11 @@ class FieldInspector extends StatelessWidget {
   /// `Go to source` of a bound field: selects the block its wire comes
   /// from.
   final ValueChanged<String>? onGoToSource;
+
+  /// The eye at the end of a row: opens the field's value in the viewer;
+  /// null: rows have none.
+  final ValueChanged<String>? onView;
+  final String viewLabel;
   final String removeLabel;
   final VoidCallback? onRemove;
   final String unbindLabel;
@@ -235,6 +242,8 @@ class FieldInspector extends StatelessWidget {
                           onUnbind: onUnbind,
                           onBind: onBind,
                           onGoToSource: onGoToSource,
+                          onView: onView,
+                          viewLabel: viewLabel,
                           unbindLabel: unbindLabel,
                           bindLabel: bindLabel,
                           goToSourceLabel: goToSourceLabel,
@@ -352,8 +361,9 @@ class FieldInspector extends StatelessWidget {
   }
 }
 
-/// One field: label (engine name under it) · editor · link button
-/// (104 · 1fr · 32, min 44 high).
+/// One field: label (engine name under it) · editor · link button · view
+/// button (104 · 1fr · 28 · 28, min 44 high). Every value ellipsizes in
+/// its cell; the viewer shows it whole.
 class _Row extends StatelessWidget {
   const _Row({
     required this.vm,
@@ -361,6 +371,8 @@ class _Row extends StatelessWidget {
     required this.onUnbind,
     required this.onBind,
     required this.onGoToSource,
+    required this.onView,
+    required this.viewLabel,
     required this.unbindLabel,
     required this.bindLabel,
     required this.goToSourceLabel,
@@ -368,6 +380,8 @@ class _Row extends StatelessWidget {
   });
 
   final InspectorRowVm vm;
+  final ValueChanged<String>? onView;
+  final String viewLabel;
   final void Function(String id, String value) onChanged;
   final ValueChanged<String> onUnbind;
   final void Function(String id, FieldRefVm from) onBind;
@@ -389,7 +403,6 @@ class _Row extends StatelessWidget {
         border: Border(bottom: BorderSide(color: c.ground3)),
       ),
       child: Row(
-        spacing: 8,
         children: [
           SizedBox(
             width: 104,
@@ -416,9 +429,11 @@ class _Row extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(child: _editor(context)),
+          const SizedBox(width: 6),
           SizedBox(
-            width: 32,
+            width: 28,
             height: 32,
             child: bound
                 ? _LinkMenu(
@@ -440,6 +455,17 @@ class _Row extends StatelessWidget {
                     ),
                   ),
           ),
+          if (onView case final view?)
+            SizedBox(
+              width: 28,
+              height: 32,
+              child: IconButton(
+                tooltip: viewLabel,
+                padding: EdgeInsets.zero,
+                onPressed: () => view(vm.id),
+                icon: AppIcon('ui_view', size: 16, color: c.text3),
+              ),
+            ),
         ],
       ),
     );
@@ -508,7 +534,10 @@ class _Row extends StatelessWidget {
               style: mono(size: 12, color: c.text1),
               items: [
                 for (final ch in vm.choices)
-                  DropdownMenuItem(value: ch, child: Text(ch)),
+                  DropdownMenuItem(
+                    value: ch,
+                    child: Text(ch, maxLines: 1, overflow: .ellipsis),
+                  ),
               ],
               onChanged: (v) => onChanged(vm.id, v ?? ''),
             ),
@@ -541,8 +570,15 @@ class _Row extends StatelessWidget {
             child: Row(
               spacing: 8,
               children: [
-                Text(vm.value, style: mono(size: 12, color: c.text1)),
-                Expanded(
+                Flexible(
+                  child: Text(
+                    vm.value,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: mono(size: 12, color: c.text1),
+                  ),
+                ),
+                Flexible(
                   child: Text(
                     vm.targets,
                     maxLines: 1,

@@ -20,6 +20,7 @@ import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
 import 'package:business/redux/flow_editor/actions/set_operand_value_action.dart';
 import 'package:business/redux/flow_editor/actions/set_palette_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
+import 'package:business/redux/flow_editor/actions/set_viewed_field_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/watch_flow_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
@@ -46,9 +47,11 @@ import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 
 import '../common/side_panels.dart';
+import '../common/value_viewer.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'flows_page_connector.dart';
@@ -181,6 +184,13 @@ class FlowEditorPageConnector extends StatelessWidget {
       onLogo: vm.onLogo,
       panels: vm.panelWidths,
       onPanelWidth: vm.onPanelWidth,
+      viewer: vm.viewer,
+      onView: vm.onView,
+      onCloseViewer: vm.onCloseViewer,
+      viewLabel: S.current.viewValue,
+      copyLabel: S.current.copyValue,
+      copiedLabel: S.current.copiedValue,
+      closeLabel: S.current.closeLabel,
     ),
   );
 
@@ -377,6 +387,22 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       summary: b == null
           ? _summary(root, id, d, problems, previewing: previewing)
           : null,
+      viewer: switch (ed.viewedField?.split('/')) {
+        [final vb, ...final rest] when d != null && blocks[vb] != null =>
+          _viewer(
+            blocks[vb]!,
+            fields[vb]!.where((f) => f.id == rest.join('/')).firstOrNull,
+            d,
+            look(blocks[vb]!),
+          ),
+        _ => null,
+      },
+      onView: (row) {
+        if (sel != null && row != 'form') {
+          dispatchSync(SetViewedFieldAction('$sel/$row'));
+        }
+      },
+      onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
       onDeploy: () => unawaited(dispatchAndWait(DeployFlowAction())),
       onValidate: () => unawaited(dispatchAndWait(ValidateFlowAction())),
       onClose: () => dispatch(GoAction.pop()),
@@ -922,6 +948,37 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     BlockRole.action => S.current.kindAction,
   };
 
+  /// The viewer of field [f] of block [b], live (owner request
+  /// 2026-11-09): titled `<block>.<engine name>`, the value [fieldValue]
+  /// shows, whole; null when the field is gone.
+  ValueViewerVm? _viewer(
+    FlowBlock b,
+    FlowField? f,
+    FlowDraft d,
+    LiveValue? Function(String) live,
+  ) {
+    if (f == null) {
+      return null;
+    }
+    final point = pointOf(b);
+    final info = point == null
+        ? null
+        : nodes.table[_full(site.root ?? '', point)];
+    final at = f.kind == FieldKind.input || f.kind == FieldKind.output;
+    final v = fieldValue(b, f, d, live);
+    return valueViewerOf(
+      title: '${b.id}.${f.name}',
+      value: v.raw,
+      known: v.raw != null || v.live,
+      unit: at ? info?.unit : null,
+      choices: at ? info?.choices.unlock ?? const [] : const [],
+      quality: switch (v.quality) {
+        final q? => qualityMarkOf(q),
+        null => null,
+      },
+    );
+  }
+
   InspectorRowVm _inspectorRow(
     FlowBlock b,
     FlowField f,
@@ -1185,6 +1242,9 @@ class _Vm extends Vm {
     required this.onLogo,
     required this.panelWidths,
     required this.onPanelWidth,
+    required this.viewer,
+    required this.onView,
+    required this.onCloseViewer,
   }) : super(
          equals: [
            watch,
@@ -1206,6 +1266,7 @@ class _Vm extends Vm {
            summary,
            onRemove != null,
            panelWidths,
+           viewer,
          ],
        );
 
@@ -1267,4 +1328,9 @@ class _Vm extends Vm {
   final void Function() onLogo;
   final SidePanelWidths panelWidths;
   final void Function(PanelSide side, double width) onPanelWidth;
+
+  /// The open viewer of a field (`flowEditor.viewedField`), live.
+  final ValueViewerVm? viewer;
+  final ValueChanged<String> onView;
+  final VoidCallback onCloseViewer;
 }

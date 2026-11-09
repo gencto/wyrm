@@ -11,6 +11,7 @@ import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/review_panel.dart';
+import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/shell/studio_shell.dart';
 import 'package:ui/shell/top_bar.dart';
@@ -445,6 +446,7 @@ ExplorerPage _page({
   String? empty,
   StatusPillVm pill = const StatusPillVm(label: 'Connected', tone: Tone.good),
   SidePanelWidths panels = const SidePanelWidths(),
+  ValueViewerVm? viewer,
 }) => ExplorerPage(
   treeLabel: 'Tree · plant',
   tree: _tree(),
@@ -499,10 +501,26 @@ ExplorerPage _page({
   onCheckAll: () {},
   inspector: inspector ?? _pointInspector(),
   panels: panels,
+  onViewPoint: () {},
+  viewer: viewer,
+  onCloseViewer: () {},
 );
 
 /// A device with a point selected (board *Main*).
 Widget explorerPoint() => _shell(_page());
+
+/// The point's value in the viewer: a number with its unit and quality.
+Widget explorerViewer() => _shell(
+  _page(
+    viewer: const ValueViewerVm(
+      title: 'downstream/modbus/plc1/level',
+      type: 'number',
+      copy: '72.4',
+      quality: QualityMarkVm(label: 'good · 12:00:03', tone: .good),
+      content: NumberContentVm('72.4', unit: '%'),
+    ),
+  ),
+);
 
 /// Nothing selected: the device's parameters and diagnostics.
 Widget explorerDevice() => _shell(
