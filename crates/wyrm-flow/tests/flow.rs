@@ -132,6 +132,10 @@ struct Env {
 
 async fn engine_on(session: &zenoh::Session, dir: &std::path::Path) -> LinkHandle<Engine> {
     let host = FlowHost::open(dir, b"flow-test-hmac-key", SITE).unwrap();
+    engine_with(session, host).await
+}
+
+async fn engine_with(session: &zenoh::Session, host: Arc<FlowHost>) -> LinkHandle<Engine> {
     let key = ed25519_dalek::SigningKey::from_bytes(&TEST_KEY_SEED);
     let mut lcfg = LinkConfig::new(SITE, "dataflows");
     lcfg.root = Some(format!("wy/{SITE}/dataflows"));
@@ -427,6 +431,52 @@ async fn peak_shaving_hot_swap_and_restart() {
         .await
         .unwrap();
     assert!(env.client.meta(&flow).await.is_err());
+    env.stop().await;
+}
+
+/// A stopped engine has let go of its store when `stop` returns: the next instance opens it
+/// at once (no retry), also with a watch and a preview open at the stop (ADR 0038 §6). The
+/// supervisor, the node tasks, the streams and the engine itself are all gone by then.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_releases_the_store_at_once() {
+    const ROUNDS: usize = 15;
+    let mut env = Env::start("release").await;
+    env.engine.take().unwrap().stop().await;
+    let flow = format!("wy/{SITE}/dataflows/peak");
+    let root = format!("wy/{SITE}/dataflows");
+    for round in 0..ROUNDS {
+        let host = FlowHost::open(&env.dir, b"flow-test-hmac-key", SITE)
+            .unwrap_or_else(|e| panic!("round {round}: store still held after the stop: {e}"));
+        let weak = Arc::downgrade(&host);
+        env.engine = Some(engine_with(&env.session, host).await);
+        if round == 0 {
+            env.deploy(peak(1, "a.v + b.v")).await.unwrap();
+        }
+        // the stored flow runs again (a supervisor and node tasks hold the state)
+        wait("total", || env.last("peak/nodes/total")).await;
+        // a watch and a preview are streaming when the engine stops (every other round, so
+        // plain stops are covered too)
+        let streams = if round % 2 == 0 {
+            let mut w = env.client.invoke(&flow, "watch", map(&[])).await.unwrap();
+            w.next().await.unwrap().unwrap().unwrap();
+            let mut p = env
+                .client
+                .invoke(&root, "preview", map(&[("def", draft())]))
+                .await
+                .unwrap();
+            p.next().await.unwrap().unwrap().unwrap();
+            Some((w, p))
+        } else {
+            None
+        };
+        env.engine.take().unwrap().stop().await;
+        assert_eq!(
+            weak.strong_count(),
+            0,
+            "round {round}: something the engine started outlived its stop"
+        );
+        drop(streams);
+    }
     env.stop().await;
 }
 
