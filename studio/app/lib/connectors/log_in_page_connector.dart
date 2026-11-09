@@ -270,7 +270,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
           S.current.preloadLinks,
           S.current.preloadSites,
         ].indexed)
-          late.contains(i) ? S.current.preloadLater(label) : label,
+          if (late.contains(i)) S.current.preloadLater(label) else label,
       ],
       step: login.preload,
       late: late,

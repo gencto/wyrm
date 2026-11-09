@@ -57,7 +57,7 @@ class _ShakeState extends State<Shake> with SingleTickerProviderStateMixin {
 
   void _start() {
     if (mounted && !reduceMotion(context)) {
-      unawaited(_shake.forward(from: 0));
+      _shake.forward(from: 0).ignore();
     }
   }
 

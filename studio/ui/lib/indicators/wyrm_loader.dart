@@ -67,7 +67,7 @@ class _WyrmLoaderState extends State<WyrmLoader>
     if (reduceMotion(context)) {
       _crawl.stop();
     } else if (!_crawl.isAnimating) {
-      unawaited(_crawl.repeat());
+      _crawl.repeat().ignore();
     }
   }
 

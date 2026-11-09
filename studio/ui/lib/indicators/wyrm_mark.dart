@@ -45,10 +45,10 @@ class _WyrmMarkState extends State<WyrmMark> with TickerProviderStateMixin {
       _breathe.stop();
     } else {
       if (_spine.isDismissed) {
-        unawaited(_spine.forward());
+        _spine.forward().ignore();
       }
       if (!_breathe.isAnimating) {
-        unawaited(_breathe.repeat());
+        _breathe.repeat().ignore();
       }
     }
   }

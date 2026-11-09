@@ -1000,7 +1000,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       if (kind == NodeKind.device && d?.cfg['unit'] != null)
         S.current.unitNumber(d!.cfg['unit']!),
       if (conn?['host'] case final h?)
-        conn?['port'] == null ? h : '$h:${conn!['port']}',
+        if (conn?['port'] == null) h else '$h:${conn!['port']}',
       ?conn?['serial_port'],
       if (kind == NodeKind.broker) ?d?.attr['root'],
       if (!driverKind && kind != NodeKind.flow && kind != NodeKind.device)

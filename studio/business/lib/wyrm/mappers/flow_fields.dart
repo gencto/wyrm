@@ -350,7 +350,10 @@ String humanize(String name) {
   }
   final text = [
     for (final (i, w) in words.indexed)
-      i == 0 ? '${w[0].toUpperCase()}${w.substring(1)}' : w.toLowerCase(),
+      if (i == 0)
+        '${w[0].toUpperCase()}${w.substring(1)}'
+      else
+        w.toLowerCase(),
   ].join(' ');
   return unit == null ? text : '$text ($unit)';
 }

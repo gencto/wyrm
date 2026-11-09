@@ -217,7 +217,7 @@ class _NetworkLayerState extends State<_NetworkLayer>
       if (reduceMotion(context)) {
         loop.stop();
       } else if (!loop.isAnimating) {
-        unawaited(loop.repeat());
+        loop.repeat().ignore();
       }
     }
   }

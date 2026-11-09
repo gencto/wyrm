@@ -448,6 +448,7 @@ Every string in `localization/lib/l10n/intl_en.arb` and `intl_uk.arb`, read in c
           done
 ```
 - Before a PR: `frx doctor`, `frx flow --md` (the flow docs are checked by doctor), `frx graph --fail-on-orphans`.
+- The job takes the newest stable Flutter (`channel: stable`, no version): its analyzer can be stricter than a local SDK (2026-11-09: Flutter 3.47.9 in CI, 3.44.4 locally; 3.47's linter flags a conditional expression inside a `for`/`if` collection element (`prefer_if_elements_to_conditional_expressions`) and `unawaited(...)` around a call annotated `@awaitNotRequired` (`unnecessary_unawaited`), which 3.44's `discarded_futures` still asks for). Before a PR, run `flutter analyze` from `studio/` with the current stable too (`puro`/`fvm`), then restore `pubspec.lock` and `flutter pub get` with the local SDK. Code clean on both: an `if`/`else` element instead of `?:` in a collection, `controller.forward().ignore()` for a ticker started from a sync method.
 
 ## 10. What the broker side still needs
 Each item is a change on the Rust side with its own ADR or spec line; Studio shows the feature only when it exists.

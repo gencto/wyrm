@@ -44,7 +44,7 @@ class _RiseState extends State<Rise> with SingleTickerProviderStateMixin {
         ..stop()
         ..value = 1;
     } else if (_rise.isDismissed) {
-      unawaited(_rise.forward());
+      _rise.forward().ignore();
     }
   }
 

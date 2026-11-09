@@ -44,7 +44,7 @@ class _ArcSpinnerState extends State<ArcSpinner>
     if (reduceMotion(context)) {
       _spin.stop();
     } else if (!_spin.isAnimating) {
-      unawaited(_spin.repeat());
+      _spin.repeat().ignore();
     }
   }
 

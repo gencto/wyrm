@@ -49,7 +49,7 @@ class _SweepBarState extends State<SweepBar>
     if (reduceMotion(context)) {
       _sweep.stop();
     } else if (!_sweep.isAnimating) {
-      unawaited(_sweep.repeat());
+      _sweep.repeat().ignore();
     }
   }
 
