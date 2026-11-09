@@ -1,13 +1,20 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 
+import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
 import 'flow_legend.dart';
+import 'flow_menu.dart';
+import 'shortcut_card.dart';
 
 /// One wire: output `<from>.<fromPort>` → input `<to>.<toPort>`.
 final class FlowWireVm extends Equatable {
@@ -47,14 +54,18 @@ final class FlowWireVm extends Equatable {
   ];
 }
 
-/// The canvas of the flow editor (spec §3–§5): blocks on a dot grid, S-curve
-/// wires from a field's right port to another's left port, the legend
-/// pinned bottom-left.
+/// The canvas of the flow editor (spec §3–§5, §12–§14): blocks on a dot
+/// grid, S-curve wires from a field's right port to another's left port,
+/// the legend and the `?` button pinned bottom-left.
 ///
 /// The canvas reads the pointer itself, in its own coordinates, so what is
 /// dragged stays under the pointer at any zoom and scroll:
-/// - a block's header moves the block (snapped to the 20 px grid when let
-///   go);
+/// - a block's header moves the block, and with it the whole selection
+///   when the block is part of one (snapped to the 20 px grid when let go);
+/// - a drag on the empty canvas draws a marquee: the blocks it touches are
+///   selected (Shift adds them, ⌘/Ctrl switches them); a click there
+///   clears the selection; Shift- or ⌘/Ctrl-click on a block switches it
+///   in or out of the selection;
 /// - a field, after 3 px, draws a wire from its right port to the pointer;
 ///   a row that takes it lights, one that refuses lights red with the
 ///   reason; let go on a row that takes it, it binds; on the empty canvas,
@@ -65,8 +76,15 @@ final class FlowWireVm extends Equatable {
 /// - a double click or an Alt-click on a bound input unbinds it;
 /// - the pointer over a bound field lights its wire and its source row (the
 ///   field shows the value that comes in, not where it comes from);
-/// - the empty canvas pans, and so do two fingers on a trackpad; a click
-///   on it clears the selection.
+/// - Space + drag, the middle button, the wheel and two fingers on a
+///   trackpad pan; ⌘/Ctrl + wheel and a pinch zoom about the pointer;
+/// - the right button opens the context menu ([FlowMenu]) of the block,
+///   of the selection or of the canvas.
+///
+/// Every key comes from [flowShortcuts]; the canvas takes keys while
+/// its route is on top and no text field or floating window has the
+/// focus. What changes the flow goes out as a [FlowCommand] ([onCommand]);
+/// zoom, the shortcut card and the selection by keys are the canvas's own.
 ///
 /// A wire let go outside the canvas over a [FieldDropZone] (the inspector)
 /// binds that field. A palette entry dropped on the canvas places a block
@@ -79,8 +97,15 @@ class FlowCanvas extends StatefulWidget {
     required this.onClear,
     required this.onMove,
     required this.onDrop,
+    this.onSelectMany,
+    this.onCommand,
+    this.menu,
+    this.onPin,
+    this.onViewField,
     this.legend,
     this.controller,
+    this.help = false,
+    this.mac,
     super.key,
   });
 
@@ -88,24 +113,59 @@ class FlowCanvas extends StatefulWidget {
   final List<FlowWireVm> wires;
   final FlowBlockActions actions;
 
-  /// A tap on the empty canvas.
+  /// A click on the empty canvas.
   final VoidCallback onClear;
 
-  /// A block let go at (`x`, `y`), on the grid.
-  final void Function(String id, double x, double y) onMove;
+  /// Blocks let go at their new top-left corners, on the grid: a drag of
+  /// the selection, or (`nudge`) a step of the arrow keys.
+  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
 
   /// A palette entry (its id) dropped: the new block's top-left, on the
   /// grid.
   final void Function(String entry, double x, double y) onDrop;
+
+  /// A marquee or Select all: the ids alone, added (`add`) or switched
+  /// in and out (`toggle`).
+  final void Function(
+    Set<String> ids, {
+    required bool add,
+    required bool toggle,
+  })?
+  onSelectMany;
+
+  /// A command the canvas does not do by itself (copy, paste, delete,
+  /// undo, deploy, …), from a key or from the context menu; `at` is where
+  /// a paste lands (the pointer, in canvas coordinates).
+  final void Function(FlowCommand command, {Offset? at})? onCommand;
+
+  /// The context menu for a right click: on a block (and its row) with
+  /// the selection's ids, or on the empty canvas (both null).
+  final FlowMenuVm Function(Set<String> ids, String? block, String? row)? menu;
+
+  /// A tick of the menu's `Fields ▸` checklist, or `Unpin from block`.
+  final void Function(String block, String field, {required bool pinned})?
+  onPin;
+
+  /// `V` over a row: opens its value in the viewer.
+  final void Function(String block, String row)? onViewField;
   final FlowLegendVm? legend;
 
   /// The zoom and scroll; the canvas keeps its own when none is given.
   final TransformationController? controller;
 
+  /// Whether the shortcut card is open at first.
+  final bool help;
+
+  /// ⌘ glyphs in the card and the menu; null: this machine's.
+  final bool? mac;
+
   static const size = Size(3000, 2000);
 
   /// The grid blocks snap to.
   static const grid = 20.0;
+
+  /// How far Shift + an arrow moves the selection, in grid steps.
+  static const farNudge = 10;
 
   /// Where a dropped block's top-left goes relative to the pointer: the
   /// pointer lands on the header, past the kind chip.
@@ -113,6 +173,12 @@ class FlowCanvas extends StatefulWidget {
 
   /// How far the pointer moves, on the screen, before a press drags.
   static const slop = 3.0;
+
+  static const minScale = 0.25;
+  static const maxScale = 2.0;
+
+  /// One step of ⌘/Ctrl + and −.
+  static const zoomStep = 1.2;
 
   static double snap(double v) => (v / grid).round() * grid;
 
@@ -133,14 +199,59 @@ final class _Pan extends _Press {
   _Pan(super.down);
 }
 
+/// A rectangle drawn on the empty canvas.
+final class _Marquee extends _Press {
+  _Marquee(
+    super.down,
+    this.from, {
+    required this.add,
+    required this.toggle,
+    required this.base,
+  }) : to = from;
+
+  /// Its corners, in canvas coordinates.
+  final Offset from;
+  Offset to;
+
+  /// Shift: what it touches joins the selection.
+  final bool add;
+
+  /// ⌘/Ctrl: what it touches switches in or out of it.
+  final bool toggle;
+
+  /// What was selected when it began.
+  final Set<String> base;
+  var hit = <String>{};
+
+  Rect get rect => Rect.fromPoints(from, to);
+
+  /// Whether [id] reads selected while the marquee is drawn.
+  bool selects(String id) => toggle
+      ? base.contains(id) != hit.contains(id)
+      : (add && base.contains(id)) || hit.contains(id);
+}
+
 final class _Move extends _Press {
-  _Move(super.down, this.id, this.grab);
+  _Move(
+    super.down,
+    this.anchor,
+    this.grab,
+    this.origins, {
+    required this.narrow,
+  });
 
-  final String id;
+  /// The block under the pointer.
+  final String anchor;
 
-  /// The pointer's place on the block, kept while it moves.
+  /// The pointer's place on [anchor], kept while it moves.
   final Offset grab;
-  Offset? at;
+
+  /// Where every moving block was.
+  final Map<String, Offset> origins;
+
+  /// A click without a drag selects [anchor] alone (it was one of several).
+  final bool narrow;
+  var at = <String, Offset>{};
 }
 
 final class _Wire extends _Press {
@@ -175,6 +286,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
   final GlobalKey<State<StatefulWidget>> _view = GlobalKey();
   TransformationController? _own;
   _Press? _press;
+  ModalRoute<Object?>? _route;
 
   /// The last click on a row, for a double click: block, row, when.
   (String, String, Duration)? _lastClick;
@@ -182,36 +294,320 @@ class _FlowCanvasState extends State<FlowCanvas> {
   /// The bound field under the pointer: block and row id.
   (String, String)? _hover;
 
+  /// Where the mouse was last, on the screen: where a paste lands.
+  Offset? _pointer;
+
+  /// Space is held: a drag pans.
+  var _space = false;
+
+  /// The pinch so far of a trackpad gesture.
+  var _pinch = 1.0;
+
+  /// The shortcut card is open.
+  late bool _help = widget.help;
+
   TransformationController get _ctl =>
       widget.controller ?? (_own ??= TransformationController());
 
   @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _own?.dispose();
     super.dispose();
   }
 
-  /// The blocks as drawn: the moving one where the pointer has it.
-  List<FlowBlockVm> get _blocks => [
-    for (final b in widget.blocks)
-      if (_press case _Move(:final id, :final at?) when id == b.id)
-        b.at(at.dx, at.dy)
-      else
-        b,
-  ];
+  // ---------- what is drawn ----------
 
+  /// The blocks as drawn: the moving ones where the pointer has them, and
+  /// under a marquee the selection it would give.
+  List<FlowBlockVm> get _blocks {
+    final press = _press;
+    return [
+      for (final b in widget.blocks)
+        switch (press) {
+          _Move(:final at) when at[b.id] != null => b.at(
+            at[b.id]!.dx,
+            at[b.id]!.dy,
+          ),
+          _Marquee(dragging: true) when press.selects(b.id) != b.selected =>
+            b.marked(selected: press.selects(b.id)),
+          _ => b,
+        },
+    ];
+  }
+
+  Set<String> get _selected => {
+    for (final b in widget.blocks)
+      if (b.selected) b.id,
+  };
+
+  // ---------- coordinates, zoom and scroll ----------
+
+  /// [global] in canvas coordinates (through the zoom and the scroll).
   Offset _local(Offset global) {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
     return box?.globalToLocal(global) ?? global;
   }
 
+  RenderBox? get _viewBox =>
+      _view.currentContext?.findRenderObject() as RenderBox?;
+
   bool _inView(Offset global) {
-    final box = _view.currentContext?.findRenderObject() as RenderBox?;
+    final box = _viewBox;
     if (box == null) {
       return true;
     }
     return (Offset.zero & box.size).contains(box.globalToLocal(global));
   }
+
+  /// The zoom: the x scale of the transform. (`getMaxScaleOnAxis` also
+  /// counts the z axis, which stays 1: it never reads below 100 %.)
+  double get _scale => _ctl.value.entry(0, 0);
+
+  Offset get _shift {
+    final t = _ctl.value.getTranslation();
+    return Offset(t.x, t.y);
+  }
+
+  /// Shows the canvas at [scale], its origin at [shift] in the view; both
+  /// kept in bounds: the zoom in [FlowCanvas.minScale] …
+  /// [FlowCanvas.maxScale], the canvas never more than 200 px away from the
+  /// view's edges.
+  void _setView(double scale, Offset shift) {
+    final s = scale.clamp(FlowCanvas.minScale, FlowCanvas.maxScale);
+    final view = _viewBox?.size ?? Size.zero;
+    double bound(double v, double viewExtent, double extent) {
+      final low = math.min<double>(200, viewExtent - extent * s - 200);
+      return v.clamp(low, 200.0);
+    }
+
+    _ctl.value = Matrix4.identity()
+      ..translateByDouble(
+        bound(shift.dx, view.width, FlowCanvas.size.width),
+        bound(shift.dy, view.height, FlowCanvas.size.height),
+        0,
+        1,
+      )
+      ..scaleByDouble(s, s, 1, 1);
+  }
+
+  void _panBy(Offset delta) => _setView(_scale, _shift + delta);
+
+  /// Zooms to [scale] so that the canvas point under [focal] (in the
+  /// view; its centre when null) stays there.
+  void _zoomTo(double scale, {Offset? focal}) {
+    final box = _viewBox;
+    final f = focal ?? (box == null ? Offset.zero : box.size.center(.zero));
+    final s = scale.clamp(FlowCanvas.minScale, FlowCanvas.maxScale);
+    final at = (f - _shift) / _scale;
+    _setView(s, f - at * s);
+  }
+
+  Offset? _viewPoint(Offset global) => _viewBox?.globalToLocal(global);
+
+  /// Shows every block, at 100 % at most.
+  void _fit() {
+    final box = _viewBox;
+    if (widget.blocks.isEmpty || box == null) {
+      _zoomTo(1);
+      return;
+    }
+    final all = widget.blocks
+        .map((b) => b.rect)
+        .reduce((a, b) => a.expandToInclude(b))
+        .inflate(40);
+    final s = math
+        .min(box.size.width / all.width, box.size.height / all.height)
+        .clamp(FlowCanvas.minScale, 1.0);
+    _setView(s, box.size.center(.zero) - all.center * s);
+  }
+
+  // ---------- keys ----------
+
+  /// Whether the canvas takes keys now: its route is on top, and neither a
+  /// text field nor a floating window (the value viewer) has the focus.
+  bool get _keysOn {
+    if (!mounted || !(_route?.isCurrent ?? true)) {
+      return false;
+    }
+    final focus = FocusManager.instance.primaryFocus?.context;
+    if (focus == null) {
+      return true;
+    }
+    return focus.widget is! EditableText &&
+        focus.findAncestorWidgetOfExactType<EditableText>() == null &&
+        focus.findAncestorWidgetOfExactType<FloatingWindow>() == null;
+  }
+
+  static const Set<FlowCommand> _repeating = {
+    FlowCommand.nudgeLeft,
+    FlowCommand.nudgeRight,
+    FlowCommand.nudgeUp,
+    FlowCommand.nudgeDown,
+    FlowCommand.zoomIn,
+    FlowCommand.zoomOut,
+    FlowCommand.undo,
+    FlowCommand.redo,
+  };
+
+  bool _onKey(KeyEvent e) {
+    if (!mounted) {
+      return false;
+    }
+    if (e.logicalKey == LogicalKeyboardKey.space) {
+      final held = e is! KeyUpEvent && _keysOn;
+      if (held != _space) {
+        setState(() => _space = held);
+      }
+      return false;
+    }
+    if (e is KeyUpEvent || !_keysOn) {
+      return false;
+    }
+    final command = flowCommandOf(e.logicalKey);
+    if (command == null) {
+      return false;
+    }
+    if (e is! KeyRepeatEvent || _repeating.contains(command)) {
+      _run(command);
+    }
+    return true;
+  }
+
+  /// Does [command]: the canvas's own ones here, the rest through
+  /// [FlowCanvas.onCommand]. [at] is where the menu was opened (canvas
+  /// coordinates): where a paste lands.
+  void _run(FlowCommand command, {Offset? at}) {
+    switch (command) {
+      case .help:
+        setState(() => _help = !_help);
+      case .escape:
+        if (_help) {
+          setState(() => _help = false);
+        } else if (_press != null) {
+          _cancel();
+        } else {
+          widget.onCommand?.call(.escape);
+        }
+      case .selectAll:
+        widget.onSelectMany?.call(
+          {for (final b in widget.blocks) b.id},
+          add: false,
+          toggle: false,
+        );
+      case .nudgeLeft:
+        _nudge(-1, 0);
+      case .nudgeRight:
+        _nudge(1, 0);
+      case .nudgeUp:
+        _nudge(0, -1);
+      case .nudgeDown:
+        _nudge(0, 1);
+      case .zoomIn:
+        _zoomTo(_scale * FlowCanvas.zoomStep);
+      case .zoomOut:
+        _zoomTo(_scale / FlowCanvas.zoomStep);
+      case .zoomReset:
+        _zoomTo(1);
+      case .zoomFit:
+        _fit();
+      case .viewValue:
+        final p = _pointer;
+        final b = p == null ? null : _blockAt(_blocks, _local(p));
+        final i = p == null ? null : b?.rowAt(_local(p));
+        if (b != null && i != null) {
+          widget.onViewField?.call(b.id, b.rows[i].id);
+        }
+      case .paste:
+        widget.onCommand?.call(.paste, at: at ?? _pasteAt());
+      case .copy ||
+          .cut ||
+          .duplicate ||
+          .delete ||
+          .undo ||
+          .redo ||
+          .searchPalette ||
+          .deploy ||
+          .createCustomBlock ||
+          .editCustomBlock:
+        widget.onCommand?.call(command);
+      // Gestures of the pointer and the menu's own entries: not keys.
+      case .marquee ||
+          .addToSelection ||
+          .moveSelection ||
+          .unbind ||
+          .pan ||
+          .zoom ||
+          .fields ||
+          .unpin:
+        break;
+    }
+  }
+
+  /// Where a paste by the keyboard lands: under the mouse when it is over
+  /// the canvas, else in the middle of the view.
+  Offset _pasteAt() {
+    final p = _pointer;
+    if (p != null && _inView(p)) {
+      return _local(p);
+    }
+    final box = _viewBox;
+    return box == null
+        ? const Offset(60, 60)
+        : _local(box.localToGlobal(box.size.center(.zero)));
+  }
+
+  /// Moves the selection one grid step (ten with Shift), inside the canvas.
+  void _nudge(int dx, int dy) {
+    final moving = [
+      for (final b in widget.blocks)
+        if (b.selected) b,
+    ];
+    if (moving.isEmpty) {
+      return;
+    }
+    final far = HardwareKeyboard.instance.isShiftPressed;
+    final step = FlowCanvas.grid * (far ? FlowCanvas.farNudge : 1);
+    final delta = _inside(moving, Offset(dx * step, dy * step));
+    widget.onMove({
+      for (final b in moving)
+        b.id: Offset(
+          FlowCanvas.snap(b.x + delta.dx),
+          FlowCanvas.snap(b.y + delta.dy),
+        ),
+    }, nudge: true);
+  }
+
+  /// [delta] shortened so that every block of [moving] stays on the canvas.
+  static Offset _inside(List<FlowBlockVm> moving, Offset delta) {
+    final box = moving
+        .map((b) => b.rect)
+        .reduce((a, b) => a.expandToInclude(b));
+    return Offset(
+      delta.dx.clamp(
+        -box.left,
+        math.max(-box.left, FlowCanvas.size.width - box.right),
+      ),
+      delta.dy.clamp(
+        -box.top,
+        math.max(-box.top, FlowCanvas.size.height - box.bottom),
+      ),
+    );
+  }
+
+  // ---------- the pointer ----------
 
   /// The topmost block under [p] (canvas coordinates).
   FlowBlockVm? _blockAt(List<FlowBlockVm> blocks, Offset p) {
@@ -228,7 +624,8 @@ class _FlowCanvasState extends State<FlowCanvas> {
       (r.inMark == PortMark.bound || r.inMark == PortMark.write);
 
   void _hoverAt(PointerHoverEvent e) {
-    final p = e.localPosition;
+    _pointer = e.position;
+    final p = _local(e.position);
     final b = _blockAt(_blocks, p);
     final i = b?.rowAt(p);
     final next = b != null && i != null && _bound(b.rows[i])
@@ -254,20 +651,62 @@ class _FlowCanvasState extends State<FlowCanvas> {
         .firstOrNull;
   }
 
+  void _cancel() => setState(() {
+    _press = null;
+    fieldDropHover.value = null;
+  });
+
   void _down(PointerDownEvent e) {
-    if (e.buttons != kPrimaryButton) {
+    _pointer = e.position;
+    // The canvas takes the keys: a text field elsewhere lets go.
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_help) {
       return;
     }
-    final p = e.localPosition;
-    final blocks = _blocks;
-    final b = _blockAt(blocks, p);
-    if (b == null) {
+    final p = _local(e.position);
+    if (e.buttons == kSecondaryMouseButton) {
+      unawaited(_openMenu(e.position, p));
+      return;
+    }
+    if (e.buttons == kMiddleMouseButton ||
+        (e.buttons == kPrimaryButton && _space)) {
       _press = _Pan(e.position);
       return;
     }
-    widget.actions.onSelect(b.id);
+    if (e.buttons != kPrimaryButton) {
+      return;
+    }
+    final blocks = _blocks;
+    final b = _blockAt(blocks, p);
+    if (b == null) {
+      _press = _Marquee(
+        e.position,
+        p,
+        add: flowGestureHeld(.addToSelection, .dragEmpty),
+        toggle: flowPrimaryHeld(),
+        base: _selected,
+      );
+      return;
+    }
+    if (flowGestureHeld(.addToSelection, .click)) {
+      widget.onSelectMany?.call({b.id}, add: false, toggle: true);
+      return;
+    }
+    final many = b.selected && _selected.length > 1;
+    if (!b.selected) {
+      widget.actions.onSelect(b.id);
+    }
     if (b.onHeader(p)) {
-      _press = _Move(e.position, b.id, p - Offset(b.x, b.y));
+      _press = _Move(
+        e.position,
+        b.id,
+        p - Offset(b.x, b.y),
+        {
+          for (final x in blocks)
+            if (x.id == b.id || (many && x.selected)) x.id: Offset(x.x, x.y),
+        },
+        narrow: many,
+      );
       return;
     }
     final i = b.rowAt(p);
@@ -276,7 +715,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
       return;
     }
     final r = b.rows[i];
-    if (_bound(r) && HardwareKeyboard.instance.isAltPressed) {
+    if (_bound(r) && flowGestureHeld(.unbind, .click)) {
       _press = null;
       widget.actions.onUnbind(b.id, r.id);
       return;
@@ -304,7 +743,45 @@ class _FlowCanvasState extends State<FlowCanvas> {
     _press = _Tap(e.position, b.id, r.id);
   }
 
+  /// The right button: the menu of the block under it (which joins the
+  /// selection's place when it was not part of it), or of the canvas.
+  Future<void> _openMenu(Offset global, Offset p) async {
+    final build = widget.menu;
+    if (build == null) {
+      return;
+    }
+    final b = _blockAt(_blocks, p);
+    final i = b?.rowAt(p);
+    var ids = _selected;
+    if (b != null && !b.selected) {
+      widget.actions.onSelect(b.id);
+      ids = {b.id};
+    }
+    final row = b == null || i == null ? null : b.rows[i].id;
+    final picked = await FlowMenu.show(
+      context,
+      at: global,
+      vm: build(ids, b?.id, row),
+      onPin: (field, {required pinned}) {
+        if (b != null) {
+          widget.onPin?.call(b.id, field, pinned: pinned);
+        }
+      },
+    );
+    if (!mounted || picked == null) {
+      return;
+    }
+    if (picked == FlowCommand.unpin) {
+      if (b != null && row != null) {
+        widget.onPin?.call(b.id, row, pinned: false);
+      }
+      return;
+    }
+    _run(picked, at: p);
+  }
+
   void _move(PointerMoveEvent e) {
+    _pointer = e.position;
     final press = _press;
     if (press == null) {
       return;
@@ -314,22 +791,35 @@ class _FlowCanvasState extends State<FlowCanvas> {
       return;
     }
     press.dragging = true;
-    final p = e.localPosition;
+    final p = _local(e.position);
     switch (press) {
       case _Pan():
-        _ctl.value = Matrix4.translationValues(e.delta.dx, e.delta.dy, 0)
-          ..multiply(_ctl.value);
-      case _Move(:final id, :final grab):
-        final b = widget.blocks.where((b) => b.id == id).firstOrNull;
-        if (b == null) {
+        _panBy(e.delta);
+      case _Marquee():
+        final rect = Rect.fromPoints(press.from, p);
+        setState(() {
+          press
+            ..to = p
+            ..hit = {
+              for (final b in widget.blocks)
+                if (b.rect.overlaps(rect)) b.id,
+            };
+        });
+      case _Move(:final anchor, :final grab, :final origins):
+        final moving = [
+          for (final b in widget.blocks)
+            if (origins.containsKey(b.id)) b,
+        ];
+        final from = origins[anchor];
+        if (moving.isEmpty || from == null) {
           return;
         }
-        final at = p - grab;
+        final delta = _inside(moving, p - grab - from);
         setState(
-          () => press.at = Offset(
-            at.dx.clamp(0, FlowCanvas.size.width - b.width),
-            at.dy.clamp(0, FlowCanvas.size.height - b.height),
-          ),
+          () => press.at = {
+            for (final MapEntry(:key, :value) in origins.entries)
+              key: value + delta,
+          },
         );
       case _Wire():
         _follow(press, p, e.position);
@@ -376,22 +866,46 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final press = _press;
     _press = null;
     fieldDropHover.value = null;
+    final p = _local(e.position);
     switch (press) {
       case null:
         return;
-      case _Pan(:final dragging):
-        if (!dragging) {
+      case _Pan():
+        break;
+      case _Marquee(dragging: false, :final add, :final toggle):
+        if (!add && !toggle) {
           widget.onClear();
         }
-      case _Move(:final id, :final at?):
-        widget.onMove(id, FlowCanvas.snap(at.dx), FlowCanvas.snap(at.dy));
-      case _Move():
-        break;
+      case _Marquee(:final hit, :final add, :final toggle):
+        if (hit.isEmpty && !add && !toggle) {
+          widget.onClear();
+        } else {
+          widget.onSelectMany?.call(hit, add: add, toggle: toggle);
+        }
+      case _Move(dragging: true, :final anchor, :final origins, :final at):
+        final from = origins[anchor];
+        final to = at[anchor];
+        if (from != null && to != null) {
+          // The block under the pointer lands on the grid; the others keep
+          // their places beside it.
+          final delta =
+              Offset(FlowCanvas.snap(to.dx), FlowCanvas.snap(to.dy)) - from;
+          if (delta != Offset.zero) {
+            widget.onMove({
+              for (final MapEntry(:key, :value) in origins.entries)
+                key: value + delta,
+            }, nudge: false);
+          }
+        }
+      case _Move(:final anchor, :final narrow):
+        if (narrow) {
+          widget.actions.onSelect(anchor);
+        }
       case _Wire(dragging: false, picked: (final block, _, final row)):
         _click(block, row);
       case _Wire(dragging: false, :final from):
-        final b = _blockAt(_blocks, e.localPosition);
-        final i = b?.rowAt(e.localPosition);
+        final b = _blockAt(_blocks, p);
+        final i = b?.rowAt(p);
         if (b != null && i != null) {
           _click(b.id, b.rows[i].id);
         } else {
@@ -468,6 +982,30 @@ class _FlowCanvasState extends State<FlowCanvas> {
     }
   }
 
+  /// The wheel, and a pinch on the web: ⌘/Ctrl + wheel zooms about the
+  /// pointer, the wheel alone scrolls (Shift: sideways).
+  void _signal(PointerSignalEvent e) {
+    final focal = _viewPoint(e.position);
+    switch (e) {
+      case PointerScrollEvent(:final scrollDelta):
+        if (flowGestureHeld(.zoom, .wheel)) {
+          _zoomTo(_scale * math.exp(-scrollDelta.dy / 240), focal: focal);
+        } else {
+          final sideways =
+              HardwareKeyboard.instance.isShiftPressed && scrollDelta.dx == 0;
+          _panBy(
+            sideways ? Offset(-scrollDelta.dy, 0) : -scrollDelta,
+          );
+        }
+      case PointerScaleEvent(:final scale):
+        _zoomTo(_scale * scale, focal: focal);
+      default:
+        break;
+    }
+  }
+
+  // ---------- build ----------
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -477,15 +1015,22 @@ class _FlowCanvasState extends State<FlowCanvas> {
       final _Wire w when w.dragging => w,
       _ => null,
     };
+    final marquee = switch (_press) {
+      final _Marquee m when m.dragging => m.rect,
+      _ => null,
+    };
     final picked = wire?.picked;
     final wires = [
       for (final w in widget.wires)
         if (picked == null || w.to != picked.$1 || w.toPort != picked.$2) w,
     ];
-    final selected = blocks.where((b) => b.selected).firstOrNull?.id;
+    final selected = {
+      for (final b in blocks)
+        if (b.selected) b.id,
+    };
     final front = [
       for (final w in wires)
-        if (w.from == selected || w.to == selected) w,
+        if (selected.contains(w.from) || selected.contains(w.to)) w,
     ];
     final light = wire?.over == null
         ? RowLight.none
@@ -504,7 +1049,13 @@ class _FlowCanvasState extends State<FlowCanvas> {
       front.add(hovered);
     }
     return MouseRegion(
+      cursor: _space
+          ? (_press is _Pan
+                ? SystemMouseCursors.grabbing
+                : SystemMouseCursors.grab)
+          : MouseCursor.defer,
       onExit: (_) {
+        _pointer = null;
         if (_hover != null) {
           setState(() => _hover = null);
         }
@@ -524,31 +1075,39 @@ class _FlowCanvasState extends State<FlowCanvas> {
                     FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
                   );
                 },
-                builder: (context, _, _) => InteractiveViewer(
-                  transformationController: _ctl,
-                  constrained: false,
-                  panEnabled: false,
-                  minScale: 0.4,
-                  maxScale: 1.6,
-                  boundaryMargin: const EdgeInsets.all(200),
-                  child: Listener(
-                    behavior: .opaque,
-                    onPointerHover: _hoverAt,
-                    onPointerDown: _down,
-                    onPointerMove: _move,
-                    onPointerUp: _up,
-                    // Two fingers on a trackpad scroll the canvas; the viewer
-                    // keeps pinch zoom.
-                    onPointerPanZoomUpdate: (e) =>
-                        _ctl.value = Matrix4.translationValues(
-                          e.panDelta.dx,
-                          e.panDelta.dy,
-                          0,
-                        )..multiply(_ctl.value),
-                    onPointerCancel: (_) => setState(() {
-                      _press = null;
-                      fieldDropHover.value = null;
-                    }),
+                builder: (context, _, _) => Listener(
+                  behavior: .opaque,
+                  onPointerHover: _hoverAt,
+                  onPointerDown: _down,
+                  onPointerMove: _move,
+                  onPointerUp: _up,
+                  onPointerSignal: _signal,
+                  // Two fingers on a trackpad scroll the canvas; a pinch
+                  // zooms about where the fingers are.
+                  onPointerPanZoomStart: (_) => _pinch = 1,
+                  onPointerPanZoomUpdate: (e) {
+                    if (e.scale != _pinch) {
+                      _zoomTo(
+                        _scale * e.scale / _pinch,
+                        focal: _viewPoint(e.position),
+                      );
+                      _pinch = e.scale;
+                    }
+                    if (e.panDelta != Offset.zero) {
+                      _panBy(e.panDelta);
+                    }
+                  },
+                  onPointerCancel: (_) => _cancel(),
+                  // The viewer only holds the transform: the canvas pans
+                  // and zooms it itself, so that neither fights the marquee.
+                  child: InteractiveViewer(
+                    transformationController: _ctl,
+                    constrained: false,
+                    panEnabled: false,
+                    scaleEnabled: false,
+                    minScale: FlowCanvas.minScale,
+                    maxScale: FlowCanvas.maxScale,
+                    boundaryMargin: const EdgeInsets.all(200),
                     child: SizedBox(
                       key: _key,
                       width: FlowCanvas.size.width,
@@ -583,7 +1142,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
                                     : RowLight.source,
                               ),
                             ),
-                          // The selected block's wires over the blocks.
+                          // The selected blocks' wires over the blocks.
                           Positioned.fill(
                             child: IgnorePointer(
                               child: CustomPaint(
@@ -612,6 +1171,22 @@ class _FlowCanvasState extends State<FlowCanvas> {
                                     child: _WarnChip(text, w.warningNote),
                                   ),
                                 ),
+                          if (marquee != null)
+                            Positioned.fromRect(
+                              rect: marquee,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  key: const ValueKey('flow-marquee'),
+                                  decoration: BoxDecoration(
+                                    color: c.ember.withValues(alpha: 0.08),
+                                    border: .all(color: c.ember),
+                                    borderRadius: const BorderRadius.all(
+                                      Radius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           if (wire?.refusal case final why?)
                             Positioned(
                               left: wire!.pointer.dx + 14,
@@ -625,18 +1200,51 @@ class _FlowCanvasState extends State<FlowCanvas> {
                 ),
               ),
             ),
-            if (widget.legend case final l?)
-              Positioned(
-                left: 16,
-                bottom: 16,
-                right: 16,
-                child: IgnorePointer(
-                  child: Align(
-                    alignment: .bottomLeft,
-                    child: FlowLegend(vm: l),
+            Positioned(
+              left: 16,
+              bottom: 16,
+              right: 16,
+              child: Row(
+                crossAxisAlignment: .end,
+                spacing: 8,
+                children: [
+                  if (widget.legend case final l?)
+                    Flexible(
+                      child: IgnorePointer(child: FlowLegend(vm: l)),
+                    ),
+                  ListenableBuilder(
+                    listenable: _ctl,
+                    builder: (context, _) => _CanvasTools(
+                      zoom: '${(_scale * 100).round()}%',
+                      helpOpen: _help,
+                      onZoom: () => _run(.zoomReset),
+                      onHelp: () => _run(.help),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_help) ...[
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: .opaque,
+                  onTap: () => setState(() => _help = false),
+                  child: ColoredBox(color: c.ground0.withValues(alpha: 0.55)),
+                ),
+              ),
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: ShortcutCard(
+                      key: const ValueKey('flow-shortcuts'),
+                      mac: widget.mac,
+                      onClose: () => setState(() => _help = false),
+                    ),
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),
@@ -659,6 +1267,85 @@ class _FlowCanvasState extends State<FlowCanvas> {
       }
     }
     return (p1, p2);
+  }
+}
+
+/// The zoom (a click: back to 100 %) and the `?` of the shortcut card,
+/// beside the legend.
+class _CanvasTools extends StatelessWidget {
+  const _CanvasTools({
+    required this.zoom,
+    required this.helpOpen,
+    required this.onZoom,
+    required this.onHelp,
+  });
+
+  final String zoom;
+  final bool helpOpen;
+  final VoidCallback onZoom;
+  final VoidCallback onHelp;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    Widget button({
+      required Widget child,
+      required String tip,
+      required VoidCallback onTap,
+      Key? key,
+      double? width,
+      bool on = false,
+    }) => Tooltip(
+      message: tip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Material(
+        key: key,
+        color: (on ? c.emberTint : c.ground1).withValues(alpha: 0.92),
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          side: BorderSide(color: on ? c.emberLine : c.line1),
+        ),
+        clipBehavior: .antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            width: width,
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            alignment: .center,
+            child: child,
+          ),
+        ),
+      ),
+    );
+
+    return Row(
+      mainAxisSize: .min,
+      spacing: 8,
+      children: [
+        button(
+          key: const ValueKey('flow-zoom'),
+          tip: S.current.scZoomReset,
+          onTap: onZoom,
+          child: Text(zoom, style: mono(size: 12, color: c.text3)),
+        ),
+        button(
+          key: const ValueKey('flow-help'),
+          tip: S.current.scTitle,
+          onTap: onHelp,
+          width: 34,
+          on: helpOpen,
+          child: Text(
+            '?',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: .w600,
+              color: helpOpen ? c.emberSoft : c.text2,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 

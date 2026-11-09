@@ -4,7 +4,7 @@ import 'package:business/redux/flow_editor/actions/add_block_action.dart';
 import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/remove_block_action.dart';
+import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
@@ -186,7 +186,7 @@ void main() {
         reason: 'an input takes one wire',
       );
 
-      s.dispatchSync(RemoveBlockAction('scale1'));
+      s.dispatchSync(RemoveBlocksAction(const ['scale1']));
       expect(
         s.state.flowEditor.draft!.edges.where((e) => e.to == 'scale1'),
         isEmpty,

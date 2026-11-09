@@ -5,6 +5,7 @@ import 'package:models/flow_block.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/param_spec.dart';
 
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'validate_flow_action.dart';
@@ -56,32 +57,39 @@ class AddBlockAction extends Action {
     unawaited(dispatchAndWait(ValidateFlowAction()));
     final into = this.into;
     return state.copyWith.flowEditor(
-      draft: d.copyWith(
-        edges: into == null
-            ? d.edges
-            : d.edges
-                  .removeWhere((e) => e.to == into.$1 && e.toPort == into.$2)
-                  .add(
-                    FlowEdge(
-                      from: id,
-                      fromPort: 'out',
-                      to: into.$1,
-                      toPort: into.$2,
+      draft: pinBound(
+        flowEditor.types,
+        d.copyWith(
+          edges: into == null
+              ? d.edges
+              : d.edges
+                    .removeWhere((e) => e.to == into.$1 && e.toPort == into.$2)
+                    .add(
+                      FlowEdge(
+                        from: id,
+                        fromPort: 'out',
+                        to: into.$1,
+                        toPort: into.$2,
+                      ),
                     ),
-                  ),
-        blocks: d.blocks.add(
-          id,
-          FlowBlock(
-            id: id,
-            type: type,
-            cfg: <String, Object?>{...defaults, ...cfg}.lock,
-            x: x,
-            y: y,
+          blocks: d.blocks.add(
+            id,
+            FlowBlock(
+              id: id,
+              type: type,
+              cfg: <String, Object?>{...defaults, ...cfg}.lock,
+              x: x,
+              y: y,
+            ),
           ),
         ),
       ),
       selectedBlock: into == null ? id : flowEditor.selectedBlock,
+      selection: into == null ? {id}.toISet() : flowEditor.selection,
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

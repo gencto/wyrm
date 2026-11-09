@@ -1,3 +1,4 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_draft.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -48,24 +49,28 @@ class LoadFlowAction extends Action {
         held.dirty &&
         held.draft != null &&
         held.version == draft.version;
+    final shown = keep ? held.draft! : draft;
+    // The same flow read again (a redeploy) keeps its selection and, with
+    // its draft, the draft's history.
+    final selection = held.flowId == id
+        ? held.selection.removeWhere((b) => !shown.blocks.containsKey(b))
+        : const ISetConst<String>({});
     return state.copyWith(
       flows: state.flows.copyWith(blockTypes: types),
       flowEditor: FlowEditorState(
         flowId: id,
-        draft: keep ? held.draft : draft,
+        draft: shown,
         dirty: keep,
         deployed: isNew ? null : draft,
         version: draft.version,
         types: types,
         palette: held.palette,
-        // The same flow read again (a redeploy) keeps its selection.
-        selectedBlock:
-            held.flowId == id &&
-                (keep ? held.draft : draft)!.blocks.containsKey(
-                  held.selectedBlock,
-                )
-            ? held.selectedBlock
-            : null,
+        selection: selection,
+        selectedBlock: selection.length == 1 ? selection.single : null,
+        undo: keep ? held.undo : const IListConst([]),
+        redo: keep ? held.redo : const IListConst([]),
+        // Blocks copied in one flow paste into the next one opened.
+        clipboard: held.clipboard,
       ),
     );
   }

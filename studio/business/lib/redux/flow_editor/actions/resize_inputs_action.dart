@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_fields.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
@@ -52,6 +55,9 @@ class ResizeInputsAction extends Action {
               ),
       ),
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

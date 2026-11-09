@@ -40,6 +40,15 @@ FlowDraft flowDraftOf(String id, Value def) {
         cfg: cfg.lock,
         x: x,
         y: y,
+        pins: {
+          for (final l in layout.entries)
+            if (pinKeyOf(l.key) case (
+              final node,
+              final field,
+            ) when node == e.key)
+              if (l.value case VArray(:final v) when v.isNotEmpty)
+                field: (number(v[0]) ?? 0) != 0,
+        }.lock,
       );
       i++;
     }
@@ -119,8 +128,34 @@ Map<String, Object?> _defMap(FlowDraft d, int version) {
     ],
     'layout': {
       for (final b in d.blocks.values) b.id: [b.x.round(), b.y.round()],
+      for (final b in d.blocks.values)
+        for (final p in b.pins.entries)
+          pinKey(b.id, p.key): [if (p.value) 1 else 0, 0],
     },
   };
+}
+
+// ---------- pins in the layout (flow-editor.md §12) ----------
+
+/// What stands between a node id and a field id in a pin's layout key. A
+/// node id is a key segment (letters, digits, `_`, `-`, `.`), so no node
+/// is named like a pin.
+const _pinMark = '~pin~';
+
+/// The `layout` key of the pin of field [field] of block [node]:
+/// `<node>~pin~<field id>` (`scale1~pin~p:k`). Its value is `[1, 0]`
+/// (pinned to the block) or `[0, 0]` (taken off it); the second number is
+/// not used. The engine reads `layout` as `{<key>: [x, y]}` of two finite
+/// numbers and does not look at the keys (spec 06 0.2.5), so a pin travels
+/// with the definition like a position does, on any broker.
+String pinKey(String node, String field) => '$node$_pinMark$field';
+
+/// The node and the field id of a pin's layout key; null for a position.
+(String, String)? pinKeyOf(String key) {
+  final i = key.indexOf(_pinMark);
+  return i <= 0
+      ? null
+      : (key.substring(0, i), key.substring(i + _pinMark.length));
 }
 
 /// One entry of `node_types`.
@@ -316,7 +351,7 @@ FlowDraft tidyIfOverlapping(FlowDraft d, Map<String, NodeType> types) {
         b.x,
         b.y,
         b.x + blockWidthOf(roleOf(b.type)),
-        b.y + blockHeight(types[b.type], b),
+        b.y + blockHeight(types[b.type], b, edges: d.edges),
       ),
   };
   var overlap = false;
@@ -356,7 +391,7 @@ FlowDraft tidyIfOverlapping(FlowDraft d, Map<String, NodeType> types) {
     final col = depth[b.id] ?? 0;
     final top = y[col] ?? 40;
     blocks[b.id] = b.copyWith(x: 40 + 300.0 * col, y: top);
-    y[col] = top + blockHeight(types[b.type], b) + 28;
+    y[col] = top + blockHeight(types[b.type], b, edges: d.edges) + 28;
   }
   return d.copyWith(blocks: blocks.lock);
 }

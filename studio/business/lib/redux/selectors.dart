@@ -627,6 +627,21 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns viewedField
   String? get viewedField => _state.flowEditor.viewedField;
+
+  /// Returns selection
+  ISet<String> get selection => _state.flowEditor.selection;
+
+  /// Returns undo
+  IList<FlowDraft> get undo => _state.flowEditor.undo;
+
+  /// Returns redo
+  IList<FlowDraft> get redo => _state.flowEditor.redo;
+
+  /// Returns undoTag
+  String? get undoTag => _state.flowEditor.undoTag;
+
+  /// Returns clipboard
+  String? get clipboard => _state.flowEditor.clipboard;
 }
 
 extension type SelectTasks(AppState _state) {

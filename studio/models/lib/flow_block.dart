@@ -15,5 +15,11 @@ abstract class FlowBlock with _$FlowBlock {
     @Default(IMapConst({})) IMap<String, Object?> cfg,
     @Default(0) double x,
     @Default(0) double y,
+
+    /// The fields the user pinned to the block or took off it, by field id
+    /// (`p:input_min` → true: a row of the block; false: only in the
+    /// inspector). A field without an entry follows its type's default.
+    /// Editor data, kept in the definition's `layout`.
+    @Default(IMapConst({})) IMap<String, bool> pins,
   }) = _FlowBlock;
 }
