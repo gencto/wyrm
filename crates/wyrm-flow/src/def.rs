@@ -235,10 +235,28 @@ fn parse_edges(v: Option<&Value>, at: &str) -> Result<Vec<Edge>> {
     Ok(edges)
 }
 
-/// `layout`: `{<node>: [x, y]}` (spec 06 0.2.5).
+/// Entries of one `layout` at most (spec 06 0.2.26).
+pub const MAX_LAYOUT: usize = 16_384;
+/// The longest key of a `layout`, bytes.
+pub const MAX_LAYOUT_KEY: usize = 256;
+
+/// `layout`: `{<key>: [a, b]}` (spec 06 0.2.5, 0.2.26). A key is a node id, or an editor's
+/// own key `<node>~<name>~<rest>` (`~` cannot be in a node id; the Studio editor keeps a
+/// block's pin choices as `<node>~pin~<field>`). The engine reads none of it: a key need not
+/// name a node the flow has. It is bounded, as it is stored with every version.
 fn check_layout(v: Option<&Value>, at: &str) -> Result<()> {
     let Some(l) = v else { return Ok(()) };
-    for (n, xy) in as_map(l, at)? {
+    let l = as_map(l, at)?;
+    if l.len() > MAX_LAYOUT {
+        return err(format!("{at}: {} entries > {MAX_LAYOUT}", l.len()));
+    }
+    for (n, xy) in l {
+        if n.len() > MAX_LAYOUT_KEY {
+            return err(format!(
+                "{at}: a key of {} bytes > {MAX_LAYOUT_KEY}",
+                n.len()
+            ));
+        }
         match xy {
             Value::Array(a)
                 if a.len() == 2 && a.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)) => {}

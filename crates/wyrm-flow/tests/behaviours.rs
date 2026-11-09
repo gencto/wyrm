@@ -1870,3 +1870,55 @@ async fn a_reader_is_a_source_for_the_rights_checks() {
     assert!(denied(&e), "{e}");
     env.stop().await;
 }
+
+/// Spec 06 0.2.26: a `layout` key is a node id or an editor key `<node>~<name>~<rest>`; the
+/// engine ignores both, and the map is bounded.
+#[test]
+fn layout_takes_editor_keys_and_is_bounded() {
+    let with_layout = |entries: Vec<(String, Value)>| {
+        let mut d = flow("f", &[("a", node("not", &[]))], &[]);
+        if let Value::Map(m) = &mut d {
+            m.insert("layout".into(), Value::Map(entries.into_iter().collect()));
+        }
+        d
+    };
+    let xy = |a: u64, b: u64| arr(&[Value::UInt(a), Value::UInt(b)]);
+    // a node's place, a pin choice of the editor, and keys of nodes the flow does not have
+    let (d, _) = def::compile(&with_layout(vec![
+        ("a".into(), xy(10, 20)),
+        ("a~pin~in".into(), xy(1, 0)),
+        ("gone".into(), xy(0, 0)),
+        ("gone~pin~out".into(), xy(0, 0)),
+        ("m1/inner~pin~x".into(), xy(1, 0)),
+    ]))
+    .unwrap();
+    assert_eq!(d.nodes.len(), 1, "an editor key is no node");
+    assert!(
+        at(&d.raw, &["layout", "a~pin~in"]).is_some(),
+        "kept as sent"
+    );
+    // a layout entry is outside every node's config: the node's hash does not move
+    let (plain, _) = def::compile(&flow("f", &[("a", node("not", &[]))], &[])).unwrap();
+    assert_eq!(d.nodes["a"].hash, plain.nodes["a"].hash);
+    // the value stays two finite numbers, for every kind of key
+    let e = def::compile(&with_layout(vec![("a~pin~in".into(), Value::Bool(true))])).unwrap_err();
+    assert!(e.0.starts_with("layout.a~pin~in: expected [x, y]"), "{e}");
+    // bounds: 16 384 entries, keys of 256 bytes
+    let many = |n: usize| (0..n).map(|i| (format!("n{i}~pin~in"), xy(1, 0))).collect();
+    def::compile(&with_layout(many(16_384))).unwrap();
+    let e = def::compile(&with_layout(many(16_385))).unwrap_err();
+    assert!(e.0.starts_with("layout: 16385 entries > 16384"), "{e}");
+    def::compile(&with_layout(vec![("k".repeat(256), xy(0, 0))])).unwrap();
+    let e = def::compile(&with_layout(vec![("k".repeat(257), xy(0, 0))])).unwrap_err();
+    assert!(e.0.starts_with("layout: a key of 257 bytes > 256"), "{e}");
+    // a `~` in a node id is still refused: an editor key cannot be taken for a node
+    let e = def::compile(&flow("f", &[("a~pin~in", node("not", &[]))], &[])).unwrap_err();
+    assert!(e.0.contains("id must be [A-Za-z0-9_]+"), "{e}");
+    // a block's own layout has the same rule
+    let block = map(&[
+        ("nodes", map(&[("n", node("not", &[]))])),
+        ("layout", map(&[("n~pin~in", Value::Bool(true))])),
+    ]);
+    let e = def::compile(&with_blocks(flow("f", &[], &[]), &[("b", block)])).unwrap_err();
+    assert!(e.0.starts_with("blocks.b.layout.n~pin~in"), "{e}");
+}
