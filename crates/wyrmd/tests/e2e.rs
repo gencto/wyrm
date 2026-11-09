@@ -8825,14 +8825,17 @@ async fn broker_restart_rto() {
             self.kill();
         }
     }
-    // The link process's own `connected` / `link process up` lines reach
-    // the test output (through the supervisor), with their times.
+    // `info`: the link process's own `connected` / `link process up` lines
+    // reach the test output (through the supervisor), with their times;
+    // the broker's own lines go to its stdout, which is dropped. A filter
+    // like `warn,<target>=info` is not enough: the first bare level caps
+    // every target (`wyrm_admin::logs`).
     let spawn = |cfg: &std::path::Path| {
         Wyrmd(
             Command::new(env!("CARGO_BIN_EXE_wyrmd"))
                 .arg("-c")
                 .arg(cfg)
-                .env("RUST_LOG", "warn,wyrm_link_sdk::process=info")
+                .env("RUST_LOG", "info")
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())
                 .spawn()
