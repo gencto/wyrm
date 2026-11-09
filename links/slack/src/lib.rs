@@ -1,4 +1,4 @@
-//! `slack`: Slack bots (ADR 0037) as a portable link (ADR 0023), on the messenger core
+//! `slack`: Slack bots (ADR 0039) as a portable link (ADR 0023), on the messenger core
 //! (`wyrm-messenger`). This crate is the Slack Web API and what Slack can do; bots, recipients,
 //! templates and the queue are the core's.
 //!
@@ -6,7 +6,7 @@
 //!   `chat.postMessage` with mrkdwn (default) or plain text, Block Kit `blocks` from a template,
 //!   images as image blocks, link buttons as an actions block, `thread_ts`, unfurls off unless
 //!   `preview`.
-//! - Send only for now: receiving needs Socket Mode or the Events API (ADR 0037), so a Slack bot
+//! - Send only for now: receiving needs Socket Mode or the Events API (ADR 0039), so a Slack bot
 //!   has no chat users, no `/command` buttons and no `user:<name>` recipients.
 //! - `send_raw`: `chat.*`, `reactions.*`, `pins.*`, `conversations.info`, `auth.test`.
 //!

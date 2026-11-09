@@ -1,6 +1,6 @@
 [package]
 name = "wyrm-messenger"
-description = "The core of the messenger links (ADR 0037): bots, recipients, templates escaped for the markup, a paced queue, chat users paired by one-time codes; each chat platform is a link crate with its own Platform (links/telegram, links/slack)"
+description = "The core of the messenger links (ADR 0039): bots, recipients, templates escaped for the markup, a paced queue, chat users paired by one-time codes; each chat platform is a link crate with its own Platform (links/telegram, links/slack)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
-# ADR 0037 — Messenger links: Telegram and Slack, templates as nodes, chat users by pairing
+# ADR 0039 — Messenger links: Telegram and Slack, templates as nodes, chat users by pairing
 
-**Status:** proposed · 2026-11-07, amended 2026-11-08 (two links on one core, owner remark) (owner request: a link for Telegram and Slack; the bot must be configurable for the many message kinds and formats Telegram has, "through actions or by creating nodes" — analyse which; and a structured answer to who may use the bot, so that other people cannot reach it).
+**Status:** proposed · 2026-11-07, amended 2026-11-08 (two links on one core, owner remark), numbered 0039 at the merge on 2026-11-09 (written as 0037 on its branch; 0037 and 0038 were taken on main) (owner request: a link for Telegram and Slack; the bot must be configurable for the many message kinds and formats Telegram has, "through actions or by creating nodes" — analyse which; and a structured answer to who may use the bot, so that other people cannot reach it).
 
 ## Context
 Sites want notifications and a small amount of remote interaction in the chats people already carry: an alarm in a Telegram group, a shift report in a Slack channel, "what is the boiler temperature" from a phone. Telegram's Bot API has dozens of send methods and options (text in HTML or MarkdownV2, photos, documents, locations, polls, media groups, inline keyboards, forum topics, silent and protected messages, link previews, edits, reactions); Slack has `chat.postMessage` with mrkdwn and Block Kit. Both are HTTPS APIs with a bearer-like token.

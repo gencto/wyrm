@@ -177,7 +177,7 @@ impl Update {
     }
 }
 
-/// One chat platform, as a link describes it (ADR 0037). Constant data and plain functions: the
+/// One chat platform, as a link describes it (ADR 0039). Constant data and plain functions: the
 /// core calls them, the link owns the API.
 pub struct Platform {
     /// The link's name (`App::NAME`): `telegram`, `slack`.
@@ -262,7 +262,7 @@ impl Platform {
             Ok(())
         } else {
             Err(format!(
-                "method {method}: not offered by send_raw (ADR 0037)"
+                "method {method}: not offered by send_raw (ADR 0039)"
             ))
         }
     }

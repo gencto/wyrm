@@ -1,4 +1,4 @@
-//! Node and action meta of a messenger link's tree (ADR 0037), paths relative to the link root;
+//! Node and action meta of a messenger link's tree (ADR 0039), paths relative to the link root;
 //! what a platform cannot do (users, command buttons, blocks) is not declared:
 //!
 //! ```text

@@ -1,4 +1,4 @@
-//! The definitions the messenger keeps (ADR 0037): bots, recipients, templates and chat users.
+//! The definitions the messenger keeps (ADR 0039): bots, recipients, templates and chat users.
 //! Each is parsed from an Add or Edit form (a map of action arguments), kept in the store as the
 //! canonical form (CBOR of a map) and parsed again on load.
 
@@ -351,7 +351,7 @@ impl BotDef {
         let commands = f.flag("commands", kind.inbound)?;
         if commands && !kind.inbound {
             return Err(format!(
-                "commands: {} bots only send (ADR 0037)",
+                "commands: {} bots only send (ADR 0039)",
                 kind.display
             ));
         }
@@ -447,7 +447,7 @@ impl Recipient {
         let commands = f.flag("commands", false)?;
         if commands && !kind.inbound {
             return Err(format!(
-                "commands: {} bots only send (ADR 0037)",
+                "commands: {} bots only send (ADR 0039)",
                 kind.display
             ));
         }

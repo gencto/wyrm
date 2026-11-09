@@ -1,7 +1,7 @@
 # Telegram link
 
 `links/telegram`, packages `telegram` (WASM) and `telegram-process`; bots, recipients and
-templates as in [messenger.md](messenger.md). ADR 0037.
+templates as in [messenger.md](messenger.md). ADR 0039.
 
 ## Token and network
 
@@ -80,6 +80,6 @@ written from a chat.
 - Every rejected update counts in `<bot>/rejected` and the log; every command is logged with the
   user and key (never values). 20 commands a minute per user (`rate_per_min`).
 
-Slack bots send only, for now (receiving needs Socket Mode; ADR 0037).
+Slack bots send only, for now (receiving needs Socket Mode; ADR 0039).
 
 

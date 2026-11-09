@@ -80,7 +80,7 @@ warning in the log. The built-in drivers use these codes:
   `wy/<site>/downstream/uplink` (`uplink.net` lists the platforms); it is
   also a portable link in the packages `uplink` (WASM) and
   `uplink-process`. Guide: [`docs/uplink.md`](uplink.md).
-- **Telegram** (`links/telegram`) and **Slack** (`links/slack`), ADR 0037: one
+- **Telegram** (`links/telegram`) and **Slack** (`links/slack`), ADR 0039: one
   link per chat platform on the shared core `crates/wyrm-messenger`. Recipients and message
   templates are nodes (text, photo, document, location, buttons, Block Kit on Slack, live
   values escaped for the markup), each template with its own Send action; Telegram users

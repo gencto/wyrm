@@ -1,4 +1,4 @@
-//! `wyrm-messenger`: the core of the messenger links (ADR 0037) — Telegram (`links/telegram`),
+//! `wyrm-messenger`: the core of the messenger links (ADR 0039) — Telegram (`links/telegram`),
 //! Slack (`links/slack`) and whatever chat platform comes next. A link crate describes its
 //! platform once ([`api::Platform`]: API paths, request bodies, reply classes, what it can do)
 //! and runs `Messenger<its platform>` as a portable link (ADR 0023): embedded, as a process or as

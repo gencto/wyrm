@@ -1,6 +1,6 @@
 [package]
 name = "wyrm-link-telegram"
-description = "Telegram bots (ADR 0037): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
+description = "Telegram bots (ADR 0039): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -40,7 +40,7 @@ serde_json.workspace = true
 # (`sys/links/<id>/~act/grant`, ADR 0013) and lists `api.telegram.org:443` in `net`.
 [package.metadata.wyrm-link]
 name = "telegram"
-description = "Telegram bots (ADR 0037): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
+description = "Telegram bots (ADR 0039): templates, recipients, paired chat users with /get, /set, /do; a portable App on wyrm-messenger"
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 2, call_ms = 10000 }

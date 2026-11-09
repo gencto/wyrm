@@ -1,4 +1,4 @@
-//! `telegram`: Telegram bots (ADR 0037) as a portable link (ADR 0023), on the messenger core
+//! `telegram`: Telegram bots (ADR 0039) as a portable link (ADR 0023), on the messenger core
 //! (`wyrm-messenger`). This crate is the Telegram Bot API and what Telegram can do; bots,
 //! recipients, templates, the queue, pairing and chat commands are the core's.
 //!

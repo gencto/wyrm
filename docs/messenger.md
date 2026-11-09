@@ -3,7 +3,7 @@
 The messenger links send messages from the site to chat platforms — alarms, reports, values —
 and, where the platform allows, let paired chat users ask for values or switch things. Each
 platform is a link of its own on one shared core (`crates/wyrm-messenger`); this page is what
-they share. Design and reasoning: ADR 0037.
+they share. Design and reasoning: ADR 0039.
 
 | Link | Packages | Guide | Can |
 |---|---|---|---|

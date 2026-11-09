@@ -1,7 +1,7 @@
 # Slack link
 
 `links/slack`, packages `slack` (WASM) and `slack-process`; bots, recipients and templates as in
-[messenger.md](messenger.md). ADR 0037.
+[messenger.md](messenger.md). ADR 0039.
 
 ## Token and network
 
@@ -32,6 +32,6 @@ recipient's.
 ## Send only
 
 A Slack bot does not read messages yet: receiving needs Socket Mode or the Events API
-(ADR 0037), so it has no chat users, no `/command` buttons and no `user:<name>` recipients.
+(ADR 0039), so it has no chat users, no `/command` buttons and no `user:<name>` recipients.
 `429` and `ratelimited` hold the bot for 30 s; `invalid_auth`, `token_revoked`, `missing_scope`
 make it `failed` until Set Token.

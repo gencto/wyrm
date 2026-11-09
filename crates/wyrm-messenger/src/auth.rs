@@ -1,4 +1,4 @@
-//! Who may talk to a bot (ADR 0037). Deny by default; a chat account becomes a user only by
+//! Who may talk to a bot (ADR 0039). Deny by default; a chat account becomes a user only by
 //! pairing: an operator invites a named user (level, keys), the link shows a one-time code once,
 //! the person sends `/start <code>` to the bot in a private chat, and the bot binds that
 //! account's numeric id. Codes are kept as SHA-256, expire, are single use, and wrong ones are
