@@ -586,17 +586,24 @@ stream did not deliver; it stays 0 while the consumer keeps up.
 
 | Stream | When the consumer is behind |
 |---|---|
-| `subscribe` (`~val`) | One pending value per key; a newer `t` replaces an older one (values are state). After the stall the consumer gets the latest value, quality and time of every key, in time order per key. The replaced values count. |
+| `subscribe` (`~val`) | One pending value per key; a newer `t` replaces an older one (values are state). After the stall the consumer gets the latest value, quality and time of every key, in time order per key. The replaced values count. At most `MAX_PENDING_KEYS` (4096) keys wait: a sample of one more key is dropped and counted, and when the consumer has taken what waits, the stream reads the stored values again, so that key still gets its newest stored value. |
 | `subscribe_reliable` (QoS 2/3) | A queue of `RELIABLE_BUFFER` (4096) samples; the oldest beyond it is dropped and counted. |
 | `list` (`~meta`, liveliness) | Up to `LIST_BUFFER` (1024) events are held. One more discards them (counted), and the stream reads the children again and sends `Refreshed`, so the consumer's view is whole again. If the owner is gone, it sends `Disconnected(None)` and lists again when the owner is back. |
 | `invoke` (a stream action) | Up to `INVOKE_BUFFER` (1024) replies are held. One more ends the stream: the held replies, then `resource_exhausted` ("consumer too slow"). Results are never dropped one by one. |
 
 `subscribe` still subscribes before it reads the stored values (no lost
-update) and hands out nothing before the stored values are in. A consumer
+update), and per key it never hands out a sample as old as or older than
+one it already gave. `subscribe_filtered(pattern, keep)` drops the keys
+`keep` refuses before they take room; the gateway passes the user's read
+grants, so a point the user may not read uses no memory. A consumer
 that must see every sample (a historian with All Data logging) loses
 intermediate samples only while it is behind; before this rule it stopped
 the session instead. The gateway forwards each stream to its WebSocket and
 waits there for room, so a slow socket only slows its own streams.
+
+A stream holds its buffer only while it lives: dropping it undeclares its
+subscribers, cancels the query of an `invoke`, and frees the buffer at
+once; Zenoh's later replies to that query are dropped on arrival.
 
 ## 11. Logs
 

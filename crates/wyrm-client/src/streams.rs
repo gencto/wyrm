@@ -7,7 +7,10 @@
 //!
 //! * `subscribe`: one pending value per key, the newest wins (values are
 //!   state, not events); a replaced value counts in
-//!   [`EventStream::dropped`].
+//!   [`EventStream::dropped`]. At most [`MAX_PENDING_KEYS`] keys: a sample
+//!   of one more is dropped (counted) and the stored values are read again
+//!   when the consumer has caught up. A key filter (the gateway's read
+//!   grants) runs before anything is buffered.
 //! * `subscribe_reliable` (QoS 2/3, a queue): the oldest sample beyond
 //!   [`RELIABLE_BUFFER`] is dropped and counted.
 //! * `list`: events are never dropped one by one; beyond [`LIST_BUFFER`]
@@ -40,6 +43,16 @@ pub const RELIABLE_BUFFER: usize = 4096;
 /// `invoke` replies held for a consumer that is behind; one more ends the
 /// stream with `resource_exhausted`.
 pub const INVOKE_BUFFER: usize = 1024;
+/// Keys a `subscribe` stream holds a pending value for while its consumer
+/// is behind (about 1 MiB of small values). A sample of one more key is
+/// dropped and counted; once the consumer has taken what is pending, the
+/// stream reads the stored values again, so such a key still ends with its
+/// newest stored value. A pattern over more keys works as long as the
+/// consumer keeps up.
+pub const MAX_PENDING_KEYS: usize = 4096;
+/// Keys whose last handed-out `t` a value stream remembers, for the time
+/// order per key; one more key clears the memory and it starts again.
+const MAX_ORDER_KEYS: usize = 65_536;
 /// Events a stream task has already turned into `ListEvent`s and holds for
 /// its consumer; kept small, so a consumer that wakes up soon meets the
 /// fresh snapshot rather than old events.
@@ -345,9 +358,14 @@ async fn on_child_liveliness(
 
 // ----------------------------------------------------------- subscribe
 
+/// A key filter of a value stream: a sample of a key it refuses never
+/// enters the buffer (the gateway passes the user's read grants).
+pub(crate) type KeyFilter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// What the value buffer does with one more item.
 enum Policy {
-    /// One pending event per key, the newest wins (`subscribe`).
+    /// One pending event per key, the newest wins, at most
+    /// [`MAX_PENDING_KEYS`] keys (`subscribe`).
     Latest {
         pending: HashMap<String, ValEvent>,
         order: VecDeque<String>,
@@ -360,40 +378,57 @@ enum Policy {
 
 struct Vals {
     policy: Policy,
-    /// Per key, the `t` of the last sample handed to the consumer: an older
-    /// one is never handed out after it.
+    keep: KeyFilter,
+    /// Per key, the `t` of the last sample handed to the consumer: one as old
+    /// or older is never handed out after it. At most [`MAX_ORDER_KEYS`] keys.
     last_t: HashMap<String, u64>,
-    /// The stored values are in; nothing is handed out before.
-    stored_done: bool,
+    /// Stored-value `get`s in flight (the first one and the reads again).
+    gets: usize,
+    /// A key did not fit into the pending values: read the stored values
+    /// again once the consumer has taken what is pending.
+    overflowed: bool,
     /// The live subscriber is gone (session closed).
     live_closed: bool,
     dropped: Arc<AtomicU64>,
 }
 
+/// What a value stream hands out next.
+enum Pop {
+    Event(ValEvent),
+    /// Start a stored-value `get` (counted in `gets` already).
+    Resync,
+    End,
+}
+
 impl Vals {
-    fn new(policy: Policy, stored_done: bool, dropped: Arc<AtomicU64>) -> Self {
+    fn new(policy: Policy, keep: KeyFilter, gets: usize, dropped: Arc<AtomicU64>) -> Self {
         Self {
             policy,
+            keep,
             last_t: HashMap::new(),
-            stored_done,
+            gets,
+            overflowed: false,
             live_closed: false,
             dropped,
         }
     }
 
-    fn lose(&self, n: u64) {
-        self.dropped.fetch_add(n, Ordering::Relaxed);
-    }
-
     fn push(&mut self, ev: ValEvent) {
+        if !(self.keep)(ev.key()) {
+            return;
+        }
         if let ValEvent::Sample { key, sample, .. } = &ev {
-            if self.last_t.get(key).is_some_and(|t| *t > sample.t) {
+            if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
                 return;
             }
         }
         let lost =
             match &mut self.policy {
                 Policy::Latest { pending, order } => match pending.get_mut(ev.key()) {
+                    None if order.len() >= MAX_PENDING_KEYS => {
+                        self.overflowed = true;
+                        1
+                    }
                     None => {
                         order.push_back(ev.key().to_owned());
                         pending.insert(ev.key().to_owned(), ev);
@@ -428,48 +463,87 @@ impl Vals {
                 }
             };
         if lost > 0 {
-            self.lose(lost);
+            self.dropped.fetch_add(lost, Ordering::Relaxed);
         }
     }
 
-    /// The next event for the consumer; `Some(None)` = the stream ended.
-    fn pop(&mut self) -> Option<Option<ValEvent>> {
-        if self.stored_done {
-            loop {
-                let ev = match &mut self.policy {
-                    Policy::Latest { pending, order } => order
-                        .pop_front()
-                        .map(|k| pending.remove(&k).expect("ordered key is pending")),
-                    Policy::Queue(q) => q.pop_front(),
-                };
-                let Some(ev) = ev else { break };
-                match &ev {
-                    ValEvent::Sample { key, sample, .. } => {
-                        if self.last_t.get(key).is_some_and(|t| *t > sample.t) {
-                            continue;
-                        }
-                        self.last_t.insert(key.clone(), sample.t);
+    fn pop(&mut self) -> Option<Pop> {
+        loop {
+            let ev = match &mut self.policy {
+                Policy::Latest { pending, order } => order
+                    .pop_front()
+                    .map(|k| pending.remove(&k).expect("ordered key is pending")),
+                Policy::Queue(q) => q.pop_front(),
+            };
+            let Some(ev) = ev else { break };
+            match &ev {
+                ValEvent::Sample { key, sample, .. } => {
+                    if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
+                        continue;
                     }
-                    ValEvent::Removed(key) => {
-                        self.last_t.remove(key);
+                    if self.last_t.len() >= MAX_ORDER_KEYS && !self.last_t.contains_key(key) {
+                        // bounded: start the per-key order memory again
+                        self.last_t.clear();
                     }
+                    self.last_t.insert(key.clone(), sample.t);
                 }
-                return Some(Some(ev));
+                ValEvent::Removed(key) => {
+                    self.last_t.remove(key);
+                }
             }
+            return Some(Pop::Event(ev));
         }
-        (self.live_closed && self.stored_done).then_some(None)
+        if self.overflowed && self.gets == 0 {
+            self.overflowed = false;
+            self.gets += 1;
+            return Some(Pop::Resync);
+        }
+        (self.live_closed && self.gets == 0).then_some(Pop::End)
     }
+}
+
+/// Where a value stream reads its stored values (again).
+#[derive(Clone)]
+struct Stored {
+    session: zenoh::Session,
+    ke: String,
+    timeout: Duration,
 }
 
 struct ValReader {
     intake: Arc<Intake<Vals>>,
     /// Keeps the subscriber declared for as long as the stream lives.
     _sub: Box<dyn Send>,
+    stored: Option<Stored>,
+}
+
+impl ValReader {
+    fn resync(&self) {
+        let rt = tokio::runtime::Handle::try_current();
+        let (Some(st), Ok(rt)) = (self.stored.clone(), rt) else {
+            self.intake.update(|v| v.gets = v.gets.saturating_sub(1));
+            return;
+        };
+        let feed = stored_feed(&self.intake);
+        rt.spawn(async move {
+            // on an error the feed is dropped, and that ends this `get`
+            if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
+                debug!("stored values again: {e}");
+            }
+        });
+    }
 }
 
 impl Source<ValEvent> for ValReader {
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ValEvent>> {
-        self.intake.poll(cx, Vals::pop)
+        loop {
+            match self.intake.poll(cx, Vals::pop) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Pop::Event(ev)) => return Poll::Ready(Some(ev)),
+                Poll::Ready(Pop::End) => return Poll::Ready(None),
+                Poll::Ready(Pop::Resync) => self.resync(),
+            }
+        }
     }
 }
 
@@ -484,9 +558,21 @@ fn live_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, ZSample> {
     )
 }
 
+fn stored_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, Reply> {
+    intake.feed(
+        |st: &mut Vals, reply: Reply| {
+            if let Some(ev) = reply.result().ok().and_then(to_val) {
+                st.push(ev);
+            }
+        },
+        |st| st.gets = st.gets.saturating_sub(1),
+    )
+}
+
 pub(crate) async fn subscribe(
     client: WyrmClient,
     pattern: String,
+    keep: KeyFilter,
 ) -> Result<EventStream<ValEvent>> {
     let ke = format!("{pattern}/{SUFFIX_VAL}");
     let s = client.session();
@@ -495,25 +581,24 @@ pub(crate) async fn subscribe(
         pending: HashMap::new(),
         order: VecDeque::new(),
     };
-    let intake = Intake::new(Vals::new(latest, false, dropped.clone()));
+    let intake = Intake::new(Vals::new(latest, keep, 1, dropped.clone()));
     // Live first, stored second (no lost update); both into one buffer,
-    // newer `t` wins per key, nothing handed out before the stored are in.
+    // newer `t` wins per key and nothing older than what was handed out.
     let sub = s.declare_subscriber(&ke).with(live_feed(&intake)).await?;
     s.get(&ke)
         .timeout(client.timeout)
-        .with(intake.feed(
-            |st: &mut Vals, reply: Reply| {
-                if let Some(ev) = reply.result().ok().and_then(to_val) {
-                    st.push(ev);
-                }
-            },
-            |st| st.stored_done = true,
-        ))
+        .with(stored_feed(&intake))
         .await?;
+    let stored = Stored {
+        session: s.clone(),
+        ke,
+        timeout: client.timeout,
+    };
     Ok(EventStream::new(
         ValReader {
             intake,
             _sub: Box::new(sub),
+            stored: Some(stored),
         },
         dropped,
     ))
@@ -529,7 +614,7 @@ pub(crate) async fn subscribe_reliable(
     use zenoh_ext::{AdvancedSubscriberBuilderExt, HistoryConfig, RecoveryConfig};
     let dropped = Arc::new(AtomicU64::new(0));
     let queue = Policy::Queue(VecDeque::new());
-    let intake = Intake::new(Vals::new(queue, true, dropped.clone()));
+    let intake = Intake::new(Vals::new(queue, Arc::new(|_| true), 0, dropped.clone()));
     let sub = client
         .session()
         .declare_subscriber(format!("{pattern}/{SUFFIX_VAL}"))
@@ -543,6 +628,7 @@ pub(crate) async fn subscribe_reliable(
         ValReader {
             intake,
             _sub: Box::new(sub),
+            stored: None,
         },
         dropped,
     ))
@@ -591,27 +677,33 @@ mod tests {
         }
     }
 
-    fn latest() -> Vals {
+    fn latest(keep: KeyFilter) -> Vals {
         let p = Policy::Latest {
             pending: HashMap::new(),
             order: VecDeque::new(),
         };
-        Vals::new(p, false, Arc::default())
+        Vals::new(p, keep, 1, Arc::default())
+    }
+
+    fn all() -> KeyFilter {
+        Arc::new(|_| true)
     }
 
     fn drain(v: &mut Vals) -> Vec<ValEvent> {
-        std::iter::from_fn(|| v.pop().flatten()).collect()
+        std::iter::from_fn(|| match v.pop() {
+            Some(Pop::Event(ev)) => Some(ev),
+            _ => None,
+        })
+        .collect()
     }
 
     #[test]
-    fn latest_wins_per_key_after_the_stored_values() {
-        let mut v = latest();
+    fn latest_wins_per_key() {
+        let mut v = latest(all());
         v.push(smp("a", 5)); // live during the stored get
         v.push(smp("b", 1));
         v.push(smp("a", 3)); // stored, older: the live one stays
         v.push(smp("b", 1)); // stored, the same: no loss
-        assert_eq!(v.pop(), None, "nothing before the stored values");
-        v.stored_done = true;
         v.push(smp("a", 6));
         v.push(smp("b", 2));
         assert_eq!(drain(&mut v), [smp("a", 6), smp("b", 2)]);
@@ -619,13 +711,51 @@ mod tests {
         v.push(smp("a", 4)); // older than what was handed out
         v.push(ValEvent::Removed("b".into()));
         assert_eq!(drain(&mut v), [ValEvent::Removed("b".into())]);
+        assert!(v.pop().is_none(), "the stored get is still open");
+        v.gets = 0;
         v.live_closed = true;
-        assert_eq!(v.pop(), Some(None));
+        assert!(matches!(v.pop(), Some(Pop::End)));
+    }
+
+    #[test]
+    fn pending_keys_are_bounded_and_read_again() {
+        let mut v = latest(all());
+        let n = MAX_PENDING_KEYS as u64 + 10;
+        for k in 0..n {
+            v.push(smp(&format!("k{k}"), 1));
+        }
+        let Policy::Latest { pending, .. } = &v.policy else {
+            panic!()
+        };
+        assert_eq!(pending.len(), MAX_PENDING_KEYS);
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 10);
+        assert_eq!(drain(&mut v).len(), MAX_PENDING_KEYS);
+        // the first stored get is still open: no second one yet
+        assert!(v.pop().is_none());
+        v.gets = 0; // it ends
+        assert!(matches!(v.pop(), Some(Pop::Resync)));
+        assert_eq!(v.gets, 1);
+        // the stored values again: the keys that did not fit arrive
+        for k in 0..n {
+            v.push(smp(&format!("k{k}"), 1));
+        }
+        assert_eq!(drain(&mut v).len(), 10, "only those not handed out yet");
+    }
+
+    #[test]
+    fn a_refused_key_takes_no_memory() {
+        let mut v = latest(Arc::new(|k: &str| !k.starts_with("secret")));
+        for t in 0..100 {
+            v.push(smp("secret/x", t));
+        }
+        v.push(smp("open", 1));
+        assert_eq!(drain(&mut v), [smp("open", 1)]);
+        assert_eq!(v.dropped.load(Ordering::Relaxed), 0);
     }
 
     #[test]
     fn the_reliable_queue_drops_the_oldest() {
-        let mut v = Vals::new(Policy::Queue(VecDeque::new()), true, Arc::default());
+        let mut v = Vals::new(Policy::Queue(VecDeque::new()), all(), 0, Arc::default());
         for t in 0..RELIABLE_BUFFER as u64 + 2 {
             v.push(smp("a", t));
         }

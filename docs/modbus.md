@@ -152,7 +152,9 @@ edit changes nothing.
   point of a slave takes `~set` (section 13).
 - The link root takes `poll_unsubscribed` (default true: points are
   polled all the time; false polls a group only while one of its points
-  has a subscriber, which only process links can see).
+  has a subscriber, which only process links can see: a subscription of
+  the point or of a pattern under the link, `wy/<site>/downstream/<link>/**`;
+  a wider pattern such as `downstream/**` does not reach the link).
 
 ## 4. Data types
 

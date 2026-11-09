@@ -574,7 +574,14 @@ impl Conn {
 
     async fn subscribe(&self, p: Principal, req: Req) {
         let id = req.id;
-        let mut s = match self.client(&p).subscribe(&req.key).await {
+        // The read filter runs before the client stream buffers anything: a
+        // point the user may not read takes no memory (security review). It
+        // is checked again below, as grants can change while a value waits.
+        let (gw, filter) = (self.gw.clone(), self.grants.subscribe());
+        let readable = move |key: &str| {
+            filter.borrow().perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
+        };
+        let mut s = match self.client(&p).subscribe_filtered(&req.key, readable).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };

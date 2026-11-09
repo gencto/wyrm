@@ -14,7 +14,8 @@ advanced = ["dep:zenoh-ext"]
 
 [dependencies]
 wyrm-core.workspace = true
-zenoh.workspace = true
+# `unstable`: `CancellationToken` ends the query of a dropped `invoke` stream
+zenoh = { workspace = true, features = ["unstable"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 futures-core.workspace = true
 minicbor.workspace = true
