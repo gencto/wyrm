@@ -103,6 +103,13 @@ pub const MAX_BLOCK_PORTS: usize = 64;
 pub const MAX_BLOCK_FANOUT: usize = 16;
 /// A custom block inside a custom block inside …: this deep at most.
 pub const MAX_BLOCK_DEPTH: usize = 4;
+/// Instances of other custom blocks inside one custom block at most.
+pub const MAX_BLOCK_INSTANCES: usize = 64;
+/// Edges of one flow at most, with the custom blocks expanded (spec 06 step 8). A definition
+/// is compiled for `validate` and `preview` at level `read`, so the whole expansion is charged
+/// against [`MAX_NODES`] and this limit while it is made: a block that multiplies (instances in
+/// instances, an input that fans out at every level) is refused after bounded work.
+pub const MAX_EDGES: usize = 4 * MAX_NODES;
 
 /// A node as written: its type and its own keys.
 type RawNode = (String, Map);
@@ -275,7 +282,22 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
             return err(format!("{at}.nodes.{id}: id must be [A-Za-z0-9_]+"));
         }
     }
+    if nodes.len() > MAX_NODES {
+        return err(format!("{at}.nodes: {} nodes > {MAX_NODES}", nodes.len()));
+    }
+    let uses = nodes
+        .values()
+        .filter(|(ty, _)| ty.starts_with(BLOCK_PREFIX))
+        .count();
+    if uses > MAX_BLOCK_INSTANCES {
+        return err(format!(
+            "{at}.nodes: {uses} instances of custom blocks > {MAX_BLOCK_INSTANCES}"
+        ));
+    }
     let edges = parse_edges(m.get("edges"), &format!("{at}.edges"))?;
+    if edges.len() > MAX_EDGES {
+        return err(format!("{at}.edges: {} edges > {MAX_EDGES}", edges.len()));
+    }
     check_layout(m.get("layout"), &format!("{at}.layout"))?;
     let inner = |e: &Endpoint, path: &str| -> Result<()> {
         if nodes.contains_key(&e.node) {
@@ -403,6 +425,60 @@ struct Expander<'a> {
     instances: BTreeMap<String, Instance>,
 }
 
+fn too_many_nodes<T>() -> Result<T> {
+    err(format!(
+        "nodes: more than {MAX_NODES} nodes with the custom blocks expanded"
+    ))
+}
+
+fn too_many_edges<T>() -> Result<T> {
+    err(format!(
+        "edges: more than {MAX_EDGES} edges with the custom blocks expanded"
+    ))
+}
+
+/// No custom block holds itself, directly or through others: checked on the definitions,
+/// before anything is expanded. The error names the loop.
+fn check_no_recursion(blocks: &BTreeMap<String, BlockDef>) -> Result<()> {
+    fn visit<'a>(
+        name: &'a str,
+        blocks: &'a BTreeMap<String, BlockDef>,
+        path: &mut Vec<&'a str>,
+        done: &mut BTreeSet<&'a str>,
+    ) -> Result<()> {
+        if done.contains(name) {
+            return Ok(());
+        }
+        if let Some(pos) = path.iter().position(|p| *p == name) {
+            let mut lap: Vec<&str> = path[pos..].to_vec();
+            lap.push(name);
+            return err(format!(
+                "blocks.{name}: a custom block may not contain itself ({})",
+                lap.join(" → ")
+            ));
+        }
+        let Some(def) = blocks.get(name) else {
+            return Ok(()); // an unknown block is reported where it is used
+        };
+        path.push(name);
+        for (ty, _) in def.nodes.values() {
+            if let Some(used) = ty.strip_prefix(BLOCK_PREFIX) {
+                if let Some((used, _)) = blocks.get_key_value(used) {
+                    visit(used, blocks, path, done)?;
+                }
+            }
+        }
+        path.pop();
+        done.insert(name);
+        Ok(())
+    }
+    let mut done = BTreeSet::new();
+    for name in blocks.keys() {
+        visit(name, blocks, &mut Vec::new(), &mut done)?;
+    }
+    Ok(())
+}
+
 impl Expander<'_> {
     /// The nodes and edges of one level: the definition itself (`prefix` empty) or the
     /// inside of the instance `prefix` (`a1/`).
@@ -420,13 +496,12 @@ impl Expander<'_> {
         };
         for (id, (ty, cfg)) in nodes {
             let path = format!("{prefix}{id}");
+            // every node and every instance, at every depth, is charged against the limit
+            // while the definition is expanded: a block that multiplies stops here
+            if self.nodes.len() + self.instances.len() >= MAX_NODES {
+                return too_many_nodes();
+            }
             let Some(name) = ty.strip_prefix(BLOCK_PREFIX) else {
-                // a plain flow is counted by step 8; this stops a block that multiplies
-                if !prefix.is_empty() && self.nodes.len() >= MAX_NODES {
-                    return err(format!(
-                        "nodes: more than {MAX_NODES} nodes with the custom blocks expanded"
-                    ));
-                }
                 self.nodes.insert(path, (ty, cfg));
                 continue;
             };
@@ -505,6 +580,9 @@ impl Expander<'_> {
                 depth + 1,
             )?;
         }
+        if self.edges.len() + edges.len() > MAX_EDGES {
+            return too_many_edges();
+        }
         for (i, e) in edges.iter().enumerate() {
             let at = if prefix.is_empty() {
                 format!("{edges_at}[{i}]")
@@ -553,9 +631,13 @@ impl Expander<'_> {
         err(format!("{at}: custom blocks nest too deep"))
     }
 
-    /// The plain inputs an edge into `e` feeds.
-    fn targets(&self, e: &Endpoint, at: &str, out: &mut Vec<Endpoint>) -> Result<()> {
+    /// The plain inputs an edge into `e` feeds, added to `out`. `room`: how many edges the
+    /// flow may still get; an input that fans out at every level stops when it is used up.
+    fn targets(&self, e: &Endpoint, at: &str, out: &mut Vec<Endpoint>, room: usize) -> Result<()> {
         let Some(inst) = self.instances.get(&e.node) else {
+            if out.len() >= room {
+                return too_many_edges();
+            }
             out.push(e.clone());
             return Ok(());
         };
@@ -566,7 +648,7 @@ impl Expander<'_> {
             ))
         })?;
         for t in to {
-            self.targets(t, at, out)?;
+            self.targets(t, at, out, room)?;
         }
         Ok(())
     }
@@ -658,8 +740,16 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
             blocks.insert(name.clone(), parse_block(name, def)?);
         }
     }
+    check_no_recursion(&blocks)?;
     let top = parse_nodes(m.get("nodes"), "nodes")?;
+    // step 8's limits, taken here already: nothing is expanded beyond them
+    if top.len() > MAX_NODES {
+        return err(format!("nodes: {} nodes > {MAX_NODES}", top.len()));
+    }
     let top_edges = parse_edges(m.get("edges"), "edges")?;
+    if top_edges.len() > MAX_EDGES {
+        return err(format!("edges: {} edges > {MAX_EDGES}", top_edges.len()));
+    }
     let mut x = Expander {
         blocks: &blocks,
         nodes: BTreeMap::new(),
@@ -671,7 +761,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
     for (e, at) in &x.edges {
         let from = x.source(&e.from, at)?;
         let mut to = Vec::new();
-        x.targets(&e.to, at, &mut to)?;
+        x.targets(&e.to, at, &mut to, MAX_EDGES - edges.len())?;
         for to in to {
             edges.push(Edge {
                 from: from.clone(),

@@ -1231,7 +1231,15 @@ fn custom_blocks_nest_four_deep_and_stay_within_the_node_limit() {
         &[("r", own)],
     ))
     .unwrap_err();
-    assert!(e.0.contains("does r contain itself"), "{e}");
+    assert!(
+        e.0.contains("blocks.r: a custom block may not contain itself (r → r)"),
+        "{e}"
+    );
+    // through another block: found on the definitions, before anything is expanded
+    let a = map(&[("nodes", map(&[("x", node("block:b", &[]))]))]);
+    let b = map(&[("nodes", map(&[("y", node("block:a", &[]))]))]);
+    let e = def::compile(&with_blocks(flow("f", &[], &[]), &[("a", a), ("b", b)])).unwrap_err();
+    assert!(e.0.contains("may not contain itself (a → b → a)"), "{e}");
     // 40 nodes in a block, 26 instances: more than 1000 nodes
     let many: Vec<(String, Value)> = (0..40)
         .map(|i| (format!("n{i}"), node("not", &[])))
@@ -1446,4 +1454,217 @@ async fn the_library_keeps_custom_blocks_for_every_flow() {
     assert_eq!(status(&e), StatusCode::Known(Status::NotFound));
     assert!(env.last("lib/nodes/r").is_some());
     env.stop().await;
+}
+
+/// Security review 2026-11-09: a definition is compiled for `validate` and `preview` at level
+/// `read`, so the expansion of custom blocks is charged against the limits while it is made.
+/// A block that multiplies is refused after bounded work, whatever its shape.
+#[test]
+fn expansion_bombs_are_refused_quickly() {
+    let quick = |what: &str, d: &Value, why: &str| {
+        let t = std::time::Instant::now();
+        let e = def::compile(d).unwrap_err();
+        let took = t.elapsed();
+        assert!(e.0.contains(why), "{what}: {e}");
+        assert!(took < Duration::from_millis(50), "{what}: {took:?}");
+    };
+    // a fan-out bomb, 4 deep: each block holds 64 instances of the one below (64⁴ nodes)
+    let mut blocks = vec![(
+        "b1".to_owned(),
+        map(&[("nodes", map(&[("n", node("not", &[]))]))]),
+    )];
+    for i in 2..=4 {
+        let inner: Vec<(String, Value)> = (0..64)
+            .map(|k| (format!("i{k}"), node(&format!("block:b{}", i - 1), &[])))
+            .collect();
+        let inner: Vec<(&str, Value)> =
+            inner.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+        blocks.push((format!("b{i}"), map(&[("nodes", map(&inner))])));
+    }
+    let blocks: Vec<(&str, Value)> = blocks
+        .iter()
+        .map(|(n, v)| (n.as_str(), v.clone()))
+        .collect();
+    let bomb = with_blocks(flow("f", &[("u", node("block:b4", &[]))], &[]), &blocks);
+    quick("instances in instances", &bomb, "more than 1000 nodes");
+    // instances alone count too: blocks that hold nothing but instances
+    let hollow: Vec<(String, Value)> = (2..=4)
+        .map(|i| {
+            let inner: Vec<(String, Value)> = (0..64)
+                .map(|k| (format!("i{k}"), node(&format!("block:h{}", i - 1), &[])))
+                .collect();
+            let inner: Vec<(&str, Value)> =
+                inner.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+            (format!("h{i}"), map(&[("nodes", map(&inner))]))
+        })
+        .chain([("h1".to_owned(), map(&[]))])
+        .collect();
+    let hollow: Vec<(&str, Value)> = hollow
+        .iter()
+        .map(|(n, v)| (n.as_str(), v.clone()))
+        .collect();
+    let bomb = with_blocks(flow("f", &[("u", node("block:h4", &[]))], &[]), &hollow);
+    quick("hollow instances", &bomb, "more than 1000 nodes");
+    // an edge bomb: one input feeds 16 inner inputs at each of 4 levels (16⁴ edges per wire)
+    let to16 =
+        |target: &dyn Fn(usize) -> String| arr(&(0..16).map(|k| s(&target(k))).collect::<Vec<_>>());
+    let mut fan = vec![(
+        "e1".to_owned(),
+        map(&[
+            (
+                "nodes",
+                map(&[(
+                    "h",
+                    node(
+                        "hub",
+                        &[(
+                            "inputs",
+                            arr(&(0..16).map(|k| s(&format!("p{k}"))).collect::<Vec<_>>()),
+                        )],
+                    ),
+                )]),
+            ),
+            (
+                "inputs",
+                arr(&[port("x", "to", to16(&|k| format!("h.in.p{k}")), &[])]),
+            ),
+        ]),
+    )];
+    for i in 2..=4 {
+        fan.push((
+            format!("e{i}"),
+            map(&[
+                (
+                    "nodes",
+                    map(&[("i", node(&format!("block:e{}", i - 1), &[]))]),
+                ),
+                (
+                    "inputs",
+                    arr(&[port("x", "to", to16(&|_| "i.x".to_owned()), &[])]),
+                ),
+            ]),
+        ));
+    }
+    let fan: Vec<(&str, Value)> = fan.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    let bomb = with_blocks(
+        flow(
+            "f",
+            &[("v", node("number", &[])), ("u", node("block:e4", &[]))],
+            &[("v.out", "u.x")],
+        ),
+        &fan,
+    );
+    quick(
+        "an input that fans out at every level",
+        &bomb,
+        "more than 4000 edges",
+    );
+    // more than 64 instances inside one block, and too many plain edges
+    let inner: Vec<(String, Value)> = (0..65)
+        .map(|k| (format!("i{k}"), node("block:b1", &[])))
+        .collect();
+    let inner: Vec<(&str, Value)> = inner.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    let wide = with_blocks(
+        flow("f", &[], &[]),
+        &[
+            ("b1", map(&[("nodes", map(&[("n", node("not", &[]))]))])),
+            ("wide", map(&[("nodes", map(&inner))])),
+        ],
+    );
+    quick(
+        "too many instances in a block",
+        &wide,
+        "65 instances of custom blocks > 64",
+    );
+}
+
+/// The worst definition the limits allow still compiles in bounded time (ADR 0040 §3): 1000
+/// nodes, all inside custom blocks 4 deep, and 4000 edges.
+#[test]
+fn the_largest_definition_compiles_in_bounded_time() {
+    // b1: 12 plain nodes in a chain; b2..b4 hold 4 instances each and wire them in a chain
+    let n1: Vec<(String, Value)> = (0..12)
+        .map(|k| (format!("n{k}"), node("add", &[])))
+        .collect();
+    let n1: Vec<(&str, Value)> = n1.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    let e1: Vec<Value> = (0..11)
+        .flat_map(|k| {
+            [
+                edge(&format!("n{k}.out"), &format!("n{}.in.0", k + 1)),
+                edge(&format!("n{k}.out"), &format!("n{}.in.1", k + 1)),
+            ]
+        })
+        .collect();
+    let mut blocks = vec![(
+        "b1".to_owned(),
+        map(&[
+            ("nodes", map(&n1)),
+            ("edges", arr(&e1)),
+            (
+                "inputs",
+                arr(&[port("x", "to", arr(&[s("n0.in.0"), s("n0.in.1")]), &[])]),
+            ),
+            ("outputs", arr(&[port("y", "from", s("n11.out"), &[])])),
+        ]),
+    )];
+    for i in 2..=4 {
+        let inner: Vec<(String, Value)> = (0..4)
+            .map(|k| (format!("i{k}"), node(&format!("block:b{}", i - 1), &[])))
+            .collect();
+        let inner: Vec<(&str, Value)> =
+            inner.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+        let wires: Vec<Value> = (0..3)
+            .map(|k| edge(&format!("i{k}.y"), &format!("i{}.x", k + 1)))
+            .collect();
+        blocks.push((
+            format!("b{i}"),
+            map(&[
+                ("nodes", map(&inner)),
+                ("edges", arr(&wires)),
+                ("inputs", arr(&[port("x", "to", s("i0.x"), &[])])),
+                ("outputs", arr(&[port("y", "from", s("i3.y"), &[])])),
+            ]),
+        ));
+    }
+    let blocks: Vec<(&str, Value)> = blocks
+        .iter()
+        .map(|(n, v)| (n.as_str(), v.clone()))
+        .collect();
+    // one b4 is 64 × 12 = 768 nodes and 85 instances; plain nodes fill the rest
+    let mut nodes = vec![
+        ("v".to_owned(), node("number", &[])),
+        ("u".to_owned(), node("block:b4", &[])),
+    ];
+    nodes.extend((0..140).map(|k| (format!("p{k}"), node("add", &[]))));
+    let nodes: Vec<(&str, Value)> = nodes.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    let mut edges = vec![("v.out".to_owned(), "u.x".to_owned())];
+    edges.extend((0..140).flat_map(|k| {
+        [
+            ("u.y".to_owned(), format!("p{k}.in.0")),
+            ("v.out".to_owned(), format!("p{k}.in.1")),
+        ]
+    }));
+    let edges: Vec<(&str, &str)> = edges
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let d = with_blocks(flow("f", &nodes, &edges), &blocks);
+    let t = std::time::Instant::now();
+    let parsed = def::parse(&d).unwrap();
+    let parse_took = t.elapsed();
+    def::check(&parsed).unwrap();
+    println!("parse {parse_took:?}, check {:?}", t.elapsed() - parse_took);
+    let t = std::time::Instant::now();
+    let (def, _) = def::compile(&d).unwrap();
+    let took = t.elapsed();
+    assert_eq!(def.nodes.len(), 768 + 141);
+    assert!(def.nodes.len() + def.instances.len() <= 1000);
+    assert!(def.edges.len() > 1500, "{}", def.edges.len());
+    println!(
+        "compile of {} nodes, {} edges: {took:?}",
+        def.nodes.len(),
+        def.edges.len()
+    );
+    // measured 2026-11-09 (Apple M4 Max): 12 ms in a debug build, 2.6 ms in release
+    assert!(took < Duration::from_millis(250), "{took:?}");
 }

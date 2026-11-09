@@ -299,8 +299,10 @@ ADR 0040 §3). The definition carries it in `blocks`; a node of type
 - The compiler replaces the instance by the inner nodes `m1/sum` and `m1/div`.
   `watch`, `ports` and `preview` show them under these ids; `nodes: ["m1"]`
   asks for all of them.
-- A block may hold other blocks, at most 4 deep. The 1000 nodes of a flow
-  count the inner nodes.
+- A block may hold other blocks, at most 4 deep and at most 64 instances in
+  one block. A block may not contain itself. The 1000 nodes of a flow count
+  every inner node and every instance; a flow has at most 4000 edges with its
+  blocks expanded.
 - A constant goes only to an inner input that keeps one: a parameter's port,
   an operand of a logic block, an argument of `invoke`, `in` of a variable.
 - A block with a `publish` inside can be used once in a flow.

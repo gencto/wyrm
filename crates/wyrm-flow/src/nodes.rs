@@ -464,6 +464,11 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
 
 /// Compiler step 6: rhai compiles with only the declared names.
 pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
+    // an engine only for the types that have a script: one per node of a 1000-node
+    // definition was most of its compile time (ADR 0040 §3)
+    if !matches!(ty, "expression" | "filter") {
+        return Ok(());
+    }
     let e = script::engine();
     match ty {
         "expression" => {
