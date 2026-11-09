@@ -7,7 +7,9 @@ import '../theme/radii.dart';
 
 /// A window that floats over the page without blocking it (not a modal):
 /// the [header] row is its handle to move it, the corner at the bottom
-/// right resizes it, and the close button or Esc calls [onClose]. It keeps
+/// right resizes it, and the close button or Esc calls [onClose] (Esc
+/// calls [onEscape] instead while that is given: an editor inside takes
+/// the first Esc). It keeps
 /// its place and size while its content changes, so a live value can be
 /// redrawn in it.
 ///
@@ -18,6 +20,7 @@ class FloatingWindow extends StatefulWidget {
     required this.header,
     required this.child,
     required this.onClose,
+    this.onEscape,
     this.closeLabel = 'Close',
     this.initialSize = const Size(440, 380),
     this.minSize = const Size(280, 180),
@@ -28,6 +31,9 @@ class FloatingWindow extends StatefulWidget {
   final Widget header;
   final Widget child;
   final VoidCallback onClose;
+
+  /// What Esc does instead of closing; null: Esc closes.
+  final VoidCallback? onEscape;
   final String closeLabel;
   final Size initialSize;
   final Size minSize;
@@ -81,7 +87,7 @@ class _FloatingWindowState extends State<FloatingWindow> {
               child: CallbackShortcuts(
                 bindings: {
                   const SingleActivator(LogicalKeyboardKey.escape):
-                      widget.onClose,
+                      widget.onEscape ?? widget.onClose,
                 },
                 child: Focus(
                   focusNode: _focus,
