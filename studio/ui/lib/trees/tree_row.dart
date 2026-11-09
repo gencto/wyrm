@@ -25,6 +25,10 @@ final class TreeRowVm extends Equatable {
     this.meta,
     this.hasHistory = false,
     this.marked = false,
+    this.tag,
+    this.value,
+    this.ember = false,
+    this.drag,
   });
 
   /// The node's key.
@@ -59,6 +63,21 @@ final class TreeRowVm extends Equatable {
   /// Added to the selection for Copy keys (⌘/Shift-click).
   final bool marked;
 
+  /// A type tag in place of the kind icon (`.0`, `01`, `≡`, `Aa`, `ACT`):
+  /// a value leaf or an action of the flow editor's Tree tab
+  /// (flow-editor.md §18). The Explorer's tree has none.
+  final String? tag;
+
+  /// Right-aligned mono text: a leaf's live value, an action's `2 in`.
+  final String? value;
+
+  /// An action row: its tag and its value in ember.
+  final bool ember;
+
+  /// What a drag of this row carries (`key:<point>`, `act:<node>/<a>`);
+  /// null: the row is not dragged.
+  final String? drag;
+
   @override
   List<Object?> get props => [
     id,
@@ -75,6 +94,10 @@ final class TreeRowVm extends Equatable {
     meta,
     hasHistory,
     marked,
+    tag,
+    value,
+    ember,
+    drag,
   ];
 }
 
@@ -136,13 +159,29 @@ class TreeRow extends StatelessWidget {
                     )
                   : null,
             ),
-            AppIcon(vm.icon, size: 16, color: sel ? c.ember : c.text4),
+            if (vm.tag case final tag?)
+              SizedBox(
+                width: 24,
+                child: Text(
+                  tag,
+                  maxLines: 1,
+                  overflow: .clip,
+                  style: mono(
+                    size: 10,
+                    weight: vm.ember ? .w600 : .w400,
+                    color: vm.ember ? c.emberSoft : c.text4,
+                  ),
+                ),
+              )
+            else
+              AppIcon(vm.icon, size: 16, color: sel ? c.ember : c.text4),
             Expanded(
               child: Text(
                 vm.name,
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: mono(
+                  size: height < 40 ? 12 : 13,
                   weight: sel ? .w600 : .w400,
                   color: sel ? c.text1 : c.text2,
                 ),
@@ -153,6 +192,19 @@ class TreeRow extends StatelessWidget {
                 width: 6,
                 height: 6,
                 decoration: BoxDecoration(shape: .circle, color: c.ember),
+              ),
+            if (vm.value case final v?)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 96),
+                child: Text(
+                  v,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: mono(
+                    size: 11,
+                    color: vm.ember ? c.emberSoft : c.text3,
+                  ),
+                ),
               ),
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
             if (vm.chip case final chip?) _Chip(chip),

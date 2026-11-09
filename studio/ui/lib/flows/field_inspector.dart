@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
@@ -29,6 +30,14 @@ enum FieldEditorVm {
 
   /// An input with no typed value: its last sample.
   sample,
+
+  /// An unbound `Trigger`: a `Run` button ([InspectorRowVm.value] is its
+  /// label, [InspectorRowVm.disabledReason] why it is off).
+  run,
+
+  /// A period: a number with its unit (ms, s, min, h); the value is in
+  /// milliseconds.
+  duration,
 }
 
 /// One field of the selected block.
@@ -47,7 +56,25 @@ final class InspectorRowVm extends Equatable {
     this.hint = '',
     this.pinned,
     this.pinLocked = false,
+    this.group = '',
+    this.disabledReason,
+    this.confirm,
+    this.error = '',
   });
+
+  /// The group this row is listed under (`Arguments`, `Behaviour`,
+  /// `Events`, `State`): its heading stands above the group's first row.
+  final String group;
+
+  /// Why a `run` button is off (its tooltip); null: it runs.
+  final String? disabledReason;
+
+  /// A toggle that asks before it goes on: the question's title and its
+  /// text (`Run on start`: the catalog's warning).
+  final (String, String)? confirm;
+
+  /// What is wrong with the typed value, in coral under the editor.
+  final String error;
 
   /// The field's id within its block.
   final String id;
@@ -90,6 +117,12 @@ final class InspectorRowVm extends Equatable {
   /// The same row with its pin: on the block or not, and whether a wire
   /// holds it there.
   InspectorRowVm pin({required bool pinned, required bool locked}) =>
+      _with(pinned: pinned, pinLocked: locked);
+
+  /// The same row under [group].
+  InspectorRowVm inGroup(String group) => _with(group: group);
+
+  InspectorRowVm _with({bool? pinned, bool? pinLocked, String? group}) =>
       InspectorRowVm(
         id: id,
         name: name,
@@ -102,8 +135,12 @@ final class InspectorRowVm extends Equatable {
         targets: targets,
         inPort: inPort,
         hint: hint,
-        pinned: pinned,
-        pinLocked: locked,
+        pinned: pinned ?? this.pinned,
+        pinLocked: pinLocked ?? this.pinLocked,
+        group: group ?? this.group,
+        disabledReason: disabledReason,
+        confirm: confirm,
+        error: error,
       );
 
   @override
@@ -121,6 +158,10 @@ final class InspectorRowVm extends Equatable {
     targets,
     inPort,
     hint,
+    group,
+    disabledReason,
+    confirm,
+    error,
   ];
 }
 
@@ -190,8 +231,23 @@ class FieldInspector extends StatelessWidget {
     this.bindLabel = 'Drag an output here to bind',
     this.goToSourceLabel = 'Go to source',
     this.boundLabel = 'bound',
+    this.onRun,
+    this.confirmLabel = 'Turn on',
+    this.cancelLabel = 'Cancel',
+    this.links = const [],
     super.key,
   });
+
+  /// The `Run` button of a row ([FieldEditorVm.run]): the row's id.
+  final ValueChanged<String>? onRun;
+
+  /// The buttons of a toggle's question ([InspectorRowVm.confirm]).
+  final String confirmLabel;
+  final String cancelLabel;
+
+  /// Link buttons above the rows (`Open inside`), each a label and what
+  /// it does.
+  final List<(String, VoidCallback)> links;
 
   /// `LOGIC BLOCK`; with [summary] the flow is shown instead.
   final String kindLabel;
@@ -276,9 +332,41 @@ class FieldInspector extends StatelessWidget {
               children: s != null
                   ? _summary(context, s)
                   : [
-                      for (final r in rows)
+                      for (final (label, onTap) in links)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Align(
+                            alignment: .centerLeft,
+                            child: Button.quiet(
+                              label: label,
+                              size: ButtonSize.small,
+                              onPressed: onTap,
+                            ),
+                          ),
+                        ),
+                      for (final (i, r) in rows.indexed) ...[
+                        if (r.group.isNotEmpty &&
+                            (i == 0 || rows[i - 1].group != r.group))
+                          Padding(
+                            padding: EdgeInsets.only(
+                              top: i == 0 ? 2 : 14,
+                              bottom: 2,
+                            ),
+                            child: Text(
+                              r.group.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: .w600,
+                                letterSpacing: 0.66,
+                                color: c.text4,
+                              ),
+                            ),
+                          ),
                         _Row(
                           vm: r,
+                          onRun: onRun,
+                          confirmLabel: confirmLabel,
+                          cancelLabel: cancelLabel,
                           onChanged: onChanged,
                           onUnbind: onUnbind,
                           onBind: onBind,
@@ -294,6 +382,7 @@ class FieldInspector extends StatelessWidget {
                           goToSourceLabel: goToSourceLabel,
                           boundLabel: boundLabel,
                         ),
+                      ],
                       if (onRemove != null) ...[
                         const SizedBox(height: 16),
                         Align(
@@ -427,8 +516,14 @@ class _Row extends StatelessWidget {
     required this.bindLabel,
     required this.goToSourceLabel,
     required this.boundLabel,
+    required this.onRun,
+    required this.confirmLabel,
+    required this.cancelLabel,
   });
 
+  final ValueChanged<String>? onRun;
+  final String confirmLabel;
+  final String cancelLabel;
   final InspectorRowVm vm;
   final void Function(String id, {required bool pinned})? onPin;
   final String pinLabel;
@@ -515,7 +610,25 @@ class _Row extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(child: _editor(context)),
+          Expanded(
+            child: vm.error.isEmpty
+                ? _editor(context)
+                : Column(
+                    mainAxisSize: .min,
+                    crossAxisAlignment: .start,
+                    children: [
+                      const SizedBox(height: 6),
+                      _editor(context),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          vm.error,
+                          style: TextStyle(fontSize: 11, color: c.bad),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
           const SizedBox(width: 6),
           SizedBox(
             width: 28,
@@ -635,8 +748,26 @@ class _Row extends StatelessWidget {
             height: 32,
             child: FittedBox(
               child: Switch(
+                key: ValueKey('toggle-${vm.id}'),
                 value: vm.value == 'true',
-                onChanged: (v) => onChanged(vm.id, '$v'),
+                onChanged: (v) async {
+                  // A toggle with a warning asks before it goes on.
+                  if (v) {
+                    if (vm.confirm case (final title, final message)) {
+                      final yes = await ConfirmDialog.ask(
+                        context,
+                        title: title,
+                        message: message,
+                        confirm: confirmLabel,
+                        cancel: cancelLabel,
+                      );
+                      if (!yes) {
+                        return;
+                      }
+                    }
+                  }
+                  onChanged(vm.id, '$v');
+                },
               ),
             ),
           ),
@@ -676,6 +807,27 @@ class _Row extends StatelessWidget {
             ),
           ),
         );
+      case FieldEditorVm.run:
+        return Align(
+          alignment: .centerLeft,
+          child: Button.secondary(
+            key: ValueKey('run-${vm.id}'),
+            label: vm.value,
+            icon: 'action_play',
+            size: ButtonSize.small,
+            disabledReason: vm.disabledReason,
+            onPressed: vm.disabledReason != null || onRun == null
+                ? null
+                : () => onRun!(vm.id),
+          ),
+        );
+      case FieldEditorVm.duration:
+        return _DurationEditor(
+          key: ValueKey('duration-${vm.id}'),
+          millis: vm.value,
+          decoration: box,
+          onChanged: (v) => onChanged(vm.id, v),
+        );
       case FieldEditorVm.sample:
         return SizedBox(
           height: 32,
@@ -693,6 +845,102 @@ class _Row extends StatelessWidget {
           ),
         );
     }
+  }
+}
+
+/// A period typed as a number and a unit (`5` `min`): the value in and out
+/// is milliseconds as text; empty is none. It reads in the largest unit
+/// that gives a whole number, and keeps the unit the user picked.
+class _DurationEditor extends StatefulWidget {
+  const _DurationEditor({
+    required this.millis,
+    required this.decoration,
+    required this.onChanged,
+    super.key,
+  });
+
+  final String millis;
+  final BoxDecoration decoration;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_DurationEditor> createState() => _DurationEditorState();
+}
+
+class _DurationEditorState extends State<_DurationEditor> {
+  static const _units = {'ms': 1, 's': 1000, 'min': 60000, 'h': 3600000};
+
+  late String _unit = _fit(widget.millis);
+
+  static String _fit(String millis) {
+    final ms = num.tryParse(millis.trim());
+    if (ms == null || ms == 0) {
+      return 's';
+    }
+    return _units.entries
+        .lastWhere((u) => ms % u.value == 0, orElse: () => _units.entries.first)
+        .key;
+  }
+
+  String get _shown {
+    final ms = num.tryParse(widget.millis.trim());
+    if (ms == null) {
+      return widget.millis;
+    }
+    final v = ms / _units[_unit]!;
+    return v == v.roundToDouble() ? '${v.round()}' : '$v';
+  }
+
+  void _typed(String text, String unit) {
+    final n = num.tryParse(text.trim());
+    widget.onChanged(
+      n == null ? text.trim() : '${(n * _units[unit]!).round()}',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      spacing: 6,
+      children: [
+        Expanded(
+          child: _TextEditor(
+            value: _shown,
+            decoration: widget.decoration,
+            onChanged: (t) => _typed(t, _unit),
+          ),
+        ),
+        Container(
+          height: 32,
+          width: 64,
+          decoration: widget.decoration,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _unit,
+              isExpanded: true,
+              isDense: true,
+              dropdownColor: c.ground3,
+              icon: AppIcon('ui_chevron_down', size: 14, color: c.text4),
+              style: mono(size: 12, color: c.text1),
+              items: [
+                for (final u in _units.keys)
+                  DropdownMenuItem(value: u, child: Text(u)),
+              ],
+              onChanged: (u) {
+                if (u == null) {
+                  return;
+                }
+                final shown = _shown;
+                setState(() => _unit = u);
+                _typed(shown, u);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
