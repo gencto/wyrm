@@ -400,7 +400,7 @@ Boards: *Studio · Flows*, *Flow editor · fields, bindings, properties*, *Flow 
 ### 7.7 History, Access, System
 - **History** (board *History · watch groups and trends*): `sys/history` groups and watches, `get_history {timerange, interval, rollup, limit}` per point; the trend is a custom painter (rows ≤ 5000 per answer).
 - **Access** (board *Studio · Access*): gateway users (`/api/users`), roles, `sys` ▸ `get_permissions`, `update_permissions {role, path, level}`, audit tail `sys/audit` ▸ `tail {n}`.
-- **System** (board *Studio · System*): `sys` values (version, uptime, counts, rates, cpu, memory, disk), `sys/~act/get_log {lines, level, filter, link}`, `sys/log_level`, standby state.
+- **System** (boards `System`, `SystemAvail*`, `SystemLog`, `SystemMaint`; spec `studio/docs/design/specs/system.md`): tabs Overview (`sys` values with their keys, router traffic), Availability (`standby_connected`, `standby_lag`, `arbiter_lease_s`, `standby_forks`; read only), Log (`sys/~act/get_log {lines, level, filter, link}`, `sys/log_level` through Review and apply), Maintenance (`clear_conns` with the list it would remove, profiles, backup commands); an attention panel beside every tab.
 
 ### 7.8 Assistant
 Boards: row *Assistant* (Ask, Plan, Running, Done, Stopped, What it may do, In Explorer). Tab: assistant; a drawer in Explorer (⌘J). State: `tasks`, `assistant`.

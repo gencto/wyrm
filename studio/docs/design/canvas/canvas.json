@@ -57,8 +57,9 @@
    "y": 0,
    "w": 1440,
    "h": 1000,
-   "title": "Studio · System — broker health and logs",
-   "expand": "fill"
+   "title": "Studio · System — overview: broker values, traffic, what needs a look (clickable tabs)",
+   "expand": "fill",
+   "is_interactive": true
   },
   "Actions.dc.html": {
    "x": 0,
@@ -440,6 +441,46 @@
    "h": 2600,
    "title": "WYRM Studio — app icon (night chosen, ember alternative; every platform)",
    "expand": "fill"
+  },
+  "SystemAvail.dc.html": {
+   "x": 7600,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System › Availability — the warm standby follows (lag 0, arbiter lease, forks)",
+   "expand": "fill"
+  },
+  "SystemAvailLag.dc.html": {
+   "x": 9120,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System › Availability — the standby is behind, a fork moved aside (warning)",
+   "expand": "fill"
+  },
+  "SystemAvailNone.dc.html": {
+   "x": 10640,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System › Availability — no standby connected (empty state, how to add one on the hosts)",
+   "expand": "fill"
+  },
+  "SystemLog.dc.html": {
+   "x": 12160,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System › Log — get_log with source, level, filter, lines; broker log level",
+   "expand": "fill"
+  },
+  "SystemMaint.dc.html": {
+   "x": 13680,
+   "y": 1420,
+   "w": 1440,
+   "h": 1000,
+   "title": "Studio · System › Maintenance — clear disconnected links, device profiles, backup commands",
+   "expand": "fill"
   }
  },
  "order": [
@@ -491,7 +532,12 @@
   "DesignSystem.dc.html",
   "Icons.dc.html",
   "PropertySheet.dc.html",
-  "AppIcon.dc.html"
+  "AppIcon.dc.html",
+  "SystemAvail.dc.html",
+  "SystemAvailLag.dc.html",
+  "SystemAvailNone.dc.html",
+  "SystemLog.dc.html",
+  "SystemMaint.dc.html"
  ],
  "notes": {
   "t-screens": {
@@ -504,9 +550,9 @@
   "t-deep": {
    "x": 0,
    "y": 1120,
-   "text": "Actions, adding a link (A and B), history",
+   "text": "Actions, adding a link (A and B), history, system",
    "kind": "title1",
-   "maxW": 9040
+   "maxW": 15120
   },
   "t-flow": {
    "x": 0,

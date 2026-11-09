@@ -1,6 +1,6 @@
 # Design reference
 
-`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 60, 2026-11-09). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
+`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 64, 2026-11-10). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
 
 The boards do not render on their own (they run inside the canvas). Read them as source:
 
@@ -14,6 +14,7 @@ The boards do not render on their own (they run inside the canvas). Read them as
 | Log in | `Login` (clickable), `LoginSigning`, `LoginWrong`, `LoginUnreachable`, `LoginWelcome` | `specs/login.md` |
 | App screens | `Main` (Explorer), `Flow` (Flows list), `Links`, `Sites`, `Access`, `System` | `docs/studio.md` §7.2–7.7 |
 | Details | `Actions`, `ActionDetail`, `History`, `LinkInstall` (Add a link, clickable); `PackageInstall` is an earlier variant, not built | §7.3, §7.4, §7.7 |
+| System | `System` (clickable tabs, in the app screens row), `SystemAvail`, `SystemAvailLag`, `SystemAvailNone`, `SystemLog`, `SystemMaint` | `specs/system.md` |
 | Flow editor | `FlowBind`, `FlowTree`, `FlowSymbol`, `FlowRepeat` | §7.6 |
 | Add a link, official | `AddLinkB00`, `AddLinkO1`–`O4`, `AddLinkB10` | §7.3 |
 | Add a link, custom | `AddLinkC1`–`C4b` | §7.3 |
