@@ -78,12 +78,13 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 - `echo_inputs: true` — входи типу, що не є портами параметрів, повторюються як виходи. У типів без входів поля немає.
 
 ## Другий набір блоків (0.2.25, ADR 0040 §4; повний опис — `docs/flow-blocks.md`)
-- Читачі: `load_value` (одне читання збереженого значення точки; `key`, порт `in.key`, scope `key_scope`) і `list_children` (діти вузла як список рядків `{name, path, type?, display?, is?, unit?, writable, has_children}`, не більше 1000; `path`, порт `in.path`, scope `path_scope`). Обидва мають `interval_ms`, `auto_run` (default true: читання на старті і при зміні ключа), `enabled`, вхід `trigger` і виходи `out`, `ok`, `error` (`{event, id, code, message}`), `running`, `last_run`. Їхній ключ і scope перевіряються як джерело (крок 9, права deploy і `watch`). Читання — не команда: правило старту для `auto_run` читача не діє.
+- Читачі: `load_value` (одне читання збереженого значення точки; `key`, порт `in.key`, scope `key_scope`) і `list_children` (діти вузла як список рядків `{name, path, type?, display?, is?, unit?, writable, has_children}`, не більше 1000; `path`, порт `in.path`, scope `path_scope`). Обидва мають `interval_ms`, `auto_run` (default true: читання на старті і при зміні ключа), `enabled`, вхід `trigger` і виходи `out`, `ok`, `error` (`{event, id, code, message}`), `running`, `last_run`. Їхній ключ і scope перевіряються як джерело (крок 9, права deploy і `watch`). Читання — не команда: правило старту для `auto_run` читача не діє. `list_children` показує рядок кожної дитини, тому deploy, `watch`, `ports` і `preview` вимагають читання також `<path>/*` і `<path_scope>/*`: одна заборонена дитина відмовляє.
 - Текст: `substring` (`start`, `length`), `replace` (`from`, `to`), `split` (`separator`; не більше 1000 частин), `join` (`separator`). Результат довший за 4 КіБ — `null` з якістю `bad`.
 - Дані: `make_object` (мапа іменованих входів), `make_array`, `get` (`path` виду `a.b.0`), `stats` (виходи `min`, `max`, `avg`, `sum`, `count` для чисел списку).
 - Події і стан: `changed` (вихід `on_change`), `rising_edge`, `falling_edge` (вихід `on_edge`), `counter` (`step`, `initial`, вхід `reset`), `toggle` (`initial`, `reset`), `sample_and_hold` (входи `in`, `trigger`), `select` (`index`). Семпл, народжений на старті, дає блоку значення і нічого не запускає.
 - Час: `debounce` і `throttle` (`ms`, не більше 3 600 000).
 - Кожен параметр цих блоків має порт `in.<p>`, крім `inputs` і scope.
+- Число з порту або з конфігу, що не є скінченним (NaN, ±inf), блок числом не вважає; такий семпл на порту параметра ігнорується, і діє останнє добре значення. `ms` без числа — 500; `substring.length` — не більше 4 КіБ; `select.index` поза входами дає `null`.
 
 ## Власні блоки (0.2.24, ADR 0040 §3)
 Визначення може мати `blocks`. Нода типу `block:<name>` — екземпляр блоку `<name>`.

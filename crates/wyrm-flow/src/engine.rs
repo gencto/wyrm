@@ -750,6 +750,17 @@ fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Resu
         if !reads_key(auth, &full) {
             return Err(denied(format!("{full}: {role} may not read it")));
         }
+        // `list_children` shows a row for every child (its name, type, unit, …): the children
+        // are read as a whole, so a child that is denied refuses it (security review
+        // 2026-11-10). A reader of the node alone learns nothing about what is below it.
+        if r.children {
+            let below = crate::scope::children_of(&full);
+            if !below.as_deref().is_some_and(|b| reads_key(auth, b)) {
+                return Err(denied(format!(
+                    "{full}/*: {role} may not read the children it lists"
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -1779,5 +1790,82 @@ mod tests {
         def.maxperm = Perm::Read;
         assert!(triggers(&cmd, def.maxperm, &reader, "s").is_err());
         triggers(&cmd, def.maxperm, &writer, "s").unwrap();
+    }
+
+    /// Security review 2026-11-10: `list_children` shows a row per child, so the deployer and
+    /// every watcher read the children as a whole, for the static path and for the scope.
+    #[test]
+    fn list_children_needs_the_children() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let flow = |cfg: &[(&str, Value)]| {
+            let mut n = vec![("type", s("list_children"))];
+            n.extend(cfg.iter().cloned());
+            def::parse(&m(&[("id", s("f")), ("nodes", m(&[("l", m(&n))]))])).unwrap()
+        };
+        let fixed = flow(&[("path", s("downstream/l/room"))]);
+        // the folder alone is not enough
+        let folder = caller(Some(vec![g("wy/s/downstream/l/room", Perm::Read)]));
+        let e = reads_sources_of(&fixed, &folder, "s", "the deployer").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/l/room/*: the deployer may not read the children"),
+            "{e}"
+        );
+        assert!(reads_flow(&fixed, &folder, "s").is_err(), "a watcher too");
+        // one child denied: its row would show, so it is refused whole
+        let holed = caller(Some(vec![
+            g("wy/s/downstream/l/room/secret", Perm::None),
+            g("wy/s/downstream/**", Perm::Read),
+        ]));
+        assert!(reads_sources_of(&fixed, &holed, "s", "the deployer").is_err());
+        assert!(reads_flow(&fixed, &holed, "s").is_err());
+        // a deny deeper than the children does not matter: rows are one level
+        let deep = caller(Some(vec![
+            g("wy/s/downstream/l/room/a/secret", Perm::None),
+            g("wy/s/downstream/**", Perm::Read),
+        ]));
+        reads_sources_of(&fixed, &deep, "s", "the deployer").unwrap();
+        let all = caller(Some(vec![g("wy/s/downstream/l/**", Perm::Read)]));
+        reads_sources_of(&fixed, &all, "s", "the deployer").unwrap();
+        reads_flow(&fixed, &all, "s").unwrap();
+        // a scope: the children of every node it admits
+        let scoped = flow(&[("path_scope", s("downstream/l/*"))]);
+        let level = caller(Some(vec![g("wy/s/downstream/l/*", Perm::Read)]));
+        assert!(reads_sources_of(&scoped, &level, "s", "the deployer").is_err());
+        let two = caller(Some(vec![
+            g("wy/s/downstream/l/*", Perm::Read),
+            g("wy/s/downstream/l/*/*", Perm::Read),
+        ]));
+        reads_sources_of(&scoped, &two, "s", "the deployer").unwrap();
+        // `**` as a scope has its children in canonical form
+        assert_eq!(
+            crate::scope::children_of("wy/s/downstream/l/**").as_deref(),
+            Some("wy/s/downstream/l/*/**")
+        );
+        let wide = flow(&[("path_scope", s("downstream/l/**"))]);
+        reads_sources_of(&wide, &all, "s", "the deployer").unwrap();
+        assert!(reads_sources_of(&wide, &holed, "s", "the deployer").is_err());
+        // a subscribe of the same key asks for no children
+        let sub = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[("type", s("subscribe")), ("key", s("downstream/l/room"))]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        reads_sources_of(&sub, &folder, "s", "the deployer").unwrap();
     }
 }

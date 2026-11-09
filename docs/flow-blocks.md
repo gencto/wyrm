@@ -178,6 +178,8 @@ Every parameter below has the port `in.<parameter>`.
   only gives the block where it starts from. So these blocks are safe in front
   of a `trigger`.
 - `counter` and `toggle` keep their state across a hot swap.
+- A number that is not finite (NaN, infinity) is no number for a block. On a
+  parameter's port it is ignored, and the last good value stays.
 - `debounce` and `throttle` send their value at most a quarter of `ms` late
   (5 to 50 ms).
 
@@ -194,6 +196,8 @@ Readers:
 - `list_children` gives a list of rows, one per child:
   `{name, path, type, display, is, unit, writable, has_children}` (`type`,
   `display`, `is` and `unit` only where the child has them). At most 1000 rows.
+  The deployer, and whoever watches the flow, must read the children
+  (`<path>/*`) as well as the node: one child that is denied refuses the block.
 - `auto_run` reads at the start and when the key changes. A read is no command,
   so it may run at deploy. `trigger` reads on an event or a changed value;
   `interval_ms` reads every period.

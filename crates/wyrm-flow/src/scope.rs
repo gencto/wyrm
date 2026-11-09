@@ -108,6 +108,17 @@ pub struct Read {
     pub key: String,
     /// A scope (a key expression for a dynamic field), not a static key.
     pub scope: bool,
+    /// The node lists the children of what it names (`list_children`): whoever may read the
+    /// flow must read `<key>/*` too, as the rows show each child's name, type and unit.
+    pub children: bool,
+}
+
+/// The children of `full` (a key or a scope) as a key expression in canonical form
+/// (`a/**` → `a/*/**`).
+pub fn children_of(full: &str) -> Option<String> {
+    OwnedKeyExpr::autocanonize(format!("{full}/*"))
+        .ok()
+        .map(|k| k.as_str().to_owned())
 }
 
 /// Every static key and every scope the nodes of `def` read.
@@ -122,6 +133,7 @@ pub fn reads(def: &FlowDef) -> Vec<Read> {
                         param,
                         key: k.clone(),
                         scope: is_scope,
+                        children: n.ty == "list_children",
                     });
                 }
             }

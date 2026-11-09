@@ -433,3 +433,52 @@ async fn run_on_start_is_off_by_default_and_runs_exactly_once() {
     .into();
     assert!(nodes::ports("set", &cfg).is_err());
 }
+
+/// Security review 2026-11-10: `interval_ms` from a port is a finite number in its range or it
+/// is ignored; no value there makes a clock the runtime cannot build.
+#[tokio::test(flavor = "multi_thread")]
+async fn interval_from_a_port_is_bounded() {
+    let e = env().await;
+    let io = &e.io;
+    for ty in ["invoke", "set", "load_value", "list_children"] {
+        let cfg: BTreeMap<String, Value> = match ty {
+            "invoke" => [("path", "downstream/m"), ("action", "count")]
+                .map(|(k, v)| (k.to_owned(), Value::from(v)))
+                .into(),
+            "set" | "list_children" => [("path".to_owned(), Value::from("downstream/m"))].into(),
+            _ => [("key".to_owned(), Value::from("downstream/m/p0"))].into(),
+        };
+        nodes::ports(ty, &cfg).unwrap();
+        let mut n = nodes::build(ty, "f", "n", &cfg).unwrap();
+        feed(&mut *n, io, "in.interval_ms", good(1000u64));
+        assert_eq!(n.tick_every(), Some(Duration::from_millis(1000)), "{ty}");
+        for wild in [
+            Value::Float(f64::NAN),
+            Value::Float(f64::INFINITY),
+            Value::Float(f64::NEG_INFINITY),
+            Value::Int(-5),
+            Value::UInt(99),
+            Value::Float(1e300),
+            Value::UInt(u64::MAX),
+            Value::from("1000"),
+            Value::Null,
+        ] {
+            feed(&mut *n, io, "in.interval_ms", good(wild.clone()));
+            assert_eq!(
+                n.tick_every(),
+                Some(Duration::from_millis(1000)),
+                "{ty} {wild:?}: the last good period stays"
+            );
+        }
+        // and the config refuses what a port ignores
+        for bad in [
+            Value::Float(f64::NAN),
+            Value::Float(f64::INFINITY),
+            Value::Int(-1),
+        ] {
+            let mut c = cfg.clone();
+            c.insert("interval_ms".into(), bad.clone());
+            assert!(nodes::ports(ty, &c).is_err(), "{ty} {bad:?}");
+        }
+    }
+}

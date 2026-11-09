@@ -74,6 +74,8 @@ pub const MAX_TEXT: usize = 4096;
 pub const MAX_LIST: usize = 1000;
 /// The longest `ms` of `debounce` and `throttle`: one hour.
 const MAX_HOLD_MS: f64 = 3_600_000.0;
+/// `ms` of `debounce` and `throttle` when the parameter is no finite number.
+const DEFAULT_HOLD_MS: f64 = 500.0;
 /// The stopwatch's clock, and the shortest interval it counts.
 const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
@@ -111,22 +113,32 @@ impl N {
     }
 }
 
-/// A value as a number: numbers, bools (1/0) and text that parses.
+/// A value as a number: numbers, bools (1/0) and text that parses. A float that is not
+/// finite (NaN, ±inf, also as the texts `NaN` and `inf`) is no number: a value from a port or
+/// from the config never becomes a duration, an index, a length or a count as one (security
+/// review 2026-11-10: `Duration::from_secs_f64(NaN)` panics).
 fn num(v: &Value) -> Option<N> {
     match v {
         Value::Int(i) => Some(N::I(*i)),
         Value::UInt(u) => Some(i64::try_from(*u).map_or(N::F(*u as f64), N::I)),
-        Value::Float(x) => Some(N::F(*x)),
+        Value::Float(x) => x.is_finite().then_some(N::F(*x)),
         Value::Bool(b) => Some(N::I(i64::from(*b))),
         Value::Str(s) => {
             let s = s.trim();
             s.parse::<i64>()
                 .map(N::I)
                 .ok()
-                .or_else(|| s.parse::<f64>().ok().map(N::F))
+                .or_else(|| s.parse::<f64>().ok().filter(|x| x.is_finite()).map(N::F))
         }
         _ => None,
     }
+}
+
+/// A parameter as a whole number of at most `max`: a count of characters, an index. What is
+/// not a finite number, or is below 0, is `None`.
+fn whole(v: &Value, max: usize) -> Option<usize> {
+    let x = num(v)?.f();
+    (x >= 0.0).then_some(if x >= max as f64 { max } else { x as usize })
 }
 
 /// A value as a bool: numbers other than 0; text `true`, or a number other than 0, or any
@@ -1132,11 +1144,21 @@ impl Block {
                 let v = match self.in_value() {
                     Value::Null => Value::Null,
                     v => {
-                        let whole = |p: &Value| num(p).map(|n| n.f().max(0.0) as usize);
-                        let start = whole(self.param("start")).unwrap_or(0);
-                        let len = whole(self.param("length")).unwrap_or(usize::MAX);
-                        Value::Str(text(v).chars().skip(start).take(len).collect())
+                        // a start below 0 or not a number is 0; a length never passes 4 KiB
+                        let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
+                        let len = whole(self.param("length"), MAX_TEXT).unwrap_or(MAX_TEXT);
+                        let part: String = text(v).chars().skip(start).take(len).collect();
+                        if part.len() > MAX_TEXT {
+                            Value::Null
+                        } else {
+                            Value::Str(part)
+                        }
                     }
+                };
+                let q = if v == Value::Null && *self.in_value() != Value::Null {
+                    Quality::Bad
+                } else {
+                    q
                 };
                 self.send("out", v, q, t, out);
             }
@@ -1153,7 +1175,7 @@ impl Block {
                         } else {
                             src.matches(&from).count()
                         };
-                        if src.len() + hits * grows > MAX_TEXT {
+                        if src.len().saturating_add(hits.saturating_mul(grows)) > MAX_TEXT {
                             (Value::Null, Quality::Bad)
                         } else if hits == 0 {
                             (Value::Str(src), q)
@@ -1217,7 +1239,10 @@ impl Block {
                 self.send("out", v, q, t, out);
             }
             Kind::Get => {
-                let path = text(self.param("path"));
+                // a path longer than a text a block makes names nothing
+                let path = Some(text(self.param("path")))
+                    .filter(|p| p.len() <= MAX_TEXT)
+                    .unwrap_or_else(|| "\u{0}".to_owned());
                 let mut v = self.in_value();
                 for seg in path.split('.').filter(|s| !s.is_empty()) {
                     v = match v {
@@ -1286,7 +1311,11 @@ impl Block {
                     n = initial;
                 } else if hit && self.kind == Kind::Counter {
                     let step = num(self.param("step")).unwrap_or(N::I(1));
-                    n = n.op(step, i64::checked_add, |x, y| x + y);
+                    let next = n.op(step, i64::checked_add, |x, y| x + y);
+                    // a count that would leave the finite numbers stays where it is
+                    if next.f().is_finite() {
+                        n = next;
+                    }
                 } else if hit {
                     n = N::I(i64::from(n.f() == 0.0));
                 } else if !fresh {
@@ -1310,9 +1339,8 @@ impl Block {
                 }
             }
             Kind::Select => {
-                let v = num(self.param("index"))
-                    .filter(|n| n.f() >= 0.0)
-                    .and_then(|n| self.items.get(n.f() as usize))
+                let v = whole(self.param("index"), MAX_ITEMS)
+                    .and_then(|i| self.items.get(i))
                     .and_then(|name| self.values.get(name))
                     .cloned()
                     .unwrap_or(Value::Null);
@@ -1354,8 +1382,9 @@ impl Block {
 
     /// `ms` of `debounce` and `throttle`.
     fn hold(&self) -> Duration {
-        let ms = num(self.param("ms")).map_or(0.0, N::f);
-        Duration::from_secs_f64(ms.clamp(0.0, MAX_HOLD_MS) / 1000.0)
+        // not a finite number: the default; `num` gives no NaN, so the clamp is total
+        let ms = num(self.param("ms")).map_or(DEFAULT_HOLD_MS, N::f);
+        Duration::from_millis(ms.clamp(0.0, MAX_HOLD_MS) as u64)
     }
 
     /// A variable's value in its type.
@@ -1433,6 +1462,11 @@ impl Node for Block {
             if !matches!(&m.v, Value::Str(o) if ops.contains(&o.as_str())) {
                 return;
             }
+        }
+        // a number that is not finite never becomes a parameter: the last good value stays
+        let is_param = port.starts_with("in.") && self.param_ports.contains(&name.as_str());
+        if is_param && matches!(&m.v, Value::Float(x) if !x.is_finite()) {
+            return;
         }
         self.seen.insert(name.clone(), (m.q, m.t));
         self.born = m.start;

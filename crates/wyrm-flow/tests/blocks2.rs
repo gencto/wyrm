@@ -462,3 +462,150 @@ fn the_second_set_is_in_the_catalog_with_ports_for_every_field() {
     assert!(params.iter().any(|p| matches!(p, Value::Map(p)
         if p.get("name") == Some(&"path".into()) && p.get("scope") == Some(&"path_scope".into()))));
 }
+
+/// Security review 2026-11-10: a number from a port or from the config that is not finite, is
+/// negative or is huge never panics a block and never becomes a duration, an index or a size.
+#[tokio::test(flavor = "multi_thread")]
+async fn numbers_from_ports_are_bounded() {
+    let e = env().await;
+    let io = &e.io;
+    let wild = [
+        Value::Float(f64::NAN),
+        Value::Float(f64::INFINITY),
+        Value::Float(f64::NEG_INFINITY),
+        Value::Float(-1.0),
+        Value::Int(i64::MIN),
+        Value::Float(1e300),
+        Value::UInt(u64::MAX),
+        Value::from("NaN"),
+        Value::from("inf"),
+        Value::from("-inf"),
+        Value::Null,
+        Value::from("text"),
+    ];
+    // debounce and throttle: `ms` from the port, and from the config
+    for ty in ["debounce", "throttle"] {
+        for w in &wild {
+            let mut n = build(ty, &[]);
+            feed(&mut *n, io, "in.ms", good(w.clone()));
+            feed(&mut *n, io, "in", good(1u64));
+            feed(&mut *n, io, "in", good(2u64));
+            let every = n.tick_every();
+            assert!(
+                every.is_none_or(|d| d <= Duration::from_millis(50)),
+                "{ty} {w:?}: {every:?}"
+            );
+            tick(&mut *n);
+            let mut n = build(ty, &[("ms", w.clone())]);
+            feed(&mut *n, io, "in", good(1u64));
+            feed(&mut *n, io, "in", good(2u64));
+            let _ = n.tick_every();
+            tick(&mut *n);
+        }
+    }
+    // a NaN on the port leaves the last good `ms`; without one, the default of 500 ms holds
+    let mut d = build("debounce", &[("ms", Value::UInt(80))]);
+    feed(&mut *d, io, "in.ms", good(f64::NAN));
+    assert_eq!(
+        d.live_params().unwrap().1.get("ms"),
+        Some(&Value::UInt(80)),
+        "not stored"
+    );
+    let mut d = build("debounce", &[("ms", Value::Float(f64::NAN))]);
+    feed(&mut *d, io, "in", good(1u64));
+    assert_eq!(
+        d.tick_every(),
+        Some(Duration::from_millis(50)),
+        "500 / 4, capped"
+    );
+    // substring, select, counter, get, round, stopwatch: every wild value on every number
+    for w in &wild {
+        let mut s = build("substring", &[]);
+        feed(&mut *s, io, "in.start", good(w.clone()));
+        feed(&mut *s, io, "in.length", good(w.clone()));
+        let got = out_of(&mut *s, io, "héllo");
+        assert!(
+            matches!(&got, Some(Value::Str(t)) if t.len() <= 6) || got.is_none(),
+            "substring {w:?}: {got:?}"
+        );
+        let mut sel = build("select", &[]);
+        feed(&mut *sel, io, "in.0", good("first"));
+        feed(&mut *sel, io, "in.index", good(w.clone()));
+        let mut c = build("counter", &[]);
+        feed(&mut *c, io, "in.step", good(w.clone()));
+        feed(&mut *c, io, "in.initial", good(w.clone()));
+        for _ in 0..3 {
+            let sent = feed(&mut *c, io, "in", good(true));
+            if let Some(v) = on(&sent, "out") {
+                assert!(
+                    v.as_f64().is_some_and(f64::is_finite),
+                    "counter {w:?}: {v:?}"
+                );
+            }
+        }
+        let mut r = build("round", &[]);
+        feed(&mut *r, io, "in.precision", good(w.clone()));
+        feed(&mut *r, io, "in.min_precision", good(w.clone()));
+        feed(&mut *r, io, "in", good(1.23456));
+        let mut sw = build("stopwatch", &[("enabled", Value::Bool(true))]);
+        for p in ["interval", "step", "modulo", "reset_value"] {
+            feed(&mut *sw, io, &format!("in.{p}"), good(w.clone()));
+        }
+        tick(&mut *sw);
+        tick(&mut *sw);
+        let mut m = build("modulo", &[]);
+        feed(&mut *m, io, "in.modulo", good(w.clone()));
+        feed(&mut *m, io, "in", good(w.clone()));
+        let mut st = build("stats", &[]);
+        feed(&mut *st, io, "in", good(list(&[w.clone(), w.clone()])));
+    }
+    // a huge start and length give an empty text and a bounded one
+    let mut s = build("substring", &[("start", Value::UInt(u64::MAX))]);
+    assert_eq!(out_of(&mut *s, io, "abc"), Some("".into()));
+    let mut s = build("substring", &[("length", Value::Float(1e300))]);
+    let got = out_of(&mut *s, io, "x".repeat(10_000));
+    assert!(
+        matches!(&got, Some(Value::Str(t)) if t.len() == 4096),
+        "{got:?}"
+    );
+    // a counter that would overflow to infinity stays where it is
+    let mut c = build(
+        "counter",
+        &[
+            ("step", Value::Float(1e308)),
+            ("initial", Value::Float(1e308)),
+        ],
+    );
+    let sent = feed(&mut *c, io, "in", good(true));
+    assert_eq!(on(&sent, "out"), Some(Value::Float(1e308)));
+    // get: a very long path, a very deep one and an index past the list
+    let mut g = build("get", &[]);
+    feed(&mut *g, io, "in", good(list(&[Value::UInt(1)])));
+    for path in [
+        "9".repeat(40),
+        "a.".repeat(5000),
+        "0.".repeat(2000),
+        "-1".to_owned(),
+    ] {
+        feed(&mut *g, io, "in.path", good("0"));
+        assert_eq!(
+            on(&feed(&mut *g, io, "in.path", good(path.clone())), "out"),
+            Some(Value::Null),
+            "{}…",
+            &path[..8.min(path.len())]
+        );
+    }
+    // split and join stay within their bounds whatever the separator
+    let mut sp = build("split", &[]);
+    feed(&mut *sp, io, "in.separator", good("a"));
+    let mut out = Out::default();
+    sp.input("in", good("a".repeat(5000)), io, &mut out);
+    assert_eq!(out.0[0].1.v, Value::Null);
+    let mut j = build("join", &[("separator", "x".repeat(3000).into())]);
+    let mut out = Out::default();
+    j.input("in", good(texts(&["a", "b", "c"])), io, &mut out);
+    assert_eq!(
+        (out.0[0].1.v.clone(), out.0[0].1.q),
+        (Value::Null, Quality::Bad)
+    );
+}

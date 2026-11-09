@@ -260,7 +260,8 @@ async fn run_node(
     probe: Arc<Probe>,
 ) {
     let save = |node: &dyn Node| {
-        if let Some(st) = node.state() {
+        let state = std::panic::catch_unwind(AssertUnwindSafe(|| node.state()));
+        if let Ok(Some(st)) = state {
             states
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
@@ -310,8 +311,17 @@ async fn run_node(
         iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         iv
     };
-    let mut period = node.tick_every();
-    let at_once = node.first_tick_now();
+    // every call into a node runs under the panic guard, the small ones too: a node that
+    // panics while it says its clock ends its flow's run as any other panic does
+    let clock_of = |node: &dyn Node| {
+        std::panic::catch_unwind(AssertUnwindSafe(|| {
+            (node.tick_every(), node.first_tick_now())
+        }))
+    };
+    let Ok((mut period, at_once)) = clock_of(node.as_ref()) else {
+        let _ = panics.send(format!("nodes.{id}: panic in tick_every"));
+        return;
+    };
     let mut tick = period.map(|p| {
         let first = tokio::time::Instant::now();
         clock(p, if at_once { first } else { first + p })
@@ -383,7 +393,11 @@ async fn run_node(
         route(&routes, out).await;
         // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,
         // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
-        let now_every = node.tick_every();
+        let Ok((now_every, _)) = clock_of(node.as_ref()) else {
+            warn!(node = %id, "flow node panicked");
+            let _ = panics.send(format!("nodes.{id}: panic in tick_every"));
+            return;
+        };
         if now_every != period {
             start_tick = false;
             period = now_every;

@@ -1922,3 +1922,78 @@ fn layout_takes_editor_keys_and_is_bounded() {
     let e = def::compile(&with_blocks(flow("f", &[], &[]), &[("b", block)])).unwrap_err();
     assert!(e.0.starts_with("blocks.b.layout.n~pin~in"), "{e}");
 }
+
+/// Security review 2026-11-10: the rows of `list_children` show each child, so the children
+/// are read as a whole. A deployer who reads the folder but is denied one child cannot
+/// deploy the block (that child's row is never made); a watcher who reads the folder alone is
+/// refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn list_children_needs_the_rights_on_the_children() {
+    let env = Env::start("list-rights").await;
+    let lister = || {
+        flow(
+            "ls",
+            &[
+                (
+                    "l",
+                    node("list_children", &[("path", s("downstream/mock"))]),
+                ),
+                ("rows", publish("rows")),
+            ],
+            &[("l.out", "rows.in")],
+        )
+    };
+    // the folder, and every child but one
+    let holed = env.user(
+        "user:holed",
+        &[
+            ("dataflows/**", Perm::Config),
+            ("downstream/mock/p1", Perm::None),
+            ("downstream/**", Perm::Read),
+        ],
+    );
+    let e = env.deploy_as(&holed, lister()).await.unwrap_err();
+    assert!(denied(&e), "{e}");
+    assert!(env.last("ls/nodes/rows").is_none(), "no row was made");
+    // the folder alone
+    let folder = env.user(
+        "user:folder",
+        &[
+            ("dataflows/**", Perm::Config),
+            ("downstream/mock", Perm::Read),
+        ],
+    );
+    let e = env.deploy_as(&folder, lister()).await.unwrap_err();
+    assert!(denied(&e), "{e}");
+    let root = format!("wy/{SITE}/dataflows");
+    let e = first(&folder, &root, "preview", map(&[("def", lister())]))
+        .await
+        .unwrap_err();
+    assert!(denied(&e), "{e}");
+    // with the children it deploys and lists both
+    let wide = env.user(
+        "user:wide",
+        &[
+            ("dataflows/**", Perm::Config),
+            ("downstream/mock/**", Perm::Read),
+            ("downstream/mock", Perm::Read),
+        ],
+    );
+    env.deploy_as(&wide, lister()).await.unwrap();
+    wait("both rows", || {
+        env.last("ls/nodes/rows")
+            .filter(|s| matches!(&s.v, Value::Array(a) if a.len() == 2))
+    })
+    .await;
+    // a watcher without the children is refused, and so is one denied a child
+    let flow_key = format!("{root}/ls");
+    for (who, c) in [("folder", &folder), ("holed", &holed)] {
+        for action in ["watch", "ports"] {
+            let e = first(c, &flow_key, action, map(&[])).await.unwrap_err();
+            assert!(denied(&e), "{who} {action}: {e}");
+        }
+    }
+    let row = first(&wide, &flow_key, "ports", map(&[])).await.unwrap();
+    assert_eq!(at(&row, &["snapshot"]), Some(&Value::Bool(true)));
+    env.stop().await;
+}
