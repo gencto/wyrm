@@ -82,6 +82,10 @@ final class PaletteNoteVm extends Equatable {
 /// catalogue by category, one line per block with its tag chip), My blocks
 /// and Tree (points and actions to drop on a block or the canvas). Tap an
 /// entry to add it, or drag it.
+/// Asks the palette on screen to put the cursor in its search field: add
+/// one to it (`/` or ⌘/Ctrl+K in the flow editor, spec §14).
+final paletteSearchRequest = ValueNotifier<int>(0);
+
 class BlockPalette extends StatefulWidget {
   const BlockPalette({
     required this.tabs,
@@ -115,6 +119,20 @@ class BlockPalette extends StatefulWidget {
 class _BlockPaletteState extends State<BlockPalette> {
   var _q = '';
   late final _closed = <String>{...widget.closed};
+  final _search = FocusNode(debugLabel: 'BlockPalette search');
+
+  @override
+  void initState() {
+    super.initState();
+    paletteSearchRequest.addListener(_search.requestFocus);
+  }
+
+  @override
+  void dispose() {
+    paletteSearchRequest.removeListener(_search.requestFocus);
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +178,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                   AppIcon('ui_search', size: 14, color: c.text4),
                   Expanded(
                     child: TextField(
+                      focusNode: _search,
                       onChanged: (s) => setState(() => _q = s),
                       style: TextStyle(fontSize: 13, color: c.text1),
                       decoration:

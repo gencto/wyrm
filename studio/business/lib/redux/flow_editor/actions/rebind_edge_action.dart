@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
 
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'validate_flow_action.dart';
@@ -48,24 +50,30 @@ class RebindEdgeAction extends Action {
         ? d.blocks.add(oldTo, b.copyWith(cfg: b.cfg.add(param, keep)))
         : d.blocks;
     return state.copyWith.flowEditor(
-      draft: d.copyWith(
-        blocks: blocks,
-        edges: d.edges
-            .removeWhere(
-              (e) =>
-                  (e.to == oldTo && e.toPort == oldToPort) ||
-                  (e.to == to && e.toPort == toPort),
-            )
-            .add(
-              FlowEdge(
-                from: wire.from,
-                fromPort: wire.fromPort,
-                to: to,
-                toPort: toPort,
+      draft: pinBound(
+        flowEditor.types,
+        d.copyWith(
+          blocks: blocks,
+          edges: d.edges
+              .removeWhere(
+                (e) =>
+                    (e.to == oldTo && e.toPort == oldToPort) ||
+                    (e.to == to && e.toPort == toPort),
+              )
+              .add(
+                FlowEdge(
+                  from: wire.from,
+                  fromPort: wire.fromPort,
+                  to: to,
+                  toPort: toPort,
+                ),
               ),
-            ),
+        ),
       ),
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

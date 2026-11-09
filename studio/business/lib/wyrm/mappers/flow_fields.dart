@@ -122,7 +122,9 @@ final class FlowField {
   /// The parameter behind a [FieldKind.param] field.
   final ParamSpec? spec;
 
-  /// Drawn as a row of the block; the inspector lists every field.
+  /// Pinned to the block by default (the type's main inputs, outputs and
+  /// the fields users set most); the user's choice for one block wins
+  /// ([fieldPinned]). The inspector lists every field.
   final bool onBlock;
 
   /// Other engine outputs that leave this field: a variable's `value` and
@@ -350,10 +352,7 @@ String humanize(String name) {
   }
   final text = [
     for (final (i, w) in words.indexed)
-      if (i == 0)
-        '${w[0].toUpperCase()}${w.substring(1)}'
-      else
-        w.toLowerCase(),
+      if (i == 0) '${w[0].toUpperCase()}${w.substring(1)}' else w.toLowerCase(),
   ].join(' ');
   return unit == null ? text : '$text ($unit)';
 }
@@ -694,14 +693,30 @@ bool isVariable(NodeType? t) =>
     t.dynInParam == null &&
     t.dynOutParam == null;
 
-/// The rows of [b] drawn on the canvas.
+/// Whether a wire of [edges] goes into [f] of [b] or leaves it.
+bool fieldBound(FlowBlock b, FlowField f, Iterable<FlowEdge> edges) =>
+    edges.any(
+      (e) =>
+          (e.to == b.id && f.inPort != null && e.toPort == f.inPort) ||
+          (e.from == b.id && f.sends(e.fromPort)),
+    );
+
+/// Whether [f] is a row of [b] on the canvas (spec §12 Pins, owner decision
+/// 2026-11-09): a bound field always; else what the user chose for this
+/// block ([FlowBlock.pins]); else the type's default ([FlowField.onBlock]).
+/// The inspector lists every field, pinned or not.
+bool fieldPinned(FlowBlock b, FlowField f, Iterable<FlowEdge> edges) =>
+    fieldBound(b, f, edges) || (b.pins[f.id] ?? f.onBlock);
+
+/// The rows of [b] drawn on the canvas: its pinned fields ([fieldPinned]),
+/// in the order of [fieldsOf].
 List<FlowField> rowsOf(
   NodeType? t,
   FlowBlock b, {
   Iterable<FlowEdge> edges = const [],
 }) => [
   for (final f in fieldsOf(t, b, edges: edges))
-    if (f.onBlock) f,
+    if (fieldPinned(b, f, edges)) f,
 ];
 
 /// The height the editor draws [b] at: header 32, body padding 6 + 8, 28

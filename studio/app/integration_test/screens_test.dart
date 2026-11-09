@@ -15,12 +15,15 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/flows/flow_menu.dart';
 
 // ignore: do_not_use_environment, a test parameter.
 const gateway = String.fromEnvironment('WYRM_GATEWAY');
@@ -53,6 +56,90 @@ void main() {
     for (var i = 0; i < ms ~/ 100; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
+  }
+
+  /// The canvas tools of the flow editor (flow-editor.md §12–§15) on the
+  /// flow that is open: the shortcut card, Select all, the context menu
+  /// with its Fields checklist, copy and paste, undo, the viewer's Edit
+  /// mode. Only the draft in memory changes; nothing is deployed.
+  Future<void> canvasTools(WidgetTester tester) async {
+    Future<void> chord(LogicalKeyboardKey key) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(key);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await settle(tester, 500);
+    }
+
+    int blocks() => tester.widgetList(find.byType(FlowBlockView)).length;
+    final canvas = tester.getRect(find.byType(FlowCanvas));
+    final count = blocks();
+
+    await tester.tap(find.byKey(const ValueKey('flow-help')));
+    await settle(tester, 500);
+    await shot(tester, '03f_flow_shortcuts');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(tester, 300);
+
+    // Fit all, then everything selected.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await chord(LogicalKeyboardKey.keyA);
+    await shot(tester, '03g_flow_select_all');
+
+    // Copy, paste (under the pointer's last place), then take it back.
+    await chord(LogicalKeyboardKey.keyC);
+    await chord(LogicalKeyboardKey.keyV);
+    debugPrint('flow paste: $count blocks, then ${blocks()}');
+    await shot(tester, '03h_flow_pasted');
+    await chord(LogicalKeyboardKey.keyZ);
+    debugPrint('flow undo: ${blocks()} blocks');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(tester, 300);
+
+    // The menu of one block, and its Fields checklist.
+    final block = find.byType(FlowBlockView).first;
+    await tester.tapAt(
+      tester.getTopLeft(block) + const Offset(60, 50),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await settle(tester, 500);
+    debugPrint('flow menu: ${find.byType(FlowMenu).evaluate().length}');
+    if (find.text('Fields').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Fields'));
+      await settle(tester, 500);
+    }
+    await shot(tester, '03i_flow_menu_fields');
+    await tester.tapAt(canvas.bottomRight - const Offset(30, 90));
+    await settle(tester, 500);
+
+    // The value viewer of the first inspector row, in its Edit mode.
+    final eye = find.byTooltip('View value');
+    if (eye.evaluate().isNotEmpty) {
+      for (final e in eye.evaluate().toList()) {
+        await tester.tap(find.byWidget(e.widget), warnIfMissed: false);
+        await settle(tester, 500);
+        if (find.byKey(const ValueKey('viewer-edit')).evaluate().isNotEmpty) {
+          break;
+        }
+      }
+      await shot(tester, '03j_flow_viewer');
+      final edit = find.byKey(const ValueKey('viewer-edit'));
+      if (edit.evaluate().isNotEmpty) {
+        await tester.tap(edit);
+        await settle(tester, 500);
+        await shot(tester, '03k_flow_viewer_edit');
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await settle(tester, 300);
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester, 300);
+    }
+    // Nothing selected again: the inspector shows the flow.
+    await tester.tapAt(canvas.bottomRight - const Offset(30, 90));
+    await settle(tester, 300);
+    debugPrint('flow canvas tools: overflow ${tester.takeException()}');
   }
 
   testWidgets('log in and visit every workspace', (tester) async {
@@ -187,6 +274,7 @@ void main() {
             await shot(tester, '${n}_flow_$b');
           }
         }
+        await canvasTools(tester);
         await tester.tap(find.byType(IconButton).last);
         await settle(tester);
       }

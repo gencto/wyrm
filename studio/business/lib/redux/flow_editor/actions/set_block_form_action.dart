@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_fields.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -58,6 +61,9 @@ class SetBlockFormAction extends Action {
         ),
       ),
       dirty: true,
+      undo: undoPush(flowEditor.undo, d),
+      redo: const IListConst([]),
+      undoTag: null,
     );
   }
 }

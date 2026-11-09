@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 
 import 'package:ui/flows/flow_canvas.dart';
 
@@ -18,12 +21,16 @@ void main() {
     return;
   }
 
+  // The canvas tools, the shortcut card and the menu read `S.current`.
+  setUpAll(() => S.load(const Locale('en')));
+
   Future<void> shoot(
     WidgetTester tester,
     String name,
     Widget page, {
     (String, String)? dragging,
     String? hover,
+    Future<void> Function()? then,
   }) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
@@ -65,8 +72,27 @@ void main() {
       );
       await tester.pump();
     }
+    if (then != null) {
+      await then();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+    }
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('$name.png'));
     await g?.up();
+  }
+
+  Finder onCanvas(String text) =>
+      find.descendant(of: find.byType(FlowCanvas), matching: find.text(text));
+
+  Future<void> rightClick(WidgetTester tester, Offset at) async {
+    await tester.tapAt(
+      at,
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pump(const Duration(milliseconds: 300));
   }
 
   testWidgets(
@@ -146,5 +172,85 @@ void main() {
   testWidgets(
     'the Tree tab with a drag in progress',
     (t) => shoot(t, 'flow_tree_drag', flowTreeDrag()),
+  );
+  testWidgets(
+    'pins: fields taken off a block, and the Fields checklist of its menu',
+    (t) => shoot(
+      t,
+      'flow_pins',
+      flowPins(),
+      then: () async {
+        await rightClick(t, t.getCenter(onCanvas('case 1')));
+        await t.tap(find.text('Fields'));
+      },
+    ),
+  );
+  testWidgets('a marquee in progress: the blocks it touches read selected', (
+    t,
+  ) async {
+    late TestGesture g;
+    await shoot(
+      t,
+      'flow_marquee',
+      flowNothingSelected(),
+      then: () async {
+        final from =
+            t.getTopLeft(find.byType(FlowCanvas)) + const Offset(300, 30);
+        g = await t.startGesture(from, kind: PointerDeviceKind.mouse);
+        for (var i = 1; i <= 8; i++) {
+          await g.moveTo(from + Offset(70.0 * i, 72.0 * i));
+          await t.pump(const Duration(milliseconds: 16));
+        }
+      },
+    );
+    await g.up();
+  });
+  testWidgets(
+    'several blocks selected, with their context menu',
+    (t) => shoot(
+      t,
+      'flow_selection_menu',
+      flowSelection(),
+      then: () => rightClick(t, t.getCenter(onCanvas('Expression'))),
+    ),
+  );
+  testWidgets('the shortcut card, with the glyphs of macOS', (t) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await shoot(
+        t,
+        'flow_shortcuts',
+        flowNothingSelected(),
+        then: () => t.tap(find.byKey(const ValueKey('flow-help'))),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+  testWidgets(
+    'the shortcut card, with Ctrl, Alt and Shift',
+    (t) => shoot(
+      t,
+      'flow_shortcuts_ctrl',
+      flowNothingSelected(),
+      then: () async {
+        await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await t.sendKeyEvent(LogicalKeyboardKey.slash);
+        await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      },
+    ),
+  );
+  testWidgets(
+    'the value viewer in its Edit mode: a JSON editor, Save and Cancel',
+    (t) => shoot(
+      t,
+      'flow_viewer_edit',
+      flowViewerEdit(),
+      then: () => t.tap(find.byKey(const ValueKey('viewer-edit'))),
+    ),
+  );
+  testWidgets(
+    'the value viewer of a bound field: read only, with the reason',
+    (t) => shoot(t, 'flow_viewer_locked', flowViewerEdit(locked: true)),
   );
 }

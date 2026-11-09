@@ -170,19 +170,27 @@ final class FlowBlockVm extends Equatable {
   final VariadicVm? variadic;
   final bool selected;
 
-  FlowBlockVm at(double x, double y) => FlowBlockVm(
+  FlowBlockVm at(double x, double y) => _with(x: x, y: y);
+
+  /// The same block drawn selected or not (a marquee in progress).
+  FlowBlockVm marked({required bool selected}) => _with(selected: selected);
+
+  FlowBlockVm _with({double? x, double? y, bool? selected}) => FlowBlockVm(
     id: id,
     title: title,
-    x: x,
-    y: y,
+    x: x ?? this.x,
+    y: y ?? this.y,
     type: type,
     kind: kind,
     width: width,
     rows: rows,
     variadic: variadic,
-    selected: selected,
+    selected: selected ?? this.selected,
     tag: tag,
   );
+
+  /// The block's box on the canvas.
+  Rect get rect => Rect.fromLTWH(x, y, width, height);
 
   static const headerHeight = 32.0;
   static const rowHeight = 28.0;

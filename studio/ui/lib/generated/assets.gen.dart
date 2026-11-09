@@ -72,6 +72,29 @@ class $AssetsSvgIconsGen {
   SvgGenImage get actionUp =>
       const SvgGenImage('assets/svg/icons/action_up.svg');
 
+  /// File path: assets/svg/icons/key_alt.svg
+  SvgGenImage get keyAlt => const SvgGenImage('assets/svg/icons/key_alt.svg');
+
+  /// File path: assets/svg/icons/key_cmd.svg
+  SvgGenImage get keyCmd => const SvgGenImage('assets/svg/icons/key_cmd.svg');
+
+  /// File path: assets/svg/icons/key_down.svg
+  SvgGenImage get keyDown => const SvgGenImage('assets/svg/icons/key_down.svg');
+
+  /// File path: assets/svg/icons/key_left.svg
+  SvgGenImage get keyLeft => const SvgGenImage('assets/svg/icons/key_left.svg');
+
+  /// File path: assets/svg/icons/key_right.svg
+  SvgGenImage get keyRight =>
+      const SvgGenImage('assets/svg/icons/key_right.svg');
+
+  /// File path: assets/svg/icons/key_shift.svg
+  SvgGenImage get keyShift =>
+      const SvgGenImage('assets/svg/icons/key_shift.svg');
+
+  /// File path: assets/svg/icons/key_up.svg
+  SvgGenImage get keyUp => const SvgGenImage('assets/svg/icons/key_up.svg');
+
   /// File path: assets/svg/icons/mode_embedded.svg
   SvgGenImage get modeEmbedded =>
       const SvgGenImage('assets/svg/icons/mode_embedded.svg');
@@ -171,6 +194,9 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_more.svg
   SvgGenImage get uiMore => const SvgGenImage('assets/svg/icons/ui_more.svg');
 
+  /// File path: assets/svg/icons/ui_pin.svg
+  SvgGenImage get uiPin => const SvgGenImage('assets/svg/icons/ui_pin.svg');
+
   /// File path: assets/svg/icons/ui_profile.svg
   SvgGenImage get uiProfile =>
       const SvgGenImage('assets/svg/icons/ui_profile.svg');
@@ -238,6 +264,13 @@ class $AssetsSvgIconsGen {
     actionStop,
     actionTrash,
     actionUp,
+    keyAlt,
+    keyCmd,
+    keyDown,
+    keyLeft,
+    keyRight,
+    keyShift,
+    keyUp,
     modeEmbedded,
     modeExternal,
     modeProcess,
@@ -265,6 +298,7 @@ class $AssetsSvgIconsGen {
     uiFilter,
     uiMoon,
     uiMore,
+    uiPin,
     uiProfile,
     uiSearch,
     uiSend,

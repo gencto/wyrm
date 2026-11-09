@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../buttons/button.dart';
@@ -8,8 +10,11 @@ import '../flows/field_inspector.dart';
 import '../flows/flow_block_view.dart';
 import '../flows/flow_canvas.dart';
 import '../flows/flow_legend.dart';
+import '../flows/flow_menu.dart';
+import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../overlays/confirm_dialog.dart';
 import '../overlays/value_viewer.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
@@ -76,8 +81,67 @@ class FlowEditorPage extends StatelessWidget {
     this.copyLabel = 'Copy',
     this.copiedLabel = 'Copied',
     this.closeLabel = 'Close',
+    this.onSelectMany,
+    this.onCommand,
+    this.menu,
+    this.onPin,
+    this.onViewField,
+    this.onFieldPin,
+    this.pinLabel = 'Pin to block',
+    this.unpinLabel = 'Unpin from block',
+    this.pinLockedLabel = 'A bound field stays on the block',
+    this.onSaveViewer,
+    this.validateViewer,
+    this.editLabel = 'Edit',
+    this.saveLabel = 'Save',
+    this.cancelLabel = 'Cancel',
+    this.saveHint = '',
+    this.deployAskTitle = 'Deploy this flow?',
+    this.deployAskMessage = '',
     super.key,
   });
+
+  /// A marquee or Select all on the canvas.
+  final void Function(
+    Set<String> ids, {
+    required bool add,
+    required bool toggle,
+  })?
+  onSelectMany;
+
+  /// A command of the canvas (copy, paste at `at`, delete, undo, …). The
+  /// page itself answers two: `searchPalette` puts the cursor in the
+  /// palette's search field, `deploy` asks first ([deployAskTitle]) and
+  /// then calls [onDeploy].
+  final void Function(FlowCommand command, {Offset? at})? onCommand;
+
+  /// The context menu of a block, of the selection or of the canvas.
+  final FlowMenuVm Function(Set<String> ids, String? block, String? row)? menu;
+
+  /// A field pinned to its block or taken off it, from the context menu.
+  final void Function(String block, String field, {required bool pinned})?
+  onPin;
+
+  /// `V` over a row of the canvas: opens its value in the viewer.
+  final void Function(String block, String row)? onViewField;
+
+  /// The pin of an inspector row (a field of the selected block).
+  final void Function(String id, {required bool pinned})? onFieldPin;
+  final String pinLabel;
+  final String unpinLabel;
+  final String pinLockedLabel;
+
+  /// Save of the viewer's Edit mode: the editor's text.
+  final ValueChanged<String>? onSaveViewer;
+
+  /// What is wrong with a text typed in the viewer; null: it saves.
+  final String? Function(String text)? validateViewer;
+  final String editLabel;
+  final String saveLabel;
+  final String cancelLabel;
+  final String saveHint;
+  final String deployAskTitle;
+  final String deployAskMessage;
 
   /// `Flows`, a link back to the list.
   final String flowsLabel;
@@ -118,7 +182,7 @@ class FlowEditorPage extends StatelessWidget {
   final List<FlowWireVm> wires;
   final FlowBlockActions blockActions;
   final VoidCallback onClear;
-  final void Function(String id, double x, double y) onMove;
+  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
   final void Function(String entry, double x, double y) onDrop;
   final FlowLegendVm? legend;
 
@@ -261,16 +325,22 @@ class FlowEditorPage extends StatelessWidget {
             Expanded(
               child: Stack(
                 children: [
-                  Positioned.fill(child: _panels()),
+                  Positioned.fill(child: _panels(context, deployOn)),
                   if (viewer case final v?)
                     Positioned.fill(
                       child: ValueViewer(
                         key: const ValueKey('value-viewer'),
                         vm: v,
                         onClose: onCloseViewer ?? () {},
+                        onSave: onSaveViewer,
+                        validate: validateViewer,
                         copyLabel: copyLabel,
                         copiedLabel: copiedLabel,
                         closeLabel: closeLabel,
+                        editLabel: editLabel,
+                        saveLabel: saveLabel,
+                        cancelLabel: cancelLabel,
+                        saveHint: saveHint,
                       ),
                     ),
                 ],
@@ -282,7 +352,34 @@ class FlowEditorPage extends StatelessWidget {
     );
   }
 
-  Widget _panels() => SidePanels(
+  /// A command of the canvas: the page's own two, the rest to the
+  /// connector.
+  Future<void> _command(
+    BuildContext context,
+    FlowCommand command, {
+    required bool deployOn,
+    Offset? at,
+  }) async {
+    if (command == FlowCommand.searchPalette) {
+      paletteSearchRequest.value++;
+    } else if (command != FlowCommand.deploy) {
+      onCommand?.call(command, at: at);
+    } else if (deployOn) {
+      final yes = await ConfirmDialog.ask(
+        context,
+        title: deployAskTitle,
+        message: deployAskMessage,
+        confirm: deployLabel,
+        cancel: cancelLabel,
+        danger: false,
+      );
+      if (yes) {
+        onDeploy?.call();
+      }
+    }
+  }
+
+  Widget _panels(BuildContext context, bool deployOn) => SidePanels(
     onChanged: onPanelWidth,
     left: SidePanel(
       width: panels.left,
@@ -306,6 +403,13 @@ class FlowEditorPage extends StatelessWidget {
       onMove: onMove,
       onDrop: onDrop,
       legend: legend,
+      onSelectMany: onSelectMany,
+      onCommand: (command, {at}) => unawaited(
+        _command(context, command, deployOn: deployOn, at: at),
+      ),
+      menu: menu,
+      onPin: onPin,
+      onViewField: onViewField,
     ),
     right: SidePanel(
       width: panels.right,
@@ -336,6 +440,10 @@ class FlowEditorPage extends StatelessWidget {
         onRemove: onRemove,
         onView: onView,
         viewLabel: viewLabel,
+        onPin: onFieldPin,
+        pinLabel: pinLabel,
+        unpinLabel: unpinLabel,
+        pinLockedLabel: pinLockedLabel,
       ),
     ),
   );
