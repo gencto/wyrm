@@ -28,3 +28,14 @@ Rules:
 3. An unknown code in a decoder is an error for security-relevant fields (`Perm` in `ptok` and `maxperm`): the message is refused, never widened. Status codes are the exception: unknown values travel as `StatusCode::User`/`Unknown`, and code that needs to act on them uses `StatusGroup`.
 4. Ranges with a meaning (status groups, user-defined status range) get a name (`StatusGroup`, `status::USER_RANGE`), never a bare `0x20` at a call site.
 5. Adding or changing a code: change `spec/tables.json` first (normative), then the `wire_enum!` declaration. `wire_enums_match_spec_tables` in `crates/wyrm-core/tests/fixtures.rs` fails until both agree; a new table also gets a `check!` line there.
+
+## Zenoh handlers (product code and tests)
+
+The default Zenoh handler is a FIFO of 256 items. When it is full, Zenoh waits for room on the session's receive path, so every other reply and sample of that session stops too (`zenoh/src/api/handlers/fifo.rs`). One slow consumer then freezes the whole session; for the gateway that is every user at once.
+
+Rules:
+1. Use the default FIFO (or `FifoChannel`) only for replies or samples that the same task reads at once, with no other await in between: a one-shot `get` read to its end, or the first reply of a `get` whose handler is then dropped.
+2. A subscriber, liveliness subscriber or long `get` that is not read at once (it waits for another query first, it forwards with back-pressure, or its consumer is somebody else) uses a callback into a bounded buffer that the code owns, or `zenoh::handlers::RingChannel`. In `wyrm-client` that is `intake::Intake` with a `Feed`.
+3. A callback never awaits, blocks or does I/O: one short `std::sync::Mutex` section or a `try_send`.
+4. A full buffer follows a policy chosen for its stream kind, written down next to it and in `docs/links.md` ("Streams and a slow consumer"): values (`~val`) keep the newest per key; queues (QoS 2/3) drop the oldest; `~meta` lists discard the buffer and read a fresh snapshot; action results end the stream with `resource_exhausted`. Each loss is counted (`EventStream::dropped`).
+5. A test for a stream that can stall uses two sessions over loopback TCP (`crates/wyrm-client/tests/stall.rs`): in one session a local put calls the subscriber on the publisher's own task, and the stall does not show.

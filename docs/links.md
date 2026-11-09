@@ -576,6 +576,28 @@ client.set(&point, value).await?;
 `write` grant) show both kinds; `examples/links/README.md` tells how to
 install them.
 
+### Streams and a slow consumer
+
+`WyrmClient::list`, `subscribe`, `subscribe_reliable` and `invoke` return an
+`EventStream`. A stream never holds up the Zenoh session, also when its
+consumer stops reading: it keeps its own bounded buffer, and a full buffer
+follows the policy of its kind. `EventStream::dropped()` counts what the
+stream did not deliver; it stays 0 while the consumer keeps up.
+
+| Stream | When the consumer is behind |
+|---|---|
+| `subscribe` (`~val`) | One pending value per key; a newer `t` replaces an older one (values are state). After the stall the consumer gets the latest value, quality and time of every key, in time order per key. The replaced values count. |
+| `subscribe_reliable` (QoS 2/3) | A queue of `RELIABLE_BUFFER` (4096) samples; the oldest beyond it is dropped and counted. |
+| `list` (`~meta`, liveliness) | Up to `LIST_BUFFER` (1024) events are held. One more discards them (counted), and the stream reads the children again and sends `Refreshed`, so the consumer's view is whole again. If the owner is gone, it sends `Disconnected(None)` and lists again when the owner is back. |
+| `invoke` (a stream action) | Up to `INVOKE_BUFFER` (1024) replies are held. One more ends the stream: the held replies, then `resource_exhausted` ("consumer too slow"). Results are never dropped one by one. |
+
+`subscribe` still subscribes before it reads the stored values (no lost
+update) and hands out nothing before the stored values are in. A consumer
+that must see every sample (a historian with All Data logging) loses
+intermediate samples only while it is behind; before this rule it stopped
+the session instead. The gateway forwards each stream to its WebSocket and
+waits there for room, so a slow socket only slows its own streams.
+
 ## 11. Logs
 
 - `sys/links/<id>` ▸ **Get Log** `{lines, level, filter}` shows the link's

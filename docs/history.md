@@ -51,7 +51,7 @@ Open `wy/<site>/sys/history`.
 |---|---|
 | None | nothing (the group is paused) |
 | Interval | the last value of each point every Interval seconds, changed or not |
-| All Data | every update |
+| All Data | every update (while the historian keeps up: a point whose updates come faster than the historian takes them keeps only the newest pending one, see `docs/links.md` "Streams and a slow consumer") |
 | Point Change | an update whose value or quality differs from the last one recorded |
 
 - **Buffer Flush Time** (seconds, 0.1 to 600): rows wait in memory, then go

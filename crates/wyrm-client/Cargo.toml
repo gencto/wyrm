@@ -29,3 +29,5 @@ wyrm-client = { path = ".", features = ["advanced"] }
 wyrm-link-mock.workspace = true
 ed25519-dalek.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# two sessions over loopback TCP (tests/stall.rs)
+zenoh = { workspace = true, features = ["transport_tcp"] }

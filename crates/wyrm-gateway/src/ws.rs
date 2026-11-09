@@ -562,7 +562,9 @@ impl Conn {
                 }
                 _ => continue,
             };
-            // ~meta is DataHigh + Block: wait for room, never drop.
+            // ~meta is DataHigh + Block: wait for room, never drop. Only this
+            // task waits: the client stream holds `LIST_BUFFER` events and
+            // beyond that sends a fresh `refreshed`, never holding up the session.
             if self.out.send(Out::Frame(ev)).await.is_err() {
                 return;
             }
@@ -606,8 +608,11 @@ impl Conn {
             {
                 continue;
             }
-            // ~val is Data + Drop: a slow socket loses samples, not memory.
-            if let Err(mpsc::error::TrySendError::Closed(_)) = self.out.try_send(Out::Frame(ev)) {
+            // Wait for room: only this task waits. The client stream keeps
+            // one pending value per key meanwhile (newest wins) and never
+            // holds up the shared session, so a slow socket gets the latest
+            // value of every point instead of losing some at random.
+            if self.out.send(Out::Frame(ev)).await.is_err() {
                 return;
             }
         }
