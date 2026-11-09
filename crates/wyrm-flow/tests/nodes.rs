@@ -314,6 +314,17 @@ async fn delay_filter_scale_timer() {
     assert_eq!(num(&out[0]), 7.0);
     assert_eq!(out[0].1.q, Quality::Uncertain);
     assert_eq!(out[0].1.t, 9);
+    // ADR 0038: effective parameters, the defaults included; a range port changes one, a
+    // sample that is not a finite number does not
+    let (rev, p) = s.live_params().unwrap();
+    assert_eq!(p.get("k"), Some(&Value::Float(2.0)));
+    assert_eq!(p.get("output_max"), Some(&Value::UInt(100)));
+    feed(s.as_mut(), &e.io, "in.input_max", g(10.0, 1));
+    feed(s.as_mut(), &e.io, "in.input_min", m("x", Quality::Good, 1));
+    let (rev2, p) = s.live_params().unwrap();
+    assert_eq!(rev2, rev + 1);
+    assert_eq!(p.get("input_max"), Some(&Value::Float(10.0)));
+    assert_eq!(p.get("input_min"), Some(&Value::UInt(0)));
 
     let mut t = build("timer", &[("period_ms", Value::UInt(100))]);
     assert_eq!(t.tick_every(), Some(std::time::Duration::from_millis(100)));
@@ -436,4 +447,66 @@ async fn state_round_trips() {
     w2.restore(&w.state().unwrap());
     feed(w2.as_mut(), &e.io, "in", g(6.0, 101 * S));
     assert_eq!(num(&tick(w2.as_mut(), 110 * S)[0]), 10.0);
+}
+
+/// ADR 0038 §5a (spec 06 0.2.17): the older node types take a parameter on `in.<p>`; the
+/// config gives the start, the last good sample wins, a sample that is not a finite number in
+/// the parameter's bounds is ignored, and the effective value shows in `live_params`.
+#[tokio::test(flavor = "multi_thread")]
+async fn parameter_ports_of_the_older_types() {
+    use std::time::Duration;
+    let e = env().await;
+    let param = |n: &dyn Node, p: &str| n.live_params().and_then(|(_, m)| m.get(p).cloned());
+    // scale: k and b
+    let mut s = build("scale", &[("k", Value::Float(2.0))]);
+    assert!(feed(s.as_mut(), &e.io, "in.k", g(3.0, 1)).is_empty());
+    feed(s.as_mut(), &e.io, "in.b", g(1.0, 1));
+    feed(s.as_mut(), &e.io, "in.b", m("x", Quality::Good, 1));
+    assert_eq!(num(&feed(s.as_mut(), &e.io, "in", g(2.0, 1))[0]), 7.0);
+    assert_eq!(param(s.as_ref(), "k"), Some(Value::Float(3.0)));
+    assert_eq!(param(s.as_ref(), "b"), Some(Value::Float(1.0)));
+    // deadband: abs
+    let mut d = build("deadband", &[("abs", Value::UInt(1))]);
+    feed(d.as_mut(), &e.io, "in", g(10.0, 1));
+    feed(d.as_mut(), &e.io, "in.abs", g(5.0, 1));
+    assert!(feed(d.as_mut(), &e.io, "in", g(12.0, 2)).is_empty());
+    assert_eq!(feed(d.as_mut(), &e.io, "in", g(16.0, 3)).len(), 1);
+    feed(d.as_mut(), &e.io, "in.pct", g(50.0, 1));
+    assert_eq!(param(d.as_ref(), "pct"), Some(Value::Float(50.0)));
+    // alarm: high, and a delay that needs the clock it had none of
+    let mut a = build("alarm", &[("high", Value::UInt(10))]);
+    assert_eq!(a.tick_every(), None);
+    feed(a.as_mut(), &e.io, "in.high", g(20.0, 1));
+    assert!(feed(a.as_mut(), &e.io, "in", g(15.0, 1)).is_empty());
+    feed(a.as_mut(), &e.io, "in.delay_s", g(1.0, 1));
+    assert_eq!(a.tick_every(), Some(Duration::from_millis(50)));
+    feed(a.as_mut(), &e.io, "in.delay_s", g(-1.0, 1));
+    assert_eq!(param(a.as_ref(), "delay_s"), Some(Value::Float(1.0)));
+    assert!(
+        feed(a.as_mut(), &e.io, "in", g(25.0, S)).is_empty(),
+        "delayed"
+    );
+    assert_eq!(tick(a.as_mut(), 2 * S + 1)[0].1.v, Value::Bool(true));
+    for p in ["low", "hysteresis", "return_delay_s"] {
+        feed(a.as_mut(), &e.io, &format!("in.{p}"), g(2.0, 1));
+        assert_eq!(param(a.as_ref(), p), Some(Value::Float(2.0)), "{p}");
+    }
+    // delay: ms
+    let mut dl = build("delay", &[("ms", Value::UInt(50))]);
+    feed(dl.as_mut(), &e.io, "in.ms", g(5.0, 1));
+    assert_eq!(dl.tick_every(), Some(Duration::from_millis(5)));
+    feed(dl.as_mut(), &e.io, "in.ms", g(-5.0, 1));
+    assert_eq!(param(dl.as_ref(), "ms"), Some(Value::Float(5.0)));
+    // window: size_s, more than 0
+    let mut w = build("window", &[("size_s", Value::Float(0.5))]);
+    assert_eq!(w.tick_every(), Some(Duration::from_millis(500)));
+    feed(w.as_mut(), &e.io, "in.size_s", g(0.2, 1));
+    feed(w.as_mut(), &e.io, "in.size_s", g(0.0, 1));
+    assert_eq!(w.tick_every(), Some(Duration::from_millis(200)));
+    // timer: period_ms, at least 10
+    let mut t = build("timer", &[("period_ms", Value::UInt(100))]);
+    feed(t.as_mut(), &e.io, "in.period_ms", g(50.0, 1));
+    feed(t.as_mut(), &e.io, "in.period_ms", g(5.0, 1));
+    assert_eq!(t.tick_every(), Some(Duration::from_millis(50)));
+    assert_eq!(param(t.as_ref(), "period_ms"), Some(Value::Float(50.0)));
 }

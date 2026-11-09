@@ -83,6 +83,9 @@ pub struct FlowDef {
 
 /// Total `window.max_samples` allowed per flow.
 pub const MAX_WINDOW_SAMPLES: u64 = 100_000;
+/// Nodes of one flow at most (spec 06 step 8): each is a task and an inbox at run time, in a
+/// deployed flow and in a preview alike (ADR 0038 §5).
+pub const MAX_NODES: usize = 1000;
 
 fn as_map<'a>(v: &'a Value, path: &str) -> Result<&'a Map> {
     match v {
@@ -358,6 +361,9 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
         }
     }
     // 8. memory limits
+    if def.nodes.len() > MAX_NODES {
+        return err(format!("nodes: {} nodes > {MAX_NODES}", def.nodes.len()));
+    }
     let samples: u64 = def
         .nodes
         .values()

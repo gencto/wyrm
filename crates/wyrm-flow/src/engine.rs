@@ -15,6 +15,9 @@
 //! `max(maxperm, write)`; targets must be exact keys under `wy/<site>/downstream/`
 //! or `wy/<site>/storage/` (ADR 0008, ADR 0017).
 //!
+//! Live values (ADR 0038): `<id>/~act/watch` and `<id>/~act/ports` for a deployed flow;
+//! `preview {def}` runs a draft in a sandbox whose sinks only report (`crate::preview`).
+//!
 //! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
 //! `wyrm:flow/node` component under `<dir>/artifacts/<sha256>.wasm` and
 //! returns `{artifact: <sha256>}`; a `~def` uses it as
@@ -27,6 +30,7 @@ use crate::def::{self, FlowDef};
 use crate::nodes::{Io, Ports};
 use crate::runtime::{self, Running};
 use crate::store::{FlowStore, NodeStateRec, Op};
+use crate::watch::{self as live, Probe, Watches};
 use ed25519_dalek::SigningKey;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -161,12 +165,19 @@ struct FlowRt {
     stopped: bool,
     since: u64,
     supervisor: Option<JoinHandle<()>>,
+    /// Live values for `watch`/`ports` (ADR 0038): one per deployed version, kept across runs.
+    probe: Arc<Probe>,
 }
 
 struct State {
     ctx: LinkCtx,
     host: Arc<FlowHost>,
     flows: BTreeMap<String, FlowRt>,
+    /// The open watches of the site, for their caps.
+    watches: Arc<Watches>,
+    /// The running previews of drafts (ADR 0038 §5), for their caps, and their tasks.
+    previews: Arc<Watches>,
+    preview_tasks: Vec<JoinHandle<()>>,
 }
 
 type Shared = Arc<AsyncMutex<State>>;
@@ -274,6 +285,32 @@ impl State {
                     .param("version", ParamMeta::of(TypeCode::Number).required(true))
                     .param("proofs", ParamMeta::of(TypeCode::Map))
                     .level(Perm::Config),
+            )
+            .await?;
+        // live values of the deployed version (ADR 0038 §3, §4)
+        self.ctx
+            .declare_action(
+                id,
+                "watch",
+                ActionMeta::new()
+                    .display("Watch")
+                    .param("nodes", ParamMeta::of(TypeCode::Array))
+                    .param("max_hz", ParamMeta::of(TypeCode::Number))
+                    .result(ActionResult::Stream)
+                    .stream(true)
+                    .timeout_ms(live::TIMEOUT_MS)
+                    .level(Perm::Read),
+            )
+            .await?;
+        self.ctx
+            .declare_action(
+                id,
+                "ports",
+                ActionMeta::new()
+                    .display("Ports")
+                    .param("nodes", ParamMeta::of(TypeCode::Array))
+                    .result(ActionResult::Type(TypeCode::Map))
+                    .level(Perm::Read),
             )
             .await?;
         let nodes = format!("{id}/nodes");
@@ -392,6 +429,8 @@ impl State {
             },
             ptx,
             Some(&self.host.artifacts),
+            f.probe.clone(),
+            &crate::nodes::Mode::Live,
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
@@ -476,6 +515,11 @@ impl State {
             .get(&id)
             .copied()
             .unwrap_or(false);
+        // the watches of the old version end: their nodes and ports may be other ones now
+        if let Some(old) = self.flows.get(&id) {
+            old.probe.end(live::End::Redeployed(def.version));
+        }
+        let probe = Probe::new(&def);
         self.flows.insert(
             id.clone(),
             FlowRt {
@@ -486,6 +530,7 @@ impl State {
                 stopped,
                 since: now_us(),
                 supervisor: None,
+                probe,
             },
         );
         self.declare(&id).await?;
@@ -664,10 +709,17 @@ fn caller_covers(raw: &Value, who: &Caller) -> Result<(), LinkError> {
 /// a pattern: a deny grant on a part is never skipped (security review FLOW-1). A flow keeps
 /// running after its deployer loses rights (ADR 0008).
 fn reads_sources(raw: &Value, who: &Caller, site: &str) -> Result<(), LinkError> {
-    use zenoh::key_expr::keyexpr;
     let Ok(def) = def::parse(raw) else {
         return Ok(()); // the compiler reports it
     };
+    reads_sources_of(&def, who, site, "the deployer")
+}
+
+/// [`reads_sources`] on a parsed definition, for `role` (`the deployer`, `the caller`): the
+/// error names the first source `role` may not read. `watch` and `ports` check it too: the
+/// values of a flow come from its sources (ADR 0038 §3).
+fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Result<(), LinkError> {
+    use zenoh::key_expr::keyexpr;
     let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
     for n in def.nodes.values() {
         if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
@@ -690,22 +742,56 @@ fn reads_sources(raw: &Value, who: &Caller, site: &str) -> Result<(), LinkError>
             continue;
         }
         let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
-            return Err(denied(
-                "a flow with sources needs the deployer's rights: a token with `auth` (spec 04)"
-                    .into(),
+            return Err(denied(format!(
+                "a flow with sources needs the rights of {role}: a token with `auth` (spec 04)"
+            )));
+        };
+        if keyexpr::new(&full).is_err() {
+            continue; // the compiler reports it
+        }
+        if !reads_key(auth, &full) {
+            return Err(denied(format!("{full}: {role} may not read it")));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `auth` gives read on all of `full`: the first grant that touches it decides, and it
+/// must cover it whole (a deny grant on a part is never skipped).
+fn reads_key(auth: &[Grant], full: &str) -> bool {
+    use zenoh::key_expr::keyexpr;
+    let Ok(target) = keyexpr::new(full) else {
+        return false;
+    };
+    auth.iter()
+        .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)))
+        .is_some_and(|g| g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target)))
+}
+
+/// `watch` and `ports` (ADR 0038 §3): the caller reads every source and every command target
+/// of the flow. A flow's values come from its sources, and an `invoke` node's output carries
+/// its target's answer, a `set` node's input what it writes there. The error names the first
+/// key the caller may not read (a target as its node key, without `~act/<a>` or `~set`).
+fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> {
+    reads_sources_of(def, who, site, "the caller")?;
+    for t in targets(def, site) {
+        let node = t
+            .rsplit_once("/~act/")
+            .map(|(n, _)| n)
+            .or_else(|| t.strip_suffix("/~set"))
+            .unwrap_or(&t);
+        let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+            return Err(LinkError::new(
+                Status::PermissionDenied,
+                "a flow with command targets needs the rights of the caller: a token with \
+                 `auth` (spec 04)",
             ));
         };
-        let Ok(target) = keyexpr::new(&full) else {
-            continue; // the compiler reports it
-        };
-        let first = auth
-            .iter()
-            .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)));
-        let ok = first.is_some_and(|g| {
-            g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target))
-        });
-        if !ok {
-            return Err(denied(format!("{full}: the deployer may not read it")));
+        if !reads_key(auth, node) {
+            return Err(LinkError::new(
+                Status::PermissionDenied,
+                format!("{node}: the caller may not read it"),
+            ));
         }
     }
     Ok(())
@@ -825,6 +911,21 @@ impl Link for Engine {
                 .level(Perm::Read),
         )
         .await?;
+        // live values of a draft in a sandbox whose sinks only report (ADR 0038 §5)
+        ctx.declare_action(
+            "",
+            "preview",
+            ActionMeta::new()
+                .display("Preview")
+                .param("def", def_param())
+                .param("nodes", ParamMeta::of(TypeCode::Array))
+                .param("max_hz", ParamMeta::of(TypeCode::Number))
+                .result(ActionResult::Stream)
+                .stream(true)
+                .timeout_ms(live::TIMEOUT_MS)
+                .level(Perm::Read),
+        )
+        .await?;
         // the palette of an editor: types, ports, params (crate::catalog)
         ctx.declare_action(
             "",
@@ -839,6 +940,9 @@ impl Link for Engine {
             ctx: ctx.clone(),
             host: cfg.host.clone(),
             flows: BTreeMap::new(),
+            watches: Arc::new(Watches::default()),
+            previews: Arc::new(crate::preview::registry()),
+            preview_tasks: Vec::new(),
         }));
         let stored: Vec<Vec<u8>> = cfg.host.store().state().defs.values().cloned().collect();
         {
@@ -905,6 +1009,28 @@ impl Link for Engine {
                 let mut r = BTreeMap::new();
                 r.insert("artifact".into(), Value::Str(sha));
                 return out.reply(Value::Map(r)).await;
+            }
+            ("", "preview") => {
+                // a draft: compiled as for deploy, run with the caller's rights to read, never
+                // stored; no `maxperm` or proofs, as nothing is written
+                let (def, ports) = compile(&def_arg()?, &st.host.artifacts, &st.host.site)
+                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                reads_flow(&def, who, &self.site)?;
+                let only = live::only(&args, &def)?;
+                let period = live::period(&args)?;
+                let subject = deployer(who).unwrap_or_default();
+                let ticket = st.previews.open(&subject, &subject)?;
+                let p = crate::preview::start(
+                    &def,
+                    &ports,
+                    &st.ctx,
+                    &st.host.site,
+                    &st.host.artifacts,
+                )?;
+                let task = p.spawn(only, period, ticket, out);
+                st.preview_tasks.retain(|t| !t.is_finished());
+                st.preview_tasks.push(task);
+                return Ok(());
             }
             ("", "node_types") => {
                 drop(st);
@@ -999,7 +1125,43 @@ impl Link for Engine {
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, Some(deployer(who)), &shared).await?
             }
+            (id, "watch" | "ports") => {
+                let f = st
+                    .flows
+                    .get(id)
+                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+                // the values of a flow come from its sources and its command targets
+                reads_flow(&f.def, who, &self.site)?;
+                let only = live::only(&args, &f.def)?;
+                let probe = f.probe.clone();
+                if action == "ports" {
+                    drop(st);
+                    tokio::spawn(async move {
+                        let row = live::ports(&probe, only.as_ref()).await;
+                        let _ = out.reply(row).await;
+                    });
+                    return Ok(());
+                }
+                let period = live::period(&args)?;
+                let ticket = st.watches.open(id, &deployer(who).unwrap_or_default())?;
+                drop(st);
+                tokio::spawn(async move {
+                    let rows = out.clone();
+                    let cancel = ticket.cancelled();
+                    let last = live::run(probe, only, period, live::TTL, cancel, move |v| {
+                        let rows = rows.clone();
+                        async move { rows.reply(v).await.is_ok() }
+                    })
+                    .await;
+                    let _ = out.done(last).await;
+                    drop(ticket);
+                });
+                return Ok(());
+            }
             (id, "remove") => {
+                if let Some(f) = st.flows.get(id) {
+                    f.probe.end(live::End::Gone);
+                }
                 st.halt(id).await;
                 st.host.apply(Op::RemoveDef(id.to_owned()))?;
                 st.flows.remove(id);
@@ -1018,9 +1180,153 @@ impl Link for Engine {
 
     async fn stop(&mut self) {
         let mut st = self.shared.lock().await;
+        // previews end first: each stops its sandbox
+        st.previews.cancel_all();
+        for mut t in std::mem::take(&mut st.preview_tasks) {
+            // a preview that does not stop in time is cut: its runtime goes with the task
+            if tokio::time::timeout(Duration::from_secs(2), &mut t)
+                .await
+                .is_err()
+            {
+                t.abort();
+            }
+        }
         let ids: Vec<String> = st.flows.keys().cloned().collect();
         for id in ids {
+            if let Some(f) = st.flows.get(&id) {
+                f.probe.end(live::End::Gone);
+            }
             st.halt(&id).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wyrm_core::ptok::PtokClaims;
+
+    fn caller(auth: Option<Vec<Grant>>) -> Caller {
+        Caller {
+            origin: None,
+            perm: Perm::Read,
+            claims: Some(PtokClaims {
+                sub: "user:v".into(),
+                roles: Vec::new(),
+                grants: Vec::new(),
+                max: Perm::Read,
+                iat: 0,
+                exp: 0,
+                jti: [0; 16],
+                site: "s".into(),
+                auth,
+                args: None,
+            }),
+        }
+    }
+
+    /// ADR 0038 §3: `watch` and `ports` name the first source the caller may not read.
+    #[test]
+    fn a_watcher_reads_every_source() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let src = |k: &str| m(&[("type", Value::from("subscribe")), ("key", Value::from(k))]);
+        let def = def::parse(&m(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                m(&[("a", src("downstream/l/p")), ("b", src("storage/x"))]),
+            ),
+        ]))
+        .unwrap();
+        let g = |k: &str| Grant {
+            k: k.into(),
+            p: Perm::Read,
+        };
+        let e = reads_sources_of(&def, &caller(None), "s", "the caller").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        let one = caller(Some(vec![g("wy/s/downstream/**")]));
+        let e = reads_sources_of(&def, &one, "s", "the caller").unwrap_err();
+        assert!(
+            e.message
+                .contains("wy/s/storage/x: the caller may not read it"),
+            "{e}"
+        );
+        let both = caller(Some(vec![g("wy/s/downstream/**"), g("wy/s/storage/**")]));
+        reads_sources_of(&def, &both, "s", "the caller").unwrap();
+        reads_flow(&def, &both, "s").unwrap();
+    }
+
+    /// Security review of ADR 0038: an `invoke` node's output carries its target's answer, so
+    /// a watcher reads every command target too.
+    #[test]
+    fn a_watcher_reads_every_command_target() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let def = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "a",
+                        m(&[("type", s("subscribe")), ("key", s("downstream/l/p"))]),
+                    ),
+                    (
+                        "cmd",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/secret/dev")),
+                            ("action", s("read_all")),
+                        ]),
+                    ),
+                    ("w", m(&[("type", s("set")), ("path", s("storage/out"))])),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ]))
+        .unwrap();
+        let g = |k: &str| Grant {
+            k: k.into(),
+            p: Perm::Read,
+        };
+        let sources = caller(Some(vec![g("wy/s/downstream/l/**")]));
+        let e = reads_flow(&def, &sources, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/secret/dev: the caller may not read it"),
+            "{e}"
+        );
+        let no_set = caller(Some(vec![
+            g("wy/s/downstream/l/**"),
+            g("wy/s/downstream/secret/**"),
+        ]));
+        let e = reads_flow(&def, &no_set, "s").unwrap_err();
+        assert!(e.message.contains("wy/s/storage/out:"), "{e}");
+        // a deny grant on the target comes first and decides
+        let denied = caller(Some(vec![
+            Grant {
+                k: "wy/s/downstream/secret/**".into(),
+                p: Perm::None,
+            },
+            g("wy/s/**"),
+        ]));
+        assert!(reads_flow(&def, &denied, "s").is_err());
+        let all = caller(Some(vec![g("wy/s/**")]));
+        reads_flow(&def, &all, "s").unwrap();
+        // no `auth` at all
+        assert!(reads_flow(&def, &caller(None), "s").is_err());
     }
 }

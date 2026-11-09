@@ -1,6 +1,6 @@
 # Design reference
 
-`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 56, 2026-11-08). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
+`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 57, 2026-11-08). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
 
 The boards do not render on their own (they run inside the canvas). Read them as source:
 
@@ -11,6 +11,7 @@ The boards do not render on their own (they run inside the canvas). Read them as
 
 | Row | Boards | Studio |
 |---|---|---|
+| Log in | `Login` (clickable), `LoginSigning`, `LoginWrong`, `LoginUnreachable`, `LoginWelcome` | `specs/login.md` |
 | App screens | `Main` (Explorer), `Flow` (Flows list), `Links`, `Sites`, `Access`, `System` | `docs/studio.md` §7.2–7.7 |
 | Details | `Actions`, `ActionDetail`, `History`, `LinkInstall` (Add a link, clickable); `PackageInstall` is an earlier variant, not built | §7.3, §7.4, §7.7 |
 | Flow editor | `FlowBind`, `FlowTree`, `FlowSymbol`, `FlowRepeat` | §7.6 |

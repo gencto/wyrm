@@ -20,6 +20,7 @@ One screen per pull request. The golden of every frame is committed with it.
 ## Specs
 | Screen | Spec | Boards |
 |---|---|---|
+| Log in | [login.md](login.md) | `Login`, `LoginSigning`, `LoginWrong`, `LoginUnreachable`, `LoginWelcome` |
 | Explorer | [explorer.md](explorer.md) | `Main`, `Actions`, `ActionDetail`, `PropertySheet` |
 | Flow editor | [flow-editor.md](flow-editor.md) | `FlowBind`, `FlowTree` |
 

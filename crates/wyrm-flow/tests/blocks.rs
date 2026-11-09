@@ -422,6 +422,16 @@ async fn stopwatch_counts_loops_resets_and_keeps_its_count() {
         );
     }
     assert_eq!(last, [Value::Int(1), Value::Int(2)]);
+    // ADR 0038: its effective parameters, changed by the block itself (stopped at modulo)
+    let (rev, params) = once.live_params().unwrap();
+    assert!(rev > 0);
+    assert_eq!(params.get("enabled"), Some(&Value::Bool(false)));
+    assert_eq!(params.get("step"), Some(&Value::Int(1)), "a default");
+    // and by a sample on a parameter's port
+    feed(&mut *once, io, "in.step", good(Value::Int(5)));
+    let (rev2, params) = once.live_params().unwrap();
+    assert!(rev2 > rev);
+    assert_eq!(params.get("step"), Some(&Value::Int(5)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -488,7 +498,7 @@ fn config_is_checked() {
     // the ports: fixed ones, the parameters' ports, then the variable inputs
     let p = nodes::ports("if", &cfg(&[])).unwrap();
     let ins: Vec<&str> = p.inputs.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(ins, ["in.then", "in.else", "in.0", "in.1"]);
+    assert_eq!(ins, ["in.op", "in.then", "in.else", "in.0", "in.1"]);
 }
 
 /// Automated review of e89b1d4: a text a block makes is bounded (a `concat` in a loop would
@@ -518,4 +528,212 @@ async fn text_is_bounded() {
         on(&feed(&mut *s, io, "in", good(list)), "out"),
         Some(Value::Null)
     );
+}
+
+/// Spec 06 0.2.19: an operand's constant (config `values`) is its value until a sample
+/// replaces it; it calculates nothing by itself; only operands take one.
+#[tokio::test(flavor = "multi_thread")]
+async fn operand_constants() {
+    let e = env().await;
+    let consts = |kv: &[(&str, Value)]| Value::Map(cfg(kv));
+    let mut c = build(
+        "concat",
+        &[(
+            "values",
+            consts(&[("in.0", Value::from("AHU-")), ("in.1", Value::UInt(1))]),
+        )],
+    );
+    assert_eq!(
+        c.seeds(),
+        vec![
+            ("in.0".to_owned(), Value::from("AHU-")),
+            ("in.1".to_owned(), Value::UInt(1))
+        ]
+    );
+    // a binding wins over the constant, the other operand keeps its own
+    let sent = feed(c.as_mut(), &e.io, "in.1", good(Value::UInt(2)));
+    assert_eq!(on(&sent, "out"), Some(Value::from("AHU-2")));
+    let mut a = build("add", &[("values", consts(&[("in.1", Value::UInt(40))]))]);
+    assert_eq!(
+        on(
+            &feed(a.as_mut(), &e.io, "in.0", good(Value::UInt(2))),
+            "out"
+        ),
+        Some(Value::Int(42))
+    );
+    let mut r = build(
+        "round",
+        &[("values", consts(&[("in", Value::Float(2.46))]))],
+    );
+    assert_eq!(
+        on(
+            &feed(r.as_mut(), &e.io, "in.precision", good(Value::UInt(1))),
+            "out"
+        ),
+        Some(Value::Float(2.5))
+    );
+    // only operands: not a parameter's port, not reset, not a variable's in, not unknown
+    let bad = |ty: &str, port: &str| {
+        nodes::ports(ty, &cfg(&[("values", consts(&[(port, Value::UInt(1))]))])).unwrap_err()
+    };
+    assert!(bad("round", "in.precision").contains("values.in.precision"));
+    assert!(bad("add", "in.7").contains("not an operand"));
+    assert!(bad("stopwatch", "reset").contains("values: unknown field"));
+    assert!(bad("number", "in").contains("values: unknown field"));
+    assert!(nodes::ports("add", &cfg(&[("values", Value::UInt(1))])).is_err());
+    assert!(wyrm_flow::blocks::takes_values("add"));
+    assert!(!wyrm_flow::blocks::takes_values("stopwatch"));
+}
+
+/// Spec 06 0.2.21 (DGLux parity): `if` `!=` and the text operators, `round.min_precision`
+/// with its `text` output, the `case` block over pairs of variable inputs.
+#[tokio::test(flavor = "multi_thread")]
+async fn if_text_ops_round_text_and_case() {
+    let e = env().await;
+    let consts = |kv: &[(&str, Value)]| Value::Map(cfg(kv));
+    // the first input against a constant second one
+    let yes = |op: &str, a: &str, b: &str| {
+        let mut i = build(
+            "if",
+            &[
+                ("op", Value::from(op)),
+                ("values", consts(&[("in.1", Value::from(b))])),
+            ],
+        );
+        on(&feed(i.as_mut(), &e.io, "in.0", good(a)), "out") == Some(Value::Bool(true))
+    };
+    assert!(yes("contains", "pump-12", "p-1"));
+    assert!(!yes("contains", "pump", "x"));
+    assert!(yes("starts_with", "pump-12", "pump"));
+    assert!(yes("ends_with", "pump-12", "12"));
+    assert!(!yes("ends_with", "pump-12", "pump"));
+    assert!(yes("!=", "a", "b"));
+    assert!(!yes("!=", "3", "3.0"), "!= compares numbers as numbers");
+    assert!(nodes::ports("if", &cfg(&[("op", Value::from("startsWith"))])).is_err());
+    // round: text keeps at least min_precision places
+    let mut r = build(
+        "round",
+        &[
+            ("precision", Value::UInt(3)),
+            ("min_precision", Value::UInt(1)),
+        ],
+    );
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.5)));
+    assert_eq!(on(&sent, "out"), Some(Value::Float(2.5)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("2.5")));
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.0)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("2.0")));
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(1.23456)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("1.235")));
+    let mut r = build("round", &[("precision", Value::UInt(2))]);
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.0)));
+    assert_eq!(
+        on(&sent, "text"),
+        Some(Value::from("2.00")),
+        "default: precision"
+    );
+    let mut r = build("round", &[]);
+    let sent = feed(r.as_mut(), &e.io, "in", good(Value::Float(2.6)));
+    assert_eq!(on(&sent, "text"), Some(Value::from("3")));
+    // case: pairs of constants, the first match wins, else otherwise
+    let pairs = consts(&[
+        ("in.a", Value::UInt(1)),
+        ("in.b", Value::from("one")),
+        ("in.c", Value::UInt(2)),
+        ("in.d", Value::from("two")),
+    ]);
+    let mut c = build(
+        "case",
+        &[
+            ("inputs", names(&["a", "b", "c", "d"])),
+            ("values", pairs.clone()),
+            ("else", Value::from("many")),
+        ],
+    );
+    let mut f = |v: Value| on(&feed(c.as_mut(), &e.io, "in", good(v)), "out");
+    assert_eq!(f(Value::UInt(2)), Some(Value::from("two")));
+    assert_eq!(
+        f(Value::from("1")),
+        Some(Value::from("one")),
+        "= as numbers"
+    );
+    assert_eq!(f(Value::UInt(7)), Some(Value::from("many")));
+    let mut c = build(
+        "case",
+        &[
+            ("op", Value::from(">=")),
+            ("inputs", names(&["a", "b", "c", "d"])),
+            ("values", pairs),
+        ],
+    );
+    let mut f = |v: Value| on(&feed(c.as_mut(), &e.io, "in", good(v)), "out");
+    assert_eq!(
+        f(Value::UInt(5)),
+        Some(Value::from("one")),
+        "the first pair that matches"
+    );
+    assert_eq!(
+        f(Value::UInt(0)),
+        Some(Value::Null),
+        "else: null by default"
+    );
+    let mut c = build(
+        "case",
+        &[
+            ("op", Value::from("contains")),
+            (
+                "values",
+                consts(&[("in.0", Value::from("")), ("in.1", Value::from("x"))]),
+            ),
+        ],
+    );
+    assert_eq!(
+        on(&feed(c.as_mut(), &e.io, "in", good("abc")), "out"),
+        Some(Value::Null),
+        "an empty case text matches nothing"
+    );
+    assert!(nodes::ports("case", &cfg(&[("op", Value::from("and"))])).is_err());
+}
+
+/// Spec 06 0.2.20: the remaining block parameters take a sample on `in.<p>`.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_block_parameter_has_a_port() {
+    let e = env().await;
+    // if.op: a known operator replaces "=", another text is ignored
+    let mut i = build("if", &[]);
+    let sent = feed(i.as_mut(), &e.io, "in.0", good(Value::UInt(3)));
+    assert_eq!(on(&sent, "out"), Some(Value::Bool(false)));
+    feed(i.as_mut(), &e.io, "in.1", good(Value::UInt(1)));
+    let sent = feed(i.as_mut(), &e.io, "in.op", good(">"));
+    assert_eq!(on(&sent, "out"), Some(Value::Bool(true)));
+    assert_eq!(
+        on(&feed(i.as_mut(), &e.io, "in.op", good("xor")), "out"),
+        None
+    );
+    assert_eq!(
+        i.live_params().unwrap().1.get("op"),
+        Some(&Value::from(">"))
+    );
+    // concat.strict
+    let mut c = build("concat", &[]);
+    let sent = feed(c.as_mut(), &e.io, "in.0", good("a"));
+    assert_eq!(on(&sent, "out"), Some(Value::from("a")));
+    let sent = feed(c.as_mut(), &e.io, "in.strict", good(true));
+    assert_eq!(on(&sent, "out"), Some(Value::Null));
+    // hub.ignore_null
+    let mut h = build("hub", &[]);
+    assert_eq!(
+        on(&feed(h.as_mut(), &e.io, "in.0", good(Value::Null)), "out"),
+        None
+    );
+    feed(h.as_mut(), &e.io, "in.ignore_null", good(false));
+    let sent = feed(h.as_mut(), &e.io, "in.0", good(Value::Null));
+    assert_eq!(on(&sent, "out"), Some(Value::Null));
+    // trace.tracing, trace.msg
+    let mut t = build("trace", &[]);
+    feed(t.as_mut(), &e.io, "in.msg", good("hello"));
+    feed(t.as_mut(), &e.io, "in.tracing", good(false));
+    let p = t.live_params().unwrap().1;
+    assert_eq!(p.get("msg"), Some(&Value::from("hello")));
+    assert_eq!(p.get("tracing"), Some(&Value::Bool(false)));
 }

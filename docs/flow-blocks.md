@@ -15,14 +15,19 @@ ADR 0032 records the rules below.
    `["0", "1"]`, at most 64 names `[A-Za-z0-9_]+`). Each name is a port
    `in.<name>`. A name may not be a parameter's name.
 4. Any sample on an input calculates the block.
-5. An output is sent only when its value or its quality changed. Events
+5. An operand input (`in`, `in.<name>`) can hold a constant: the config key
+   `values: {"in.0": 5}` (spec 06 0.2.19). The constant is the input's value
+   until a sample on that input replaces it. A constant calculates nothing: the
+   block calculates on its first real sample. A parameter's port, `reset` and
+   the variables take no constant (a parameter's config is its constant).
+6. An output is sent only when its value or its quality changed. Events
    (`on_change`, `on_loop`) are always sent: `{event: <port>, id: <n>}`.
-6. Quality is the worst quality among the inputs that have a sample. The time
+7. Quality is the worst quality among the inputs that have a sample. The time
    is the latest of their times.
 
 УВАГА: an operator does not calculate at start. It waits for its first input,
 so a deploy, a hot swap or a restart never fires an `invoke` or a `set` by
-itself. Only the variables (`number`, `string`, `bool`) send their value at
+itself, and neither does an operand constant. Only the variables (`number`, `string`, `bool`) send their value at
 start, as `const` does.
 
 ## Numbers and conversions
@@ -65,7 +70,7 @@ is `null`.
 | `divide` | `in.<inputs>` | `out` | The first divided by the others, as a float. |
 | `max`, `min` | `in.<inputs>` | `out` | The largest or the smallest number. |
 | `abs` | `in` | `out` | The absolute value. |
-| `round` | `in`, `in.precision` | `out` | Rounded to `precision` places (0 to 20, default 0: an integer). Halves round away from 0. |
+| `round` | `in`, `in.precision`, `in.min_precision` | `out`, `text` | Rounded to `precision` places (0 to 20, default 0: an integer). Halves round away from 0. `text` (spec 06 0.2.21): the same number as text with `precision` places, its trailing zeros trimmed down to `min_precision` places (default: `precision`). |
 | `modulo` | `in`, `in.modulo` | `quotient`, `remainder` | The quotient as a whole number toward 0, and a remainder that is never negative (`-7` by `3`: `-2` and `2`). By 0: both `null`. |
 | `scale` | `in`, `in.input_min`, `in.input_max`, `in.output_min`, `in.output_max` | `out`, `input_out_of_range` | See below. |
 
@@ -81,10 +86,11 @@ linear, as before.
 | Type | Inputs | Outputs | Parameters |
 |---|---|---|---|
 | `not` | `in` | `out` | — |
-| `if` | `in.then`, `in.else`, `in.<inputs>` | `out` | `op`, `then` (default true), `else` (default false), `inputs` |
-| `hub` | `in.<inputs>` | `out`, `index`, `on_change` | `ignore_null` (default true), `inputs` |
+| `if` | `in.op`, `in.then`, `in.else`, `in.<inputs>` | `out` | `op`, `then` (default true), `else` (default false), `inputs` |
+| `hub` | `in.ignore_null`, `in.<inputs>` | `out`, `index`, `on_change` | `ignore_null` (default true), `inputs` |
 | `stopwatch` | `reset`, `in.enabled`, `in.interval`, `in.step`, `in.modulo`, `in.loop`, `in.reset_value` | `out`, `on_loop` | the same names |
-| `trace` | `in.<inputs>` | — | `tracing` (default true), `msg` (default `trace`), `inputs` |
+| `trace` | `in.tracing`, `in.msg`, `in.<inputs>` | — | `tracing` (default true), `msg` (default `trace`), `inputs` |
+| `case` | `in`, `in.op`, `in.else`, `in.<inputs>` (pairs) | `out` | `op` (default `=`), `else` (default null), `inputs` |
 
 `if` sends `then` when the inputs pass `op`, else `else`:
 
@@ -92,7 +98,26 @@ linear, as before.
   (`"5"` and `5`);
 - `and`, `or`: of the inputs as bools;
 - `>`, `<`, `>=`, `<=`: between each input and the next (`in.0 > in.1 > in.2`);
-  fewer than two inputs do not pass.
+  fewer than two inputs do not pass;
+- `!=` (spec 06 0.2.21): the first input equals none of the others;
+- `contains`, `starts_with`, `ends_with`: the first input as text with any of
+  the others as text (a `null` other never matches).
+
+`case` (spec 06 0.2.21, as the DGLux block) compares `in` with case values and
+sends the value paired with the first case that matches, else `else`
+(default `null`). Its variable inputs come in pairs: the first of a pair is a
+case, the second what it gives. Give them constants in `values`:
+
+```json5
+{ type: "case", op: ">=", inputs: ["c1", "v1", "c2", "v2"],
+  values: { "in.c1": 90, "in.v1": "high", "in.c2": 10, "in.v2": "normal" },
+  else: "low" }
+```
+
+`op` is `=`, `!=`, `>`, `<`, `>=`, `<=` (as numbers; `=` and `!=` as `if`'s
+`=`), or `contains`, `starts_with`, `ends_with` (as text; an empty case text
+matches nothing). An input left without a pair is not used. DGLux's `regexp`
+is not here: a pattern from a port could take any time to match.
 
 `hub` sends the input that changed last: its value on `out` (also when it is
 the same value as before), its place in `inputs` on `index`, and an event on
@@ -118,8 +143,75 @@ and set it back after.
 
 | Type | Inputs | Outputs | What it gives |
 |---|---|---|---|
-| `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
+| `concat` | `in.strict`, `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
+
+## Parameter ports of the other node types
+
+The older node types take the parameters an editor binds on a port
+`in.<parameter>` too (spec 06 0.2.17), with the rule of the blocks: the config
+value (or the default) at start, then the last good sample.
+
+| Type | Parameter ports |
+|---|---|
+| `scale` | `in.k`, `in.b` (and the range ports `in.input_min` … `in.output_max`) |
+| `alarm` | `in.high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s` |
+| `delay` | `in.ms` |
+| `window` | `in.size_s` |
+| `deadband` | `in.abs`, `in.pct` |
+| `timer` | `in.period_ms` |
+
+- Every one of these ports takes a number. A sample that is not a finite
+  number, or that is outside the parameter's bounds (`period_ms` at least 10,
+  `size_s` above 0, `ms`, `delay_s` and `return_delay_s` at least 0), is
+  ignored: the last good value stays.
+- The config rules stay: `alarm` still needs `high` or `low` in its config,
+  `deadband` `abs` or `pct`. The config gives the start value.
+- A new `period_ms`, `ms`, `size_s` or alarm delay takes effect at once. The
+  node's clock starts again one period after the change. A sample that a
+  `delay` already holds keeps its time.
+
+## Fields as outputs
+
+Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This
+applies to every node type, not only to the blocks.
+
+- A parameter `p` is an output `p`. It sends the parameter's effective value:
+  the config value or the default, replaced by the last sample on `in.<p>`
+  where that port exists. It sends once when the node starts and then on every
+  change. A `stopwatch` that stops at `modulo` sends `enabled` false.
+- An input `x` that is not a parameter's port is an output `x`. It repeats every
+  sample on `x`, before the node handles it.
+- The output has the field's name: `["scale1.input_min", "add1.in.0"]` reads the
+  parameter `input_min` of `scale1`; `["if1.in.0", "show.in"]` repeats the
+  input `in.0` of `if1`.
+- A declared output keeps its name. An input's echo comes before a parameter's:
+  `latch` has the input `reset` and the parameter `reset`, so its parameter has
+  no output.
+- Types: an input's echo has the input's type. A parameter's echo is `number`,
+  `bool` or `map` as the parameter, else `any`.
+- An echo output with no edge is never built and costs nothing.
+
+УВАГА: a parameter's echo sends at start. An edge from it to an `invoke` or a
+`set` runs that command when the flow is deployed, restarted or hot-swapped.
+This is the one way a block fires a command by itself.
+
+The catalog (`dataflows/~act/node_types`) tells an editor which field is
+which: per parameter `port` (`in.<p>` when it has one), `default` (typed: a
+number stays a number) and `echo`; per type `port_types` and `echo_inputs`.
+
+An editor shows the live values of a deployed flow with
+`dataflows/<id>/~act/watch` (spec 06, "Живі значення"). The engine keeps the
+last sample of every port from the start (spec 06 0.2.18), so a variable that
+sent its value once at deploy shows in every later snapshot and in `ports`.
+
+An editor shows the live values of a draft that is not deployed with
+`dataflows/~act/preview {def}` (spec 06 0.2.16, ADR 0038 §5). The draft runs
+in a sandbox: nothing is stored, and `set`, `invoke` and `publish` write
+nothing. The rows are those of a watch, plus `sinks`: what each of these nodes
+would write, and where. The first row already has the variables' start values.
+A preview ends after 10 minutes; the editor opens it again with its latest
+draft.
 
 ## Example
 
@@ -221,16 +313,16 @@ Rules:
 | `const` | Value → | Value = `value` → `out` | — | JSON or text | no input (sent once at start) |
 | `subscribe` | `<point>` → | the point's value on `out` | Point (`key`) | — | — |
 | `liveliness` | `<node>` → | `out` | Point (`key`) | — | — |
-| `timer` | Period (ms) → · Count → | `period_ms` (echo), `out` | — | — | `period_ms` has no input |
+| `timer` | Period (ms) ⇄ · Count → | `in.period_ms` → `period_ms`; `out` | — | — | none (spec 06 0.2.17) |
 | `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns | `expr`, `trigger`, `quality` have no input |
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |
 | `latch` | Input ⇄ · Reset ⇄ · Reset mode · Output → | `in`, `reset` (operands); `reset` parameter (no echo: the input took the name) | — | Reset mode dropdown | parameter `reset` has no input and no echo |
-| `delay` | Input ⇄ · Delay (ms) → · Output → | `in`; `ms` | — | — | `ms` has no input; DGLux `delay` has `mode` |
+| `delay` | Input ⇄ · Delay (ms) ⇄ · Output → | `in`; `in.ms` → `ms` | — | — | DGLux `delay` has `mode` |
 | `scale`, form `k × in + b` | Input ⇄ · Factor ⇄ · Offset ⇄ · Output → | `in`; `in.k` → `k`, `in.b` → `b`; `out` | Form | Form dropdown | none (spec 06 0.2.17) |
 | `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | `in.input_min` → `input_min`, … | Form | Form dropdown | none (DGLux: the same six fields) |
-| `deadband` | Input ⇄ · Absolute change → · Percent change → · Output → | `in`; `abs`, `pct` | — | — | `abs`, `pct` have no input |
-| `window` | Input ⇄ · Size (s) → · Kind → · Function → · Max samples → · Output → | `in`; parameters | — | Kind, Function dropdowns | parameters have no input |
-| `alarm` | Input ⇄ · High → · Low → · Hysteresis → · Delay (s) → · Return delay (s) → · On bad quality → · Active → · Event → | `in`; parameters | — | On bad quality dropdown | parameters have no input |
+| `deadband` | Input ⇄ · Absolute change ⇄ · Percent change ⇄ · Output → | `in`; `in.abs` → `abs`, `in.pct` → `pct` | — | — | none (spec 06 0.2.17) |
+| `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `function`, `max_samples` have no input |
+| `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad_quality` config only | — | On bad quality dropdown | `on_bad_quality` has no input |
 | `publish` | Value name · Value ← | `in` | Meta | — | — |
 | `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
 | `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
@@ -246,6 +338,10 @@ Rules:
 | `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
 | `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
 
-Parameters the editor would bind but the engine has no input for show no
-left port, and a wire dragged onto them is refused with `<field> takes no
-input: type its value` (ADR 0038 §5 adds the ports one by one).
+The editor takes the ports from the catalog (a parameter's `port`), so a
+port the engine adds shows without an editor change. Parameters the engine
+has no input for show no left port, and a wire dragged onto them is refused
+with `<field> takes no input: type its value`. Today these are `expression`
+`expr`, `trigger`, `quality`; `filter` `expr`; `latch` its
+parameter `reset`; `window` `kind`, `function`, `max_samples`; `alarm`
+`on_bad_quality`; and the sinks' parameters.
