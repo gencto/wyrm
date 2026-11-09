@@ -121,6 +121,40 @@ and set it back after.
 | `concat` | `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
+## Fields as outputs
+
+Every field of a node is also an output (ADR 0038, spec 06 0.2.15). This
+applies to every node type, not only to the blocks.
+
+- A parameter `p` is an output `p`. It sends the parameter's effective value:
+  the config value or the default, replaced by the last sample on `in.<p>`
+  where that port exists. It sends once when the node starts and then on every
+  change. A `stopwatch` that stops at `modulo` sends `enabled` false.
+- An input `x` that is not a parameter's port is an output `x`. It repeats every
+  sample on `x`, before the node handles it.
+- The output has the field's name: `["scale1.input_min", "add1.in.0"]` reads the
+  parameter `input_min` of `scale1`; `["if1.in.0", "show.in"]` repeats the
+  input `in.0` of `if1`.
+- A declared output keeps its name. An input's echo comes before a parameter's:
+  `latch` has the input `reset` and the parameter `reset`, so its parameter has
+  no output.
+- Types: an input's echo has the input's type. A parameter's echo is `number`,
+  `bool` or `map` as the parameter, else `any`.
+- An echo output with no edge is never built and costs nothing.
+
+УВАГА: a parameter's echo sends at start. An edge from it to an `invoke` or a
+`set` runs that command when the flow is deployed, restarted or hot-swapped.
+This is the one way a block fires a command by itself.
+
+The catalog (`dataflows/~act/node_types`) tells an editor which field is
+which: per parameter `port` (`in.<p>` when it has one), `default` (typed: a
+number stays a number) and `echo`; per type `port_types` and `echo_inputs`.
+
+An editor shows the live values of a deployed flow with
+`dataflows/<id>/~act/watch` (spec 06, "Живі значення"). The engine records
+port values only while a watch is open, so a port shows a value from its first
+sample after the watch opened.
+
 ## Example
 
 A tank level in percent, on a flow value, and a high alarm at 90 %:

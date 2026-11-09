@@ -376,6 +376,18 @@ fn shape(k: Kind) -> Shape {
     }
 }
 
+/// Each parameter of block type `ty`: its name, its default and whether it has the port
+/// `in.<name>` (the catalog's `default` and `port` are checked against it).
+pub fn params_of(ty: &str) -> Option<Vec<(&'static str, Value, bool)>> {
+    let sh = shape(kind(ty)?);
+    Some(
+        sh.params
+            .into_iter()
+            .map(|p| (p.name, p.default, p.port))
+            .collect(),
+    )
+}
+
 /// The variable inputs of a block: `inputs` (default `0`, `1`), each `[A-Za-z0-9_]+`, at most
 /// [`MAX_ITEMS`], none named like one of its parameters.
 fn items(cfg: &Map, sh: &Shape) -> Result<Vec<String>, String> {
@@ -450,6 +462,7 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
             .iter()
             .map(|(n, t)| ((*n).to_owned(), *t))
             .collect(),
+        echoes: Vec::new(),
     })
 }
 
@@ -487,6 +500,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
                 .map(|p| p.name)
                 .collect(),
             params,
+            params_rev: 0,
             items,
             values: BTreeMap::new(),
             seen: BTreeMap::new(),
@@ -504,6 +518,8 @@ struct Block {
     name: String,
     /// Each parameter's value: from the config, then from its port.
     params: BTreeMap<String, Value>,
+    /// Grows on every change of `params` (ADR 0038: their echo outputs and `watch`).
+    params_rev: u64,
     /// The parameters that have a port `in.<name>`.
     param_ports: Vec<&'static str>,
     /// The variable inputs' names, in order.
@@ -793,6 +809,7 @@ impl Block {
                 v = num(self.param("modulo")).unwrap_or(N::F(modulo));
                 // it stops at the end: switched off until `enabled` comes again
                 self.params.insert("enabled".into(), Value::Bool(false));
+                self.params_rev += 1;
             }
         }
         self.count = Some(v);
@@ -828,6 +845,7 @@ impl Node for Block {
         self.seen.insert(name.clone(), (m.q, m.t));
         if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
             self.params.insert(name.clone(), m.v);
+            self.params_rev += 1;
         } else {
             self.values.insert(name.clone(), m.v);
         }
@@ -865,5 +883,9 @@ impl Node for Block {
         if self.kind == Kind::Stopwatch {
             self.count = num(st);
         }
+    }
+
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        Some((self.params_rev, &self.params))
     }
 }
