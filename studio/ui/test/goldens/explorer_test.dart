@@ -53,6 +53,23 @@ void main() {
     'the account menu: user, language, theme, log out',
     (t) => shoot(t, 'explorer_account_menu', explorerPoint(), tap: 'OL'),
   );
+  testWidgets(
+    'no title bar on macOS: room for the native buttons',
+    (t) => shoot(t, 'explorer_window_macos', explorerWindowMacos()),
+  );
+  testWidgets(
+    'no title bar on Windows and Linux: the window buttons',
+    (t) => shoot(t, 'explorer_window_controls', explorerWindowControls()),
+  );
+  testWidgets(
+    'the window buttons of a maximized window, at the smallest window',
+    (t) => shoot(
+      t,
+      'explorer_window_maximized',
+      explorerWindowControls(maximized: true),
+      size: const Size(1180, 680),
+    ),
+  );
   testWidgets('device', (t) => shoot(t, 'explorer_device', explorerDevice()));
   testWidgets('review', (t) => shoot(t, 'explorer_review', explorerReview()));
   testWidgets('empty', (t) => shoot(t, 'explorer_empty', explorerEmpty()));

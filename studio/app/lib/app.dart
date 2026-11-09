@@ -6,6 +6,7 @@ import 'package:localization/localization.dart';
 import 'package:ui/theme/common.dart';
 
 import 'connectors/top_level_page_connector.dart';
+import 'connectors/window_controls_connector.dart';
 import 'dialogs/exception_dialog.dart';
 
 /// Root of the app. Reads theme + language from the store and feeds them into
@@ -33,13 +34,16 @@ class AppConnector extends StatelessWidget {
       ],
       supportedLocales: S.delegate.supportedLocales,
       locale: Locale(vm.locale),
-      // Both live above the router's Navigator: ExceptionDialog shows
-      // UserException dialogs (via NavigateAction.navigatorKey, wired in
-      // run_env), TopLevelPageConnector paints the barrier / no-internet
+      // All three live above the router's Navigator: WindowControlsConnector
+      // draws the window buttons where the window has no title bar,
+      // ExceptionDialog shows UserException dialogs (via
+      // NavigateAction.navigatorKey, wired in run_env), TopLevelPageConnector paints the barrier / no-internet
       // overlays over everything.
-      builder: (context, child) => TopLevelPageConnector(
-        child: ExceptionDialog<AppState>(
-          child: child ?? const SizedBox.shrink(),
+      builder: (context, child) => WindowControlsConnector(
+        child: TopLevelPageConnector(
+          child: ExceptionDialog<AppState>(
+            child: child ?? const SizedBox.shrink(),
+          ),
         ),
       ),
     ),

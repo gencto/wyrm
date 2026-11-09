@@ -11,6 +11,8 @@ Boards: `Login` (clickable: Log in plays the whole sequence), `LoginSigning`, `L
 
 Below 1080 px wide the hero goes on top (height 420) and the form under it; below 700 px the hero is 220 high with the mark and the logo only, headline 28 **(proposed)**.
 
+**Owner decision 2026-11-09: no window frame on the desktop** (`docs/studio.md` §7.1). The top 40 px of the page (the hero's top padding, across the form panel too) drag the window; a double click there maximizes or restores. macOS: the native window buttons sit over the hero's top left corner, and the logo starts 20 lower (top padding 60) to stay clear of them. Windows and Linux: minimize, maximize and close are in the top right corner, over the form panel's top padding. The smallest desktop window is 1180 × 680, so the desktop always shows the hero beside the form; the stacked layouts are for the web and mobile.
+
 ## 2. Hero
 Top to bottom, space-between:
 1. Logo: mark 44 × 26 (the five circles of `ui/assets/svg/icons`' logo), `WYRM` Unbounded 700 18 letter-spacing 0.08 em, `Studio` 15 `#A3ABAF`.

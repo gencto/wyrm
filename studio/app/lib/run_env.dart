@@ -10,9 +10,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pro_pretty_logging/pro_pretty_logging.dart';
-import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'common/window.dart';
 import 'errors.dart';
 import 'navigation/app_router.dart';
 
@@ -60,22 +60,7 @@ Future<void> runEnv(Environment env) async {
   );
 
   if (isDesktop) {
-    await windowManager.ensureInitialized();
-
-    const windowOptions = WindowOptions(
-      // The canvas boards are 1440 wide; Studio is dense and desktop first.
-      size: Size(1440, 900),
-      center: true,
-      minimumSize: Size(360, 600),
-      title: 'WYRM Studio',
-    );
-
-    unawaited(
-      windowManager.waitUntilReadyToShow(windowOptions, () async {
-        await windowManager.show();
-        await windowManager.focus();
-      }),
-    );
+    await setUpWindow(store);
   }
 
   runApp(

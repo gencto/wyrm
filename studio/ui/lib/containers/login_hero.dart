@@ -29,9 +29,20 @@ enum LoginHeroSize {
 /// network (§4.1, §4.2). Padding 40 × 48, a radial glow, a `ground3` line on
 /// the right.
 class LoginHero extends StatelessWidget {
-  const LoginHero({this.size = LoginHeroSize.wide, super.key});
+  const LoginHero({
+    this.size = LoginHeroSize.wide,
+    this.underButtons = false,
+    super.key,
+  });
 
   final LoginHeroSize size;
+
+  /// The native window buttons sit over the hero's top left corner (macOS
+  /// without a title bar): the logo starts 20 lower, clear of them.
+  final bool underButtons;
+
+  /// How far the logo moves down under the window buttons.
+  static const buttonsClearance = 20.0;
 
   /// The glow's warm centre (the board's `#1A1511`).
   static const glow = Color(0xFF1A1511);
@@ -66,9 +77,11 @@ class LoginHero extends StatelessWidget {
                   // 220 high below 700 px: 24 around the logo and the mark.
                   padding: small
                       ? const EdgeInsets.all(24)
-                      : const EdgeInsets.symmetric(
-                          horizontal: 48,
-                          vertical: 40,
+                      : EdgeInsets.fromLTRB(
+                          48,
+                          underButtons ? 40 + buttonsClearance : 40,
+                          48,
+                          40,
                         ),
                   child: Column(
                     crossAxisAlignment: .start,

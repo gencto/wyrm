@@ -16,6 +16,7 @@ import '../inputs/boxed_form_field.dart';
 import '../inputs/check_row.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
+import '../shell/window_bar.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
 import '../theme/typography.dart';
@@ -52,6 +53,7 @@ class LogInPage extends StatefulWidget {
     this.tls,
     this.standbyLabel,
     this.welcome,
+    this.window = const WindowBarVm(),
     super.key,
   });
 
@@ -119,6 +121,10 @@ class LogInPage extends StatefulWidget {
   /// Logged in, the tree is opening: the welcome in place of the form.
   final WelcomePanelVm? welcome;
 
+  /// The frameless window's side of the page: its top 40 px (the hero's
+  /// top padding) are the window's drag area (docs/studio.md §7.1).
+  final WindowBarVm window;
+
   @override
   State<LogInPage> createState() => _LogInPageState();
 }
@@ -161,37 +167,63 @@ class _LogInPageState extends State<LogInPage> {
           fontSize: 14,
           color: c.text1,
         ),
-        child: LayoutBuilder(
-          builder: (context, box) {
-            if (box.maxWidth >= 1080) {
-              return Row(
-                crossAxisAlignment: .stretch,
-                children: [
-                  const Expanded(child: LoginHero()),
-                  SizedBox(width: 520, child: _panel(context)),
-                ],
-              );
-            }
-            final small = box.maxWidth < 700;
-            return SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: .stretch,
-                children: [
-                  SizedBox(
-                    height: small ? 220 : 420,
-                    child: LoginHero(
-                      size: small ? LoginHeroSize.small : LoginHeroSize.stacked,
-                    ),
-                  ),
-                  _form(context),
-                ],
+        child: Stack(
+          children: [
+            Positioned.fill(child: _body(context)),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 40,
+              child: WindowBar(
+                vm: widget.window,
+                child: const SizedBox.expand(),
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
   }
+
+  /// The hero beside the form, or above it below 1080 px.
+  Widget _body(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      if (box.maxWidth >= 1080) {
+        return Row(
+          crossAxisAlignment: .stretch,
+          children: [
+            Expanded(
+              child: LoginHero(underButtons: widget.window.leading > 0),
+            ),
+            SizedBox(width: 520, child: _panel(context)),
+          ],
+        );
+      }
+      final small = box.maxWidth < 700;
+      return SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: .stretch,
+          children: [
+            SizedBox(
+              // Under the window buttons the logo starts lower: the hero
+              // grows by as much, so its text keeps its room.
+              height: small
+                  ? 220
+                  : widget.window.leading > 0
+                  ? 420 + LoginHero.buttonsClearance
+                  : 420,
+              child: LoginHero(
+                size: small ? LoginHeroSize.small : LoginHeroSize.stacked,
+                underButtons: widget.window.leading > 0,
+              ),
+            ),
+            _form(context),
+          ],
+        ),
+      );
+    },
+  );
 
   /// The form panel: padding 40 × 32, the content centred, at most 420 wide.
   Widget _panel(BuildContext context) => LayoutBuilder(

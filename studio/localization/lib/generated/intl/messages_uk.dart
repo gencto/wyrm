@@ -1429,6 +1429,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "whyRunOfficial": MessageLookupByLibrary.simpleMessage(
       "Оберіть брокер, потім як лінк на ньому працюватиме. Вбудований драйвер може працювати в брокері, окремим процесом або на іншій машині.",
     ),
+    "windowClose": MessageLookupByLibrary.simpleMessage("Закрити вікно"),
+    "windowMaximize": MessageLookupByLibrary.simpleMessage("Розгорнути"),
+    "windowMinimize": MessageLookupByLibrary.simpleMessage("Згорнути"),
+    "windowRestore": MessageLookupByLibrary.simpleMessage("Відновити"),
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Задається типом даних: суфіксом _wswap, _bswap або _wbswap.",
     ),

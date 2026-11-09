@@ -18,6 +18,7 @@ class StudioShell extends StatelessWidget {
     this.offline,
     this.drawer,
     this.onScrim,
+    this.drawerTop = 0,
     this.more = 'More',
     super.key,
   });
@@ -36,6 +37,10 @@ class StudioShell extends StatelessWidget {
   /// docs/design/specs/explorer.md §7); a tap on the scrim is [onScrim].
   final Widget? drawer;
   final VoidCallback? onScrim;
+
+  /// Room above the [drawer] for the window buttons the app draws over
+  /// the top right corner (Windows, Linux); 0 elsewhere.
+  final double drawerTop;
   final String more;
 
   /// Narrower than this, the rail moves to the bottom.
@@ -80,7 +85,7 @@ class StudioShell extends StatelessWidget {
                     child: const ColoredBox(color: Color(0xA8050708)),
                   ),
                 ),
-                Positioned(top: 0, right: 0, bottom: 0, child: d),
+                Positioned(top: drawerTop, right: 0, bottom: 0, child: d),
               ],
             ],
           ),

@@ -748,5 +748,9 @@
     "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
     "@moreBytes": {"placeholders": {"count": {"type": "int"}}},
     "menuLanguage": "Мова",
-    "menuTheme": "Тема"
+    "menuTheme": "Тема",
+    "windowMinimize": "Згорнути",
+    "windowMaximize": "Розгорнути",
+    "windowRestore": "Відновити",
+    "windowClose": "Закрити вікно"
 }

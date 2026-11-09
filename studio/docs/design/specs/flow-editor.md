@@ -6,7 +6,7 @@ Boards: `FlowBind` (fields, bindings, properties), `FlowTree` (dragging points a
 
 | Region | Size | Background |
 |---|---|---|
-| Top bar | min height 52, padding 6 × 16 | `#0E1113`, bottom border `#252B30` |
+| Top bar | min height 52, padding 6 × 16; on the desktop it is the window's title bar (below) | `#0E1113`, bottom border `#252B30` |
 | Palette | flex 1 1 220, **max 250** | `#13171A`, right border |
 | Canvas | flex 999 1 560, scrolls both ways | `#0E1113` with a dot grid: radial `#252B30` 1 px every 20 px |
 | Inspector | flex 1 1 320, max 360 | `#13171A`, left border |
@@ -14,6 +14,8 @@ Boards: `FlowBind` (fields, bindings, properties), `FlowTree` (dragging points a
 **Side panels are resizable (proposed; the boards are fixed).** Drag the inner border of the palette or the inspector to change its width: palette 200–520 (default 220), inspector 280–640 (default 320); the canvas never gets less than 480. Handle, double click to reset, ←/→ and persistence as in `explorer.md` §1.
 
 Top bar: logo (to Explorer) · path `Flows › <flow id> › <selected block>` (14; `Flows` link `#A3ABAF`, separators `#5A6168`, ids mono `#ECE9E1`) · right: state (`Draft saved` with a teal dot 6, `Saving…`, or `Version <n> · deployed` when the draft equals the deployed version; 12 `#8E979C`) · `Validate` (outline 38) · `Deploy` (ember filled 38; outline and disabled only while nothing differs from the deployed version, tooltip `Nothing to deploy`) · close.
+
+**Owner decision 2026-11-09: no window frame on the desktop** (`docs/studio.md` §7.1). The top bar drags the window (a click on the logo, `Flows`, a button or close is still theirs). macOS: the logo starts at 92, after the native window buttons. Windows and Linux: the bar's content, its own close included, ends 138 from the right edge, left of the window's minimize, maximize and close.
 
 ## 2. Palette
 - Tabs, three equal columns, 40 high: `Blocks` · `My blocks` · `Tree` (`My blocks` disabled with the tooltip `Needs own blocks in the engine` until §10 item 8 exists).

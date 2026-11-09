@@ -9,15 +9,16 @@ import 'redux/language/models/language_state.dart';
 import 'redux/login/models/login_state.dart';
 import 'redux/panels/models/panels_state.dart';
 import 'redux/theme/models/theme_state.dart';
+import 'redux/window/models/window_state.dart';
 
 /// AsyncRedux [Persistor] backed by the `storage` package ([KeyValueStorage]).
 ///
 /// The store calls [persistDifference] (throttled) after state changes and
 /// [readState] once on boot. Only the persisted slice (theme, language, the
-/// last gateway URL and user, the recent gateways, the Remember choice and
-/// the side panels' widths) is stored — not the whole state. With Remember
-/// off, the gateway, the user and the recent gateways are deleted and not
-/// written again
+/// last gateway URL and user, the recent gateways, the Remember choice, the
+/// side panels' widths and the desktop window's frame) is stored — not the
+/// whole state. With Remember off, the gateway, the user and the recent
+/// gateways are deleted and not written again
 /// (docs/design/specs/login.md §6).
 ///
 /// The session token is not stored: a gateway session lives in the WebSocket
@@ -47,6 +48,14 @@ class AppPersistor extends Persistor<AppState> {
     PanelSlot.historyInspector: 'panelWidth.history.inspector',
   };
 
+  /// The desktop window's frame (left, top, width, height), logical pixels.
+  static const _windowKeys = [
+    'window.left',
+    'window.top',
+    'window.width',
+    'window.height',
+  ];
+
   /// The key older builds kept the session token under; deleted on boot.
   static const _legacyTokenKey = 'token';
 
@@ -69,13 +78,20 @@ class AppPersistor extends Persistor<AppState> {
       }
     }
 
+    final frame = [
+      for (final key in _windowKeys) _number(await _storage.get<Object?>(key)),
+    ];
+    final framed =
+        frame.every((v) => v != null) && frame[2]! > 0 && frame[3]! > 0;
+
     if (themeIndex == null &&
         locale == null &&
         gateway == null &&
         user == null &&
         recent == null &&
         remember == null &&
-        widths.isEmpty) {
+        widths.isEmpty &&
+        !framed) {
       return null;
     }
 
@@ -91,12 +107,24 @@ class AppPersistor extends Persistor<AppState> {
         remember: remember ?? true,
       ),
       panels: PanelsState(widths: widths.lock),
+      window: framed
+          ? WindowState(
+              left: frame[0],
+              top: frame[1],
+              width: frame[2],
+              height: frame[3],
+            )
+          : const WindowState(),
     );
   }
 
   /// A stored width, or null when it is missing or not a usable number.
   static double? _width(Object? v) =>
       v is num && v.isFinite && v > 0 ? v.toDouble() : null;
+
+  /// A stored coordinate (it may be negative: a screen left of the main one).
+  static double? _number(Object? v) =>
+      v is num && v.isFinite ? v.toDouble() : null;
 
   @override
   Future<void> persistDifference({
@@ -144,6 +172,23 @@ class AppPersistor extends Persistor<AppState> {
         }
       }
     }
+
+    await _persistWindow(lastPersistedState?.window, newState.window);
+  }
+
+  /// The window's frame is written whole or not at all.
+  Future<void> _persistWindow(WindowState? before, WindowState now) async {
+    final frame = [now.left, now.top, now.width, now.height];
+    if (frame.contains(null) ||
+        (before?.left == now.left &&
+            before?.top == now.top &&
+            before?.width == now.width &&
+            before?.height == now.height)) {
+      return;
+    }
+    for (final (i, key) in _windowKeys.indexed) {
+      await _storage.put(key, frame[i]);
+    }
   }
 
   /// The recent gateways, one per line (a gateway is itself a comma list).
@@ -174,5 +219,6 @@ class AppPersistor extends Persistor<AppState> {
     _storage.delete(_rememberKey),
     _storage.delete(_legacyTokenKey),
     for (final key in _panelKeys.values) _storage.delete(key),
+    for (final key in _windowKeys) _storage.delete(key),
   ]);
 }

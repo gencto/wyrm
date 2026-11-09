@@ -11,6 +11,7 @@ import '../flows/flow_legend.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
 import '../overlays/value_viewer.dart';
+import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -76,6 +77,7 @@ class FlowEditorPage extends StatelessWidget {
     this.copyLabel = 'Copy',
     this.copiedLabel = 'Copied',
     this.closeLabel = 'Close',
+    this.window = const WindowBarVm(),
     super.key,
   });
 
@@ -154,6 +156,9 @@ class FlowEditorPage extends StatelessWidget {
   final String copiedLabel;
   final String closeLabel;
 
+  /// The frameless window's side of the top bar (docs/studio.md §7.1).
+  final WindowBarVm window;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -165,97 +170,104 @@ class FlowEditorPage extends StatelessWidget {
           children: [
             Container(
               constraints: const BoxConstraints(minHeight: 52),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
-              child: Row(
-                spacing: 18,
-                children: [
-                  InkWell(
-                    onTap: onLogo,
-                    child: const WyrmLogo(showStudio: false),
-                  ),
-                  Expanded(
-                    child: Row(
-                      spacing: 8,
-                      children: [
-                        InkWell(
-                          onTap: onFlows,
-                          child: Text(
-                            flowsLabel,
-                            style: TextStyle(fontSize: 14, color: c.text3),
+              child: WindowBar(
+                vm: window,
+                padding: 16,
+                child: Row(
+                  spacing: 18,
+                  children: [
+                    InkWell(
+                      onTap: onLogo,
+                      child: const WyrmLogo(showStudio: false),
+                    ),
+                    Expanded(
+                      child: Row(
+                        spacing: 8,
+                        children: [
+                          InkWell(
+                            onTap: onFlows,
+                            child: Text(
+                              flowsLabel,
+                              style: TextStyle(fontSize: 14, color: c.text3),
+                            ),
                           ),
-                        ),
-                        Text('›', style: TextStyle(color: c.muted)),
-                        Flexible(
-                          child: Text(
-                            flowLabel,
-                            maxLines: 1,
-                            overflow: .ellipsis,
-                            style: mono(size: 14, color: c.text1),
-                          ),
-                        ),
-                        if (blockLabel case final b?) ...[
                           Text('›', style: TextStyle(color: c.muted)),
                           Flexible(
                             child: Text(
-                              b,
+                              flowLabel,
                               maxLines: 1,
                               overflow: .ellipsis,
-                              style: mono(size: 14, color: c.emberSoft),
+                              style: mono(size: 14, color: c.text1),
                             ),
                           ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Row(
-                    spacing: 10,
-                    children: [
-                      Row(
-                        spacing: 6,
-                        children: [
-                          if (stateDot)
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                shape: .circle,
-                                color: c.good,
+                          if (blockLabel case final b?) ...[
+                            Text('›', style: TextStyle(color: c.muted)),
+                            Flexible(
+                              child: Text(
+                                b,
+                                maxLines: 1,
+                                overflow: .ellipsis,
+                                style: mono(size: 14, color: c.emberSoft),
                               ),
                             ),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 320),
-                            child: Text(
-                              state,
-                              maxLines: 1,
-                              overflow: .ellipsis,
-                              style: TextStyle(fontSize: 12, color: c.text4),
-                            ),
-                          ),
+                          ],
                         ],
                       ),
-                      Button.secondary(
-                        label: validateLabel,
-                        onPressed: onValidate,
-                      ),
-                      if (deployOn)
-                        Button.primary(label: deployLabel, onPressed: onDeploy)
-                      else
-                        Button.secondary(
-                          label: deployLabel,
-                          disabledReason: deployReason,
-                          onPressed: null,
+                    ),
+                    Row(
+                      spacing: 10,
+                      children: [
+                        Row(
+                          spacing: 6,
+                          children: [
+                            if (stateDot)
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  shape: .circle,
+                                  color: c.good,
+                                ),
+                              ),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 320),
+                              child: Text(
+                                state,
+                                maxLines: 1,
+                                overflow: .ellipsis,
+                                style: TextStyle(fontSize: 12, color: c.text4),
+                              ),
+                            ),
+                          ],
                         ),
-                      IconButton(
-                        onPressed: onClose,
-                        icon: AppIcon('ui_close', size: 18, color: c.text2),
-                      ),
-                    ],
-                  ),
-                ],
+                        Button.secondary(
+                          label: validateLabel,
+                          onPressed: onValidate,
+                        ),
+                        if (deployOn)
+                          Button.primary(
+                            label: deployLabel,
+                            onPressed: onDeploy,
+                          )
+                        else
+                          Button.secondary(
+                            label: deployLabel,
+                            disabledReason: deployReason,
+                            onPressed: null,
+                          ),
+                        IconButton(
+                          onPressed: onClose,
+                          icon: AppIcon('ui_close', size: 18, color: c.text2),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             Expanded(

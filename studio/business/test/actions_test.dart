@@ -8,6 +8,8 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/session/actions/set_token_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
+import 'package:business/redux/window/actions/set_window_bounds_action.dart';
+import 'package:business/redux/window/actions/set_window_mode_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/panel_slot.dart';
@@ -124,5 +126,48 @@ void main() {
 
       expect(store.state.panels.widths, isEmpty);
     });
+  });
+
+  group('the desktop window', () {
+    test('the mode changes one flag and keeps the other', () async {
+      final store = _store();
+      await store.dispatchAndWait(SetWindowModeAction(maximized: true));
+      await store.dispatchAndWait(SetWindowModeAction(fullScreen: true));
+
+      expect(store.state.window.maximized, isTrue);
+      expect(store.state.window.fullScreen, isTrue);
+
+      await store.dispatchAndWait(SetWindowModeAction(fullScreen: false));
+
+      expect(store.state.window.maximized, isTrue);
+      expect(store.state.window.fullScreen, isFalse);
+    });
+
+    test(
+      'the frame is stored whole; a frame that is no frame is not',
+      () async {
+        final store = _store();
+        await store.dispatchAndWait(
+          SetWindowBoundsAction(left: -1200, top: 40, width: 1280, height: 800),
+        );
+        await store.dispatchAndWait(
+          SetWindowBoundsAction(left: 0, top: 0, width: 0, height: 800),
+        );
+        await store.dispatchAndWait(
+          SetWindowBoundsAction(
+            left: double.nan,
+            top: 0,
+            width: 1280,
+            height: 800,
+          ),
+        );
+
+        final w = store.state.window;
+        expect(
+          [w.left, w.top, w.width, w.height],
+          [-1200.0, 40.0, 1280.0, 800.0],
+        );
+      },
+    );
   });
 }

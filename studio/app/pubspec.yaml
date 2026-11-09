@@ -26,6 +26,7 @@ dependencies:
     path: ../models
   pro_pretty_logging: ^2.0.0
   pro_validator: ^3.0.0
+  screen_retriever: ^0.2.2
   ui:
     path: ../ui
   window_manager: ^0.5.2

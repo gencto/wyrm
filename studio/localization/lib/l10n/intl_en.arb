@@ -748,5 +748,9 @@
     "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
     "@moreBytes": {"placeholders": {"count": {"type": "int"}}},
     "menuLanguage": "Language",
-    "menuTheme": "Theme"
+    "menuTheme": "Theme",
+    "windowMinimize": "Minimize",
+    "windowMaximize": "Maximize",
+    "windowRestore": "Restore",
+    "windowClose": "Close window"
 }

@@ -15,6 +15,8 @@ import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/shell/studio_shell.dart';
 import 'package:ui/shell/top_bar.dart';
+import 'package:ui/shell/window_bar.dart';
+import 'package:ui/shell/window_controls.dart';
 import 'package:ui/shell/workspace_rail.dart';
 import 'package:ui/tables/points_table.dart';
 import 'package:ui/tables/row_table.dart';
@@ -47,6 +49,7 @@ Widget _shell(
   int changes = 3,
   String site = 'plant',
   String route = 'via edge · central',
+  WindowBarVm window = const WindowBarVm(),
 }) => StudioShell(
   rail: _rail,
   selected: 0,
@@ -64,6 +67,7 @@ Widget _shell(
       role: 'operator',
     ),
     compact: compact,
+    window: window,
     onSite: _none,
     onSearch: () {},
     onReview: () {},
@@ -508,6 +512,42 @@ ExplorerPage _page({
 
 /// A device with a point selected (board *Main*).
 Widget explorerPoint() => _shell(_page());
+
+/// macOS without a title bar (docs/studio.md §7.1): the top bar keeps 92
+/// free at the left for the native close, minimize and zoom buttons (the
+/// system draws them; a golden shows the room).
+Widget explorerWindowMacos() => _shell(
+  _page(),
+  window: WindowBarVm(leading: 92, onDrag: () {}, onZoom: () {}),
+);
+
+/// Windows and Linux without a title bar: the top bar keeps the room of
+/// the three window buttons at the right, and the app draws them over the
+/// corner, as `WindowControlsConnector` does.
+Widget explorerWindowControls({bool maximized = false}) => Stack(
+  children: [
+    Positioned.fill(
+      child: _shell(
+        _page(),
+        window: WindowBarVm(
+          trailing: WindowControls.width,
+          onDrag: () {},
+          onZoom: () {},
+        ),
+      ),
+    ),
+    Positioned(
+      top: 0,
+      right: 0,
+      child: WindowControls(
+        vm: WindowControlsVm(maximized: maximized),
+        onMinimize: () {},
+        onMaximize: () {},
+        onClose: () {},
+      ),
+    ),
+  ],
+);
 
 /// The point's value in the viewer: a number with its unit and quality.
 Widget explorerViewer() => _shell(

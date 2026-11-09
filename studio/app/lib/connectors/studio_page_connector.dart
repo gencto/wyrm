@@ -24,9 +24,12 @@ import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/shell/studio_shell.dart';
 import 'package:ui/shell/top_bar.dart';
+import 'package:ui/shell/window_bar.dart';
+import 'package:ui/shell/window_controls.dart';
 import 'package:ui/shell/workspace_rail.dart';
 
 import '../common/changes.dart';
+import '../common/window.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -107,6 +110,7 @@ class StudioPageConnector extends StatelessWidget {
               ],
               topBar: (compact) => TopBar(
                 vm: vm.topBar,
+                window: vm.window,
                 compact: compact,
                 labels: TopBarLabels(
                   search: S.current.searchHint,
@@ -121,6 +125,7 @@ class StudioPageConnector extends StatelessWidget {
                 onTheme: vm.onTheme,
               ),
               onScrim: vm.onCloseReview,
+              drawerTop: vm.window.trailing > 0 ? WindowControls.height : 0,
               drawer: !vm.reviewOpen
                   ? null
                   : ReviewPanel(
@@ -217,6 +222,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
     };
     final quarantined = quarantine.view.length;
     return _Vm(
+      window: windowBar(fullScreen: window.fullScreen),
       connected: site.connected,
       refreshing: {
         for (final w in Workspace.values)
@@ -330,6 +336,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.window,
     required this.connected,
     required this.refreshing,
     required this.topBar,
@@ -356,6 +363,7 @@ class _Vm extends Vm {
     required this.onTheme,
   }) : super(
          equals: [
+           window,
            connected,
            refreshing,
            topBar,
@@ -372,6 +380,8 @@ class _Vm extends Vm {
          ],
        );
 
+  /// The frameless window's side of the top bar.
+  final WindowBarVm window;
   final bool connected;
 
   /// The workspaces reading again what they show (`refreshing`); an

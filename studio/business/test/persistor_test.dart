@@ -200,4 +200,58 @@ void main() {
       expect(storage.values, isEmpty);
     });
   });
+
+  group('the window frame', () {
+    AppState framed(double left, double top, double width, double height) =>
+        AppState.initial().copyWith.window(
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+        );
+
+    test('round-trips, a negative origin included', () async {
+      final state = framed(-1200, 40, 1280, 800);
+      await persistor.persistDifference(newState: state);
+
+      expect(storage.values['window.left'], -1200);
+      expect(storage.values['window.height'], 800);
+      expect((await persistor.readState())?.window, state.window);
+    });
+
+    test('the mode of the window is not stored', () async {
+      await persistor.persistDifference(
+        newState: framed(
+          10,
+          10,
+          1280,
+          800,
+        ).copyWith.window(maximized: true, fullScreen: true),
+      );
+
+      final read = await persistor.readState();
+      expect(read?.window.maximized, isFalse);
+      expect(read?.window.fullScreen, isFalse);
+    });
+
+    test('a frame with a part missing or of no size is no frame', () async {
+      await storage.put('window.left', 10);
+      await storage.put('window.top', 10);
+      await storage.put('window.width', 0);
+      await storage.put('locale', 'uk');
+
+      final read = await persistor.readState();
+      expect(read?.window.width, isNull);
+      expect(read?.window.left, isNull);
+    });
+
+    test('a state without a frame writes nothing', () async {
+      await persistor.persistDifference(newState: AppState.initial());
+
+      expect(
+        storage.values.keys.where((k) => k.startsWith('window.')),
+        isEmpty,
+      );
+    });
+  });
 }

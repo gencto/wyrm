@@ -49,9 +49,11 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
+import 'package:ui/shell/window_bar.dart';
 
 import '../common/side_panels.dart';
 import '../common/value_viewer.dart';
+import '../common/window.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'flows_page_connector.dart';
@@ -103,6 +105,7 @@ class FlowEditorPageConnector extends StatelessWidget {
       ..dispatchSync(WatchFlowAction(null))
       ..dispatchSync(PreviewFlowAction(stop: true)),
     builder: (context, vm) => FlowEditorPage(
+      window: vm.window,
       flowsLabel: S.current.wsFlows,
       flowLabel: vm.flowLabel,
       blockLabel: vm.blockLabel,
@@ -294,6 +297,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         port;
 
     return _Vm(
+      window: windowBar(fullScreen: window.fullScreen),
       watch: FlowEditorPageConnector._watch(state, connector.id),
       run: run,
       flowLabel: id.isNotEmpty ? id : S.current.newDataflow,
@@ -1210,6 +1214,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.window,
     required this.watch,
     required this.run,
     required this.flowLabel,
@@ -1255,6 +1260,7 @@ class _Vm extends Vm {
     required this.onCloseViewer,
   }) : super(
          equals: [
+           window,
            watch,
            run,
            flowLabel,
@@ -1277,6 +1283,9 @@ class _Vm extends Vm {
            viewer,
          ],
        );
+
+  /// The frameless window's side of the top bar.
+  final WindowBarVm window;
 
   /// What the editor subscribes to (Tree tab parents, block points, the
   /// flow's `~val`).
