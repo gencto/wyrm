@@ -8,16 +8,27 @@
 //!   stored values; per key, nothing older than what was already emitted.
 //! * [`WyrmClient::set`] / [`WyrmClient::invoke`] — `get` on `~set` / `~act`
 //!   with `InteractiveHigh + Block + express` (replies inherit the query QoS).
+//!
+//! No stream blocks the Zenoh session when its consumer is slow: each one
+//! buffers into state it owns and has its own overflow policy (see
+//! [`EventStream::dropped`] and the module docs of `streams`). A one-shot
+//! request reads its replies at once.
 
 #![forbid(unsafe_code)]
 
 pub mod endpoint;
+mod intake;
 mod streams;
 pub mod tokens;
 
-pub use streams::{EventStream, ListEvent, ValEvent};
+pub use streams::{
+    EventStream, ListEvent, ValEvent, INVOKE_BUFFER, LIST_BUFFER, MAX_PENDING_KEYS, MAX_RESYNCS,
+    MAX_STREAM_KEYS, RELIABLE_BUFFER, VALUE_BUFFER,
+};
 pub use tokens::{SigningTokens, TokenSource};
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -25,7 +36,8 @@ use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET};
 use wyrm_core::status::StatusCode;
 use wyrm_core::{Attachment, HistRow, NodeMeta, SetRequest, Status, StatusGroup, Value};
-use zenoh::handlers::FifoChannelHandler;
+use zenoh::cancellation::CancellationToken;
+use zenoh::handlers::{FifoChannel, FifoChannelHandler, IntoHandler};
 use zenoh::qos::{CongestionControl, Priority};
 use zenoh::query::{ConsolidationMode, Reply};
 use zenoh::Session;
@@ -263,7 +275,8 @@ impl WyrmClient {
         }
     }
 
-    /// Raw `get`. `interactive` selects the `~set/~act` QoS.
+    /// Raw `get` into a FIFO. `interactive` selects the `~set/~act` QoS.
+    /// Only for replies read at once: a FIFO that fills blocks the session.
     async fn query(
         &self,
         selector: &str,
@@ -272,6 +285,34 @@ impl WyrmClient {
         interactive: bool,
         timeout: Duration,
     ) -> Result<FifoChannelHandler<Reply>> {
+        self.query_with(
+            selector,
+            payload,
+            att,
+            interactive,
+            timeout,
+            FifoChannel::default(),
+            None,
+        )
+        .await
+    }
+
+    /// Raw `get` into `handler`.
+    #[allow(clippy::too_many_arguments)] // private: one argument per builder knob
+    async fn query_with<H>(
+        &self,
+        selector: &str,
+        payload: Option<Vec<u8>>,
+        att: Attachment,
+        interactive: bool,
+        timeout: Duration,
+        handler: H,
+        cancel: Option<CancellationToken>,
+    ) -> Result<H::Handler>
+    where
+        H: IntoHandler<Reply> + Send,
+        H::Handler: Send,
+    {
         let att =
             to_vec(&att).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))?;
         let mut get = self
@@ -291,7 +332,10 @@ impl WyrmClient {
         if let Some(p) = payload {
             get = get.payload(p);
         }
-        Ok(get.await?)
+        if let Some(c) = cancel {
+            get = get.cancellation_token(c);
+        }
+        Ok(get.with(handler).await?)
     }
 
     /// Exactly one reply expected; none → `timeout` or `disconnected`.
@@ -542,7 +586,19 @@ impl WyrmClient {
     /// Reactive values for a node pattern (`…/mock/**`): stored values first,
     /// then live samples.
     pub async fn subscribe(&self, pattern: &str) -> Result<EventStream<ValEvent>> {
-        streams::subscribe(self.clone(), pattern.to_owned()).await
+        self.subscribe_filtered(pattern, |_| true).await
+    }
+
+    /// [`subscribe`](Self::subscribe) of only the node keys `keep` accepts:
+    /// a refused key never takes room in the stream's buffer (the gateway
+    /// passes the user's read grants). `keep` runs on Zenoh's receive path:
+    /// keep it short, no I/O.
+    pub async fn subscribe_filtered(
+        &self,
+        pattern: &str,
+        keep: impl Fn(&str) -> bool + Send + Sync + 'static,
+    ) -> Result<EventStream<ValEvent>> {
+        streams::subscribe(self.clone(), pattern.to_owned(), Arc::new(keep)).await
     }
 
     /// QoS 2/3 values (`cfg.qos >= 2` points): cached history from the
@@ -565,7 +621,10 @@ impl WyrmClient {
     /// `invoke` returning every reply: one for a plain action, `seq`-ordered
     /// elements for a stream (the final `last = true` reply is not emitted
     /// unless it carries a value). Each reply must arrive within the client
-    /// timeout of the previous one.
+    /// timeout of the previous one. A consumer more than [`INVOKE_BUFFER`]
+    /// replies behind gets the replies held, then `resource_exhausted`, and
+    /// the stream ends (the lost replies count in [`EventStream::dropped`]);
+    /// it never holds up the session.
     pub async fn invoke(
         &self,
         node: &str,
@@ -575,27 +634,52 @@ impl WyrmClient {
         let key = suffixed(node, &format!("~act/{action}"));
         let payload =
             to_vec(&args).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))?;
+        let dropped = Arc::new(AtomicU64::new(0));
+        #[cfg(test)]
+        LIVE_REPLIES.fetch_add(1, Ordering::SeqCst);
+        let intake = intake::Intake::new(Replies {
+            queue: VecDeque::new(),
+            overflow: false,
+            done: false,
+            dropped: dropped.clone(),
+        });
         // The zenoh query lives long; idleness is bounded per reply below.
-        let rx = self
-            .query(
-                &key,
-                Some(payload),
-                self.token_att(&key),
-                true,
-                Duration::from_secs(3600),
-            )
-            .await?;
+        // It ends with the stream: the task cancels it on its way out, and
+        // the feed holds the buffer weakly, so nothing is kept after that.
+        let cancel = CancellationToken::default();
+        self.query_with(
+            &key,
+            Some(payload),
+            self.token_att(&key),
+            true,
+            Duration::from_secs(3600),
+            intake.feed(Replies::push, |r| r.done = true),
+            Some(cancel.clone()),
+        )
+        .await?;
         let (tx, out) = mpsc::channel(64);
         let idle = self.timeout;
         let me = self.clone();
+        let lost = dropped.clone();
         tokio::spawn(async move {
+            let _cancel = CancelOnDrop(cancel);
             let mut got_any = false;
             loop {
-                let r = match tokio::time::timeout(idle, next_response(&rx)).await {
+                let next = intake.next(Replies::pop);
+                let next = tokio::select! {
+                    r = tokio::time::timeout(idle, next) => r,
+                    _ = tx.closed() => return,
+                };
+                let r = match next {
                     Err(_) => Some(Err(ClientError::new(Status::Timeout, "no reply"))),
-                    Ok(None) if !got_any => Some(Err(me.no_reply(&key).await)),
-                    Ok(None) => None,
-                    Ok(Some(r)) => Some(r.and_then(Response::check)),
+                    Ok(ReplyStep::Overflow) => {
+                        let n = lost.load(Ordering::Relaxed);
+                        let msg = format!("consumer too slow: {n} replies lost");
+                        Some(Err(ClientError::new(Status::ResourceExhausted, msg)))
+                    }
+                    Ok(ReplyStep::Reply(reply)) => Some(response(&reply).and_then(Response::check)),
+                    Ok(ReplyStep::Done) if !got_any => Some(Err(me.no_reply(&key).await)),
+                    Ok(ReplyStep::Done) => None,
                 };
                 let Some(r) = r else { return };
                 got_any = true;
@@ -619,7 +703,7 @@ impl WyrmClient {
                 }
             }
         });
-        Ok(EventStream::new(out))
+        Ok(EventStream::new(out, dropped))
     }
 
     /// `invoke` of a plain action: its single result.
@@ -631,7 +715,11 @@ impl WyrmClient {
 
 pub(crate) async fn next_response(rx: &FifoChannelHandler<Reply>) -> Option<Result<Response>> {
     let reply = rx.recv_async().await.ok()?;
-    Some(match reply.result() {
+    Some(response(&reply))
+}
+
+fn response(reply: &Reply) -> Result<Response> {
+    match reply.result() {
         Ok(s) => {
             // An unreadable attachment is an error, never an empty one.
             let att = match s.attachment() {
@@ -648,9 +736,152 @@ pub(crate) async fn next_response(rx: &FifoChannelHandler<Reply>) -> Option<Resu
             Status::InternalError,
             String::from_utf8_lossy(&e.payload().to_bytes()).into_owned(),
         )),
-    })
+    }
+}
+
+/// Cancels the Zenoh query of a stream `invoke` when its task ends (the
+/// stream is dropped, it ended, or it failed).
+struct CancelOnDrop(CancellationToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        let ct = self.0.clone();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = ct.cancel().await;
+            });
+        }
+    }
+}
+
+/// Live `Replies` buffers, for the test that a dropped stream frees its own.
+#[cfg(test)]
+static LIVE_REPLIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+impl Drop for Replies {
+    fn drop(&mut self) {
+        LIVE_REPLIES.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Replies of a stream `invoke`, bounded by [`INVOKE_BUFFER`]. Results are
+/// not state: none is dropped silently, an overflow ends the stream.
+struct Replies {
+    queue: VecDeque<Reply>,
+    overflow: bool,
+    /// Zenoh dropped the handler: the query is final.
+    done: bool,
+    dropped: Arc<AtomicU64>,
+}
+
+// moved once per reply; boxing would cost an allocation each
+#[allow(clippy::large_enum_variant)]
+enum ReplyStep {
+    Reply(Reply),
+    Overflow,
+    Done,
+}
+
+impl Replies {
+    fn push(&mut self, r: Reply) {
+        if self.overflow || self.queue.len() >= INVOKE_BUFFER {
+            self.overflow = true;
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.queue.push_back(r);
+        }
+    }
+
+    fn pop(&mut self) -> Option<ReplyStep> {
+        if let Some(r) = self.queue.pop_front() {
+            Some(ReplyStep::Reply(r))
+        } else if self.overflow {
+            Some(ReplyStep::Overflow)
+        } else {
+            self.done.then_some(ReplyStep::Done)
+        }
+    }
 }
 
 pub(crate) fn decode<T: for<'b> minicbor::Decode<'b, ()>>(b: &[u8]) -> Result<T> {
     from_slice(b).map_err(|e| ClientError::new(Status::InvalidMessage, e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    fn isolated() -> zenoh::Config {
+        let mut c = zenoh::Config::default();
+        for (k, v) in [
+            ("mode", r#""peer""#),
+            ("listen/endpoints", "[]"),
+            ("connect/endpoints", "[]"),
+            ("scouting/multicast/enabled", "false"),
+            ("scouting/gossip/enabled", "false"),
+        ] {
+            c.insert_json5(k, v).unwrap();
+        }
+        c
+    }
+
+    /// Security review: a stream `invoke` whose reader is gone must not
+    /// keep buffering the replies of its hour-long query.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dropped_invoke_stream_frees_its_buffer() {
+        let session = zenoh::open(isolated()).await.unwrap();
+        let sent = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (n, halt) = (sent.clone(), stop.clone());
+        let _q = session
+            .declare_queryable("wy/t/downstream/fake/**")
+            .callback(move |q| {
+                let (n, halt) = (n.clone(), halt.clone());
+                tokio::spawn(async move {
+                    // an endless stream action: one element per millisecond
+                    let mut att = Attachment::with_status(Status::Ok);
+                    att.rid = Some(1);
+                    let att = to_vec(&att).unwrap();
+                    while !halt.load(Ordering::SeqCst) {
+                        let i = n.fetch_add(1, Ordering::SeqCst);
+                        let v = to_vec(&Value::UInt(i)).unwrap();
+                        let k = q.key_expr().clone();
+                        if q.reply(k, v).attachment(att.clone()).await.is_err() {
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                });
+            })
+            .await
+            .unwrap();
+        let c = WyrmClient::new(session.clone()).with_timeout(Duration::from_secs(2));
+        let before = LIVE_REPLIES.load(Ordering::SeqCst);
+        let mut s = c
+            .invoke(
+                "wy/t/downstream/fake/x",
+                "a",
+                Value::Map(Default::default()),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(s.next().await, Some(Ok(Some(_)))));
+        assert_eq!(LIVE_REPLIES.load(Ordering::SeqCst), before + 1);
+        drop(s);
+        let until = std::time::Instant::now() + Duration::from_secs(2);
+        while LIVE_REPLIES.load(Ordering::SeqCst) > before {
+            assert!(std::time::Instant::now() < until, "the buffer is kept");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // the responder was still sending when the buffer went
+        let at = sent.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            sent.load(Ordering::SeqCst) > at,
+            "the responder kept sending"
+        );
+        stop.store(true, Ordering::SeqCst);
+    }
 }

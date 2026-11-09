@@ -17,7 +17,10 @@
 //!   * `subscribe`: `sample {key, v, q, t, qual?}`, `removed {key}`;
 //!   * `invoke`: `value {v}` for every result but the last, which is the
 //!     `result` of the final `ok`;
-//!   * `closed {}` when a stream ends on the Zenoh side.
+//!   * `closed {}` when a stream ends on the Zenoh side; a `subscribe` that
+//!     hits a client limit (more than `wyrm_client::MAX_STREAM_KEYS` keys, a
+//!     socket that does not catch up) ends with `{id, ok: false, error}`
+//!     (`resource_exhausted`) instead.
 //!
 //! `meta` is the canonical `~meta` CBOR (spec 02) as a byte string, decoded
 //! with the SDK's `NodeMeta` codec. `status` is a spec-04 status code.
@@ -562,7 +565,9 @@ impl Conn {
                 }
                 _ => continue,
             };
-            // ~meta is DataHigh + Block: wait for room, never drop.
+            // ~meta is DataHigh + Block: wait for room, never drop. Only this
+            // task waits: the client stream holds `LIST_BUFFER` events and
+            // beyond that sends a fresh `refreshed`, never holding up the session.
             if self.out.send(Out::Frame(ev)).await.is_err() {
                 return;
             }
@@ -572,7 +577,14 @@ impl Conn {
 
     async fn subscribe(&self, p: Principal, req: Req) {
         let id = req.id;
-        let mut s = match self.client(&p).subscribe(&req.key).await {
+        // The read filter runs before the client stream buffers anything: a
+        // point the user may not read takes no memory (security review). It
+        // is checked again below, as grants can change while a value waits.
+        let (gw, filter) = (self.gw.clone(), self.grants.subscribe());
+        let readable = move |key: &str| {
+            filter.borrow().perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
+        };
+        let mut s = match self.client(&p).subscribe_filtered(&req.key, readable).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };
@@ -606,12 +618,20 @@ impl Conn {
             {
                 continue;
             }
-            // ~val is Data + Drop: a slow socket loses samples, not memory.
-            if let Err(mpsc::error::TrySendError::Closed(_)) = self.out.try_send(Out::Frame(ev)) {
+            // Wait for room: only this task waits. The client stream keeps
+            // one pending value per key meanwhile (newest wins) and never
+            // holds up the shared session, so a slow socket gets the latest
+            // value of every point instead of losing some at random.
+            if self.out.send(Out::Frame(ev)).await.is_err() {
                 return;
             }
         }
-        self.send(event_frame(id, "closed", [])).await;
+        // a stream ended by a limit (`resource_exhausted`: too many keys,
+        // or a socket that never catches up) ends with that error
+        match s.error() {
+            Some(e) => self.send(client_err(id, &e)).await,
+            None => self.send(event_frame(id, "closed", [])).await,
+        }
     }
 }
 

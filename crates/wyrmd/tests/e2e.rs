@@ -4715,7 +4715,11 @@ fn verify_state_finds_a_tampered_wal() {
 /// The subscriber gate of a process link: the `~val` storage subscribes to
 /// `wy/**/~val`, which the link ACL (`wy/S/downstream/L/**`) does not pass on, so
 /// with `poll_unsubscribed: false` the link polls only while a real
-/// subscriber (one point or a pattern under `downstream/**`) exists. Embedded
+/// subscriber (one point, or a pattern under the link's own
+/// `downstream/<link>/**`) exists. A wider pattern such as `downstream/**`
+/// is not passed on either, like the storage's; the test once passed with it
+/// only because a dropped client stream kept its subscriber declared (fixed
+/// with the client's FIFO handlers, 2026-11-09). Embedded
 /// links share the router with the storage, so for them the gate is
 /// always open (the default is to poll all the time anyway).
 #[tokio::test(flavor = "multi_thread")]
@@ -4751,18 +4755,25 @@ async fn process_link_polls_only_while_subscribed() {
     let r1 = reqs();
     tokio::time::sleep(Duration::from_secs(1)).await;
     let exact = reqs() - r1;
-    let pat = format!("wy/{SITE}/downstream/**");
+    let pat = format!("wy/{SITE}/downstream/plc1/**");
     drop(_s);
     let _p = c.subscribe(&pat).await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
     let r2 = reqs();
     tokio::time::sleep(Duration::from_secs(1)).await;
     let pattern = reqs() - r2;
+    // a dropped stream undeclares its subscriber at once
+    drop(_p);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let r3 = reqs();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let after = reqs() - r3;
     assert_eq!(idle, 0, "no subscriber, no polling");
+    assert_eq!(after, 0, "the stream is dropped, no polling");
     assert!(exact >= 5, "one point subscribed: {exact} requests/s");
     assert!(
         pattern >= 5,
-        "downstream/** subscribed: {pattern} requests/s"
+        "downstream/plc1/** subscribed: {pattern} requests/s"
     );
     env.stop().await;
 }

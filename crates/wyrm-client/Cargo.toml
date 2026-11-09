@@ -14,7 +14,8 @@ advanced = ["dep:zenoh-ext"]
 
 [dependencies]
 wyrm-core.workspace = true
-zenoh.workspace = true
+# `unstable`: `CancellationToken` ends the query of a dropped `invoke` stream
+zenoh = { workspace = true, features = ["unstable"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 futures-core.workspace = true
 minicbor.workspace = true
@@ -29,3 +30,5 @@ wyrm-client = { path = ".", features = ["advanced"] }
 wyrm-link-mock.workspace = true
 ed25519-dalek.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# two sessions over loopback TCP (tests/stall.rs)
+zenoh = { workspace = true, features = ["transport_tcp"] }

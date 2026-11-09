@@ -54,6 +54,11 @@ Open `wy/<site>/sys/history`.
 | All Data | every update |
 | Point Change | an update whose value or quality differs from the last one recorded |
 
+Only if more than 4096 updates of a point wait for the historian
+(overflow) does it keep the newest one until it has caught up; the lost
+updates are counted (`EventStream::dropped`, see `docs/links.md` "Streams
+and a slow consumer").
+
 - **Buffer Flush Time** (seconds, 0.1 to 600): rows wait in memory, then go
   to disk in one write. A longer time writes less often; a crash loses the
   rows in memory.
