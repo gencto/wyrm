@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import 'tree_row.dart';
 
@@ -62,10 +63,9 @@ class NodeTree extends StatelessWidget {
                       style: TextStyle(fontSize: 13, color: c.text1),
                       decoration: InputDecoration(
                         hintText: filterHint,
-                        prefixIcon: Icon(
-                          Icons.filter_list,
-                          size: 16,
-                          color: c.text4,
+                        prefixIcon: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: AppIcon('ui_search', size: 16, color: c.text4),
                         ),
                       ),
                     ),

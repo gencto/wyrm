@@ -14,6 +14,7 @@ import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/shell/studio_shell.dart';
@@ -250,7 +251,12 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
           SearchEntryVm(
             id: 'key:$k',
             title: nodes.table[k]?.name ?? k,
-            icon: 'node_point',
+            icon: AppIcon.nodeName(
+              key: k,
+              root: site.root ?? '',
+              profile: nodes.table[k]?.profile,
+              type: nodes.table[k]?.type,
+            ),
             detail: _relative(k),
           ),
       ],

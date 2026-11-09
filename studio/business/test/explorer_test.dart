@@ -7,6 +7,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
@@ -58,6 +59,105 @@ void main() {
     final d = s.state.nodes.detail[dev]!;
     expect(d.actions.single.level, 'read');
     expect(d.cfg['unit'], '1');
+  });
+
+  test(
+    'selecting downstream or the site root reads no meta, shows a folder',
+    () async {
+      // Nobody answers a full ~meta on these two (the links answer for
+      // themselves below them): the root times out, downstream answers
+      // disconnected.
+      api.errors['wy/central/downstream'] = WyrmException.of(
+        Status.disconnected,
+        'wy/central/downstream/~meta is not connected',
+      );
+
+      for (final key in ['wy/central/downstream', 'wy/central']) {
+        final st = await s.dispatchAndWait(SelectNodeAction(key));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(st.originalError, isNull);
+        expect(s.state.nodes.selectedNode, key);
+        expect(s.state.nodes.detail[key]?.profile, 'wy:folder');
+        expect(s.state.nodes.detail[key]?.actions, isEmpty);
+        expect(
+          api.calls.where((c) => c.op == 'list').map((c) => c.key),
+          contains(key),
+        );
+      }
+      expect(api.calls.where((c) => c.op == 'meta'), isEmpty);
+    },
+  );
+
+  test('a meta refused on another key is still a user error', () async {
+    const key = 'wy/central/downstream/modbus';
+    api.errors[key] = WyrmException.of(Status.disconnected, 'gone');
+
+    final st = await s.dispatchAndWait(RetrieveNodeDetailAction(key));
+
+    expect(
+      (st.originalError! as UserException).reason,
+      'disconnected: gone',
+    );
+    expect(s.state.nodes.detail[key], isNull);
+  });
+
+  test('a listed enum point gets its names from its full meta', () async {
+    // A list carries no enum names (spec 02 key 3): the meta does.
+    const dev = 'wy/central/downstream/modbus/line1';
+    api.metas['$dev/status'] = NodeMeta(
+      ty: TypeCode.enum_,
+      enumValues: ['Unknown', 'Connecting', 'Connected', 'Failed'],
+    );
+    api.errors['$dev/mode'] = WyrmException.of(Status.notFound, 'gone');
+
+    s.dispatchSync(ToggleNodeAction(dev, open: true));
+    api.lists[dev]!.add(
+      ListRefreshed([
+        Child('status', NodeMeta(ty: TypeCode.enum_)),
+        Child('mode', NodeMeta(ty: TypeCode.enum_)),
+        Child('requests', NodeMeta(ty: TypeCode.number)),
+      ]),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(
+      api.calls.where((c) => c.op == 'meta').map((c) => c.key),
+      unorderedEquals(['$dev/status', '$dev/mode']),
+    );
+    expect(s.state.nodes.detail['$dev/status']!.choices.unlock, [
+      'Unknown',
+      'Connecting',
+      'Connected',
+      'Failed',
+    ]);
+    // A meta that fails is no dialog: the point shows its number.
+    expect(s.state.nodes.detail['$dev/mode'], isNull);
+
+    // A changed child (its quality) is not read again.
+    api.lists[dev]!.add(
+      ChildChanged(Child('status', NodeMeta(ty: TypeCode.enum_, q: 1))),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(
+      api.calls.where((c) => c.op == 'meta' && c.key == '$dev/status'),
+      hasLength(1),
+    );
+  });
+
+  test('a staged enum value shows its name', () async {
+    const key = 'wy/central/downstream/modbus/line1/mode';
+    api.metas[key] = NodeMeta(
+      ty: TypeCode.enum_,
+      enumValues: ['auto', 'manual'],
+      writable: Writable.write,
+    );
+    await s.dispatchAndWait(RetrieveNodeDetailAction(key));
+
+    s.dispatchSync(StageValueAction(key, 1, from: 'auto'));
+
+    final c = s.state.changes.table.values.single;
+    expect((c.value, c.from, c.to), (1, 'auto', 'manual'));
   });
 
   test('closing a node closes the lists under it', () {

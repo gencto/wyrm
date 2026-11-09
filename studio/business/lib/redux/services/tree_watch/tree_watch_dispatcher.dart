@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_info.dart';
@@ -5,6 +7,7 @@ import 'package:models/node_info.dart';
 import '../../app_state.dart';
 import '../../nodes/actions/add_nodes_action.dart';
 import '../../nodes/actions/remove_nodes_action.dart';
+import '../../nodes/actions/retrieve_enum_names_action.dart';
 import '../../nodes/actions/set_children_action.dart';
 import 'tree_watch.dart';
 
@@ -15,12 +18,27 @@ class TreeWatchDispatcher implements TreeWatchServiceListener {
   final Store<AppState> _store;
 
   @override
-  void onChildren(String parent, List<NodeInfo> children) =>
-      _store.dispatchSync(SetChildrenAction(parent, children.lock));
+  void onChildren(String parent, List<NodeInfo> children) {
+    _store.dispatchSync(SetChildrenAction(parent, children.lock));
+    _enumNames(children);
+  }
 
   @override
-  void onChild(String parent, NodeInfo child) =>
-      _store.dispatchSync(AddNodesAction([child].lock));
+  void onChild(String parent, NodeInfo child) {
+    _store.dispatchSync(AddNodesAction([child].lock));
+    _enumNames([child]);
+  }
+
+  /// A list carries no enum names: read them for the enum points listed.
+  void _enumNames(List<NodeInfo> children) {
+    final enums = [
+      for (final c in children)
+        if (c.type == 'enum' && c.choices.isEmpty) c.key,
+    ];
+    if (enums.isNotEmpty) {
+      unawaited(_store.dispatchAndWait(RetrieveEnumNamesAction(enums)));
+    }
+  }
 
   @override
   void onRemoved(String parent, String name) =>
