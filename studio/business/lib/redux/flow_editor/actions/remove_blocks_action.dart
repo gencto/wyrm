@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
+import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -18,7 +19,8 @@ class RemoveBlocksAction extends Action {
     final d = flowEditor.draft;
     final gone = {
       for (final id in ids)
-        if (d?.blocks.containsKey(id) ?? false) id,
+        // The inputs and outputs blocks of a block's inside stay.
+        if (!isBoundary(id) && (d?.blocks.containsKey(id) ?? false)) id,
     };
     if (d == null || gone.isEmpty) {
       return null;

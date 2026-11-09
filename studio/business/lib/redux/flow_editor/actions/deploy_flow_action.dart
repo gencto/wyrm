@@ -17,7 +17,9 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
   Future<AppState?> reduce() async {
     final d = flowEditor.draft;
     final root = site.root;
-    if (d == null || root == null) {
+    // Deploy is off while the canvas shows the inside of a block (the page
+    // says why): the draft here is the block's, not the flow's.
+    if (d == null || root == null || flowEditor.frames.isNotEmpty) {
       return null;
     }
     final v = flowEditor.version + 1;

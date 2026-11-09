@@ -8,6 +8,7 @@ import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
 
+import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
 
@@ -51,10 +52,17 @@ enum BlockRole {
 
   /// `invoke`: an action of the tree.
   action,
+
+  /// An instance of a custom block (`block:<name>`), and the two boundary
+  /// blocks of a block's inside.
+  custom,
 }
 
 /// Types that read a point (`key`) and that write one (`path`).
 const _reads = {'subscribe', 'liveliness'};
+
+/// Types whose point is their `key`; the others name it `path`.
+const _keyed = {'subscribe', 'liveliness', 'load_value'};
 const _sinks = {'publish', 'set', 'invoke'};
 
 /// Inputs into these write to a device (ember wires, spec §4).
@@ -65,20 +73,21 @@ BlockRole roleOf(String type) => switch (type) {
   'subscribe' || 'liveliness' || 'set' => BlockRole.node,
   'publish' => BlockRole.sink,
   'invoke' => BlockRole.action,
+  _ when type.startsWith('block') => BlockRole.custom,
   _ => BlockRole.logic,
 };
 
 /// The width a block of [role] is drawn at (spec §3: 200–220, 210 for sinks).
 double blockWidthOf(BlockRole role) => switch (role) {
   BlockRole.node => 200,
-  BlockRole.logic => 220,
+  BlockRole.logic || BlockRole.custom => 220,
   BlockRole.sink || BlockRole.action => 210,
 };
 
 /// The point a `subscribe`, `liveliness`, `set` or `invoke` block names
 /// (`key` or `path`), relative to the site or full.
 String? pointOf(FlowBlock b) =>
-    switch (b.cfg[_reads.contains(b.type) ? 'key' : 'path']) {
+    switch (b.cfg[_keyed.contains(b.type) ? 'key' : 'path']) {
       final String k when k.isNotEmpty => k,
       _ => null,
     };
@@ -93,6 +102,7 @@ final class FlowField {
     this.inPort,
     this.outPort,
     this.spec,
+    this.argSpec,
     this.onBlock = true,
     this.outAliases = const [],
     this.variable = false,
@@ -121,6 +131,11 @@ final class FlowField {
 
   /// The parameter behind a [FieldKind.param] field.
   final ParamSpec? spec;
+
+  /// What the action says of this argument (a [FieldKind.arg] field of an
+  /// `invoke`): its type, choices and whether it is required. Null when the
+  /// node's actions are not read yet.
+  final ParamSpec? argSpec;
 
   /// Pinned to the block by default (the type's main inputs, outputs and
   /// the fields users set most); the user's choice for one block wins
@@ -259,7 +274,7 @@ final class Variadic {
 /// The variable inputs of [b], if its type has a list of them.
 Variadic? variadicOf(NodeType? t, FlowBlock b) {
   final param = t?.dynInParam;
-  if (t == null || param == null || t.dynOutParam != null) {
+  if (t == null || param == null || t.dynOutParam != null || t.dynInKeys) {
     return null;
   }
   final names = switch (b.cfg[param]) {
@@ -320,11 +335,77 @@ const fieldLabelOverrides = <String, String>{
   'invoke.path': 'Node',
   'invoke.on': 'Run on',
   'stopwatch.interval': 'Interval (s)',
+  // ADR 0040: behaviours, scopes, the second set of blocks.
+  'trigger': 'Trigger',
+  'interval_ms': 'Every',
+  'auto_run': 'Auto run',
+  'run_on_start': 'Run on start',
+  'key_scope': 'Scope',
+  'path_scope': 'Scope',
+  'list_children.path': 'Node',
+  'throttle.ms': 'Period (ms)',
+  'debounce.ms': 'Quiet time (ms)',
 };
+
+/// What a block type reads in the palette and in a block's header: the
+/// engine's name in sentence case (`rising_edge` → `Rising edge`,
+/// `list_children` → `List children`); a custom block keeps the name its
+/// author gave it.
+String blockLabel(String type) =>
+    blockNameOf(type) ?? _blockLabels[type] ?? humanize(type);
+
+const _blockLabels = {'wasm': 'WASM'};
+
+/// The fields that say when a command or a read runs (ADR 0040 §2).
+const behaviourParams = {'interval_ms', 'auto_run', 'enabled', 'run_on_start'};
+
+/// Whether blocks of [t] have behaviours: a `trigger` input and the event
+/// outputs (`invoke`, `set`, `load_value`, `list_children` since ADR 0040).
+bool behavesOf(NodeType? t) =>
+    t != null && t.inputs.contains('trigger') && t.outputs.contains('last_run');
+
+/// The inspector's groups of a block with behaviours (flow-editor.md §19).
+enum FieldGroup { none, target, arguments, behaviour, events, state }
+
+const _behaviourOrder = [
+  'trigger',
+  'in',
+  'auto_run',
+  'interval_ms',
+  'enabled',
+  'run_on_start',
+  'on',
+  'deadband',
+  'allow_bad',
+];
+
+/// The group field [f] of [b] is listed under; [FieldGroup.none] for a
+/// type without behaviours.
+FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
+  if (!behavesOf(t)) {
+    return FieldGroup.none;
+  }
+  return switch (f.kind) {
+    FieldKind.arg => FieldGroup.arguments,
+    FieldKind.param =>
+      _behaviourOrder.contains(f.name)
+          ? FieldGroup.behaviour
+          : FieldGroup.target,
+    FieldKind.input =>
+      f.name == 'in' && b.type == 'set'
+          ? FieldGroup.target
+          : FieldGroup.behaviour,
+    FieldKind.output =>
+      const {'sent', 'ok', 'error'}.contains(f.name)
+          ? FieldGroup.events
+          : FieldGroup.state,
+  };
+}
 
 /// Outputs that say more under their own name than as `Output`.
 const outputLabelOverrides = <String, String>{
   'invoke.out': 'Result',
+  'stats.avg': 'Average',
   'alarm.out': 'Active',
   'timer.out': 'Count',
 };
@@ -498,6 +579,7 @@ List<FlowField> fieldsOf(
   NodeType? t,
   FlowBlock b, {
   Iterable<FlowEdge> edges = const [],
+  Iterable<ParamSpec> actionParams = const [],
 }) {
   if (t == null) {
     return const [
@@ -555,7 +637,17 @@ List<FlowField> fieldsOf(
   }
   final paramPorts = portOf.values.toSet();
   final operands = operandPortsOf(t, b).toSet();
-  final dynIns = ports.inputs.where((p) => !t.inputs.contains(p)).toList();
+  // An `invoke` argument is a field of its own kind (`arg:<name>`), not a
+  // variable input.
+  final dynIns = t.dynInKeys
+      ? const <String>[]
+      : ports.inputs.where((p) => !t.inputs.contains(p)).toList();
+  final instance = isInstance(b.type);
+  final behaves = behavesOf(t);
+  // The key field that takes a wire inside a scope (ADR 0040 §1).
+  final keyed = scopedKeyOf(t);
+  final keyBound =
+      keyed != null && edges.any((e) => e.to == b.id && e.toPort == keyed.port);
   final fixedIns = [
     for (final p in t.inputs)
       if (!paramPorts.contains(p)) p,
@@ -596,17 +688,35 @@ List<FlowField> fieldsOf(
           kind: .param,
           spec: p,
           inPort: portOf[p.name],
-          outPort: paramEcho[p.name],
-          onBlock:
+          // A scope is read on the block and typed in its prompt: it
+          // feeds nothing.
+          outPort: p.name == keyed?.scope ? null : paramEcho[p.name],
+          onBlock: switch (p.name) {
+            // The key takes a wire: it is a row with a left port.
+            final n when n == keyed?.key => true,
+            // Its scope shows once it matters: a wire feeds the key, or
+            // a scope is written.
+            final n when n == keyed?.scope => keyBound || b.cfg[n] != null,
+            // Behaviours are set in the inspector; one that is set shows.
+            final n when behaves && behaviourParams.contains(n) =>
+              b.cfg[n] != null,
+            // The action block names its action in its header.
+            'action' || 'on' when behaves && role == BlockRole.action => false,
+            _ =>
               !node &&
-              !(role == BlockRole.action &&
-                  const {'path', 'args', 'allow_bad'}.contains(p.name)) &&
-              (portOf.containsKey(p.name) ||
-                  (form?.params.contains(p.name) ?? false) ||
-                  (_oneOf[b.type]?.contains(p.name) ?? false) ||
-                  b.cfg[p.name] != null ||
-                  p.defaultValue != null ||
-                  p.required),
+                  !(role == BlockRole.action &&
+                      const {
+                        'path',
+                        'args',
+                        'allow_bad',
+                      }.contains(p.name)) &&
+                  (portOf.containsKey(p.name) ||
+                      (form?.params.contains(p.name) ?? false) ||
+                      (_oneOf[b.type]?.contains(p.name) ?? false) ||
+                      b.cfg[p.name] != null ||
+                      p.defaultValue != null ||
+                      p.required),
+          },
         ),
   ];
   FlowField input(String port, {required bool variable, int index = 0}) =>
@@ -617,6 +727,8 @@ List<FlowField> fieldsOf(
           'publish' when port == 'in' => 'Value',
           'set' when port == 'in' => pointName ?? 'Input',
           'invoke' when port == 'in' => 'Run when',
+          // A custom block's ports keep the names their author gave them.
+          _ when instance => port,
           _ when variable && pairedInputs.contains(b.type) => pairLabel(index),
           _ => fieldLabel(b.type, port, variable: variable),
         },
@@ -625,17 +737,42 @@ List<FlowField> fieldsOf(
         // A writable point repeats what it writes (spec §3, tree point).
         outPort: inEcho[port],
         operand: operands.contains(port),
+        // The action block runs on its trigger: the older `in` stays in
+        // the inspector. A `set` is its point; its trigger is set there too.
+        onBlock:
+            !behaves ||
+            !(port == 'in' && b.type == 'invoke' || port == 'trigger' && node),
       );
 
   final fixed = [for (final p in fixedIns) input(p, variable: false)];
   final dyn = [
     for (final (i, p) in dynIns.indexed) input(p, variable: true, index: i),
   ];
-  final args = <FlowField>[
+  // An action's arguments: the keys of `args`, each a field with the port
+  // `arg.<name>` where the engine has it (ADR 0040 §2), then the
+  // parameters of the action that have no key yet (inspector only: typing
+  // a value or binding one adds the key).
+  final argKeys = <String>[
     if (b.type == 'invoke')
-      if (b.cfg['args'] case final Map<String, Object?> m)
+      if (b.cfg['args'] case final Map<Object?, Object?> m)
         for (final k in m.keys)
-          FlowField(id: 'arg:$k', name: k, label: k, kind: .arg),
+          if (k is String) k,
+  ];
+  final argSpecs = {for (final p in actionParams) p.name: p};
+  FlowField arg(String k, {required bool has}) => FlowField(
+    id: 'arg:$k',
+    name: k,
+    label: argSpecs[k]?.display ?? k,
+    kind: .arg,
+    inPort: t.dynInKeys ? '${t.dynInPrefix}$k' : null,
+    argSpec: argSpecs[k],
+    onBlock: has,
+  );
+  final args = <FlowField>[
+    for (final k in argKeys) arg(k, has: true),
+    if (b.type == 'invoke')
+      for (final p in actionParams)
+        if (!argKeys.contains(p.name)) arg(p.name, has: false),
   ];
   final outs = <FlowField>[
     for (final p in ports.outputs)
@@ -645,12 +782,27 @@ List<FlowField> fieldsOf(
           name: p,
           label: _reads.contains(b.type) && p == 'out'
               ? (pointName ?? fieldLabel(b.type, p))
-              : (t.dynOutParam != null && !t.outputs.contains(p)
+              : (instance || t.dynOutParam != null && !t.outputs.contains(p)
                     ? p
-                    : outputLabelOverrides['${b.type}.$p'] ??
-                          fieldLabel(b.type, p)),
+                    : (b.type == 'invoke' && p == 'out' && behaves
+                          ? fieldLabel(b.type, p)
+                          : outputLabelOverrides['${b.type}.$p'] ??
+                                fieldLabel(b.type, p))),
           kind: .output,
           outPort: p,
+          onBlock: switch (p) {
+            // A refused key says why on `error`: a row once a wire feeds
+            // the key.
+            'error' when keyed != null && !behaves => keyBound,
+            _ when !behaves => true,
+            // A `set` is its point; its events are wired from the
+            // inspector.
+            _ when node => false,
+            'error' => true,
+            'ok' => b.type == 'invoke',
+            'out' => b.type != 'invoke',
+            _ => false,
+          },
         ),
   ];
   // A sink names what it writes before the value it writes (`publish`:
@@ -665,9 +817,29 @@ List<FlowField> fieldsOf(
     for (final f in params)
       if (tail.contains(f.name)) f,
   ];
-  return role == BlockRole.sink
+  final all = role == BlockRole.sink
       ? [...params, ...fixed, ...dyn, ...args, ...outs]
       : [...fixed, ...head, ...dyn, ...after, ...args, ...outs];
+  if (!behaves) {
+    return all;
+  }
+  // A block with behaviours lists its fields by group (flow-editor.md
+  // §19): what it acts on, its arguments, when it runs, what happened.
+  int rank(FlowField f) {
+    final i = _behaviourOrder.indexOf(f.name);
+    return i < 0 ? _behaviourOrder.length : i;
+  }
+
+  final order = {for (final (i, f) in all.indexed) f.id: i};
+  return all..sort((x, y) {
+    final gx = groupOf(t, b, x);
+    final gy = groupOf(t, b, y);
+    if (gx != gy) {
+      return gx.index.compareTo(gy.index);
+    }
+    final byRank = gx == FieldGroup.behaviour ? rank(x).compareTo(rank(y)) : 0;
+    return byRank != 0 ? byRank : order[x.id]!.compareTo(order[y.id]!);
+  });
 }
 
 /// Parameters drawn after a block's variable inputs, as DGLux draws them
@@ -728,7 +900,9 @@ double blockHeight(
 }) {
   final rows = rowsOf(t, b, edges: edges).length;
   final tools = variadicOf(t, b) == null ? 0.0 : 38.0;
-  return 32 + 6 + 28.0 * math.max(rows, 1) + 8 + tools;
+  // An instance has one more row: `Open inside`.
+  final link = isInstance(b.type) ? 28.0 : 0.0;
+  return 32 + 6 + 28.0 * math.max(rows, 1) + link + 8 + tools;
 }
 
 // ---------- binding (drag a field onto another, spec §4) ----------
@@ -750,6 +924,10 @@ enum BindRefusal {
 
   /// The edge would close a loop that no `delay` breaks (validation step 5).
   loop,
+
+  /// The field takes a wire only on a broker with ADR 0040 (a key from a
+  /// port, an argument's port): this one's catalog has no port for it.
+  needsBroker,
 }
 
 /// A refusal and, for [BindRefusal.type], the two types.
@@ -812,8 +990,21 @@ Refused? bindRefusal(
 }) {
   final inPort = to.inPort;
   if (inPort == null) {
+    final dstType = d.blocks[toBlock]?.type;
+    final later =
+        to.kind == FieldKind.arg ||
+        to.kind == FieldKind.param &&
+            const {'key', 'path'}.contains(to.name) &&
+            const {
+              'subscribe',
+              'liveliness',
+              'load_value',
+              'list_children',
+            }.contains(dstType);
     return Refused(
-      to.kind == FieldKind.output ? BindRefusal.output : BindRefusal.noInput,
+      to.kind == FieldKind.output
+          ? BindRefusal.output
+          : (later ? BindRefusal.needsBroker : BindRefusal.noInput),
     );
   }
   if (fromBlock == toBlock) {
@@ -957,7 +1148,16 @@ FieldValue fieldValue(
         return const FieldValue('');
       }
     case FieldKind.arg:
-      shown = (b.cfg['args'] as Map?)?[f.name];
+      // An argument's constant, until a binding replaces it (ADR 0040 §2).
+      if (bound) {
+        sample = live(portKey('in', b.id, f.inPort!));
+        shown = sample?.value;
+        if (sample == null) {
+          return FieldValue('', bound: bound);
+        }
+      } else {
+        shown = (b.cfg['args'] as Map?)?[f.name];
+      }
   }
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;
   return FieldValue(

@@ -2,8 +2,10 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/audit_entry.dart';
+import 'package:models/block_info.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/grant.dart';
 import 'package:models/hist_point.dart';
@@ -33,6 +35,7 @@ import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 
 import '../wyrm/keys.dart';
+import '../wyrm/mappers/flow_blocks.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -643,6 +646,35 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns clipboard
   String? get clipboard => _state.flowEditor.clipboard;
+
+  /// Returns treeQuery
+  String get treeQuery => _state.flowEditor.treeQuery;
+
+  /// Returns scopePrompt
+  String? get scopePrompt => _state.flowEditor.scopePrompt;
+
+  /// Returns frames
+  IList<FlowFrame> get frames => _state.flowEditor.frames;
+
+  /// Returns library
+  IList<BlockInfo> get library => _state.flowEditor.library;
+
+  /// Returns libraryOff
+  String? get libraryOff => _state.flowEditor.libraryOff;
+
+  /// Returns root
+  FlowDraft? get root =>
+      rootDraft(_state.flowEditor.frames, _state.flowEditor.draft);
+
+  /// Returns allTypes
+  IList<NodeType> get allTypes =>
+      typesWithBlocks(_state.flowEditor.types, _state.flowEditor.draft);
+
+  /// Returns caps
+  FlowCaps get caps => flowCapsOf(
+    _state.flowEditor.types,
+    libraryOff: _state.flowEditor.libraryOff,
+  );
 }
 
 extension type SelectTasks(AppState _state) {

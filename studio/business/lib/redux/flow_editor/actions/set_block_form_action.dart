@@ -35,7 +35,7 @@ class SetBlockFormAction extends Action {
         if (f.id != chosen.id) f,
     ];
     bool gone(String name) => others.any((f) => f.owns(name));
-    final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
+    final t = flowEditor.allTypes.where((t) => t.type == b.type).firstOrNull;
     var cfg = b.cfg.removeWhere((k, _) => gone(k));
     if (chosen != forms.first) {
       final catalog = {
