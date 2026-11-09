@@ -163,6 +163,7 @@ NodeType nodeTypeOf(Value m) {
         for (final e in v.entries) e.key: ?str(e.value),
     }.lock,
     echoInputs: boolean(m['echo_inputs']),
+    takesValues: boolean(m['values']) ?? false,
   );
 }
 
@@ -196,6 +197,86 @@ NodeType nodeTypeOf(Value m) {
       ...dyn(t.dynOutParam, t.dynOutPrefix, t.dynOutDefaults),
     ],
   );
+}
+
+// ---------- operand constants (ADR 0038 §7, spec 06 0.2.19) ----------
+
+/// The config key of the operand constants: `values: {<port>: <value>}`.
+const operandValuesKey = 'values';
+
+/// The inputs of [b] that take a typed constant in `values`: `in` (when the
+/// type has it and no parameter owns it) and the variable inputs
+/// (`in.<name>` of `inputs`), for a type whose catalog says `values: true`.
+/// Never a parameter's port (`in.op`, `in.precision`: the parameter's
+/// config is its constant), never `stopwatch.reset` and never a variable's
+/// `in` (its `value` is the constant): the catalog gives those types no
+/// `values`.
+List<String> operandPortsOf(NodeType? t, FlowBlock b) {
+  if (t == null || !t.takesValues) {
+    return const [];
+  }
+  final paramPorts = {
+    for (final p in t.params)
+      ?(p.port ?? (t.inputs.contains('in.${p.name}') ? 'in.${p.name}' : null)),
+  };
+  return [
+    if (t.inputs.contains('in') && !paramPorts.contains('in')) 'in',
+    for (final p in portsOf(t, b).inputs)
+      if (!t.inputs.contains(p) && !paramPorts.contains(p)) p,
+  ];
+}
+
+/// The constants of [b]'s operands, by port (`{in.0: "AHU-"}`).
+Map<String, Object?> operandValuesOf(FlowBlock b) =>
+    switch (b.cfg[operandValuesKey]) {
+      final Map<Object?, Object?> m => {
+        for (final e in m.entries)
+          if (e.key case final String k) k: e.value,
+      },
+      _ => const {},
+    };
+
+/// The constant typed into operand [port] of [b], or null.
+Object? operandValueOf(FlowBlock b, String port) => operandValuesOf(b)[port];
+
+/// [b]'s config with [value] as the constant of operand [port] (null or
+/// empty text removes it; an empty map removes `values`). Null when [port]
+/// takes no constant ([operandPortsOf]): the engine refuses it at compile
+/// (`values.<port>: not an operand input`).
+IMap<String, Object?>? cfgWithOperandValue(
+  NodeType? t,
+  FlowBlock b,
+  String port,
+  Object? value,
+) {
+  if (!operandPortsOf(t, b).contains(port)) {
+    return null;
+  }
+  final m = Map<String, Object?>.of(operandValuesOf(b));
+  if (value == null || value == '') {
+    m.remove(port);
+  } else {
+    m[port] = value;
+  }
+  return m.isEmpty
+      ? b.cfg.remove(operandValuesKey)
+      : b.cfg.add(operandValuesKey, m);
+}
+
+/// [cfg] without the constants of [ports] (inputs a resize removed).
+IMap<String, Object?> cfgWithoutOperands(
+  IMap<String, Object?> cfg,
+  Iterable<String> ports,
+) {
+  final b = FlowBlock(id: '', type: '', cfg: cfg);
+  final m = Map<String, Object?>.of(operandValuesOf(b));
+  if (!ports.any(m.containsKey)) {
+    return cfg;
+  }
+  ports.forEach(m.remove);
+  return m.isEmpty
+      ? cfg.remove(operandValuesKey)
+      : cfg.add(operandValuesKey, m);
 }
 
 /// The keys a flow reads (`subscribe` keys) and writes (`set`, `invoke`,

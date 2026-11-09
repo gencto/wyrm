@@ -124,6 +124,14 @@ void main() {
     (t) => shoot(t, 'flow_preview_sink', flowPreviewSink()),
   );
   testWidgets(
+    'a case block: pairs of typed constants, − / + by a pair',
+    (t) => shoot(t, 'flow_case', flowCase()),
+  );
+  testWidgets(
+    'an operand: a typed value beside a bound one',
+    (t) => shoot(t, 'flow_operand', flowOperand()),
+  );
+  testWidgets(
     'the Tree tab with a drag in progress',
     (t) => shoot(t, 'flow_tree_drag', flowTreeDrag()),
   );

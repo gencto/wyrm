@@ -198,7 +198,12 @@ Rules:
    over the field; the inspector's link menu has `Go to source` and
    `Unbind`. A bound field with nothing known yet shows nothing, not the
    typed value the binding replaces.
-7. Values are live. A draft that runs otherwise than the deployed version
+7. An operand of a type with catalog `values: true` holds a typed value:
+   the node's config `values: {"<port>": <value>}` (spec 06 0.2.19). A
+   binding replaces it; the typed value stays in the config and returns on
+   unbind. Never on a parameter's port, `stopwatch.reset` or a variable's
+   `in`. `case` reads its variable inputs as pairs: `Case 1`, `Then 1`, …
+8. Values are live. A draft that runs otherwise than the deployed version
    (its layout aside) runs as a preview (`dataflows/~act/preview`): the
    blocks show its values and each sink what it would write (`would write
    70.7`, a `preview` tag; nothing is written). A draft equal to the
@@ -206,7 +211,7 @@ Rules:
    Where neither has a sample the editor follows the wire back to its
    source field: a variable's or a parameter's typed value, a point's tree
    value.
-8. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
+9. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
    parameters (the engine has them; the editor leaves them out so a sink
    stays a sink). A `set` repeats what it writes on its point's row.
 
@@ -221,7 +226,7 @@ Rules:
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |
 | `latch` | Input ⇄ · Reset ⇄ · Reset mode · Output → | `in`, `reset` (operands); `reset` parameter (no echo: the input took the name) | — | Reset mode dropdown | parameter `reset` has no input and no echo |
 | `delay` | Input ⇄ · Delay (ms) → · Output → | `in`; `ms` | — | — | `ms` has no input; DGLux `delay` has `mode` |
-| `scale`, form `k × in + b` | Input ⇄ · Factor → · Offset → · Output → | `in`; `k`, `b`; `out` | Form | Form dropdown | `k`, `b` have no input |
+| `scale`, form `k × in + b` | Input ⇄ · Factor ⇄ · Offset ⇄ · Output → | `in`; `in.k` → `k`, `in.b` → `b`; `out` | Form | Form dropdown | none (spec 06 0.2.17) |
 | `scale`, form `Range` | Input ⇄ · Input min ⇄ · Input max ⇄ · Output min ⇄ · Output max ⇄ · Output → · Input out of range → | `in.input_min` → `input_min`, … | Form | Form dropdown | none (DGLux: the same six fields) |
 | `deadband` | Input ⇄ · Absolute change → · Percent change → · Output → | `in`; `abs`, `pct` | — | — | `abs`, `pct` have no input |
 | `window` | Input ⇄ · Size (s) → · Kind → · Function → · Max samples → · Output → | `in`; parameters | — | Kind, Function dropdowns | parameters have no input |
@@ -230,15 +235,16 @@ Rules:
 | `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
 | `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
 | `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | ports named by `inputs`/`outputs` | Config, Fuel, Memory (MB) | — | — |
-| `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | — | an operand holds no typed value (DGLux: `input 0` is a value or a binding) |
-| `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | — | `in` holds no typed value |
-| `round` | Input ⇄ · Precision ⇄ · Output → | `in`; `in.precision` → `precision`; `out` | — | — | no `minPrecision`; DGLux gives text |
+| `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | operands typed (`values`) | none (spec 06 0.2.19: an operand holds a typed value) |
+| `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `round` | Input ⇄ · Precision ⇄ · Min precision ⇄ · Output → · Text → | `in`; `in.precision` → `precision`, `in.min_precision` → `min_precision`; `out`, `text` | — | `in` typed (`values`) | none (spec 06 0.2.21: `text` is DGLux's text result) |
 | `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | `in`; `in.modulo` → `modulo` | — | — | — |
-| `if` | Operation → · Input 1 ⇄ · Input 2 ⇄ · … · Then ⇄ · Else ⇄ · Output → | `op`; `in.<n>`; `in.then` → `then`, `in.else` → `else` | — | Operation dropdown | `op` has no input (DGLux pins it); no `!=`, `contains`, `startsWith`, `endsWith` |
-| `hub` | Input 1 ⇄ · Input 2 ⇄ · … · Ignore null → · Output → · Index → · On change → | `in.<n>`; `ignore_null`; outputs | — | Ignore null toggle | `ignore_null` has no input |
+| `if` | Operation ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Then ⇄ · Else ⇄ · Output → | `in.op` → `op`; `in.<n>`; `in.then` → `then`, `in.else` → `else` | — | Operation dropdown (`=`, `!=`, `and`, `or`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`); operands typed | none (spec 06 0.2.20, 0.2.21) |
+| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | `regexp` left out (spec 06 0.2.21) |
+| `hub` | Input 1 ⇄ · Input 2 ⇄ · … · Ignore null ⇄ · Output → · Index → · On change → | `in.<n>`; `in.ignore_null` → `ignore_null`; outputs | — | Ignore null toggle; operands typed | none |
 | `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
-| `trace` | Tracing → · Message → · Input 1 ⇄ · Input 2 ⇄ · … | `tracing`, `msg`; `in.<n>` | — | Tracing toggle | `tracing`, `msg` have no input |
-| `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict → · Output → | `in.<n>`; `strict`; `out` | — | Strict toggle | an input holds no typed value; `strict` has no input (DGLux pins both); no separator in either |
+| `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
+| `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
 
 Parameters the editor would bind but the engine has no input for show no
 left port, and a wire dragged onto them is refused with `<field> takes no

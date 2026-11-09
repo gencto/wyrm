@@ -42,7 +42,15 @@ abstract class FlowPreviewServiceListener {
 /// one of the new. The same definition again (a block moved) changes
 /// nothing. A stream that ends (its ttl) opens again with the definition in
 /// use; a failure opens it again after a back-off that doubles up to
-/// [retryMax] (`busy`: the broker's 2 previews per subject are in use).
+/// [retryMax] (`busy`: the broker's 16 previews per site are in use).
+///
+/// The broker keeps at most 2 previews per subject and a third ends the
+/// oldest (ADR 0038 §5). It does not see a caller go, so the previews this
+/// service closed on an edit stay until the cap ends them; the one in use
+/// is always the newest and survives. A stream that ends before its [ttl]
+/// was ended that way, by a newer preview of the same user (another
+/// window): that is no error. Its values stay and it opens again after
+/// [retryMax], not at once, so two windows do not keep ending each other's.
 ///
 /// `invalid_parameter` keeps the definition and waits for the next one;
 /// `not_found` / `not_supported` (a broker without the action) and
@@ -55,6 +63,7 @@ class FlowPreviewService extends DisposableServiceInterface {
     this.retryFirst = const Duration(seconds: 1),
     this.retryMax = const Duration(seconds: 30),
     this.maxHz = 4,
+    this.ttl = const Duration(minutes: 10),
   });
 
   final FlowPreviewServiceListener _listener;
@@ -67,6 +76,9 @@ class FlowPreviewService extends DisposableServiceInterface {
 
   /// Rows per node per second the broker sends at most.
   final int maxHz;
+
+  /// How long the broker runs one preview (spec 06: 10 min).
+  final Duration ttl;
 
   WyrmApi? _api;
 
@@ -152,6 +164,7 @@ class FlowPreviewService extends DisposableServiceInterface {
       return;
     }
     var rows = 0;
+    final open = Stopwatch()..start();
     _sub = api
         .invoke(
           at,
@@ -186,9 +199,22 @@ class FlowPreviewService extends DisposableServiceInterface {
             logger.fine('preview $at: $e');
             _again(rows);
           },
-          onDone: () => _again(rows),
+          onDone: () => _ended(rows, open.elapsed),
           cancelOnError: true,
         );
+  }
+
+  /// The stream ended without an error after [ran]: its ttl, or a newer
+  /// preview of the same subject took its place (no failure either way).
+  void _ended(int rows, Duration ran) {
+    if (ran >= ttl * 0.9) {
+      _again(rows);
+      return;
+    }
+    logger.fine('preview $_at: ended after $ran, replaced by a newer one');
+    _sub = null;
+    _failures = 0;
+    _later(retryMax);
   }
 
   /// Opens it again: soon after a stream that carried rows (its ttl), later

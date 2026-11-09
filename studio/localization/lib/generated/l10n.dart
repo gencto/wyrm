@@ -4387,6 +4387,33 @@ class S {
     );
   }
 
+  /// `{n, plural, =1{1 case} other{{n} cases}}`
+  String pairsCount(num n) {
+    return Intl.plural(
+      n,
+      one: '1 case',
+      other: '$n cases',
+      name: 'pairsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Add a case`
+  String get addPair {
+    return Intl.message('Add a case', name: 'addPair', desc: '', args: []);
+  }
+
+  /// `Remove the last case`
+  String get removePair {
+    return Intl.message(
+      'Remove the last case',
+      name: 'removePair',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Unbind`
   String get unbind {
     return Intl.message('Unbind', name: 'unbind', desc: '', args: []);

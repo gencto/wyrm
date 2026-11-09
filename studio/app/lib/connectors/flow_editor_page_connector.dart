@@ -17,6 +17,7 @@ import 'package:business/redux/flow_editor/actions/remove_block_action.dart';
 import 'package:business/redux/flow_editor/actions/resize_inputs_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_form_action.dart';
 import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
+import 'package:business/redux/flow_editor/actions/set_operand_value_action.dart';
 import 'package:business/redux/flow_editor/actions/set_palette_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
@@ -465,7 +466,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         if (f == null) {
           return;
         }
-        if (f.kind == FieldKind.arg) {
+        if (f.operand) {
+          dispatchSync(
+            SetOperandValueAction(b.id, f.inPort!, _typed(text, 'dynamic')),
+          );
+        } else if (f.kind == FieldKind.arg) {
           final args = Map<String, Object?>.of(
             (b.cfg['args'] as Map?)?.cast<String, Object?>() ?? const {},
           );
@@ -716,7 +721,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             .firstOrNull;
         final src = wire == null ? null : d.blocks[wire.from];
         if (wire == null || src == null) {
-          return null;
+          // An unbound operand holds its typed constant (ADR 0038 §7).
+          final f = fields[b.id]
+              ?.where((f) => f.operand && f.inPort == port)
+              .firstOrNull;
+          final constant = f == null ? null : operandValueOf(b, port);
+          return constant == null
+              ? null
+              : LiveValue(time: _typedTime, value: constant);
         }
         return _live(
           src,
@@ -859,12 +871,19 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ],
       variadic: v == null
           ? null
-          : VariadicVm(
-              label: S.current.inputsCount(v.names.length),
-              canRemove: v.names.length > v.min,
-              addLabel: S.current.addInput,
-              removeLabel: S.current.removeInput,
-            ),
+          : (v.step == 2
+                ? VariadicVm(
+                    label: S.current.pairsCount(v.names.length ~/ 2),
+                    canRemove: v.removes.isNotEmpty,
+                    addLabel: S.current.addPair,
+                    removeLabel: S.current.removePair,
+                  )
+                : VariadicVm(
+                    label: S.current.inputsCount(v.names.length),
+                    canRemove: v.removes.isNotEmpty,
+                    addLabel: S.current.addInput,
+                    removeLabel: S.current.removeInput,
+                  )),
     );
   }
 
@@ -957,6 +976,22 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.text,
         value: v == null ? '' : (v is String ? v : jsonEncode(v)),
+      );
+    }
+    if (f.operand) {
+      // An operand holds a typed constant until a binding replaces it.
+      final v = operandValueOf(b, f.inPort!);
+      return InspectorRowVm(
+        id: f.id,
+        name: f.label,
+        engine: f.name == f.label ? '' : f.name,
+        editor: FieldEditorVm.text,
+        value: switch (v) {
+          null => '',
+          final String s => s,
+          _ => jsonEncode(v),
+        },
+        inPort: f.inPort,
       );
     }
     final value = fieldValue(b, f, d, live).text;

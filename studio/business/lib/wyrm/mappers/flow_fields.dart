@@ -96,6 +96,7 @@ final class FlowField {
     this.onBlock = true,
     this.outAliases = const [],
     this.variable = false,
+    this.operand = false,
   });
 
   /// Unique within the block: `p:<name>`, `in:<port>`, `out:<port>`,
@@ -133,6 +134,11 @@ final class FlowField {
   /// the input `in` and the output `out` as one field.
   final bool variable;
 
+  /// An operand input that holds a typed constant (`values.<inPort>`, ADR
+  /// 0038 §7): its value until a binding replaces it; the constant stays
+  /// in the config while bound and returns on unbind.
+  final bool operand;
+
   /// Whether an edge out of [port] leaves this field.
   bool sends(String port) => port == outPort || outAliases.contains(port);
 
@@ -150,6 +156,7 @@ final class FlowField {
       other.outPort == outPort &&
       other.onBlock == onBlock &&
       other.variable == variable &&
+      other.operand == operand &&
       _same(other.outAliases, outAliases);
 
   static bool _same(List<String> a, List<String> b) =>
@@ -166,13 +173,14 @@ final class FlowField {
     outPort,
     onBlock,
     variable,
+    operand,
     Object.hashAll(outAliases),
   );
 
   @override
   String toString() =>
       'FlowField($name "$label" ${inPort ?? '-'} → ${outPort ?? '-'}'
-      '${onBlock ? '' : ' hidden'})';
+      '${onBlock ? '' : ' hidden'}${operand ? ' operand' : ''})';
 }
 
 /// The variable inputs of a block (`inputs` of `add`, `if`, `expression`):
@@ -183,6 +191,7 @@ final class Variadic {
     required this.prefix,
     required this.names,
     required this.min,
+    this.step = 1,
   });
 
   /// The list parameter (`inputs`).
@@ -194,6 +203,31 @@ final class Variadic {
 
   /// Fewer is refused (the type's default count, at least 1).
   final int min;
+
+  /// How many names one − or + takes away or adds: 2 for a block whose
+  /// inputs come in pairs (`case`: a case, then what it gives).
+  final int step;
+
+  /// The names + adds: [step] free names after [names].
+  List<String> get adds {
+    final out = <String>[];
+    var v = this;
+    for (var i = 0; i < step; i++) {
+      final n = v.next;
+      out.add(n);
+      v = Variadic(
+        param: param,
+        prefix: prefix,
+        names: [...v.names, n],
+        min: min,
+      );
+    }
+    return out;
+  }
+
+  /// The names − takes away: the last [step]; none at [min].
+  List<String> get removes =>
+      names.length - step < min ? const [] : names.sublist(names.length - step);
 
   /// The name + adds: the next free number when every name is one, else
   /// the next free letter.
@@ -233,13 +267,25 @@ Variadic? variadicOf(NodeType? t, FlowBlock b) {
     ],
     _ => t.dynInDefaults.toList(),
   };
+  final step = pairedInputs.contains(b.type) ? 2 : 1;
   return Variadic(
     param: param,
     prefix: t.dynInPrefix,
     names: names,
-    min: math.max(1, t.dynInDefaults.length),
+    min: math.max(step, t.dynInDefaults.length),
+    step: step,
   );
 }
+
+/// Block types whose variable inputs come in pairs: `case` (a case value,
+/// then what it gives; ADR 0038 §8).
+const pairedInputs = {'case'};
+
+/// What the variable input at [index] of a paired block reads: `Case 1`,
+/// `Then 1`, `Case 2`, … (flow-editor.md §3: labels by position, as the
+/// engine reads the pairs by position).
+String pairLabel(int index) =>
+    '${index.isEven ? 'Case' : 'Then'} ${index ~/ 2 + 1}';
 
 // ---------- labels (flow-editor.md §3, owner decision 2026-11-08) ----------
 
@@ -506,6 +552,7 @@ List<FlowField> fieldsOf(
     }
   }
   final paramPorts = portOf.values.toSet();
+  final operands = operandPortsOf(t, b).toSet();
   final dynIns = ports.inputs.where((p) => !t.inputs.contains(p)).toList();
   final fixedIns = [
     for (final p in t.inputs)
@@ -560,23 +607,28 @@ List<FlowField> fieldsOf(
                   p.required),
         ),
   ];
-  FlowField input(String port, {required bool variable}) => FlowField(
-    id: 'in:$port',
-    name: port,
-    label: switch (b.type) {
-      'publish' when port == 'in' => 'Value',
-      'set' when port == 'in' => pointName ?? 'Input',
-      'invoke' when port == 'in' => 'Run when',
-      _ => fieldLabel(b.type, port, variable: variable),
-    },
-    kind: .input,
-    inPort: port,
-    // A writable point repeats what it writes (spec §3, tree point).
-    outPort: inEcho[port],
-  );
+  FlowField input(String port, {required bool variable, int index = 0}) =>
+      FlowField(
+        id: 'in:$port',
+        name: port,
+        label: switch (b.type) {
+          'publish' when port == 'in' => 'Value',
+          'set' when port == 'in' => pointName ?? 'Input',
+          'invoke' when port == 'in' => 'Run when',
+          _ when variable && pairedInputs.contains(b.type) => pairLabel(index),
+          _ => fieldLabel(b.type, port, variable: variable),
+        },
+        kind: .input,
+        inPort: port,
+        // A writable point repeats what it writes (spec §3, tree point).
+        outPort: inEcho[port],
+        operand: operands.contains(port),
+      );
 
   final fixed = [for (final p in fixedIns) input(p, variable: false)];
-  final dyn = [for (final p in dynIns) input(p, variable: true)];
+  final dyn = [
+    for (final (i, p) in dynIns.indexed) input(p, variable: true, index: i),
+  ];
   final args = <FlowField>[
     if (b.type == 'invoke')
       if (b.cfg['args'] case final Map<String, Object?> m)
@@ -624,6 +676,7 @@ const tailParams = <String, Set<String>>{
   'if': {'then', 'else'},
   'concat': {'strict'},
   'hub': {'ignore_null'},
+  'case': {'else'},
 };
 
 /// Whether blocks of [t] are variables: one parameter `value`, at most the
@@ -856,6 +909,15 @@ FieldValue fieldValue(
         return FieldValue('', bound: bound);
       }
     case FieldKind.input:
+      // An operand's typed constant, until a binding replaces it (ADR 0038
+      // §7): bound, the value that comes in; else the constant.
+      final constant = f.operand && !bound
+          ? operandValueOf(b, f.inPort!)
+          : null;
+      if (constant != null) {
+        shown = constant;
+        break;
+      }
       sample = live(portKey('in', b.id, f.inPort!));
       shown = sample?.value;
       if (sample == null) {

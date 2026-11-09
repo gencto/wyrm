@@ -320,7 +320,8 @@ void main() {
       },
     );
 
-    test('rows and sinks reach the listener; an end (ttl) reopens', () async {
+    test('rows and sinks (full keys; a row of sinks alone) reach the '
+        'listener', () async {
       svc.show(at, def(70));
       await settle();
       heard.values.clear();
@@ -341,7 +342,8 @@ void main() {
             {
               'node': 'knob',
               'op': 'set',
-              'key': 'downstream/mockdev/bench/rig1/knob',
+              // The full key it would write (ADR 0038 §5).
+              'key': 'wy/central/downstream/mockdev/bench/rig1/knob/~set',
               'value': 70.7,
             },
           ],
@@ -352,9 +354,90 @@ void main() {
       expect(reset, isTrue);
       expect(ports['out:limit.out']!.value, 70);
       expect(sinks['knob']!.value, 70.7);
-      await api.opened[id]!.single.close();
+
+      // A row of sinks alone: a change row with `nodes: {}`.
+      heard.values.clear();
+      api.opened[id]!.single.add(
+        Value.from({
+          't': 1700000001000000,
+          'snapshot': false,
+          'nodes': <String, Object>{},
+          'sinks': [
+            {
+              'node': 'knob',
+              'op': 'set',
+              'key': 'wy/central/downstream/mockdev/bench/rig1/knob/~set',
+              'value': 71,
+            },
+          ],
+        }),
+      );
       await settle();
-      expect(api.opened[id], hasLength(2), reason: 'opened again');
+      final (p2, s2, r2) = heard.values.single;
+      expect(p2, isEmpty);
+      expect(r2, isFalse, reason: 'the ports stay');
+      expect(s2['knob']!.value, 71);
+    });
+
+    test('an end at its ttl opens again soon', () async {
+      final svc = FlowPreviewService(
+        listener: heard,
+        debounce: const Duration(milliseconds: 10),
+        flushEvery: const Duration(milliseconds: 1),
+        retryFirst: const Duration(milliseconds: 5),
+        ttl: Duration.zero,
+      )..attach(api);
+      addTearDown(svc.dispose);
+      svc.show(at, def(1));
+      await settle();
+      final before = api.opened[id]!.length;
+      api.opened[id]!.last.add(
+        Value.from({'t': 1, 'snapshot': true, 'nodes': <String, Object>{}}),
+      );
+      await api.opened[id]!.last.close();
+      await settle();
+      expect(api.opened[id], hasLength(before + 1), reason: 'opened again');
+    });
+
+    test('ended early by a newer preview of the same user: no error, the '
+        'values stay, opened again later', () async {
+      // The broker keeps 2 previews per subject; a third ends the oldest.
+      final svc = FlowPreviewService(
+        listener: heard,
+        debounce: const Duration(milliseconds: 10),
+        flushEvery: const Duration(milliseconds: 1),
+        retryFirst: const Duration(milliseconds: 5),
+        retryMax: const Duration(milliseconds: 80),
+      )..attach(api);
+      addTearDown(svc.dispose);
+      svc.show(at, def(1));
+      await settle();
+      final before = api.opened[id]!.length;
+      api.opened[id]!.last.add(
+        Value.from({
+          't': 1,
+          'snapshot': true,
+          'nodes': {
+            'limit': {
+              'in': <String, Object>{},
+              'out': {
+                'out': [1, 0],
+              },
+              'params': {'value': 1},
+            },
+          },
+        }),
+      );
+      await settle();
+      heard.values.clear();
+      await api.opened[id]!.last.close();
+      await settle();
+      expect(api.opened[id], hasLength(before), reason: 'not at once');
+      expect(heard.values, isEmpty, reason: 'its values stay');
+      expect(heard.invalid, isEmpty);
+      expect(heard.off, isEmpty);
+      await settle(100);
+      expect(api.opened[id], hasLength(before + 1), reason: 'opened later');
     });
 
     test('an invalid draft is told with the compiler message; its values '

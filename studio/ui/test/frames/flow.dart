@@ -724,8 +724,8 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
 );
 
 /// A `scale` in each form (ADR 0032 §7), as the editor builds it from the
-/// catalog: the linear form reads Input · Factor · Offset · Output (no left
-/// port on Factor and Offset: the engine has no `in.k`, `in.b`); the range
+/// catalog: the linear form reads Input · Factor · Offset · Output (both
+/// ports on Factor and Offset: `in.k`, `in.b` since spec 06 0.2.17); the range
 /// form reads the four range fields, each with both ports, and
 /// `Input out of range`.
 FlowEditorPage flowScale({required bool range}) {
@@ -741,8 +741,8 @@ FlowEditorPage flowScale({required bool range}) {
         ]
       : [
           _r('in', '3790', ins: 'bound', tone: ValueTone.bound),
-          _r('k', '0.0244', ins: '', label: 'Factor'),
-          _r('b', '0', ins: '', label: 'Offset'),
+          _r('k', '0.0244', label: 'Factor'),
+          _r('b', '0', label: 'Offset'),
           _r('out', '92.6', ins: '', outs: 'bound'),
         ];
   return _bind(
@@ -823,6 +823,7 @@ FlowEditorPage flowScale({required bool range}) {
           engine: 'k',
           editor: FieldEditorVm.text,
           value: '0.0244',
+          inPort: 'k',
         ),
         const InspectorRowVm(
           id: 'b',
@@ -830,6 +831,7 @@ FlowEditorPage flowScale({required bool range}) {
           engine: 'b',
           editor: FieldEditorVm.text,
           value: '0',
+          inPort: 'b',
         ),
       ],
       const InspectorRowVm(
@@ -917,7 +919,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
         tone: ValueTone.bound,
         label: 'Input 2',
       ),
-      _r('strict', 'false', ins: '', label: 'Strict'),
+      _r('strict', 'false', label: 'Strict'),
       _r('out', 'Hello, tank 3', ins: '', outs: 'bound'),
     ],
     variadic: const VariadicVm(label: '2 inputs', canRemove: false),
@@ -931,8 +933,8 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
     selected: selected == 'cmd',
     rows: [
       _r('in', preview ? '70' : '25', ins: 'bound', tone: ValueTone.bound),
-      _r('k', '1.01', ins: '', label: 'Factor'),
-      _r('b', '0', ins: '', label: 'Offset'),
+      _r('k', '1.01', label: 'Factor'),
+      _r('b', '0', label: 'Offset'),
       _r('out', preview ? '70.7' : '25.25', ins: '', outs: 'bound'),
     ],
   ),
@@ -1051,6 +1053,7 @@ FlowEditorPage flowBoundValue() => _bind(
       engine: 'strict',
       editor: FieldEditorVm.toggle,
       value: 'false',
+      inPort: 'strict',
     ),
     InspectorRowVm(
       id: 'out',
@@ -1081,4 +1084,256 @@ FlowEditorPage flowPreviewSink() => _bind(
       ('Writes', 'downstream/mockdev/bench/rig1/knob'),
     ],
   ),
+);
+
+/// A `case` block as the editor builds it from the 0.2.21 catalog (ADR 0038
+/// §8): Input · Operation · Case 1 · Then 1 · Case 2 · Then 2 · Else ·
+/// Output, the pairs typed as constants (`values`), − / + by a pair.
+FlowEditorPage flowCase() => _bind(
+  flow: 'tiers',
+  selected: 'tier',
+  kind: 'Logic block',
+  title: 'tier',
+  note:
+      'The then of the first pair whose case in matches by op; else when '
+      'none does.',
+  blocks: [
+    FlowBlockVm(
+      id: 'level',
+      title: 'level',
+      type: 'plc/tank',
+      kind: BlockKindVm.node,
+      x: 40 + _m,
+      y: 80 + _m,
+      width: 200,
+      rows: [_r('level', '92.6 %', ins: '', outs: 'bound')],
+    ),
+    FlowBlockVm(
+      id: 'tier',
+      title: 'tier',
+      type: 'case',
+      x: 320 + _m,
+      y: 60 + _m,
+      selected: true,
+      rows: [
+        _r('in', '92.6', ins: 'bound', tone: ValueTone.bound),
+        _r('op', '>=', label: 'Operation'),
+        _r('in.0', '90', label: 'Case 1'),
+        _r('in.1', 'high', label: 'Then 1'),
+        _r('in.2', '10', label: 'Case 2'),
+        _r('in.3', 'normal', label: 'Then 2'),
+        _r('else', 'low', label: 'Else'),
+        _r('out', 'high', ins: '', outs: 'bound'),
+      ],
+      variadic: const VariadicVm(
+        label: '2 cases',
+        addLabel: 'Add a case',
+        removeLabel: 'Remove the last case',
+      ),
+    ),
+    FlowBlockVm(
+      id: 'show',
+      title: 'show',
+      type: 'publish',
+      kind: BlockKindVm.sink,
+      x: 640 + _m,
+      y: 100 + _m,
+      width: 210,
+      rows: [
+        _r('node', 'tier', ins: '', outs: '', label: 'Value name'),
+        _r(
+          'in',
+          'high',
+          ins: 'bound',
+          outs: '',
+          tone: ValueTone.bound,
+          label: 'Value',
+        ),
+      ],
+    ),
+  ],
+  wires: const [
+    FlowWireVm('level', 'level', 'tier', 'in'),
+    FlowWireVm('tier', 'out', 'show', 'in'),
+  ],
+  rows: const [
+    InspectorRowVm(
+      id: 'in',
+      name: 'Input',
+      engine: 'in',
+      editor: FieldEditorVm.bound,
+      value: '92.6',
+      sourceBlock: 'level',
+      inPort: 'in',
+    ),
+    InspectorRowVm(
+      id: 'op',
+      name: 'Operation',
+      engine: 'op',
+      editor: FieldEditorVm.choice,
+      value: '>=',
+      choices: [
+        '=',
+        '!=',
+        '>',
+        '<',
+        '>=',
+        '<=',
+        'contains',
+        'starts_with',
+        'ends_with',
+      ],
+      inPort: 'op',
+    ),
+    InspectorRowVm(
+      id: 'in.0',
+      name: 'Case 1',
+      engine: 'in.0',
+      editor: FieldEditorVm.text,
+      value: '90',
+      inPort: 'in.0',
+    ),
+    InspectorRowVm(
+      id: 'in.1',
+      name: 'Then 1',
+      engine: 'in.1',
+      editor: FieldEditorVm.text,
+      value: 'high',
+      inPort: 'in.1',
+    ),
+    InspectorRowVm(
+      id: 'in.2',
+      name: 'Case 2',
+      engine: 'in.2',
+      editor: FieldEditorVm.text,
+      value: '10',
+      inPort: 'in.2',
+    ),
+    InspectorRowVm(
+      id: 'in.3',
+      name: 'Then 2',
+      engine: 'in.3',
+      editor: FieldEditorVm.text,
+      value: 'normal',
+      inPort: 'in.3',
+    ),
+    InspectorRowVm(
+      id: 'else',
+      name: 'Else',
+      engine: 'else',
+      editor: FieldEditorVm.text,
+      value: 'low',
+      inPort: 'else',
+      hint: 'Sent when no case matches (default null).',
+    ),
+    InspectorRowVm(
+      id: 'out',
+      name: 'Output',
+      engine: 'out',
+      editor: FieldEditorVm.output,
+      value: 'high',
+      targets: '→ show.Value',
+    ),
+  ],
+);
+
+/// Operands hold a typed value (ADR 0038 §7): `concat` Input 1 typed
+/// `AHU-` (plain, an editable text in the inspector), Input 2 bound to a
+/// number (the value that comes in, in accent; read only, bound).
+FlowEditorPage flowOperand() => _bind(
+  flow: 'tags',
+  selected: 'tag',
+  kind: 'Logic block',
+  title: 'tag',
+  note: 'The inputs as one text.',
+  blocks: [
+    FlowBlockVm(
+      id: 'unit',
+      title: 'unit',
+      type: 'number',
+      x: 40 + _m,
+      y: 120 + _m,
+      rows: [_r('value', '2', outs: 'bound')],
+    ),
+    FlowBlockVm(
+      id: 'tag',
+      title: 'tag',
+      type: 'concat',
+      x: 320 + _m,
+      y: 80 + _m,
+      selected: true,
+      rows: [
+        _r('in.0', 'AHU-', label: 'Input 1'),
+        _r(
+          'in.1',
+          '2',
+          ins: 'bound',
+          tone: ValueTone.bound,
+          label: 'Input 2',
+        ),
+        _r('strict', 'false', label: 'Strict'),
+        _r('out', 'AHU-2', ins: '', outs: 'bound'),
+      ],
+      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+    ),
+    FlowBlockVm(
+      id: 'show',
+      title: 'show',
+      type: 'publish',
+      kind: BlockKindVm.sink,
+      x: 640 + _m,
+      y: 100 + _m,
+      width: 210,
+      rows: [
+        _r('node', 'tag', ins: '', outs: '', label: 'Value name'),
+        _r(
+          'in',
+          'AHU-2',
+          ins: 'bound',
+          outs: '',
+          tone: ValueTone.bound,
+          label: 'Value',
+        ),
+      ],
+    ),
+  ],
+  wires: const [
+    FlowWireVm('unit', 'value', 'tag', 'in.1'),
+    FlowWireVm('tag', 'out', 'show', 'in'),
+  ],
+  rows: const [
+    InspectorRowVm(
+      id: 'in.0',
+      name: 'Input 1',
+      engine: 'in.0',
+      editor: FieldEditorVm.text,
+      value: 'AHU-',
+      inPort: 'in.0',
+    ),
+    InspectorRowVm(
+      id: 'in.1',
+      name: 'Input 2',
+      engine: 'in.1',
+      editor: FieldEditorVm.bound,
+      value: '2',
+      sourceBlock: 'unit',
+      inPort: 'in.1',
+    ),
+    InspectorRowVm(
+      id: 'strict',
+      name: 'Strict',
+      engine: 'strict',
+      editor: FieldEditorVm.toggle,
+      value: 'false',
+      inPort: 'strict',
+    ),
+    InspectorRowVm(
+      id: 'out',
+      name: 'Output',
+      engine: 'out',
+      editor: FieldEditorVm.output,
+      value: 'AHU-2',
+      targets: '→ show.Value',
+    ),
+  ],
 );

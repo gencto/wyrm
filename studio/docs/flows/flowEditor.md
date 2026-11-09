@@ -305,7 +305,8 @@ sequenceDiagram
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
     participant A1 as SetBlockFormAction
-    participant A2 as SetBlockParamAction
+    participant A2 as SetOperandValueAction
+    participant A3 as SetBlockParamAction
     participant ST as AppState
 
     User->>UI: onFieldChanged
@@ -315,15 +316,20 @@ sequenceDiagram
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
         A1->>ST: dispatchAndWait(ValidateFlowAction)
     end
-    alt f.kind == FieldKind.arg
+    alt f.operand
         VM->>A2: dispatchSync
         A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
         A2->>ST: dispatchAndWait(ValidateFlowAction)
     end
+    alt f.kind == FieldKind.arg
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: dispatchAndWait(ValidateFlowAction)
+    end
     alt f.spec
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
-        A2->>ST: dispatchAndWait(ValidateFlowAction)
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty)
+        A3->>ST: dispatchAndWait(ValidateFlowAction)
     end
 ```
 
@@ -436,7 +442,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onRebind` | `RebindEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
 | `onDropEntry` | `AddBlockAction` | `flowEditor.draft, flowEditor.selectedBlock, flowEditor.dirty` |
 | `onResize` | `ResizeInputsAction` | `flowEditor.draft, flowEditor.dirty` |
-| `onFieldChanged` | `SetBlockFormAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
+| `onFieldChanged` | `SetBlockFormAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty` |
 | `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty` |
 | `onFieldBind` | `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty` |
 | `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock` |
