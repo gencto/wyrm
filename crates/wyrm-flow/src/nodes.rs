@@ -59,10 +59,29 @@ impl PortType {
     }
 }
 
+/// What an echo output repeats (ADR 0038 §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EchoOf {
+    /// The parameter of the same name: its effective value, at start and on every change.
+    Param,
+    /// The input of the same name: every sample, before the node handles it.
+    Input,
+}
+
+/// An output that repeats a field of the node: built only when an edge reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Echo {
+    pub name: String,
+    pub ty: PortType,
+    pub of: EchoOf,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Ports {
     pub inputs: Vec<(String, PortType)>,
     pub outputs: Vec<(String, PortType)>,
+    /// The echo outputs (`crate::catalog`), apart from the declared ones.
+    pub echoes: Vec<Echo>,
 }
 
 impl Ports {
@@ -70,16 +89,23 @@ impl Ports {
         Self {
             inputs: inputs.iter().map(|(n, t)| ((*n).to_owned(), *t)).collect(),
             outputs: outputs.iter().map(|(n, t)| ((*n).to_owned(), *t)).collect(),
+            echoes: Vec::new(),
         }
     }
 
-    /// `out`, `event`, or `out.<name>` for a named output.
+    /// `out`, `event`, or `out.<name>` for a named output; else an echo output of that name.
     pub fn output(&self, port: &str) -> Option<PortType> {
         let p = port.strip_prefix("out.").unwrap_or(port);
         self.outputs
             .iter()
             .find(|(n, _)| n == port || n == p)
             .map(|(_, t)| *t)
+            .or_else(|| self.echo(port).map(|e| e.ty))
+    }
+
+    /// The echo output `port`, if the node has one.
+    pub fn echo(&self, port: &str) -> Option<&Echo> {
+        self.echoes.iter().find(|e| e.name == port)
     }
 
     pub fn input(&self, port: &str) -> Option<PortType> {
@@ -199,8 +225,49 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
 /// `k × · + b`.
 const SCALE_RANGE: &[&str] = &["input_min", "input_max", "output_min", "output_max"];
 
-/// Ports and config validation of a node type (compiler step 3).
+/// `alarm`'s parameters with a port `in.<p>` (spec 06 0.2.17).
+const ALARM_PORTS: &[&str] = &["high", "low", "hysteresis", "delay_s", "return_delay_s"];
+
+/// A sample on a parameter's port `in.<p>` (spec 06 0.2.17, ADR 0032 §2 style: the config
+/// gives the start, the last good sample wins): a finite number that `ok` accepts, else
+/// `None` (ignored, the last good value stays).
+fn param_sample(m: &Msg, ok: impl Fn(f64) -> bool) -> Option<f64> {
+    m.v.as_f64().filter(|x| x.is_finite() && ok(*x))
+}
+
+/// The effective parameters of a node with parameter ports, and their change counter.
+struct Live {
+    params: BTreeMap<String, Value>,
+    rev: u64,
+}
+
+impl Live {
+    fn new(ty: &str, cfg: &Map) -> Self {
+        Self {
+            params: crate::catalog::effective_params(ty, cfg),
+            rev: 0,
+        }
+    }
+
+    fn set(&mut self, p: &str, x: f64) {
+        self.params.insert(p.to_owned(), Value::Float(x));
+        self.rev += 1;
+    }
+
+    fn get(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        Some((self.rev, &self.params))
+    }
+}
+
+/// Ports and config validation of a node type (compiler step 3), with the echo outputs of its
+/// fields (ADR 0038 §1).
 pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+    let mut p = declared_ports(ty, cfg)?;
+    p.echoes = crate::catalog::echoes(ty, &p);
+    Ok(p)
+}
+
+fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     use PortType::*;
     if let Some(r) = crate::blocks::ports(ty, cfg) {
         return r;
@@ -217,7 +284,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if p < 10.0 {
                 return Err("period_ms: at least 10".into());
             }
-            Ports::new(&[], &[("out", Number)])
+            Ports::new(&[("in.period_ms", Number)], &[("out", Number)])
         }
         "const" => {
             only(cfg, &["value"])?;
@@ -238,6 +305,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports {
                 inputs: ins.into_iter().map(|n| (n, Any)).collect(),
                 outputs: vec![("out".into(), Any)],
+                echoes: Vec::new(),
             }
         }
         "scale" => {
@@ -253,10 +321,16 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 f(cfg, k)?;
             }
             let mut ins = vec![("in".to_owned(), Number)];
-            ins.extend(SCALE_RANGE.iter().map(|r| (format!("in.{r}"), Number)));
+            ins.extend(
+                ["k", "b"]
+                    .iter()
+                    .chain(SCALE_RANGE)
+                    .map(|r| (format!("in.{r}"), Number)),
+            );
             Ports {
                 inputs: ins,
                 outputs: vec![("out".into(), Number), ("input_out_of_range".into(), Bool)],
+                echoes: Vec::new(),
             }
         }
         "deadband" => {
@@ -264,7 +338,10 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if f(cfg, "abs")?.is_none() && f(cfg, "pct")?.is_none() {
                 return Err("abs or pct: required".into());
             }
-            Ports::new(&[("in", Number)], &[("out", Number)])
+            Ports::new(
+                &[("in", Number), ("in.abs", Number), ("in.pct", Number)],
+                &[("out", Number)],
+            )
         }
         "window" => {
             only(cfg, &["kind", "size_s", "fn", "max_samples"])?;
@@ -280,7 +357,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             if size <= 0.0 {
                 return Err("size_s: must be > 0".into());
             }
-            Ports::new(&[("in", Number)], &[("out", Number)])
+            Ports::new(&[("in", Number), ("in.size_s", Number)], &[("out", Number)])
         }
         "alarm" => {
             only(
@@ -301,7 +378,13 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             f(cfg, "delay_s")?;
             f(cfg, "return_delay_s")?;
             one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?;
-            Ports::new(&[("in", Number)], &[("out", Bool), ("event", Map)])
+            let mut ins = vec![("in".to_owned(), Number)];
+            ins.extend(ALARM_PORTS.iter().map(|p| (format!("in.{p}"), Number)));
+            Ports {
+                inputs: ins,
+                outputs: vec![("out".into(), Bool), ("event".into(), Map)],
+                echoes: Vec::new(),
+            }
         }
         "latch" => {
             only(cfg, &["reset"])?;
@@ -311,7 +394,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         "delay" => {
             only(cfg, &["ms"])?;
             f(cfg, "ms")?.ok_or("ms: required")?;
-            Ports::new(&[("in", Any)], &[("out", Any)])
+            Ports::new(&[("in", Any), ("in.ms", Number)], &[("out", Any)])
         }
         "filter" => {
             only(cfg, &["expr"])?;
@@ -350,6 +433,7 @@ pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports {
                 inputs: w.inputs.into_iter().map(|n| (n, Any)).collect(),
                 outputs: w.outputs.into_iter().map(|n| (n, Any)).collect(),
+                echoes: Vec::new(),
             }
         }
         other => return Err(format!("type: unknown node type {other}")),
@@ -428,6 +512,18 @@ pub trait Node: Send {
         None
     }
     fn restore(&mut self, _state: &Value) {}
+    /// The effective value of each parameter, for a node whose parameters change while it runs
+    /// (a sample on `in.<p>`, or the node itself), with a counter that grows on every change
+    /// (ADR 0038). `None`: the parameters are the config ([`crate::catalog::effective_params`]).
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        None
+    }
+    /// The inputs' constants (config `values`, spec 06 0.2.19) as `(port, value)`: each is the
+    /// input's value until a sample replaces it. They calculate nothing; `watch` shows them as
+    /// the inputs' values from the start.
+    fn seeds(&self) -> Vec<(String, Value)> {
+        Vec::new()
+    }
 }
 
 fn truthy(v: &Value) -> bool {
@@ -439,16 +535,30 @@ fn truthy(v: &Value) -> bool {
 
 // ---------- sources ----------
 
+/// The I/O tasks a source started: they end with the node (a stop, a hot swap, the end of a
+/// preview), not later.
+#[derive(Default)]
+struct Tasks(Vec<tokio::task::JoinHandle<()>>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for t in &self.0 {
+            t.abort();
+        }
+    }
+}
+
 struct Subscribe {
     key: String,
     last: Option<Value>,
+    tasks: Tasks,
 }
 
 impl Node for Subscribe {
     fn start(&mut self, io: &Io) {
         let pattern = io.full_key(&self.key);
         let (io2, client) = (io.clone(), io.client.clone());
-        tokio::spawn(async move {
+        self.tasks.0.push(tokio::spawn(async move {
             let Ok(mut s) = client.subscribe(&pattern).await else {
                 return;
             };
@@ -465,12 +575,12 @@ impl Node for Subscribe {
                     );
                 }
             }
-        });
+        }));
         // Owner gone → `bad/disconnected` with the previous value.
         let full = io.full_key(&self.key);
         if let Some(owner) = wyrm_client::owner_key(&full).filter(|o| !o.contains('*')) {
             let (io3, session) = (io.clone(), io.client.session().clone());
-            tokio::spawn(async move {
+            self.tasks.0.push(tokio::spawn(async move {
                 let Ok(sub) = session.liveliness().declare_subscriber(&owner).await else {
                     return;
                 };
@@ -479,7 +589,7 @@ impl Node for Subscribe {
                         (io3.inject)("__lost", Msg::new(Value::Null, Quality::Bad, now_us()));
                     }
                 }
-            });
+            }));
         }
     }
 
@@ -502,16 +612,27 @@ impl Node for Subscribe {
 struct Timer {
     period: Duration,
     n: u64,
+    live: Live,
 }
 
 impl Node for Timer {
-    fn input(&mut self, _p: &str, _m: Msg, _io: &Io, _out: &mut Out) {}
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if p == "in.period_ms" {
+            if let Some(x) = param_sample(&m, |x| x >= 10.0) {
+                self.period = Duration::from_secs_f64(x / 1000.0);
+                self.live.set("period_ms", x);
+            }
+        }
+    }
     fn tick_every(&self) -> Option<Duration> {
         Some(self.period)
     }
     fn tick(&mut self, now: u64, out: &mut Out) {
         self.n += 1;
         out.emit("out", Msg::new(Value::UInt(self.n), Quality::Good, now));
+    }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
     }
 }
 
@@ -530,13 +651,14 @@ impl Node for Const {
 
 struct Liveliness {
     key: String,
+    tasks: Tasks,
 }
 
 impl Node for Liveliness {
     fn start(&mut self, io: &Io) {
         let key = io.full_key(&self.key);
         let (io2, session) = (io.clone(), io.client.session().clone());
-        tokio::spawn(async move {
+        self.tasks.0.push(tokio::spawn(async move {
             let Ok(sub) = session
                 .liveliness()
                 .declare_subscriber(&key)
@@ -549,7 +671,7 @@ impl Node for Liveliness {
                 let up = s.kind() == zenoh::sample::SampleKind::Put;
                 (io2.inject)("__src", Msg::new(Value::Bool(up), Quality::Good, now_us()));
             }
-        });
+        }));
     }
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
         if port == "__src" {
@@ -669,6 +791,9 @@ struct Scale {
     b: f64,
     /// `[input_min, input_max, output_min, output_max]` once one is given.
     range: Option<[f64; 4]>,
+    /// The effective parameters (ADR 0038): the config, then the samples on the range ports.
+    params: BTreeMap<String, Value>,
+    rev: u64,
 }
 
 impl Scale {
@@ -686,6 +811,18 @@ impl Scale {
 
 impl Node for Scale {
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(p @ ("k" | "b")) = port.strip_prefix("in.") {
+            if let Some(x) = param_sample(&m, |_| true) {
+                if p == "k" {
+                    self.k = x;
+                } else {
+                    self.b = x;
+                }
+                self.params.insert(p.to_owned(), Value::Float(x));
+                self.rev += 1;
+            }
+            return;
+        }
         if let Some(i) = port
             .strip_prefix("in.")
             .and_then(|r| SCALE_RANGE.iter().position(|x| *x == r))
@@ -693,6 +830,9 @@ impl Node for Scale {
             if let Some(x) = m.v.as_f64().filter(|x| x.is_finite()) {
                 let r = self.range.get_or_insert([0.0, 1.0, 0.0, 100.0]);
                 r[i] = x;
+                self.params
+                    .insert(SCALE_RANGE[i].to_owned(), Value::Float(x));
+                self.rev += 1;
             }
             return;
         }
@@ -716,16 +856,32 @@ impl Node for Scale {
             out.emit("out", Msg::new(Value::Float(y), m.q, m.t));
         }
     }
+
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        Some((self.rev, &self.params))
+    }
 }
 
 struct Deadband {
     abs: Option<f64>,
     pct: Option<f64>,
     last: Option<(f64, Quality)>,
+    live: Live,
 }
 
 impl Node for Deadband {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(name @ ("abs" | "pct")) = p.strip_prefix("in.") {
+            if let Some(x) = param_sample(&m, |_| true) {
+                if name == "abs" {
+                    self.abs = Some(x);
+                } else {
+                    self.pct = Some(x);
+                }
+                self.live.set(name, x);
+            }
+            return;
+        }
         let Some(x) = m.v.as_f64() else { return };
         let pass = match self.last {
             None => true,
@@ -756,6 +912,9 @@ impl Node for Deadband {
             }
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Window {
@@ -765,6 +924,7 @@ struct Window {
     max: usize,
     buf: VecDeque<(u64, f64, Quality)>,
     start: Option<u64>,
+    live: Live,
 }
 
 impl Window {
@@ -803,7 +963,14 @@ impl Window {
 }
 
 impl Node for Window {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if p == "in.size_s" {
+            if let Some(x) = param_sample(&m, |x| x > 0.0) {
+                self.size_us = ((x * 1e6) as u64).max(1);
+                self.live.set("size_s", x);
+            }
+            return;
+        }
         let Some(x) = m.v.as_f64() else { return };
         if m.q == Quality::Bad {
             return;
@@ -881,6 +1048,9 @@ impl Node for Window {
             }
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Alarm {
@@ -892,6 +1062,7 @@ struct Alarm {
     on_bad: String,
     active: bool,
     pending: Option<(bool, u64, f64)>,
+    live: Live,
 }
 
 impl Alarm {
@@ -913,7 +1084,24 @@ impl Alarm {
 }
 
 impl Node for Alarm {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, out: &mut Out) {
+        if let Some(name) = p
+            .strip_prefix("in.")
+            .and_then(|n| ALARM_PORTS.iter().find(|x| **x == n))
+        {
+            let delay = name.ends_with("delay_s");
+            if let Some(x) = param_sample(&m, |x| !delay || x >= 0.0) {
+                match *name {
+                    "high" => self.high = Some(x),
+                    "low" => self.low = Some(x),
+                    "hysteresis" => self.hyst = x,
+                    "delay_s" => self.delay_us = (x * 1e6) as u64,
+                    _ => self.ret_us = (x * 1e6) as u64,
+                }
+                self.live.set(name, x);
+            }
+            return;
+        }
         if m.q == Quality::Bad {
             // Lost data must not raise false alarms or clear real ones.
             match self.on_bad.as_str() {
@@ -963,6 +1151,9 @@ impl Node for Alarm {
             self.active = *b;
         }
     }
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
 }
 
 struct Latch {
@@ -997,10 +1188,23 @@ impl Node for Latch {
 struct Delay {
     us: u64,
     queue: VecDeque<(u64, Msg)>,
+    live: Live,
 }
 
 impl Node for Delay {
-    fn input(&mut self, _p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+    fn live_params(&self) -> Option<(u64, &BTreeMap<String, Value>)> {
+        self.live.get()
+    }
+
+    fn input(&mut self, p: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if p == "in.ms" {
+            // a sample already waiting keeps its time
+            if let Some(x) = param_sample(&m, |x| x >= 0.0) {
+                self.us = (x * 1000.0) as u64;
+                self.live.set("ms", x);
+            }
+            return;
+        }
         self.queue.push_back((now_us() + self.us, m));
         while self.queue.len() > 10_000 {
             self.queue.pop_front();
@@ -1083,13 +1287,56 @@ fn should_fire(on: &str, last: &mut Option<Value>, v: &Value) -> bool {
     }
 }
 
-struct Invoke {
-    path: String,
-    action: String,
+/// When an `invoke` node calls, and with which arguments: one rule for a deployed flow and
+/// for a preview, so a preview reports what the flow would do.
+struct InvokeGate {
     args: Map,
     on: String,
     allow_bad: bool,
     last: Option<Value>,
+}
+
+impl InvokeGate {
+    fn from(cfg: &Map) -> Result<Self, String> {
+        Ok(Self {
+            args: match cfg.get("args") {
+                Some(Value::Map(m)) => m.clone(),
+                _ => Map::new(),
+            },
+            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
+            allow_bad: b(cfg, "allow_bad", false)?,
+            last: None,
+        })
+    }
+
+    /// The arguments of the call `m` makes, or `None` when it makes none.
+    fn call(&mut self, m: &Msg) -> Option<Map> {
+        if m.q == Quality::Bad && !self.allow_bad {
+            return None; // never act on bad data
+        }
+        if !should_fire(&self.on, &mut self.last, &m.v) {
+            return None;
+        }
+        // `"$in"` in args is replaced by the input value.
+        Some(
+            self.args
+                .iter()
+                .map(|(k, v)| {
+                    let v = match v {
+                        Value::Str(s) if s == "$in" => m.v.clone(),
+                        v => v.clone(),
+                    };
+                    (k.clone(), v)
+                })
+                .collect(),
+        )
+    }
+}
+
+struct Invoke {
+    path: String,
+    action: String,
+    gate: InvokeGate,
     tx: Option<tokio::sync::mpsc::Sender<Map>>,
 }
 
@@ -1099,24 +1346,9 @@ impl Node for Invoke {
             out.emit("out", m);
             return;
         }
-        if m.q == Quality::Bad && !self.allow_bad {
-            return; // never act on bad data
-        }
-        if !should_fire(&self.on, &mut self.last, &m.v) {
+        let Some(args) = self.gate.call(&m) else {
             return;
-        }
-        // `"$in"` in args is replaced by the input value.
-        let args: Map = self
-            .args
-            .iter()
-            .map(|(k, v)| {
-                let v = match v {
-                    Value::Str(s) if s == "$in" => m.v.clone(),
-                    v => v.clone(),
-                };
-                (k.clone(), v)
-            })
-            .collect();
+        };
         // one caller task, in order: a task per call could run a later call first
         let tx = self.tx.get_or_insert_with(|| {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<Map>(COMMAND_QUEUE);
@@ -1145,12 +1377,46 @@ impl Node for Invoke {
 /// Calls an `invoke` node holds while its caller is busy; more are dropped.
 const COMMAND_QUEUE: usize = 256;
 
-struct Set {
-    path: String,
-    on: String,
+/// When a `set` node writes: one rule for a deployed flow and for a preview.
+struct SetGate {
+    change: bool,
     deadband: f64,
     allow_bad: bool,
     last: Option<Value>,
+}
+
+impl SetGate {
+    fn from(cfg: &Map) -> Result<Self, String> {
+        Ok(Self {
+            change: one_of(cfg, "on", &["any", "change"], "change")? == "change",
+            deadband: f(cfg, "deadband")?.unwrap_or(0.0),
+            allow_bad: b(cfg, "allow_bad", false)?,
+            last: None,
+        })
+    }
+
+    /// Whether `m` is written.
+    fn pass(&mut self, m: &Msg) -> bool {
+        if m.q == Quality::Bad && !self.allow_bad {
+            return false;
+        }
+        if self.change {
+            let within = match (self.last.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
+                (Some(a), Some(b)) => (a - b).abs() <= self.deadband,
+                _ => self.last.as_ref() == Some(&m.v),
+            };
+            if within {
+                return false;
+            }
+        }
+        self.last = Some(m.v.clone());
+        true
+    }
+}
+
+struct Set {
+    path: String,
+    gate: SetGate,
     /// The value to write: one writer task writes the newest, in order (a task per sample
     /// could write an older value last).
     tx: Option<tokio::sync::watch::Sender<Option<Value>>>,
@@ -1158,19 +1424,9 @@ struct Set {
 
 impl Node for Set {
     fn input(&mut self, _p: &str, m: Msg, io: &Io, _out: &mut Out) {
-        if m.q == Quality::Bad && !self.allow_bad {
+        if !self.gate.pass(&m) {
             return;
         }
-        if self.on == "change" {
-            let within = match (self.last.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
-                (Some(a), Some(b)) => (a - b).abs() <= self.deadband,
-                _ => self.last.as_ref() == Some(&m.v),
-            };
-            if within {
-                return;
-            }
-        }
-        self.last = Some(m.v.clone());
         let tx = self.tx.get_or_insert_with(|| {
             let (tx, mut rx) = tokio::sync::watch::channel::<Option<Value>>(None);
             let (client, node) = (io.client.clone(), io.full_key(&self.path));
@@ -1190,19 +1446,143 @@ impl Node for Set {
     }
 }
 
-/// Build a node (config already checked by [`ports`]).
-pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
-    build_with(ty, flow, id, cfg, None)
+// ---------- preview ----------
+
+/// How nodes are built: for a deployed flow, or for a preview of a draft (ADR 0038 §5).
+#[derive(Clone)]
+pub enum Mode {
+    /// A deployed flow: sinks write.
+    Live,
+    /// A preview: `set`, `invoke` and `publish` become capture nodes, which hold no client
+    /// and no writer and only report what they would do to the probe.
+    Preview(Sandbox),
 }
 
-/// [`build`] with the artifact store that `wasm` nodes load from.
+/// What a preview's capture nodes need: where they report, and the keys they name.
+#[derive(Clone)]
+pub struct Sandbox {
+    pub probe: Arc<crate::watch::Probe>,
+    pub site: String,
+    /// The draft's id: a `publish` node reports the key it would write once deployed.
+    pub flow: String,
+}
+
+impl Sandbox {
+    fn full_key(&self, k: &str) -> String {
+        if k.starts_with("wy/") {
+            k.to_owned()
+        } else {
+            format!("wy/{}/{}", self.site, k.trim_start_matches('/'))
+        }
+    }
+}
+
+/// What a sink would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SinkOp {
+    Set,
+    Invoke,
+    Publish,
+}
+
+impl SinkOp {
+    pub fn name(self) -> &'static str {
+        match self {
+            SinkOp::Set => "set",
+            SinkOp::Invoke => "invoke",
+            SinkOp::Publish => "publish",
+        }
+    }
+}
+
+enum Gate {
+    Set(SetGate),
+    Invoke(InvokeGate),
+    Publish,
+}
+
+/// A sink in a preview: the deployed node's rule decides, and the result goes to the probe
+/// only. It has no client, no writer task and never reads `io`: it cannot write by
+/// construction. An `invoke` sends nothing on `out` (there is no answer).
+struct Capture {
+    node: String,
+    key: String,
+    gate: Gate,
+    probe: Arc<crate::watch::Probe>,
+}
+
+impl Node for Capture {
+    fn input(&mut self, port: &str, m: Msg, _io: &Io, _out: &mut Out) {
+        if port.starts_with("__") {
+            return;
+        }
+        let (op, value) = match &mut self.gate {
+            Gate::Set(g) => {
+                if !g.pass(&m) {
+                    return;
+                }
+                (SinkOp::Set, m.v)
+            }
+            Gate::Invoke(g) => match g.call(&m) {
+                Some(args) => (SinkOp::Invoke, Value::Map(args)),
+                None => return,
+            },
+            Gate::Publish => (SinkOp::Publish, m.v),
+        };
+        self.probe.sink(&self.node, op, &self.key, value);
+    }
+}
+
+/// The capture node of a sink type in a preview; `None` for every other type.
+fn capture(ty: &str, id: &str, cfg: &Map, sb: &Sandbox) -> Result<Option<Box<dyn Node>>, String> {
+    let (key, gate) = match ty {
+        "set" | "invoke" => {
+            let target = command_target(ty, cfg).ok_or("path: required")?;
+            let gate = match ty {
+                "set" => Gate::Set(SetGate::from(cfg)?),
+                _ => Gate::Invoke(InvokeGate::from(cfg)?),
+            };
+            (sb.full_key(&target), gate)
+        }
+        "publish" => (
+            format!(
+                "wy/{}/dataflows/{}/nodes/{}",
+                sb.site,
+                sb.flow,
+                req_s(cfg, "node")?
+            ),
+            Gate::Publish,
+        ),
+        _ => return Ok(None),
+    };
+    Ok(Some(Box::new(Capture {
+        node: id.to_owned(),
+        key,
+        gate,
+        probe: sb.probe.clone(),
+    })))
+}
+
+/// Build a node of a deployed flow (config already checked by [`ports`]).
+pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
+    build_with(ty, flow, id, cfg, None, &Mode::Live)
+}
+
+/// [`build`] with the artifact store that `wasm` nodes load from, for a deployed flow or a
+/// preview ([`Mode`]).
 pub fn build_with(
     ty: &str,
     flow: &str,
     id: &str,
     cfg: &Map,
     artifacts: Option<&Artifacts>,
+    mode: &Mode,
 ) -> Result<Box<dyn Node>, String> {
+    if let Mode::Preview(sb) = mode {
+        if let Some(c) = capture(ty, id, cfg, sb)? {
+            return Ok(c);
+        }
+    }
     if let Some(b) = crate::blocks::build(ty, flow, id, cfg) {
         return b;
     }
@@ -1211,14 +1591,17 @@ pub fn build_with(
         "subscribe" => Box::new(Subscribe {
             key: req_s(cfg, "key")?.to_owned(),
             last: None,
+            tasks: Tasks::default(),
         }),
         "timer" => Box::new(Timer {
             period: Duration::from_secs_f64(num("period_ms", 1000.0)? / 1000.0),
             n: 0,
+            live: Live::new("timer", cfg),
         }),
         "const" => Box::new(Const(cfg.get("value").cloned().unwrap_or(Value::Null))),
         "liveliness" => Box::new(Liveliness {
             key: req_s(cfg, "key")?.to_owned(),
+            tasks: Tasks::default(),
         }),
         "expression" => {
             let inputs = names(cfg)?;
@@ -1242,11 +1625,14 @@ pub fn build_with(
             k: num("k", 1.0)?,
             b: num("b", 0.0)?,
             range: Scale::range_from(cfg),
+            params: crate::catalog::effective_params("scale", cfg),
+            rev: 0,
         }),
         "deadband" => Box::new(Deadband {
             abs: f(cfg, "abs")?,
             pct: f(cfg, "pct")?,
             last: None,
+            live: Live::new("deadband", cfg),
         }),
         "window" => Box::new(Window {
             tumbling: one_of(cfg, "kind", &["tumbling", "sliding"], "tumbling")? == "tumbling",
@@ -1261,6 +1647,7 @@ pub fn build_with(
             max: max_samples(cfg)? as usize,
             buf: VecDeque::new(),
             start: None,
+            live: Live::new("window", cfg),
         }),
         "alarm" => Box::new(Alarm {
             high: f(cfg, "high")?,
@@ -1271,6 +1658,7 @@ pub fn build_with(
             on_bad: one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?.to_owned(),
             active: false,
             pending: None,
+            live: Live::new("alarm", cfg),
         }),
         "latch" => Box::new(Latch {
             auto: one_of(cfg, "reset", &["manual", "auto"], "manual")? == "auto",
@@ -1279,6 +1667,7 @@ pub fn build_with(
         "delay" => Box::new(Delay {
             us: (num("ms", 0.0)? * 1000.0) as u64,
             queue: VecDeque::new(),
+            live: Live::new("delay", cfg),
         }),
         "filter" => {
             let engine = script::engine();
@@ -1292,21 +1681,12 @@ pub fn build_with(
         "invoke" => Box::new(Invoke {
             path: req_s(cfg, "path")?.to_owned(),
             action: req_s(cfg, "action")?.to_owned(),
-            args: match cfg.get("args") {
-                Some(Value::Map(m)) => m.clone(),
-                _ => Map::new(),
-            },
-            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
+            gate: InvokeGate::from(cfg)?,
             tx: None,
         }),
         "set" => Box::new(Set {
             path: req_s(cfg, "path")?.to_owned(),
-            on: one_of(cfg, "on", &["any", "change"], "change")?.to_owned(),
-            deadband: num("deadband", 0.0)?,
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
+            gate: SetGate::from(cfg)?,
             tx: None,
         }),
         "wasm" => {

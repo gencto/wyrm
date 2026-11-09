@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
-import '../indicators/tag_chip.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -74,8 +73,11 @@ final class TreeRowVm extends Equatable {
   ];
 }
 
-/// 40 high (32 compact), indented 16 per level, radius 6; selected is the
-/// ember tint with the icon in ember and the name in 600.
+/// 40 high (32 compact), indented 10 + 16 per level, radius 6: chevron 14,
+/// the kind icon 16 (`AppIcon.nodeName`), the name in mono 13, then the run
+/// mode chip, the meta and the state dot 8 (docs/design/specs/explorer.md
+/// §2). Selected is the ember tint with the icon in ember and the name in
+/// 600.
 class TreeRow extends StatelessWidget {
   const TreeRow({
     required this.vm,
@@ -118,7 +120,7 @@ class TreeRow extends StatelessWidget {
                         duration: const Duration(milliseconds: 120),
                         child: AppIcon(
                           'ui_chevron_right',
-                          size: 16,
+                          size: 14,
                           color: c.text4,
                         ),
                       ),
@@ -143,7 +145,7 @@ class TreeRow extends StatelessWidget {
                 decoration: BoxDecoration(shape: .circle, color: c.ember),
               ),
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
-            if (vm.chip case final chip?) TagChip(vm: TagChipVm(label: chip)),
+            if (vm.chip case final chip?) _Chip(chip),
             if (vm.meta case final m?)
               Text(m, style: TextStyle(fontSize: 12, color: c.text4)),
             if (vm.dot case final t?)
@@ -154,6 +156,24 @@ class TreeRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The run mode of a link row: 11, padding 2 × 6, radius 4, ground/4 with
+/// text/3: smaller than the shared tag chip, to sit in a 40 row.
+class _Chip extends StatelessWidget {
+  const _Chip(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: c.ground4, borderRadius: Radii.chip),
+      child: Text(label, style: TextStyle(fontSize: 11, color: c.text3)),
     );
   }
 }
