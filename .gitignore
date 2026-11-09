@@ -7,9 +7,8 @@ data/
 # built by examples/packages/build.sh
 examples/packages/out/
 
-# Flutter example: generated platform files (flutter create)
-dart/wyrm_flutter/example/macos/
-dart/wyrm_flutter/example/.metadata
-dart/wyrm_flutter/example/.gitignore
+# WYRM Studio (studio/ has its own .gitignore for the Flutter workspace)
+studio/.dart_tool/
 crates/wyrm-link-guest/tests/fixture/Cargo.lock
 links/wasm/tests/app_fixture/Cargo.lock
+.playwright-mcp/

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — History</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #2A1F16; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">1</span></button>
+<button type="button" aria-label="Account: olena, operator" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">OL</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="#history" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Watch groups -->
+<aside aria-label="Watch groups" style="flex: 1 1 240px; max-width: 280px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 14px 12px 8px; display: flex; align-items: center; justify-content: space-between">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Watch groups · 3</span>
+<button type="button" aria-label="New watch group" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #A3ABAF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<div style="padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<button type="button" style="display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 60px; padding: 8px 10px; border: 0; border-radius: 8px; background: {{g.bg}}; color: #ECE9E1; text-align: left; cursor: pointer">
+<code style="font-size: 14px; font-weight: {{g.weight}}">{{g.name}}</code>
+<span style="font-size: 12px; color: #8E979C">{{g.meta}}</span>
+</button>
+</sc-for>
+</div>
+<div style="margin: auto 12px 14px; padding-top: 12px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #8E979C; line-height: 1.5">
+<span>Historian: redb, one file per UTC day</span>
+<span>Today 48 MB · total 1.9 GB</span>
+</div>
+</aside>
+
+<!-- Center -->
+<main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 22px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px">
+<div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 600">boiler-1</h1>
+<p style="margin: 0; color: #A3ABAF">5 points from plc1 · on change, deadband 0.1 · raw kept 90 days</p>
+</div>
+<div role="radiogroup" aria-label="Range" style="display: flex; padding: 3px; gap: 3px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
+<button type="button" role="radio" aria-checked="false" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">1 h</button>
+<button type="button" role="radio" aria-checked="true" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">24 h</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">7 d</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">30 d</button>
+</div>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px; cursor: pointer">15 min · avg<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+</div>
+
+<section aria-label="Trend" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; font-size: 13px">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 16px; height: 2px; background: {{accent}}"></span><code>t1</code><span style="color: #8E979C">Supply temp</span></span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 16px; height: 2px; background: #6CC4B0"></span><code>t2</code><span style="color: #8E979C">Return temp</span></span>
+<span style="display: flex; align-items: center; gap: 8px; margin-left: auto; color: #E07A5F"><span style="width: 14px; height: 10px; background: rgba(224,122,95,0.18); border: 1px dashed #E07A5F; box-sizing: border-box"></span>bad quality, not drawn</span>
+</div>
+<div style="display: flex; gap: 8px">
+<div style="display: flex; flex-direction: column; justify-content: space-between; height: 220px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C; text-align: right"><span>90 °C</span><span>80</span><span>70</span><span>60</span></div>
+<svg viewBox="0 0 800 220" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="t1 near 82 degrees and t2 near 64 degrees over 24 hours, with no data between 13:10 and 13:52 while the device was unreachable">
+<path d="M0 1H800M0 73H800M0 146H800M0 219H800" stroke="#1D2226" stroke-width="1"></path>
+<rect x="438" y="0" width="28" height="220" fill="rgba(224,122,95,0.14)" stroke="#E07A5F" stroke-dasharray="4 4"></rect>
+<polyline fill="none" stroke="{{accent}}" stroke-width="2" points="0,62 40,60 80,58 120,61 160,63 200,57 240,52 280,48 320,50 360,53 400,55 438,57"></polyline>
+<polyline fill="none" stroke="{{accent}}" stroke-width="2" points="466,60 500,58 540,54 580,51 620,55 660,58 700,60 740,62 780,61 800,60"></polyline>
+<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="0,192 40,190 80,189 120,191 160,193 200,188 240,183 280,180 320,181 360,184 400,186 438,187"></polyline>
+<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="466,190 500,189 540,185 580,182 620,184 660,188 700,190 740,192 780,191 800,190"></polyline>
+</svg>
+</div>
+<div style="display: flex; justify-content: space-between; padding-left: 52px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C"><span>02:00</span><span>08:00</span><span>13:10–13:52 comm fail</span><span>20:00</span><span>now</span></div>
+</section>
+
+<section aria-label="Points in this group" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0 auto 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Points · 5</h2>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 13px; cursor: pointer">Export CSV</button>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow-x: auto">
+<div style="min-width: 620px">
+<div style="display: grid; grid-template-columns: 1.6fr 1fr 0.8fr 0.9fr 0.8fr 40px; align-items: center; height: 36px; padding: 0 12px 0 16px; border-bottom: 1px solid #252B30; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C"><span>Point</span><span>Records</span><span>Deadband</span><span>Rows today</span><span>Bad</span><span></span></div>
+<sc-for list="{{points}}" as="p" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 1.6fr 1fr 0.8fr 0.9fr 0.8fr 40px; align-items: center; min-height: 40px; padding: 0 12px 0 16px; border-bottom: 1px solid #1D2226; font-size: 13px; background: {{p.bg}}">
+<span style="display: flex; align-items: center; gap: 8px"><sc-if value="{{p.staged}}" hint-placeholder-val="{{false}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}"></span></sc-if><code>{{p.name}}</code><span style="color: #8E979C">{{p.label}}</span></span>
+<span style="color: #C5CBCE">{{p.mode}}</span>
+<code style="color: #A3ABAF">{{p.db}}</code>
+<code style="color: #C5CBCE">{{p.rows}}</code>
+<code style="color: {{p.badColor}}">{{p.bad}}</code>
+<button type="button" aria-label="Remove {{p.name}} from group" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #8E979C; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</sc-for>
+<div style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; font-size: 13px; color: #8E979C; border-top: 1px dashed #2F373D">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Drag points here from the Explorer tree, or pick them with ⌘K
+</div>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Inspector -->
+<aside aria-label="Group settings" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Watch group</span>
+<code style="font-size: 18px; font-weight: 600">boiler-1</code>
+</div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 18px">
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Record</h2>
+<div role="radiogroup" aria-label="Record" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<button type="button" role="radio" aria-checked="true" style="height: 34px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">On change</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">Every interval</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Deadband</span><input type="text" value="0.1" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">At least every</span><span style="display: flex; align-items: center; height: 36px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; box-sizing: border-box"><input type="text" value="60" style="flex: 1; min-width: 0; height: 100%; padding: 0 10px; border: 0; background: transparent; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none"><span style="padding: 0 10px; color: #8E979C; font-size: 12px">s</span></span></label>
+</div>
+</section>
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Keep</h2>
+<div style="display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px 12px; font-size: 13px">
+<span>Raw</span><code style="color: #ECE9E1">90 d</code><span></span>
+<label style="display: flex; align-items: center; gap: 8px"><input type="checkbox" checked="{{true}}" style="width: 16px; height: 16px; accent-color: #E8893A">1 min rollup</label><code style="color: #ECE9E1">1 y</code><code style="font-size: 11px; color: #8E979C">avg min max</code>
+<label style="display: flex; align-items: center; gap: 8px"><input type="checkbox" checked="{{true}}" style="width: 16px; height: 16px; accent-color: #E8893A">15 min rollup</label><code style="color: #ECE9E1">5 y</code><code style="font-size: 11px; color: #8E979C">avg min max</code>
+<label style="display: flex; align-items: center; gap: 8px"><input type="checkbox" checked="{{false}}" style="width: 16px; height: 16px; accent-color: #E8893A">1 h rollup</label><code style="color: #8E979C">—</code><span></span>
+</div>
+</section>
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Send on</h2>
+<div style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><code style="font-size: 13px">pg-sink</code><span style="font-size: 12px; color: #8E979C">PostgreSQL · TimescaleDB</span></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6CC4B0"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6CC4B0"></span>2 s behind</span>
+</div>
+<button type="button" style="height: 36px; border-radius: 8px; border: 1px dashed #3A4249; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">Add a sync link</button>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Sync links read the historian’s change journal, so nothing is lost while a database is down.</span>
+</section>
+<section style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Planned</h2>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Watching a whole subtree, so new points join the group by themselves.</span>
+</section>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const groups = [
+      { name: 'boiler-1', meta: '5 points · on change · 90 d', bg: '#2A1F16', weight: 600 },
+      { name: 'tank', meta: '2 points · every 5 s · 30 d', bg: 'transparent', weight: 400 },
+      { name: 'energy', meta: '12 points · 15 min rollups · 5 y', bg: 'transparent', weight: 400 }
+    ];
+    const P = (name, label, mode, db, rows, bad, staged) => ({ name, label, mode, db, rows, bad, staged: !!staged,
+      badColor: bad === '0' ? '#8E979C' : '#E07A5F', bg: staged ? '#191714' : 'transparent' });
+    const points = [
+      P('t1', 'Supply temp', 'on change', '0.1', '18,240', '42 min'),
+      P('t2', 'Return temp', 'on change', '0.1', '16,905', '42 min'),
+      P('p1', 'Pressure', 'on change', '0.01', '9,112', '42 min'),
+      P('flow', 'Flow rate', 'every 5 s', '—', '17,280', '0'),
+      P('t3', 'Flue temp', 'on change', '0.5', '—', '0', true)
+    ];
+    return { accent, groups, points };
+  }
+}
+</script>
+</body>
+</html>

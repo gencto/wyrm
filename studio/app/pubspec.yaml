@@ -1,0 +1,47 @@
+name: app
+description: The App project.
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
+version: 1.0.0
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+
+dependencies:
+  async_redux: ^28.4.0
+  auto_route: ^11.1.0
+  business:
+    path: ../business
+  equatable: ^2.1.0
+  fast_immutable_collections: ^11.2.0
+  file_picker: ^11.0.2
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  localization:
+    path: ../localization
+  models:
+    path: ../models
+  pro_pretty_logging: ^2.0.0
+  pro_validator: ^3.0.0
+  ui:
+    path: ../ui
+  window_manager: ^0.5.2
+
+dev_dependencies:
+  auto_route_generator: "^10.5.0"
+  build_runner: ^2.15.1
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  pro_lints: ^6.1.0
+
+flutter:
+  uses-material-design: true
+
+  # assets:
+    # BASE_URL="http://localhost:8080"
+    # - .env

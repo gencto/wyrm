@@ -69,6 +69,16 @@ impl Link for Demo {
         .await?;
         ctx.declare_action(
             "ahu1",
+            "boom",
+            ActionMeta::new()
+                .result(ActionResult::Stream)
+                .stream(true)
+                .level(Perm::Read)
+                .timeout_ms(300_000),
+        )
+        .await?;
+        ctx.declare_action(
+            "ahu1",
             "slow",
             ActionMeta::new().level(Perm::Read).timeout_ms(200),
         )
@@ -111,6 +121,7 @@ impl Link for Demo {
                 });
                 Ok(())
             }
+            "boom" => Err(LinkError::new(Status::NotAvailable, "no LLM")),
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 Ok(())
@@ -167,7 +178,7 @@ async fn root_meta_and_list_order() {
         ahu1.children.unwrap(),
         ["supply_temp", "fan", "setpoint_cfg", "ro"]
     );
-    assert_eq!(ahu1.actions.unwrap().len(), 3);
+    assert_eq!(ahu1.actions.unwrap().len(), 4);
     h.stop().await;
 }
 
@@ -417,6 +428,25 @@ async fn invoke_stream_seq_rid_last() {
     }
     assert_eq!(r[2].value(), Some(Value::UInt(2)));
     assert!(r[3].payload.is_empty());
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_with_a_success_status_leaves_as_an_error() {
+    let (h, _) = harness().await;
+    let r = h
+        .invoke(
+            "ahu1",
+            "boom",
+            Value::Map(Default::default()),
+            Some(h.ptok(Perm::Read)),
+        )
+        .await;
+    assert_eq!(r.len(), 1);
+    // spec 04: below 0x20 reads as success; a refusal never leaves so
+    assert_eq!(status(&r[0].att), Status::InternalError);
+    assert_eq!(r[0].att.err.as_deref(), Some("no LLM"));
+    assert_eq!(r[0].att.last, Some(true));
     h.stop().await;
 }
 

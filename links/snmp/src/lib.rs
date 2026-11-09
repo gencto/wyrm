@@ -938,7 +938,7 @@ async fn walk(
             .map_err(action_err)?;
         if pdu.error_status != 0 {
             return Err(LinkError::new(
-                Status::NotAvailable,
+                Status::InvalidParameter,
                 msg::error_name(pdu.error_status),
             ));
         }
@@ -983,7 +983,7 @@ fn action_err(e: DriverError) -> LinkError {
     match e {
         DriverError::Transport(m) => LinkError::new(Status::Disconnected, m),
         DriverError::Device(m) => LinkError::timeout(m),
-        DriverError::Point(m) => LinkError::new(Status::NotAvailable, m),
+        DriverError::Point(m) => LinkError::invalid_parameter(m),
     }
 }
 

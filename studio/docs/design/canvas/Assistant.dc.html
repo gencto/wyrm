@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Assistant</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; height: 100vh; overflow: hidden; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Go to a node, action or link" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #2A1F16; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">3</span></button>
+<button type="button" aria-label="Account: olena, engineer" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">OL</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="#assistant" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Tasks -->
+<aside aria-label="Tasks" style="flex: 1 1 240px; max-width: 260px; min-width: 0; min-height: 0; overflow-y: auto; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 14px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+<button type="button" onClick="{{newTask}}" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New task</button>
+<span style="font-size: 12px; color: #8E979C">Each task is a node: <code style="color: #A3ABAF">agent/tasks/&lt;id&gt;</code></span>
+</div>
+<div style="padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto">
+<sc-for list="{{tasks}}" as="t" hint-placeholder-count="7">
+<sc-if value="{{t.isHead}}" hint-placeholder-val="{{false}}"><span style="padding: 12px 6px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{t.name}}</span></sc-if>
+<sc-if value="{{t.isItem}}" hint-placeholder-val="{{true}}"><div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; background: {{t.bg}}; border-left: 3px solid {{t.edge}}">
+<span style="font-size: 13px; color: #ECE9E1; line-height: 1.35">{{t.name}}</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: {{t.color}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{t.color}}"></span>{{t.state}}<code style="margin-left: auto; color: #5A6168">{{t.id}}</code></span>
+</div></sc-if>
+</sc-for>
+</div>
+</aside>
+
+<!-- Conversation -->
+<main style="flex: 999 1 560px; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #0E1113">
+<div style="padding: 12px 24px; border-bottom: 1px solid #252B30; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+<span style="font-size: 16px; font-weight: 600; margin-right: auto">Add ahu2 on line 2</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; background: {{taskPill.bg}}; color: {{taskPill.ink}}; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{taskPill.ink}}"></span>{{taskPill.t}}</span>
+<code style="font-size: 12px; color: #8E979C">tasks/t-0142</code>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column-reverse">
+<div style="padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 18px">
+
+<!-- user 1 -->
+<div style="align-self: flex-end; max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px">
+<div style="padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: #22282D; font-size: 14px; line-height: 1.5">Add AHU 2 on line 2. It is unit 3 behind the line-2 gateway, same points as ahu1. Record its supply temperature every minute.</div>
+<span style="display: flex; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid #2F373D; color: #A3ABAF">@ modbus/tcp-line2</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid #2F373D; color: #A3ABAF">@ ahu1</span></span>
+</div>
+
+<!-- assistant A -->
+<div style="display: flex; gap: 12px; max-width: 92%">
+<span style="width: 30px; height: 30px; flex: none; border-radius: 8px; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path></svg></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14px; line-height: 1.55; color: #C5CBCE">I looked at line 2. ahu1 has 14 points on <code style="color: #ECE9E1">tcp-line2</code>. Three choices before I write a plan:</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: #8E979C"><span style="padding: 3px 8px; border-radius: 6px; background: #161A1D; border: 1px solid #252B30">read · tree modbus/tcp-line2</span><span style="padding: 3px 8px; border-radius: 6px; background: #161A1D; border: 1px solid #252B30">read · meta ahu1 (14 points)</span><span style="padding: 3px 8px; border-radius: 6px; background: #161A1D; border: 1px solid #252B30">read · sys/history</span><span style="padding: 3px 8px; color: #6CC4B0">nothing changed</span></div>
+
+<sc-if value="{{clarOpen}}" hint-placeholder-val="{{true}}">
+<section aria-label="Choices" style="border: 1px solid #2F373D; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="padding: 10px 14px; border-bottom: 1px solid #252B30; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Choose · 3 questions</div>
+<div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 14px">
+<sc-for list="{{questions}}" as="q" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 14px">{{q.t}}</span>
+<div role="radiogroup" aria-label="{{q.t}}" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{q.opts}}" as="o" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 6px 12px; border-radius: 8px; border: {{o.border}}; background: {{o.bg}}; color: #ECE9E1; text-align: left; cursor: pointer"><span style="font-size: 13px; font-weight: 600">{{o.t}}</span><span style="font-size: 11px; color: #8E979C">{{o.d}}</span></button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="padding: 10px 14px; border-top: 1px solid #252B30; display: flex; align-items: center; gap: 10px"><button type="button" onClick="{{toPlan}}" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">Write the plan</button><span style="font-size: 12px; color: #8E979C">Or answer in your own words below.</span></div>
+</section>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{afterAsk}}" hint-placeholder-val="{{false}}">
+<div style="align-self: flex-end; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #A3ABAF"><span style="font-size: 11px; color: #5A6168">from the card</span><span style="padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1D2226; color: #ECE9E1">{{answerText}}</span></div>
+
+<div style="display: flex; gap: 12px; max-width: 96%">
+<span style="width: 30px; height: 30px; flex: none; border-radius: 8px; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path></svg></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<sc-if value="{{planOpen}}" hint-placeholder-val="{{true}}"><span style="font-size: 14px; line-height: 1.55; color: #C5CBCE">Here is the plan: 5 steps, 3 of them change plant. Each one was checked against the live tree. Nothing runs until you approve.</span></sc-if>
+
+<!-- Plan card -->
+<section aria-label="Plan" style="border: 1px solid {{planBorder}}; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid #252B30">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Plan · 5 steps</span>
+<span style="font-size: 12px; color: {{planStateInk}}">{{planState}}</span>
+<button type="button" onClick="{{togglePlan}}" style="margin-left: auto; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: transparent; color: #C5CBCE; font-size: 12px; cursor: pointer">{{planToggleLabel}}</button>
+</div>
+<sc-if value="{{planOpen}}" hint-placeholder-val="{{true}}">
+<div style="padding: 8px 14px; background: #1B1A14; border-bottom: 1px solid #252B30; font-size: 12px; color: #E2C15A; line-height: 1.45">Read the key and the arguments of each step. The grey “why” lines are written by the model.</div>
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 12px 14px; border-bottom: 1px solid #1D2226">
+<span style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 2px">
+<span style="width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid {{s.ring}}; color: {{s.ringInk}}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-sizing: border-box">{{s.n}}</span>
+<sc-if value="{{s.canTick}}" hint-placeholder-val="{{false}}"><input type="checkbox" checked="{{s.ticked}}" onChange="{{s.tick}}" aria-label="Approve step {{s.n}}" style="width: 16px; height: 16px; accent-color: #E8893A"></sc-if>
+</span>
+<div style="min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; background: {{s.verbBg}}; color: {{s.verbInk}}">{{s.verb}}</span>
+<code style="font-size: 13px; font-weight: 600; color: #ECE9E1">{{s.act}}</code>
+<code style="font-size: 12px; color: #A3ABAF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0">{{s.key}}</code>
+<span style="margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: {{s.lvlBg}}; color: {{s.lvlInk}}">{{s.level}}</span>
+</div>
+<sc-if value="{{s.hasArgs}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 8px">
+<sc-for list="{{s.args}}" as="a" hint-placeholder-count="2">
+<label style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><span style="font-size: 11px; color: #8E979C">{{a.k}} <span style="color: #5A6168">{{a.hint}}</span></span><input type="text" value="{{a.v}}" readonly="{{s.locked}}" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{a.border}}; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box; min-width: 0"></label>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{s.hasWarn}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #1B1A14; border: 1px solid #4A4020; font-size: 12px; color: #E2C15A">{{s.warn}}<span style="margin-left: auto; display: flex; gap: 6px"><sc-for list="{{s.fixes}}" as="f" hint-placeholder-count="2"><button type="button" onClick="{{f.pick}}" style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: #ECE9E1; font-size: 12px; cursor: pointer">{{f.t}}</button></sc-for></span></div>
+</sc-if>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px">
+<span style="color: {{s.checkInk}}">{{s.check}}</span>
+<span style="color: #5A6168; font-style: italic">why: {{s.why}}</span>
+</div>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{isPlan}}" hint-placeholder-val="{{true}}">
+<div style="padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<button type="button" onClick="{{approve}}" style="height: 42px; padding: 0 18px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">{{approveLabel}}</button>
+<button type="button" style="height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid #5A3328; background: #33201B; color: #F0A28D; font-size: 14px; cursor: pointer">Reject</button>
+<span style="font-size: 12px; color: #8E979C; flex: 1 1 220px">Signs one token per ticked step with your rights (engineer). Unticked steps are left out.</span>
+</div>
+</sc-if>
+</sc-if>
+</section>
+
+<!-- Run card -->
+<sc-if value="{{hasRun}}" hint-placeholder-val="{{false}}">
+<section aria-label="Run" style="border: 1px solid #2F373D; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #252B30"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Run</span><span style="font-size: 12px; color: #8E979C">{{runNote}}</span></div>
+<sc-for list="{{run}}" as="r" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; min-height: 40px; padding: 4px 14px; border-bottom: 1px solid #1D2226; font-size: 13px">
+<span style="display: flex; justify-content: center">
+<sc-if value="{{r.done}}" hint-placeholder-val="{{true}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+<sc-if value="{{r.now}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+<sc-if value="{{r.fail}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E07A5F" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></sc-if>
+<sc-if value="{{r.wait}}" hint-placeholder-val="{{false}}"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #5A6168; box-sizing: border-box"></span></sc-if>
+</span>
+<span style="color: {{r.ink}}">{{r.n}} · <code>{{r.t}}</code></span>
+<code style="font-size: 12px; color: {{r.msgInk}}; text-align: right">{{r.msg}}</code>
+</div>
+</sc-for>
+</section>
+</sc-if>
+
+<!-- Result -->
+<sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
+<span style="font-size: 14px; line-height: 1.55; color: #C5CBCE">Done. ahu2 answers and its supply temperature is recorded every minute.</span>
+<section aria-label="Result" style="border: 1px solid #36705F; border-radius: 12px; background: #13201D; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #23453D"><code style="font-size: 14px; font-weight: 600">ahu2</code><span style="font-size: 12px; color: #6CC4B0">14 points · connected · unit 4</span></div>
+<sc-for list="{{points}}" as="p" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center; min-height: 34px; padding: 2px 14px; border-bottom: 1px solid #1B2E29; font-size: 13px"><code style="color: #C5CBCE">{{p.n}}</code><code style="color: #ECE9E1">{{p.v}}</code><span style="font-size: 11px; color: {{p.ink}}">{{p.tag}}</span></div>
+</sc-for>
+<div style="padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px">
+<a href="Main.dc.html" style="height: 38px; padding: 0 14px; border-radius: 8px; background: {{accent}}; color: #0E1113; font-size: 13px; font-weight: 600; display: flex; align-items: center">Open ahu2 in Explorer</a>
+<a href="History.dc.html" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; color: #ECE9E1; font-size: 13px; display: flex; align-items: center">Trend supply_temp</a>
+<button type="button" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px; cursor: pointer">Save as a plan</button>
+</div>
+</section>
+<section aria-label="Same for more units" style="border: 1px solid #2F373D; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="padding: 10px 14px; border-bottom: 1px solid #252B30; font-size: 14px">Same for more units? Fill the rows and I make one plan.</div>
+<div style="display: grid; grid-template-columns: 1fr 90px 1fr 32px; gap: 8px; padding: 8px 14px 0; font-size: 11px; color: #8E979C"><span>Device</span><span>Slave ID</span><span>Copy points from</span><span></span></div>
+<sc-for list="{{more}}" as="m" hint-placeholder-count="2">
+<div style="display: grid; grid-template-columns: 1fr 90px 1fr 32px; gap: 8px; padding: 6px 14px">
+<input type="text" value="{{m.n}}" aria-label="Device" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 0"><input type="text" value="{{m.u}}" aria-label="Slave ID" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 0"><input type="text" value="ahu1 · 14 points" aria-label="Copy points from" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 0"><button type="button" aria-label="Remove row" style="height: 32px; border-radius: 6px; border: 0; background: transparent; color: #8E979C; cursor: pointer">×</button>
+</div>
+</sc-for>
+<div style="padding: 8px 14px 12px; display: flex; flex-wrap: wrap; gap: 8px"><button type="button" style="height: 34px; padding: 0 12px; border-radius: 8px; border: 1px dashed #3A4249; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">+ Row</button><button type="button" onClick="{{toPlan}}" style="margin-left: auto; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid #5A3E25; background: #1E1813; color: #F3A766; font-size: 13px; cursor: pointer">Make a plan for 2 units</button></div>
+</section>
+</sc-if>
+
+<!-- Failed -->
+<sc-if value="{{isFailed}}" hint-placeholder-val="{{false}}">
+<section aria-label="Stopped" style="border: 1px solid #5A3328; border-radius: 12px; background: #1C1513; overflow: hidden">
+<div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #E07A5F">Stopped at step 5 · timeout</span>
+<span style="font-size: 14px; line-height: 1.5">ahu2 exists and is recorded, but supply_temp did not change in 60 s. Its quality is bad.</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">I read its state: every read answers exception <code style="color: #F0A28D">0x0B</code> (gateway target did not respond). Unit 3 does not answer behind this gateway; ahu-old answered on unit 3 before, so the new box is likely unit 4.</span>
+</div>
+<div style="padding: 0 14px 14px; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{fixes}}" as="f" hint-placeholder-count="3">
+<button type="button" onClick="{{f.pick}}" style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: 8px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: #ECE9E1; text-align: left; cursor: pointer"><span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px">{{f.t}}</span><span style="font-size: 12px; color: #8E979C">{{f.d}}</span></span><span style="font-size: 11px; color: {{f.tagInk}}">{{f.tag}}</span></button>
+</sc-for>
+</div>
+</section>
+</sc-if>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+
+<!-- Composer -->
+<div style="padding: 12px 24px 16px; border-top: 1px solid #252B30; background: #0E1113">
+<div style="border: 1px solid #3A4249; border-radius: 12px; background: #161A1D; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
+<span style="display: flex; flex-wrap: wrap; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">@ plant</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">@ ahu2</span><button type="button" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px dashed #3A4249; background: transparent; color: #8E979C; cursor: pointer">+ from Explorer</button></span>
+<div style="display: flex; align-items: flex-end; gap: 10px">
+<label style="flex: 1; min-width: 0"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message</span><textarea rows="2" placeholder="{{composerHint}}" style="width: 100%; resize: none; border: 0; outline: none; background: transparent; color: #ECE9E1; font: inherit; font-size: 14px; line-height: 1.5"></textarea></label>
+<button type="button" aria-label="Send" style="width: 40px; height: 40px; flex: none; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg></button>
+</div>
+</div>
+<span style="display: block; padding-top: 6px; font-size: 11px; color: #5A6168">The assistant reads the tree on its own. Every change waits for a person with the rights for it.</span>
+</div>
+</main>
+
+<!-- Right panel -->
+<aside aria-label="Assistant details" style="flex: 1 1 300px; max-width: 330px; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div role="tablist" aria-label="Panel" style="display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #252B30">
+<button type="button" role="tab" aria-selected="{{tabTask.sel}}" onClick="{{tabTask.pick}}" style="height: 44px; border: 0; background: transparent; color: {{tabTask.ink}}; font-size: 13px; box-shadow: {{tabTask.line}}; cursor: pointer">This task</button>
+<button type="button" role="tab" aria-selected="{{tabRights.sel}}" onClick="{{tabRights.pick}}" style="height: 44px; border: 0; background: transparent; color: {{tabRights.ink}}; font-size: 13px; box-shadow: {{tabRights.line}}; cursor: pointer">What it may do</button>
+</div>
+<sc-if value="{{isTaskTab}}" hint-placeholder-val="{{true}}">
+<div style="padding: 14px 18px; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; border-bottom: 1px solid #252B30">
+<sc-for list="{{taskFacts}}" as="f" hint-placeholder-count="5"><span style="color: #8E979C">{{f.k}}</span><span style="word-break: break-word">{{f.v}}</span></sc-for>
+</div>
+<div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What it read</span>
+<sc-for list="{{reads}}" as="r" hint-placeholder-count="4"><div style="display: flex; gap: 8px; font-size: 12px"><span style="color: #6CC4B0">{{r.t}}</span><code style="color: #A3ABAF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.k}}</code></div></sc-for>
+<span style="padding-top: 6px; font-size: 12px; color: #8E979C; line-height: 1.5">Reading needs no approval. What it reads stays inside your rights and its own.</span>
+</div>
+</sc-if>
+<sc-if value="{{isRightsTab}}" hint-placeholder-val="{{false}}">
+<div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 600">Who approves</span>
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="3"><div style="display: flex; gap: 10px; padding: 8px 10px; border-radius: 8px; border: {{m.border}}; background: {{m.bg}}"><span style="width: 14px; height: 14px; flex: none; margin-top: 2px; border-radius: 50%; border: 2px solid {{m.ring}}; box-sizing: border-box"></span><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">{{m.t}}</span><span style="font-size: 11px; color: #8E979C; line-height: 1.4">{{m.d}}</span></span></div></sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; font-weight: 600">Where it may propose changes</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px"><code style="font-size: 11px; padding: 3px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">downstream/modbus/**</code><code style="font-size: 11px; padding: 3px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">sys/history/**</code><code style="font-size: 11px; padding: 3px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">dataflows/**</code><button type="button" style="font-size: 11px; padding: 3px 8px; border-radius: 10px; border: 1px dashed #3A4249; background: transparent; color: #8E979C; cursor: pointer">+ prefix</button></div>
+<span style="font-size: 11px; color: #8E979C">allowed_prefixes · outside them a step is refused at the check.</span></div>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<span style="color: #8E979C">Model</span><span>claude-sonnet-5-5</span>
+<span style="color: #8E979C">Today</span><span>182 k of 1 M tokens</span>
+<span style="color: #8E979C">API key</span><span>set · never shown</span>
+<span style="color: #8E979C">Sent to</span><span>api.anthropic.com</span>
+</div>
+<span style="font-size: 11px; color: #8E979C; line-height: 1.5">Changing where the key is sent deletes the key; enter it again after. These are params of the agent link (needs config).</span>
+</div>
+</sc-if>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"stage":{"editor":"enum","default":"plan","options":["ask","plan","running","done","failed"]},"panel":{"editor":"enum","default":"task","options":["task","rights"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', GREY = '#8E979C';
+    const stage = st.stage || pr.stage || 'plan';
+    const panel = st.panel || pr.panel || 'task';
+    const unit = st.unit || (stage === 'done' ? '4' : '3');
+    const ans = st.ans || { pts: 'all', conn: 'tcp-line2', grp: '1min' };
+    const ticks = st.ticks || { 1: true, 2: true, 4: true };
+    const planOpenSt = st.planOpen !== undefined ? st.planOpen : stage === 'plan';
+    const afterAsk = stage !== 'ask';
+
+    const Qs = [
+      { id: 'pts', t: 'Which points from ahu1?', o: [['all', 'All 14', 'same as ahu1'], ['tpl', 'The 6 of the AHU profile', 'temperatures, fan, valve'], ['pick', 'Let me pick', 'opens the list']] },
+      { id: 'conn', t: 'Which connection?', o: [['tcp-line2', 'tcp-line2', '10.0.7.20:502 · 3 devices'], ['new', 'A new connection', 'another host or port']] },
+      { id: 'grp', t: 'Record supply_temp in', o: [['1min', 'Watch group 1min', 'exists · every 60 s'], ['new', 'A new watch group', 'you set the interval']] }
+    ];
+    const questions = Qs.map((q) => ({ t: q.t, opts: q.o.map((o) => { const on = ans[q.id] === o[0];
+      return { t: o[1], d: o[2], checked: on ? 'true' : 'false', border: on ? '1.5px solid ' + accent : '1px solid #2F373D', bg: on ? '#1E1813' : '#13171A', pick: () => set({ ans: { ...ans, [q.id]: o[0] } }) }; }) }));
+
+    const K = 'wy/plant/downstream/modbus/tcp-line2';
+    const S = [
+      { n: 1, verb: 'INVOKE', act: 'add_device', key: K, level: 'config', args: [['Name', 'ahu2', ''], ['Slave ID', unit, '0…255'], ['Ping', 'probe', 'probe · fc17 · none']],
+        check: '✓ action exists · arguments fit · under downstream/modbus/**', why: 'a device for the new unit on the existing connection', warn: unit === '3' ? 'Slave ID 3 was used on tcp-line2 by ahu-old (stopped).' : '' },
+      { n: 2, verb: 'INVOKE', act: 'import', key: K + '/ahu2', level: 'config', args: [['Branch', 'export of ahu1 · 14 points', '']], check: '◷ checked when it runs: ahu2 is made by step 1', why: 'the same points as ahu1' },
+      { n: 3, verb: 'WAIT', act: 'supply_temp', key: K + '/ahu2/supply_temp', level: 'read', args: [['timeout_s', '30', '']], check: '✓ read only', why: 'the point exists before it is recorded' },
+      { n: 4, verb: 'INVOKE', act: 'add_watch_path', key: 'wy/plant/sys/history/1min', level: 'config', args: [['Path', 'downstream/modbus/tcp-line2/ahu2/supply_temp', '']], check: '✓ action exists · under sys/history/** · skipped if already watched', why: 'record every minute' },
+      { n: 5, verb: 'EXPECT', act: 'changes', key: K + '/ahu2/supply_temp', level: 'read', args: [['changes', 'true', ''], ['timeout_s', '60', '']], check: '✓ read only · proves the device answers', why: 'show that the plan worked' }
+    ];
+    const locked = stage !== 'plan';
+    const steps = S.map((s) => { const cfg = s.level === 'config';
+      return { n: s.n, verb: s.verb, act: s.act, key: s.key, level: s.level, locked,
+        verbBg: s.verb === 'INVOKE' ? '#2A1F16' : '#22282D', verbInk: s.verb === 'INVOKE' ? '#F3A766' : '#C5CBCE',
+        lvlBg: cfg ? '#33201B' : '#22282D', lvlInk: cfg ? '#F0A28D' : '#A3ABAF',
+        ring: cfg ? '#5A3E25' : '#3A4249', ringInk: cfg ? '#F3A766' : '#A3ABAF',
+        canTick: cfg && stage === 'plan', ticked: !!ticks[s.n], tick: () => set({ ticks: { ...ticks, [s.n]: !ticks[s.n] } }),
+        hasArgs: true, args: s.args.map((a) => ({ k: a[0], v: a[1], hint: a[2], border: a[0] === 'Slave ID' && s.warn ? '#6A5A2A' : '#2F373D' })),
+        hasWarn: !!s.warn && stage === 'plan', warn: s.warn || '',
+        fixes: [{ t: 'Use 4', pick: () => set({ unit: '4' }), border: '#5A3E25', bg: '#1E1813' }, { t: 'Keep 3', pick: () => set({ unit: '3k' }), border: '#3A4249', bg: 'transparent' }],
+        check: s.check, checkInk: s.check.startsWith('✓') ? TEAL : GREY, why: s.why };
+    });
+    if (unit === '3k') steps[0].args[1].v = '3';
+    const nTick = [1, 2, 4].filter((n) => ticks[n]).length;
+
+    const R = [['add_device', 'device ahu2 added'], ['import', '14 points imported'], ['wait supply_temp', 'exists'], ['add_watch_path', 'watching'], ['expect changes', '21.4 → 21.6 °C']];
+    const at = stage === 'running' ? 2 : 5;
+    const run = R.map((r, i) => { const failed = stage === 'failed' && i === 4;
+      const done = stage === 'done' || (stage === 'running' && i < at) || (stage === 'failed' && i < 4);
+      const now = stage === 'running' && i === at;
+      return { n: i + 1, t: r[0], done, now, fail: failed, wait: !done && !now && !failed,
+        msg: failed ? 'timeout · quality bad' : (done ? r[1] : (now ? 'running…' : '')), ink: !done && !now && !failed ? GREY : '#ECE9E1', msgInk: failed ? '#F0A28D' : (done ? TEAL : GREY) };
+    });
+    const points = [['supply_temp', '21.6 °C', 'recorded'], ['return_temp', '24.1 °C', ''], ['fan_speed', '62 %', 'writable'], ['valve_pos', '38 %', 'writable'], ['filter_dp', '112 Pa', '']].map((p) => ({ n: p[0], v: p[1], tag: p[2], ink: p[2] === 'recorded' ? TEAL : GREY }));
+    const more = [{ n: 'ahu3', u: '5' }, { n: 'ahu4', u: '6' }];
+    const fixes = [
+      { t: 'Try Slave ID 4', d: 'A new plan with one step: edit ahu2, then the same check.', tag: '1 change', tagInk: '#F3A766', border: '#5A3E25', bg: '#1E1813', pick: () => set({ stage: 'plan', unit: '4', planOpen: true }) },
+      { t: 'Undo the plan', d: 'A plan that removes the watch and ahu2 (steps 4 and 1, reversed).', tag: '2 changes', tagInk: '#F0A28D', border: '#3A4249', bg: '#13171A', pick: () => {} },
+      { t: 'Leave it as it is', d: 'ahu2 stays, recorded, with bad quality until it answers.', tag: 'nothing', tagInk: GREY, border: '#252B30', bg: '#13171A', pick: () => {} }
+    ];
+
+    const T = (id, name, state, color, cur) => ({ isHead: false, isItem: true, id, name, state, color, bg: cur ? '#1E1813' : 'transparent', edge: cur ? accent : 'transparent' });
+    const H = (name) => ({ isHead: true, isItem: false, name });
+    const curState = { ask: ['planning', AMBER], plan: ['awaiting approval', AMBER], running: ['running', accent], done: ['done', TEAL], failed: ['failed', CORAL] }[stage];
+    const tasks = [H('Now'), T('t-0142', 'Add ahu2 on line 2', curState[0], curState[1], 1), T('t-0141', 'Why is boiler valve bad?', 'done · read only', TEAL),
+      H('Today'), T('t-0139', 'Flow: alarm when supply_temp > 28 °C', 'done', TEAL), T('t-0137', 'Record all fan speeds on line 1', 'rejected by olena', GREY),
+      H('Earlier'), T('t-0131', 'Rename the S7 points of press 2', 'failed at step 3', CORAL)];
+    const taskPill = { ask: { t: 'planning', bg: '#3A3418', ink: AMBER }, plan: { t: 'awaiting approval', bg: '#3A3418', ink: AMBER }, running: { t: 'running · step 3 of 5', bg: '#2A1F16', ink: '#F3A766' },
+      done: { t: 'done', bg: '#15302A', ink: TEAL }, failed: { t: 'failed at step 5', bg: '#33201B', ink: '#F0A28D' } }[stage];
+    const planState = { ask: '', plan: 'awaiting approval · checked', running: 'approved by olena · 3 tokens', done: 'approved by olena · 3 tokens', failed: 'approved by olena · 3 tokens' }[stage];
+    const tab = (on, p) => ({ sel: on ? 'true' : 'false', ink: on ? '#ECE9E1' : '#A3ABAF', line: on ? 'inset 0 -2px 0 ' + accent : 'none', pick: () => set({ panel: p }) });
+    const M = [['Every step', 'A person approves each set and invoke. Recommended.', 1], ['Only config steps', 'write steps run at once with the agent’s key ai:agent.', 0], ['Never', 'Everything runs without a person. Text in the tree can steer it.', 0]];
+    const modes = M.map((m) => ({ t: m[0], d: m[1], border: m[2] ? '1.5px solid ' + accent : '1px solid #252B30', bg: m[2] ? '#1E1813' : 'transparent', ring: m[2] ? accent : '#5A6168' }));
+    return {
+      accent, questions, steps, run, points, more, fixes, tasks, taskPill, modes, planState,
+      clarOpen: stage === 'ask', afterAsk, planOpen: planOpenSt, isPlan: stage === 'plan', hasRun: ['running', 'done', 'failed'].indexOf(stage) >= 0,
+      isDone: stage === 'done', isFailed: stage === 'failed',
+      answerText: (ans.pts === 'all' ? 'All 14 points' : (ans.pts === 'tpl' ? 'The 6 profile points' : 'I pick the points')) + ' · ' + ans.conn + ' · ' + (ans.grp === '1min' ? 'watch group 1min' : 'a new watch group'),
+      planBorder: stage === 'plan' ? '#5A3E25' : '#2F373D', planStateInk: stage === 'plan' ? AMBER : TEAL,
+      planToggleLabel: planOpenSt ? 'Hide steps' : 'Show steps', togglePlan: () => set({ planOpen: !planOpenSt }),
+      approveLabel: 'Approve ' + nTick + (nTick === 1 ? ' change' : ' changes') + ' and run',
+      runNote: stage === 'running' ? 'stops at the first step that fails' : (stage === 'done' ? 'all steps passed · 41 s' : 'stopped · steps 1–4 stay done'),
+      composerHint: { ask: 'Answer, or ask something else…', plan: 'Ask to change the plan, e.g. “skip step 4”…', running: 'You can write while it runs…', done: 'What next?', failed: 'Tell it what you know about ahu2…' }[stage],
+      taskFacts: [{ k: 'Task', v: 'agent/tasks/t-0142' }, { k: 'State', v: curState[0] }, { k: 'Asked by', v: 'olena · write on the agent' }, { k: 'Approves', v: 'a person with config' }, { k: 'Tokens', v: '14.2 k for this task' }],
+      reads: [{ t: 'tree', k: 'modbus/tcp-line2' }, { t: 'meta', k: 'tcp-line2/ahu1 · 14 points' }, { t: 'meta', k: 'tcp-line2 ▸ add_device' }, { t: 'get', k: 'sys/history/1min' }].concat(stage === 'failed' ? [{ t: 'get', k: 'ahu2/supply_temp · bad' }, { t: 'log', k: 'modbus · last 20 lines' }] : []),
+      isTaskTab: panel === 'task', isRightsTab: panel === 'rights', tabTask: tab(panel === 'task', 'task'), tabRights: tab(panel === 'rights', 'rights'),
+      toPlan: () => set({ stage: 'plan', planOpen: true }),
+      approve: () => { set({ stage: 'running', planOpen: false }); setTimeout(() => this.setState({ stage: unit === '4' ? 'done' : 'failed' }), 2200); },
+      newTask: () => set({ stage: 'ask', planOpen: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

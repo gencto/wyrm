@@ -137,7 +137,7 @@ impl Pki {
         self.issue_lasting(cn, sans, server, out, name, LEAF_DAYS)
     }
 
-    pub(crate) fn issue_lasting(
+    pub fn issue_lasting(
         &self,
         cn: &str,
         sans: &[String],

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Log in to WYRM Studio</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+a:hover{color:#F3A766}
+*{scrollbar-width:thin;scrollbar-color:#2F373D transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2F373D;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#4A535A}::-webkit-scrollbar-track{background:transparent}
+@keyframes wy-crawl{0%,100%{transform:translateY(0) scale(1);opacity:.4}35%{transform:translateY(-6px) scale(1.28);opacity:1}70%{transform:translateY(0) scale(1);opacity:.7}}
+@keyframes wy-breathe{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.18);opacity:1}}
+@keyframes wy-flow{to{stroke-dashoffset:-160}}
+@keyframes wy-draw{from{stroke-dashoffset:420}to{stroke-dashoffset:0}}
+@keyframes wy-twinkle{0%,100%{opacity:.25}50%{opacity:.9}}
+@keyframes wy-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@keyframes wy-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+@keyframes wy-bar{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.wy-crawl>span{display:block;border-radius:50%;animation:wy-crawl 1.1s ease-in-out infinite}
+.wy-crawl>span:nth-child(2){animation-delay:.11s}.wy-crawl>span:nth-child(3){animation-delay:.22s}.wy-crawl>span:nth-child(4){animation-delay:.33s}.wy-crawl>span:nth-child(5){animation-delay:.44s}
+.wy-mark circle{transform-box:fill-box;transform-origin:center;animation:wy-breathe 3.2s ease-in-out infinite}
+.wy-mark circle:nth-of-type(2){animation-delay:.25s}.wy-mark circle:nth-of-type(3){animation-delay:.5s}.wy-mark circle:nth-of-type(4){animation-delay:.75s}.wy-mark circle:nth-of-type(5){animation-delay:1s}
+.wy-spine{stroke-dasharray:420;animation:wy-draw 1.6s ease-out both}
+.wy-packet{stroke-dasharray:3 157;animation:wy-flow 4.8s linear infinite}
+.wy-packet.slow{animation-duration:7.5s}.wy-packet.late{animation-delay:-2.4s}
+.wy-star{animation:wy-twinkle 3.6s ease-in-out infinite}
+.wy-rise{animation:wy-rise .6s cubic-bezier(.2,.7,.2,1) both}
+.wy-rise.d1{animation-delay:.08s}.wy-rise.d2{animation-delay:.16s}.wy-rise.d3{animation-delay:.24s}.wy-rise.d4{animation-delay:.32s}
+.wy-shake{animation:wy-shake .45s both}
+.wy-spinner{animation:wy-spin .9s linear infinite;transform-origin:center}
+.wy-bar{animation:wy-bar 1.4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.wy-crawl>span,.wy-mark circle,.wy-spine,.wy-packet,.wy-star,.wy-rise,.wy-shake,.wy-spinner,.wy-bar{animation:none!important}}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap; overflow: hidden; -webkit-font-smoothing: antialiased">
+
+<!-- Hero: the network, alive -->
+<section aria-label="WYRM Studio" style="position: relative; flex: 1 1 560px; min-width: 0; min-height: 420px; display: flex; flex-direction: column; justify-content: space-between; padding: 40px 48px; box-sizing: border-box; background: radial-gradient(120% 90% at 20% 30%, #1A1511 0%, #0E1113 60%); border-right: 1px solid #1D2226; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 900 900" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%">
+<g fill="#252B30"><sc-for list="{{stars}}" as="s" hint-placeholder-count="30"><circle class="wy-star" cx="{{s.x}}" cy="{{s.y}}" r="{{s.r}}" style="animation-delay: {{s.d}}"></circle></sc-for></g>
+<g fill="none" stroke="#2A2F33" stroke-width="1.2"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path d="{{e.d}}"></path></sc-for></g>
+<g fill="none" stroke-width="2.4" stroke-linecap="round"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path class="{{e.cls}}" d="{{e.d}}" stroke="{{e.c}}"></path></sc-for></g>
+<g><sc-for list="{{nodes}}" as="n" hint-placeholder-count="9"><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.r}}" fill="#13171A" stroke="{{n.c}}" stroke-width="1.6"></circle><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.core}}" fill="{{n.c}}" opacity="0.9"></circle></sc-for></g>
+</svg>
+
+<a href="#form" style="position: relative; display: flex; align-items: center; gap: 12px; color: #ECE9E1; text-decoration: none" class="wy-rise">
+<svg width="44" height="26" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 18px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 15px; color: #A3ABAF">Studio</span>
+</a>
+
+<div style="position: relative; display: flex; flex-direction: column; gap: 22px; max-width: 520px">
+<svg class="wy-mark" width="220" height="130" viewBox="0 0 220 130" aria-hidden="true">
+<path class="wy-spine" d="M20 85 C 45 50, 65 45, 70 45 S 105 25, 115 30 S 155 40, 165 55 S 190 95, 200 100" fill="none" stroke="#5A3E25" stroke-width="2" stroke-linecap="round"></path>
+<circle cx="20" cy="85" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="65" cy="45" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="115" cy="30" r="20" fill="#E8893A"></circle>
+<circle cx="165" cy="55" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="200" cy="100" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+</svg>
+<h1 class="wy-rise d1" style="margin: 0; font-size: 40px; line-height: 1.12; font-weight: 600; letter-spacing: -0.02em">Every device, link and site<br><span style="color: #F3A766">in one living tree.</span></h1>
+<p class="wy-rise d2" style="margin: 0; font-size: 16px; line-height: 1.6; color: #A3ABAF">Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.</p>
+</div>
+
+<div class="wy-rise d3" style="position: relative; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #6CC4B0"></span>values flowing</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #E8893A"></span>commands</span>
+<span>The animation is decoration; it stops when the system asks for less motion.</span>
+</div>
+</section>
+
+<!-- Form -->
+<main id="form" style="flex: 0 1 520px; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 40px 32px; box-sizing: border-box; background: #0E1113">
+<div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 22px">
+
+<sc-if value="{{showForm}}" hint-placeholder-val="{{true}}">
+<div class="wy-rise" style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Log in</h2>
+<p style="margin: 0; color: #A3ABAF">to a broker’s gateway. Your role there decides what you can change.</p>
+</div>
+
+<sc-if value="{{isUnreachable}}" hint-placeholder-val="{{false}}">
+<div role="alert" class="wy-rise" style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 10px; border: 1px solid #5A3328; background: #1C1513">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #F0A28D"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 20h.01M3 3l18 18"></path></svg>Can’t reach this gateway</span>
+<code style="font-size: 12px; color: #C5CBCE">https://plant.local:8446 · connection refused after 5 s</code>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">The broker may be restarting or this computer is on another network. Its standby answers at <code style="color: #ECE9E1">edge.local:8444</code>.</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" onClick="{{retry}}" style="height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Try again</button>
+<button type="button" onClick="{{useStandby}}" style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 13px; cursor: pointer">Use the standby</button>
+</div>
+</div>
+</sc-if>
+
+<form onSubmit="{{submit}}" style="display: flex; flex-direction: column; gap: 16px">
+<div class="wy-rise d1" style="display: flex; flex-direction: column; gap: 8px">
+<label for="gw" style="font-size: 13px; color: #C5CBCE">Gateway</label>
+<div style="display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border-radius: 10px; border: 1px solid {{gwBorder}}; background: #161A1D; box-sizing: border-box">
+<span style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{gwDot}}; box-shadow: 0 0 0 4px {{gwHalo}}"></span>
+<input id="gw" type="url" value="{{gwUrl}}" autocomplete="url" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px">
+<sc-if value="{{gwChecking}}" hint-placeholder-val="{{false}}"><svg class="wy-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.4" stroke-linecap="round" aria-label="Checking the gateway"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+</div>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{gwNoteInk}}">{{gwNote}}</span>
+<div role="group" aria-label="Recent gateways" style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{recent}}" as="r" hint-placeholder-count="3">
+<button type="button" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid {{r.border}}; background: {{r.bg}}; color: {{r.ink}}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{r.dot}}"></span>{{r.name}}</button>
+</sc-for>
+</div>
+</div>
+
+<div class="wy-rise d2" style="display: flex; flex-direction: column; gap: 8px">
+<label for="user" style="font-size: 13px; color: #C5CBCE">User</label>
+<input id="user" type="text" value="olena" autocomplete="username" style="height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-family: inherit; font-size: 15px; outline: none; box-sizing: border-box">
+</div>
+
+<div class="wy-rise d3 {{pwShake}}" style="display: flex; flex-direction: column; gap: 8px">
+<label for="pw" style="font-size: 13px; color: #C5CBCE">Password</label>
+<div style="display: flex; align-items: center; height: 46px; padding: 0 6px 0 14px; border-radius: 10px; border: 1px solid {{pwBorder}}; background: #161A1D; box-sizing: border-box">
+<input id="pw" type="{{pwType}}" value="correct-horse" autocomplete="current-password" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font-family: inherit; font-size: 15px; letter-spacing: {{pwSpacing}}">
+<button type="button" onClick="{{togglePw}}" aria-label="{{pwToggleLabel}}" style="width: 36px; height: 36px; border-radius: 8px; border: 0; background: transparent; color: #8E979C; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+</div>
+<sc-if value="{{isWrong}}" hint-placeholder-val="{{false}}"><span role="alert" style="font-size: 13px; color: #F0A28D">User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.</span></sc-if>
+</div>
+
+<label class="wy-rise d4" style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #C5CBCE"><input type="checkbox" checked="{{remember}}" onChange="{{toggleRemember}}" style="width: 16px; height: 16px; accent-color: #E8893A">Remember the gateway and user on this computer</label>
+
+<button type="submit" disabled="{{busy}}" class="wy-rise d4" style="position: relative; height: 50px; border-radius: 10px; border: 0; background: {{btnBg}}; color: #0E1113; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 12px">
+<sc-if value="{{busy}}" hint-placeholder-val="{{false}}">
+<span class="wy-crawl" aria-hidden="true" style="display: flex; align-items: flex-end; gap: 5px; height: 18px"><span style="width: 6px; height: 6px; background: #0E1113"></span><span style="width: 7px; height: 7px; background: #0E1113"></span><span style="width: 8px; height: 8px; background: #0E1113"></span><span style="width: 7px; height: 7px; background: #0E1113"></span><span style="width: 6px; height: 6px; background: #0E1113"></span></span>
+</sc-if>
+<span>{{btnLabel}}</span>
+<sc-if value="{{busy}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; left: 0; bottom: 0; width: 40%; height: 3px; background: rgba(14,17,19,0.45)" class="wy-bar"></span></sc-if>
+</button>
+
+<sc-if value="{{busy}}" hint-placeholder-val="{{false}}">
+<ol aria-label="Progress" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{progress}}" as="p" hint-placeholder-count="3">
+<li style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: {{p.ink}}">
+<span style="width: 16px; height: 16px; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{p.done}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+<sc-if value="{{p.now}}" hint-placeholder-val="{{false}}"><svg class="wy-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E8893A" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+<sc-if value="{{p.wait}}" hint-placeholder-val="{{false}}"><span style="width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid #5A6168"></span></sc-if>
+</span>{{p.t}}</li>
+</sc-for>
+</ol>
+</sc-if>
+</form>
+
+<div class="wy-rise d4" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 14px; border-top: 1px solid #1D2226; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 11h12v9H6zM8 11V7a4 4 0 0 1 8 0v4"></path></svg>TLS · certificate of the plant CA</span>
+<button type="button" onClick="{{addStandby}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 12px; text-decoration: underline; cursor: pointer">{{standbyLabel}}</button>
+<span style="margin-left: auto">Studio 1.0 · English</span>
+</div>
+</sc-if>
+
+<!-- Welcome: the loader while the tree opens -->
+<sc-if value="{{isWelcome}}" hint-placeholder-val="{{false}}">
+<div class="wy-rise" style="display: flex; flex-direction: column; align-items: center; gap: 26px; text-align: center; padding: 40px 0">
+<span class="wy-crawl" role="progressbar" aria-label="Opening the tree" style="display: flex; align-items: flex-end; gap: 10px; height: 48px"><span style="width: 14px; height: 14px; border: 3px solid #E8893A; box-sizing: border-box"></span><span style="width: 17px; height: 17px; border: 3px solid #E8893A; box-sizing: border-box"></span><span style="width: 20px; height: 20px; background: #E8893A"></span><span style="width: 17px; height: 17px; border: 3px solid #E8893A; box-sizing: border-box"></span><span style="width: 14px; height: 14px; border: 3px solid #E8893A; box-sizing: border-box"></span></span>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 26px; font-weight: 600">Welcome, olena</h2>
+<p style="margin: 0; color: #A3ABAF">Opening the tree of <code style="color: #ECE9E1">plant</code>…</p>
+</div>
+<div style="width: 260px; height: 4px; border-radius: 2px; background: #1D2226; overflow: hidden"><div class="wy-bar" style="width: 40%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, transparent, #E8893A, transparent)"></div></div>
+<div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #8E979C">
+<span><span style="color: #6CC4B0">✓</span> engineer on plant · reaches edge and central</span>
+<span><span style="color: #6CC4B0">✓</span> 14 links · 2 flows · 1 waiting in quarantine</span>
+</div>
+<button type="button" onClick="{{back}}" style="border: 0; background: transparent; color: #8E979C; font-family: inherit; font-size: 12px; text-decoration: underline; cursor: pointer">Back to the form (prototype)</button>
+</div>
+</sc-if>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"idle","options":["idle","signing","wrong","unreachable","welcome"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { (this._t || []).forEach((t) => clearTimeout(t)); }
+  renderVals() {
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', ACC = '#E8893A';
+    const stage = st.stage || pr.stage || 'idle';
+    const step = st.step !== undefined ? st.step : (stage === 'signing' ? 1 : 0);
+    const gw = st.gw || (stage === 'unreachable' ? 'plant' : 'plant');
+    const showPw = !!st.showPw;
+    const remember = st.remember !== undefined ? st.remember : true;
+    const standby = !!st.standby;
+
+    // Hero network: decorative, seeded so it is the same every time
+    let seed = 7; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const stars = Array.from({ length: 34 }, () => ({ x: Math.round(rnd() * 900), y: Math.round(rnd() * 900), r: (0.8 + rnd() * 1.4).toFixed(1), d: (rnd() * 3.6).toFixed(2) + 's' }));
+    const N = [[150, 640], [300, 560], [470, 610], [620, 520], [770, 600], [380, 740], [560, 760], [700, 720], [240, 780]];
+    const nodes = N.map((p, i) => ({ x: p[0], y: p[1], r: i === 2 ? 11 : 8, core: i === 2 ? 4 : 3, c: i === 2 ? ACC : (i % 3 === 0 ? '#3A4249' : TEAL) }));
+    const E = [[0, 1], [1, 2], [2, 3], [3, 4], [1, 5], [5, 6], [6, 7], [2, 6], [0, 8], [8, 5], [4, 7]];
+    const edges = E.map((e, i) => { const a = N[e[0]], b = N[e[1]], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - 40;
+      return { d: 'M' + a[0] + ' ' + a[1] + ' Q ' + mx + ' ' + my + ' ' + b[0] + ' ' + b[1], c: i % 4 === 3 ? ACC : TEAL, cls: 'wy-packet' + (i % 2 ? ' slow' : '') + (i % 3 === 0 ? ' late' : '') }; });
+
+    const G = { plant: { url: 'https://plant.local:8446', ok: 'plant · wyrmd 0.9.4 · answered in 12 ms' }, edge: { url: 'https://edge.local:8444', ok: 'edge · wyrmd 0.9.4 · answered in 21 ms' }, central: { url: 'https://central.example:8445', ok: 'central · wyrmd 0.9.4 · answered in 48 ms' } };
+    const unreachable = stage === 'unreachable' && gw === 'plant';
+    const recent = ['plant', 'edge', 'central'].map((n) => { const on = n === gw, down = n === 'plant' && stage === 'unreachable';
+      return { name: n, on: on ? 'true' : 'false', border: on ? '#5A3E25' : '#2F373D', bg: on ? '#1E1813' : 'transparent', ink: on ? '#F6C59A' : '#A3ABAF', dot: down ? CORAL : TEAL, pick: () => set({ gw: n, stage: stage === 'unreachable' && n !== 'plant' ? 'idle' : stage }) }; });
+
+    const busy = stage === 'signing';
+    const P = ['Reaching ' + gw, 'Checking user and password', 'Reading your role and sites'];
+    const progress = P.map((t, i) => ({ t, done: i < step, now: i === step, wait: i > step, ink: i > step ? '#5A6168' : (i === step ? '#ECE9E1' : '#A3ABAF') }));
+    this._t = this._t || [];
+    const submit = (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      if (busy) return;
+      set({ stage: 'signing', step: 0 });
+      this._t.push(setTimeout(() => this.setState({ step: 1 }), 700));
+      this._t.push(setTimeout(() => this.setState({ step: 2 }), 1400));
+      this._t.push(setTimeout(() => this.setState({ stage: 'welcome' }), 2100));
+    };
+    const isWrong = stage === 'wrong';
+    return {
+      stars, nodes, edges, recent, progress, busy, remember, isWrong,
+      showForm: stage !== 'welcome', isWelcome: stage === 'welcome', isUnreachable: unreachable,
+      gwUrl: G[gw].url, gwChecking: false,
+      gwDot: unreachable ? CORAL : TEAL, gwHalo: unreachable ? 'rgba(224,122,95,0.15)' : 'rgba(108,196,176,0.15)', gwBorder: unreachable ? '#5A3328' : '#2F373D',
+      gwNote: unreachable ? 'No answer from plant' : G[gw].ok, gwNoteInk: unreachable ? '#F0A28D' : '#8E979C',
+      pwType: showPw ? 'text' : 'password', pwSpacing: showPw ? 'normal' : '0.2em', pwToggleLabel: showPw ? 'Hide password' : 'Show password',
+      pwBorder: isWrong ? '#5A3328' : '#2F373D', pwShake: isWrong ? 'wy-shake' : '',
+      btnBg: busy ? '#C9772F' : ACC, btnLabel: busy ? 'Signing in…' : 'Log in',
+      standbyLabel: standby ? 'Standby: edge.local:8444' : 'Add a standby gateway',
+      submit, togglePw: () => set({ showPw: !showPw }), toggleRemember: () => set({ remember: !remember }),
+      retry: () => set({ stage: 'idle' }), useStandby: () => set({ gw: 'edge', stage: 'idle' }), addStandby: () => set({ standby: !standby }),
+      back: () => set({ stage: 'idle', step: 0 })
+    };
+  }
+}
+</script>
+</body>
+</html>

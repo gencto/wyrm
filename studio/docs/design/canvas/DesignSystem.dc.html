@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — design system</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+<div style="max-width: 1200px; margin: 0 auto; padding: 64px 24px 96px; display: flex; flex-direction: column; gap: 72px">
+
+<!-- Header -->
+<header style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="44" height="26" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: {{accent}}">WYRM Studio · design system</span>
+</div>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(32px, 4.4vw, 52px); line-height: 1.08; max-width: 860px">Dark, dense and calm. One place for every setting.</h1>
+<p style="margin: 0; font-size: 18px; line-height: 1.6; color: #C5CBCE; max-width: 760px">The tree says <em>where</em>, the workspace says <em>what</em>, the inspector says <em>how</em>. Everything a person edits is staged first and applied once, with their own rights. Built from the WYRM home page: the same ground, the same ember accent, the same IBM Plex faces.</p>
+</header>
+
+<!-- 01 Layout -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">01 · Layout</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">Four fixed zones, never more</h2>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 12px; overflow: hidden; background: #13171A">
+<div style="height: 44px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 13px; color: #A3ABAF"><span style="color: #ECE9E1; font-weight: 600">Top bar · 56</span><span>site · search ⌘K · review and apply · account</span></div>
+<div style="display: flex; flex-wrap: wrap; min-height: 240px">
+<div style="flex: 0 0 76px; border-right: 1px solid #252B30; padding: 14px 8px; box-sizing: border-box; font-size: 12px; color: #A3ABAF; display: flex; flex-direction: column; gap: 6px"><span style="color: #ECE9E1; font-weight: 600">Rail</span><span>76</span></div>
+<div style="flex: 1 1 200px; max-width: 280px; border-right: 1px solid #252B30; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px"><span style="font-weight: 600">Tree or palette</span><span style="font-size: 13px; color: #A3ABAF">260–300 · where. Sites, links, devices, flows, storage, sys.</span></div>
+<div style="flex: 999 1 320px; min-width: 0; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; background: #0E1113"><span style="font-weight: 600">Workspace</span><span style="font-size: 13px; color: #A3ABAF">fluid · what. A table of points, a flow canvas, a catalog. One selection at a time.</span></div>
+<div style="flex: 1 1 220px; max-width: 340px; border-left: 1px solid #252B30; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px"><span style="font-weight: 600">Inspector</span><span style="font-size: 13px; color: #A3ABAF">320–360 · how. A form made from the driver’s declared parameters.</span></div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px">
+<div style="padding: 18px; border-radius: 10px; background: #161A1D; border: 1px solid #252B30; display: flex; flex-direction: column; gap: 8px"><span style="font-family: 'IBM Plex Mono', monospace; color: {{accent}}">1</span><span style="font-weight: 600; font-size: 16px">One selection drives the inspector</span><span style="color: #A3ABAF; line-height: 1.5">No floating property windows, no nested dialogs. Select in the tree or the workspace; the right side follows.</span></div>
+<div style="padding: 18px; border-radius: 10px; background: #161A1D; border: 1px solid #252B30; display: flex; flex-direction: column; gap: 8px"><span style="font-family: 'IBM Plex Mono', monospace; color: {{accent}}">2</span><span style="font-weight: 600; font-size: 16px">Stage, then apply once</span><span style="color: #A3ABAF; line-height: 1.5">Edits mark the row with an ember dot and show the old value. Review lists each change with the level it needs.</span></div>
+<div style="padding: 18px; border-radius: 10px; background: #161A1D; border: 1px solid #252B30; display: flex; flex-direction: column; gap: 8px"><span style="font-family: 'IBM Plex Mono', monospace; color: {{accent}}">3</span><span style="font-weight: 600; font-size: 16px">Quality is always on screen</span><span style="color: #A3ABAF; line-height: 1.5">Every value carries good, uncertain or bad, as a word and a mark, in tables, nodes and the inspector.</span></div>
+</div>
+</section>
+
+<!-- 02 Color -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">02 · Color</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">A cool graphite ground, one warm accent</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.6">Ember is for action and for staged edits. Teal is for live data that is good. Nothing else is colored unless it reports a state.</p>
+</div>
+<sc-for list="{{palettes}}" as="pal" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">{{pal.title}}</h3>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{pal.items}}" as="s" hint-placeholder-count="6">
+<div style="border-radius: 10px; border: 1px solid #252B30; overflow: hidden; background: #13171A">
+<div style="height: 64px; background: {{s.hex}}; display: flex; align-items: flex-end; padding: 8px 10px; box-sizing: border-box; color: {{s.ink}}; font-size: 12px; font-weight: 600">{{s.sample}}</div>
+<div style="padding: 10px; display: flex; flex-direction: column; gap: 2px">
+<code style="font-size: 12px; color: #ECE9E1">{{s.name}}</code>
+<code style="font-size: 12px; color: #8E979C">{{s.hex}}</code>
+<span style="font-size: 12px; color: #A3ABAF">{{s.use}}</span>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</section>
+
+<!-- 03 Type -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">03 · Type</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">Plex for reading, Mono for anything a machine reads</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.6">Keys, node names, registers, values and units in code go in IBM Plex Mono. Unbounded appears only in the wordmark and in page-level headings like this document’s.</p>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 12px; background: #13171A">
+<sc-for list="{{typeScale}}" as="t" hint-placeholder-count="7">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 20px; border-bottom: 1px solid #1D2226">
+<code style="flex: 0 0 160px; font-size: 12px; color: #8E979C">{{t.token}}</code>
+<span style="flex: 1 1 360px; min-width: 0; font-family: {{t.family}}; font-size: {{t.size}}; font-weight: {{t.weight}}; letter-spacing: {{t.track}}; text-transform: {{t.case}}; color: #ECE9E1">{{t.sample}}</span>
+<code style="flex: 0 0 auto; font-size: 12px; color: #A3ABAF">{{t.spec}}</code>
+</div>
+</sc-for>
+</div>
+</section>
+
+<!-- 04 Space and shape -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">04 · Space and shape</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">A 4 px grid and two densities</h2>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px">
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Spacing</h3>
+<sc-for list="{{spacing}}" as="sp" hint-placeholder-count="7">
+<div style="display: flex; align-items: center; gap: 14px"><code style="width: 64px; font-size: 12px; color: #8E979C">{{sp.name}}</code><span style="height: 12px; width: {{sp.px}}; border-radius: 2px; background: {{accent}}"></span><code style="font-size: 12px; color: #C5CBCE">{{sp.px}}</code></div>
+</sc-for>
+</div>
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Radius</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<sc-for list="{{radii}}" as="r" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 64px; height: 48px; border: 1.5px solid #5A6168; border-radius: {{r.px}}; background: #1D2226"></span><code style="font-size: 12px; color: #C5CBCE">{{r.px}}</code><span style="font-size: 12px; color: #8E979C">{{r.use}}</span></div>
+</sc-for>
+</div>
+<h3 style="margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Heights</h3>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px; color: #A3ABAF">
+<span>Row, comfortable</span><code style="color: #ECE9E1">40</code>
+<span>Row, compact</span><code style="color: #ECE9E1">32</code>
+<span>Input, small control</span><code style="color: #ECE9E1">36</code>
+<span>Button, toolbar</span><code style="color: #ECE9E1">40</code>
+<span>Button, commit</span><code style="color: #ECE9E1">44</code>
+</div>
+</div>
+</div>
+</section>
+
+<!-- 05 Status language -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">05 · Status language</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">The same words the broker uses</h2>
+<p style="margin: 0; color: #A3ABAF; max-width: 720px; line-height: 1.6">Each state is a word plus a mark that also differs in shape or fill, so it reads without color.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px">
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Value quality</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; background: #15302A; color: #6CC4B0; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>good</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; background: #2E2814; color: #E2C15A; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #E2C15A; box-sizing: border-box"></span>uncertain</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; background: #33201B; color: #E07A5F; font-size: 13px"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1L1 9" stroke="#E07A5F" stroke-width="2" stroke-linecap="round"></path></svg>bad</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; background: #22282D; color: #A3ABAF; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px dashed #A3ABAF; box-sizing: border-box"></span>stale</span>
+</div>
+<h3 style="margin: 4px 0 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Edit state</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px">
+<span style="display: inline-flex; align-items: center; gap: 8px; color: #F3A766"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}"></span>staged · was 1 s</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; color: #8E979C"><span style="width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid #8E979C; box-sizing: border-box"></span>not applied</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; color: #6CC4B0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>read back</span>
+</div>
+</div>
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Connection, device and point state</h3>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px">
+<sc-for list="{{states}}" as="st" hint-placeholder-count="6">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: {{st.color}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{st.fill}}; border: 2px solid {{st.color}}; box-sizing: border-box"></span><code style="font-size: 13px">{{st.name}}</code></span>
+</sc-for>
+</div>
+<h3 style="margin: 4px 0 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Run mode</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 4px; background: #22282D; color: #C5CBCE; font-size: 12px">Embedded</span>
+<span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 4px; background: #22282D; color: #C5CBCE; font-size: 12px">WASM</span>
+<span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 4px; background: #22282D; color: #C5CBCE; font-size: 12px">Process</span>
+<span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 4px; background: #22282D; color: #C5CBCE; font-size: 12px">External</span>
+</div>
+</div>
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Access level</h3>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px">
+<span style="height: 8px; border-radius: 4px; background: #3A4249"></span>
+<span style="height: 8px; border-radius: 4px; background: #5A6168"></span>
+<span style="height: 8px; border-radius: 4px; background: #8E979C"></span>
+<span style="height: 8px; border-radius: 4px; background: {{accent}}"></span>
+<span style="height: 8px; border-radius: 4px; background: #22282D; border: 1px dashed #5A6168; box-sizing: border-box"></span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF">
+<span>none</span><span>list</span><span>read</span><span style="color: #ECE9E1">write</span><span>config</span>
+</div>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5">Shown filled up to the user’s level on that key. A change that needs more says so and offers to ask an admin.</p>
+</div>
+</div>
+</section>
+
+<!-- 06 Components -->
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #8E979C">06 · Components</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 600">The kit the screens are built from</h2>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px">
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Buttons</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+<button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">Primary</button>
+<button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Secondary</button>
+<button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 14px; cursor: pointer">Quiet</button>
+<button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #5A3328; background: #33201B; color: #F0A28D; font-size: 14px; cursor: pointer">Remove</button>
+<button type="button" aria-label="Add" style="width: 40px; height: 40px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<p style="margin: 0; font-size: 13px; color: #8E979C; line-height: 1.5">One primary per zone. In the top bar it is Review and apply; in a panel it is that panel’s commit.</p>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Fields</h3>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Text</span><input type="text" value="Return temp" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font: inherit; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Number with unit</span><span style="display: flex; align-items: center; height: 36px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; box-sizing: border-box"><input type="text" value="1500" style="flex: 1; min-width: 0; height: 100%; padding: 0 10px; border: 0; background: transparent; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none"><span style="padding: 0 10px; color: #8E979C; font-size: 12px">ms</span></span></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Choice</span><button type="button" aria-haspopup="listbox" aria-label="Data type: float32" style="display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">float32<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #E07A5F">Address · out of range</span><input type="text" value="70001" aria-invalid="true" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1.5px solid #E07A5F; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Secret · sealed, never shown again</span><input type="password" value="placeholder" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 16px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Toggles and choices</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center">
+<button type="button" role="switch" aria-checked="true" aria-label="On" style="width: 44px; height: 26px; border-radius: 13px; border: 0; background: {{accent}}; padding: 3px; display: flex; justify-content: flex-end; align-items: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: #0E1113"></span></button>
+<button type="button" role="switch" aria-checked="false" aria-label="Off" style="width: 44px; height: 26px; border-radius: 13px; border: 1px solid #3A4249; background: #22282D; padding: 2px; display: flex; align-items: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: #8E979C"></span></button>
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px"><input type="checkbox" checked="{{true}}" style="width: 16px; height: 16px; accent-color: #E8893A">Checkbox</label>
+</div>
+<div role="radiogroup" aria-label="Poll rate" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">250 ms</button>
+<button type="button" role="radio" aria-checked="true" style="height: 34px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">500 ms</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">1 s</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">5 s</button>
+</div>
+<nav aria-label="Tabs example" style="display: flex; gap: 4px; border-bottom: 1px solid #252B30">
+<a href="#tab-points" aria-current="page" style="display: flex; align-items: center; height: 40px; padding: 0 12px; box-shadow: inset 0 -2px 0 {{accent}}; color: #ECE9E1; font-weight: 500">Points</a>
+<a href="#tab-params" style="display: flex; align-items: center; height: 40px; padding: 0 12px; color: #A3ABAF">Parameters</a>
+<a href="#tab-history" style="display: flex; align-items: center; height: 40px; padding: 0 12px; color: #A3ABAF">History</a>
+</nav>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 10px">
+<h3 style="margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #C5CBCE">Tree rows</h3>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 12px">
+<code style="width: 76px; flex: none; font-size: 12px; color: #8E979C">{{r.state}}</code>
+<span style="flex: 1; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; border-radius: 6px; background: {{r.bg}}; color: {{r.color}}">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{r.icon}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>
+<code style="font-size: 13px; font-weight: {{r.weight}}">plc1</code>
+<sc-if value="{{r.staged}}" hint-placeholder-val="{{false}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}"></span></sc-if>
+<span style="margin-left: auto; font-size: 12px; color: #8E979C">9</span>
+</span>
+</div>
+</sc-for>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Flow block</h3>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="width: 200px; border-radius: 10px; background: #161A1D; border: 1px solid #2F373D">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid #252B30"><span style="width: 26px; height: 18px; border-radius: 4px; background: #15302A; color: #6CC4B0; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center">IN</span><code style="font-size: 13px; font-weight: 600">subscribe</code></div>
+<div style="padding: 10px 12px"><code style="font-size: 12px; color: #A3ABAF">modbus/tank/level_raw</code></div>
+<div style="padding: 8px 12px; border-top: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6CC4B0">2550 · good</div>
+</div>
+<div style="width: 200px; border-radius: 10px; background: #1A1D1F; border: 1.5px solid {{accent}}">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid #2F373D"><span style="width: 26px; height: 18px; border-radius: 4px; background: #2A1F16; color: #F3A766; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center">OUT</span><code style="font-size: 13px; font-weight: 600">publish</code></div>
+<div style="padding: 10px 12px"><code style="font-size: 12px; color: #A3ABAF">storage/tank/state</code></div>
+<div style="padding: 8px 12px; border-top: 1px solid #2F373D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #E07A5F">— · bad</div>
+</div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #8E979C; line-height: 1.5">Tag by role: IN teal, OUT ember, everything between neutral. The footer shows the live value with its quality. Selected: ember outline.</p>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Scrollbars</h3>
+<div style="display: flex; gap: 14px; flex-wrap: wrap">
+<div tabindex="0" aria-label="Scrollable example" style="flex: 1 1 200px; height: 150px; overflow-y: auto; border-radius: 8px; border: 1px solid #252B30; background: #0E1113">
+<div style="display: flex; flex-direction: column">
+<code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">t1 · 82.5</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">t2 · 64.1</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">t3 · 412.0</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">p1 · 2.31</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">pump · on</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">fan · 72</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">flow · 12.8</code><code style="padding: 8px 12px; border-bottom: 1px solid #1D2226; font-size: 12px">valve · —</code><code style="padding: 8px 12px; font-size: 12px">alarm · 0x0000</code>
+</div>
+</div>
+<div style="flex: 1 1 160px; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-content: start; font-size: 12px">
+<span style="color: #8E979C">Size</span><code>10 px, thumb 6 px</code>
+<span style="color: #8E979C">Thumb</span><code>line/2 #2F373D</code>
+<span style="color: #8E979C">Hover</span><code>#4A535A</code>
+<span style="color: #8E979C">Track</span><code>transparent</code>
+<span style="color: #8E979C">Radius</span><code>8 px</code>
+</div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #8E979C; line-height: 1.5">Thin and quiet on every panel, table and canvas. The thumb is inset by a 2 px clear border, so it never touches the panel edge. Firefox gets the same colors through scrollbar-color.</p>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #C5CBCE">Change card and notices</h3>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #161A1D; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px"><span style="font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 4px; background: #22282D; color: #C5CBCE">Edit</span><code style="font-size: 13px">…/plc1/t2</code></div>
+<div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 13px"><span style="color: #8E979C">poll</span><span style="color: #A3ABAF; text-decoration: line-through">1 s</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg><span style="color: #F6C59A">500 ms</span></div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6CC4B0"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6CC4B0"></span>Needs write · you have it</div>
+</div>
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 8px; background: #33201B; border: 1px solid #5A3328; font-size: 13px; color: #F0C2B5"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E07A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16v.5"></path></svg><span>bacnet stopped: fuel limit reached on start. The component was stopped; the broker keeps running.</span></div>
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 8px; background: #15302A; border: 1px solid #36705F; font-size: 13px; color: #C4EBE1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M5 12l5 5 9-10"></path></svg><span>2 changes applied and read back. Recorded in <code>sys/audit/modbus</code>.</span></div>
+</div>
+
+</div>
+</section>
+
+<footer style="display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 24px; border-top: 1px solid #252B30; font-size: 13px; color: #8E979C">
+<span>Fonts: Unbounded, IBM Plex Sans, IBM Plex Mono (Google Fonts)</span>
+<span>Icons: 24 px grid, 1.8 px stroke, round caps</span>
+<span>Minimum text 12 px · contrast 4.5:1 on every ground</span>
+</footer>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":3200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const sw = (name, hex, use, ink, sample) => ({ name, hex, use, ink: ink || '#ECE9E1', sample: sample || '' });
+    const palettes = [
+      { title: 'Ground', items: [
+        sw('ground/0', '#0E1113', 'App background, workspace'),
+        sw('ground/1', '#13171A', 'Panels: tree, inspector'),
+        sw('ground/2', '#161A1D', 'Cards, flow blocks'),
+        sw('ground/3', '#1D2226', 'Inputs, hover, selected row'),
+        sw('ground/4', '#22282D', 'Chips, active rail item'),
+        sw('line/1', '#252B30', 'Panel borders, dividers'),
+        sw('line/2', '#2F373D', 'Input borders'),
+        sw('line/3', '#3A4249', 'Secondary button border')
+      ] },
+      { title: 'Text', items: [
+        sw('text/1', '#ECE9E1', 'Primary text, values', '#0E1113', 'Aa'),
+        sw('text/2', '#C5CBCE', 'Body in tables', '#0E1113', 'Aa'),
+        sw('text/3', '#A3ABAF', 'Secondary, labels', '#0E1113', 'Aa'),
+        sw('text/4', '#8E979C', 'Captions, keys · min for 12 px', '#0E1113', 'Aa')
+      ] },
+      { title: 'Accent', items: [
+        sw('ember', accent, 'Primary action, selection, staged', '#0E1113', 'Apply'),
+        sw('ember/soft', '#F3A766', 'Staged text, hover links', '#0E1113', 'staged'),
+        sw('ember/new', '#F6C59A', 'New value in a diff', '#0E1113', '500 ms'),
+        sw('ember/tint', '#2A1F16', 'Selected tree row, OUT tag', '#F3A766', 'plc1')
+      ] },
+      { title: 'State', items: [
+        sw('good', '#6CC4B0', 'Good quality, connected, wires', '#0E1113', 'good'),
+        sw('good/tint', '#15302A', 'Good chip ground', '#6CC4B0', 'good'),
+        sw('uncertain', '#E2C15A', 'Uncertain, connecting, quarantine', '#0E1113', 'uncertain'),
+        sw('uncertain/tint', '#2E2814', 'Uncertain chip ground', '#E2C15A', 'uncertain'),
+        sw('bad', '#E07A5F', 'Bad, failed, invalid field', '#0E1113', 'bad'),
+        sw('bad/tint', '#33201B', 'Bad chip and notice ground', '#E07A5F', 'bad')
+      ] }
+    ];
+    const plex = "'IBM Plex Sans', system-ui, sans-serif";
+    const mono = "'IBM Plex Mono', ui-monospace, monospace";
+    const typeScale = [
+      { token: 'display', family: "'Unbounded', sans-serif", size: '32px', weight: 700, track: '0', case: 'none', sample: 'WYRM Studio', spec: 'Unbounded 700 · 32/1.1 · docs only' },
+      { token: 'title/page', family: plex, size: '26px', weight: 600, track: '-0.01em', case: 'none', sample: 'Links on plant', spec: 'Plex Sans 600 · 26/1.2' },
+      { token: 'title/panel', family: plex, size: '20px', weight: 600, track: '0', case: 'none', sample: '3 staged changes', spec: 'Plex Sans 600 · 20/1.3' },
+      { token: 'body', family: plex, size: '14px', weight: 400, track: '0', case: 'none', sample: 'Values update live. Nothing is written until you apply.', spec: 'Plex Sans 400 · 14/1.5' },
+      { token: 'label', family: plex, size: '12px', weight: 600, track: '0.06em', case: 'uppercase', sample: 'Register', spec: 'Plex Sans 600 · 12 · caps +6%' },
+      { token: 'mono/key', family: mono, size: '13px', weight: 400, track: '0', case: 'none', sample: 'wy/plant/downstream/modbus/tcp-boiler/plc1', spec: 'Plex Mono 400 · 13/1.5' },
+      { token: 'mono/value', family: mono, size: '22px', weight: 400, track: '0', case: 'none', sample: '64.1 °C', spec: 'Plex Mono 400 · 22 · inspector value' }
+    ];
+    const spacing = [4, 8, 12, 16, 20, 24, 32].map((n, i) => ({ name: 'space/' + (i + 1), px: n + 'px' }));
+    const radii = [
+      { px: '4px', use: 'chip' }, { px: '6px', use: 'input, row' }, { px: '8px', use: 'button' },
+      { px: '10px', use: 'card, block' }, { px: '999px', use: 'pill, status' }
+    ];
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', GREY = '#A3ABAF';
+    const states = [
+      { name: 'New', color: GREY, fill: 'transparent' },
+      { name: 'Connecting', color: AMBER, fill: 'transparent' },
+      { name: 'Connected', color: TEAL, fill: TEAL },
+      { name: 'Stopped', color: GREY, fill: GREY },
+      { name: 'Failed', color: CORAL, fill: CORAL },
+      { name: 'StoppedByParent', color: GREY, fill: 'transparent' }
+    ];
+    const rows = [
+      { state: 'default', bg: 'transparent', color: '#C5CBCE', icon: '#8E979C', weight: 400 },
+      { state: 'hover', bg: '#1D2226', color: '#ECE9E1', icon: '#A3ABAF', weight: 400 },
+      { state: 'selected', bg: '#2A1F16', color: '#ECE9E1', icon: accent, weight: 600 },
+      { state: 'staged', bg: 'transparent', color: '#C5CBCE', icon: '#8E979C', weight: 400, staged: true }
+    ].map((r) => ({ ...r, staged: !!r.staged }));
+    return { accent, palettes, typeScale, spacing, radii, states, rows };
+  }
+}
+</script>
+</body>
+</html>

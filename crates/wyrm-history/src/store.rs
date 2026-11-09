@@ -550,6 +550,22 @@ impl Store {
         }
     }
 
+    /// Every sink's confirmed `seq`, by name.
+    pub fn sink_seqs(&self) -> Result<Vec<(String, u64)>> {
+        let r = self.index.begin_read().map_err(db)?;
+        let t = match r.open_table(SINK_SEQ) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(db(e)),
+        };
+        let mut out = Vec::new();
+        for item in t.iter().map_err(db)? {
+            let (k, v) = item.map_err(db)?;
+            out.push((k.value().to_owned(), v.value()));
+        }
+        Ok(out)
+    }
+
     /// Store the confirmed `seq` of sink `name`; `None` forgets the sink.
     pub fn set_sink_seq(&self, name: &str, seq: Option<u64>) -> Result<()> {
         let txn = self.index.begin_write().map_err(db)?;
@@ -1012,6 +1028,12 @@ mod tests {
         assert_eq!(st.sink_seq("s").unwrap(), 0);
         st.set_sink_seq("s", Some(4)).unwrap();
         assert_eq!(st.sink_seq("s").unwrap(), 4);
+        st.set_sink_seq("t", Some(2)).unwrap();
+        assert_eq!(
+            st.sink_seqs().unwrap(),
+            vec![("s".to_owned(), 4), ("t".to_owned(), 2)]
+        );
+        st.set_sink_seq("t", None).unwrap();
         // reopen: numbers go on above the last one, ranges stay
         drop(st);
         let st = Store::open(&dir).unwrap();

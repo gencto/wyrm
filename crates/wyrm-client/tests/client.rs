@@ -163,6 +163,14 @@ async fn subscribe_set_invoke() {
     }
     assert_eq!(got, (0..4u64).map(Value::UInt).collect::<Vec<_>>());
 
+    // a stream the driver refuses before its first element is an error
+    let mut args = BTreeMap::new();
+    args.insert("n".to_owned(), Value::Int(-1));
+    let mut s = c.invoke(&root, "count", Value::Map(args)).await.unwrap();
+    let e = s.next().await.expect("one item").unwrap_err();
+    assert!(e.is(Status::OutOfRange), "{e:?}");
+    assert!(s.next().await.is_none());
+
     assert_eq!(
         c.invoke_one(&root, "reset", Value::Map(Default::default()))
             .await

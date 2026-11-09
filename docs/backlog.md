@@ -428,10 +428,18 @@ before 1.0. Estimates in person-days, tests included.
 - Review 2026-11-06, fixed 2026-11-07: a split no longer makes both
   brokers active when one side is cut off from the plant (required
   `standby.witness`, the cut-off active steps down); an ACL rebuild holds
-  the standby; no failback (documented as such). Open from that review:
-  history-sync cursors are not carried to the standby (every sink sends
-  its local history again after a failover; the targets replace on
-  `(key, t)`); the records of the losing side of a healed split are moved
-  aside without an audit record or a `sys` value; a split where both hosts
-  still reach a witness gives two actives.
+  the standby; no failback (documented as such). The three items left
+  open by that review are done 2026-11-08: history-sync cursors are
+  carried to the standby in its own journal numbers (a sink sends again at
+  most one page after a failover); the losing side of a healed split moves
+  aside its WAL records, files and storage tree and reports each set to
+  the active (audit `standby_forked`, `sys/standby_forks`); lease arbiters
+  (`standby.arbiter`, `wyrmd arbiter issue|serve`) keep a split where both
+  hosts reach a witness to one active (`sys/arbiter_lease_s`). Left: the
+  arbiter is optional (a pair without one keeps the old gap, with a
+  warning); the standby's history marks are in memory, so after a restart
+  of the standby a sink further behind than its first new page keeps its
+  older cursor; a sink created on the other host during a split may miss
+  the former active's own rows that never reached the other host; the
+  arbiter is not in the Docker compose files.
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.

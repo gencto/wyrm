@@ -245,7 +245,7 @@ const ACL_DENIED: &str = "acl_denied";
 
 /// Broker status values of `sys`, measured every metrics interval: key,
 /// display name, unit, description.
-const SYS_STATUS: [(&str, &str, &str); 16] = [
+const SYS_STATUS: [(&str, &str, &str); 18] = [
     ("uptime", "s", "Seconds since the broker process started."),
     ("links_total", "", "Installed links."),
     (
@@ -311,6 +311,18 @@ const SYS_STATUS: [(&str, &str, &str); 16] = [
         "",
         "Records of the registry WAL the standby has not received yet.",
     ),
+    (
+        "standby_forks",
+        "",
+        "Sets of records the standby moved aside after a healed split (both brokers were \
+         active) and reported since this broker started; each is an audit record standby_forked.",
+    ),
+    (
+        "arbiter_lease_s",
+        "s",
+        "Seconds left of the lease the standby.arbiter arbiters granted this broker; 0 without \
+         arbiters or when it is not held (it steps down when it runs out and the standby is quiet).",
+    ),
 ];
 
 /// Display name and description of the [`Options`] values.
@@ -370,6 +382,11 @@ pub struct Control {
     /// Until this time (unix ms; 0 = none) the standby waits: the router is
     /// being rebuilt (ADR 0036).
     standby_hold: std::sync::atomic::AtomicU64,
+    /// Fork reports of the standby: how many, and the last ones (to drop a
+    /// report sent again).
+    standby_forks: Mutex<(u64, std::collections::VecDeque<(u64, String)>)>,
+    /// Until when the arbiters' lease is held (ADR 0036; set by `wyrmd`).
+    arbiter_lease: Mutex<Option<std::time::Instant>>,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -705,6 +722,8 @@ impl Control {
                 standby_seen: Mutex::new(None),
                 storage: Mutex::new(std::sync::Weak::new()),
                 standby_hold: std::sync::atomic::AtomicU64::new(0),
+                standby_forks: Mutex::default(),
+                arbiter_lease: Mutex::default(),
             }),
             rx,
         ))
@@ -3434,7 +3453,15 @@ impl Link for Admin {
                 .display("from Driver")
                 .group(INSTALL_GROUP)
                 .param("id", str_param().required(true).display("Link ID"))
-                .param("driver", str_param().required(true).display("Driver"))
+                // The drivers this broker hosts, so a UI can list them
+                // (WYRM Studio's Add a link, docs/studio.md §7.3).
+                .param(
+                    "driver",
+                    str_param()
+                        .required(true)
+                        .display("Driver")
+                        .enum_values(cfg.ctl.host.drivers().into_iter().map(str::to_owned)),
+                )
                 .param(
                     "mode",
                     str_param()
@@ -6385,6 +6412,8 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         )
         .await;
         set("standby_lag", standby.map_or(0.0, |s| s.lag as f64)).await;
+        set("standby_forks", ctl.standby_forks() as f64).await;
+        set("arbiter_lease_s", ctl.arbiter_lease_s()).await;
         let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
         set("audit_records", audit as f64).await;
         let now = std::time::Instant::now();

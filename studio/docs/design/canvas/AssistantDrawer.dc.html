@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Assistant in Explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+a:hover{color:#F3A766}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #ECE9E1; font-size: 14px">
+<dc-import name="Main" hint-size="100%,1000px"></dc-import>
+<div aria-hidden="true" style="position: absolute; inset: 56px 0 0 0; background: rgba(14,17,19,0.35)"></div>
+<aside aria-label="Assistant" style="position: absolute; top: 56px; right: 0; bottom: 0; width: 420px; border-left: 1px solid #3A4249; background: #13171A; box-shadow: -18px 0 40px rgba(0,0,0,0.45); display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #252B30">
+<span style="width: 28px; height: 28px; border-radius: 8px; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path></svg></span>
+<span style="font-weight: 600">Assistant</span><code style="font-size: 11px; color: #8E979C">tasks/t-0141</code>
+<a href="Assistant.dc.html" style="margin-left: auto; font-size: 12px; color: #A3ABAF; text-decoration: none">Open full</a>
+<button type="button" aria-label="Close" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; cursor: pointer">×</button>
+</div>
+<div style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<div style="align-self: flex-end; max-width: 85%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px">
+<div style="padding: 9px 12px; border-radius: 12px 12px 4px 12px; background: #22282D; line-height: 1.5">Why is the valve bad?</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid #2F373D; color: #A3ABAF">@ plc1/valve · selected</span>
+</div>
+<span style="font-size: 14px; line-height: 1.55; color: #C5CBCE">The connection and plc1 are fine; only <code style="color: #ECE9E1">valve</code> fails. Its address was changed 7 minutes before it went bad.</span>
+<section aria-label="What I found" style="border: 1px solid #2F373D; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="padding: 9px 12px; border-bottom: 1px solid #252B30; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What I found · read only</div>
+<div style="display: grid; grid-template-columns: 18px 1fr; gap: 6px 8px; padding: 10px 12px; font-size: 13px">
+<span style="color: #6CC4B0">✓</span><span>tcp-boiler <span style="color: #8E979C">connected · 10.0.4.12:502</span></span>
+<span style="color: #6CC4B0">✓</span><span>plc1 <span style="color: #8E979C">4 of 5 points good</span></span>
+<span style="color: #E07A5F">✕</span><span>valve <span style="color: #8E979C">bad since 03:12 ·</span> <code style="color: #F0A28D">exception 0x02 illegal data address</code></span>
+</div>
+<div style="padding: 0 12px 10px"><svg width="100%" height="26" viewBox="0 0 360 26" preserveAspectRatio="none" aria-label="Quality of valve, last hour: good until 03:12, bad since"><rect x="0" y="8" width="250" height="10" rx="2" fill="#2F5C52"></rect><rect x="252" y="8" width="108" height="10" rx="2" fill="#6B342A"></rect></svg><div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5A6168"><span>02:20</span><span>03:12</span><span>now</span></div></div>
+<div style="padding: 10px 12px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 4px; font-size: 12px"><span style="color: #8E979C">From sys/audit</span><span><code style="color: #ECE9E1">03:05</code> ivan edited valve: <code style="color: #F6C59A">Offset 11 → 12</code> (HR 40012)</span></div>
+</section>
+<section aria-label="Suggested change" style="border: 1px solid #5A3E25; border-radius: 12px; background: #161A1D; overflow: hidden">
+<div style="padding: 9px 12px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 8px"><span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Suggested · 1 step</span><span style="margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #33201B; color: #F0A28D">config</span></div>
+<div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; background: #2A1F16; color: #F3A766">INVOKE</span><code style="font-weight: 600">edit</code><code style="font-size: 12px; color: #A3ABAF">…/tcp-boiler/plc1/valve</code></div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px"><label style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 11px; color: #8E979C">Offset now</span><input type="text" value="12" readonly style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #13171A; color: #8E979C; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 0"></label><label style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 11px; color: #8E979C">Offset <span style="color: #5A6168">0…65535</span></span><input type="text" value="11" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #5A3E25; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 0"></label></div>
+<span style="font-size: 12px; color: #5A6168; font-style: italic">why: it read well at 11 until the edit</span>
+<div style="display: flex; gap: 8px"><button type="button" style="flex: 1; height: 40px; border-radius: 8px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Approve and run</button><button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 14px; cursor: pointer">Ask ivan first</button></div>
+</div>
+</section>
+</div>
+<div style="padding: 12px 16px; border-top: 1px solid #252B30">
+<div style="display: flex; align-items: center; gap: 8px; border: 1px solid #3A4249; border-radius: 10px; background: #161A1D; padding: 8px 10px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #22282D; color: #C5CBCE">@ valve</span><input type="text" placeholder="Ask about what you see…" style="flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 14px"><kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C; border: 1px solid #2F373D; border-radius: 4px; padding: 1px 5px">⌘J</kbd></div>
+</div>
+</aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

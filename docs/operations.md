@@ -184,6 +184,16 @@ Set it up once:
    the split in time. List more than one witness: if every witness is down
    while the standby is down too, the active steps down and the site has
    no broker until a witness answers again.
+
+   A witness cannot tell a host whether the other host is active. When
+   both hosts reach a witness but not each other (a firewall between
+   them, a hung process), both would be active. Add a lease arbiter on a
+   third host to close that case (section "Lease arbiter" below):
+   ```json5
+   standby: { peer: "quic/10.0.0.2:7449", takeover_s: 10, primary: true,
+              witness: ["10.0.0.254:443"], arbiter: ["10.0.0.3:7450"] },
+   ```
+   Without `arbiter` the broker logs a warning at start.
 2. On the broker that has run (host A), export the site's keys with a
    passphrase of at least 12 characters, and carry the file to host B:
    ```bash
@@ -212,9 +222,29 @@ again, stop `wyrmd` on host B at a quiet moment; host A takes over after
 
 The primary rule matters only when both hosts became active across a split
 that has healed: the one that is not primary sees the primary's broker
-token, steps down and follows it. Records it made while it was active
-(links installed, settings changed) are moved aside as `state.stale.<n>`
-on that host, not merged.
+token, steps down and follows it. What it wrote while it was active is
+moved aside on that host, not merged:
+- registry, flow and user records: as `state.stale.<n>` (and
+  `flows/state.stale.<n>`, `gateway/users.stale.<n>`);
+- files the active does not hold or holds otherwise (sealed stores of the
+  scheduler, alarm, DQL and uplink links, driver edits, packages): into
+  `standby/stale/<t_ms>/files/`;
+- a broker storage tree that differs from the active's: exported as
+  `standby/stale/<t_ms>/storage.json` (the format of the storage's
+  `export` action, for `import`).
+
+The active writes one audit record `standby_forked` per set (the detail
+names the place on the other host) and counts them in
+`sys/standby_forks`. A value above 0 means: look at what the other host
+moved aside, and enter again what must stay.
+
+History-sync links (ADR 0026) go on from where they were after a
+failover: the standby carries each sink's confirmed cursor over in its own
+journal numbers. A sink sends again at most the last page it had not
+confirmed (≤ 2 000 rows); the targets replace on `(key, t)`. A former
+active whose sinks had not confirmed all of its own rows keeps their
+cursors until it is active again: then it sends those rows, and the rows
+it copied after them, again.
 
 A router rebuild on the active (a link installed, a peer added, new
 signing keys) closes its listeners for a moment; the active first tells
@@ -223,7 +253,54 @@ so a rebuild never looks like a failure. With a standby connected each
 rebuild starts 2.5 s later, for the standby to read that.
 
 Each change of role is an audit record by `system`: `promoted`, or
-`demoted` with the reason (the primary is back; cut off).
+`demoted` with the reason (the primary is back; cut off; another broker
+holds the arbiters' lease; the lease ran out and the standby is quiet).
+
+#### Lease arbiter
+
+An arbiter is `wyrmd` in a mode of its own on a third host (any small
+machine on the network of both brokers: the upstream site's host, a
+gateway PC). It holds one lease per site in memory and grants it to one
+broker at a time:
+- the standby takes over only once a majority of `standby.arbiter` grants
+  it the lease, so a running active keeps the role however the two hosts
+  see each other;
+- the active renews the lease every second; told that another host holds
+  it, it steps down at once; when it cannot reach the arbiters, it runs
+  on while its standby still follows it, and steps down when the lease
+  has run out and the standby is quiet;
+- the lease lasts half of `takeover_s` (3 s at least, 30 s at most); a
+  started arbiter grants nothing for 30 s, since a lease it forgot may
+  still run on a broker.
+
+Set it up:
+1. On a broker of the pair, write the arbiter's files (the site CA, a
+   certificate `arbiter:<site>` for the address the brokers dial, the site
+   name):
+   ```bash
+   wyrmd -c wyrmd.json5 arbiter issue --host 10.0.0.3 --out arbiter-demo
+   ```
+2. Copy the directory to the third host and run the arbiter under a
+   supervisor, as `wyrmd` itself:
+   ```bash
+   wyrmd arbiter serve --dir arbiter-demo --listen 0.0.0.0:7450
+   ```
+3. Add `arbiter: ["10.0.0.3:7450"]` to the `standby` section on both
+   hosts and start them again, one after the other.
+
+The arbiter checks that a broker's certificate is `standby:<site>` from
+the site's CA, and the brokers check that the arbiter's is
+`arbiter:<site>`; nobody else (links, downstream brokers) can take or
+grant the lease. Its directory holds no private key of the site, only its
+own; its certificate lasts 20 years. The active shows the seconds left of
+its lease as `sys/arbiter_lease_s` (0: none) and logs a warning when no
+arbiter answers.
+
+Caution: one arbiter is a single point: when it is down while the
+standby is down too, the active steps down. Run three arbiters on three
+hosts for a site that must ride out that (a majority of two decides).
+With one arbiter down the pair keeps working, and a failover still needs
+a majority.
 
 Rules of thumb:
 - Keep the two `wyrmd.json5` files the same. A link named in host A's

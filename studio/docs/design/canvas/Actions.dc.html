@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Actions of a node</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Run an action: type its name, e.g. rescan" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #0E1113; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">{{staged}}</span></button>
+<button type="button" aria-label="Account: olena, operator" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">OL</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Tree -->
+<aside aria-label="Node tree" style="flex: 1 1 260px; max-width: 300px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 14px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Tree · plant</span>
+<label style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 6px; background: #1D2226; border: 1px solid #252B30">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter tree</span>
+<input type="text" placeholder="Filter" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 13px">
+</label>
+</div>
+<div style="padding: 0 8px 12px; display: flex; flex-direction: column; gap: 1px">
+<sc-for list="{{tree}}" as="item" hint-placeholder-count="10">
+<div style="display: flex; align-items: center; gap: 2px; border-radius: 6px; background: {{item.bg}}">
+<button type="button" style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 {{item.pad}}; box-sizing: border-box; border: 0; border-radius: 6px; background: transparent; color: {{item.color}}; font-size: 14px; text-align: left; cursor: pointer">
+<span style="width: 14px; height: 14px; flex: none; display: flex; align-items: center; justify-content: center; color: #8E979C">
+<sc-if value="{{item.hasKids}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: {{item.rot}}"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+</span>
+<span style="width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center; color: {{item.iconColor}}">
+<sc-if value="{{item.isFolder}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></sc-if>
+<sc-if value="{{item.isLink}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg></sc-if>
+<sc-if value="{{item.isConn}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h4M15 12h4M9 8h6v8H9z"></path></svg></sc-if>
+<sc-if value="{{item.isDevice}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg></sc-if>
+<sc-if value="{{item.isFlow}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg></sc-if>
+</span>
+<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: {{item.weight}}">{{item.name}}</span>
+<sc-if value="{{item.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="{{item.dotLabel}}" style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{item.dot}}"></span></sc-if>
+</button>
+<sc-if value="{{item.sel}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{toggleMenu}}" aria-label="Actions of plc1" aria-haspopup="menu" aria-expanded="{{menuExpanded}}" style="width: 32px; height: 32px; flex: none; margin-right: 4px; border-radius: 6px; border: 0; background: #3A2A1C; color: #F3A766; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg></button></sc-if>
+</div>
+</sc-for>
+</div>
+<p style="margin: auto 12px 14px; padding-top: 12px; border-top: 1px solid #252B30; font-size: 12px; color: #8E979C; line-height: 1.5">Right-click a node, press <kbd style="font-family: 'IBM Plex Mono', monospace; color: #A3ABAF">.</kbd> or use ⋯ to see its actions. Add, Edit and Remove are actions too.</p>
+</aside>
+
+<!-- Workspace -->
+<main style="flex: 999 1 560px; min-width: 0; background: #0E1113; display: flex; flex-direction: column">
+<div style="padding: 20px 24px 0; display: flex; flex-direction: column; gap: 14px">
+<code style="font-size: 13px; color: #8E979C">wy/plant/downstream/modbus/tcp-boiler/<span style="color: #ECE9E1">plc1</span></code>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600">plc1</h1>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Connected</span>
+</div>
+<nav aria-label="Device sections" style="display: flex; gap: 4px; border-bottom: 1px solid #252B30; overflow-x: auto">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Points <span style="font-size: 12px">9</span></a>
+<a href="#params" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Parameters</a>
+<a href="#actions" aria-current="page" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; box-shadow: inset 0 -2px 0 {{accent}}; color: #ECE9E1; font-weight: 500; white-space: nowrap">Actions <span style="font-size: 12px; color: #A3ABAF">7</span></a>
+<a href="History.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">History</a>
+<a href="#audit" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Audit</a>
+</nav>
+</div>
+
+<div style="padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 20px">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{g.title}}</h2>
+<span style="font-size: 12px; color: #8E979C">{{g.rule}}</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 8px">
+<sc-for list="{{g.items}}" as="a" hint-placeholder-count="3">
+<button type="button" onClick="{{a.pick}}" aria-pressed="{{a.pressed}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 84px; padding: 12px 14px; border-radius: 10px; border: {{a.border}}; background: {{a.bg}}; color: #ECE9E1; text-align: left; cursor: pointer; box-sizing: border-box">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%">
+<span style="font-weight: 600; color: {{a.nameColor}}">{{a.name}}</span>
+<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #22282D; color: #A3ABAF">{{a.level}}</span>
+</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.4">{{a.desc}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">{{a.meta}}</span>
+</button>
+</sc-for>
+</div>
+</section>
+</sc-for>
+
+<sc-if value="{{showRows}}" hint-placeholder-val="{{true}}">
+<section aria-label="Result of Rescan registers" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Result · Rescan registers</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6CC4B0"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6CC4B0"></span>32 rows streamed · 0.4 s</span>
+<button type="button" onClick="{{addRows}}" style="margin-left: auto; height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 13px; cursor: pointer">{{addLabel}}</button>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow-x: auto">
+<div style="min-width: 640px">
+<div style="display: grid; grid-template-columns: 44px 1fr 1fr 1fr 1.4fr; align-items: center; height: 36px; padding-right: 12px; border-bottom: 1px solid #252B30; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C"><span></span><span>Register</span><span>Raw</span><span>Looks like</span><span>In the tree</span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 44px 1fr 1fr 1fr 1.4fr; align-items: center; min-height: 38px; padding-right: 12px; border-bottom: 1px solid #1D2226; font-size: 13px">
+<span style="display: flex; justify-content: center"><sc-if value="{{r.isNew}}" hint-placeholder-val="{{false}}"><input type="checkbox" checked="{{r.checked}}" aria-label="Add {{r.reg}} as a point" style="width: 16px; height: 16px; accent-color: #E8893A"></sc-if></span>
+<code style="color: #C5CBCE">{{r.reg}}</code>
+<code style="color: #A3ABAF">{{r.raw}}</code>
+<code style="color: #ECE9E1">{{r.guess}}</code>
+<span style="color: {{r.treeColor}}">{{r.tree}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+<sc-if value="{{showSimple}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 8px; background: #15302A; border: 1px solid #36705F; font-size: 13px; color: #C4EBE1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg><span>{{simpleText}}</span></div>
+</sc-if>
+</div>
+</main>
+
+<!-- Inspector: action form -->
+<aside aria-label="Action" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 18px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Action</span>
+<span style="font-size: 18px; font-weight: 600">{{act.name}}</span>
+<code style="font-size: 12px; color: #8E979C">…/plc1/~act/{{act.id}}</code>
+<a href="ActionDetail.dc.html" style="font-size: 13px; color: #F3A766">Inputs, outputs, errors and past runs →</a>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px">
+<span style="font-size: 11px; padding: 3px 7px; border-radius: 4px; background: {{act.modeBg}}; color: {{act.modeInk}}">{{act.modeText}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 3px 7px; border-radius: 4px; background: #22282D; color: #C5CBCE">needs {{act.level}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 3px 7px; border-radius: 4px; background: #22282D; color: #C5CBCE">returns {{act.ret}}</span>
+</div>
+</div>
+<div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+<sc-if value="{{act.noParams}}" hint-placeholder-val="{{false}}"><p style="margin: 0; font-size: 13px; color: #A3ABAF">No parameters.</p></sc-if>
+<sc-for list="{{act.params}}" as="p" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-if value="{{p.isText}}" hint-placeholder-val="{{true}}">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="display: flex; justify-content: space-between; font-size: 12px; color: #A3ABAF"><span>{{p.label}}</span><span style="color: #8E979C">{{p.hint}}</span></span><span style="display: flex; align-items: center; height: 36px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; box-sizing: border-box"><input type="text" value="{{p.value}}" style="flex: 1; min-width: 0; height: 100%; padding: 0 10px; border: 0; background: transparent; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none"><span style="padding: 0 10px; color: #8E979C; font-size: 12px">{{p.unit}}</span></span></label>
+</sc-if>
+<sc-if value="{{p.isChoice}}" hint-placeholder-val="{{false}}">
+<span style="font-size: 12px; color: #A3ABAF">{{p.label}}</span>
+<button type="button" aria-haspopup="listbox" aria-label="{{p.label}}: {{p.value}}" style="display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">{{p.value}}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+</sc-if>
+<sc-if value="{{p.isToggle}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">{{p.label}}</span><span style="font-size: 12px; color: #8E979C">{{p.hint}}</span></span><button type="button" role="switch" aria-checked="{{p.on}}" aria-label="{{p.label}}" style="width: 44px; height: 26px; flex: none; border-radius: 13px; border: 0; background: {{p.trackBg}}; padding: 3px; display: flex; justify-content: {{p.justify}}; align-items: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{p.knob}}"></span></button></div>
+</sc-if>
+</div>
+</sc-for>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 4px">
+<span style="font-size: 12px; color: #8E979C">Same call from the CLI</span>
+<pre style="margin: 0; padding: 10px 12px; border-radius: 8px; background: #0E1113; border: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; color: #C5CBCE; white-space: pre-wrap; word-break: break-all">{{act.cli}}</pre>
+</div>
+</div>
+<div style="margin-top: auto; padding: 16px 18px 20px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 12px; color: {{act.noteColor}}; line-height: 1.5">{{act.note}}</p>
+<button type="button" onClick="{{run}}" style="height: 44px; border-radius: 8px; border: {{act.btnBorder}}; background: {{act.btnBg}}; color: {{act.btnInk}}; font-size: 15px; font-weight: 600; cursor: pointer">{{act.btn}}</button>
+</div>
+</aside>
+</div>
+
+<!-- Context menu -->
+<sc-if value="{{menu}}" hint-placeholder-val="{{true}}">
+<div role="menu" aria-label="Actions of plc1" style="position: absolute; left: 340px; top: 226px; width: 300px; z-index: 20; border-radius: 10px; border: 1px solid #3A4249; background: #1A1F23; box-shadow: 0 18px 40px rgba(0,0,0,0.5); padding: 6px; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px"><code style="font-size: 13px; font-weight: 600">plc1</code><span style="font-size: 12px; color: #8E979C">Modbus device · 7 actions</span></div>
+<sc-for list="{{menuItems}}" as="m" hint-placeholder-count="7">
+<sc-if value="{{m.isHead}}" hint-placeholder-val="{{false}}"><span style="padding: 8px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{m.label}}</span></sc-if>
+<sc-if value="{{m.isItem}}" hint-placeholder-val="{{true}}"><button type="button" role="menuitem" onClick="{{m.pick}}" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: {{m.color}}; font-size: 14px; text-align: left; cursor: pointer"><span style="flex: 1">{{m.label}}</span><span style="font-size: 12px; color: #8E979C">{{m.hint}}</span></button></sc-if>
+</sc-for>
+<div style="border-top: 1px solid #2F373D; margin-top: 4px; padding: 8px 10px 4px; display: flex; justify-content: space-between; font-size: 12px; color: #8E979C"><span>Copy key</span><kbd style="font-family: 'IBM Plex Mono', monospace">⌘⇧C</kbd></div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const menu = st.menu === undefined ? true : st.menu;
+    const sel = st.act || 'rescan';
+    const ran = st.ran === undefined ? 'rescan' : st.ran;
+    const added = !!st.added;
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const node = (o) => ({
+      name: o.name, pad: (10 + o.d * 16) + 'px', hasKids: !!o.kids, rot: o.open ? 'rotate(90deg)' : 'none',
+      isFolder: o.k === 'folder', isLink: o.k === 'link', isConn: o.k === 'conn', isDevice: o.k === 'device', isFlow: o.k === 'flow',
+      hasDot: !!o.dot, dot: o.dot || 'transparent', dotLabel: o.dotLabel || '', sel: !!o.sel,
+      bg: o.sel ? '#2A1F16' : 'transparent', color: o.sel ? '#ECE9E1' : '#C5CBCE', iconColor: o.sel ? accent : '#8E979C', weight: o.sel ? 600 : 400
+    });
+    const tree = [
+      { d: 0, name: 'downstream', k: 'folder', kids: 1, open: 1 },
+      { d: 1, name: 'modbus', k: 'link', kids: 1, open: 1, dot: TEAL, dotLabel: 'Connected' },
+      { d: 2, name: 'tcp-boiler', k: 'conn', kids: 1, open: 1, dot: TEAL, dotLabel: 'Connected' },
+      { d: 3, name: 'plc1', k: 'device', kids: 1, sel: 1 },
+      { d: 3, name: 'plc2', k: 'device', kids: 1 },
+      { d: 2, name: 'rtu-line1', k: 'conn', kids: 1, dot: AMBER, dotLabel: 'Connecting' },
+      { d: 1, name: 'opc-ua', k: 'link', kids: 1, dot: TEAL, dotLabel: 'Connected' },
+      { d: 1, name: 'bacnet', k: 'link', kids: 1, dot: CORAL, dotLabel: 'Failed' },
+      { d: 0, name: 'dataflows', k: 'folder', kids: 1 },
+      { d: 0, name: 'storage', k: 'folder', kids: 1 }
+    ].map(node);
+    const T = (label, value, unit, hint) => ({ isText: true, isChoice: false, isToggle: false, label, value, unit: unit || '', hint: hint || '' });
+    const Ch = (label, value) => ({ isText: false, isChoice: true, isToggle: false, label, value });
+    const Tg = (label, on, hint) => ({ isText: false, isChoice: false, isToggle: true, label, hint: hint || '', on: on ? 'true' : 'false', trackBg: on ? accent : '#22282D', justify: on ? 'flex-end' : 'flex-start', knob: on ? '#0E1113' : '#8E979C' });
+    const ACTS = [
+      { id: 'add_point', g: 0, name: 'Add point', desc: 'Declare a new point on this device.', level: 'config', mode: 'staged', ret: 'status',
+        params: [T('Name', 't4'), Ch('Area', 'Holding'), T('Address', '40014', '', '0–65535'), Ch('Data type', 'float32'), T('Unit', '°C'), Ch('Poll', '1 s'), Tg('Writable', false, 'Needs config later to change')],
+        args: "{name: t4, area: holding, address: 40014, type: float32}" },
+      { id: 'edit', g: 0, name: 'Edit device', desc: 'Unit id, timeouts, retries, word order.', level: 'config', mode: 'staged', ret: 'status',
+        params: [T('Unit id', '1', '', '1–247'), T('Timeout', '1000', 'ms', '100–10000'), T('Retries', '3'), Ch('Word order', 'ABCD'), T('Max batch', '64', 'regs', '1–125')],
+        args: "{timeout_ms: 1000, retries: 3}" },
+      { id: 'remove', g: 0, name: 'Remove device', desc: 'Removes plc1 and its 9 points from the tree.', level: 'config', mode: 'staged', ret: 'status', danger: 1,
+        params: [T('Type plc1 to confirm', '', '', 'required')], args: '{}' },
+      { id: 'ping', g: 1, name: 'Ping', desc: 'Read one register and report the round trip.', level: 'read', mode: 'now', ret: 'value', last: 'last 01:50 · 18 ms', params: [], args: '{}' },
+      { id: 'rescan', g: 1, name: 'Rescan registers', desc: 'Read a block and suggest points for what it finds.', level: 'read', mode: 'now', ret: 'rows', last: 'last 02:12 · 32 rows',
+        params: [Ch('Area', 'Holding'), T('Start', '40001', '', '0–65535'), T('Count', '32', 'regs', '1–125'), Tg('Guess types', true, 'float32, uint16 or bitmap')],
+        args: '{area: holding, start: 40001, count: 32, guess: true}' },
+      { id: 'write_block', g: 1, name: 'Write registers', desc: 'Write several holding registers in one request.', level: 'write', mode: 'now', ret: 'status',
+        params: [T('Start', '40020'), T('Values', '0, 0, 1', '', 'comma separated'), Tg('Read back', true, 'Report only after the device confirms')],
+        args: '{start: 40020, values: [0, 0, 1], verify: true}' },
+      { id: 'reset', g: 1, name: 'Reset counters', desc: 'Clear communication error and retry counters.', level: 'write', mode: 'now', ret: 'status', params: [], args: '{}' }
+    ];
+    const pickAct = (id) => this.setState({ act: id, menu: false });
+    const cur = ACTS.find((a) => a.id === sel) || ACTS[4];
+    const groups = [
+      { title: 'Configure', rule: 'Staged with your other edits; applied in Review.', items: [] },
+      { title: 'Operate', rule: 'Runs now with your rights; recorded in the audit.', items: [] }
+    ];
+    ACTS.forEach((a) => {
+      const on = a.id === sel;
+      groups[a.g].items.push({
+        name: a.name, desc: a.desc, level: a.level,
+        meta: (a.params.length ? a.params.length + ' parameters' : 'no parameters') + ' · returns ' + a.ret + (a.last ? ' · ' + a.last : ''),
+        border: on ? '1.5px solid ' + accent : '1px solid #252B30', bg: on ? '#1E1813' : '#161A1D',
+        nameColor: a.danger ? '#F0A28D' : '#ECE9E1', pressed: on ? 'true' : 'false',
+        pick: () => pickAct(a.id)
+      });
+    });
+    const staged = a => a.mode === 'staged';
+    const canRun = ['none', 'list', 'read', 'write'].indexOf(cur.level) >= 0;
+    const act = {
+      id: cur.id, name: cur.name, level: cur.level, ret: cur.ret,
+      params: cur.params, noParams: cur.params.length === 0,
+      modeText: staged(cur) ? 'staged · goes to Review' : 'runs now',
+      modeBg: staged(cur) ? '#2A1F16' : '#15302A', modeInk: staged(cur) ? '#F3A766' : '#6CC4B0',
+      cli: 'wyr invoke wy/plant/downstream/modbus/tcp-boiler/plc1/~act/' + cur.id + " '" + cur.args + "'",
+      note: staged(cur)
+        ? (canRun ? 'Added to Review.' : 'Needs config; you have write. It waits in Review until an admin approves it.')
+        : 'Runs on the device as olena. Nothing else in the tree changes unless the result is used.',
+      noteColor: staged(cur) && !canRun ? '#E2C15A' : '#8E979C',
+      btn: staged(cur) ? 'Stage for review' : 'Run now',
+      btnBg: cur.danger ? '#33201B' : (staged(cur) ? 'transparent' : accent),
+      btnInk: cur.danger ? '#F0A28D' : (staged(cur) ? '#ECE9E1' : '#0E1113'),
+      btnBorder: cur.danger ? '1px solid #5A3328' : (staged(cur) ? '1px solid #3A4249' : '0')
+    };
+    const MI = [{ head: 'Configure · staged' }, 'add_point', 'edit', 'remove', { head: 'Operate · runs now' }, 'ping', 'rescan', 'write_block', 'reset'];
+    const menuItems = MI.map((m) => {
+      if (typeof m === 'object') return { isHead: true, isItem: false, label: m.head };
+      const a = ACTS.find((x) => x.id === m);
+      return { isHead: false, isItem: true, label: a.name + (a.params.length ? '…' : ''), hint: a.level, color: a.danger ? '#F0A28D' : '#ECE9E1', pick: () => pickAct(a.id) };
+    });
+    const R = (reg, raw, guess, tree, isNew) => ({ reg, raw, guess, tree, isNew: !!isNew, checked: !!isNew, treeColor: isNew ? '#F3A766' : '#8E979C' });
+    const rows = [
+      R('HR 40001', '0x42A5 0x0000', '82.5 float32', 't1 · Supply temp'),
+      R('HR 40003', '0x4280 0x3333', '64.1 float32', 't2 · Return temp'),
+      R('HR 40007', '0x43CE 0x0000', '412.0 float32', 't3 · staged'),
+      R('HR 40010', '0x0048', '72 uint16', 'fan · Fan speed'),
+      R('HR 40014', '0x3F80 0x0000', '1.0 float32', added ? 'added as t4 · staged' : 'new', !added),
+      R('HR 40016', '0x4214 0xCCCD', '37.2 float32', added ? 'added as t5 · staged' : 'new', !added)
+    ];
+    const showRows = ran === 'rescan';
+    const simple = { ping: 'Ping ok · 18 ms round trip', write_block: '3 registers written and read back', reset: 'Counters cleared' };
+    return {
+      accent, tree, groups, act, menu, menuItems, rows, showRows,
+      showSimple: !!simple[ran], simpleText: simple[ran] || '',
+      staged: added ? 5 : 3,
+      addLabel: added ? 'Added 2 points to Review' : 'Add 2 as points',
+      menuExpanded: menu ? 'true' : 'false',
+      toggleMenu: () => this.setState({ menu: !menu }),
+      addRows: () => this.setState({ added: true }),
+      run: () => { if (!staged(cur)) this.setState({ ran: cur.id, menu: false }); else this.setState({ menu: false }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

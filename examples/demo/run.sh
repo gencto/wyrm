@@ -10,7 +10,7 @@
 # views): docker compose -f examples/demo/platforms/compose.yaml up -d, then
 # the plans in examples/agent (alarms.json, uplink-and-alarm-export.json).
 #
-# App (dart/wyrm_flutter/example): gateway http://127.0.0.1:8445 (central),
+# App (WYRM Studio, studio/): gateway http://127.0.0.1:8445 (central),
 # :8444 (edge) or :8446 (plant), user admin, password
 # $WYRM_GATEWAY_ADMIN_PASSWORD.
 set -euo pipefail

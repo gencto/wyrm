@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="#top" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Go to a node, action or link" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" onClick="{{openReview}}" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 14px; font-weight: 600; cursor: pointer">
+Review and apply
+<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #0E1113; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">3</span>
+</button>
+<button type="button" aria-label="Account: olena, operator" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">OL</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="#explorer" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="Sites.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+<!-- Tree -->
+<aside aria-label="Node tree" style="flex: 1 1 260px; max-width: 300px; min-width: 0; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 14px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Tree · plant</span>
+
+</div>
+<label style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 6px; background: #1D2226; border: 1px solid #252B30">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter tree</span>
+<input type="text" placeholder="Filter" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 13px">
+</label>
+</div>
+<div style="padding: 0 8px 12px; display: flex; flex-direction: column; gap: 1px">
+<sc-for list="{{tree}}" as="item" hint-placeholder-count="15">
+<button type="button" style="display: flex; align-items: center; gap: 8px; width: 100%; height: {{rowH}}; padding: 0 10px 0 {{item.pad}}; box-sizing: border-box; border: 0; border-radius: 6px; background: {{item.bg}}; color: {{item.color}}; font-size: 14px; text-align: left; cursor: pointer">
+<span style="width: 14px; height: 14px; flex: none; display: flex; align-items: center; justify-content: center; color: #8E979C">
+<sc-if value="{{item.hasKids}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: {{item.rot}}"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+</span>
+<span style="width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center; color: {{item.iconColor}}">
+<sc-if value="{{item.isFolder}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></sc-if>
+<sc-if value="{{item.isLink}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg></sc-if>
+<sc-if value="{{item.isConn}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h4M15 12h4M9 8h6v8H9z"></path></svg></sc-if>
+<sc-if value="{{item.isDevice}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg></sc-if>
+<sc-if value="{{item.isFlow}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg></sc-if>
+<sc-if value="{{item.isLock}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></sc-if>
+</span>
+<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: {{item.weight}}">{{item.name}}</span>
+<sc-if value="{{item.hasChip}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #22282D; color: #A3ABAF">{{item.chip}}</span></sc-if>
+<sc-if value="{{item.hasMeta}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8E979C">{{item.meta}}</span></sc-if>
+<sc-if value="{{item.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="{{item.dotLabel}}" style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{item.dot}}"></span></sc-if>
+</button>
+</sc-for>
+</div>
+<p style="margin: auto 12px 14px; padding-top: 12px; border-top: 1px solid #252B30; font-size: 12px; color: #8E979C; line-height: 1.5">The tree shows data only. <code style="color: #A3ABAF">sys/**</code> is edited in <a href="Links.dc.html" style="color: #C5CBCE; text-decoration: underline">Links</a>, <a href="Access.dc.html" style="color: #C5CBCE; text-decoration: underline">Access</a>, <a href="Sites.dc.html" style="color: #C5CBCE; text-decoration: underline">Sites</a> and <a href="System.dc.html" style="color: #C5CBCE; text-decoration: underline">System</a>.</p>
+</aside>
+
+<!-- Workspace -->
+<main id="top" style="flex: 999 1 560px; min-width: 0; background: #0E1113; display: flex; flex-direction: column">
+<div style="padding: 20px 24px 0; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+<code style="font-size: 13px; color: #8E979C">wy/plant/downstream/modbus/tcp-boiler/<span style="color: #ECE9E1">plc1</span></code>
+<button type="button" aria-label="Copy key" style="width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: #8E979C; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg></button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px; margin-right: auto">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">plc1</h1>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Connected</span>
+</div>
+<p style="margin: 0; color: #A3ABAF; font-size: 14px">Modbus TCP device · unit 1 · 10.0.4.20:502 · last read 12:00:03</p>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Ping</button>
+<button type="button" aria-haspopup="menu" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Actions<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+</div>
+</div>
+<nav aria-label="Device sections" style="display: flex; gap: 4px; border-bottom: 1px solid #252B30; overflow-x: auto">
+<a href="#points" aria-current="page" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; box-shadow: inset 0 -2px 0 {{accent}}; color: #ECE9E1; font-weight: 500; white-space: nowrap">Points <span style="font-size: 12px; color: #A3ABAF">9</span></a>
+<a href="#params" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Parameters</a>
+<a href="Actions.dc.html" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Actions <span style="font-size: 12px">7</span></a>
+<a href="History.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">History</a>
+<a href="#audit" style="display: flex; align-items: center; height: 44px; padding: 0 14px; color: #A3ABAF; white-space: nowrap">Audit</a>
+</nav>
+</div>
+
+<div style="padding: 16px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add point</button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path></svg>Import CSV or DSA tree</button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M17.5 14v7M14 17.5h7"></path></svg>Apply profile</button>
+<label style="margin-left: auto; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #252B30; background: #13171A; flex: 0 1 240px; box-sizing: border-box">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter points</span>
+<input type="text" placeholder="Filter points" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 13px">
+</label>
+</div>
+
+<div style="padding: 0 24px 24px">
+<div style="border: 1px solid #252B30; border-radius: 10px; overflow-x: auto; background: #13171A">
+<div style="min-width: 860px">
+<div style="display: grid; grid-template-columns: 44px 1.5fr 1.1fr 0.9fr 0.6fr 0.9fr 0.9fr 1fr 0.5fr; align-items: center; height: 40px; padding-right: 12px; border-bottom: 1px solid #252B30; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C">
+<span></span><span>Point</span><span>Register</span><span>Type</span><span>Unit</span><span>Poll</span><span>Value</span><span>Quality</span><span>Write</span>
+</div>
+<sc-for list="{{points}}" as="p" hint-placeholder-count="9">
+<div style="display: grid; grid-template-columns: 44px 1.5fr 1.1fr 0.9fr 0.6fr 0.9fr 0.9fr 1fr 0.5fr; align-items: center; min-height: {{rowH}}; padding-right: 12px; border-bottom: 1px solid #1D2226; background: {{p.bg}}; font-size: 14px">
+<span style="display: flex; justify-content: center"><input type="checkbox" checked="{{p.sel}}" aria-label="Select {{p.name}}" style="width: 16px; height: 16px; accent-color: #E8893A"></span>
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+<sc-if value="{{p.staged}}" hint-placeholder-val="{{false}}"><span aria-label="Staged change" style="width: 6px; height: 6px; flex: none; border-radius: 50%; background: {{accent}}"></span></sc-if>
+<code style="font-size: 13px; color: #ECE9E1">{{p.name}}</code>
+<span style="color: #8E979C; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{p.label}}</span>
+</span>
+<code style="font-size: 13px; color: #C5CBCE">{{p.addr}}</code>
+<code style="font-size: 13px; color: #A3ABAF">{{p.type}}</code>
+<span style="color: #C5CBCE">{{p.unit}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px">
+<span style="color: {{p.pollColor}}; font-weight: {{p.pollWeight}}">{{p.poll}}</span>
+<sc-if value="{{p.hasWas}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8E979C">was {{p.was}}</span></sc-if>
+</span>
+<code style="font-size: 13px; color: #ECE9E1">{{p.value}}</code>
+<span style="display: flex; align-items: center; gap: 6px; color: {{p.qColor}}; font-size: 13px"><span style="width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid {{p.qColor}}; background: {{p.qFill}}; box-sizing: border-box"></span>{{p.q}}</span>
+<span style="color: {{p.writeColor}}; font-size: 13px">{{p.write}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<p style="margin: 12px 0 0; font-size: 13px; color: #8E979C">Values update live. Edits are staged in this session; nothing is written to the device until you apply.</p>
+</div>
+</main>
+
+<!-- Inspector -->
+<aside aria-label="Inspector" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 18px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Point</span>
+<div style="display: flex; align-items: baseline; gap: 10px"><code style="font-size: 18px; font-weight: 600; color: #ECE9E1">t2</code><span style="color: #A3ABAF">Return temp</span></div>
+<div style="display: flex; align-items: center; gap: 10px; margin-top: 4px">
+<code style="font-size: 22px; color: #ECE9E1">64.1 °C</code>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6CC4B0"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6CC4B0"></span>good · 12:00:03</span>
+</div>
+</div>
+
+<div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 18px">
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Register</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Area</span><button type="button" aria-haspopup="listbox" aria-label="Area: Holding" style="display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-size: 13px; cursor: pointer">Holding<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Address</span><input type="text" value="40003" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Data type</span><button type="button" aria-haspopup="listbox" aria-label="Data type: float32" style="display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">float32<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Word order</span><button type="button" aria-haspopup="listbox" aria-label="Word order: ABCD" style="display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">ABCD<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Value</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Unit</span><input type="text" value="°C" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font: inherit; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Scale</span><input type="text" value="1.0" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #A3ABAF">Precision</span><input type="text" value="1" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: #1D2226; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box; min-width: 0"></label>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Polling</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #F3A766"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}"></span>staged · was 1 s</span>
+</div>
+<div role="radiogroup" aria-label="Poll rate" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">250 ms</button>
+<button type="button" role="radio" aria-checked="true" style="height: 34px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">500 ms</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">1 s</button>
+<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px; cursor: pointer">5 s</button>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Write</h2>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<span style="display: flex; flex-direction: column; gap: 2px"><span>Writable</span><span style="font-size: 12px; color: #8E979C">Turning this on needs config level</span></span>
+<button type="button" role="switch" aria-checked="false" aria-label="Writable" style="width: 44px; height: 26px; flex: none; border-radius: 13px; border: 1px solid #3A4249; background: #22282D; padding: 2px; display: flex; align-items: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: #8E979C"></span></button>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What the tree will publish</h2>
+<pre style="margin: 0; padding: 12px; border-radius: 8px; background: #0E1113; border: 1px solid #252B30; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7; color: #C5CBCE; white-space: pre-wrap"><span style="color: #8E979C">~meta</span> {type: number, unit: °C,
+       precision: 1, writable: false}
+<span style="color: #8E979C">~val</span>  {v: 64.1, q: <span style="color: #6CC4B0">good</span>, t: 12:00:03}</pre>
+</section>
+</div>
+</aside>
+</div>
+
+<!-- Review drawer -->
+<sc-if value="{{review}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: rgba(5, 7, 8, 0.66); display: flex; justify-content: flex-end; z-index: 10">
+<section aria-label="Review staged changes" style="width: min(500px, 100%); background: #13171A; border-left: 1px solid #2F373D; display: flex; flex-direction: column; box-shadow: -24px 0 48px rgba(0, 0, 0, 0.4)">
+<div style="padding: 20px 22px 16px; border-bottom: 1px solid #252B30; display: flex; align-items: flex-start; gap: 12px">
+<div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">3 staged changes</h2>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF">Site plant · applied with your rights: olena, operator (write)</p>
+</div>
+<button type="button" onClick="{{closeReview}}" aria-label="Close" style="width: 40px; height: 40px; border-radius: 8px; border: 0; background: transparent; color: #A3ABAF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<div style="padding: 16px 22px; display: flex; flex-direction: column; gap: 12px; flex: 1">
+<sc-for list="{{changes}}" as="c" hint-placeholder-count="3">
+<div style="border: 1px solid {{c.border}}; border-radius: 10px; background: #161A1D; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border-radius: 4px; background: #22282D; color: #C5CBCE">{{c.op}}</span>
+<code style="flex: 1; min-width: 0; font-size: 13px; color: #ECE9E1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{c.key}}</code>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px">
+<span style="color: #8E979C">{{c.field}}</span>
+<span style="color: #A3ABAF; text-decoration: line-through">{{c.from}}</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+<span style="color: #F6C59A">{{c.to}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: {{c.levelColor}}">
+<span style="width: 7px; height: 7px; border-radius: 50%; background: {{c.levelColor}}"></span>{{c.levelText}}
+</div>
+</div>
+</sc-for>
+</div>
+<div style="padding: 16px 22px 20px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 12px">
+<p style="margin: 0; font-size: 13px; color: #A3ABAF">Each write is checked by the link and recorded in <code style="color: #C5CBCE">sys/audit/modbus</code>. A value shows only after it is read back.</p>
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<button type="button" style="flex: 1 1 160px; height: 44px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 15px; font-weight: 600; cursor: pointer">Apply 2 changes</button>
+<button type="button" style="flex: 1 1 160px; height: 44px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 15px; cursor: pointer">Ask an admin for 1</button>
+</div>
+</div>
+</section>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"density":{"editor":"enum","default":"comfortable","options":["comfortable","compact"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const compact = (this.props.density ?? 'comfortable') === 'compact';
+    const rowH = compact ? '32px' : '40px';
+    const review = !!(this.state && this.state.review);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const node = (o) => {
+      const sel = !!o.sel;
+      return {
+        name: o.name, pad: (10 + o.d * 16) + 'px',
+        hasKids: !!o.kids, rot: o.open ? 'rotate(90deg)' : 'none',
+        isFolder: o.k === 'folder', isLink: o.k === 'link', isConn: o.k === 'conn',
+        isDevice: o.k === 'device', isFlow: o.k === 'flow', isLock: o.k === 'lock',
+        hasChip: !!o.chip, chip: o.chip || '', hasMeta: !!o.meta, meta: o.meta || '',
+        hasDot: !!o.dot, dot: o.dot || 'transparent', dotLabel: o.dotLabel || '',
+        bg: sel ? '#2A1F16' : 'transparent', color: sel ? '#ECE9E1' : '#C5CBCE',
+        iconColor: sel ? accent : '#8E979C', weight: sel ? 600 : 400
+      };
+    };
+    const tree = [
+      { d: 0, name: 'downstream', k: 'folder', kids: 1, open: 1, meta: '4' },
+      { d: 1, name: 'modbus', k: 'link', kids: 1, open: 1, chip: 'Process', dot: TEAL, dotLabel: 'Connected' },
+      { d: 2, name: 'tcp-boiler', k: 'conn', kids: 1, open: 1, dot: TEAL, dotLabel: 'Connected' },
+      { d: 3, name: 'plc1', k: 'device', kids: 1, sel: 1, meta: '9' },
+      { d: 3, name: 'plc2', k: 'device', kids: 1, meta: '14' },
+      { d: 2, name: 'rtu-line1', k: 'conn', kids: 1, dot: AMBER, dotLabel: 'Connecting' },
+      { d: 1, name: 'opc-ua', k: 'link', kids: 1, chip: 'Embedded', dot: TEAL, dotLabel: 'Connected' },
+      { d: 1, name: 'bacnet', k: 'link', kids: 1, chip: 'WASM', dot: CORAL, dotLabel: 'Failed' },
+      { d: 1, name: 'field-gw', k: 'link', kids: 1, chip: 'External', dot: AMBER, dotLabel: 'In quarantine' },
+      { d: 0, name: 'dataflows', k: 'folder', kids: 1, open: 1, meta: '2' },
+      { d: 1, name: 'tank-level', k: 'flow', dot: TEAL, dotLabel: 'Deployed' },
+      { d: 1, name: 'boiler-guard', k: 'flow', meta: 'draft' },
+      { d: 0, name: 'storage', k: 'folder', kids: 1 },
+      { d: 0, name: 'pub', k: 'folder', kids: 1, meta: 'profiles' }
+    ].map(node);
+    const q = {
+      good: { c: TEAL, f: TEAL }, uncertain: { c: AMBER, f: 'transparent' },
+      bad: { c: CORAL, f: CORAL }, 'not applied': { c: '#8E979C', f: 'transparent' }
+    };
+    const pt = (o) => ({
+      name: o.n, label: o.l, addr: o.a, type: o.t, unit: o.u || '—',
+      poll: o.p, hasWas: !!o.was, was: o.was || '',
+      pollColor: o.was ? '#F3A766' : '#C5CBCE', pollWeight: o.was ? 600 : 400,
+      value: o.v, q: o.q, qColor: q[o.q].c, qFill: q[o.q].f,
+      write: o.w ? 'RW' : 'R', writeColor: o.w ? '#ECE9E1' : '#8E979C',
+      staged: !!o.st, sel: !!o.sel,
+      bg: o.sel ? '#1D2226' : (o.st ? '#191714' : 'transparent')
+    });
+    const points = [
+      { n: 't1', l: 'Supply temp', a: 'HR 40001', t: 'float32', u: '°C', p: '1 s', v: '82.5', q: 'good' },
+      { n: 't2', l: 'Return temp', a: 'HR 40003', t: 'float32', u: '°C', p: '500 ms', was: '1 s', v: '64.1', q: 'good', st: 1, sel: 1 },
+      { n: 't3', l: 'Flue temp', a: 'HR 40007', t: 'float32', u: '°C', p: '1 s', v: '—', q: 'not applied', st: 1 },
+      { n: 'p1', l: 'Pressure', a: 'HR 40005', t: 'float32', u: 'bar', p: '1 s', v: '2.31', q: 'good' },
+      { n: 'pump', l: 'Pump run', a: 'Coil 00001', t: 'bool', p: '1 s', v: 'on', q: 'good', w: 1 },
+      { n: 'fan', l: 'Fan speed', a: 'HR 40010', t: 'uint16', u: '%', p: '1 s', v: '72', q: 'good', st: 1 },
+      { n: 'flow', l: 'Flow rate', a: 'IR 30001', t: 'float32', u: 'm³/h', p: '5 s', v: '12.8', q: 'uncertain' },
+      { n: 'valve', l: 'Valve position', a: 'HR 40012', t: 'uint16', u: '%', p: '1 s', v: '—', q: 'bad', w: 1 },
+      { n: 'alarm', l: 'Alarm word', a: 'HR 40020', t: 'bitmap16', p: '1 s', v: '0x0000', q: 'good' }
+    ].map(pt);
+    const changes = [
+      { op: 'Edit', key: '…/tcp-boiler/plc1/t2', field: 'poll', from: '1 s', to: '500 ms', ok: 1, need: 'write' },
+      { op: 'Add', key: '…/tcp-boiler/plc1/t3', field: 'register', from: '—', to: 'HR 40007 float32 °C', ok: 1, need: 'write' },
+      { op: 'Edit', key: '…/tcp-boiler/plc1/fan', field: 'writable', from: 'false', to: 'true', ok: 0, need: 'config' }
+    ].map((c) => ({
+      ...c,
+      border: c.ok ? '#252B30' : '#5A3328',
+      levelColor: c.ok ? TEAL : CORAL,
+      levelText: c.ok ? 'Needs ' + c.need + ' · you have it' : 'Needs config · you have write'
+    }));
+    return {
+      accent, rowH, tree, points, changes, review,
+      openReview: () => this.setState({ review: true }),
+      closeReview: () => this.setState({ review: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

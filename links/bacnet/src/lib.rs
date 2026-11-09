@@ -1999,7 +1999,7 @@ fn action_err(e: DriverError) -> LinkError {
     match e {
         DriverError::Transport(m) => LinkError::new(Status::Disconnected, m),
         DriverError::Device(m) => LinkError::timeout(m),
-        DriverError::Point(m) => LinkError::new(Status::NotAvailable, m),
+        DriverError::Point(m) => LinkError::invalid_parameter(m),
     }
 }
 
@@ -2007,7 +2007,7 @@ fn fail_err(f: Fail) -> LinkError {
     match f {
         Fail::Io(e) => action_err(e),
         Fail::NotSupported(m) => LinkError::not_supported(m),
-        Fail::TooBig(m) | Fail::Refused(m) => LinkError::new(Status::NotAvailable, m),
+        Fail::TooBig(m) | Fail::Refused(m) => LinkError::new(Status::InvalidParameter, m),
     }
 }
 
@@ -2150,7 +2150,7 @@ async fn list_objects(
                 [AppValue::Unsigned(n)] => *n as usize,
                 _ => {
                     return Err(LinkError::new(
-                        Status::NotAvailable,
+                        Status::InvalidMessage,
                         "object-list[0] is not a length",
                     ))
                 }

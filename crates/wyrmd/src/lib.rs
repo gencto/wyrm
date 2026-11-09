@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod arbiter;
 pub mod standby;
 
 use serde::Deserialize;

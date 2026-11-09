@@ -1,0 +1,501 @@
+{
+  "intents": [
+    {
+      "command": "add-field",
+      "args": [
+        "nodes",
+        "table:IMap<String, NodeInfo>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "nodes",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "links",
+        "table:IMap<String, LinkInfo>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "links",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "quarantine",
+        "table:IMap<String, QuarantineEntry>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "quarantine",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "packages",
+        "table:IMap<String, PackageInfo>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "packages",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "peers",
+        "table:IMap<String, Peer>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "peers",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "tasks",
+        "table:IMap<String, AgentTask>"
+      ],
+      "options": {
+        "default": "IMapConst({})",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "tasks",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flows",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flows",
+        "table:IMap<String, FlowSummary>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "site",
+        "gateway:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "site",
+        "user:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "site",
+        "name:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "site",
+        "role:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "site",
+        "connected:bool"
+      ],
+      "options": {
+        "default": "false",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "nodes",
+        "expanded:ISet<String>"
+      ],
+      "options": {
+        "default": "ISetConst({})",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "nodes",
+        "selectedNode:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "live",
+        "values:IMap<String, LiveValue>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "live",
+        "watched:ISet<String>"
+      ],
+      "options": {
+        "default": "ISetConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "links",
+        "tab:LinksTab"
+      ],
+      "options": {
+        "default": "LinksTab.local",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "links",
+        "selectedLink:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "quarantine",
+        "holdUnknown:bool"
+      ],
+      "options": {
+        "default": "true"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "quarantine",
+        "allowAll:bool"
+      ],
+      "options": {
+        "default": "false"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "quarantine",
+        "selectedEntry:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "step:int"
+      ],
+      "options": {
+        "default": "1",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "source:InstallSource?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "item:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "broker:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "mode:LinkMode?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "name:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "acceptRights:bool"
+      ],
+      "options": {
+        "default": "false",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "checks:IList<PackageCheck>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "message:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "peers",
+        "selectedPeer:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flows",
+        "selectedFlow:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flow_editor",
+        "flowId:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flow_editor",
+        "draft:Object?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flow_editor",
+        "dirty:bool"
+      ],
+      "options": {
+        "default": "false"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flow_editor",
+        "problems:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "flow_editor",
+        "selectedBlock:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "tasks",
+        "selectedTask:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "assistant",
+        "draft:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "assistant",
+        "ticked:ISet<int>"
+      ],
+      "options": {
+        "default": "ISetConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "assistant",
+        "panel:String"
+      ],
+      "options": {
+        "default": "'task'",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "assistant",
+        "context:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    }
+  ]
+}

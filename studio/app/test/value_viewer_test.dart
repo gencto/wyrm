@@ -1,0 +1,114 @@
+import 'dart:typed_data';
+
+import 'package:app/common/value_viewer.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
+import 'package:ui/overlays/value_viewer.dart';
+import 'package:ui/trees/json_tree.dart';
+
+void main() {
+  setUpAll(() => S.load(const Locale('en')));
+
+  test('a map is a tree, copied as indented JSON', () {
+    final v = valueViewerOf(
+      title: 'show.in',
+      value: {
+        'tank': 'tank 3',
+        'level': 72.4,
+        'limits': {'low': 20},
+        'pumps': [1, null, true],
+      },
+    );
+    expect(v.type, 'map');
+    expect(v.size, '4 keys');
+    final root = (v.content as JsonContentVm).root;
+    expect(root.kind, JsonKind.object);
+    expect(
+      [for (final c in root.children) c.key],
+      [
+        'tank',
+        'level',
+        'limits',
+        'pumps',
+      ],
+    );
+    expect(root.children.first.text, '"tank 3"');
+    expect(root.children[3].children.map((c) => c.kind), [
+      JsonKind.number,
+      JsonKind.nil,
+      JsonKind.flag,
+    ]);
+    expect(v.copy, contains('\n  "tank": "tank 3"'));
+  });
+
+  test('a list of ints stays a list, not bytes', () {
+    final v = valueViewerOf(title: 'x', value: [1, 2, 3]);
+    expect(v.type, 'list');
+    expect(v.size, '3 items');
+    expect(v.content, isA<JsonContentVm>());
+  });
+
+  test('a text is numbered lines; a JSON text is a tree', () {
+    final t = valueViewerOf(title: 'text.out', value: 'one\ntwo');
+    expect(t.type, 'string');
+    expect(t.size, '7 chars · 2 lines');
+    expect((t.content as TextContentVm).lines, ['one', 'two']);
+    expect(t.copy, 'one\ntwo');
+
+    final j = valueViewerOf(title: 'q.out', value: '{"a": 1}');
+    expect(j.type, 'string · JSON');
+    expect(j.content, isA<JsonContentVm>());
+    expect(j.copy, '{"a": 1}');
+
+    expect(
+      valueViewerOf(title: 'q', value: '{oops').content,
+      isA<TextContentVm>(),
+    );
+  });
+
+  test('a number has its unit; an enum its name', () {
+    final n = valueViewerOf(title: 'level', value: 72.4, unit: '%');
+    expect(n.content, const NumberContentVm('72.4', unit: '%'));
+    expect(n.copy, '72.4');
+
+    final e = valueViewerOf(title: 'mode', value: 1, choices: ['off', 'on']);
+    expect(e.type, 'enum');
+    expect(e.content, const NumberContentVm('on', unit: '= 1'));
+  });
+
+  test('a bool is a mark and its word', () {
+    final b = valueViewerOf(title: 'armed', value: true);
+    expect(b.content, const FlagContentVm(value: true, word: 'true'));
+  });
+
+  test('bytes are a hex dump', () {
+    final b = valueViewerOf(
+      title: 'raw',
+      value: Uint8List.fromList('Hello, WYRM!\x00\x01'.codeUnits),
+    );
+    expect(b.type, 'bytes');
+    expect(b.size, '14 bytes');
+    final rows = (b.content as BytesContentVm).rows;
+    expect(rows, hasLength(1));
+    expect(rows.single, startsWith('00000000  48 65 6c 6c 6f'));
+    expect(rows.single, endsWith('Hello, WYRM!..'));
+    expect(b.copy, startsWith('48656c6c6f'));
+  });
+
+  test('no sample yet, and null', () {
+    expect(
+      valueViewerOf(title: 'x', value: null, known: false).content,
+      const EmptyContentVm('no value'),
+    );
+    expect(
+      valueViewerOf(title: 'x', value: null).content,
+      const EmptyContentVm('null'),
+    );
+  });
+
+  test('a map JSON cannot hold is copied as Dart writes it', () {
+    final v = valueViewerOf(title: 'x', value: {1: 'a'});
+    expect(v.copy, '{1: a}');
+  });
+}

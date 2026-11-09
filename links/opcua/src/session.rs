@@ -921,7 +921,7 @@ impl Transport {
         .map_err(|_| LinkError::timeout("get_endpoints"))?
         .map_err(|e| {
             LinkError::new(
-                Status::NotAvailable,
+                Status::InvalidParameter,
                 format!("get_endpoints: {}", e.status().sub_code().name()),
             )
         })?;

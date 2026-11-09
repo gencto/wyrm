@@ -29,7 +29,18 @@
 //! * `history/<after>/<max>`: the historian's change journal after `seq`
 //!   `after` (`wyrm_history::Store::changes`, every series), as
 //!   `{id, next, last, rows: [[seq, key, t, v, q], …]}`; `id` is the store's
-//!   identity, so a standby keys its cursor by it.
+//!   identity, so a standby keys its cursor by it; `sinks: {name: seq}`
+//!   carries the confirmed cursor of every history sink, which the standby
+//!   translates into its own journal numbers.
+//!
+//! A healed split: the former active, now following, moves aside what it
+//! wrote while the other side was active too (a forked WAL, files the
+//! active does not hold, a storage tree that differs) and reports each set
+//! once with `forked/<t_ms>/<what>/<count>/<n>`: `what` = `state`,
+//! `flows`, `users` (`count` WAL records, moved to `<dir>.stale.<n>`),
+//! `files` or `storage` (`count` files or paths, moved to
+//! `standby/stale/<t_ms>/`). The active writes one `standby_forked` audit
+//! record per report and counts them in `sys/standby_forks`.
 //!
 //! Each `wal/state` query tells how far the standby is: `sys/standby_connected`
 //! and `sys/standby_lag` show it.
@@ -68,6 +79,11 @@ pub const SEEN_FOR: Duration = Duration::from_secs(15);
 /// time (unix ms) the standby does not count it as away (it rebuilds its
 /// router and its listeners are closed).
 pub const HOLD_UNTIL: &str = "hold_until";
+
+/// The prefix of the cursor a standby keeps of an active's journal in its
+/// own historian store (`standby-<id>`): not a sink of the site, never
+/// carried over.
+pub const STANDBY_SINK: &str = "standby-";
 
 /// When the standby last asked for the registry WAL, and how far behind it was.
 #[derive(Debug, Clone, Copy)]
@@ -462,10 +478,14 @@ pub struct HistoryPage {
     pub last: u64,
     /// `(seq, key, t, v, q)`.
     pub rows: Vec<(u64, String, u64, Value, Quality)>,
+    /// The confirmed cursor of every history sink on the active (in its
+    /// journal numbers; `standby-*` names left out), so the standby can
+    /// carry them over; `None` from an active that does not send them.
+    pub sinks: Option<Vec<(String, u64)>>,
 }
 
 pub fn history_value(p: &HistoryPage) -> Value {
-    Value::Map(BTreeMap::from([
+    let mut m = BTreeMap::from([
         ("id".to_owned(), Value::UInt(p.id)),
         ("next".to_owned(), Value::UInt(p.next)),
         ("last".to_owned(), Value::UInt(p.last)),
@@ -486,7 +506,19 @@ pub fn history_value(p: &HistoryPage) -> Value {
                     .collect(),
             ),
         ),
-    ]))
+    ]);
+    if let Some(sinks) = &p.sinks {
+        m.insert(
+            "sinks".to_owned(),
+            Value::Map(
+                sinks
+                    .iter()
+                    .map(|(n, s)| (n.clone(), Value::UInt(*s)))
+                    .collect(),
+            ),
+        );
+    }
+    Value::Map(m)
 }
 
 pub fn parse_history(v: Value) -> Option<HistoryPage> {
@@ -525,11 +557,24 @@ pub fn parse_history(v: Value) -> Option<HistoryPage> {
         };
         out.push((seq, key, t, v, q));
     }
+    let sinks = match m.remove("sinks") {
+        None => None,
+        Some(Value::Map(s)) => Some(
+            s.into_iter()
+                .map(|(n, v)| match v {
+                    Value::UInt(seq) => Some((n, seq)),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        Some(_) => return None,
+    };
     Some(HistoryPage {
         id,
         next,
         last,
         rows: out,
+        sinks,
     })
 }
 
@@ -569,6 +614,31 @@ fn read_part(path: &Path, offset: u64, len: u64) -> Result<Part, String> {
     Ok((total, part, digest))
 }
 
+/// The audit detail of a `forked` report, `None` for an unknown set.
+pub fn fork_detail(what: &str, count: u64, n: u32, t_ms: u64) -> Option<String> {
+    Some(match what {
+        "files" | "storage" => {
+            format!(
+            "the standby, active before, moved aside {count} {} that differ from this broker's \
+             to standby/stale/{t_ms}/ in its data_dir: its own writes from while it was active, \
+             or older copies (ADR 0036)",
+            if what == "files" { "files" } else { "storage paths" }
+        )
+        }
+        _ => {
+            let (_, dir, _) = STORES.iter().find(|(name, _, _)| *name == what)?;
+            format!(
+                "the standby moved aside its {what} WAL ({count} records, forked from this \
+                 broker's) to {dir}.stale.{n} in its data_dir: records it wrote while both brokers \
+                 were active (a healed split, ADR 0036)"
+            )
+        }
+    })
+}
+
+/// How many fork reports the active remembers to drop a repeated one.
+const FORKS_REMEMBERED: usize = 64;
+
 fn error_value(why: &str) -> Value {
     Value::Map(BTreeMap::from([("error".to_owned(), Value::from(why))]))
 }
@@ -585,6 +655,51 @@ impl Control {
             lsn,
             lag: last.saturating_sub(lsn),
         });
+    }
+
+    /// Until when this broker holds the arbiters' lease (ADR 0036), as its
+    /// daemon's owner keeps it; `None`: no arbiters, or not held.
+    pub fn set_arbiter_lease(&self, until: Option<std::time::Instant>) {
+        *self.arbiter_lease.lock().unwrap_or_else(|p| p.into_inner()) = until;
+    }
+
+    /// Seconds left of the arbiters' lease (`sys/arbiter_lease_s`).
+    pub fn arbiter_lease_s(&self) -> f64 {
+        self.arbiter_lease
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .map_or(0.0, |u| {
+                u.saturating_duration_since(std::time::Instant::now())
+                    .as_secs_f64()
+            })
+    }
+
+    /// Sets of records the standby moved aside after a healed split and
+    /// reported to this broker (`sys/standby_forks`).
+    pub fn standby_forks(&self) -> u64 {
+        self.standby_forks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .0
+    }
+
+    /// One `forked` report: an audit record, once per `(t, what)` (the
+    /// standby sends a report again until it has an answer).
+    fn note_fork(&self, t: u64, what: &str, detail: &str) {
+        {
+            let mut f = self.standby_forks.lock().unwrap_or_else(|p| p.into_inner());
+            let id = (t, what.to_owned());
+            if f.1.contains(&id) {
+                return;
+            }
+            if f.1.len() >= FORKS_REMEMBERED {
+                f.1.pop_front();
+            }
+            f.1.push_back(id);
+            f.0 += 1;
+        }
+        warn!(set = what, "{detail}");
+        self.record("system", "standby_forked", what, Status::Ok, detail);
     }
 
     /// Ask the standby to wait for `d` (the router is about to be rebuilt).
@@ -647,6 +762,18 @@ impl Control {
                     Err(e) => error_value(&e.to_string()),
                 }
             }
+            ["forked", t, what, count, n] => {
+                let (Ok(t), Ok(count), Ok(n)) =
+                    (t.parse::<u64>(), count.parse::<u64>(), n.parse::<u32>())
+                else {
+                    return error_value("t, count and n: numbers");
+                };
+                let Some(detail) = fork_detail(what, count, n, t) else {
+                    return error_value("unknown set");
+                };
+                self.note_fork(t, what, &detail);
+                Value::Map(BTreeMap::from([("ok".to_owned(), Value::Bool(true))]))
+            }
             ["files"] => files_value(&files_of(d)),
             ["file", offset, len, rest @ ..] => {
                 let name = rest.join("/");
@@ -685,8 +812,16 @@ impl Control {
                     rows: max.clamp(1, MAX_HISTORY_ROWS),
                     bytes: MAX_HISTORY_BYTES,
                 };
+                let sinks = match store.sink_seqs() {
+                    Ok(s) => s
+                        .into_iter()
+                        .filter(|(n, _)| !n.starts_with(STANDBY_SINK))
+                        .collect(),
+                    Err(e) => return error_value(&e.to_string()),
+                };
                 match store.changes(after, limit, |_| true) {
                     Ok(batch) => history_value(&HistoryPage {
+                        sinks: Some(sinks),
                         id: store.id(),
                         next: batch.next,
                         last: store.last_seq(),
@@ -880,12 +1015,16 @@ mod tests {
                 Value::Float(1.5),
                 Quality::Good,
             )],
+            sinks: Some(vec![("pg".into(), 7)]),
         };
-        let bytes = wyrm_core::codec::to_vec(&history_value(&p)).unwrap();
-        assert_eq!(
-            parse_history(wyrm_core::codec::from_slice(&bytes).unwrap()).unwrap(),
-            p
-        );
+        let round = |p: &HistoryPage| {
+            let bytes = wyrm_core::codec::to_vec(&history_value(p)).unwrap();
+            parse_history(wyrm_core::codec::from_slice(&bytes).unwrap()).unwrap()
+        };
+        assert_eq!(round(&p), p);
+        // an older active sends no cursors
+        let old = HistoryPage { sinks: None, ..p };
+        assert_eq!(round(&old), old);
     }
 
     #[test]

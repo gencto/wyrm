@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Sites</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#ECE9E1;text-decoration:none}a:hover{color:#F3A766}
+button{font-family:inherit}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background-color:#2F373D;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4A535A}
+::-webkit-scrollbar-corner{background:transparent}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- Top bar -->
+<header style="min-height: 56px; border-bottom: 1px solid #252B30; background: #0E1113; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 8px 16px; box-sizing: border-box">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px">
+<svg width="36" height="22" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{accent}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{accent}}" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 14px; color: #A3ABAF">Studio</span>
+</a>
+<button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span>
+<span style="font-family: 'IBM Plex Mono', monospace">plant</span>
+<span style="font-size: 12px; color: #8E979C">via edge · central</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<label style="flex: 1 1 280px; max-width: 520px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; box-sizing: border-box">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</span>
+<input type="search" placeholder="Go to a node, action or link" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font: inherit; font-size: 14px">
+<kbd style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3ABAF; padding: 2px 6px; border: 1px solid #2F373D; border-radius: 4px">⌘K</kbd>
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Review and apply<span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #2A1F16; color: #F3A766; font-size: 12px; display: flex; align-items: center; justify-content: center">3</span></button>
+<button type="button" aria-label="Account: admin" style="width: 40px; height: 40px; border-radius: 50%; border: 1px solid #2F373D; background: #22282D; color: #ECE9E1; font-size: 13px; font-weight: 600; cursor: pointer">AD</button>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+<!-- Rail -->
+<nav aria-label="Workspaces" style="flex: 0 0 76px; border-right: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0">
+<a href="Main.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v9a3 3 0 0 0 3 3h7M6 12h10"></path></svg>
+Explorer</a>
+<a href="Links.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"></path></svg>
+Links</a>
+<a href="Flow.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="5" rx="1.5"></rect><rect x="14" y="15" width="7" height="5" rx="1.5"></rect><path d="M10 6.5h2a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2"></path></svg>
+Flows</a>
+<a href="History.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+History</a>
+<a href="Access.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg>
+Access</a>
+<a href="#sites" aria-current="page" style="width: 60px; padding: 8px 0; border-radius: 8px; background: #22282D; color: #ECE9E1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+Sites</a>
+<a href="Assistant.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.7L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.8z"></path><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"></path></svg>
+Assistant</a>
+<a href="System.dc.html" style="width: 60px; padding: 8px 0; border-radius: 8px; color: #A3ABAF; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; margin-top: auto">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+System</a>
+</nav>
+
+
+<!-- Center -->
+<main style="flex: 999 1 600px; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+<div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Sites around plant</h1>
+<p style="margin: 0; color: #A3ABAF; max-width: 640px">What plant connects to and what connects to it. Brokers above and below, platforms it sends to, and devices whose links run outside any broker.</p>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>Connect to an upstream</button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: #161A1D; color: #ECE9E1; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M14 10a4 4 0 1 0-4 4l-6 6M7 17l2 2"></path></svg>Token for a site below</button>
+</div>
+
+<sc-if value="{{hasWaiting}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{pickWaiting}}" style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid #4A4020; background: #1B1A14; color: #ECE9E1; font-size: 14px; text-align: left; cursor: pointer"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #E2C15A; box-sizing: border-box"></span><span style="flex: 1">{{waitingText}}</span><span style="color: #F3A766; font-size: 13px">Review</span></button>
+</sc-if>
+
+<section aria-label="Map of sites" style="border: 1px solid #252B30; border-radius: 12px; background-color: #0E1113; background-image: radial-gradient(#1D2226 1px, transparent 1.2px); background-size: 20px 20px; overflow-x: auto">
+<div style="position: relative; width: 920px; height: {{mapH}}; margin: 18px auto">
+<svg width="920" height="{{mapHn}}" viewBox="0 0 920 {{mapHn}}" aria-hidden="true" style="position: absolute; inset: 0">
+<sc-for list="{{edges}}" as="e" hint-placeholder-count="6"><path d="{{e.d}}" fill="none" stroke="{{e.c}}" stroke-width="1.8" stroke-dasharray="{{e.dash}}" stroke-linecap="round"></path></sc-for>
+</svg>
+<sc-for list="{{rowsLbl}}" as="r" hint-placeholder-count="3"><span style="position: absolute; left: -2px; top: {{r.y}}; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #5A6168; writing-mode: vertical-rl; transform: rotate(180deg)">{{r.t}}</span></sc-for>
+<sc-for list="{{nodes}}" as="n" hint-placeholder-count="8">
+<button type="button" onClick="{{n.pick}}" aria-pressed="{{n.pressed}}" style="position: absolute; left: {{n.x}}; top: {{n.y}}; width: {{n.w}}; min-height: {{n.h}}; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 10px; border-radius: {{n.radius}}; border: {{n.border}}; background: {{n.bg}}; color: #ECE9E1; text-align: left; box-sizing: border-box; box-shadow: {{n.shadow}}; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0"><span style="width: 7px; height: 7px; flex: none; border-radius: 50%; background: {{n.dot}}; border: {{n.dotRing}}; box-sizing: border-box"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: {{n.fs}}; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{n.name}}</span><sc-if value="{{n.hasTag}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; padding: 1px 4px; border-radius: 3px; background: {{n.tagBg}}; color: {{n.tagInk}}">{{n.tag}}</span></sc-if></span>
+<span style="font-size: 11px; color: #8E979C; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{n.sub}}</span>
+</button>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 10px 16px; border-top: 1px solid #1D2226; font-size: 12px; color: #A3ABAF">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 18px; height: 2px; background: #6CC4B0"></span>connected</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 18px; border-top: 2px dashed #5A6168"></span>offline</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 18px; border-top: 2px dashed #E2C15A"></span>waiting in quarantine</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 18px; border-top: 2px dotted #6CC4B0"></span>platform: values out only</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 6px; border: 1px solid #3A4249"></span>device: a link outside any broker</span>
+</div>
+</section>
+
+<section aria-label="Recent" style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Recent</h2>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A">
+<sc-for list="{{events}}" as="e" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 6px 16px; border-bottom: 1px solid #1D2226; font-size: 13px"><code style="flex: 0 0 48px; color: #8E979C">{{e.t}}</code><span style="width: 7px; height: 7px; border-radius: 50%; background: {{e.c}}"></span><span style="color: #C5CBCE">{{e.text}}</span></div>
+</sc-for>
+</div>
+</section>
+</main>
+
+<!-- Inspector -->
+<aside aria-label="Selected" style="flex: 1 1 340px; max-width: 380px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{s.kind}}</span>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap"><code style="font-size: 20px; font-weight: 600">{{s.name}}</code><span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: {{s.pillBg}}; color: {{s.color}}; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{s.color}}"></span>{{s.state}}</span></div>
+<code style="font-size: 12px; color: #8E979C">{{s.key}}</code>
+</div>
+<div style="padding: 14px 20px; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; border-bottom: 1px solid #252B30">
+<sc-for list="{{s.facts}}" as="f" hint-placeholder-count="4"><span style="color: #8E979C">{{f.k}}</span><span style="word-break: break-word">{{f.v}}</span></sc-for>
+</div>
+<sc-if value="{{s.hasSwitches}}" hint-placeholder-val="{{false}}">
+<div style="padding: 12px 20px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid #252B30">
+<sc-for list="{{s.switches}}" as="w" hint-placeholder-count="2">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px">{{w.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.4">{{w.d}}</span></span>
+<button type="button" role="switch" aria-checked="{{w.on}}" aria-label="{{w.t}}" style="width: 44px; height: 26px; flex: none; border-radius: 13px; border: 0; background: {{w.trk}}; padding: 3px; display: flex; justify-content: {{w.jc}}; align-items: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{w.knob}}"></span></button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<div style="padding: 6px 20px 16px; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{s.groups}}" as="g" hint-placeholder-count="2">
+<span style="padding: 12px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{g.t}}</span>
+<sc-for list="{{g.items}}" as="a" hint-placeholder-count="2">
+<button type="button" disabled="{{a.off}}" style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px 10px; border-radius: 8px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: {{a.ink}}; text-align: left; cursor: pointer; opacity: {{a.op}}">
+<span style="flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 14px">{{a.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.4">{{a.d}}</span></span>
+<code style="font-size: 10px; color: #5A6168">{{a.act}}</code>
+</button>
+</sc-for>
+</sc-for>
+</div>
+<sc-if value="{{s.hasNote}}" hint-placeholder-val="{{false}}"><div style="margin: auto 20px 20px; padding: 12px 14px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30; font-size: 12px; color: #A3ABAF; line-height: 1.5">{{s.note}}</div></sc-if>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"shape":{"editor":"enum","default":"chain","options":["chain","star","two-up"]},"sel":{"editor":"string","default":""},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const st = this.state || {};
+    const pr = this.props;
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', GREY = '#5A6168';
+    const shape = pr.shape || 'chain';
+    // kinds: up2 (above the upstream), up (direct upstream), plat (platform via uplink), you, down (downstream broker), via (site relayed by a downstream), dev (external link device), qb (broker in quarantine), ql (link in quarantine)
+    const N = (id, kind, x, y, sub, o) => ({ id, kind, x, y, sub, ...(o || {}) });
+    const SH = {
+      chain: { h: 560, nodes: [
+        N('central', 'up2', 376, 0, 'upstream of edge'), N('edge', 'up', 376, 110, 'your upstream · 24 ms', { p: 'central' }),
+        N('plant', 'you', 376, 220, 'this broker · linux-aarch64', { p: 'edge' }),
+        N('line-2-edge', 'down', 30, 350, 'relays 2 sites', { p: 'plant' }), N('broker:line3', 'qb', 226, 350, 'asks to join · relays 1', { p: 'plant' }),
+        N('field-gw', 'dev', 430, 356, '10.0.9.14', { p: 'plant' }), N('meter-gw-3', 'dev', 590, 356, 'offline 2 h', { p: 'plant', off: 1 }), N('plc-gw-7', 'ql', 750, 356, 'new certificate', { p: 'plant' }),
+        N('cell-a', 'via', 0, 480, 'via line-2-edge', { p: 'line-2-edge' }), N('cell-b', 'via', 186, 480, 'via line-2-edge', { p: 'line-2-edge' }) ] },
+      star: { h: 560, nodes: [
+        N('uns', 'plat', 186, 90, 'MQTT · mqtts://broker.plant', { tag: 'MQTT' }), N('thingsboard', 'plat', 566, 90, 'ThingsBoard · telemetry', { tag: 'TB' }),
+        N('plant', 'you', 376, 220, 'top of the network · no upstream', { ps: ['uns', 'thingsboard'] }),
+        N('line-1', 'down', 0, 350, '4 links', { p: 'plant' }), N('line-2', 'down', 188, 350, '6 links', { p: 'plant' }), N('line-3', 'down', 564, 350, 'offline since 05:40', { p: 'plant', off: 1 }),
+        N('warehouse', 'down', 752, 350, '2 links', { p: 'plant' }),
+        N('field-gw', 'dev', 306, 486, '10.0.9.14', { p: 'plant' }), N('broker:line-4', 'qb', 470, 480, 'used a token · relays 1', { p: 'plant' }) ] },
+      'two-up': { h: 560, nodes: [
+        N('central', 'up', 150, 90, 'upstream · 24 ms'), N('ops-cloud', 'up', 600, 90, 'upstream · 61 ms · config allowed'), N('uns', 'plat', 376, 90, 'MQTT · values out', { tag: 'MQTT' }),
+        N('plant', 'you', 376, 220, 'this broker · 2 upstreams', { ps: ['central', 'ops-cloud', 'uns'] }),
+        N('line-2-edge', 'down', 100, 350, 'relays 2 sites', { p: 'plant' }), N('field-gw', 'dev', 470, 356, '10.0.9.14', { p: 'plant' }), N('plc-gw-7', 'ql', 650, 356, 'new certificate', { p: 'plant' }),
+        N('cell-a', 'via', 10, 480, 'via line-2-edge', { p: 'line-2-edge' }), N('cell-b', 'via', 196, 480, 'via line-2-edge', { p: 'line-2-edge' }) ] }
+    }[shape];
+    const DIM = { dev: [140, 44], ql: [140, 44], up2: [168, 56], up: [168, 60], plat: [168, 60], you: [168, 64], down: [168, 60], via: [168, 56], qb: [168, 60] };
+    const byId = {}; SH.nodes.forEach((n) => { byId[n.id] = n; n.w = DIM[n.kind][0]; n.h = DIM[n.kind][1]; });
+    const firstQ = SH.nodes.find((n) => n.kind === 'qb' || n.kind === 'ql');
+    const sel = st.sel && byId[st.sel] ? st.sel : (pr.sel && byId[pr.sel] ? pr.sel : 'plant');
+
+    const edges = [];
+    const link = (a, b) => {
+      const up = a.y < b.y ? a : b, dn = a.y < b.y ? b : a;
+      const x1 = up.x + up.w / 2, y1 = up.y + up.h, x2 = dn.x + dn.w / 2, y2 = dn.y, my = (y1 + y2) / 2;
+      const k = b.kind === 'plat' || a.kind === 'plat' ? 'plat' : ((b.kind === 'qb' || b.kind === 'ql') ? 'q' : (b.off || a.off ? 'off' : 'ok'));
+      edges.push({ d: 'M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + my + ' ' + x2 + ' ' + my + ' ' + x2 + ' ' + y2,
+        c: k === 'q' ? AMBER : (k === 'off' ? GREY : TEAL), dash: k === 'q' ? '6 5' : (k === 'off' ? '6 5' : (k === 'plat' ? '2 5' : 'none')) });
+    };
+    SH.nodes.forEach((n) => { if (n.p) link(byId[n.p], n); (n.ps || []).forEach((p) => link(byId[p], n)); });
+
+    const KL = { up2: 'Above your upstream', up: 'Upstream broker', plat: 'Platform', you: 'This broker', down: 'Downstream broker', via: 'Site relayed below', dev: 'Device · external link', qb: 'Broker in quarantine', ql: 'Link in quarantine' };
+    const nodes = SH.nodes.map((n) => { const on = n.id === sel, q = n.kind === 'qb' || n.kind === 'ql', small = n.kind === 'dev' || n.kind === 'ql';
+      return { name: n.id, sub: n.sub, x: n.x + 'px', y: n.y + 'px', w: n.w + 'px', h: n.h + 'px', fs: small ? '12px' : '14px',
+        radius: small ? '22px' : '10px', pressed: on ? 'true' : 'false', pick: () => this.setState({ sel: n.id }),
+        hasTag: !!n.tag || n.kind === 'you', tag: n.kind === 'you' ? 'YOU' : n.tag, tagBg: n.kind === 'you' ? '#2A1F16' : '#22282D', tagInk: n.kind === 'you' ? '#F3A766' : '#C5CBCE',
+        dot: q ? 'transparent' : (n.off ? GREY : TEAL), dotRing: q ? '2px solid ' + AMBER : '0',
+        border: on ? '1.5px solid ' + accent : (q ? '1px dashed #6A5A2A' : (n.kind === 'you' ? '1.5px solid #5A3E25' : (n.kind === 'via' ? '1px dashed #3A4249' : '1px solid #2F373D'))),
+        bg: on ? '#1E1813' : (q ? '#1B1A14' : (n.kind === 'via' || n.kind === 'up2' ? '#13171A' : '#161A1D')),
+        shadow: on ? '0 0 0 4px rgba(232,137,58,0.14)' : 'none' }; });
+    const rowsLbl = [];
+
+    const A = (t, d, act, tone, off) => ({ t, d, act, off: !!off, op: off ? 0.5 : 1, ink: tone === 'danger' ? '#F0A28D' : '#ECE9E1',
+      border: tone === 'danger' ? '#5A3328' : (tone === 'primary' ? '#5A3E25' : '#252B30'), bg: tone === 'danger' ? '#1C1513' : (tone === 'primary' ? '#1E1813' : '#161A1D') });
+    const W = (t, d, on) => ({ t, d, on: on ? 'true' : 'false', trk: on ? accent : '#22282D', jc: on ? 'flex-end' : 'flex-start', knob: on ? '#0E1113' : '#8E979C' });
+    const F = (k, v) => ({ k, v });
+    const n = byId[sel];
+    const ups = SH.nodes.filter((x) => x.kind === 'up').map((x) => x.id);
+    let s = { kind: KL[n.kind], name: n.id, state: n.off ? 'Offline' : 'Connected', color: n.off ? '#A3ABAF' : TEAL, pillBg: n.off ? '#22282D' : '#15302A', key: '', facts: [], groups: [], hasSwitches: false, switches: [], hasNote: false, note: '' };
+    if (n.kind === 'you') {
+      Object.assign(s, { key: 'wy/plant/sys', facts: [F('Upstreams', ups.length ? ups.join(', ') : 'none: plant is the top'), F('Below', SH.nodes.filter((x) => x.p === 'plant' && x.kind === 'down').length + ' brokers · ' + SH.nodes.filter((x) => x.kind === 'dev').length + ' devices'), F('Listeners', 'tls/0.0.0.0:7448 · quic peers :7449'), F('Version', 'wyrmd 0.9.4 · protocol 1')],
+        groups: [{ t: 'Let others in', items: [A('Token for a site below', 'One token admits a broker at once. Shown once; set its uses and hours.', 'sys/tokens add', 'primary'), A('Quarantine and admission', 'Unknown certificates wait in Links › Quarantine.', 'enable_quarantine')] },
+          { t: 'Go up', items: [A('Connect to an upstream', 'plant dials out to it; it authorizes plant there.', 'sys/upstream add')] }] });
+    } else if (n.kind === 'up') {
+      Object.assign(s, { key: 'sys/upstream/' + n.id, facts: [F('Url', 'quic/' + n.id + '.example:7449'), F('Status', 'issued · certificate broker:plant'), F('Our key', 'sha256 3a91…7c0e'), F('It reads here', 'downstream, dataflows, storage · write')],
+        hasSwitches: true, switches: [W('Connected', 'Off pauses this upstream; plant keeps running locally.', true), W('Config on sys', 'allow_config: its admins may install links and edit peers here.', n.id === 'ops-cloud'), W('Values up at most 10 Hz', 'upstream_val_hz · local subscribers still get every sample.', true)],
+        groups: [{ t: 'Remove', items: [A('Leave ' + n.id, 'plant stops dialing it and forgets its CA. It can be added again.', 'remove', 'danger')] }] });
+    } else if (n.kind === 'up2') {
+      Object.assign(s, { key: 'wy/' + n.id, facts: [F('Reached', 'through edge'), F('Its rights here', 'as edge passes them on, capped at each hop')],
+        groups: [{ t: 'Not managed from plant', items: [A('Settings of that hop', 'edge decides what central may do on edge; plant decides only about edge.', '', '', 1)] }] });
+    } else if (n.kind === 'plat') {
+      Object.assign(s, { key: 'wy/plant/downstream/uplink/' + n.id, state: 'Sending', facts: [F('Kind', n.sub.split(' · ')[0]), F('Sends', 'live values, at most once'), F('Gets', 'no commands back'), F('Runs in', 'the uplink link on plant')],
+        groups: [{ t: 'On the uplink link', items: [A('Open in Explorer', 'Edit what it sends, test, pause or remove it there.', 'uplink'), A('Need every row?', 'Use a history sink: complete and replayed after an outage.', 'sys/history/sinks')] }] });
+    } else if (n.kind === 'down') {
+      Object.assign(s, { key: 'wy/plant/downstream/' + n.id, facts: [F('Admitted', 'with a token, 2026-10-12'), F('Relays', n.id === 'line-2-edge' ? 'cell-a, cell-b' : 'nothing'), F('You can do there', n.id === 'line-2-edge' ? 'write · config allowed by it' : 'write · no config'), F('Last seen', n.off ? 'today 05:40' : 'now')],
+        groups: [{ t: 'Its tree', items: [A('Open in Explorer', 'Its links, flows and storage, with the rights it gives you.', '')] },
+          { t: 'Cut it off', items: [A('Deauthorize', 'Back to quarantine at once, with the sites it relays. Authorize it again to bring it back.', 'deauthorize', 'primary')] }],
+        hasNote: true, note: 'Its own links and devices are managed on ' + n.id + ' (or from here, if it allows config).' });
+    } else if (n.kind === 'via') {
+      Object.assign(s, { key: 'wy/' + n.id, facts: [F('Through', n.p), F('Admitted by', n.p + ', not by plant'), F('You can do there', 'what ' + n.p + ' passes on')],
+        groups: [{ t: 'Cut it off', items: [A('Ask ' + n.p, n.p + ' deauthorizes it.', '', '', 1), A('Deauthorize ' + n.p, 'Cuts ' + n.p + ' and every site it relays.', 'deauthorize', 'danger')] }] });
+    } else if (n.kind === 'dev') {
+      Object.assign(s, { key: 'sys/links/' + n.id, facts: [F('Device', n.off ? '10.0.9.31' : n.sub), F('Link', 'external · CN ' + n.id), F('Connects to', 'plant over tls/7448'), F('Branch', 'wy/plant/downstream/' + n.id)],
+        groups: [{ t: 'What plant controls', items: [A('Deauthorize', 'Block it: rights cut, next connection waits in quarantine.', 'deauthorize', 'primary'), A('Remove for good', 'Retire the id; this certificate never gets rights again.', 'remove', 'danger'), A('Grants and details', 'In Links › On other devices.', '')] },
+          { t: 'Done on the device', items: [A('Start, stop, upgrade', 'It runs on its own machine; plant cannot reach its process.', '', '', 1)] }] });
+    } else if (n.kind === 'qb') {
+      Object.assign(s, { key: 'sys/quarantine/' + n.id, state: 'Waiting', color: AMBER, pillBg: '#3A3418', facts: [F('From', '10.0.13.2'), F('Asks to relay', 'cell-a'), F('Its key', 'sha256 c4d0…19be'), F('Check', 'compare with its sys/upstream/plant/key')],
+        groups: [{ t: 'Decide', items: [A('Authorize', 'With Via: the sites it may publish for. Only an administrator gives that right.', 'authorize {via}', 'primary'), A('Reject', 'Refuse it and drop it from the list.', 'reject', 'danger')] }],
+        hasNote: true, note: 'A broker that relays other sites always waits here, even when it came with a token.' });
+    } else if (n.kind === 'ql') {
+      Object.assign(s, { key: 'sys/quarantine/' + n.id, state: 'Waiting', color: AMBER, pillBg: '#3A3418', facts: [F('From', '10.0.9.40'), F('Certificate', 'CN ' + n.id + ' · plant CA'), F('Can do', 'nothing until approved')],
+        groups: [{ t: 'Decide', items: [A('Approve or reject in Links', 'Give it a display name and the role that may operate it.', 'approve')] }] });
+    }
+    const waiting = SH.nodes.filter((x) => x.kind === 'qb' || x.kind === 'ql');
+    const events = {
+      chain: [{ t: '01:58', c: AMBER, text: 'broker:line3 asked to join and relay cell-a; waiting for Authorize' }, { t: '01:12', c: TEAL, text: 'plant reconnected to edge after 4 s' }, { t: '23:40', c: GREY, text: 'meter-gw-3 went offline' }],
+      star: [{ t: '05:40', c: GREY, text: 'line-3 went offline' }, { t: '04:02', c: AMBER, text: 'broker:line-4 used a token but relays a site; waiting for Authorize' }, { t: 'Sat', c: TEAL, text: 'thingsboard upstream added on uplink' }],
+      'two-up': [{ t: '03:10', c: TEAL, text: 'ops-cloud got config on sys (allow_config on)' }, { t: '02:44', c: AMBER, text: 'plc-gw-7 is waiting in quarantine' }, { t: 'Fri', c: TEAL, text: 'plant joined a second upstream, ops-cloud' }]
+    }[shape];
+    return { accent, nodes, edges, rowsLbl, s, events, mapH: SH.h + 'px', mapHn: SH.h,
+      hasWaiting: waiting.length > 0, waitingText: waiting.length + ' waiting to be let in: ' + waiting.map((x) => x.id).join(', '),
+      pickWaiting: () => this.setState({ sel: firstQ ? firstQ.id : 'plant' }) };
+  }
+}
+</script>
+</body>
+</html>

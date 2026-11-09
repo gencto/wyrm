@@ -523,7 +523,7 @@ fn action_err(e: DriverError) -> LinkError {
     match e {
         DriverError::Transport(m) => LinkError::new(Status::Disconnected, m),
         DriverError::Device(m) => LinkError::timeout(m),
-        DriverError::Point(m) => LinkError::new(Status::NotAvailable, m),
+        DriverError::Point(m) => LinkError::invalid_parameter(m),
     }
 }
 
@@ -551,7 +551,7 @@ async fn read_szl(c: &mut Client, args: &BTreeMap<String, Value>) -> Result<Valu
     let s = c.szl(id, index).await.map_err(action_err)?;
     if s.error != 0 {
         return Err(LinkError::new(
-            Status::NotAvailable,
+            Status::InvalidParameter,
             proto::error_text(s.error),
         ));
     }
@@ -617,7 +617,7 @@ async fn read_address(
         ..Conv::RAW
     };
     let v = addr::decode(ty, &bufs[0], a.bit, &conv)
-        .map_err(|e| LinkError::new(Status::NotAvailable, e.to_string()))?;
+        .map_err(|e| LinkError::new(Status::InvalidMessage, e.to_string()))?;
     Ok(Value::Map(BTreeMap::from([
         ("value".to_owned(), v),
         ("dtype".to_owned(), Value::Str(ty.to_string())),

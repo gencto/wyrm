@@ -1,0 +1,63 @@
+import 'package:flutter/material.dart';
+
+import '../theme/spacing.dart';
+
+typedef ContextGetter = BuildContext? Function();
+
+class StyledSnackbar {
+  StyledSnackbar._();
+
+  static final instance = StyledSnackbar._();
+
+  ContextGetter? contextGetter;
+
+  void show({
+    required String message,
+    BuildContext? context,
+    String? title,
+    double maxWidth = 400,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    final ctx = context ?? contextGetter?.call();
+
+    if (ctx == null) {
+      return;
+    }
+
+    final additional = MediaQuery.of(ctx).size.width - maxWidth;
+    final inset = (additional > 0 ? additional / 2 : 32).toDouble();
+    final left = inset;
+    final right = inset;
+
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        duration: duration,
+        elevation: 6,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(left, 0, right, AppSpacing.xl),
+        backgroundColor: Colors.black26,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (title != null) ...[
+              Text(
+                title,
+                style: Theme.of(
+                  ctx,
+                ).textTheme.bodyLarge!.copyWith(color: Colors.white),
+              ),
+              Gaps.lg,
+            ],
+            Text(
+              message,
+              style: Theme.of(
+                ctx,
+              ).textTheme.bodyMedium!.copyWith(color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

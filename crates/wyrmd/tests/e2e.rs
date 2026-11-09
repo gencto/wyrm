@@ -2976,6 +2976,291 @@ async fn flow_commands_a_link_through_wyrmd() {
     env.stop().await;
 }
 
+/// ADR 0038: a flow's live values through `watch` (a stream) and `ports` (one snapshot), and an
+/// echo output feeding another block.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_watch_streams_live_values() {
+    let env = Env::start("flow-watch", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    let def = m(&[
+        ("id", s("live")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                (
+                    "r",
+                    m(&[("type", s("round")), ("precision", Value::UInt(2))]),
+                ),
+                ("x", m(&[("type", s("number"))])),
+                ("show", m(&[("type", s("publish")), ("node", s("show"))])),
+                ("px", m(&[("type", s("publish")), ("node", s("px"))])),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "r.in"),
+                edge("r.out", "show.in"),
+                // the parameter `precision` as an output
+                edge("r.precision", "x.in"),
+                edge("x.out", "px.in"),
+            ]),
+        ),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/live");
+    let px = format!("{flow}/nodes/px");
+    // `x` sends its own 0 at start too: wait for the echo's 2
+    let v = eventually("the echo of precision", 10, || async {
+        last_val(&c, &px).await.filter(|v| v.as_f64() == Some(2.0))
+    })
+    .await;
+    assert_eq!(v.as_f64(), Some(2.0));
+    let mut st = c
+        .invoke(&flow, "watch", m(&[("max_hz", Value::UInt(10))]))
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(Value::Bool(true)));
+    assert_eq!(
+        at(&first, &["nodes", "r", "params", "precision"]),
+        Some(Value::UInt(2))
+    );
+    // the mock's samples reach the round block and its output
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let row = loop {
+        assert!(tokio::time::Instant::now() < deadline, "no row with r.out");
+        let row = st.next().await.unwrap().unwrap().unwrap();
+        if at(&row, &["nodes", "r", "out", "out"]).is_some() {
+            break row;
+        }
+    };
+    assert_eq!(at(&row, &["snapshot"]), Some(Value::Bool(false)));
+    let Some(Value::Array(pair)) = at(&row, &["nodes", "r", "out", "out"]) else {
+        panic!("[v, q]: {row:?}")
+    };
+    assert!(pair[0].as_f64().is_some(), "{pair:?}");
+    let snap = c
+        .invoke_one(&flow, "ports", m(&[("nodes", Value::Array(vec![s("r")]))]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(at(&snap, &["nodes", "r", "in", "in"]).is_some(), "{snap:?}");
+    drop(st);
+    env.stop().await;
+}
+
+/// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
+/// reports the write, but nothing reaches the link (no audit record, the point never holds the
+/// value); the same draft deployed writes (the control).
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_preview_streams_a_draft_and_writes_nothing() {
+    let env = Env::start("flow-preview", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    let target = "downstream/mock/g1/p1";
+    let def = m(&[
+        ("id", s("draft")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                (
+                    "r",
+                    m(&[("type", s("round")), ("precision", Value::UInt(1))]),
+                ),
+                (
+                    "x",
+                    m(&[("type", s("number")), ("value", Value::UInt(4242))]),
+                ),
+                ("w", m(&[("type", s("set")), ("path", s(target))])),
+                (
+                    "go",
+                    m(&[
+                        ("type", s("invoke")),
+                        ("path", s("downstream/mock")),
+                        ("action", s("reset")),
+                    ]),
+                ),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "r.in"),
+                edge("x.out", "w.in"),
+                edge("x.out", "go.in"),
+            ]),
+        ),
+        ("permissions", m(&[("maxperm", s("write"))])),
+    ]);
+    // what reaches the mock: its audit records (raw keys, no `~val`) and the point's values
+    let audit = c
+        .session()
+        .declare_subscriber(format!("wy/{SITE}/sys/audit/mock"))
+        .await
+        .unwrap();
+    let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let held = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let point = format!("wy/{SITE}/{target}");
+    let (w2, h2, c2, p2) = (writes.clone(), held.clone(), c.clone(), point.clone());
+    let spy = tokio::spawn(async move {
+        let mut vals = c2.subscribe(&p2).await.unwrap();
+        loop {
+            tokio::select! {
+                smp = audit.recv_async() => match smp {
+                    Ok(smp) => {
+                        let rec = wyrm_core::codec::from_slice::<Value>(&smp.payload().to_bytes());
+                        if let Ok(Value::Map(r)) = rec {
+                            let op = r.get("op").cloned().unwrap_or(Value::Null);
+                            if op == Value::from("set") || op == Value::from("invoke") {
+                                w2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    Err(_) => return,
+                },
+                ev = vals.next() => match ev {
+                    Some(wyrm_client::ValEvent::Sample { sample, .. }) => {
+                        if sample.v.as_f64() == Some(4242.0) {
+                            h2.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    Some(_) => {}
+                    None => return,
+                },
+            }
+        }
+    });
+    let flows = format!("wy/{SITE}/dataflows");
+    let mut st = c
+        .invoke(
+            &flows,
+            "preview",
+            m(&[("def", def.clone()), ("max_hz", Value::UInt(10))]),
+        )
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    assert_eq!(at(&first, &["snapshot"]), Some(Value::Bool(true)));
+    assert_eq!(
+        at(&first, &["nodes", "x", "out", "out"]),
+        Some(Value::Array(vec![Value::UInt(4242), Value::UInt(0)])),
+        "the variable's start value is in the snapshot"
+    );
+    // the mock's values flow through the draft, and the write is reported, not done
+    let (mut flowed, mut reported, mut invoked) = (false, false, false);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut rows = vec![first];
+    while !(flowed && reported && invoked) {
+        assert!(tokio::time::Instant::now() < deadline, "rows: {rows:?}");
+        let row = rows.last().cloned().unwrap();
+        flowed |= at(&row, &["nodes", "r", "out", "out"]).is_some();
+        if let Some(Value::Array(sinks)) = at(&row, &["sinks"]) {
+            reported |= sinks.iter().any(|x| {
+                at(x, &["op"]) == Some(s("set"))
+                    && at(x, &["key"]) == Some(Value::from(format!("{point}/~set")))
+                    && at(x, &["value"]).and_then(|v| v.as_f64()) == Some(4242.0)
+            });
+            invoked |= sinks.iter().any(|x| {
+                at(x, &["op"]) == Some(s("invoke"))
+                    && at(x, &["key"])
+                        == Some(Value::from(format!("wy/{SITE}/downstream/mock/~act/reset")))
+            });
+        }
+        rows.push(st.next().await.unwrap().unwrap().unwrap());
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        writes.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a command reached a link"
+    );
+    assert!(
+        !held.load(std::sync::atomic::Ordering::SeqCst),
+        "the point was written"
+    );
+    drop(st);
+    // the control: deployed, the same draft writes the point
+    let proofs = wyrm_flow::command_targets(&def, SITE)
+        .unwrap()
+        .into_iter()
+        .map(|t| {
+            let p = c.proof(&t).unwrap();
+            (t, Value::Bytes(p))
+        })
+        .collect();
+    c.invoke_one(
+        &flows,
+        "deploy",
+        m(&[("def", def), ("proofs", Value::Map(proofs))]),
+    )
+    .await
+    .unwrap();
+    eventually("the deployed draft writes", 10, || {
+        let (w, h) = (writes.clone(), held.clone());
+        async move {
+            (w.load(std::sync::atomic::Ordering::SeqCst) > 0
+                && h.load(std::sync::atomic::Ordering::SeqCst))
+            .then_some(())
+        }
+    })
+    .await;
+    spy.abort();
+    env.stop().await;
+}
+
 /// Iteration 4: an edge broker connects to a central broker over QUIC with
 /// mTLS, each side trusting the other's CA only on that link. A client of
 /// the central broker lists and reads the edge's links; it cannot write.
@@ -8925,6 +9210,20 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         .expect("a set on the new active");
     drop(c);
     install_external_mock(s_tcp, "ext3").await;
+    // it was active: what it wrote then and the new active does not hold
+    // (a link's private file, a storage node) is moved aside, not lost
+    std::fs::create_dir_all(a_dir.join("standby")).unwrap();
+    std::fs::write(a_dir.join("standby/active"), b"").unwrap();
+    std::fs::create_dir_all(a_dir.join("links/ghost/data")).unwrap();
+    std::fs::write(a_dir.join("links/ghost/data/page"), b"written in the split").unwrap();
+    {
+        let st = wyrm_storage::Store::open(&a_dir.join("storage")).unwrap();
+        st.apply(
+            vec![("split".to_owned(), wyrm_storage::Rec::folder())],
+            Vec::new(),
+        )
+        .unwrap();
+    }
     // the old active follows the new one and drops its forked history
     let cfg = standby_config(&a_dir, s_quic, a_quic, false);
     let (stop, rx) = oneshot::channel::<()>();
@@ -8939,6 +9238,40 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         (s > 0 && a == s && a_dir.join("state.stale.1").is_dir()).then_some(())
     })
     .await;
+    // each set is reported once: an audit record and `sys/standby_forks` on the new active
+    eventually("the sets reported to the new active", 20, || async {
+        (env.ctl.standby_forks() == 3
+            && !a_dir.join("standby/forks").exists()
+            && !a_dir.join("standby/active").exists())
+        .then_some(())
+    })
+    .await;
+    let forked: std::collections::BTreeMap<String, String> = env
+        .ctl
+        .audit_tail(50)
+        .into_iter()
+        .filter(|r| r.op == "standby_forked")
+        .map(|r| (r.key, r.detail))
+        .collect();
+    assert_eq!(
+        forked.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["files", "state", "storage"],
+        "{forked:?}"
+    );
+    assert!(forked["state"].contains("state.stale.1"), "{forked:?}");
+    let stale = std::fs::read_dir(a_dir.join("standby/stale"))
+        .unwrap()
+        .flatten()
+        .next()
+        .expect("a stale set")
+        .path();
+    assert_eq!(
+        std::fs::read(stale.join("files/links/ghost/data/page")).unwrap(),
+        b"written in the split"
+    );
+    assert!(!a_dir.join("links/ghost/data/page").exists());
+    let tree = std::fs::read_to_string(stale.join("storage.json")).unwrap();
+    assert!(tree.contains("split"), "{tree}");
     let _ = stop.send(());
     assert_eq!(
         follower.await.unwrap().unwrap(),
@@ -9232,6 +9565,176 @@ async fn standby_follows_history() {
     env.stop().await;
 }
 
+/// ADR 0036, amendment 2026-11-08: both hosts reach a witness but not each
+/// other (here the standby's `standby.peer` is a dead port). Without an
+/// arbiter the standby would take over beside a running active; with one
+/// it waits while the active renews the site's lease, takes over once the
+/// lease runs out, and the former active then learns that another host
+/// holds it.
+#[tokio::test(flavor = "multi_thread")]
+async fn arbiter_keeps_a_split_to_one_active() {
+    let _heavy = HEAVY.lock().await;
+    let (a_dir, s_dir, arb_dir) = (
+        temp_dir("arb-active"),
+        temp_dir("arb-standby"),
+        temp_dir("arb-arbiter"),
+    );
+    let (a_quic, s_quic) = (free_port(), free_port());
+    let env = Env::start_on(
+        &a_dir,
+        &format!(r#"peers: {{ listen: "quic/127.0.0.1:{a_quic}" }}"#),
+        free_port(),
+        free_port(),
+    )
+    .await;
+    let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
+    std::fs::create_dir_all(&s_dir).unwrap();
+    wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    let arb_port = free_port();
+    let with_arbiter = |dir: &std::path::Path, peer: u16, own: u16| {
+        let text = standby_text(dir, free_port(), peer, own, true, 1, witness_port()).replace(
+            "witness: [",
+            &format!(r#"arbiter: ["127.0.0.1:{arb_port}"], witness: ["#),
+        );
+        Config::from_json5(&text).unwrap()
+    };
+    let a_cfg = with_arbiter(&a_dir, s_quic, a_quic);
+    // the arbiter, from the site CA, on this host
+    wyrmd::arbiter::issue(&a_cfg, "127.0.0.1", &arb_dir).unwrap();
+    let (arb_stop, arb_rx) = oneshot::channel::<()>();
+    let dir = arb_dir.clone();
+    let arbiter = tokio::spawn(async move {
+        wyrmd::arbiter::serve_with(
+            &dir,
+            &format!("127.0.0.1:{arb_port}"),
+            Duration::from_secs(1),
+            async {
+                let _ = arb_rx.await;
+            },
+        )
+        .await
+    });
+    // the active takes the lease and renews it
+    let a_arb = wyrmd::arbiter::Arbiters::of(&a_cfg).unwrap().unwrap();
+    eventually("the active holds the lease", 10, || async {
+        (a_arb.acquire().await == wyrmd::arbiter::Verdict::Granted).then_some(())
+    })
+    .await;
+    let held = std::sync::Arc::new(std::sync::Mutex::new(wyrmd::arbiter::Held::default()));
+    assert!(a_arb.granted_at().is_some());
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(a_arb.clone(), held.clone()));
+
+    // the standby cannot see the active (a dead port), but sees the witness
+    let s_cfg = with_arbiter(&s_dir, free_port(), s_quic);
+    let (stop, rx) = oneshot::channel::<()>();
+    let mut follower = tokio::spawn(async move {
+        wyrmd::standby::follow(&s_cfg, async {
+            let _ = rx.await;
+        })
+        .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_secs(12), &mut follower)
+            .await
+            .is_err(),
+        "no takeover while the active holds the lease"
+    );
+    assert!(!held.lock().unwrap().lost);
+
+    // the active hangs (no renewal): the lease runs out, the standby takes over
+    keeper.abort();
+    let outcome = tokio::time::timeout(Duration::from_secs(20), follower)
+        .await
+        .expect("takeover once the lease ran out")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome, wyrmd::standby::Outcome::Takeover);
+    let _keep = stop;
+    // the former active comes back: told that another host has it, it steps down
+    let keeper = tokio::spawn(wyrmd::arbiter::keep(a_arb.clone(), held.clone()));
+    let why = tokio::time::timeout(
+        Duration::from_secs(10),
+        wyrmd::standby::lease_lost(held.clone(), &env.ctl),
+    )
+    .await
+    .expect("the former active steps down");
+    assert!(why.contains("another broker"), "{why}");
+    assert_eq!(env.ctl.arbiter_lease_s(), 0.0, "not held");
+    keeper.abort();
+    let _ = arb_stop.send(());
+    arbiter.await.unwrap().unwrap();
+    env.stop().await;
+}
+
+/// ADR 0036, amendment 2026-11-08, the real `wyrmd` process: with an
+/// arbiter it takes over only once the arbiter grants the lease, steps
+/// down when the lease runs out (the arbiter is gone, no standby asks)
+/// though the witness still answers, and takes over again with a new
+/// arbiter.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broker_without_its_lease_steps_down() {
+    let _heavy = HEAVY.lock().await;
+    let (dir, arb_dir) = (temp_dir("lease"), temp_dir("lease-arbiter"));
+    let env = Env::start_in(&dir, "").await;
+    env.stop().await;
+    let (tcp, arb_port) = (free_port(), free_port());
+    let text = standby_text(&dir, tcp, free_port(), free_port(), true, 2, witness_port()).replace(
+        "witness: [",
+        &format!(r#"arbiter: ["127.0.0.1:{arb_port}"], witness: ["#),
+    );
+    wyrmd::arbiter::issue(&Config::from_json5(&text).unwrap(), "127.0.0.1", &arb_dir).unwrap();
+    let cfg = dir.with_extension("json5");
+    std::fs::write(&cfg, &text).unwrap();
+    let start_arbiter = || {
+        let (stop, rx) = oneshot::channel::<()>();
+        let d = arb_dir.clone();
+        let task = tokio::spawn(async move {
+            wyrmd::arbiter::serve_with(
+                &d,
+                &format!("127.0.0.1:{arb_port}"),
+                Duration::from_secs(1),
+                async {
+                    let _ = rx.await;
+                },
+            )
+            .await
+        });
+        (stop, task)
+    };
+    let mut broker = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .arg("-c")
+        .arg(&cfg)
+        .env("RUST_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let up = || std::net::TcpStream::connect(("127.0.0.1", tcp)).is_ok();
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    assert!(!up(), "no takeover without the arbiter's lease");
+    let (stop, task) = start_arbiter();
+    eventually("active with the lease", 30, || async { up().then_some(()) }).await;
+    let _ = stop.send(());
+    task.await.unwrap().unwrap();
+    eventually("the lease ran out: stepped down", 30, || async {
+        (!up()).then_some(())
+    })
+    .await;
+    assert!(
+        broker.try_wait().unwrap().is_none(),
+        "the process follows on"
+    );
+    let (stop, task) = start_arbiter();
+    eventually("active again with a new lease", 40, || async {
+        up().then_some(())
+    })
+    .await;
+    let _ = broker.kill();
+    let _ = broker.wait();
+    let _ = stop.send(());
+    let _ = task.await;
+}
+
 /// ADR 0036: a standby whose active is away takes over only while it
 /// reaches a witness; without one it may be the side that is cut off.
 #[tokio::test(flavor = "multi_thread")]
@@ -9267,7 +9770,9 @@ async fn standby_waits_for_a_witness() {
         "no takeover without a witness"
     );
     let _listener = std::net::TcpListener::bind(("127.0.0.1", witness)).unwrap();
-    let outcome = tokio::time::timeout(Duration::from_secs(10), follower)
+    // 30 s: on a loaded CI runner the follower's first open of the stores a
+    // stopped broker still held, and its session attempts, have taken over 10 s
+    let outcome = tokio::time::timeout(Duration::from_secs(30), follower)
         .await
         .expect("takeover once a witness answers")
         .unwrap()

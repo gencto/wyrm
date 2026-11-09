@@ -129,7 +129,7 @@ wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 wyrm-link-wasm = { path = "links/wasm" }
 wyrm-example-portable = { path = "examples/links/portable" }
 # MCP (ADR 0005): server side only; no reqwest/auth features (no aws-lc).
-rmcp = { version = "=3.6.0", default-features = false }
+rmcp = { version = "=3.9.0", default-features = false }
 schemars = "1"
 wyrm-mcp = { path = "tools/wyrm-mcp", default-features = false }
 # LLM client of links/agent: plain hyper over tokio-rustls (ring provider).
