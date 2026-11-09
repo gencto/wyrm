@@ -868,8 +868,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "mayDoNote": MessageLookupByLibrary.simpleMessage(
       "These are the agent link\'s own settings. Change them in Links › Edit params.",
     ),
+    "menuLanguage": MessageLookupByLibrary.simpleMessage("Language"),
     "menuOther": MessageLookupByLibrary.simpleMessage("Other"),
     "menuSubtitle": m48,
+    "menuTheme": MessageLookupByLibrary.simpleMessage("Theme"),
     "messagesPerSecond": MessageLookupByLibrary.simpleMessage(
       "Router messages per second",
     ),

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 
 import '../frames/explorer.dart';
 import '../frames/harness.dart';
@@ -14,11 +15,15 @@ void main() {
     return;
   }
 
+  // The account menu's words.
+  setUpAll(() => S.load(const Locale('en')));
+
   Future<void> shoot(
     WidgetTester tester,
     String name,
     Widget page, {
     Size size = const Size(1440, 1000),
+    String? tap,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -28,6 +33,14 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
     await tester.pump(const Duration(milliseconds: 300));
+    if (tap != null) {
+      await tester.tap(find.text(tap));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+    }
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('$name.png'));
   }
 
@@ -35,6 +48,10 @@ void main() {
   testWidgets(
     'the point value in the viewer',
     (t) => shoot(t, 'explorer_viewer', explorerViewer()),
+  );
+  testWidgets(
+    'the account menu: user, language, theme, log out',
+    (t) => shoot(t, 'explorer_account_menu', explorerPoint(), tap: 'OL'),
   );
   testWidgets('device', (t) => shoot(t, 'explorer_device', explorerDevice()));
   testWidgets('review', (t) => shoot(t, 'explorer_review', explorerReview()));

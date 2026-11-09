@@ -4,6 +4,8 @@
 
 `app/lib/connectors/studio_page_connector.dart`
 
+## onSite
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -11,68 +13,182 @@ sequenceDiagram
     participant UI as StudioPage
     participant VM as StudioPageConnector
     participant A1 as ViewSiteAction
-    participant A2 as SelectNodeAction
-    participant A3 as SetOpenAction
-    participant A4 as ApplyChangesAction
-    participant A5 as DiscardChangesAction
-    participant A6 as RemoveChangeAction
-    participant A7 as LogOutAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: onSite
     UI->>VM: onSite()
     VM->>A1: dispatch
     A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows)
     A1->>ST: dispatchAndWait(RetrieveLinksAction)
+```
+
+## onGoToKey
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as SelectNodeAction
+    participant ST as AppState
 
     User->>UI: onGoToKey
     UI->>VM: onGoToKey()
-    VM->>A2: dispatch
-    A2->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-    A2->>ST: dispatchSync(ToggleNodeAction)
-    A2->>ST: dispatchAndWait(RetrieveNodeDetailAction)
-    A2->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A2->>ST: dispatchAndWait(RetrieveHistoryAction)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
+    A1->>ST: dispatchSync(ToggleNodeAction)
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
+    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+```
+
+## onReview
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as SetOpenAction
+    participant ST as AppState
 
     User->>UI: onReview
     UI->>VM: onReview()
-    VM->>A3: dispatch
-    A3->>ST: copyWith(changes.open)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(changes.open)
+```
+
+## onCloseReview
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as SetOpenAction
+    participant ST as AppState
 
     User->>UI: onCloseReview
     UI->>VM: onCloseReview()
-    VM->>A3: dispatch
-    A3->>ST: copyWith(changes.open)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(changes.open)
+```
+
+## onApply
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as ApplyChangesAction
+    participant ST as AppState
 
     User->>UI: onApply
     UI->>VM: onApply()
-    VM->>+A4: dispatchAndWait
-    Note over A4: WaitingAction · async
-    A4->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
-    A4->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A4-->>-VM: ActionStatus
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
+    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
+    A1-->>-VM: ActionStatus
+```
+
+## onDiscard
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as DiscardChangesAction
+    participant ST as AppState
 
     User->>UI: onDiscard
     UI->>VM: onDiscard()
-    VM->>A5: dispatch
-    A5->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
+```
+
+## onRemoveChange
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as RemoveChangeAction
+    participant ST as AppState
 
     User->>UI: onRemoveChange
     UI->>VM: onRemoveChange()
-    VM->>A6: dispatch
-    A6->>ST: copyWith(changes.table, changes.view, changes.open)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(changes.table, changes.view, changes.open)
+```
+
+## onLogOut
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as LogOutAction
+    participant ST as AppState
+    participant NAV as Router
 
     User->>UI: onLogOut
     UI->>VM: onLogOut()
-    VM->>+A7: dispatchAndWait
-    Note over A7: WaitingAction · async
-    A7->>ST: copyWith(login.password)
-    A7-->>-VM: ActionStatus
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(login.password)
+    A1-->>-VM: ActionStatus
     VM->>NAV: GoAction.replace LogInRoute
-
-    Note over UI: not drawn — StudioPageConnector: 1 dispatch
 ```
+
+## onLanguage
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as SetLanguageAction
+    participant ST as AppState
+
+    User->>UI: onLanguage
+    UI->>VM: onLanguage()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(language.locale)
+```
+
+## onTheme
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as SetThemeModeAction
+    participant ST as AppState
+
+    User->>UI: onTheme
+    UI->>VM: onTheme()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(theme.mode)
+```
+
+_Not drawn — these files dispatch outside any interaction:_
+
+- `StudioPageConnector` — 1 dispatch
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -84,6 +200,8 @@ sequenceDiagram
 | `onDiscard` | `DiscardChangesAction` | `changes.table, changes.view, changes.message, changes.open` |
 | `onRemoveChange` | `RemoveChangeAction` | `changes.table, changes.view, changes.open` |
 | `onLogOut` | `LogOutAction`, `GoAction.replace` | `login.password` |
+| `onLanguage` | `SetLanguageAction` | `language.locale` |
+| `onTheme` | `SetThemeModeAction` | `theme.mode` |
 
 `?` marks a dispatch that only runs under a condition.
 

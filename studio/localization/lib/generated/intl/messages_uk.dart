@@ -875,8 +875,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "mayDoNote": MessageLookupByLibrary.simpleMessage(
       "Це параметри самого link агента. Зміни їх у Links › Edit params.",
     ),
+    "menuLanguage": MessageLookupByLibrary.simpleMessage("Мова"),
     "menuOther": MessageLookupByLibrary.simpleMessage("Інше"),
     "menuSubtitle": m48,
+    "menuTheme": MessageLookupByLibrary.simpleMessage("Тема"),
     "messagesPerSecond": MessageLookupByLibrary.simpleMessage(
       "Повідомлень роутера за секунду",
     ),

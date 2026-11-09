@@ -50,7 +50,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
 | `LogInPage` | `/login` | yes | 8 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
-| `StudioPage` | `/studio` | no | 8 | [studio](studio.md) |
+| `StudioPage` | `/studio` | no | 10 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 28 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |

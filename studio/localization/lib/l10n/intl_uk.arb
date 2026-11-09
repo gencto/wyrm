@@ -746,5 +746,7 @@
     "@sizeChars": {"placeholders": {"count": {"type": "int"}}},
     "@sizeLines": {"placeholders": {"count": {"type": "int"}}},
     "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
-    "@moreBytes": {"placeholders": {"count": {"type": "int"}}}
+    "@moreBytes": {"placeholders": {"count": {"type": "int"}}},
+    "menuLanguage": "Мова",
+    "menuTheme": "Тема"
 }

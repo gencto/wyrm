@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
+import '../overlays/account_menu.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -34,6 +35,8 @@ final class TopBarVm extends Equatable {
     required this.role,
     this.siteDetail,
     this.reviewReason,
+    this.locale = 'en',
+    this.theme = ThemeMode.dark,
   });
 
   /// The site on screen.
@@ -52,8 +55,14 @@ final class TopBarVm extends Equatable {
   final String user;
   final String role;
 
+  /// The language code and the theme in use, for the account menu.
+  final String locale;
+  final ThemeMode theme;
+
   @override
   List<Object?> get props => [
+    locale,
+    theme,
     site,
     siteDetail,
     sites,
@@ -74,6 +83,8 @@ class TopBar extends StatelessWidget {
     required this.onSearch,
     required this.onReview,
     required this.onLogOut,
+    this.onLanguage,
+    this.onTheme,
     this.compact = false,
     this.labels = const TopBarLabels(),
     super.key,
@@ -84,6 +95,10 @@ class TopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onReview;
   final VoidCallback onLogOut;
+
+  /// A language or a theme picked in the account menu.
+  final ValueChanged<String>? onLanguage;
+  final ValueChanged<ThemeMode>? onTheme;
 
   /// Below 800 px: no search field (the icon opens it), no wordmark text.
   final bool compact;
@@ -128,7 +143,12 @@ class TopBar extends StatelessWidget {
             reason: vm.reviewReason,
             onTap: onReview,
           ),
-          _Account(vm: vm, onLogOut: onLogOut, logOut: labels.logOut),
+          _Account(
+            vm: vm,
+            onLogOut: onLogOut,
+            onLanguage: onLanguage ?? (_) {},
+            onTheme: onTheme ?? (_) {},
+          ),
         ],
       ),
     );
@@ -141,13 +161,11 @@ final class TopBarLabels {
     this.search = 'Go to a node, action or link',
     this.review = 'Review and apply',
     this.reviewShort = 'Review',
-    this.logOut = 'Log out',
   });
 
   final String search;
   final String review;
   final String reviewShort;
-  final String logOut;
 }
 
 class _SiteSwitcher extends StatelessWidget {
@@ -357,16 +375,20 @@ class _ReviewButton extends StatelessWidget {
   }
 }
 
+/// The avatar: the user's initials; a tap opens the [AccountMenu] under
+/// it (owner decision 2026-11-09: the language and the theme live there).
 class _Account extends StatelessWidget {
   const _Account({
     required this.vm,
     required this.onLogOut,
-    required this.logOut,
+    required this.onLanguage,
+    required this.onTheme,
   });
 
   final TopBarVm vm;
   final VoidCallback onLogOut;
-  final String logOut;
+  final ValueChanged<String> onLanguage;
+  final ValueChanged<ThemeMode> onTheme;
 
   @override
   Widget build(BuildContext context) {
@@ -379,47 +401,42 @@ class _Account extends StatelessWidget {
               .take(2)
               .toString()
               .toUpperCase();
-    return PopupMenuButton<String>(
-      tooltip: '${vm.user}, ${vm.role}',
-      color: c.ground2,
-      position: .under,
-      shape: RoundedRectangleBorder(
-        borderRadius: Radii.control,
-        side: BorderSide(color: c.line2),
-      ),
-      onSelected: (_) => onLogOut(),
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          enabled: false,
-          child: Column(
-            crossAxisAlignment: .start,
-            children: [
-              Text(vm.user, style: mono(color: c.text1)),
-              Text(vm.role, style: TextStyle(fontSize: 12, color: c.text3)),
-            ],
+    return Tooltip(
+      message: '${vm.user}, ${vm.role}',
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () {
+          final box = context.findRenderObject()! as RenderBox;
+          AccountMenu.show(
+              context,
+              at: box.localToGlobal(box.size.bottomRight(Offset.zero)),
+              vm: AccountMenuVm(
+                user: vm.user,
+                role: vm.role,
+                locale: vm.locale,
+                theme: vm.theme,
+              ),
+              onLanguage: onLanguage,
+              onTheme: onTheme,
+              onLogOut: onLogOut,
+            ).ignore();
+        },
+        child: Container(
+          width: 40,
+          height: 40,
+          alignment: .center,
+          decoration: BoxDecoration(
+            shape: .circle,
+            color: c.ground4,
+            border: .all(color: c.line2),
           ),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'logout',
-          child: Text(logOut, style: TextStyle(fontSize: 14, color: c.text1)),
-        ),
-      ],
-      child: Container(
-        width: 40,
-        height: 40,
-        alignment: .center,
-        decoration: BoxDecoration(
-          shape: .circle,
-          color: c.ground4,
-          border: .all(color: c.line2),
-        ),
-        child: Text(
-          initials,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: .w600,
-            color: c.text1,
+          child: Text(
+            initials,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: .w600,
+              color: c.text1,
+            ),
           ),
         ),
       ),

@@ -5907,6 +5907,16 @@ class S {
       args: [count],
     );
   }
+
+  /// `Language`
+  String get menuLanguage {
+    return Intl.message('Language', name: 'menuLanguage', desc: '', args: []);
+  }
+
+  /// `Theme`
+  String get menuTheme {
+    return Intl.message('Theme', name: 'menuTheme', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

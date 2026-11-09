@@ -7,10 +7,12 @@ import 'package:business/redux/changes/actions/apply_changes_action.dart';
 import 'package:business/redux/changes/actions/discard_changes_action.dart';
 import 'package:business/redux/changes/actions/remove_change_action.dart';
 import 'package:business/redux/changes/actions/set_open_action.dart';
+import 'package:business/redux/language/actions/set_language_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -110,12 +112,13 @@ class StudioPageConnector extends StatelessWidget {
                   search: S.current.searchHint,
                   review: S.current.reviewAndApply,
                   reviewShort: S.current.review,
-                  logOut: S.current.logOut,
                 ),
                 onSite: vm.onSite,
                 onSearch: () => _search(context, vm, tabs),
                 onReview: vm.onReview,
                 onLogOut: vm.onLogOut,
+                onLanguage: vm.onLanguage,
+                onTheme: vm.onTheme,
               ),
               onScrim: vm.onCloseReview,
               drawer: !vm.reviewOpen
@@ -241,6 +244,8 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         reviewReason: S.current.nothingStaged,
         user: site.user ?? '',
         role: site.role ?? '',
+        locale: language.locale,
+        theme: theme.mode,
       ),
       quarantineBadge: quarantined == 0 ? null : '$quarantined',
       reviewOpen: changes.open,
@@ -314,6 +319,8 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         await dispatchAndWait(LogOutAction());
         dispatch(GoAction.replace(const LogInRoute()));
       },
+      onLanguage: (code) => dispatchSync(SetLanguageAction(code)),
+      onTheme: (mode) => dispatchSync(SetThemeModeAction(mode)),
     );
   }
 
@@ -345,6 +352,8 @@ class _Vm extends Vm {
     required this.onDiscard,
     required this.onRemoveChange,
     required this.onLogOut,
+    required this.onLanguage,
+    required this.onTheme,
   }) : super(
          equals: [
            connected,
@@ -394,4 +403,8 @@ class _Vm extends Vm {
   final VoidCallback onDiscard;
   final ValueChanged<String> onRemoveChange;
   final VoidCallback onLogOut;
+
+  /// The account menu's Language and Theme (owner decision 2026-11-09).
+  final ValueChanged<String> onLanguage;
+  final ValueChanged<ThemeMode> onTheme;
 }

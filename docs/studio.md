@@ -304,7 +304,8 @@ For each screen: canvas boards, route, state, broker calls, widgets. Keys are re
 ### 7.1 Shell
 Boards: every screen's rail and top bar. Route: `StudioRoute` (tabs: explorer, links, flows, history, access, sites, assistant, system).
 - Rail: `AutoTabsScaffold` with a custom tab bar on the left (76 px), icon + label, accent on the current one; System at the bottom. Below 800 px wide: bottom navigation with five tabs and a More sheet.
-- Top bar: logo, site switcher (the logged-in site and the sites it reaches: `upstream/*`, `downstream/*` peers), search (⌘K: go to a key, an action or a link), account (user, role, Log out).
+- Top bar: logo, site switcher (the logged-in site and the sites it reaches: `upstream/*`, `downstream/*` peers), search (⌘K: go to a key, an action or a link), account.
+- Account menu (owner decision 2026-11-09: the language and theme switchers left the log-in page and live here): a tap on the avatar opens `AccountMenu` (`ui/lib/overlays/account_menu.dart`) under it, in the node menu's frame (300 wide, radius 10, `ground2`, border `line3`): the user (mono 600) and the role, then `Language` (`LanguageSwitcher`: English / Українська, the endonyms) and `Theme` (`ThemeSwitcher`: `ui_moon` / `ui_sun`), then `Log out`. A pick dispatches `SetLanguageAction` / `SetThemeModeAction` at once (both persisted) and the menu stays open showing it, its own words in the new language; `Log out` closes it and runs `LogOutAction`. Golden: `explorer_account_menu`.
 - Offline banner from `site.connected`.
 
 ### 7.2 Links
