@@ -1,9 +1,16 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
+import 'package:business/redux/flows/actions/retrieve_flows_action.dart';
+import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/flow_summary.dart';
+import 'package:models/link_info.dart';
+import 'package:models/node_info.dart';
+import 'package:models/workspace.dart';
 
 /// Holds an [AppState] and nothing else — which is the entire contract
 /// [Selectors] asks for.
@@ -76,24 +83,16 @@ void main() {
       expect(_Reader(AppState.initial()).isBusy, isFalse);
     });
 
-    test('every waiting action raises it', () {
-      // Named one by one rather than folded, because *which* actions count is
-      // the claim. The barrier read `login.isWaiting || registration.isWaiting`
-      // and the last two are the ones that were missing from it — they mix in
-      // `WaitingAction` and have an `isWaiting` getter, and still showed the
-      // user nothing for the two seconds they ran.
-      for (final action in <ReduxAction<AppState>>[
-        LogInAction(),
-      ]) {
-        final r = _Reader(
-          AppState.initial().copyWith(wait: Wait.empty.add(flag: action)),
-        );
-        expect(
-          r.isBusy,
-          isTrue,
-          reason: '${action.runtimeType} should raise the barrier',
-        );
-      }
+    test('the log-in does not raise it: the page shows its own progress', () {
+      // LogInAction was the one blocking action. The log-in page now shows
+      // the busy button and the three live steps (docs/design/specs/login.md
+      // §3.6–3.7); the barrier would blur them over.
+      final r = _Reader(
+        AppState.initial().copyWith(wait: Wait.empty.add(flag: LogInAction())),
+      );
+
+      expect(r.isBusy, isFalse);
+      expect(SelectLogin(r.state).isWaiting, isTrue);
     });
 
     test('an action written later raises it with no edit here', () {
@@ -129,6 +128,51 @@ void main() {
       );
 
       expect(r.isBusy, isFalse);
+    });
+  });
+
+  group('refreshing: stale while revalidate', () {
+    const flow = FlowSummary(id: 'f1');
+    AppState waitingFor(AppState s, Object flag) =>
+        s.copyWith(wait: s.wait.add(flag: flag));
+
+    test('a read with content held is a refresh', () {
+      final held = AppState.initial().copyWith.flows(
+        table: {'f1': flow}.lock,
+      );
+      final r = _Reader(waitingFor(held, RetrieveFlowsAction()));
+
+      expect(r.refreshing(Workspace.flows), isTrue);
+      expect(r.refreshing(Workspace.links), isFalse, reason: 'not its read');
+    });
+
+    test('a read with nothing held is a first load, not a refresh', () {
+      final r = _Reader(
+        waitingFor(AppState.initial(), RetrieveFlowsAction()),
+      );
+
+      expect(r.refreshing(Workspace.flows), isFalse);
+    });
+
+    test('content held and no read in flight is at rest', () {
+      final r = _Reader(
+        AppState.initial().copyWith.flows(table: {'f1': flow}.lock),
+      );
+
+      expect(r.refreshing(Workspace.flows), isFalse);
+    });
+
+    test('one read refreshes every workspace that shows it', () {
+      final held = AppState.initial().copyWith
+          .links(table: {'m': const LinkInfo(id: 'm')}.lock)
+          .copyWith
+          .nodes(
+            table: {'k': const NodeInfo(key: 'k', name: 'k')}.lock,
+          );
+      final r = _Reader(waitingFor(held, RetrieveLinksAction()));
+
+      expect(r.refreshing(Workspace.links), isTrue);
+      expect(r.refreshing(Workspace.explorer), isTrue, reason: 'link dots');
     });
   });
 }

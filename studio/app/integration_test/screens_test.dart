@@ -17,8 +17,10 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:ui/flows/flow_canvas.dart';
 
 // ignore: do_not_use_environment, a test parameter.
 const gateway = String.fromEnvironment('WYRM_GATEWAY');
@@ -93,7 +95,8 @@ void main() {
         SelectNodeAction('wy/edge/downstream/modbus/line1/ahu1'),
       );
       await settle(tester);
-      await tester.tap(find.text('Actions').first);
+      // The tab: the header's Actions ▾ (first) opens the node menu.
+      await tester.tap(find.text('Actions').last);
       await settle(tester, 1000);
       await shot(tester, '01c_explorer_actions');
       final readId = find.text('Read Device Identification');
@@ -106,6 +109,50 @@ void main() {
       }
       await tester.tap(find.text('Points').first);
       await settle(tester, 500);
+
+      // One frame per node kind (docs/design/specs/explorer.md "Frames by
+      // node kind"): none of them shows the device's points.
+      for (final (shotName, key) in [
+        ('01g_explorer_flow', 'wy/edge/dataflows/ahu2_ctl'),
+        ('01h_explorer_link', 'wy/edge/downstream/modbus'),
+        ('01i_explorer_connection', 'wy/edge/downstream/modbus/line1'),
+        ('01j_explorer_storage', 'wy/edge/storage/line1'),
+        ('01k_explorer_storage_folder', 'wy/edge/storage/line1/test'),
+        ('01l_explorer_broker', 'wy/edge/upstream/central'),
+      ]) {
+        store.dispatchSync(SelectNodeAction(key));
+        await settle(tester, 2500);
+        // The frame's first tab: Contents, or a flow's Parameters.
+        final first = find.text('Contents').evaluate().isNotEmpty
+            ? 'Contents'
+            : 'Parameters';
+        await tester.tap(find.text(first).first);
+        await settle(tester, 500);
+        await shot(tester, shotName);
+        debugPrint(
+          '$shotName: points tab ${find.text('Points').evaluate().isNotEmpty}'
+          ', overflow ${tester.takeException()}',
+        );
+        if (key.endsWith('/ahu2_ctl')) {
+          // The header's Actions ▾ (before the Actions tab) builds the
+          // node menu; the shot cannot hold the overlay, so it only must
+          // not throw (its header is covered by ui/test/long_names_test).
+          await tester.tap(find.text('Actions').first);
+          await settle(tester, 1000);
+          debugPrint('flow menu: overflow ${tester.takeException()}');
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await settle(tester, 500);
+          final edit = find.text('Edit dataflow');
+          if (edit.evaluate().isNotEmpty) {
+            await tester.tap(edit.first);
+            await settle(tester, 3500);
+            await shot(tester, '01g3_explorer_flow_editor');
+            debugPrint('editor route: ${appRouter.current.name}');
+            await tester.tap(find.byType(IconButton).last);
+            await settle(tester);
+          }
+        }
+      }
     }
 
     for (final (i, name) in [
@@ -127,6 +174,19 @@ void main() {
         await tester.tap(find.text('Edit dataflow').first);
         await settle(tester, 3500);
         await shot(tester, '03c_flow_editor');
+        // Blocks of the owner's concat check: a variable (one field Value)
+        // and concat (bound inputs show the values that come in).
+        for (final (b, n) in [('concat1', '03d'), ('string1', '03e')]) {
+          final f = find.descendant(
+            of: find.byType(FlowCanvas),
+            matching: find.text(b),
+          );
+          if (f.evaluate().isNotEmpty) {
+            await tester.tap(f.first, warnIfMissed: false);
+            await settle(tester, 800);
+            await shot(tester, '${n}_flow_$b');
+          }
+        }
         await tester.tap(find.byType(IconButton).last);
         await settle(tester);
       }

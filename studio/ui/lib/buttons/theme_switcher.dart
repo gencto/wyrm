@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:localization/localization.dart';
 
 import '../models/value_changed.dart';
@@ -19,10 +18,10 @@ class ThemeSwitcher extends StatelessWidget {
   Widget build(BuildContext context) => SegmentedControl<ThemeMode>(
     vm: vm,
     segments: [
-      Segment(value: .dark, icon: LucideIcons.moon, label: S.current.darkTheme),
+      Segment(value: .dark, icon: 'ui_moon', label: S.current.darkTheme),
       Segment(
         value: .light,
-        icon: LucideIcons.sun,
+        icon: 'ui_sun',
         label: S.current.lightTheme,
       ),
     ],

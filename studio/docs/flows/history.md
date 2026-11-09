@@ -10,55 +10,62 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as RetrieveHistorianAction
-    participant A2 as RetrieveSeriesAction
-    participant A3 as SetSelectedAction
-    participant A4 as SetRangeAction
+    participant A1 as SetPanelWidthAction
+    participant A2 as RetrieveHistorianAction
+    participant A3 as RetrieveSeriesAction
+    participant A4 as SetSelectedAction
+    participant A5 as SetRangeAction
     participant ST as AppState
+
+    User->>UI: onPanelWidth
+    UI->>VM: onPanelWidth()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(panels.widths)
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(historian.groups, historian.stats, historian.selected)
-    A1-->>-VM: ActionStatus
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series)
+    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected)
     A2-->>-VM: ActionStatus
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(historian.series)
+    A3-->>-VM: ActionStatus
 
     User->>UI: onGroup
     UI->>VM: onGroup()
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(historian.selected)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series)
-    A2-->>-VM: ActionStatus
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(historian.selected)
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(historian.series)
+    A3-->>-VM: ActionStatus
 
     User->>UI: onRange
     UI->>VM: onRange()
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(historian.range)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series)
-    A2-->>-VM: ActionStatus
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(historian.range)
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(historian.series)
+    A3-->>-VM: ActionStatus
 
     User->>UI: onAction
     UI->>VM: onAction()
-    VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(historian.groups, historian.stats, historian.selected)
-    A1-->>-VM: ActionStatus
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series)
+    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected)
     A2-->>-VM: ActionStatus
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(historian.series)
+    A3-->>-VM: ActionStatus
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
+| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 | `onShow` | `RetrieveHistorianAction`, `RetrieveSeriesAction` | `historian.groups, historian.stats, historian.selected`, `historian.series` |
 | `onGroup` | `SetSelectedAction`, `RetrieveSeriesAction` | `historian.selected`, `historian.series` |
 | `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range`, `historian.series` |

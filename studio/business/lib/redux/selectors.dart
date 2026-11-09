@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/audit_entry.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_summary.dart';
@@ -13,11 +14,13 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
+import 'package:models/login_failure.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
+import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/quarantine_entry.dart';
@@ -27,6 +30,7 @@ import 'package:models/staged_change.dart';
 import 'package:models/task_event.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
+import 'package:models/workspace.dart';
 
 import '../wyrm/keys.dart';
 import 'access/actions/retrieve_access_action.dart';
@@ -38,6 +42,7 @@ import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/retrieve_historian_action.dart';
+import 'historian/actions/retrieve_series_action.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -49,6 +54,9 @@ import 'links/actions/rollback_link_params_action.dart';
 import 'links/actions/start_link_action.dart';
 import 'links/actions/stop_link_action.dart';
 import 'login/actions/log_in_action.dart';
+import 'login/actions/probe_gateway_action.dart';
+import 'nodes/actions/retrieve_history_action.dart';
+import 'nodes/actions/retrieve_node_detail_action.dart';
 import 'nodes/actions/retrieve_nodes_action.dart';
 import 'packages/actions/retrieve_packages_action.dart';
 import 'peers/actions/retrieve_peers_action.dart';
@@ -87,6 +95,7 @@ mixin Selectors {
   SelectHistorian get historian => SelectHistorian(state);
   SelectAccess get access => SelectAccess(state);
   SelectSystem get system => SelectSystem(state);
+  SelectPanels get panels => SelectPanels(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -123,6 +132,57 @@ extension SelectComposites on Selectors {
   /// flag and `isWaitingForType<T>` tests `flag is T`, so the mixin answers for
   /// every action carrying it and nothing here names any of them.
   bool get isBusy => state.wait.isWaitingForType<BlockingAction>();
+
+  /// [ws] is reading again data it already shows: stale while revalidate
+  /// (docs/studio.md §6.7). The workspace keeps its content and the shell
+  /// lays the sweep bar over it.
+  ///
+  /// **Two halves, both needed.** A read of the workspace is in flight — one
+  /// of the `Retrieve…` actions it dispatches when it is shown, read off
+  /// `Wait` like every other `isWaiting` — *and* its slice already holds
+  /// something to keep on screen. In flight with nothing held is a first
+  /// load, which stays the workspace's own empty or loading state.
+  ///
+  /// Only reads count. A command in flight (Start, Deploy, Install, Apply)
+  /// has its own busy control and is not a refresh.
+  bool refreshing(Workspace ws) {
+    final w = state.wait;
+    return switch (ws) {
+      .explorer =>
+        state.nodes.table.isNotEmpty &&
+            (w.isWaitingForType<RetrieveNodeDetailAction>() ||
+                w.isWaitingForType<RetrieveHistoryAction>() ||
+                w.isWaitingForType<RetrieveLinksAction>()),
+      .links =>
+        (state.links.table.isNotEmpty || state.quarantine.table.isNotEmpty) &&
+            (w.isWaitingForType<RetrieveLinksAction>() ||
+                w.isWaitingForType<RetrieveQuarantineAction>() ||
+                w.isWaitingForType<RetrievePackagesAction>()),
+      .flows =>
+        state.flows.table.isNotEmpty &&
+            w.isWaitingForType<RetrieveFlowsAction>(),
+      .history =>
+        state.historian.groups.isNotEmpty &&
+            (w.isWaitingForType<RetrieveHistorianAction>() ||
+                w.isWaitingForType<RetrieveSeriesAction>()),
+      .access =>
+        (state.access.users.isNotEmpty || state.access.grants.isNotEmpty) &&
+            w.isWaitingForType<RetrieveAccessAction>(),
+      .sites =>
+        (state.peers.table.isNotEmpty || state.site.choices.isNotEmpty) &&
+            (w.isWaitingForType<RetrievePeersAction>() ||
+                w.isWaitingForType<RetrieveSitesAction>() ||
+                w.isWaitingForType<RetrieveQuarantineAction>() ||
+                w.isWaitingForType<RetrieveLinksAction>()),
+      .assistant =>
+        (state.tasks.table.isNotEmpty || state.assistant.agent != null) &&
+            (w.isWaitingForType<RetrieveAgentAction>() ||
+                w.isWaitingForType<RetrieveTasksAction>()),
+      .system =>
+        state.system.log.isNotEmpty &&
+            w.isWaitingForType<RetrieveSystemLogAction>(),
+    };
+  }
 }
 
 extension type SelectConnectivity(AppState _state) {
@@ -141,6 +201,33 @@ extension type SelectLogin(AppState _state) {
 
   /// Returns user
   String? get user => _state.login.user;
+
+  /// Returns step
+  int get step => _state.login.step;
+
+  /// Returns recent
+  IList<String> get recent => _state.login.recent;
+
+  /// Returns probes
+  IMap<String, int> get probes => _state.login.probes;
+
+  /// Returns remember
+  bool get remember => _state.login.remember;
+
+  /// Returns failure
+  LoginFailure? get failure => _state.login.failure;
+
+  /// Returns reason
+  String? get reason => _state.login.reason;
+
+  /// Returns isProbing
+  bool get isProbing => _state.wait.isWaitingForType<ProbeGatewayAction>();
+
+  /// Returns preload
+  int get preload => _state.login.preload;
+
+  /// Returns preloadLate
+  IList<int> get preloadLate => _state.login.preloadLate;
 }
 
 extension type SelectSession(AppState _state) {
@@ -267,6 +354,33 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns historyKey
   String? get historyKey => _state.nodes.historyKey;
+
+  /// Returns point
+  String? get point => _state.nodes.point;
+
+  /// Returns checked
+  ISet<String> get checked => _state.nodes.checked;
+
+  /// Returns anchor
+  String? get anchor => _state.nodes.anchor;
+
+  /// Returns treeFilter
+  String get treeFilter => _state.nodes.treeFilter;
+
+  /// Returns pointFilter
+  String get pointFilter => _state.nodes.pointFilter;
+
+  /// Returns marked
+  ISet<String> get marked => _state.nodes.marked;
+
+  /// Returns audit
+  IList<AuditEntry> get audit => _state.nodes.audit;
+
+  /// Returns listed
+  ISet<String> get listed => _state.nodes.listed;
+
+  /// Returns viewedPoint
+  String? get viewedPoint => _state.nodes.viewedPoint;
 }
 
 extension type SelectLive(AppState _state) {
@@ -451,6 +565,9 @@ extension type SelectFlows(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveFlowsAction>();
+
+  /// Returns blockTypes
+  IList<NodeType> get blockTypes => _state.flows.blockTypes;
 }
 
 extension type SelectFlowEditor(AppState _state) {
@@ -486,6 +603,30 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns palette
   String get palette => _state.flowEditor.palette;
+
+  /// Returns ports
+  IMap<String, LiveValue> get ports => _state.flowEditor.ports;
+
+  /// Returns deployed
+  FlowDraft? get deployed => _state.flowEditor.deployed;
+
+  /// Returns watchRefused
+  String? get watchRefused => _state.flowEditor.watchRefused;
+
+  /// Returns previewPorts
+  IMap<String, LiveValue> get previewPorts => _state.flowEditor.previewPorts;
+
+  /// Returns previewSinks
+  IMap<String, LiveValue> get previewSinks => _state.flowEditor.previewSinks;
+
+  /// Returns previewError
+  String? get previewError => _state.flowEditor.previewError;
+
+  /// Returns previewOff
+  String? get previewOff => _state.flowEditor.previewOff;
+
+  /// Returns viewedField
+  String? get viewedField => _state.flowEditor.viewedField;
 }
 
 extension type SelectTasks(AppState _state) {
@@ -600,4 +741,9 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
+}
+
+extension type SelectPanels(AppState _state) {
+  /// Returns widths
+  IMap<PanelSlot, double> get widths => _state.panels.widths;
 }

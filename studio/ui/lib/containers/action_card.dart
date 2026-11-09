@@ -73,6 +73,8 @@ class ActionCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       vm.title,
+                      maxLines: 2,
+                      overflow: .ellipsis,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: .w600,

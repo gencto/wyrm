@@ -184,8 +184,9 @@ void main() {
       );
 
       await s.dispatchAndWait(ApplyChangesAction());
-      expect(api.calls.last.op, 'set');
-      expect(api.calls.last.value, const VFloat(21.5));
+      final set = api.calls.lastWhere((c) => c.op != 'meta');
+      expect(set.op, 'set');
+      expect(set.value, const VFloat(21.5));
     },
   );
 

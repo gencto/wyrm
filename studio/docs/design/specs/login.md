@@ -29,7 +29,7 @@ Gap 22 between the blocks; fields gap 16; field label 13 `#C5CBCE`, gap 8 to the
 5. `Remember the gateway and user on this computer` (checkbox 16, ember).
 6. **Log in**: 50 high, radius 10, ember `#E8893A`, ink `#0E1113` 16/600; while signing in: fill `#C9772F`, disabled, the crawl loader (§4.4) before the label `Signing in…`, and the bar (§4.5) along the bottom edge (3 high, `rgba(14,17,19,0.45)`).
 7. While signing in, under the button, three steps (13): `Reaching <host>` · `Checking user and password` · `Reading your role and sites`: done = teal check, now = ember spinner and `#ECE9E1`, waiting = grey ring and `#5A6168`.
-8. Footer (top border `#1D2226`, 12 `#8E979C`): lock icon teal + `TLS · certificate of the <site> CA` (when the gateway is `https`), `Add a standby gateway` (underlined; opens a second URL field; when set, `Standby: <host:port>`), and on the right the language and theme switchers the page has today, then `Studio <version>`.
+8. Footer (top border `#1D2226`, 12 `#8E979C`): lock icon teal + `TLS · certificate of the <site> CA` (when the gateway is `https`), `Add a standby gateway` (underlined; opens a second URL field; when set, `Standby: <host:port>`), and at the right `Studio <version> · <language>` — the name of the language in use, in that language (`Studio 1.0 · English`). **Owner decision 2026-11-08:** as the board, the page has no language or theme switchers; they leave the log-in page. **Decided 2026-11-09 (owner):** they live in the account menu of the Studio top bar (the avatar: user and role, `Language` English / Українська, `Theme` dark / light, `Log out`; `docs/studio.md` §7.1); until a user logs in, the language and the theme stay as persisted. The board's line wraps at 420 px: the TLS note and the standby link on the first line, the version at the right of the second.
 
 ## 4. Motion
 All values from the board's CSS. Use one `AnimationController` per loop, `vsync` from the page; stop every loop when `MediaQuery.disableAnimationsOf(context)` is true (static frame: packets hidden, stars at 0.5, mark at rest, the loader dots still, the bar hidden, the step spinner a static ring).
@@ -55,7 +55,20 @@ All values from the board's CSS. Use one `AnimationController` per loop, `vsync`
 | signing | `LogInAction` running (`isWaiting`) | §3.6 and §3.7; the step moves on the action's progress: `Reaching` until the gateway answers TCP/TLS, `Checking` until `/api/login` answers, `Reading` until `me()` returns |
 | wrong | `/api/login` answers 401 | password border `#5A3328`, the shake, `User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.` (13 `#F0A28D`), focus back in the password |
 | unreachable | connect error or no answer in 5 s | the alert block above the form (border `#5A3328`, fill `#1C1513`): `Can’t reach this gateway`, the URL and the reason (`connection refused after 5 s`, `timed out`, `certificate is not trusted`), one line of advice, `Try again`, and `Use the standby` when a standby URL is set; the gateway dot and status line coral |
-| welcome | login done, tree loading | the form fades out (200 ms), then: large loader, `Welcome, <user>`, `Opening the tree of <site>…`, the bar, and two lines from `me()` and the first list: `<role> on <site> · reaches <sites>` and `<n> links · <n> flows · <n> waiting in quarantine` (only the parts known). Leave for the Studio shell when the root list arrives, shown at least 600 ms so it does not flash |
+| welcome | login done, Studio preloading (`OpenTreeAction`) | the form fades out (200 ms), then: large loader, `Welcome, <user>`, `Opening the tree of <site>…`, the bar, the **preload steps** (§5.1) drawn as §3.7, and two lines from `me()` and the first list: `<role> on <site> · reaches <sites>` and `<n> links · <n> flows · <n> waiting in quarantine` (only the parts known). Leave for the Studio shell when the preload ends, shown at least 600 ms so it does not flash and at most 5 s |
+
+### 5.1 Preload (owner decision 2026-11-08)
+The board's welcome has no step list; the owner asked for one, so that moving between the tree, the flows and the links does not wait on the broker. `OpenTreeAction` reads, one after the other, and the welcome shows each as a step (`login.preload` = the step running, `login.preloadLate` = the steps that did not finish in time):
+
+| # | Step | Reads | Done when |
+|---|---|---|---|
+| 0 | `Reading the tree of <site>` | live lists of `downstream` (opened in the tree, as before), `dataflows` and `storage` (listed, **not** opened: the tree looks as it did) | each list answered once (`nodes.listed`) |
+| 1 | `Reading the flows` | `RetrieveFlowsAction` | it ends |
+| 2 | `Reading the flow blocks` | `RetrieveBlockTypesAction` → `flows.blockTypes`, once per session and site; the flow editor opens from it | it ends (skipped when cached) |
+| 3 | `Reading the links` | `RetrieveLinksAction` | it ends |
+| 4 | `Reading the sites` | `RetrieveSitesAction` (the switcher) | it ends |
+
+Timings: each step waits at most 2 s, the whole welcome at most 5 s (one deadline for all five) and at least 600 ms. A step that runs out of time goes on in the background and its line ends in `· later`, with an open grey ring. When the deadline comes before a step starts, that step and the ones after it start at once and Studio opens without them. Every preload read is quiet: a failure (no rights on `sys`, say) opens no dialog; the workspace that needs the data reads it again when it opens, and that read shows its errors as usual.
 
 ## 6. Gateway probe
 On open, on a recent chip and on leaving the URL field: a `GET <gateway>/api/me` without a session, timed. A 401 means the gateway is there: `<host> · answered in <n> ms`. Anything else in 5 s: unreachable. The board's line also shows the site and the wyrmd version; a gateway tells those only after login today, so before login show the host and the time (a public `/api/info` would be a gateway change, `docs/studio.md` §10 item 13).
@@ -70,6 +83,7 @@ Recent gateways: the last five URLs that logged in, from `storage`; their dots a
 - [ ] Button loader, bar, three live steps
 - [ ] Wrong password: border, shake, message, focus
 - [ ] Unreachable: alert, Try again, Use the standby
-- [ ] Welcome with the large loader, leaving when the root list arrives (≥ 600 ms)
+- [ ] Welcome with the large loader and the five preload steps (§5.1), leaving when the preload ends (≥ 600 ms, ≤ 5 s)
+- [ ] Footer: `Studio <version> · <language>` at the right, no switchers (§3.8)
 - [ ] Reduced motion: every loop stops
 - [ ] Goldens (animations paused at t = 0 and at one fixed time): idle, signing at step 2, wrong, unreachable, welcome
