@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 
@@ -56,7 +57,14 @@ final class FieldRowVm extends Equatable {
     this.outMark = PortMark.none,
     this.dropTarget = false,
     this.outAliases = const [],
+    this.action,
+    this.actionTip = '',
   });
+
+  /// An icon button after the value (`action_edit` on a `Scope` row: it
+  /// opens the scope's prompt); null: none.
+  final String? action;
+  final String actionTip;
 
   /// The field's id within its block.
   final String id;
@@ -102,6 +110,8 @@ final class FieldRowVm extends Equatable {
     outMark,
     dropTarget,
     outAliases,
+    action,
+    actionTip,
   ];
 }
 
@@ -146,9 +156,14 @@ final class FlowBlockVm extends Equatable {
     this.variadic,
     this.selected = false,
     this.tag,
+    this.link,
   });
 
   final String id;
+
+  /// A link row under the fields (`Open inside`: the inside of a custom
+  /// block's instance); null: none.
+  final String? link;
 
   /// A small chip in the header after the title (`preview`: a sink's value
   /// is what it would write).
@@ -187,6 +202,7 @@ final class FlowBlockVm extends Equatable {
     variadic: variadic,
     selected: selected ?? this.selected,
     tag: tag,
+    link: link,
   );
 
   /// The block's box on the canvas.
@@ -205,6 +221,7 @@ final class FlowBlockVm extends Equatable {
       headerHeight +
       bodyTop +
       rowHeight * (rows.isEmpty ? 1 : rows.length) +
+      (link == null ? 0 : rowHeight) +
       8 +
       (variadic == null ? 0 : toolsHeight);
 
@@ -258,6 +275,7 @@ final class FlowBlockVm extends Equatable {
     variadic,
     selected,
     tag,
+    link,
   ];
 }
 
@@ -273,7 +291,15 @@ final class FlowBlockActions {
     required this.onDropEntry,
     required this.onResize,
     this.refusal = _takesAll,
+    this.onOpen,
+    this.onRowAction,
   });
+
+  /// The link row of a block ([FlowBlockVm.link]).
+  final ValueChanged<String>? onOpen;
+
+  /// The icon button of a row ([FieldRowVm.action]): block, row id.
+  final void Function(String block, String rowId)? onRowAction;
 
   final ValueChanged<String> onSelect;
 
@@ -464,6 +490,40 @@ class FlowBlockView extends StatelessWidget {
                     actions: actions,
                     light: r.id == lit ? light : RowLight.none,
                   ),
+                if (vm.link case final link?)
+                  InkWell(
+                    key: ValueKey('open-${vm.id}'),
+                    onTap: actions.onOpen == null
+                        ? null
+                        : () => actions.onOpen!(vm.id),
+                    child: SizedBox(
+                      height: FlowBlockVm.rowHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          spacing: 6,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                link,
+                                maxLines: 1,
+                                overflow: .ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: c.emberSoft,
+                                ),
+                              ),
+                            ),
+                            AppIcon(
+                              'ui_chevron_right',
+                              size: 12,
+                              color: c.emberSoft,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 if (vm.variadic case final v?)
                   Container(
                     margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
@@ -600,6 +660,21 @@ class _FieldRow extends StatelessWidget {
                     ).copyWith(fontStyle: vm.tone == .ghost ? .italic : null),
                   ),
                 ),
+                if (vm.action case final icon?)
+                  Tooltip(
+                    message: vm.actionTip,
+                    child: InkWell(
+                      key: ValueKey('row-action-$block-${vm.id}'),
+                      borderRadius: const BorderRadius.all(Radius.circular(4)),
+                      onTap: actions.onRowAction == null
+                          ? null
+                          : () => actions.onRowAction!(block, vm.id),
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: AppIcon(icon, size: 12, color: c.text3),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

@@ -30,5 +30,10 @@ abstract class ParamSpec with _$ParamSpec {
     /// Whether it repeats as an output named like it (ADR 0038 §1); null
     /// when the catalog does not say.
     bool? echo,
+
+    /// The parameter that holds this field's scope (catalog
+    /// `params[].scope`, ADR 0040 §1: `key` → `key_scope`): a key from the
+    /// field's port is read only inside it.
+    String? scope,
   }) = _ParamSpec;
 }

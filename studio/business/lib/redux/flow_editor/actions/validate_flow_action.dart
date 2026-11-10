@@ -15,7 +15,8 @@ class ValidateFlowAction extends Action with Debounce {
 
   @override
   Future<AppState?> reduce() async {
-    final d = flowEditor.draft;
+    // The flow itself, also while the canvas shows the inside of a block.
+    final d = flowEditor.root;
     final root = site.root;
     if (d == null || root == null) {
       return null;

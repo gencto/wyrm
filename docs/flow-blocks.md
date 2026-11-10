@@ -518,13 +518,53 @@ Rules:
 9. Sinks (`publish`, `set`, `invoke`) show no echo outputs of their
    parameters (the engine has them; the editor leaves them out so a sink
    stays a sink). A `set` repeats what it writes on its point's row.
+10. A key field takes a wire inside a scope (ADR 0040 §1; the catalog's
+    `params[].scope`). When `Point` (`subscribe`, `liveliness`,
+    `load_value`) or `Node` (`list_children`) gets a wire and the block has
+    no scope, the editor asks for it on the field: `This block may read
+    keys under`, with the key's parent and all below it proposed
+    (`downstream/modbus/line1/**`), the site's sections as chips, and the
+    engine's rule checked as it is typed (inside `downstream`, `dataflows`
+    or `storage` of this site). Save writes `key_scope`; Cancel takes the
+    wire away. The scope then shows as the row `Scope`; unbinding keeps it.
+    The deployer's and the watcher's rights on the scope (for
+    `list_children` also on its children, `<scope>/*`) are checked by the
+    engine, not by the editor.
+11. A block with behaviours (`invoke`, `set`, `load_value`, `list_children`:
+    a `trigger` input and the event outputs) lists its fields in groups in
+    the inspector: Target, Arguments, Behaviour, Events, State. On the
+    block only what the user set or wired shows beyond the defaults in the
+    table. An unbound `Trigger` of a command block is a `Run` button: the
+    engine's `dataflows/<id>/~act/trigger {node}` on the DEPLOYED flow, off
+    with the reason while the draft differs from the deployed version. An
+    event output reads when it last fired, `error` with its code and
+    message. In a preview the block's trigger row reads `would send …`.
+12. An action dragged from the Tree tab becomes an `invoke` with `path`,
+    `action` and one argument per parameter of the action (its default,
+    else nothing yet); required arguments are rows of the block. The
+    action's own parameter types come from the node's `~meta` and choose
+    each argument's editor.
+13. A custom block (ADR 0040 §3) is made from a selection (`Create custom
+    block…`: a name, and a name per port; an input may get a default), kept
+    in the definition's `blocks`, and drawn as one block per instance. Its
+    inside opens on the canvas (`Open inside`, `Edit custom block`) with an
+    `Inputs` block and an `Outputs` block: a wire from `Inputs.<a>` to an
+    inner field is the `to` of input `a`, a wire from an inner output into
+    `Outputs.<x>` the `from` of output `x`. The My blocks tab lists the
+    flow's blocks and the site's library (`list_blocks`); a library block
+    placed is copied into the flow with the blocks it uses (`get_block`).
+14. On a broker without ADR 0040 (no `scope` in the catalog, no type with
+    `trigger: true`, `list_blocks` not answered) the editor draws the
+    older shape and says why a thing is off: a key field takes no wire
+    (`This broker cannot bind …`), `Run` is off, My blocks and the
+    custom-block items of the menu are off.
 
 | Type | Fields on the block, in order | Field ← engine | Inspector only | Editors | Engine gap against the DGLux block |
 |---|---|---|---|---|---|
 | `number`, `string`, `bool` | Value ⇄ | Value = `in` → `value` → `out` | — | number box; text (`string`: multi-line in DGLux); toggle | none: DGLux has the one field `value` |
 | `const` | Value → | Value = `value` → `out` | — | JSON or text | no input (sent once at start) |
-| `subscribe` | Point ⇄ · `<point>` → · Error → | `in.key` → `key`; the point's value on `out`; `error` | Scope (`key_scope`) | Point: a tree picker; bound: a wire | none (spec 06 0.2.22) |
-| `liveliness` | Node ⇄ · `<node>` → · Error → | `in.key` → `key`; `out`; `error` | Scope (`key_scope`) | as `subscribe` | none (spec 06 0.2.22) |
+| `subscribe` | Point ⇄ · Scope (once a wire feeds Point, or a scope is written; a pencil opens its prompt) · `<point>` → · Error → (once a wire feeds Point) | `in.key` → `key`; `key_scope`; the point's value on `out`; `error` | — | Point: a text, or a wire; Scope: the prompt on the field, or a text field that says why a scope is refused | none (spec 06 0.2.22) |
+| `liveliness` | Node ⇄ · Scope · `<node>` → · Error → (as `subscribe`) | `in.key` → `key`; `key_scope`; `out`; `error` | — | as `subscribe` | none (spec 06 0.2.22) |
 | `timer` | Period (ms) ⇄ · Count → | `in.period_ms` → `period_ms`; `out` | — | — | none (spec 06 0.2.17) |
 | `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns | `expr`, `trigger`, `quality` have no input |
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |
@@ -536,8 +576,8 @@ Rules:
 | `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `fn`, `max_samples` have no input |
 | `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad` config only | — | On bad quality dropdown | `on_bad` has no input |
 | `publish` | Value name · Value ← | `in` | Meta | — | — |
-| `set` | `<point>` ⇄ · Trigger ⇄ (unbound: a button, `~act/trigger`) · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Sent → · Ok → · Error → · Running → · Last run → | `in` → its echo `in`; `trigger`; `in.<p>` → `<p>` (spec 06 0.2.23) | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
-| `invoke` | Trigger ⇄ (unbound: a button, `~act/trigger`) · Run when ← · Action · `<argument>` ⇄ … · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Result → · Sent → · Ok → · Error → · Running → · Last run → | `trigger`; `in`; `arg.<name>` ⇄ (constant in `args`); `in.<p>` → `<p>`; `result`, `out` (spec 06 0.2.23) | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
+| `set` | `<point>` ⇄ (a behaviour that is set shows too) | `in` → its echo `in` | Target: Point (`path`) · Behaviour: Trigger (unbound: `Run`) · Auto run · Every · Enabled · Run on start · Write on · Deadband · Allow bad quality · Events: Sent, Ok, Error · State: Running, Last run | Run button (`~act/trigger`); toggles; Every: a number and its unit; Run on start asks first with the catalog's warning | none (spec 06 0.2.23) |
+| `invoke` | header `<node> · <action>` · `<required argument>` ⇄ … · Trigger ⇄ · Ok → · Error → (a behaviour that is set shows too) | `arg.<name>` ⇄ (constant in `args`); `trigger`; `ok`, `error` | Target: Node (`path`), Action · Arguments: the action's other parameters · Behaviour: Run when (`in`), Auto run, Every, Enabled, Run on start, Run on, Allow bad quality · Events: Sent · State: Output (`out`), Result, Running, Last run | an argument as its action types it (choices, toggle, number, text); Run button; Every: a number and its unit; Run on start asks first | none (spec 06 0.2.23); the target is static (ADR 0040 §1a) |
 | `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | ports named by `inputs`/`outputs` | Config, Fuel, Memory (MB) | — | — |
 | `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | operands typed (`values`) | none (spec 06 0.2.19: an operand holds a typed value) |
 | `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
@@ -549,6 +589,16 @@ Rules:
 | `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
 | `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
 | `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
+| `load_value` | Point ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `key_scope`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Events: Ok · State: Running, Last run | as `subscribe` for Point and Scope; no Run button (the engine's `trigger` action is for commands) | a reader has no button yet (ADR 0040, deferred) |
+| `list_children` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.path` → `path`; `path_scope`; `trigger`; `error`, `out` | as `load_value` | as `load_value` | — |
+| `substring`, `replace`, `split`, `join`, `get` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>` → `<p>`; `out` | — | a parameter typed as the catalog says | — |
+| `make_object`, `make_array`, `select` | `<input>` ⇄ … (`select`: Index ⇄ first) · Output → (− / +) | `in.<name>` (named inputs keep their names); `in.index` → `index`; `out` | Inputs (list) | inputs typed (`values`) | — |
+| `stats` | Input ⇄ · Min → · Max → · Average → · Sum → · Count → | `in`; `min`, `max`, `avg`, `sum`, `count` | — | — | — |
+| `changed`, `rising_edge`, `falling_edge` | Input ⇄ · On change → / On edge → | `in`; `on_change` / `on_edge` (an event: the row reads when it fired) | — | — | — |
+| `counter`, `toggle` | Input ⇄ · Reset ⇄ · Step ⇄ · Initial ⇄ · Output → | `in`, `reset`; `in.<p>` → `<p>`; `out` | — | Initial: a number / a toggle | — |
+| `sample_and_hold` | Input ⇄ · Trigger ⇄ · Output → | `in`, `trigger`; `out` | — | — | — |
+| `debounce`, `throttle` | Input ⇄ · Quiet time (ms) ⇄ / Period (ms) ⇄ · Output → | `in`; `in.ms` → `ms`; `out` | — | — | — |
+| `block:<name>` (an instance of a custom block) | header `MY` · `<input>` ⇄ … · `<output>` → … · `Open inside` | an input: the inner input its `to[0]` names (its constant in `values`, else the block's `default`); an output: the inner output `from`; live values from the rows `<instance>/<inner>` | — | an input typed as any value (`2` is a number, `AHU-` a text) | an instance has no row of its own in `watch` (ADR 0040, deferred) |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine
@@ -556,4 +606,6 @@ has no input for show no left port, and a wire dragged onto them is refused
 with `<field> takes no input: type its value`. Today these are `expression`
 `expr`, `trigger`, `quality`; `filter` `expr`; `latch` its
 parameter `reset`; `window` `kind`, `fn`, `max_samples`; `alarm` `on_bad`;
-and the sinks' parameters (`crates/wyrm-flow/src/catalog.rs`).
+a scope (`key_scope`, `path_scope`); the command targets (`set.path`,
+`invoke.path`, `invoke.action`, ADR 0040 §1a) and `run_on_start`
+(`crates/wyrm-flow/src/catalog.rs`).

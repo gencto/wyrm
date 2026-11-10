@@ -191,6 +191,7 @@ NodeType nodeTypeOf(Value m) {
             editor: str(p['editor']),
             port: str(p['port']),
             echo: boolean(p['echo']),
+            scope: str(p['scope']),
           ),
     ].lock,
     portTypes: {
@@ -199,6 +200,8 @@ NodeType nodeTypeOf(Value m) {
     }.lock,
     echoInputs: boolean(m['echo_inputs']),
     takesValues: boolean(m['values']) ?? false,
+    dynInKeys: boolean(dynIn?['keys']) ?? false,
+    trigger: boolean(m['trigger']) ?? false,
   );
 }
 
@@ -255,6 +258,11 @@ const operandValuesKey = 'values';
 List<String> operandPortsOf(NodeType? t, FlowBlock b) {
   if (t == null || !t.takesValues) {
     return const [];
+  }
+  // An instance of a custom block: each declared input holds a constant
+  // (`values.<input>`, spec 06 0.2.24).
+  if (t.type.startsWith('block:')) {
+    return t.inputs.toList();
   }
   final paramPorts = {
     for (final p in t.params)
@@ -325,13 +333,22 @@ IMap<String, Object?> cfgWithoutOperands(
 ({List<String> reads, List<String> writes}) flowKeysOf(FlowDraft d) => (
   reads: [
     for (final b in d.blocks.values)
-      if (b.type == 'subscribe' || b.type == 'liveliness')
+      if (const {'subscribe', 'liveliness', 'load_value'}.contains(b.type))
         if (b.cfg['key'] case final String k) k,
+    for (final b in d.blocks.values)
+      if (b.type == 'list_children')
+        if (b.cfg['path'] case final String k) k,
+    // What a key from a port may read (ADR 0040 §1).
+    for (final b in d.blocks.values)
+      if (b.cfg['key_scope'] ?? b.cfg['path_scope'] case final String k)
+        if (k.isNotEmpty) k,
   ],
   writes: [
     for (final b in d.blocks.values)
       if (const {'set', 'invoke', 'publish'}.contains(b.type))
-        if (b.cfg['key'] ?? b.cfg['target'] case final String k) k,
+        if (b.cfg['path'] ?? b.cfg['key'] ?? b.cfg['target']
+            case final String k)
+          k,
   ],
 );
 

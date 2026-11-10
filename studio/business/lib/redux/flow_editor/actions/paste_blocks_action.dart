@@ -30,7 +30,7 @@ class PasteBlocksAction extends Action {
     final (next, ids) = pasteClip(d, clip, x, y);
     unawaited(dispatchAndWait(ValidateFlowAction()));
     return state.copyWith.flowEditor(
-      draft: pinBound(flowEditor.types, next),
+      draft: pinBound(flowEditor.allTypes, next),
       selection: ids.toISet(),
       selectedBlock: ids.length == 1 ? ids.single : null,
       dirty: true,

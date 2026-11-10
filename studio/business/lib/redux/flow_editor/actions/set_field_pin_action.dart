@@ -23,7 +23,7 @@ class SetFieldPinAction extends Action {
     if (d == null || b == null) {
       return null;
     }
-    final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
+    final t = flowEditor.allTypes.where((t) => t.type == b.type).firstOrNull;
     final f = fieldsOf(
       t,
       b,

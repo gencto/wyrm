@@ -5,6 +5,7 @@ import 'package:models/flow_block.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/param_spec.dart';
 
+import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -24,13 +25,23 @@ class AddBlockAction extends Action {
     this.x,
     this.y, {
     this.cfg = const {},
+    this.pins = const {},
     this.into,
+    this.tag,
   });
+
+  /// With the tag of the step before it, both are one step of the history
+  /// (a library block copied into the flow, then its instance).
+  final String? tag;
 
   final String type;
   final double x;
   final double y;
   final Map<String, Object?> cfg;
+
+  /// Fields taken off the block (or pinned to it) from the start, by field
+  /// id: an action's optional arguments stay in the inspector.
+  final Map<String, bool> pins;
 
   /// Also wire the new block's `out` into this input (`(block, port)`): a
   /// point of the Tree tab dropped on a field.
@@ -42,8 +53,12 @@ class AddBlockAction extends Action {
     if (d == null) {
       return null;
     }
-    final t = flowEditor.types.where((t) => t.type == type).firstOrNull;
-    final base = type.replaceAll(RegExp('[^A-Za-z0-9_]'), '_');
+    final t = flowEditor.allTypes.where((t) => t.type == type).firstOrNull;
+    // An instance is named after its block (`mean1`), not `block_mean1`.
+    final base = (blockNameOf(type) ?? type).replaceAll(
+      RegExp('[^A-Za-z0-9_]'),
+      '_',
+    );
     var n = 1;
     while (d.blocks.containsKey('$base$n')) {
       n++;
@@ -57,8 +72,13 @@ class AddBlockAction extends Action {
     unawaited(dispatchAndWait(ValidateFlowAction()));
     final into = this.into;
     return state.copyWith.flowEditor(
+      // A point dropped on a key field: its wire needs a scope too.
+      scopePrompt:
+          into != null && scopeAsked(flowEditor.allTypes, d, into.$1, into.$2)
+          ? into.$1
+          : flowEditor.scopePrompt,
       draft: pinBound(
-        flowEditor.types,
+        flowEditor.allTypes,
         d.copyWith(
           edges: into == null
               ? d.edges
@@ -78,6 +98,7 @@ class AddBlockAction extends Action {
               id: id,
               type: type,
               cfg: <String, Object?>{...defaults, ...cfg}.lock,
+              pins: pins.lock,
               x: x,
               y: y,
             ),
@@ -87,7 +108,7 @@ class AddBlockAction extends Action {
       selectedBlock: into == null ? id : flowEditor.selectedBlock,
       selection: into == null ? {id}.toISet() : flowEditor.selection,
       dirty: true,
-      undo: undoPush(flowEditor.undo, d),
+      undo: undoPush(flowEditor.undo, d, tag: tag, lastTag: flowEditor.undoTag),
       redo: const IListConst([]),
       undoTag: null,
     );

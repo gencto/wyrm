@@ -6487,6 +6487,640 @@ class S {
       args: [],
     );
   }
+
+  /// `Nothing to show here.`
+  String get treeEmpty {
+    return Intl.message(
+      'Nothing to show here.',
+      name: 'treeEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the tree…`
+  String get treeLoading {
+    return Intl.message(
+      'Reading the tree…',
+      name: 'treeLoading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read`
+  String get dropRead {
+    return Intl.message('Read', name: 'dropRead', desc: '', args: []);
+  }
+
+  /// `Write`
+  String get dropWrite {
+    return Intl.message('Write', name: 'dropWrite', desc: '', args: []);
+  }
+
+  /// `This flow`
+  String get myBlocksThisFlow {
+    return Intl.message(
+      'This flow',
+      name: 'myBlocksThisFlow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Site library`
+  String get myBlocksLibrary {
+    return Intl.message(
+      'Site library',
+      name: 'myBlocksLibrary',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No custom blocks yet. Select blocks on the canvas and choose Create custom block… in their menu.`
+  String get myBlocksEmpty {
+    return Intl.message(
+      'No custom blocks yet. Select blocks on the canvas and choose Create custom block… in their menu.',
+      name: 'myBlocksEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker has no custom blocks: its flow engine is older than ADR 0040.`
+  String get myBlocksOff {
+    return Intl.message(
+      'This broker has no custom blocks: its flow engine is older than ADR 0040.',
+      name: 'myBlocksOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Save to library`
+  String get mbSave {
+    return Intl.message('Save to library', name: 'mbSave', desc: '', args: []);
+  }
+
+  /// `Rename`
+  String get mbRename {
+    return Intl.message('Rename', name: 'mbRename', desc: '', args: []);
+  }
+
+  /// `Delete`
+  String get mbDelete {
+    return Intl.message('Delete', name: 'mbDelete', desc: '', args: []);
+  }
+
+  /// `Update from library`
+  String get mbUpdate {
+    return Intl.message(
+      'Update from library',
+      name: 'mbUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit custom block`
+  String get mbEdit {
+    return Intl.message(
+      'Edit custom block',
+      name: 'mbEdit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Delete from library`
+  String get mbRemoveLibrary {
+    return Intl.message(
+      'Delete from library',
+      name: 'mbRemoveLibrary',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 instance uses it} other{{n} instances use it}}`
+  String mbInUse(int n) {
+    return Intl.plural(
+      n,
+      one: '1 instance uses it',
+      other: '$n instances use it',
+      name: 'mbInUse',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `The flow has the library's version`
+  String get mbSameVersion {
+    return Intl.message(
+      'The flow has the library\'s version',
+      name: 'mbSameVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The library has no block of this name`
+  String get mbNotInLibrary {
+    return Intl.message(
+      'The library has no block of this name',
+      name: 'mbNotInLibrary',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Go back to the flow first`
+  String get mbBackFirst {
+    return Intl.message(
+      'Go back to the flow first',
+      name: 'mbBackFirst',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A block cannot contain itself`
+  String get mbInsideItself {
+    return Intl.message(
+      'A block cannot contain itself',
+      name: 'mbInsideItself',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} used`
+  String mbUsed(int n) {
+    return Intl.message('$n used', name: 'mbUsed', desc: '', args: [n]);
+  }
+
+  /// `v{n}`
+  String mbVersion(int n) {
+    return Intl.message('v$n', name: 'mbVersion', desc: '', args: [n]);
+  }
+
+  /// `library v{n}`
+  String mbUpdateTo(int n) {
+    return Intl.message('library v$n', name: 'mbUpdateTo', desc: '', args: [n]);
+  }
+
+  /// `Open inside`
+  String get openInside {
+    return Intl.message('Open inside', name: 'openInside', desc: '', args: []);
+  }
+
+  /// `My block`
+  String get kindMyBlock {
+    return Intl.message('My block', name: 'kindMyBlock', desc: '', args: []);
+  }
+
+  /// `Custom block`
+  String get kindBlockPorts {
+    return Intl.message(
+      'Custom block',
+      name: 'kindBlockPorts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Inputs`
+  String get blockInputs {
+    return Intl.message('Inputs', name: 'blockInputs', desc: '', args: []);
+  }
+
+  /// `Outputs`
+  String get blockOutputs {
+    return Intl.message('Outputs', name: 'blockOutputs', desc: '', args: []);
+  }
+
+  /// `What the block takes. Drag from an input to every inner field it feeds; type its default here. + adds an input.`
+  String get noteBlockInputs {
+    return Intl.message(
+      'What the block takes. Drag from an input to every inner field it feeds; type its default here. + adds an input.',
+      name: 'noteBlockInputs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What the block gives. Drag an inner output onto each. + adds an output.`
+  String get noteBlockOutputs {
+    return Intl.message(
+      'What the block gives. Drag an inner output onto each. + adds an output.',
+      name: 'noteBlockOutputs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 port} other{{n} ports}}`
+  String portsCount(int n) {
+    return Intl.plural(
+      n,
+      one: '1 port',
+      other: '$n ports',
+      name: 'portsCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Add a port`
+  String get addPort {
+    return Intl.message('Add a port', name: 'addPort', desc: '', args: []);
+  }
+
+  /// `Remove the last port`
+  String get removePort {
+    return Intl.message(
+      'Remove the last port',
+      name: 'removePort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back`
+  String get flowBack {
+    return Intl.message('Back', name: 'flowBack', desc: '', args: []);
+  }
+
+  /// `{n, plural, =0{no instance in this flow} =1{1 instance in this flow} other{{n} instances in this flow}} · a change here changes them all`
+  String instancesInFlow(int n) {
+    return Intl.message(
+      '${Intl.plural(n, zero: 'no instance in this flow', one: '1 instance in this flow', other: '$n instances in this flow')} · a change here changes them all',
+      name: 'instancesInFlow',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Go back to the flow to deploy`
+  String get deployInside {
+    return Intl.message(
+      'Go back to the flow to deploy',
+      name: 'deployInside',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Create custom block`
+  String get cbTitle {
+    return Intl.message(
+      'Create custom block',
+      name: 'cbTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 block becomes} other{{n} blocks become}} one block of this flow. Wires that cross its edge become its inputs and outputs.`
+  String cbNote(int n) {
+    return Intl.message(
+      '${Intl.plural(n, one: '1 block becomes', other: '$n blocks become')} one block of this flow. Wires that cross its edge become its inputs and outputs.',
+      name: 'cbNote',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Name`
+  String get cbName {
+    return Intl.message('Name', name: 'cbName', desc: '', args: []);
+  }
+
+  /// `Description`
+  String get cbDescription {
+    return Intl.message(
+      'Description',
+      name: 'cbDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Inputs`
+  String get cbInputs {
+    return Intl.message('Inputs', name: 'cbInputs', desc: '', args: []);
+  }
+
+  /// `Outputs`
+  String get cbOutputs {
+    return Intl.message('Outputs', name: 'cbOutputs', desc: '', args: []);
+  }
+
+  /// `default`
+  String get cbDefault {
+    return Intl.message('default', name: 'cbDefault', desc: '', args: []);
+  }
+
+  /// `none`
+  String get cbNone {
+    return Intl.message('none', name: 'cbNone', desc: '', args: []);
+  }
+
+  /// `Create`
+  String get cbCreate {
+    return Intl.message('Create', name: 'cbCreate', desc: '', args: []);
+  }
+
+  /// `A name has letters, digits and _ only`
+  String get cbBadName {
+    return Intl.message(
+      'A name has letters, digits and _ only',
+      name: 'cbBadName',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This flow already has a block of this name`
+  String get cbTaken {
+    return Intl.message(
+      'This flow already has a block of this name',
+      name: 'cbTaken',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A port's name has letters, digits and _ only`
+  String get cbBadPort {
+    return Intl.message(
+      'A port\'s name has letters, digits and _ only',
+      name: 'cbBadPort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Two ports have the same name`
+  String get cbDuplicate {
+    return Intl.message(
+      'Two ports have the same name',
+      name: 'cbDuplicate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `At most 64 blocks, and 64 inputs and 64 outputs each`
+  String get cbLimit {
+    return Intl.message(
+      'At most 64 blocks, and 64 inputs and 64 outputs each',
+      name: 'cbLimit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker has no custom blocks (its flow engine is older than ADR 0040)`
+  String get fmNeedsBroker {
+    return Intl.message(
+      'This broker has no custom blocks (its flow engine is older than ADR 0040)',
+      name: 'fmNeedsBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not a custom block`
+  String get fmNotCustom {
+    return Intl.message(
+      'Not a custom block',
+      name: 'fmNotCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This block may read keys under`
+  String get scopeTitle {
+    return Intl.message(
+      'This block may read keys under',
+      name: 'scopeTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A key that comes on the wire is read only inside this scope. Whoever deploys must be able to read all of it.`
+  String get scopeNote {
+    return Intl.message(
+      'A key that comes on the wire is read only inside this scope. Whoever deploys must be able to read all of it.',
+      name: 'scopeNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit the scope`
+  String get scopeEdit {
+    return Intl.message(
+      'Edit the scope',
+      name: 'scopeEdit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Type a scope: a key from a wire needs one`
+  String get scopeEmpty {
+    return Intl.message(
+      'Type a scope: a key from a wire needs one',
+      name: 'scopeEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A scope starts with downstream, dataflows or storage`
+  String get scopeSection {
+    return Intl.message(
+      'A scope starts with downstream, dataflows or storage',
+      name: 'scopeSection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A scope lies in this site`
+  String get scopeOtherSite {
+    return Intl.message(
+      'A scope lies in this site',
+      name: 'scopeOtherSite',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not a key expression: segments of letters, digits, _ . - or * and **`
+  String get scopeSegment {
+    return Intl.message(
+      'Not a key expression: segments of letters, digits, _ . - or * and **',
+      name: 'scopeSegment',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker cannot bind {field} (its flow engine is older than ADR 0040)`
+  String refuseNeedsBroker(String field) {
+    return Intl.message(
+      'This broker cannot bind $field (its flow engine is older than ADR 0040)',
+      name: 'refuseNeedsBroker',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `Target`
+  String get grpTarget {
+    return Intl.message('Target', name: 'grpTarget', desc: '', args: []);
+  }
+
+  /// `Arguments`
+  String get grpArguments {
+    return Intl.message('Arguments', name: 'grpArguments', desc: '', args: []);
+  }
+
+  /// `Behaviour`
+  String get grpBehaviour {
+    return Intl.message('Behaviour', name: 'grpBehaviour', desc: '', args: []);
+  }
+
+  /// `Events`
+  String get grpEvents {
+    return Intl.message('Events', name: 'grpEvents', desc: '', args: []);
+  }
+
+  /// `State`
+  String get grpState {
+    return Intl.message('State', name: 'grpState', desc: '', args: []);
+  }
+
+  /// `Run`
+  String get runBlock {
+    return Intl.message('Run', name: 'runBlock', desc: '', args: []);
+  }
+
+  /// `This broker has no trigger action (its flow engine is older than ADR 0040)`
+  String get runNoBroker {
+    return Intl.message(
+      'This broker has no trigger action (its flow engine is older than ADR 0040)',
+      name: 'runNoBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deploy first: Run acts on the deployed version, and the draft differs from it`
+  String get runDraft {
+    return Intl.message(
+      'Deploy first: Run acts on the deployed version, and the draft differs from it',
+      name: 'runDraft',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Deploy the flow first`
+  String get runNotDeployed {
+    return Intl.message(
+      'Deploy the flow first',
+      name: 'runNotDeployed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The block is disabled`
+  String get runOff {
+    return Intl.message(
+      'The block is disabled',
+      name: 'runOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open the block from an instance to run it`
+  String get runNoInstance {
+    return Intl.message(
+      'Open the block from an instance to run it',
+      name: 'runNoInstance',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run on every start?`
+  String get runOnStartTitle {
+    return Intl.message(
+      'Run on every start?',
+      name: 'runOnStartTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Turn on`
+  String get turnOn {
+    return Intl.message('Turn on', name: 'turnOn', desc: '', args: []);
+  }
+
+  /// `not yet`
+  String get eventNone {
+    return Intl.message('not yet', name: 'eventNone', desc: '', args: []);
+  }
+
+  /// `would send {value}`
+  String wouldSend(String value) {
+    return Intl.message(
+      'would send $value',
+      name: 'wouldSend',
+      desc: '',
+      args: [value],
+    );
+  }
+
+  /// `An action of the tree. It runs on its trigger, on a changed argument, on a period, or by Run.`
+  String get noteActionBlock {
+    return Intl.message(
+      'An action of the tree. It runs on its trigger, on a changed argument, on a period, or by Run.',
+      name: 'noteActionBlock',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `a block that runs it: its parameters are fields you fill from other blocks, with a trigger.`
+  String get treeActionNote2 {
+    return Intl.message(
+      'a block that runs it: its parameters are fields you fill from other blocks, with a trigger.',
+      name: 'treeActionNote2',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `on the canvas: a block that reads it (a writable point asks Read or Write; Alt writes). On a field: wired into it.`
+  String get treePointNote2 {
+    return Intl.message(
+      'on the canvas: a block that reads it (a writable point asks Read or Write; Alt writes). On a field: wired into it.',
+      name: 'treePointNote2',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

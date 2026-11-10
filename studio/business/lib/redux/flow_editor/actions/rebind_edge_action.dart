@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
 
+import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -50,8 +51,11 @@ class RebindEdgeAction extends Action {
         ? d.blocks.add(oldTo, b.copyWith(cfg: b.cfg.add(param, keep)))
         : d.blocks;
     return state.copyWith.flowEditor(
+      scopePrompt: scopeAsked(flowEditor.allTypes, d, to, toPort)
+          ? to
+          : flowEditor.scopePrompt,
       draft: pinBound(
-        flowEditor.types,
+        flowEditor.allTypes,
         d.copyWith(
           blocks: blocks,
           edges: d.edges

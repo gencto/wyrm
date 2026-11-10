@@ -21,7 +21,12 @@ mixin _$NodeType {
  bool? get echoInputs;/// Whether its operand inputs (`in`, the variable inputs) take a typed
 /// constant in the node's config `values` (catalog `values: true`, ADR
 /// 0038 §7).
- bool get takesValues;
+ bool get takesValues;/// The parameter behind the variable inputs is a map and its keys name
+/// the ports (catalog `dyn_inputs.keys`, ADR 0040 §2: `invoke.args` →
+/// `arg.<name>`).
+ bool get dynInKeys;/// `dataflows/<id>` ▸ `trigger {node}` runs a node of this type once
+/// (catalog `trigger: true`, ADR 0040 §2).
+ bool get trigger;
 /// Create a copy of NodeType
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -32,16 +37,16 @@ $NodeTypeCopyWith<NodeType> get copyWith => _$NodeTypeCopyWithImpl<NodeType>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues)&&(identical(other.dynInKeys, dynInKeys) || other.dynInKeys == dynInKeys)&&(identical(other.trigger, trigger) || other.trigger == trigger));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues);
+int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues,dynInKeys,trigger);
 
 @override
 String toString() {
-  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues)';
+  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues, dynInKeys: $dynInKeys, trigger: $trigger)';
 }
 
 
@@ -52,7 +57,7 @@ abstract mixin class $NodeTypeCopyWith<$Res>  {
   factory $NodeTypeCopyWith(NodeType value, $Res Function(NodeType) _then) = _$NodeTypeCopyWithImpl;
 @useResult
 $Res call({
- String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues
+ String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
 });
 
 
@@ -69,7 +74,7 @@ class _$NodeTypeCopyWithImpl<$Res>
 
 /// Create a copy of NodeType
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,Object? dynInKeys = null,Object? trigger = null,}) {
   return _then(_self.copyWith(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
@@ -86,6 +91,8 @@ as IList<String>,params: null == params ? _self.params : params // ignore: cast_
 as IList<ParamSpec>,portTypes: null == portTypes ? _self.portTypes : portTypes // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
 as bool?,takesValues: null == takesValues ? _self.takesValues : takesValues // ignore: cast_nullable_to_non_nullable
+as bool,dynInKeys: null == dynInKeys ? _self.dynInKeys : dynInKeys // ignore: cast_nullable_to_non_nullable
+as bool,trigger: null == trigger ? _self.trigger : trigger // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
@@ -98,7 +105,7 @@ as bool,
 
 
 class _NodeType implements NodeType {
-  const _NodeType({required this.type, this.category = '', this.description = '', this.inputs = const IListConst([]), this.outputs = const IListConst([]), this.dynInParam, this.dynInPrefix = '', this.dynInDefaults = const IListConst([]), this.dynOutParam, this.dynOutPrefix = '', this.dynOutDefaults = const IListConst([]), this.params = const IListConst([]), this.portTypes = const IMapConst({}), this.echoInputs, this.takesValues = false});
+  const _NodeType({required this.type, this.category = '', this.description = '', this.inputs = const IListConst([]), this.outputs = const IListConst([]), this.dynInParam, this.dynInPrefix = '', this.dynInDefaults = const IListConst([]), this.dynOutParam, this.dynOutPrefix = '', this.dynOutDefaults = const IListConst([]), this.params = const IListConst([]), this.portTypes = const IMapConst({}), this.echoInputs, this.takesValues = false, this.dynInKeys = false, this.trigger = false});
   
 
 @override final  String type;
@@ -123,6 +130,13 @@ class _NodeType implements NodeType {
 /// constant in the node's config `values` (catalog `values: true`, ADR
 /// 0038 §7).
 @override@JsonKey() final  bool takesValues;
+/// The parameter behind the variable inputs is a map and its keys name
+/// the ports (catalog `dyn_inputs.keys`, ADR 0040 §2: `invoke.args` →
+/// `arg.<name>`).
+@override@JsonKey() final  bool dynInKeys;
+/// `dataflows/<id>` ▸ `trigger {node}` runs a node of this type once
+/// (catalog `trigger: true`, ADR 0040 §2).
+@override@JsonKey() final  bool trigger;
 
 /// Create a copy of NodeType
 /// with the given fields replaced by the non-null parameter values.
@@ -134,16 +148,16 @@ _$NodeTypeCopyWith<_NodeType> get copyWith => __$NodeTypeCopyWithImpl<_NodeType>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues)&&(identical(other.dynInKeys, dynInKeys) || other.dynInKeys == dynInKeys)&&(identical(other.trigger, trigger) || other.trigger == trigger));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues);
+int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues,dynInKeys,trigger);
 
 @override
 String toString() {
-  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues)';
+  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues, dynInKeys: $dynInKeys, trigger: $trigger)';
 }
 
 
@@ -154,7 +168,7 @@ abstract mixin class _$NodeTypeCopyWith<$Res> implements $NodeTypeCopyWith<$Res>
   factory _$NodeTypeCopyWith(_NodeType value, $Res Function(_NodeType) _then) = __$NodeTypeCopyWithImpl;
 @override @useResult
 $Res call({
- String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues
+ String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
 });
 
 
@@ -171,7 +185,7 @@ class __$NodeTypeCopyWithImpl<$Res>
 
 /// Create a copy of NodeType
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,Object? dynInKeys = null,Object? trigger = null,}) {
   return _then(_NodeType(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
@@ -188,6 +202,8 @@ as IList<String>,params: null == params ? _self.params : params // ignore: cast_
 as IList<ParamSpec>,portTypes: null == portTypes ? _self.portTypes : portTypes // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
 as bool?,takesValues: null == takesValues ? _self.takesValues : takesValues // ignore: cast_nullable_to_non_nullable
+as bool,dynInKeys: null == dynInKeys ? _self.dynInKeys : dynInKeys // ignore: cast_nullable_to_non_nullable
+as bool,trigger: null == trigger ? _self.trigger : trigger // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }

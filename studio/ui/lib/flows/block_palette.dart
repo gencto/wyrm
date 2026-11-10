@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
@@ -5,6 +7,7 @@ import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
+import '../trees/tree_row.dart';
 
 /// One entry of the palette: a block type, a point or an action of the tree.
 final class PaletteEntryVm extends Equatable {
@@ -19,6 +22,8 @@ final class PaletteEntryVm extends Equatable {
     this.value,
     this.used = false,
     this.dragging = false,
+    this.disabledReason,
+    this.menu = const [],
   });
 
   /// `type:<type>`, `key:<key>` or `act:<key>/<action>`.
@@ -51,6 +56,12 @@ final class PaletteEntryVm extends Equatable {
   /// Being dragged now (dashed ember box).
   final bool dragging;
 
+  /// Why it cannot be placed (a block inside itself); null: it can.
+  final String? disabledReason;
+
+  /// Its context menu (a custom block: `Save to library`, `Rename`, …).
+  final List<PaletteMenuItemVm> menu;
+
   @override
   List<Object?> get props => [
     id,
@@ -63,7 +74,29 @@ final class PaletteEntryVm extends Equatable {
     value,
     used,
     dragging,
+    disabledReason,
+    menu,
   ];
+}
+
+/// One item of a palette entry's context menu.
+final class PaletteMenuItemVm extends Equatable {
+  const PaletteMenuItemVm(
+    this.id,
+    this.label, {
+    this.disabledReason,
+    this.danger = false,
+  });
+
+  final String id;
+  final String label;
+
+  /// Why it cannot be picked (its tooltip); null: it can.
+  final String? disabledReason;
+  final bool danger;
+
+  @override
+  List<Object?> get props => [id, label, disabledReason, danger];
 }
 
 /// A line under the Tree tab: [lead] in its colour, then [text].
@@ -96,8 +129,30 @@ class BlockPalette extends StatefulWidget {
     this.hint = '',
     this.notes = const [],
     this.closed = const {},
+    this.tree,
+    this.onTreeToggle,
+    this.onQuery,
+    this.onMenu,
+    this.empty = '',
     super.key,
   });
+
+  /// The Tree tab: the site's tree as rows in display order, drawn with
+  /// the Explorer's [TreeRow] (flow-editor.md §18). A row with a `drag` is
+  /// a value leaf or an action: it is dragged onto the canvas, and a tap
+  /// adds it; any other row opens or closes. Null: [entries] are listed.
+  final List<TreeRowVm>? tree;
+  final ValueChanged<String>? onTreeToggle;
+
+  /// What is typed in the search field while the tree is shown: the rows
+  /// are filtered where they are made.
+  final ValueChanged<String>? onQuery;
+
+  /// An item of an entry's context menu: the entry's id, the item's.
+  final void Function(String entry, String item)? onMenu;
+
+  /// Said in place of the list when there is nothing to list.
+  final String empty;
 
   final List<TabItemVm> tabs;
   final String tab;
@@ -132,6 +187,93 @@ class _BlockPaletteState extends State<BlockPalette> {
     paletteSearchRequest.removeListener(_search.requestFocus);
     _search.dispose();
     super.dispose();
+  }
+
+  /// One entry: dragged onto the canvas, or tapped to add it; its context
+  /// menu on the right button. An entry that cannot be placed does neither.
+  Widget _entry(PaletteEntryVm e) {
+    final row = e.point ? _TreeRow(e) : _BlockRow(e);
+    final off = e.disabledReason != null;
+    final tile = MouseRegion(
+      cursor: off ? MouseCursor.defer : SystemMouseCursors.grab,
+      child: InkWell(
+        onTap: off ? null : () => widget.onPick(e.id),
+        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        child: row,
+      ),
+    );
+    final dragged = off
+        ? tile
+        : Draggable<String>(
+            data: e.id,
+            dragAnchorStrategy: pointerDragAnchorStrategy,
+            feedback: _Feedback(e.title),
+            child: tile,
+          );
+    if (e.menu.isEmpty) {
+      return dragged;
+    }
+    return GestureDetector(
+      key: ValueKey('palette-${e.id}'),
+      onSecondaryTapUp: (d) => unawaited(_menu(e, d.globalPosition)),
+      onLongPressStart: (d) => unawaited(_menu(e, d.globalPosition)),
+      child: dragged,
+    );
+  }
+
+  Future<void> _menu(PaletteEntryVm e, Offset at) async {
+    final c = context.colors;
+    final picked = await showMenu<String>(
+      context: context,
+      color: c.ground3,
+      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+      items: [
+        for (final m in e.menu)
+          PopupMenuItem(
+            value: m.id,
+            height: 34,
+            enabled: m.disabledReason == null,
+            child: Tooltip(
+              message: m.disabledReason ?? '',
+              child: Text(
+                m.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: m.disabledReason != null
+                      ? c.muted
+                      : (m.danger ? c.bad : c.text1),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+    if (picked != null) {
+      widget.onMenu?.call(e.id, picked);
+    }
+  }
+
+  /// A row of the Tree tab: the Explorer's row, 32 high. A value leaf or
+  /// an action is dragged (and added by a tap); a node opens or closes.
+  Widget _treeRow(TreeRowVm r) {
+    final drag = r.drag;
+    final row = TreeRow(
+      key: ValueKey('tree-${r.drag ?? r.id}'),
+      vm: r,
+      height: 32,
+      onTap: (id) =>
+          drag == null ? widget.onTreeToggle?.call(id) : widget.onPick(drag),
+      onToggle: widget.onTreeToggle,
+    );
+    if (drag == null) {
+      return row;
+    }
+    return Draggable<String>(
+      data: drag,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: _Feedback(r.name),
+      child: MouseRegion(cursor: SystemMouseCursors.grab, child: row),
+    );
   }
 
   @override
@@ -179,7 +321,12 @@ class _BlockPaletteState extends State<BlockPalette> {
                   Expanded(
                     child: TextField(
                       focusNode: _search,
-                      onChanged: (s) => setState(() => _q = s),
+                      onChanged: (s) {
+                        if (widget.tree != null) {
+                          widget.onQuery?.call(s);
+                        }
+                        setState(() => _q = s);
+                      },
                       style: TextStyle(fontSize: 13, color: c.text1),
                       decoration:
                           InputDecoration.collapsed(
@@ -196,42 +343,41 @@ class _BlockPaletteState extends State<BlockPalette> {
               ),
             ),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
-              children: [
-                for (final MapEntry(key: g, value: list) in groups.entries) ...[
-                  _Group(
-                    name: g,
-                    tree: list.first.point,
-                    open: !_closed.contains(g),
-                    onTap: () => setState(
-                      () => _closed.contains(g)
-                          ? _closed.remove(g)
-                          : _closed.add(g),
+          if (widget.tree case final rows?)
+            Expanded(
+              child: rows.isEmpty
+                  ? _Empty(widget.empty)
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) => _treeRow(rows[i]),
                     ),
-                  ),
-                  if (!_closed.contains(g))
-                    for (final e in list)
-                      Draggable<String>(
-                        data: e.id,
-                        dragAnchorStrategy: pointerDragAnchorStrategy,
-                        feedback: _Feedback(e.title),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.grab,
-                          child: InkWell(
-                            onTap: () => widget.onPick(e.id),
-                            borderRadius: const BorderRadius.all(
-                              Radius.circular(6),
-                            ),
-                            child: e.point ? _TreeRow(e) : _BlockRow(e),
-                          ),
-                        ),
+            )
+          else if (shown.isEmpty && widget.empty.isNotEmpty)
+            Expanded(child: _Empty(widget.empty))
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                children: [
+                  for (final MapEntry(key: g, value: list)
+                      in groups.entries) ...[
+                    _Group(
+                      name: g,
+                      tree: list.first.point,
+                      open: !_closed.contains(g),
+                      onTap: () => setState(
+                        () => _closed.contains(g)
+                            ? _closed.remove(g)
+                            : _closed.add(g),
                       ),
+                    ),
+                    if (!_closed.contains(g))
+                      for (final e in list) _entry(e),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
           if (widget.notes.isNotEmpty)
             Container(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
@@ -268,6 +414,22 @@ class _BlockPaletteState extends State<BlockPalette> {
       ),
     );
   }
+}
+
+/// Nothing to list, and why.
+class _Empty extends StatelessWidget {
+  const _Empty(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    child: Text(
+      text,
+      style: TextStyle(fontSize: 12, height: 1.45, color: context.colors.text4),
+    ),
+  );
 }
 
 /// A category (13/600) or a parent of points (mono 12), with its chevron.
@@ -367,14 +529,27 @@ class _BlockRow extends StatelessWidget {
                 e.title,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: TextStyle(fontSize: 13, color: c.text2),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: e.disabledReason == null ? c.text2 : c.muted,
+                ),
               ),
             ),
+            if (e.value case final v?)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 84),
+                child: Text(
+                  v,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: mono(size: 11, color: c.text4),
+                ),
+              ),
           ],
         ),
       ),
     );
-    return switch (e.detail) {
+    return switch (e.disabledReason ?? e.detail) {
       final d? when d.isNotEmpty => Tooltip(
         message: d,
         waitDuration: const Duration(milliseconds: 500),
