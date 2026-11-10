@@ -128,8 +128,9 @@ slowest device's poll period.
 
 A client or a link may name several broker endpoints, comma-separated, in
 the order to try. Today a site has one broker, so the list is the one
-broker's addresses; with a standby broker (option 3, not built yet) it is
-both brokers, and nothing on the client side changes at a failover.
+broker's addresses; with a standby broker (option 3, "Warm standby"
+below) it is both brokers, and nothing on the client side changes at a
+failover.
 
 - `wyr --connect tls/a:7448,tls/b:7448`, `wyrm_open("tcp/…,tcp/…")` in the
   C API and Dart FFI: Zenoh's client mode connects to the first endpoint it
@@ -147,7 +148,7 @@ both brokers, and nothing on the client side changes at a failover.
   `client()` logs in again on the next gateway when the one in use is gone
   or does not know the session (each broker holds its own sessions).
 
-### Warm standby (ADR 0036, option 3, stage A)
+### Warm standby (ADR 0036, option 3)
 
 Two brokers of one site on two hosts, one active, one following. The
 standby copies the control plane (the registry, flow definitions, gateway
@@ -376,7 +377,7 @@ How to restore:
 
 What a backup does not replace: a second host that holds the same keys and
 follows the WAL while the first one runs. That is option 3 of ADR 0036, the
-warm standby, which is not built yet.
+warm standby: see "Warm standby" in section 2.
 
 ## 4. Checks
 
