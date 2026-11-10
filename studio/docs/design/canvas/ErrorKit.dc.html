@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — errors kit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+<div style="max-width: 1240px; margin: 0 auto; padding: 56px 24px 80px; display: flex; flex-direction: column; gap: 48px">
+
+<header style="display: flex; flex-direction: column; gap: 14px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #E8893A">WYRM Studio · errors</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(28px, 3.6vw, 42px); line-height: 1.15; max-width: 920px">Say what failed, in the broker’s words, and what to do next.</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #C5CBCE; max-width: 820px">Replaces the Material <code>AlertDialog</code> that every <code>UserException</code> shows today. The broker already returns a status and a message for every refused call; Studio’s job is to put them in the right place, never to hide them behind “Something went wrong”.</p>
+</header>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">1 · Where an error goes</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{places}}" as="p" hint-placeholder-count="5">
+<div style="padding: 16px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #F3A766">{{p.n}}</span>
+<span style="font-size: 16px; font-weight: 600">{{p.name}}</span>
+<span style="font-size: 13px; color: #C5CBCE; line-height: 1.5">{{p.when}}</span>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">{{p.how}}</span>
+<span style="font-size: 12px; color: #6B747A">Board: <code>{{p.board}}</code></span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">2 · Status → kind</h2>
+<p style="margin: 0; font-size: 14px; color: #A3ABAF; line-height: 1.55; max-width: 860px">One kind per broker status (<code>wyrm_core</code> <code>Status</code>). The kind picks the icon, the tone, the “what you can do” lines and the main button; the title and the broker’s message come from the call.</p>
+<div style="border: 1px solid #252B30; border-radius: 12px; overflow-x: auto; background: #13171A">
+<div style="min-width: 980px">
+<div style="display: grid; grid-template-columns: 110px 260px 90px 1fr 170px 90px; gap: 12px; padding: 10px 16px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C; border-bottom: 1px solid #252B30">
+<span>Kind</span><span>Statuses</span><span>Tone</span><span>Title pattern</span><span>Main button</span><span>Retry</span>
+</div>
+<sc-for list="{{kinds}}" as="k" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 110px 260px 90px 1fr 170px 90px; gap: 12px; align-items: baseline; padding: 12px 16px; border-top: 1px solid #1D2226; font-size: 13px">
+<span style="font-weight: 600">{{k.kind}}</span>
+<code style="font-size: 12px; color: #C5CBCE; line-height: 1.6">{{k.statuses}}</code>
+<span style="display: inline-flex; align-items: center; gap: 6px; color: {{k.c}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{k.c}}"></span>{{k.tone}}</span>
+<span style="color: #C5CBCE; line-height: 1.5">{{k.title}}</span>
+<span style="color: #C5CBCE">{{k.primary}}</span>
+<span style="color: #8E979C">{{k.retry}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">3 · Words</h2>
+<sc-for list="{{words}}" as="w" hint-placeholder-count="6">
+<div style="display: flex; gap: 10px; font-size: 14px; line-height: 1.55; color: #C5CBCE"><span style="flex: none; width: 5px; height: 5px; margin-top: 10px; border-radius: 50%; background: #E8893A"></span><span>{{w}}</span></div>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">4 · Behaviour</h2>
+<sc-for list="{{rules}}" as="w" hint-placeholder-count="6">
+<div style="display: flex; gap: 10px; font-size: 14px; line-height: 1.55; color: #C5CBCE"><span style="flex: none; width: 5px; height: 5px; margin-top: 10px; border-radius: 50%; background: #6CC4B0"></span><span>{{w}}</span></div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">5 · Inline, before anything is sent</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px; align-items: start">
+<div style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C5CBCE">Poll rate
+<span style="display: flex; align-items: center; height: 40px; border-radius: 8px; border: 1px solid #E07A5F; background: #161A1D; box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.18)"><input type="number" value="0" aria-invalid="true" aria-describedby="pr-err" style="flex: 1; min-width: 0; height: 100%; padding: 0 12px; border: 0; background: transparent; color: #ECE9E1; font: inherit; font-size: 14px; outline: none"><span style="padding: 0 12px; color: #8E979C; font-size: 13px">ms</span></span>
+<span id="pr-err" style="display: flex; gap: 6px; align-items: center; color: #F0A28D; font-size: 12px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>At least 100 ms (from the link’s schema).</span>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C5CBCE">Name
+<input type="text" value="" placeholder="Give the link a name" aria-invalid="true" aria-describedby="nm-err" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #E07A5F; background: #161A1D; color: #ECE9E1; font: inherit; font-size: 14px; box-sizing: border-box">
+<span id="nm-err" style="display: flex; gap: 6px; align-items: center; color: #F0A28D; font-size: 12px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>Required.</span>
+</label>
+<div style="display: flex; align-items: center; gap: 10px"><button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: #22282D; color: #8E979C; font: inherit; font-size: 14px" aria-disabled="true">Save</button><span style="font-size: 12px; color: #8E979C">2 fields to fix</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.55; color: #C5CBCE">
+<span>Anything Studio can check from the schema the broker sent (<code>~meta.cfg</code>: required, bounds, enums, patterns) is checked as the user types and shown under the field. The Save button says how many fields are left. No dialog, and no call that the broker would refuse anyway.</span>
+<span>When the broker still refuses (<code>invalid_parameter</code> naming a field), the Input dialog’s “Back to the form” puts its message under that field and focuses it.</span>
+<span style="color: #8E979C; font-size: 13px">Today <code>InstallLinkAction</code> throws “Give the link a name.” as a dialog: that becomes this inline error.</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const places = [
+      { n: 'a', name: 'Inline', when: 'A value the user is typing breaks a rule Studio already knows.', how: 'Under the field, as they type; Save counts what is left. Nothing is sent.', board: 'ErrorKit §5' },
+      { n: 'b', name: 'Dialog', when: 'A call the user started and is waiting for was refused or failed: Save, Deploy, Install, Apply, a set.', how: 'Modal, one at a time, focus on the main button, Esc closes. Also kept in Problems.', board: 'ErrorDialog' },
+      { n: 'c', name: 'Toast + Problems', when: 'Something Studio did on its own failed: a read, a refresh, a live stream, a preload.', how: 'A toast bottom right (hides in 8 s; stays while a stream is down), the mark on the row that failed, and a line in Problems.', board: 'ErrorQuiet' },
+      { n: 'd', name: 'Panel card', when: 'A part of the screen threw while it was drawn (a bug in Studio, or data it did not expect).', how: 'That part only is replaced by a card with “Draw it again” and “Copy report”; everything else keeps working.', board: 'ErrorPanel' },
+      { n: 'e', name: 'Start screen', when: 'Studio cannot start: its own saved data is unreadable.', how: 'Full window, before log-in: start with fresh settings (the old file kept), copy report, quit.', board: 'ErrorFatal' }
+    ];
+    const AMBER = '#E2C15A', CORAL = '#E07A5F', GREY = '#A3ABAF', EMBER = '#F3A766';
+    const kinds = [
+      { kind: 'Rights', statuses: 'permission_denied', tone: 'warn', c: AMBER, title: 'You can’t <verb> <thing>', primary: 'OK · See my access', retry: 'no' },
+      { kind: 'Reach', statuses: 'timeout, disconnected, not_available, closed', tone: 'warn', c: AMBER, title: '<site or link> did not answer', primary: 'Try again', retry: 'by hand; writes warn' },
+      { kind: 'Input', statuses: 'invalid_parameter, invalid_message, out_of_range', tone: 'accent', c: EMBER, title: 'The broker refused these <parameters | values>', primary: 'Back to the form', retry: 'no' },
+      { kind: 'Busy', statuses: 'busy, rate_limited, resource_exhausted', tone: 'info', c: GREY, title: '<site> is busy, <thing> did not start', primary: 'Try again in N s', retry: 'auto, once' },
+      { kind: 'Gone', statuses: 'not_found, not_supported', tone: 'info', c: GREY, title: '<thing> is not there anymore | <thing> cannot <verb>', primary: 'Refresh', retry: 'no' },
+      { kind: 'Broker', statuses: 'internal_error', tone: 'bad', c: CORAL, title: '<Verbing thing> failed on <site>', primary: 'Open the log', retry: 'no' },
+      { kind: 'Studio', statuses: 'anything not from the broker', tone: 'bad', c: CORAL, title: 'Studio could not <verb> <thing>', primary: 'OK · Copy report', retry: 'no' }
+    ];
+    const words = [
+      'Title: what did not happen, with its object: “You can’t deploy pump-control”, “Installing modbus 0.4.2 failed on plant”. Never “Error” or “Something went wrong” alone.',
+      'Under the title, in mono: the key and the call, so the user can find it in the tree.',
+      'Body: the broker’s message as it came, under “The broker said”. Studio does not rephrase it; it may add one sentence before it when the status needs one (a timeout has no message).',
+      '“What you can do”: one or two lines from the kind, specific to the call where Studio knows more (a field name, a role).',
+      'Status names stay in Details, as a chip and with their code: permission_denied (0x21).',
+      'Studio’s own faults say so plainly: “a fault in Studio, not on the broker; nothing was sent”.'
+    ];
+    const rules = [
+      'One dialog at a time; a second error while one is open goes to Problems and raises the counter.',
+      'Every error, shown or quiet, is a line in Problems until Studio quits. The top-bar counter shows the ones not yet opened.',
+      'Retry repeats the same call with a fresh token. Busy retries once by itself after the countdown; Reach never retries a write by itself.',
+      'A timeout on set, deploy or any write carries the warning that it may have been applied.',
+      'Copy details: plain text with title, key, call, status, message, site, user, gateway, time, Studio version. Never values, tokens or passwords. The report of a Studio fault adds the stack trace.',
+      'Esc and the close button do what Cancel does when there is one, else OK (as UserException onOk/onCancel today).'
+    ];
+    return { places, kinds, words, rules };
+  }
+}
+</script>
+</body>
+</html>

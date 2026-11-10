@@ -481,6 +481,104 @@
    "h": 1000,
    "title": "Studio · System › Maintenance — clear disconnected links, device profiles, backup commands",
    "expand": "fill"
+  },
+  "ErrorKit.dc.html": {
+   "x": 0,
+   "y": 15000,
+   "w": 1440,
+   "h": 2300,
+   "title": "Errors · the kit: where an error goes, status → kind, words, behaviour, inline",
+   "expand": "fill"
+  },
+  "ErrorDialog.dc.html": {
+   "x": 1520,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Rights (permission_denied) — clickable Details",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "ErrReach.dc.html": {
+   "x": 3040,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Reach (timeout on a write: may have been applied)",
+   "expand": "fill"
+  },
+  "ErrInput.dc.html": {
+   "x": 4560,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Input (invalid_parameter → back to the form)",
+   "expand": "fill"
+  },
+  "ErrBusy.dc.html": {
+   "x": 6080,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Busy (try again after the countdown)",
+   "expand": "fill"
+  },
+  "ErrGone.dc.html": {
+   "x": 7600,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Gone (not_found → refresh)",
+   "expand": "fill"
+  },
+  "ErrBroker.dc.html": {
+   "x": 9120,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Broker (internal_error, details open)",
+   "expand": "fill"
+  },
+  "ErrStudio.dc.html": {
+   "x": 10640,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Error dialog · Studio fault (copy report)",
+   "expand": "fill"
+  },
+  "ErrorQuiet.dc.html": {
+   "x": 12160,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Quiet errors · toasts and the mark on the row (clickable counter)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "ErrorProblems.dc.html": {
+   "x": 13680,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Quiet errors · Problems drawer (this session)",
+   "expand": "fill"
+  },
+  "ErrorPanel.dc.html": {
+   "x": 15200,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "A panel failed to draw · the rest keeps working",
+   "expand": "fill"
+  },
+  "ErrorFatal.dc.html": {
+   "x": 16720,
+   "y": 15000,
+   "w": 1440,
+   "h": 900,
+   "title": "Studio cannot start (own data unreadable)",
+   "expand": "fill"
   }
  },
  "order": [
@@ -537,7 +635,19 @@
   "SystemAvailLag.dc.html",
   "SystemAvailNone.dc.html",
   "SystemLog.dc.html",
-  "SystemMaint.dc.html"
+  "SystemMaint.dc.html",
+  "ErrorKit.dc.html",
+  "ErrorDialog.dc.html",
+  "ErrReach.dc.html",
+  "ErrInput.dc.html",
+  "ErrBusy.dc.html",
+  "ErrGone.dc.html",
+  "ErrBroker.dc.html",
+  "ErrStudio.dc.html",
+  "ErrorQuiet.dc.html",
+  "ErrorProblems.dc.html",
+  "ErrorPanel.dc.html",
+  "ErrorFatal.dc.html"
  ],
  "notes": {
   "t-screens": {
@@ -812,6 +922,13 @@
    "text": "Log in: the first screen, with the WYRM loader",
    "kind": "title1",
    "maxW": 7520
+  },
+  "t-errors": {
+   "x": 0,
+   "y": 14740,
+   "text": "Errors: kit, dialog by kind, quiet errors, failed panel, start",
+   "kind": "title1",
+   "maxW": 18160
   }
  },
  "designSystems": []

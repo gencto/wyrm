@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — quiet errors</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766}a:hover{color:#F6C59A}
+</style>
+</helmet>
+<div style="position: relative; min-height: 900px; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; overflow: hidden; display: flex; flex-direction: column">
+
+<!-- Top bar with the problems counter -->
+<header style="height: 48px; border-bottom: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 12px; padding: 0 16px; flex: none">
+<span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 6px; background: #2A1F16"></span>
+<span style="font-weight: 600">WYRM Studio</span><span style="color: #8E979C">plant</span>
+<button type="button" aria-expanded="{{drawerAria}}" aria-controls="problems" onClick="{{toggle}}" style="margin-left: auto; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid {{pillBorder}}; background: {{pillBg}}; color: #ECE9E1; font: inherit; font-size: 13px; cursor: pointer">
+<span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #E07A5F"></span>3 problems
+</button>
+<span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 14px; background: #22282D"></span>
+</header>
+
+<div style="flex: 1; display: flex; min-height: 0">
+<nav aria-hidden="true" style="width: 64px; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 16px">
+<span style="width: 28px; height: 28px; border-radius: 8px; background: #2A1F16"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span>
+</nav>
+
+<!-- Explorer underneath, with the inline mark on the node that failed -->
+<main style="flex: 1; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-size: 24px; font-weight: 600">Explorer</span>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow: hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 1fr 140px 120px; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid #1D2226; font-size: 13px; background: {{r.bg}}">
+<span style="display: flex; align-items: center; gap: 8px; padding-left: {{r.indent}}px"><code>{{r.name}}</code><sc-if value="{{r.err}}" hint-placeholder-val="{{false}}"><span title="Reading the value failed: timeout. Details in Problems." style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px; background: #33201B; color: #F0A28D; font-size: 11px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17h.01"></path></svg>read failed</span></sc-if></span>
+<code style="color: {{r.vc}}">{{r.v}}</code>
+<span style="color: #8E979C; font-size: 12px">{{r.t}}</span>
+</div>
+</sc-for>
+</div>
+</main>
+
+<!-- Problems drawer -->
+<sc-if value="{{drawer}}" hint-placeholder-val="{{false}}">
+<aside id="problems" aria-label="Problems" style="width: 400px; flex: none; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; box-shadow: -24px 0 48px rgba(0, 0, 0, 0.4)">
+<div style="padding: 16px 20px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 10px">
+<h2 style="margin: 0 auto 0 0; font-size: 16px; font-weight: 600">Problems · this session</h2>
+<button type="button" style="height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #2F373D; background: transparent; color: #A3ABAF; font: inherit; font-size: 12px; cursor: pointer">Clear all</button>
+<button type="button" aria-label="Close problems" onClick="{{toggle}}" style="width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8E979C; cursor: pointer; display: grid; place-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<p style="margin: 0; padding: 12px 20px 4px; font-size: 12px; color: #8E979C; line-height: 1.5">Failures of things Studio did on its own (reads, refreshes, live values) and every dialog you closed. Kept until Studio quits; newest first.</p>
+<div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto">
+<sc-for list="{{problems}}" as="p" hint-placeholder-count="5">
+<div style="padding: 12px; border-radius: 8px; border: 1px solid #252B30; background: #161A1D; display: flex; gap: 10px; opacity: {{p.op}}">
+<span aria-hidden="true" style="flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{p.c}}"></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; align-items: baseline"><span style="font-size: 13px; font-weight: 600; margin-right: auto">{{p.title}}</span><span style="font-size: 11px; color: #8E979C; white-space: nowrap">{{p.t}}</span></div>
+<code style="font-size: 11px; color: #8E979C; overflow-wrap: anywhere">{{p.where}}</code>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.45">{{p.said}}</span>
+<div style="display: flex; gap: 14px; font-size: 12px; padding-top: 2px"><a href="#details">Details</a><sc-if value="{{p.retry}}" hint-placeholder-val="{{false}}"><a href="#retry">Try again</a></sc-if><sc-if value="{{p.seen}}" hint-placeholder-val="{{false}}"><span style="color: #6B747A">shown as a dialog</span></sc-if></div>
+</div>
+</div>
+</sc-for>
+</div>
+</aside>
+</sc-if>
+</div>
+
+<!-- Toasts, bottom right (above the drawer when it is closed) -->
+<sc-if value="{{toasts}}" hint-placeholder-val="{{true}}">
+<div role="region" aria-label="Notifications" aria-live="polite" style="position: absolute; right: 20px; bottom: 20px; width: 380px; max-width: calc(100% - 40px); display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{toastList}}" as="t" hint-placeholder-count="2">
+<div role="status" style="padding: 14px; border-radius: 10px; border: 1px solid {{t.border}}; background: #1D2226; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); display: flex; gap: 12px">
+<span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 8px; background: {{t.bg}}; color: {{t.c}}; display: grid; place-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17h.01"></path></svg></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 600">{{t.title}}</span>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.45">{{t.said}}</span>
+<div style="display: flex; gap: 14px; font-size: 12px; padding-top: 2px"><a href="#details">Details</a><sc-if value="{{t.retry}}" hint-placeholder-val="{{false}}"><a href="#retry">Try again</a></sc-if><span style="margin-left: auto; color: #6B747A">{{t.life}}</span></div>
+</div>
+<button type="button" aria-label="Dismiss" style="flex: none; width: 26px; height: 26px; margin: -4px -4px 0 0; border: 0; border-radius: 6px; background: transparent; color: #8E979C; cursor: pointer; display: grid; place-items: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"drawer":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const drawer = st.drawer ?? this.props.drawer ?? false;
+    const CORAL = '#E07A5F', AMBER = '#E2C15A', GREY = '#8E979C';
+    const rows = [
+      { name: 'modbus', indent: 0, v: '', t: '' },
+      { name: 'plc1', indent: 18, v: '', t: '' },
+      { name: 't1', indent: 36, v: '21.4 °C', t: '11:52:10' },
+      { name: 't2', indent: 36, v: '—', t: 'no value', err: true, vc: '#6B747A', bg: '#1A1311' },
+      { name: 'pump_on', indent: 36, v: 'true', t: '11:51:58' },
+      { name: 'flow_rate', indent: 36, v: '12.8 m³/h', t: '11:52:09' },
+      { name: 'plc2', indent: 18, v: '', t: '' }
+    ].map((r) => ({ vc: '#ECE9E1', bg: 'transparent', err: false, ...r }));
+    const problems = [
+      { title: 'Reading t2 failed', t: '11:52:06', where: 'wy/plant/downstream/modbus/plc1/t2 › subscribe', said: 'timeout: the device did not answer within 2 s.', c: AMBER, retry: true },
+      { title: 'Live values from edge stopped', t: '11:49:41', where: 'wy/edge/downstream/** › subscribe', said: 'disconnected: the peer link to edge went down; Studio reopens the streams when it is back.', c: AMBER },
+      { title: 'You can’t deploy pump-control', t: '11:47:12', where: 'wy/plant/dataflows/pump-control › deploy', said: 'permission_denied: needs config on dataflows/pump-control.', c: AMBER, seen: true, op: 0.72 },
+      { title: 'History of flow_rate unavailable', t: '11:30:02', where: 'wy/plant/downstream/modbus/plc1/flow_rate › history', said: 'not_found: no watch records this point.', c: GREY, op: 0.72 },
+      { title: 'Installing modbus 0.4.2 failed on plant', t: '11:12:55', where: 'wy/plant/sys/links › install_repo', said: 'internal_error: wyrm_link 3 is newer than this broker (2).', c: CORAL, seen: true, op: 0.72 }
+    ].map((p) => ({ op: 1, retry: false, seen: false, ...p }));
+    const toastList = [
+      { title: 'Live values from edge stopped', said: 'The peer link went down. Studio reopens the streams when it is back.', c: AMBER, bg: '#2E2814', border: '#4A4020', life: 'stays until edge is back' },
+      { title: 'Reading t2 failed', said: 'timeout: the device did not answer within 2 s.', c: AMBER, bg: '#2E2814', border: '#2F373D', retry: true, life: 'hides in 8 s' }
+    ].map((t) => ({ retry: false, ...t }));
+    return {
+      rows, problems, toastList, drawer, toasts: !drawer,
+      drawerAria: drawer ? 'true' : 'false',
+      pillBg: drawer ? '#33201B' : '#1D2226', pillBorder: drawer ? '#5A3328' : '#2F373D',
+      toggle: () => this.setState({ drawer: !drawer })
+    };
+  }
+}
+</script>
+</body>
+</html>

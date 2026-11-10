@@ -24,6 +24,7 @@ One screen per pull request. The golden of every frame is committed with it.
 | Explorer | [explorer.md](explorer.md) | `Main`, `Actions`, `ActionDetail`, `PropertySheet` |
 | Flow editor | [flow-editor.md](flow-editor.md) | `FlowBind`, `FlowTree` |
 | System | [system.md](system.md) | `System`, `SystemAvail`, `SystemAvailLag`, `SystemAvailNone`, `SystemLog`, `SystemMaint` |
+| Errors | [errors.md](errors.md) | `ErrorKit`, `ErrorDialog`, `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`, `ErrorQuiet`, `ErrorProblems`, `ErrorPanel`, `ErrorFatal` |
 | App icon | [app-icon.md](app-icon.md) | `AppIcon` |
 
 The other screens follow the same template: Regions, Words, Controls, Selection and menus, States, Checklist, Found in the app.

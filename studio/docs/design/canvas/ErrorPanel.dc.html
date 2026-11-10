@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — a part failed to draw</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766}a:hover{color:#F6C59A}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<!-- A panel failed: the rest of Studio keeps working -->
+<sc-if value="{{panel}}" hint-placeholder-val="{{true}}">
+<div style="flex: 1; display: flex; flex-direction: column">
+<header aria-hidden="true" style="height: 48px; border-bottom: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 12px; padding: 0 16px">
+<span style="width: 22px; height: 22px; border-radius: 6px; background: #2A1F16"></span><span style="font-weight: 600">WYRM Studio</span><span style="color: #8E979C">plant</span>
+<span style="margin-left: auto; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid #2F373D; background: #1D2226; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #E07A5F"></span>1 problem</span>
+</header>
+<div style="flex: 1; display: flex; min-height: 0">
+<nav aria-hidden="true" style="width: 64px; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 16px"><span style="width: 28px; height: 28px; border-radius: 8px; background: #2A1F16"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span></nav>
+<main style="flex: 1; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-size: 24px; font-weight: 600">Explorer</span>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow: hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 1fr 140px; gap: 12px; padding: 10px 16px; border-top: 1px solid #1D2226; font-size: 13px; background: {{r.bg}}"><code style="padding-left: {{r.indent}}px">{{r.name}}</code><code>{{r.v}}</code></div>
+</sc-for>
+</div>
+</main>
+<aside aria-label="Inspector" style="width: 360px; flex: none; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; padding: 20px">
+<div role="alert" style="margin-top: 40px; padding: 20px; border-radius: 12px; border: 1px dashed #5A3328; background: #161A1D; display: flex; flex-direction: column; gap: 12px">
+<span aria-hidden="true" style="width: 36px; height: 36px; border-radius: 10px; background: #33201B; color: #E07A5F; display: grid; place-items: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 8h18"></path><path d="M12 12v3M12 18h.01"></path></svg></span>
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">The inspector could not be drawn</h2>
+<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.55">Something in t2’s description is not what Studio expects. The rest of Studio still works; values and actions elsewhere are not affected.</p>
+<code style="font-size: 11px; color: #8E979C; padding: 8px 10px; border-radius: 6px; background: #0E1113; overflow-wrap: anywhere">RangeError (index): Invalid value: 3 · node_inspector · 11:52:06</code>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Draw it again</button>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font: inherit; font-size: 13px; cursor: pointer">Copy report</button>
+</div>
+</div>
+</aside>
+</div>
+</div>
+</sc-if>
+
+<!-- Studio cannot start at all -->
+<sc-if value="{{fatal}}" hint-placeholder-val="{{false}}">
+<main style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px 16px; background: radial-gradient(ellipse 60% 50% at 50% 40%, #171B1F 0%, #0E1113 70%)">
+<section role="alert" aria-labelledby="fatal-title" style="width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 20px">
+<svg width="88" height="52" viewBox="0 0 220 130" aria-hidden="true" style="opacity: 0.85"><path d="M20 85 Q 42 60 65 45 T 115 30 T 165 55 T 200 100" fill="none" stroke="#3A4249" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 14"></path><circle cx="20" cy="85" r="12" fill="none" stroke="#5A6168" stroke-width="6"></circle><circle cx="65" cy="45" r="14" fill="none" stroke="#5A6168" stroke-width="6"></circle><circle cx="115" cy="30" r="18" fill="#33201B" stroke="#E07A5F" stroke-width="6"></circle><circle cx="165" cy="55" r="14" fill="none" stroke="#5A6168" stroke-width="6"></circle><circle cx="200" cy="100" r="12" fill="none" stroke="#5A6168" stroke-width="6"></circle></svg>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h1 id="fatal-title" style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.01em">Studio could not start</h1>
+<p style="margin: 0; font-size: 15px; color: #C5CBCE; line-height: 1.6">The settings it saved on this computer are unreadable, so it cannot tell which gateways you use. Your brokers are not affected: nothing on them depends on Studio.</p>
+</div>
+<div style="padding: 14px 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 12px">
+<span style="color: #8E979C">Error</span><code style="color: #C5CBCE">DatabaseException: invalid codec signature</code>
+<span style="color: #8E979C">File</span><code style="color: #C5CBCE; overflow-wrap: anywhere">~/Library/Application Support/uk.gencto.wyrmStudio/database.db</code>
+<span style="color: #8E979C">Studio</span><code style="color: #C5CBCE">0.3.0 (macOS 15.1)</code>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" style="height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Start with fresh settings</button>
+<button type="button" style="height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font: inherit; font-size: 14px; cursor: pointer">Copy report</button>
+<button type="button" style="height: 44px; padding: 0 16px; border-radius: 8px; border: 0; background: transparent; color: #A3ABAF; font: inherit; font-size: 14px; cursor: pointer">Quit</button>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8E979C; line-height: 1.5">Fresh settings keep the unreadable file beside the new one as <code>database.db.broken</code>. You add your gateways and log in again.</p>
+</section>
+</main>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"fatal":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#E8893A"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const fatal = this.props.fatal ?? false;
+    const rows = [
+      { name: 'modbus', indent: 0, v: '' }, { name: 'plc1', indent: 18, v: '' },
+      { name: 't1', indent: 36, v: '21.4 °C' }, { name: 't2', indent: 36, v: '22.9 °C', bg: '#1F1A16' },
+      { name: 'pump_on', indent: 36, v: 'true' }, { name: 'plc2', indent: 18, v: '' }
+    ].map((r) => ({ bg: 'transparent', ...r }));
+    return { fatal, panel: !fatal, rows, accent: this.props.accent ?? '#E8893A' };
+  }
+}
+</script>
+</body>
+</html>
