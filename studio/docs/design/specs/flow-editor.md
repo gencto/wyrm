@@ -1,6 +1,6 @@
 # Flow editor
 
-Boards: `FlowBind` (fields, bindings, properties), `FlowTree` (dragging points and actions from the tree). Canvas source: `../canvas/FlowBind.dc.html`, `../canvas/FlowTree.dc.html`. `FlowSymbol` and `FlowRepeat` wait for the engine (`docs/studio.md` §10 items 8, 9).
+Boards: `FlowBind` (fields, bindings, properties), `FlowTree` (dragging points and actions from the tree). Canvas source: `../canvas/FlowBind.dc.html`, `../canvas/FlowTree.dc.html`. `FlowSymbol` (a block made of blocks) is built as custom blocks (§20, ADR 0040); `FlowRepeat` waits for the engine (`docs/studio.md` §10 item 9). The second wave of owner requirements (2026-11-09): §17 keys from a binding, §18 the Tree tab, §19 the action block, §20 custom blocks; what a broker without ADR 0040 turns off: §21.
 
 ## 1. Regions (1440 wide)
 
@@ -18,10 +18,10 @@ Top bar: logo (to Explorer) · path `Flows › <flow id> › <selected block>` (
 **Owner decision 2026-11-09: no window frame on the desktop** (`docs/studio.md` §7.1). The top bar drags the window (a click on the logo, `Flows`, a button or close is still theirs). macOS: the logo starts at 92, after the native window buttons. Windows and Linux: the bar's content, its own close included, ends 138 from the right edge, left of the window's minimize, maximize and close.
 
 ## 2. Palette
-- Tabs, three equal columns, 40 high: `Blocks` · `My blocks` · `Tree` (`My blocks` disabled with the tooltip `Needs own blocks in the engine` until §10 item 8 exists).
+- Tabs, three equal columns, 40 high: `Blocks` · `My blocks` (§20) · `Tree` (§18). `My blocks` is off, with the reason as its tooltip, only on a broker without custom blocks (§21).
 - `Find a block`: height 34, radius 6, fill `#1D2226`.
 - Categories (13/600 `#C5CBCE`, chevron) from `node_types` `category`.
-- **Items are one line, 32 high**: indent 24, a tag chip (24 × 16, mono 9/600: `IN` teal on `#15302A`, `OUT` ember on `#2A1F16`, `FX` `#C5CBCE` on `#22282D`), the name 13 `#C5CBCE`. **No description in the list**: it is the tooltip and the inspector note when the block is placed. Cursor `grab`; drag onto the canvas places a block.
+- **Items are one line, 32 high**: indent 24, a tag chip (24 × 16, mono 9/600: `IN` teal on `#15302A`, `OUT` ember on `#2A1F16`, `FX` `#C5CBCE` on `#22282D`; `MY`, `LIB` on the My blocks tab), the name 13 `#C5CBCE`. **A block type reads in words** (`rising_edge` → `Rising edge`, `list_children` → `List children`; `blockLabel` in `flow_fields.dart`); the search also finds the engine's name, which is the tooltip's first word. **No description in the list**: it is the tooltip and the inspector note when the block is placed. Cursor `grab`; drag onto the canvas places a block.
 
 ## 3. Blocks
 - Width **200–220** (210 for sinks). Radius 8, fill `#161A1D`, border `#2F373D` (selected: 1.5 ember + ring `rgba(232,137,58,0.14)` 4 px), shadow `0 8px 20px rgba(0,0,0,0.35)`.
@@ -111,7 +111,7 @@ A draft equal to the deployed version ends the preview: the watch shows it. Wher
 With several blocks selected the inspector shows the flow and the path reads `<n> blocks`.
 
 ## 7. Tree tab (board `FlowTree`)
-The palette shows the tree; a point dropped on a block adds it as a field of that block (the target row lights with a dashed ember box); dropped on the canvas it becomes a tree-node block. An action dropped anywhere becomes an `ACT` block whose fields are the action's parameters, plus `run when` (input) and `ok`, `code`, `message` (outputs). Point rows: tag (`.0`, `01`, `≡`, `Aa`) + mono name + live value; action rows ember with `ACT` and the number of inputs.
+The palette shows the tree; a point dropped on a field wires a block that reads it into that field (the target row lights with a dashed ember box); dropped on the canvas it becomes a tree-node block. An action dropped on the canvas becomes an `ACT` block whose fields are the action's parameters, with `Trigger` (input) and `Ok`, `Error` (outputs). Point rows: tag (`.0`, `01`, `≡`, `Aa`) + mono name + live value; action rows ember with `ACT` and the number of inputs. As built since 2026-11-09 it is the site's real tree: §18. The action block: §19.
 
 ## 8. Checklist
 - [ ] Palette max 250, three tabs, one-line items with tag chips, no descriptions in the list
@@ -128,6 +128,12 @@ The palette shows the tree; a point dropped on a block adds it as a field of tha
 - [ ] The shortcut card lists the table the handlers read; no key fires while a text field has the focus (§14)
 - [ ] The viewer edits a typed field and says why a bound or output field is read only (§15)
 - [ ] Goldens: `flow_pins`, `flow_marquee`, `flow_selection_menu`, `flow_shortcuts`, `flow_shortcuts_ctrl`, `flow_viewer_edit`, `flow_viewer_locked`
+- [ ] A wire into `Point` asks the scope on the field; `Scope` and `Error` rows; unbinding keeps the scope (§17)
+- [ ] The Tree tab is the live tree with value leaves and action rows; a writable value asks Read or Write; an action becomes the action block (§18)
+- [ ] The action block's inspector in groups; `Run` on the deployed flow, off with the reason; `Run on start` asks first (§19)
+- [ ] `Create custom block…`, an instance with `Open inside`, the inside with `Back` and the path, the My blocks tab with the library (§20)
+- [ ] On a broker without ADR 0040 each of these is off with the reason (§21)
+- [ ] Goldens: `flow_key_scope`, `flow_scope_prompt`, `flow_tree_tab`, `flow_action_block`, `flow_action_run`, `flow_custom_instance`, `flow_my_blocks`, `flow_custom_inside`, `flow_custom_dialog`
 
 ## 9. Found in the app (screenshot 2026-11-08)
 1. Rows show engine port names (`in.input_min:`, `in.then:`, `in.0:`) instead of field names.
@@ -201,10 +207,10 @@ Actions: `SetFieldPinAction(block, field, pinned)`. Goldens: `flow_pins`.
 | `Undo` · `Redo` | the empty canvas, nothing selected | disabled with `Nothing to undo` / `Nothing to redo` |
 | `Fields ▸` | one block | the checklist of §12 |
 | `Unpin “<label>” from block` | a row of one block | §12 |
-| `Create custom block…` | ≥ 1 block | **disabled**: `Needs custom blocks in the engine` |
-| `Edit custom block` | one block | **disabled**: `Needs custom blocks in the engine` |
+| `Create custom block…` | ≥ 1 block | the selection becomes one custom block and one instance of it (§20) |
+| `Edit custom block` | one instance of a custom block | opens its inside (§20); on any other block it is off: `Not a custom block` |
 
-The last two wait for sub-flows in the engine (ADR 0040, `docs/studio.md` §10 item 8). What `Create custom block…` needs from the editor is ready and tested: `extractSubflow(draft, ids)` (`flow_canvas.dart`) cuts the selection out as `Subflow {blocks, edges, inputs, outputs}`. An edge with both ends inside stays inside. An edge from outside in becomes an input (one per outside source, so a source that feeds two inside inputs is one input). An edge from inside out becomes an output (one per inside source). A port is named after its inside end: the node for `in`/`out`, else the port without `in.`, with the node in front when two would read alike.
+The last two are off with the reason on a broker without custom blocks (§21). `Create custom block…` stands on `extractSubflow(draft, ids)` (`flow_canvas.dart`), which cuts the selection out as `Subflow {blocks, edges, inputs, outputs}`. An edge with both ends inside stays inside. An edge from outside in becomes an input (one per outside source, so a source that feeds two inside inputs is one input). An edge from inside out becomes an output (one per inside source). A port is named after its inside end: the node for `in`/`out`, else the port without `in.`, with the node in front when two would read alike.
 
 **Clipboard.** `Copy` writes the selection as JSON to the editor's own clipboard (`flowEditor.clipboard`, kept when another flow is opened) AND to the system clipboard, so blocks paste between flows and between windows. The format is a part of a definition (spec 06) under a `format` mark:
 
@@ -213,7 +219,8 @@ The last two wait for sub-flows in the engine (ADR 0040, `docs/studio.md` §10 i
   "format": "wyrm-flow-blocks/1",
   "nodes":  { "<id>": { "type": "…", …config } },
   "edges":  [ ["<id>.<port>", "<id>.<port>"] ],     // only edges among the copied blocks
-  "layout": { "<id>": [x, y], "<id>~pin~<field>": [1, 0] }
+  "layout": { "<id>": [x, y], "<id>~pin~<field>": [1, 0] },
+  "blocks": { "<name>": { …a custom block's definition } }   // only when an instance is copied (§20)
 }
 ```
 `Paste` reads the system clipboard: a text of this format pastes; any other text pastes nothing (a foreign text is never read as blocks, and never falls back to an older copy). Only where there is no system clipboard, or it is empty, the editor's own copy is pasted. Pasted blocks: the top-left corner of their bounding box goes to the pointer (the menu's place; with ⌘/Ctrl+V where the pointer was last on the canvas, else the middle of the view), on the grid; each id is kept when it is free, else it takes the next free number (`scale1` → `scale2`, `tank` → `tank1`); edges among them follow the new ids; edges to blocks outside were not copied; the pasted blocks are selected. A text over 4 MiB is not read.
@@ -283,3 +290,113 @@ Goldens: `flow_viewer_edit`, `flow_viewer_locked`. Widget tests: `ui/test/value_
 2. "If the field can be edited it would be great to be able to save changes from the popup window": the viewer's Edit mode (§15).
 3. "Mass selection of blocks and a context menu for blocks (cut, copy, delete, create custom block, edit custom block)": marquee, modifiers, the menu, the clipboard, undo and redo (§13); custom blocks are in the menu, disabled until the engine has sub-flows.
 4. "An info card for the dataflow with keyboard shortcuts": the card and its one table (§14).
+
+## 17. Keys from a binding (owner requirement 2026-11-09, ADR 0040 §1)
+"I have a text block that holds a node path and it changes dynamically … I do not know how to bind the path straight into a subscribe block."
+
+- **The key is a field.** `Point` of `subscribe`, `liveliness` and `load_value` (`key`, port `in.key`) and `Node` of `list_children` (`path`, port `in.path`) are rows with a left port: drag a wire into them like into any field. Which parameter is a key, and which one holds its scope, is the catalog's word (`params[].scope`: `key` → `key_scope`; `scopedKeyOf`).
+- **The scope is asked in place.** A wire into a key of a block that has no scope opens a small card on that field (`ScopePrompt`, 320 wide, ember border, drawn over the canvas under the row; `flowEditor.scopePrompt` holds the block): `This block may read keys under`, a mono field, chips, a note, `Cancel` and `Save`.
+  - The field starts with the suggestion: the block's current key's parent and all below it (`downstream/modbus/line1/level` → `downstream/modbus/line1/**`; `scopeSuggestion`); with no key, or a key right under a section, the section (`downstream/**`).
+  - Chips: the suggestion, then the site's three sections (`downstream/**`, `dataflows/**`, `storage/**`). A chip fills the field.
+  - It is checked as it is typed, by the engine's own rule (`scopeProblem`): not empty; inside `downstream`, `dataflows` or `storage` of this site, the section written out (no wildcard of it); the other segments key segments, `*` or `**`. While it is refused the reason stands under the field in coral and `Save` is off.
+  - `Save` (or Enter) writes `key_scope` (`path_scope`) into the block's config. `Cancel` (or Esc) takes the wire away again: a key from a wire without a scope does not compile (`nodes.<id>.key_scope: required when in.key is wired`), so the editor does not leave one. A block that already has its scope is not asked again; `Cancel` then changes nothing.
+- **The `Scope` row.** Once a wire feeds the key, or a scope is written, the block has the row `Scope`: read only there (no ports: a scope feeds nothing), with a pencil (`action_edit`, tooltip `Edit the scope`) that opens the card again. In the inspector it is a text field; a scope the engine would refuse says why under it.
+- **`Error`.** A refused key (outside the scope, a pattern, another site) reads nothing and says why on the block's `error` output. `Error` is a row of the block while a wire feeds its key.
+- **Unbinding** keeps the scope, and keeps the last key that came in as the typed key (as every parameter keeps its last value, §4).
+- **A point of the tree dropped on the canvas** is a `subscribe` with its key and no scope: none is needed until a wire feeds the key. Dropped on a key field, it wires in like any source and the scope is asked.
+- **Two steps of the history**: the wire, then the scope.
+- **Rights are the broker's.** Whoever deploys, and whoever watches or previews, must read all of the scope; for `list_children` also the children (`<path>/*`, `<scope>/*`; ADR 0040 §4, security review 2026-11-10). The editor does not guess rights: a refusal is the engine's `permission_denied` at validate, preview or deploy, shown with the flow's problems.
+
+Code: `scopeAsked`, `scopeSuggestion`, `scopeProblem`, `scopedKeyOf` (`flow_blocks.dart`); `ConnectPortsAction`, `RebindEdgeAction` and `AddBlockAction` open the prompt; `SetScopePromptAction`. Goldens: `flow_key_scope`, `flow_scope_prompt`.
+
+## 18. Tree tab: the real tree (owner requirement 2026-11-09)
+"The list of datapoints in the dataflow is not quite what is needed; take the tree we have in the other menu section, but it does not show nodes with values, so extend it for the dataflow, because some nodes have actions which I would also like to drop into the dataflow as a block that I could fill from other blocks and trigger."
+
+- **One tree, one component.** The Tree tab draws the Explorer's own row (`TreeRow` in `ui/lib/trees/tree_row.dart`, 32 high here) from the Explorer's own state: the same live lists (`nodes.table`, `TreeWatchService`), the same open nodes (`nodes.expanded`: a node opened here is open there). The Explorer's look does not change: the row's additions (`tag`, `value`, `ember`, `drag`) are off unless given. The roots are what a flow may read and write: `downstream`, `dataflows`, `storage`.
+- **Extended for the editor:**
+  - **A value node is a row**: its type tag (`.0`, `01`, `Aa`, `≡`, `{}`) in place of the kind icon, its name in mono, its live value on the right (the editor subscribes to the children of every open node). A value the flow already uses is tinted.
+  - **An open node lists its actions first**: ember `ACT`, the action's name, `<n> in`. They come from the node's own `~meta` (`actions`), read once when the node is first opened in this tab (`RetrieveDetailsAction`, quietly; kept in `nodes.detail`). Never an action of level config: a flow acts at `write` at most (spec 06 step 7).
+  - **Every node opens** until its list answered empty and it has no action: a node may hold only values, which the Explorer shows in its table and this tree as leaves.
+  - The compact row indents 12 per level; a leaf stands where its parent's icon does.
+- **The filter** (`Find a point or action`) keeps the rows whose name holds the text, the actions whose name holds it, and the nodes above them, opened (`flowEditor.treeQuery`).
+- **Dragging.**
+
+| Dragged | Onto | Gives |
+|---|---|---|
+| a value | the canvas | a `subscribe` block of that point |
+| a value that may be written | the canvas | a small menu where it landed: `Read` (`subscribe`) · `Write` (`set`); with Alt held, `Write` at once |
+| a value | a field with a left port | a new `subscribe` wired into that field (onto a key field: the scope is asked, §17) |
+| an action | the canvas | the action block (§19): `invoke` with `path`, `action`, and one argument per parameter of the action with its default; required arguments are rows of the block, the others stay in the inspector |
+
+  A tap on a value or an action adds it at a free place, as a tap on a block type does; a tap on a node opens or closes it.
+- **The two notes** under the tree say what a drop does.
+
+Code: `_treeRows` in the connector; `blockOfEntry` (`flow_blocks.dart`) maps `key:<point>`, `set:<point>`, `act:<node>/<action>` to a block. Goldens: `flow_tree_tab`.
+
+## 19. The action block (owner requirement 2026-11-09, ADR 0040 §2)
+"The trigger block and the deploy-run block are in essence one block, only their behaviour differs."
+
+- **One block.** `invoke` is the action block; there is no trigger block, no button block, no run-on-deploy block. Its header reads `ACT · <id> · <node> · <action>`.
+- **On the block by default**: the required arguments, `Trigger`, `Ok`, `Error`. A behaviour that is set (`Every`, `Run on start`, …) becomes a row too, and so does anything wired. The older `in` (`Run when`) and `out` stay in the inspector: a definition that wires them still shows them.
+- **The inspector lists its fields in groups** (11/600 uppercase headings; `groupOf`):
+
+| Group | Fields | Editors |
+|---|---|---|
+| Target | `Node` (`path`), `Action` | text; static (ADR 0040 §1a: a command target takes no wire) |
+| Arguments | one per key of `args`, then the action's parameters that have no key yet | as the action's `~meta` types it: choices → a dropdown, bool → a toggle, number, text; or a binding through `arg.<name>`. Typing a value or binding adds the key; emptying an optional one takes it out of the call |
+| Behaviour | `Trigger` · `Run when` · `Auto run` · `Every` · `Enabled` · `Run on start` · `Run on` · `Allow bad quality` | `Trigger` bound: the binding. Unbound: the button `Run`. `Every`: a number and its unit (ms, s, min, h; written as `interval_ms`). `Run on start`: a toggle that asks first (`Run on every start?`) with the catalog's own `WARNING:` text |
+| Events | `Sent` · `Ok` · `Error` | outputs to wire on; each reads when it last fired (`14:03:27`), `Error` also its code and message (`busy: queue full`) |
+| State | `Output` (`out`) · `Result` · `Running` · `Last run` | read only; `Result` opens in the value viewer |
+
+- **`Run`** calls the engine's `dataflows/<id>` ▸ `trigger {node}` on the DEPLOYED flow (`TriggerBlockAction`; inside a custom block the node is `<instance>/<inner>`). It is off, with the reason under the button, when: the broker has no trigger action; the flow is not deployed; the draft differs from the deployed version (`Deploy first: Run acts on the deployed version…`; so also during a preview); the block is disabled; the user lacks `write` on the flow. A refusal of the broker is said in words: `permission_denied` (which carries no text) → `You may not run it: this needs write on the flow and on what the block acts on`; `not_supported` → `The flow is not running`.
+- **The same groups** for `set`, `load_value` and `list_children`, where the catalog gives them the fields (`behavesOf`: a `trigger` input and the event outputs). A `set` stays its point on the canvas (one row); `load_value` and `list_children` show their key, `Trigger`, `Error` and `Output`. The readers have no `Run`: the engine's trigger action is for commands.
+- **In a preview** the block's trigger row reads `would send …` in the ghost colour, with the `preview` chip: what it would send, nothing is sent (the engine reports `sinks` and `sent` only).
+- A wire into `Trigger`, an argument or a behaviour carries no `fires at deploy` chip: only `in` acts on a value sent at start (ADR 0040 §2, the start rule).
+
+Goldens: `flow_action_block`, `flow_action_run`.
+
+## 20. Custom blocks (owner requirement 2026-11-09, ADR 0040 §3)
+"We cannot create custom blocks; I see the tab, but…"
+
+- **Create.** `Create custom block…` (the menu of a selection) opens a dialog: `Name` (a free `block<n>` proposed), `Description`, then the ports the selection has — one input per outside source that feeds it, one output per inside field that feeds a block outside (`extractSubflow`) — each with its name in a field and what it is wired to beside it (`← a.out`, `→ mean.in`); an input also has a `default`. Names are `[A-Za-z0-9_]+`, unique among inputs and outputs together, the block's name free in this flow; what is wrong is said in coral and `Create` is off. `Create` replaces the selection by ONE instance (`<name>1`, at the selection's top-left), its wires re-routed to the instance's ports; the definition goes into the flow's `blocks`. One step of the history.
+- **An instance** draws like a block: the chip `MY` (ember), its id, the block's name on the right; one row per declared input (both ports: a value or a binding; its constant is the instance's `values.<input>`, else the block's `default`) and per declared output; the last row `Open inside`. Live values come from the inner nodes: an input reads the inner input its `to[0]` names, an output the inner output `from`, under `<instance>/<inner>` in the rows of `watch` and `preview`.
+- **Edit.** `Edit custom block` (an instance's menu), `Open inside` (its row, the inspector's button) and `Edit custom block` of a My blocks entry show the block's INSIDE on the same canvas:
+  - the path reads `Flows › <flow> › <block>` (each part a link back to its level) with `Back` before it; after it: `<n> instances in this flow · a change here changes them all`;
+  - two blocks stand for the boundary: `Inputs` (one right port per declared input; its inspector types each input's default; − / + take or add one, `in1`, `in2`, …) and `Outputs` (one left port per declared output; − / +). A wire from `Inputs.<a>` to an inner field is the input's `to` (it may feed several); a wire from an inner output into `Outputs.<x>` is the output's `from`. They are not copied, cut or deleted;
+  - every tool of the canvas works there, with a history of its own; opened from an instance, the inner blocks show that instance's live values;
+  - `Validate` and the preview always read the whole flow; `Deploy` is off (`Go back to the flow to deploy`);
+  - `Back` (or a part of the path) writes what was drawn as the block's definition, for every instance in this flow; an instance loses the wires and constants of a port the block no longer has. In the flow's history this is one step, and only when something changed.
+  A block opens inside itself never, and at most four deep (the engine's limits).
+- **My blocks** (the palette's second tab):
+
+| Group | Entries | Drag or tap | Menu |
+|---|---|---|---|
+| `This flow` | the flow's `blocks`: `MY`, the name, `<n> used` (or `library v<n>` when the library holds another version) | places an instance (not of the block whose inside is open: `A block cannot contain itself`) | `Edit custom block` · `Save to library` (`put_block`; needs config on `dataflows`) · `Rename` (the definition and every instance) · `Update from library` (only when the library's version is not the copied one) · `Delete` (only when no instance is left: `<n> instances use it`) |
+| `Site library` | `list_blocks`: `LIB`, the name, `v<n>` | COPIES the block into this flow with the blocks it uses (`get_block`: `def` and `requires`), then places an instance; one step of the history | `Delete from library` (`remove_block`; needs config) |
+
+  A flow copies, it does not link (ADR 0040 §3): a block of the flow with the name of a library block is the flow's own until `Update from library` replaces it. `Save to library` sends the blocks it uses first, when the library does not hold them. The library version a block was copied at is kept as an editor key of the block's `layout` (`_~lib~version: [n, 0]`; spec 06 0.2.26: the engine reads none of `layout`).
+- **Clipboard.** A copied instance carries its block's definition, and the definitions that one uses (`blocks` in `wyrm-flow-blocks/1`, §13). Pasted into another flow, the definitions come along; where that flow has a block of the same name, its own stays.
+- **Limits** are the engine's (64 blocks, 64 inputs and 64 outputs, depth 4, 1000 nodes, 4000 edges); beyond the dialog's checks they are said by `Validate`.
+
+State: `frames` (a `FlowFrame` per open inside: the draft above, the block, the instance, its history), `library`, `libraryOff`. Selectors: `root` (the flow with every inside folded back), `allTypes` (the catalog with one type per custom block), `caps`. Actions: `CreateCustomBlockAction`, `EnterBlockAction`, `LeaveBlockAction`, `ResizeBlockPortsAction`, `RenameCustomBlockAction`, `RemoveCustomBlockAction`, `RetrieveBlockLibraryAction`, `PlaceLibraryBlockAction`, `SaveBlockToLibraryAction`, `UpdateBlockFromLibraryAction`, `RemoveLibraryBlockAction`. Pure code: `flow_blocks.dart`. Goldens: `flow_custom_dialog`, `flow_custom_instance`, `flow_my_blocks`, `flow_custom_inside`.
+
+**Not built (said, not hidden):** renaming a port of an existing block (take it away and add one); "update every flow that copied a library block" (each flow updates its own copy).
+
+## 21. A broker without ADR 0040
+The editor reads what the broker can do; it assumes nothing (`FlowCaps`, `flowCapsOf`).
+
+| Read from | Missing | What the editor does |
+|---|---|---|
+| a catalog parameter with `scope` | keys from a port | `Point` has no left port; a wire dragged onto it is refused: `This broker cannot bind Point (its flow engine is older than ADR 0040)` |
+| a catalog type with `trigger: true` | the trigger action | the action block has the older shape (`Run when`, `Result`); a `Trigger` field, where one exists, has `Run` off: `This broker has no trigger action…` |
+| `dyn_inputs.keys` of `invoke` | argument ports | an action dropped from the tree keeps the older definition (`on: rising`, only arguments with a default); arguments are typed, not bound |
+| `list_blocks` answering | custom blocks | `My blocks` is off with the reason; `Create custom block…` and `Edit custom block` are off: `This broker has no custom blocks…`; a definition that has `blocks` still draws |
+
+The Tree tab needs nothing new: it works on every broker.
+
+## 22. Owner's requirements (2026-11-09, fifth review) and what changed
+1. "Bind the path straight into a subscribe block": the key is a field with a left port; its scope is asked on the field and shown as a row (§17).
+2. "Take the tree we have in the other menu section … extend it for the dataflow": the Tree tab is the Explorer's tree with value leaves and action rows; values and actions are dragged into the flow (§18).
+3. "The trigger block and the deploy-run block are in essence one block": one action block, its behaviours as fields in groups, `Run` on the deployed flow (§19).
+4. "We cannot create custom blocks": create from a selection, open and edit the inside, the My blocks tab with the site's library (§20).
+5. The blocks of ADR 0040 §4 are in the palette in words, with their fields (`docs/flow-blocks.md`).
