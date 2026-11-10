@@ -23,7 +23,6 @@ sequenceDiagram
     VM->>+A1: dispatchAndWait
     Note over A1: WaitingAction · async
     A1->>ST: copyWith(access.users, access.grants, access.audit)
-    A1--xVM: UserException
     A1-->>-VM: ActionStatus
 
     User->>UI: onTab
@@ -44,14 +43,12 @@ sequenceDiagram
     A4-->>-VM: ActionStatus
     VM->>+A5: dispatchAndWait
     Note over A5: WaitingAction · async
-    A5--xVM: UserException
     A5->>A1: dispatchAndWait
     A5-->>-VM: ActionStatus
     alt await ConfirmDialog.ask(context, title: S.current.removeUserTitle(u.name), message: S.current.removeUserNote, confirm: S.current.remove, cancel: S.current.cancel)
         VM->>+A6: dispatchAndWait
         Note over A6: WaitingAction · async
         A6->>ST: copyWith(access.users, access.selected)
-        A6--xVM: UserException
         A6-->>-VM: ActionStatus
     end
 ```

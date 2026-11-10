@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
+import '../containers/fault_boundary.dart';
 import '../containers/side_panels.dart';
 import '../flows/block_palette.dart';
 import '../flows/custom_block_dialog.dart';
@@ -563,26 +564,29 @@ class FlowEditorPage extends StatelessWidget {
         onMenu: (entry, item) => unawaited(_paletteMenu(context, entry, item)),
       ),
     ),
-    center: FlowCanvas(
-      blocks: blocks,
-      wires: wires,
-      actions: blockActions,
-      onClear: onClear,
-      onMove: onMove,
-      onDrop: onDrop,
-      legend: legend,
-      onSelectMany: onSelectMany,
-      onCommand: (command, {at}) => unawaited(
-        _command(context, command, deployOn: deployOn, at: at),
+    center: FaultBoundary(
+      panel: .canvas,
+      child: FlowCanvas(
+        blocks: blocks,
+        wires: wires,
+        actions: blockActions,
+        onClear: onClear,
+        onMove: onMove,
+        onDrop: onDrop,
+        legend: legend,
+        onSelectMany: onSelectMany,
+        onCommand: (command, {at}) => unawaited(
+          _command(context, command, deployOn: deployOn, at: at),
+        ),
+        menu: menu,
+        onPin: onPin,
+        onViewField: onViewField,
+        dropChoice: _dropChoice,
+        prompt: prompt,
+        onPromptSave: onPromptSave,
+        onPromptCancel: onPromptCancel,
+        validatePrompt: validatePrompt,
       ),
-      menu: menu,
-      onPin: onPin,
-      onViewField: onViewField,
-      dropChoice: _dropChoice,
-      prompt: prompt,
-      onPromptSave: onPromptSave,
-      onPromptCancel: onPromptCancel,
-      validatePrompt: validatePrompt,
     ),
     right: SidePanel(
       width: panels.right,

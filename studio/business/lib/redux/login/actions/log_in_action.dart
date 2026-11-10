@@ -1,9 +1,10 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/grant.dart';
 import 'package:models/login_failure.dart';
 import 'package:wyrm_client/wyrm_client.dart' hide Grant;
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/session.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -38,13 +39,12 @@ class LogInAction extends Action with WaitingAction {
     final gateways = parseGateways(login.gateway ?? '');
     final user = (login.user ?? '').trim();
     final password = login.password ?? '';
-    if (gateways.isEmpty) {
-      throw const UserException(
-        'Type the gateway URL, e.g. http://127.0.0.1:8445.',
-      );
-    }
-    if (user.isEmpty || password.isEmpty) {
-      throw const UserException('Type the user and the password.');
+    // An empty or malformed field is the form's to say, under the field
+    // (docs/design/specs/errors.md §2: validation is inline, never a
+    // dialog). The page validates before it dispatches; a dispatch that
+    // comes without that changes nothing.
+    if (gateways.isEmpty || user.isEmpty || password.isEmpty) {
+      return state;
     }
 
     // 1. Reaching: the first gateway that answers a probe; the others are
@@ -67,10 +67,7 @@ class LogInAction extends Action with WaitingAction {
           probes: probes,
         ),
       );
-      throw UserException(
-        'Cannot reach the gateway.',
-        reason: last.reason,
-      ).withDialog(false);
+      throw _unreachable(last.reason ?? '', gateways.first).withDialog(false);
     }
 
     // 2. Checking the user and the password.
@@ -88,11 +85,10 @@ class LogInAction extends Action with WaitingAction {
         ),
       );
       // The page shows both inline (spec §5), so no dialog.
-      throw UserException(
-        wrong
-            ? 'The gateway refused the user or the password.'
-            : 'Cannot reach the gateway.',
-        reason: e.message,
+      throw StudioException.refused(
+        e,
+        call: 'log_in',
+        thing: '${gateways.first}',
       ).withDialog(false);
     } on Object catch (e) {
       dispatchSync(
@@ -102,10 +98,7 @@ class LogInAction extends Action with WaitingAction {
           reason: '$e',
         ),
       );
-      throw UserException(
-        'Cannot reach the gateway.',
-        reason: '$e',
-      ).withDialog(false);
+      throw _unreachable(faultLine(e), gateways.first).withDialog(false);
     }
 
     // 3. Reading the role and the sites.
@@ -115,7 +108,19 @@ class LogInAction extends Action with WaitingAction {
       me = await session.me();
     } on Object catch (e) {
       await session.close();
-      throw UserException('The gateway did not say who you are.', reason: '$e');
+      throw switch (e) {
+        final WyrmException w => StudioException.refused(
+          w,
+          call: 'me',
+          thing: '${gateways.first}',
+        ),
+        _ => StudioException.said(
+          ErrorKind.reach,
+          faultLine(e),
+          call: 'me',
+          thing: '${gateways.first}',
+        ),
+      };
     }
     await deps.attach(session);
 
@@ -149,3 +154,13 @@ IList<String> remembered(IList<String> recent, String gateway) {
   final g = gateway.trim();
   return [g, ...recent.where((r) => r != g)].take(5).toIList();
 }
+
+/// No gateway answered: a `reach` error with what the probe said. The page
+/// shows it itself (login.md §5), so it opens no dialog.
+StudioException _unreachable(String reason, Object gateway) =>
+    StudioException.said(
+      ErrorKind.reach,
+      reason,
+      call: 'log_in',
+      thing: '$gateway',
+    );

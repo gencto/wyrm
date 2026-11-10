@@ -13,13 +13,16 @@ import '../../common/action.dart';
 class RetrieveAuditAction extends Action with WaitingAction {
   RetrieveAuditAction(this.key, {this.n = 500});
 
+  @override
+  Action again() => RetrieveAuditAction(key, n: n);
+
   final String key;
   final int n;
 
   @override
   Future<AppState?> reduce() async {
     final root = key.split('/').take(2).join('/');
-    final rows = await invokeAll(
+    final rows = await askAll(
       deps.wyrm,
       '$root/sys/audit',
       'tail',

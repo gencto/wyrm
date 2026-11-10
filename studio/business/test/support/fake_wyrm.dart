@@ -156,6 +156,9 @@ class FakeWyrmApi implements WyrmApi {
     int? limit,
   }) async {
     calls.add(Call('history', key));
+    if (errors['$key ▸ history'] case final e?) {
+      throw e;
+    }
     return histories[key] ?? const [];
   }
 

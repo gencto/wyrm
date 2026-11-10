@@ -15,6 +15,9 @@ class RetrieveFlowsAction extends Action with WaitingAction {
   RetrieveFlowsAction({super.quiet});
 
   @override
+  Action again() => RetrieveFlowsAction(quiet: quiet);
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -22,7 +25,7 @@ class RetrieveFlowsAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/dataflows';
-    final ids = await call('Cannot list the flows', () => api.children(base));
+    final ids = await listOf(api, base);
     final vals = await readValues(api, '$base/*');
     final flows = <FlowSummary>[];
     for (final c in ids) {

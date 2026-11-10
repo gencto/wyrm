@@ -14,7 +14,9 @@ import 'package:pro_pretty_logging/pro_pretty_logging.dart';
 import 'app.dart';
 import 'common/window.dart';
 import 'errors.dart';
+import 'faults.dart';
 import 'navigation/app_router.dart';
+import 'start_fault_app.dart';
 
 bool get isDesktop =>
     [
@@ -36,7 +38,22 @@ Future<void> runEnv(Environment env) async {
 
   prettyLogging(enable: kDebugMode);
 
-  final store = await createStore(env, onError: translateError);
+  // Studio's own settings do not open: the start screen, and nothing else
+  // of the app (docs/design/specs/errors.md §6). Fresh settings start it
+  // again from here.
+  final Store<AppState> store;
+  try {
+    store = await createStore(env, wording: wordError);
+  } on StorageFault catch (fault) {
+    debugPrint('settings did not open: $fault');
+    if (isDesktop) {
+      await setUpPlainWindow();
+    }
+    runApp(StartFaultApp(fault: fault, onFresh: () => runEnv(env)));
+    return;
+  }
+
+  installFaultHooks(store);
 
   await (store.dependencies! as AppDependencies).warmUp();
 

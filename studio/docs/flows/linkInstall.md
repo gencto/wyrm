@@ -258,7 +258,6 @@ sequenceDiagram
         VM->>+A2: dispatchAndWait
         Note over A2: NonReentrant · WaitingAction · async
         A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.step)
-        A2--xVM: UserException
         A2->>ST: dispatch(_Phase)
         A2->>ST: dispatch(RetrieveLinksAction)
         A2-->>-VM: ActionStatus

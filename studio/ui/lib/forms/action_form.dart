@@ -30,6 +30,8 @@ class ActionForm extends StatefulWidget {
     this.busy = false,
     this.columns = 1,
     this.disabledReason,
+    this.errors = const {},
+    this.focus,
     super.key,
   });
 
@@ -48,6 +50,15 @@ class ActionForm extends StatefulWidget {
   /// Why the user cannot submit (rule 8).
   final String? disabledReason;
 
+  /// What the broker said of a field when it refused the last submit, by
+  /// field id: shown under the field until the user changes it
+  /// (docs/design/specs/errors.md §3, *Back to the form*).
+  final Map<String, String> errors;
+
+  /// The field to put the focus in when it changes to an id: the one the
+  /// refusal names.
+  final String? focus;
+
   @override
   State<ActionForm> createState() => _ActionFormState();
 }
@@ -56,6 +67,36 @@ class _ActionFormState extends State<ActionForm> {
   late final Map<String, Object?> _values = {
     for (final f in widget.fields) f.id: f.value,
   };
+
+  final _nodes = <String, FocusNode>{};
+
+  /// The fields changed since their error came: it is said no longer.
+  final _edited = <String>{};
+
+  @override
+  void didUpdateWidget(ActionForm old) {
+    super.didUpdateWidget(old);
+    if (!identical(widget.errors, old.errors)) {
+      _edited.clear();
+    }
+    final id = widget.focus;
+    if (id != null &&
+        (id != old.focus || !identical(widget.errors, old.errors))) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _nodes[id]?.requestFocus();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final n in _nodes.values) {
+      n.dispose();
+    }
+    super.dispose();
+  }
 
   bool get _complete => widget.fields.every(
     (f) => !f.required || (_values[f.id] != null && _values[f.id] != ''),
@@ -85,10 +126,16 @@ class _ActionFormState extends State<ActionForm> {
           unit: f.unit,
           choices: f.choices,
           required: f.required,
-          error: f.error,
+          error: _edited.contains(f.id)
+              ? f.error
+              : (widget.errors[f.id] ?? f.error),
+          focusNode: _nodes[f.id] ??= FocusNode(debugLabel: f.id),
           enabled: f.enabled && !widget.busy,
           description: f.description,
-          onChanged: (v) => setState(() => _values[f.id] = v),
+          onChanged: (v) => setState(() {
+            _values[f.id] = v;
+            _edited.add(f.id);
+          }),
           onPickFile: () => _pick(f),
         ),
     ];

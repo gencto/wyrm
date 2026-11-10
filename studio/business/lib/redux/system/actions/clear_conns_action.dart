@@ -11,6 +11,9 @@ import '../../links/actions/retrieve_links_action.dart';
 /// links that are not connected and answers their ids ([removed]; nothing
 /// when there were none). Their ids are retired. The links are read again.
 class ClearConnsAction extends Action with NonReentrant, WaitingAction {
+  @override
+  Action again() => ClearConnsAction();
+
   /// The ids the broker removed, known when the action has ended.
   List<String> removed = const [];
 

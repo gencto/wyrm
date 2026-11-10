@@ -14,19 +14,28 @@ import 'package:app/run_env.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart' as business;
+import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/nodes/actions/invoke_node_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/wyrm/calls.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:models/error_kind.dart';
+import 'package:ui/alerts/toast_stack.dart';
+import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/overlays/problems_drawer.dart';
 import 'package:ui/tables/log_table.dart';
 import 'package:ui/trees/tree_row.dart';
 import 'package:window_manager/window_manager.dart';
@@ -38,6 +47,19 @@ const password = String.fromEnvironment(
   'WYRM_PASSWORD',
   defaultValue: 'wyrm-demo-1',
 );
+
+/// A read nobody asked for, of a key that is not there: a quiet failure.
+class _QuietRead extends business.Action {
+  _QuietRead(this.key) : super(quiet: true);
+
+  final String key;
+
+  @override
+  Future<AppState?> reduce() async {
+    await metaOf(deps.wyrm, key);
+    return null;
+  }
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -312,6 +334,25 @@ void main() {
     await settle(tester, 500);
   }
 
+  /// The error dialog is a route over the app: its own layer.
+  Future<void> dialogShot(WidgetTester tester, String name) async {
+    await tester.pump(const Duration(milliseconds: 400));
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find
+          .ancestor(
+            of: find.byType(ErrorDialog),
+            matching: find.byType(RepaintBoundary),
+          )
+          .first,
+    );
+    final image = await boundary.toImage(pixelRatio: 2);
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    final dir = Directory('${Directory.systemTemp.path}/wyrm-screens')
+      ..createSync(recursive: true);
+    debugPrint('screen ${dir.path}/$name.png');
+    File('${dir.path}/$name.png').writeAsBytesSync(png!.buffer.asUint8List());
+  }
+
   testWidgets('log in and visit every workspace', (tester) async {
     await runEnv(await Environment.dev());
     // The window opens where the user left it and as large (once it is
@@ -323,14 +364,44 @@ void main() {
     await shot(tester, '00_login');
 
     final fields = find.byType(EditableText);
-    await tester.enterText(fields.at(0), gateway);
-    await tester.enterText(fields.at(1), 'admin');
-    await tester.enterText(fields.at(2), password);
-    await tester.tap(find.text('Log in').last);
-    await settle(tester, 4000);
     final store = StoreProvider.backdoorInheritedWidget<AppState>(
       tester.element(find.byType(Router<Object>).first),
     );
+
+    // Errors the page shows itself (docs/design/specs/errors.md §2): a
+    // gateway that does not answer and a wrong password are inline, never
+    // a dialog, and each is a line in Problems.
+    await tester.enterText(fields.at(0), 'http://127.0.0.1:9');
+    await tester.enterText(fields.at(1), 'admin');
+    await tester.enterText(fields.at(2), password);
+    await tester.tap(find.text('Log in').last);
+    await settle(tester, 6000);
+    expect(find.byType(ErrorDialog), findsNothing);
+    final first = store.state.problems.items.first;
+    debugPrint(
+      'errors: unreachable gateway → ${first.kind.name}/'
+      '${first.status?.name}: ${first.title}',
+    );
+    expect(store.state.problems.items.first.kind, ErrorKind.reach);
+    await shot(tester, '00b_login_unreachable');
+
+    await tester.enterText(fields.at(0), gateway);
+    await tester.enterText(fields.at(2), 'not-the-password');
+    await tester.tap(find.text('Log in').last);
+    await settle(tester, 4000);
+    expect(find.byType(ErrorDialog), findsNothing);
+    debugPrint(
+      'errors: wrong password → ${store.state.problems.items.first.kind.name}'
+      '/${store.state.problems.items.first.status?.name}: '
+      '${store.state.problems.items.first.title}',
+    );
+    expect(store.state.problems.items.first.kind, ErrorKind.rights);
+    expect(store.state.problems.toasts, isEmpty);
+    await shot(tester, '00c_login_wrong');
+
+    await tester.enterText(fields.at(2), password);
+    await tester.tap(find.text('Log in').last);
+    await settle(tester, 4000);
     debugPrint(
       'after log in: token=${store.state.session.token} '
       'site=${store.state.site.name} wait=${store.state.wait} '
@@ -535,5 +606,82 @@ void main() {
         await shot(tester, '0${i + 2}b_links_modbus');
       }
     }
+
+    // ---- errors (docs/design/specs/errors.md) -------------------------------
+    // Real refusals of the demo broker; nothing on it is changed.
+    final site = store.state.site.name;
+    String said() {
+      final e = store.state.problems.items.firstOrNull;
+      return e == null
+          ? 'nothing'
+          : '${e.kind.name}/${e.status?.name} "${e.title}" [${e.where}] '
+                '"${e.message}"';
+    }
+
+    // A call the user started, refused on its argument: the dialog.
+    final mock = 'wy/$site/downstream/mock';
+    await store.dispatchAndWait(InvokeNodeAction(mock, 'count', {'n': -1}));
+    await settle(tester, 1200);
+    debugPrint('errors: count n=-1 → ${said()}');
+    if (find.byType(ErrorDialog).evaluate().isNotEmpty) {
+      await dialogShot(tester, '09a_error_dialog');
+      await tester.tap(find.byKey(const ValueKey('error-details')));
+      await settle(tester, 400);
+      await dialogShot(tester, '09b_error_dialog_details');
+      // A second error while it is open: Problems only.
+      final before = store.state.problems.items.length;
+      await store.dispatchAndWait(
+        InvokeNodeAction('wy/$site/downstream/no-such-link', 'ping'),
+      );
+      await settle(tester, 800);
+      expect(find.byType(ErrorDialog), findsOneWidget);
+      expect(store.state.problems.items.length, before + 1);
+      debugPrint('errors: a missing key while a dialog is open → ${said()}');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester, 600);
+      expect(find.byType(ErrorDialog), findsNothing);
+    }
+
+    // The same missing key with nothing open: the Gone dialog.
+    await store.dispatchAndWait(
+      InvokeNodeAction('wy/$site/downstream/no-such-link', 'ping'),
+    );
+    await settle(tester, 1200);
+    debugPrint('errors: a missing key → ${said()}');
+    if (find.byType(ErrorDialog).evaluate().isNotEmpty) {
+      await dialogShot(tester, '09c_error_gone');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester, 600);
+    }
+
+    // Something Studio does on its own: a toast, then the drawer.
+    await store.dispatchAndWait(
+      RetrieveNodeDetailAction('wy/$site/downstream/no-such-link/nope'),
+    );
+    await store.dispatchAndWait(RetrieveLinksAction(quiet: true));
+    await store.dispatchAndWait(
+      _QuietRead('wy/$site/downstream/no-such-link/nope'),
+    );
+    await settle(tester, 800);
+    if (find.byType(ErrorDialog).evaluate().isNotEmpty) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester, 600);
+    }
+    debugPrint(
+      'errors: quiet read → ${said()}; toasts '
+      '${store.state.problems.toasts.length}, unread '
+      '${store.state.problems.unread}',
+    );
+    expect(store.state.problems.toasts, isNotEmpty);
+    expect(find.byType(ToastStack), findsOneWidget);
+    await shot(tester, '09d_error_toast');
+    await tester.tap(find.byKey(const ValueKey('problems-pill')));
+    await settle(tester, 800);
+    expect(find.byType(ProblemsDrawer), findsOneWidget);
+    expect(store.state.problems.unread, 0);
+    await shot(tester, '09e_problems');
+    debugPrint('errors: overflow ${tester.takeException()}');
+    await tester.tap(find.byKey(const ValueKey('problems-close')));
+    await settle(tester, 400);
   }, skip: gateway.isEmpty);
 }

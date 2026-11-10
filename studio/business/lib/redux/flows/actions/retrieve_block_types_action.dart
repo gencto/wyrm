@@ -15,6 +15,9 @@ class RetrieveBlockTypesAction extends Action with WaitingAction {
   RetrieveBlockTypesAction({super.quiet});
 
   @override
+  Action again() => RetrieveBlockTypesAction(quiet: quiet);
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -27,7 +30,7 @@ class RetrieveBlockTypesAction extends Action with WaitingAction {
 
 /// The block catalogue of the site at [root], sorted by category, then type.
 Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async {
-  final cat = await invokeOne(api, '$root/dataflows', 'node_types');
+  final cat = await askOne(api, '$root/dataflows', 'node_types');
   final types =
       [
         if (cat case VArray(:final v))

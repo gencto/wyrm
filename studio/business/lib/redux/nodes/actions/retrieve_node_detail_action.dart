@@ -5,6 +5,7 @@ import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_details_action.dart';
+import 'retrieve_nodes_action.dart';
 
 /// Reads the full `~meta` of [key] into `nodes.detail` (the actions, `cfg`
 /// and `attr` the tree's `view=list` leaves out).
@@ -15,6 +16,12 @@ import 'retrieve_details_action.dart';
 /// folder without a call; their children come from the tree's list.
 class RetrieveNodeDetailAction extends Action with WaitingAction {
   RetrieveNodeDetailAction(this.key);
+
+  @override
+  Action again() => RetrieveNodeDetailAction(key);
+
+  @override
+  Action reload() => RetrieveNodesAction();
 
   final String key;
 
@@ -29,7 +36,8 @@ class RetrieveNodeDetailAction extends Action with WaitingAction {
       );
     }
     final m = await call(
-      'Cannot read $key',
+      'meta',
+      key,
       () => RetrieveDetailsAction.inTurn(() => deps.wyrm.meta(key)),
     );
     return state.copyWith.nodes(

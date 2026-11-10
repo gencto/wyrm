@@ -58,36 +58,59 @@ Future<void> showLinkParams(BuildContext context, String id) async {
   }
   final newest = store.state.links.revisions.firstOrNull;
   var text = newest?.params ?? '{}';
+  // Checked as it is typed and said under the field; text that is not one
+  // JSON object cannot be staged (docs/design/specs/errors.md §2:
+  // validation is inline, never a dialog).
+  String? problem(String json) => switch (UpdateLinkParamsAction.problemOf(
+    json,
+  )) {
+    null => null,
+    '' => S.current.paramsNotObject,
+    final detail => S.current.paramsNotJson(detail),
+  };
   await showDialog<void>(
     context: context,
-    builder: (dialog) => PanelDialog(
-      title: S.current.editParamsOf(id),
-      width: 760,
-      note: S.current.editParamsNote,
-      actions: [
-        Button.primary(
-          label: S.current.stage,
-          onPressed: () async {
-            final status = await store.dispatchAndWait(
-              UpdateLinkParamsAction(id, text, from: 'rev ${newest?.rev ?? 0}'),
-            );
-            if (status.isCompletedOk && dialog.mounted) {
-              Navigator.of(dialog).pop();
-            }
-          },
-        ),
-      ],
-      child: ParamForm(
-        fields: [
-          ParamFieldVm(
-            id: 'params',
-            label: S.current.paramsJson(newest?.rev ?? 0),
-            kind: ParamKind.textarea,
-            value: text,
-            onChanged: (v) => text = v as String? ?? '',
+    builder: (dialog) => StatefulBuilder(
+      builder: (context, setState) {
+        final wrong = problem(text);
+        return PanelDialog(
+          title: S.current.editParamsOf(id),
+          width: 760,
+          note: S.current.editParamsNote,
+          actions: [
+            Button.primary(
+              label: S.current.stage,
+              disabledReason: wrong,
+              onPressed: wrong != null
+                  ? null
+                  : () async {
+                      final status = await store.dispatchAndWait(
+                        UpdateLinkParamsAction(
+                          id,
+                          text,
+                          from: 'rev ${newest?.rev ?? 0}',
+                        ),
+                      );
+                      if (status.isCompletedOk && dialog.mounted) {
+                        Navigator.of(dialog).pop();
+                      }
+                    },
+            ),
+          ],
+          child: ParamForm(
+            fields: [
+              ParamFieldVm(
+                id: 'params',
+                label: S.current.paramsJson(newest?.rev ?? 0),
+                kind: ParamKind.textarea,
+                value: text,
+                error: wrong,
+                onChanged: (v) => setState(() => text = v as String? ?? ''),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     ),
   );
 }

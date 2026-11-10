@@ -59,5 +59,8 @@ class SaveBlockToLibraryAction extends Action {
   }
 
   @override
-  void after() => unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
+  void after() {
+    super.after();
+    unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
+  }
 }

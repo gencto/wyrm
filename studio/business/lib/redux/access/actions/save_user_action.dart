@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:async_redux/async_redux.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_access_action.dart';
@@ -45,7 +45,12 @@ class SaveUserAction extends Action with WaitingAction {
         }
       }
     } on WyrmException catch (e) {
-      throw UserException('The gateway refused it.', reason: e.message);
+      throw StudioException.refused(
+        e,
+        call: 'save_user',
+        thing: name,
+        write: true,
+      );
     }
     return null;
   }

@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -14,6 +15,9 @@ import '../../common/action.dart';
 /// no text.
 class TriggerBlockAction extends Action with NonReentrant {
   TriggerBlockAction(this.node);
+
+  @override
+  Action again() => TriggerBlockAction(node);
 
   final String node;
 
@@ -29,7 +33,15 @@ class TriggerBlockAction extends Action with NonReentrant {
           .invoke('$root/dataflows/$id', 'trigger', Value.from({'node': node}))
           .toList();
     } on WyrmException catch (e) {
-      throw UserException('Cannot run $node', reason: triggerRefusal(e));
+      // The status stays as data; Studio adds its sentence only where the
+      // broker sent none.
+      throw StudioException.refused(
+        WyrmException(e.status, triggerRefusal(e)),
+        key: '$root/dataflows/$id',
+        call: 'trigger',
+        thing: node,
+        write: true,
+      );
     }
     return state.copyWith.flowEditor(message: 'ran $node');
   }
@@ -44,5 +56,5 @@ String triggerRefusal(WyrmException e) => switch (e.status.known) {
   Status.notFound => 'This broker has no trigger action (it needs ADR 0040).',
   Status.invalidParameter =>
     e.message.isEmpty ? 'This block cannot be run by hand.' : e.message,
-  _ => e.message.isEmpty ? e.status.name : '${e.status.name}: ${e.message}',
+  _ => e.message,
 };

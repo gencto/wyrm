@@ -1,7 +1,8 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/points.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -27,7 +28,12 @@ class StagePointEditAction extends Action {
         .where((a) => a.name == 'edit')
         .firstOrNull;
     if (edit == null) {
-      throw UserException('$key has no edit action');
+      throw StudioException.said(
+        ErrorKind.gone,
+        'This node has no edit action.',
+        key: key,
+        call: 'edit',
+      );
     }
     final current = {for (final p in edit.params) p.name: p.defaultValue};
     final id = idOf(key);

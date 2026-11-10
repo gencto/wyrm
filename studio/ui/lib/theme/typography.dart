@@ -122,3 +122,26 @@ TextStyle wordmark({double size = 17, Color? color}) => TextStyle(
   color: color,
   letterSpacing: 0.4,
 );
+
+/// Text as a board writes it in CSS: the size, the weight and the line
+/// height it names, and no tracking. Material's base styles carry a letter
+/// spacing (0.25 on `bodyMedium`) that a style without one inherits, which
+/// makes a line about 3 % wider than the board's; the error surfaces
+/// (docs/design/specs/errors.md) are measured against their boards, so they
+/// say all four. [code] is Plex Mono. The default height is the browser's
+/// `normal` for Plex.
+TextStyle boardText({
+  double size = 14,
+  FontWeight weight = FontWeight.w400,
+  Color? color,
+  double height = 1.3,
+  bool code = false,
+  double tracking = 0,
+}) => TextStyle(
+  fontFamily: code ? AppFonts.mono : AppFonts.sans,
+  fontSize: size,
+  height: height,
+  fontWeight: weight,
+  letterSpacing: tracking,
+  color: color,
+);

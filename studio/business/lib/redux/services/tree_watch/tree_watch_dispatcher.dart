@@ -2,13 +2,18 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/node_info.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../nodes/actions/add_nodes_action.dart';
 import '../../nodes/actions/remove_nodes_action.dart';
 import '../../nodes/actions/retrieve_enum_names_action.dart';
 import '../../nodes/actions/set_children_action.dart';
+import '../../problems/actions/add_problem_action.dart';
+import '../../problems/actions/resolve_stream_action.dart';
 import 'tree_watch.dart';
 
 /// Turns list updates into the `nodes` table.
@@ -20,6 +25,11 @@ class TreeWatchDispatcher implements TreeWatchServiceListener {
   @override
   void onChildren(String parent, List<NodeInfo> children) {
     _store.dispatchSync(SetChildrenAction(parent, children.lock));
+    // A list answered: the streams of its site are open.
+    if (siteOf(parent) case final site?
+        when _store.state.problems.items.any((e) => e.stream == site)) {
+      _store.dispatchSync(ResolveStreamAction(site));
+    }
     _enumNames(children);
   }
 
@@ -45,8 +55,22 @@ class TreeWatchDispatcher implements TreeWatchServiceListener {
       _store.dispatchSync(RemoveNodesAction('$parent/$name'));
 
   @override
-  void onListError(String parent, Object error) =>
-      // The branch shows no children; the error is not the user's to act on
-      // here (a node they may not list is simply empty for them).
-      _store.dispatchSync(SetChildrenAction(parent, const IListConst([])));
+  void onListError(String parent, Object error) {
+    // The branch shows no children. A node the user may not list is simply
+    // empty for them; any other failure is a quiet problem
+    // (docs/design/specs/errors.md §4).
+    _store.dispatchSync(SetChildrenAction(parent, const IListConst([])));
+    if (error case final WyrmException w
+        when w.status.known != Status.permissionDenied) {
+      final e = refusalOf(w, key: parent, call: 'list');
+      _store.dispatchSync(
+        AddProblemAction(
+          e.copyWith(
+            quiet: true,
+            stream: e.kind == ErrorKind.reach ? e.site : null,
+          ),
+        ),
+      );
+    }
+  }
 }

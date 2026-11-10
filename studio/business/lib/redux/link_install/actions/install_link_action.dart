@@ -20,8 +20,15 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     final li = linkInstall;
     final broker = li.broker ?? site.viewed;
     final name = li.name;
+    // No name, no package: the page says so under the field and keeps
+    // Install disabled (docs/design/specs/errors.md §2: validation is
+    // inline, never a dialog), so there is nothing to send and nothing to
+    // say here.
     if (broker == null || name == null || name.isEmpty) {
-      throw const UserException('Give the link a name.');
+      return null;
+    }
+    if (li.path != 'official' && !_sendable(li.source)) {
+      return null;
     }
     final accept = <String, Object?>{
       if (li.acceptRights) 'accept': true,
@@ -45,7 +52,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
           'install_git',
           {'name': name, 'url': url, 'ref': ?ref, ...accept},
         ),
-        _ => throw const UserException('Bring a package first.'),
+        _ => throw StateError('no package to install'),
       },
     };
     dispatch(_Phase('installing'));
@@ -71,6 +78,14 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
       step: li.path == 'official' ? 3 : 4,
     );
   }
+
+  static bool _sendable(InstallSource? source) => switch (source) {
+    InstallSourceZip() ||
+    InstallSourceWasm() ||
+    InstallSourceUrl() ||
+    InstallSourceGit() => true,
+    _ => false,
+  };
 
   static (String, Map<String, Object?>) _official(
     String name,

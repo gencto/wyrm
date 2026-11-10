@@ -12,6 +12,9 @@ import 'toggle_node_action.dart';
 class RetrieveNodesAction extends Action with WaitingAction {
   RetrieveNodesAction({this.preload = const [], super.quiet});
 
+  @override
+  Action again() => RetrieveNodesAction(preload: preload, quiet: quiet);
+
   final List<String> preload;
 
   @override

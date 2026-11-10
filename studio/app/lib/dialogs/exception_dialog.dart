@@ -1,37 +1,24 @@
 import 'dart:collection';
 
 import 'package:async_redux/async_redux.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:localization/localization.dart';
 
-/// Use it like this:
-///
-/// ```
-/// class MyApp extends StatelessWidget {
-///   @override
-///   Widget build(BuildContext context)
-///     => StoreProvider<AppState>(
-///       store: store,
-///       child: MaterialApp(
-///           home: UserExceptionDialog<AppState>(
-///             child: MyHomePage(),
-///           )));
-/// }
-///
-/// ```
-///
-/// For more info, see: https://pub.dartlang.org/packages/async_redux
-///
+/// Takes each `UserException` off the store's error queue and hands it to
+/// [onShowUserExceptionDialog] after the frame (async_redux's
+/// `UserExceptionDialog`, kept here so the dialog itself is the app's).
 class ExceptionDialog<St> extends StatelessWidget {
   const ExceptionDialog({
     required this.child,
+    required this.onShowUserExceptionDialog,
     super.key,
-    this.onShowUserExceptionDialog,
     this.useLocalContext = false,
   });
   final Widget child;
-  final ShowUserExceptionDialog? onShowUserExceptionDialog;
+
+  /// Shows one queued `UserException`. There is no default: the app's own
+  /// dialog is `showUserException` (`error_dialogs.dart`,
+  /// docs/design/specs/errors.md §3), not a Material `AlertDialog`.
+  final ShowUserExceptionDialog onShowUserExceptionDialog;
 
   /// If false (the default), the dialog will appear in the context of the
   /// [NavigateAction.navigatorKey]. If you don't set up that key, or if you
@@ -70,66 +57,12 @@ class _UserExceptionDialogWidget extends StatefulWidget {
     required this.child,
     required this.errorEvent,
     required this.useLocalContext,
-    ShowUserExceptionDialog? onShowUserExceptionDialog,
-  }) : onShowUserExceptionDialog = //
-           onShowUserExceptionDialog ?? _defaultUserExceptionDialog;
+    required this.onShowUserExceptionDialog,
+  });
   final Widget child;
   final Event<UserException>? errorEvent;
   final ShowUserExceptionDialog onShowUserExceptionDialog;
   final bool useLocalContext;
-
-  static Future<void> _defaultUserExceptionDialog({
-    required BuildContext context,
-    required UserException userException,
-    required bool useLocalContext,
-  }) async {
-    var ctx = context;
-    if (!useLocalContext) {
-      final navigatorContext = NavigateAction.navigatorKey?.currentContext;
-      if (navigatorContext != null) {
-        ctx = navigatorContext;
-      }
-    }
-
-    await showDialogSuper<int>(
-      context: ctx,
-      onDismissed: (result) {
-        if (result == 1) {
-          userException.onOk?.call();
-        } else if (result == 2) {
-          userException.onCancel?.call();
-        } else {
-          if (userException.onCancel == null) {
-            userException.onOk?.call();
-          } else {
-            userException.onCancel?.call();
-          }
-        }
-      },
-      builder: (context) {
-        final (title, content) = userException.titleAndContent();
-        return AlertDialog(
-          title: Text(title),
-          content: Text(content),
-          actions: [
-            if (userException.onCancel != null)
-              TextButton(
-                child: Text(S.current.cancel),
-                onPressed: () {
-                  Navigator.of(context).pop(2);
-                },
-              ),
-            TextButton(
-              child: Text(S.current.ok),
-              onPressed: () {
-                Navigator.of(context).pop(1);
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   @override
   _UserExceptionDialogState createState() => _UserExceptionDialogState();
@@ -192,59 +125,3 @@ typedef ShowUserExceptionDialog =
       required UserException userException,
       required bool useLocalContext,
     });
-
-Future<T?> showDialogSuper<T>({
-  required BuildContext context,
-  required WidgetBuilder builder,
-  bool barrierDismissible = true,
-  Color? barrierColor = Colors.black54,
-  String? barrierLabel,
-  bool useSafeArea = true,
-  bool useRootNavigator = true,
-  RouteSettings? routeSettings,
-  void Function(T?)? onDismissed,
-}) async {
-  final result = await showDialog<T>(
-    context: context,
-    builder: builder,
-    barrierDismissible: barrierDismissible,
-    barrierColor: barrierColor,
-    barrierLabel: barrierLabel,
-    useSafeArea: useSafeArea,
-    useRootNavigator: useRootNavigator,
-    routeSettings: routeSettings,
-  );
-
-  if (onDismissed != null) {
-    onDismissed(result);
-  }
-
-  return result;
-}
-
-Future<T?> showCupertinoDialogSuper<T>({
-  required BuildContext context,
-  required WidgetBuilder builder,
-  bool barrierDismissible = true,
-  Color? barrierColor = Colors.black54,
-  String? barrierLabel,
-  bool useSafeArea = true,
-  bool useRootNavigator = true,
-  RouteSettings? routeSettings,
-  void Function(T?)? onDismissed,
-}) async {
-  final result = await showCupertinoDialog<T>(
-    context: context,
-    builder: builder,
-    barrierDismissible: barrierDismissible,
-    barrierLabel: barrierLabel,
-    useRootNavigator: useRootNavigator,
-    routeSettings: routeSettings,
-  );
-
-  if (onDismissed != null) {
-    onDismissed(result);
-  }
-
-  return result;
-}

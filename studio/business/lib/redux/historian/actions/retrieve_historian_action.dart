@@ -12,6 +12,9 @@ import '../../common/action.dart';
 /// the keys its watches record (a watch shows its key as its display name).
 class RetrieveHistorianAction extends Action with WaitingAction {
   @override
+  Action again() => RetrieveHistorianAction();
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -19,10 +22,7 @@ class RetrieveHistorianAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/sys/history';
-    final top = await call(
-      'Cannot read the historian',
-      () => api.children(base),
-    );
+    final top = await listOf(api, base);
     final values = await readValues(api, '$base/*');
     final groups = <WatchGroup>[];
     final groupValues = await readValues(api, '$base/*/*');

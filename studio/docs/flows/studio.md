@@ -4,6 +4,60 @@
 
 `app/lib/connectors/studio_page_connector.dart`
 
+## onProblems
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as OpenProblemsAction
+    participant ST as AppState
+
+    User->>UI: onProblems
+    UI->>VM: onProblems()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.open, problems.unread)
+```
+
+## onClearProblems
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as ClearProblemsAction
+    participant ST as AppState
+
+    User->>UI: onClearProblems
+    UI->>VM: onClearProblems()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.items, problems.toasts, problems.unread)
+```
+
+## onRetryProblem
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as RetryProblemAction
+    participant ST as AppState
+
+    User->>UI: onRetryProblem
+    UI->>VM: onRetryProblem()
+    VM->>+A1: dispatchAndWait
+    Note over A1: async
+    A1->>ST: dispatchSync(DismissToastAction)
+    A1->>ST: dispatchAndWait(action)
+    A1-->>-VM: ActionStatus
+```
+
 ## onSite
 
 ```mermaid
@@ -192,6 +246,9 @@ _Not drawn — these files dispatch outside any interaction:_
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
+| `onProblems` | `OpenProblemsAction` | `problems.open, problems.unread` |
+| `onClearProblems` | `ClearProblemsAction` | `problems.items, problems.toasts, problems.unread` |
+| `onRetryProblem` | `RetryProblemAction` | — |
 | `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows` |
 | `onGoToKey` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 | `onReview` | `SetOpenAction` | `changes.open` |

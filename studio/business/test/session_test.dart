@@ -95,15 +95,18 @@ void main() {
       expect(s.state.session.token, isNull);
     });
 
-    test('an empty gateway field is refused before any call', () async {
+    test('an empty gateway field makes no call and no dialog: the form '
+        'says it under the field', () async {
       final login = FakeLogin();
       final s = fakeStore(login: login);
       await fill(s, gateway: ' , ');
 
       final status = await s.dispatchAndWait(LogInAction());
 
-      expect(status.originalError, isA<UserException>());
+      expect(status.originalError, isNull);
       expect(login.gateways, isNull);
+      expect(s.state.session.token, isNull);
+      expect(s.state.problems.items, isEmpty);
     });
   });
 

@@ -47,6 +47,7 @@ final class ParamFieldVm extends Equatable {
     this.enabled = true,
     this.description,
     this.onPickFile,
+    this.focusNode,
   });
 
   /// The parameter name (the `args` key).
@@ -77,6 +78,11 @@ final class ParamFieldVm extends Equatable {
   /// Opens the file picker (kind file).
   final VoidCallback? onPickFile;
 
+  /// The focus of a typed field, when the form moves it (to the field a
+  /// refusal names). The form keeps one node per field, so it compares equal
+  /// from build to build.
+  final FocusNode? focusNode;
+
   @override
   List<Object?> get props => [
     id,
@@ -90,6 +96,7 @@ final class ParamFieldVm extends Equatable {
     error,
     enabled,
     description,
+    focusNode,
   ];
 }
 
@@ -214,6 +221,7 @@ class ParamField extends StatelessWidget {
         return DropdownButtonFormField<String>(
           key: ValueKey('${vm.id}/choice'),
           initialValue: vm.choices.contains(value) ? value : null,
+          focusNode: vm.focusNode,
           isExpanded: true,
           dropdownColor: c.ground3,
           icon: AppIcon('ui_chevron_down', size: 16, color: c.text3),
@@ -260,6 +268,7 @@ class ParamField extends StatelessWidget {
         return TextFormField(
           key: ValueKey('${vm.id}/${vm.kind.name}'),
           initialValue: vm.kind == .secret ? null : vm.value?.toString(),
+          focusNode: vm.focusNode,
           enabled: vm.enabled,
           obscureText: vm.kind == .secret,
           minLines: multi ? 3 : 1,

@@ -31,5 +31,8 @@ class RemoveLibraryBlockAction extends Action {
   }
 
   @override
-  void after() => unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
+  void after() {
+    super.after();
+    unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
+  }
 }

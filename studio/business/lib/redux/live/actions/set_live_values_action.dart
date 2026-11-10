@@ -16,9 +16,12 @@ class SetLiveValuesAction extends Action {
       return null;
     }
     var values = state.live.values;
+    var failed = state.live.failed;
     for (final MapEntry(:key, :value) in changed.entries) {
       values = value == null ? values.remove(key) : values.add(key, value);
+      // A value came: the read works again.
+      failed = failed.remove(key);
     }
-    return state.copyWith.live(values: values);
+    return state.copyWith.live(values: values, failed: failed);
   }
 }

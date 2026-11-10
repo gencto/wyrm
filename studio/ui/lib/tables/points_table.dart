@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -25,6 +26,7 @@ final class PointRowVm extends Equatable {
     this.selected = false,
     this.staged = false,
     this.stale = false,
+    this.failed,
   });
 
   /// The point's key.
@@ -56,6 +58,10 @@ final class PointRowVm extends Equatable {
   /// Offline: the value is greyed.
   final bool stale;
 
+  /// Reading its value failed: the chip beside the name (`read failed`,
+  /// docs/design/specs/errors.md §4); [value] is then `—`.
+  final FailChipVm? failed;
+
   @override
   List<Object?> get props => [
     id,
@@ -73,6 +79,7 @@ final class PointRowVm extends Equatable {
     selected,
     staged,
     stale,
+    failed,
   ];
 }
 
@@ -306,6 +313,11 @@ class PointsTable extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (r.failed case final f?)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FailChip(vm: f),
+                  ),
               ],
             ),
             Text(

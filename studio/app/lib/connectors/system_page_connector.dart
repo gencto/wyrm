@@ -16,6 +16,7 @@ import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/peers/actions/retrieve_peers_action.dart';
 import 'package:business/redux/peers/actions/set_selected_peer_action.dart';
+import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'package:business/redux/quarantine/actions/set_selected_entry_action.dart';
 import 'package:business/redux/system/actions/clear_conns_action.dart';
@@ -50,7 +51,6 @@ import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/workspace.dart';
-import 'package:ui/alerts/styled_snackbar.dart';
 import 'package:ui/alerts/warn_banner.dart';
 import 'package:ui/buttons/pill_tabs.dart';
 import 'package:ui/charts/traffic_card.dart';
@@ -1132,11 +1132,12 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   // ---- words ---------------------------------------------------------------
 
   static void _say(BuildContext context, String message, {String? title}) =>
-      StyledSnackbar.instance.show(
-        context: context,
-        title: title,
-        message: message,
-        duration: const Duration(seconds: 3),
+      StoreProvider.dispatchSync<AppState>(
+        context,
+        ShowNoticeAction(
+          title ?? message,
+          detail: title == null ? null : message,
+        ),
       );
 
   /// `link:field-gw` and `broker:line2` as the name alone.

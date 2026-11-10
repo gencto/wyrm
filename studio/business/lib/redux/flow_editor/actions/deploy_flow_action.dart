@@ -14,6 +14,12 @@ import '../../flows/actions/retrieve_flows_action.dart';
 /// layout; the gateway adds the deployer's proofs (ADR 0008, 0033).
 class DeployFlowAction extends Action with NonReentrant, WaitingAction {
   @override
+  Action again() => DeployFlowAction();
+
+  @override
+  Action reload() => RetrieveFlowsAction();
+
+  @override
   Future<AppState?> reduce() async {
     final d = flowEditor.draft;
     final root = site.root;

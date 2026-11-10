@@ -17,6 +17,7 @@ import 'nodes/models/nodes_state.dart';
 import 'packages/models/packages_state.dart';
 import 'panels/models/panels_state.dart';
 import 'peers/models/peers_state.dart';
+import 'problems/models/problems_state.dart';
 import 'quarantine/models/quarantine_state.dart';
 import 'session/models/session_state.dart';
 import 'site/models/site_state.dart';
@@ -55,6 +56,7 @@ abstract class AppState with _$AppState {
     required SystemState system,
     required PanelsState panels,
     required WindowState window,
+    required ProblemsState problems,
     required Wait wait,
   }) = _AppState;
 
@@ -82,6 +84,7 @@ abstract class AppState with _$AppState {
     system: SystemState(),
     panels: PanelsState(),
     window: WindowState(),
+    problems: ProblemsState(),
     wait: Wait.empty,
   );
 }

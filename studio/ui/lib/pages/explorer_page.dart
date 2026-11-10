@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../charts/trend_chart.dart';
 import '../containers/action_card.dart';
+import '../containers/fault_boundary.dart';
 import '../containers/inspector.dart';
 import '../containers/inspector_sections.dart';
 import '../containers/section_label.dart';
@@ -12,6 +13,7 @@ import '../containers/side_panels.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/fail_chip.dart';
 import '../indicators/key_line.dart';
 import '../indicators/key_text.dart';
 import '../indicators/quality_mark.dart';
@@ -300,6 +302,7 @@ class ExplorerPage extends StatelessWidget {
     this.historyColumns = const [],
     this.historyRows = const [],
     this.historyNote,
+    this.historyFail,
     this.auditColumns = const [],
     this.auditRows = const [],
     this.auditNote,
@@ -413,6 +416,10 @@ class ExplorerPage extends StatelessWidget {
   /// Why there is no history here (a node, not a point).
   final String? historyNote;
 
+  /// Reading the history failed: the chip over the chart (`history
+  /// unavailable`, docs/design/specs/errors.md §4).
+  final FailChipVm? historyFail;
+
   final List<ColumnVm> auditColumns;
   final List<RowVm> auditRows;
 
@@ -496,15 +503,24 @@ class ExplorerPage extends StatelessWidget {
           ? SidePanel(
               width: panels.left,
               defaultWidth: wide ? 260 : 240,
-              child: treePanel,
+              child: FaultBoundary(
+                panel: .tree,
+                child: treePanel,
+              ),
             )
           : null,
-      center: _workspace(context),
+      center: FaultBoundary(
+        panel: .workspace,
+        child: _workspace(context),
+      ),
       right: ins != null && wide
           ? SidePanel(
               width: panels.right,
               defaultWidth: 320,
-              child: _inspector(context, ins),
+              child: FaultBoundary(
+                panel: .inspector,
+                child: _inspector(context, ins),
+              ),
             )
           : null,
       onChanged: onPanelWidth,
@@ -588,6 +604,11 @@ class ExplorerPage extends StatelessWidget {
         if (historyNote case final n?)
           Text(n, style: TextStyle(fontSize: 13, color: c.text4))
         else ...[
+          if (historyFail case final f?)
+            Align(
+              alignment: .centerLeft,
+              child: FailChip(vm: f),
+            ),
           SegmentedTabs(
             tabs: ranges,
             selected: range,

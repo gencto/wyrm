@@ -139,26 +139,6 @@ class S {
     return Intl.message('Log out', name: 'logOut', desc: '', args: []);
   }
 
-  /// `Something went wrong`
-  String get somethingWentWrong {
-    return Intl.message(
-      'Something went wrong',
-      name: 'somethingWentWrong',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Please try again later.`
-  String get tryAgainLater {
-    return Intl.message(
-      'Please try again later.',
-      name: 'tryAgainLater',
-      desc: '',
-      args: [],
-    );
-  }
-
   /// `Session expired`
   String get sessionExpired {
     return Intl.message(
@@ -8780,6 +8760,1283 @@ class S {
       desc: '',
       args: [],
     );
+  }
+
+  /// `You can’t {what}`
+  String errTitleRights(String what) {
+    return Intl.message(
+      'You can’t $what',
+      name: 'errTitleRights',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `{site} did not answer`
+  String errTitleReach(String site) {
+    return Intl.message(
+      '$site did not answer',
+      name: 'errTitleReach',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `The broker did not answer`
+  String get errTitleReachNoSite {
+    return Intl.message(
+      'The broker did not answer',
+      name: 'errTitleReachNoSite',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio is not connected to a gateway`
+  String get errTitleNotConnected {
+    return Intl.message(
+      'Studio is not connected to a gateway',
+      name: 'errTitleNotConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker refused these parameters`
+  String get errTitleInput {
+    return Intl.message(
+      'The broker refused these parameters',
+      name: 'errTitleInput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker refused this value`
+  String get errTitleInputValue {
+    return Intl.message(
+      'The broker refused this value',
+      name: 'errTitleInputValue',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} is busy, {what} did not start`
+  String errTitleBusy(String site, String what) {
+    return Intl.message(
+      '$site is busy, $what did not start',
+      name: 'errTitleBusy',
+      desc: '',
+      args: [site, what],
+    );
+  }
+
+  /// `{thing} is not there anymore`
+  String errTitleGone(String thing) {
+    return Intl.message(
+      '$thing is not there anymore',
+      name: 'errTitleGone',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `{thing} does not support {call}`
+  String errTitleUnsupported(String thing, String call) {
+    return Intl.message(
+      '$thing does not support $call',
+      name: 'errTitleUnsupported',
+      desc: '',
+      args: [thing, call],
+    );
+  }
+
+  /// `{doing} failed on {site}`
+  String errTitleBroker(String doing, String site) {
+    return Intl.message(
+      '$doing failed on $site',
+      name: 'errTitleBroker',
+      desc: '',
+      args: [doing, site],
+    );
+  }
+
+  /// `{doing} failed`
+  String errTitleBrokerNoSite(String doing) {
+    return Intl.message(
+      '$doing failed',
+      name: 'errTitleBrokerNoSite',
+      desc: '',
+      args: [doing],
+    );
+  }
+
+  /// `Studio could not {what}`
+  String errTitleStudio(String what) {
+    return Intl.message(
+      'Studio could not $what',
+      name: 'errTitleStudio',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `Live values from {site} stopped`
+  String errTitleStream(String site) {
+    return Intl.message(
+      'Live values from $site stopped',
+      name: 'errTitleStream',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Reading {thing} failed`
+  String errTitleRead(String thing) {
+    return Intl.message(
+      'Reading $thing failed',
+      name: 'errTitleRead',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `History of {thing} unavailable`
+  String errTitleHistory(String thing) {
+    return Intl.message(
+      'History of $thing unavailable',
+      name: 'errTitleHistory',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `this`
+  String get errThingThis {
+    return Intl.message('this', name: 'errThingThis', desc: '', args: []);
+  }
+
+  /// `the broker`
+  String get errThingBroker {
+    return Intl.message(
+      'the broker',
+      name: 'errThingBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `deploy {thing}`
+  String errDoDeploy(String thing) {
+    return Intl.message(
+      'deploy $thing',
+      name: 'errDoDeploy',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Deploying {thing}`
+  String errDoingDeploy(String thing) {
+    return Intl.message(
+      'Deploying $thing',
+      name: 'errDoingDeploy',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the deploy`
+  String get errNounDeploy {
+    return Intl.message(
+      'the deploy',
+      name: 'errNounDeploy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `install {thing}`
+  String errDoInstall(String thing) {
+    return Intl.message(
+      'install $thing',
+      name: 'errDoInstall',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Installing {thing}`
+  String errDoingInstall(String thing) {
+    return Intl.message(
+      'Installing $thing',
+      name: 'errDoingInstall',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the install`
+  String get errNounInstall {
+    return Intl.message(
+      'the install',
+      name: 'errNounInstall',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `write {thing}`
+  String errDoWrite(String thing) {
+    return Intl.message(
+      'write $thing',
+      name: 'errDoWrite',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Writing {thing}`
+  String errDoingWrite(String thing) {
+    return Intl.message(
+      'Writing $thing',
+      name: 'errDoingWrite',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the write`
+  String get errNounWrite {
+    return Intl.message('the write', name: 'errNounWrite', desc: '', args: []);
+  }
+
+  /// `read {thing}`
+  String errDoRead(String thing) {
+    return Intl.message(
+      'read $thing',
+      name: 'errDoRead',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Reading {thing}`
+  String errDoingRead(String thing) {
+    return Intl.message(
+      'Reading $thing',
+      name: 'errDoingRead',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the read`
+  String get errNounRead {
+    return Intl.message('the read', name: 'errNounRead', desc: '', args: []);
+  }
+
+  /// `list {thing}`
+  String errDoList(String thing) {
+    return Intl.message(
+      'list $thing',
+      name: 'errDoList',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Listing {thing}`
+  String errDoingList(String thing) {
+    return Intl.message(
+      'Listing $thing',
+      name: 'errDoingList',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the list`
+  String get errNounList {
+    return Intl.message('the list', name: 'errNounList', desc: '', args: []);
+  }
+
+  /// `remove {thing}`
+  String errDoRemove(String thing) {
+    return Intl.message(
+      'remove $thing',
+      name: 'errDoRemove',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Removing {thing}`
+  String errDoingRemove(String thing) {
+    return Intl.message(
+      'Removing $thing',
+      name: 'errDoingRemove',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the removal`
+  String get errNounRemove {
+    return Intl.message(
+      'the removal',
+      name: 'errNounRemove',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `save {thing}`
+  String errDoSave(String thing) {
+    return Intl.message(
+      'save $thing',
+      name: 'errDoSave',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Saving {thing}`
+  String errDoingSave(String thing) {
+    return Intl.message(
+      'Saving $thing',
+      name: 'errDoingSave',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the save`
+  String get errNounSave {
+    return Intl.message('the save', name: 'errNounSave', desc: '', args: []);
+  }
+
+  /// `start {thing}`
+  String errDoStart(String thing) {
+    return Intl.message(
+      'start $thing',
+      name: 'errDoStart',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Starting {thing}`
+  String errDoingStart(String thing) {
+    return Intl.message(
+      'Starting $thing',
+      name: 'errDoingStart',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the start`
+  String get errNounStart {
+    return Intl.message('the start', name: 'errNounStart', desc: '', args: []);
+  }
+
+  /// `stop {thing}`
+  String errDoStop(String thing) {
+    return Intl.message(
+      'stop $thing',
+      name: 'errDoStop',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Stopping {thing}`
+  String errDoingStop(String thing) {
+    return Intl.message(
+      'Stopping $thing',
+      name: 'errDoingStop',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the stop`
+  String get errNounStop {
+    return Intl.message('the stop', name: 'errNounStop', desc: '', args: []);
+  }
+
+  /// `open {thing}`
+  String errDoOpen(String thing) {
+    return Intl.message(
+      'open $thing',
+      name: 'errDoOpen',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Opening {thing}`
+  String errDoingOpen(String thing) {
+    return Intl.message(
+      'Opening $thing',
+      name: 'errDoingOpen',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the opening`
+  String get errNounOpen {
+    return Intl.message('the opening', name: 'errNounOpen', desc: '', args: []);
+  }
+
+  /// `log in to {thing}`
+  String errDoLogIn(String thing) {
+    return Intl.message(
+      'log in to $thing',
+      name: 'errDoLogIn',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `Logging in to {thing}`
+  String errDoingLogIn(String thing) {
+    return Intl.message(
+      'Logging in to $thing',
+      name: 'errDoingLogIn',
+      desc: '',
+      args: [thing],
+    );
+  }
+
+  /// `the log-in`
+  String get errNounLogIn {
+    return Intl.message('the log-in', name: 'errNounLogIn', desc: '', args: []);
+  }
+
+  /// `run {call} on {thing}`
+  String errDoRun(String call, String thing) {
+    return Intl.message(
+      'run $call on $thing',
+      name: 'errDoRun',
+      desc: '',
+      args: [call, thing],
+    );
+  }
+
+  /// `{call} on {thing}`
+  String errDoingRun(String call, String thing) {
+    return Intl.message(
+      '$call on $thing',
+      name: 'errDoingRun',
+      desc: '',
+      args: [call, thing],
+    );
+  }
+
+  /// `{call}`
+  String errNounRun(String call) {
+    return Intl.message('$call', name: 'errNounRun', desc: '', args: [call]);
+  }
+
+  /// `finish “{step}”`
+  String errDoStep(String step) {
+    return Intl.message(
+      'finish “$step”',
+      name: 'errDoStep',
+      desc: '',
+      args: [step],
+    );
+  }
+
+  /// `The broker said`
+  String get errSaidBroker {
+    return Intl.message(
+      'The broker said',
+      name: 'errSaidBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio waited`
+  String get errSaidNoAnswer {
+    return Intl.message(
+      'Studio waited',
+      name: 'errSaidNoAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What happened`
+  String get errSaidStudio {
+    return Intl.message(
+      'What happened',
+      name: 'errSaidStudio',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No answer from the broker at {site}.`
+  String errSilentReach(String site) {
+    return Intl.message(
+      'No answer from the broker at $site.',
+      name: 'errSilentReach',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `The broker answered {status} and sent no message.`
+  String errSilentStatus(String status) {
+    return Intl.message(
+      'The broker answered $status and sent no message.',
+      name: 'errSilentStatus',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `Something in Studio failed here. This is a fault in Studio, not on the broker; nothing more was sent.`
+  String get errFaultMessage {
+    return Intl.message(
+      'Something in Studio failed here. This is a fault in Studio, not on the broker; nothing more was sent.',
+      name: 'errFaultMessage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What you can do`
+  String get errWhatYouCanDo {
+    return Intl.message(
+      'What you can do',
+      name: 'errWhatYouCanDo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ask an administrator for the right, or ask one to do it.`
+  String get errAdviceRights {
+    return Intl.message(
+      'Ask an administrator for the right, or ask one to do it.',
+      name: 'errAdviceRights',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your role is {role}. Nothing was changed on {site}.`
+  String errAdviceRightsRole(String role, String site) {
+    return Intl.message(
+      'Your role is $role. Nothing was changed on $site.',
+      name: 'errAdviceRightsRole',
+      desc: '',
+      args: [role, site],
+    );
+  }
+
+  /// `Try again; if it keeps failing, look at the link’s status in Links.`
+  String get errAdviceReach {
+    return Intl.message(
+      'Try again; if it keeps failing, look at the link’s status in Links.',
+      name: 'errAdviceReach',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Log in again: Studio has no session with a gateway.`
+  String get errAdviceReachLogin {
+    return Intl.message(
+      'Log in again: Studio has no session with a gateway.',
+      name: 'errAdviceReachLogin',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back in the form, the field {field} is marked; correct it and send again.`
+  String errAdviceInputField(String field) {
+    return Intl.message(
+      'Back in the form, the field $field is marked; correct it and send again.',
+      name: 'errAdviceInputField',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `Back in the form, correct the values and send again.`
+  String get errAdviceInput {
+    return Intl.message(
+      'Back in the form, correct the values and send again.',
+      name: 'errAdviceInput',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio can try again by itself when the broker is ready.`
+  String get errAdviceBusyAuto {
+    return Intl.message(
+      'Studio can try again by itself when the broker is ready.',
+      name: 'errAdviceBusyAuto',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Wait a moment and try again.`
+  String get errAdviceBusy {
+    return Intl.message(
+      'Wait a moment and try again.',
+      name: 'errAdviceBusy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Someone removed or renamed it after this screen loaded. Refresh to see what is there now.`
+  String get errAdviceGone {
+    return Intl.message(
+      'Someone removed or renamed it after this screen loaded. Refresh to see what is there now.',
+      name: 'errAdviceGone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker or link does not have this call; it may be older than Studio expects.`
+  String get errAdviceUnsupported {
+    return Intl.message(
+      'This broker or link does not have this call; it may be older than Studio expects.',
+      name: 'errAdviceUnsupported',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker log around {time} has the rest of the story.`
+  String errAdviceBroker(String time) {
+    return Intl.message(
+      'The broker log around $time has the rest of the story.',
+      name: 'errAdviceBroker',
+      desc: '',
+      args: [time],
+    );
+  }
+
+  /// `The call reached the broker and it answered no. Check what it names above.`
+  String get errAdviceBrokerSaid {
+    return Intl.message(
+      'The call reached the broker and it answered no. Check what it names above.',
+      name: 'errAdviceBrokerSaid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Try it again; restart Studio if it keeps happening.`
+  String get errAdviceStudio {
+    return Intl.message(
+      'Try it again; restart Studio if it keeps happening.',
+      name: 'errAdviceStudio',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy the report and send it to us: it holds no values or passwords.`
+  String get errAdviceReport {
+    return Intl.message(
+      'Copy the report and send it to us: it holds no values or passwords.',
+      name: 'errAdviceReport',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A write that timed out may still have been applied. Check the value before you send it again.`
+  String get errWriteNote {
+    return Intl.message(
+      'A write that timed out may still have been applied. Check the value before you send it again.',
+      name: 'errWriteNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Details`
+  String get errDetails {
+    return Intl.message('Details', name: 'errDetails', desc: '', args: []);
+  }
+
+  /// `Status`
+  String get errRowStatus {
+    return Intl.message('Status', name: 'errRowStatus', desc: '', args: []);
+  }
+
+  /// `Call`
+  String get errRowCall {
+    return Intl.message('Call', name: 'errRowCall', desc: '', args: []);
+  }
+
+  /// `Site`
+  String get errRowSite {
+    return Intl.message('Site', name: 'errRowSite', desc: '', args: []);
+  }
+
+  /// `As`
+  String get errRowAs {
+    return Intl.message('As', name: 'errRowAs', desc: '', args: []);
+  }
+
+  /// `Gateway`
+  String get errRowGateway {
+    return Intl.message('Gateway', name: 'errRowGateway', desc: '', args: []);
+  }
+
+  /// `Time`
+  String get errRowTime {
+    return Intl.message('Time', name: 'errRowTime', desc: '', args: []);
+  }
+
+  /// `Error`
+  String get errRowError {
+    return Intl.message('Error', name: 'errRowError', desc: '', args: []);
+  }
+
+  /// `In`
+  String get errRowIn {
+    return Intl.message('In', name: 'errRowIn', desc: '', args: []);
+  }
+
+  /// `Screen`
+  String get errRowScreen {
+    return Intl.message('Screen', name: 'errRowScreen', desc: '', args: []);
+  }
+
+  /// `Studio`
+  String get errRowStudio {
+    return Intl.message('Studio', name: 'errRowStudio', desc: '', args: []);
+  }
+
+  /// `Report`
+  String get errRowReport {
+    return Intl.message('Report', name: 'errRowReport', desc: '', args: []);
+  }
+
+  /// `the stack trace is in the copied report only`
+  String get errReportNote {
+    return Intl.message(
+      'the stack trace is in the copied report only',
+      name: 'errReportNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{call} on {key}`
+  String errCallOn(String call, String key) {
+    return Intl.message(
+      '$call on $key',
+      name: 'errCallOn',
+      desc: '',
+      args: [call, key],
+    );
+  }
+
+  /// `{time} (local)`
+  String errTimeLocal(String time) {
+    return Intl.message(
+      '$time (local)',
+      name: 'errTimeLocal',
+      desc: '',
+      args: [time],
+    );
+  }
+
+  /// `{user} ({role})`
+  String errUserRole(String user, String role) {
+    return Intl.message(
+      '$user ($role)',
+      name: 'errUserRole',
+      desc: '',
+      args: [user, role],
+    );
+  }
+
+  /// `Copy details`
+  String get errCopyDetails {
+    return Intl.message(
+      'Copy details',
+      name: 'errCopyDetails',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy report`
+  String get errCopyReport {
+    return Intl.message(
+      'Copy report',
+      name: 'errCopyReport',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Try again`
+  String get errTryAgain {
+    return Intl.message('Try again', name: 'errTryAgain', desc: '', args: []);
+  }
+
+  /// `Try again in {seconds} s`
+  String errTryAgainIn(int seconds) {
+    return Intl.message(
+      'Try again in $seconds s',
+      name: 'errTryAgainIn',
+      desc: '',
+      args: [seconds],
+    );
+  }
+
+  /// `Back to the form`
+  String get errBackToForm {
+    return Intl.message(
+      'Back to the form',
+      name: 'errBackToForm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refresh`
+  String get errRefresh {
+    return Intl.message('Refresh', name: 'errRefresh', desc: '', args: []);
+  }
+
+  /// `Open the log`
+  String get errOpenLog {
+    return Intl.message('Open the log', name: 'errOpenLog', desc: '', args: []);
+  }
+
+  /// `See my access`
+  String get errSeeAccess {
+    return Intl.message(
+      'See my access',
+      name: 'errSeeAccess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copied`
+  String get errCopied {
+    return Intl.message('Copied', name: 'errCopied', desc: '', args: []);
+  }
+
+  /// `The details are on the clipboard.`
+  String get errDetailsCopied {
+    return Intl.message(
+      'The details are on the clipboard.',
+      name: 'errDetailsCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The report is on the clipboard.`
+  String get errReportCopied {
+    return Intl.message(
+      'The report is on the clipboard.',
+      name: 'errReportCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Problems · this session`
+  String get problemsTitle {
+    return Intl.message(
+      'Problems · this session',
+      name: 'problemsTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Clear all`
+  String get problemsClear {
+    return Intl.message('Clear all', name: 'problemsClear', desc: '', args: []);
+  }
+
+  /// `Close problems`
+  String get problemsClose {
+    return Intl.message(
+      'Close problems',
+      name: 'problemsClose',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Failures of things Studio did on its own (reads, refreshes, live values) and every dialog you closed. Kept until Studio quits; newest first.`
+  String get problemsNote {
+    return Intl.message(
+      'Failures of things Studio did on its own (reads, refreshes, live values) and every dialog you closed. Kept until Studio quits; newest first.',
+      name: 'problemsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No problems in this session.`
+  String get problemsEmpty {
+    return Intl.message(
+      'No problems in this session.',
+      name: 'problemsEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `shown as a dialog`
+  String get problemsShown {
+    return Intl.message(
+      'shown as a dialog',
+      name: 'problemsShown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `hides in {seconds} s`
+  String toastHidesIn(int seconds) {
+    return Intl.message(
+      'hides in $seconds s',
+      name: 'toastHidesIn',
+      desc: '',
+      args: [seconds],
+    );
+  }
+
+  /// `stays until {site} is back`
+  String toastStays(String site) {
+    return Intl.message(
+      'stays until $site is back',
+      name: 'toastStays',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Dismiss`
+  String get toastDismiss {
+    return Intl.message('Dismiss', name: 'toastDismiss', desc: '', args: []);
+  }
+
+  /// `Studio reopens the streams when it is back.`
+  String get toastStream {
+    return Intl.message(
+      'Studio reopens the streams when it is back.',
+      name: 'toastStream',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Notifications`
+  String get toastNotifications {
+    return Intl.message(
+      'Notifications',
+      name: 'toastNotifications',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `read failed`
+  String get readFailed {
+    return Intl.message('read failed', name: 'readFailed', desc: '', args: []);
+  }
+
+  /// `Reading the value failed: {status}. Details in Problems.`
+  String readFailedTip(String status) {
+    return Intl.message(
+      'Reading the value failed: $status. Details in Problems.',
+      name: 'readFailedTip',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `history unavailable`
+  String get historyUnavailable {
+    return Intl.message(
+      'history unavailable',
+      name: 'historyUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reading the history failed: {status}. Details in Problems.`
+  String historyUnavailableTip(String status) {
+    return Intl.message(
+      'Reading the history failed: $status. Details in Problems.',
+      name: 'historyUnavailableTip',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `The {panel} could not be drawn`
+  String faultTitle(String panel) {
+    return Intl.message(
+      'The $panel could not be drawn',
+      name: 'faultTitle',
+      desc: '',
+      args: [panel],
+    );
+  }
+
+  /// `This part could not be drawn`
+  String get faultTitleThis {
+    return Intl.message(
+      'This part could not be drawn',
+      name: 'faultTitleThis',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The rest of Studio still works; values and actions elsewhere are not affected.`
+  String get faultBody {
+    return Intl.message(
+      'The rest of Studio still works; values and actions elsewhere are not affected.',
+      name: 'faultBody',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Draw it again`
+  String get faultDrawAgain {
+    return Intl.message(
+      'Draw it again',
+      name: 'faultDrawAgain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio could not draw {panel}`
+  String faultProblem(String panel) {
+    return Intl.message(
+      'Studio could not draw $panel',
+      name: 'faultProblem',
+      desc: '',
+      args: [panel],
+    );
+  }
+
+  /// `this part`
+  String get faultThisPart {
+    return Intl.message('this part', name: 'faultThisPart', desc: '', args: []);
+  }
+
+  /// `Studio hit a fault in the background`
+  String get faultUncaught {
+    return Intl.message(
+      'Studio hit a fault in the background',
+      name: 'faultUncaught',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `tree`
+  String get panelTree {
+    return Intl.message('tree', name: 'panelTree', desc: '', args: []);
+  }
+
+  /// `inspector`
+  String get panelInspector {
+    return Intl.message(
+      'inspector',
+      name: 'panelInspector',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `editor canvas`
+  String get panelCanvas {
+    return Intl.message(
+      'editor canvas',
+      name: 'panelCanvas',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `drawer`
+  String get panelDrawer {
+    return Intl.message('drawer', name: 'panelDrawer', desc: '', args: []);
+  }
+
+  /// `workspace`
+  String get panelWorkspace {
+    return Intl.message(
+      'workspace',
+      name: 'panelWorkspace',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio could not start`
+  String get fatalTitle {
+    return Intl.message(
+      'Studio could not start',
+      name: 'fatalTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The settings it saved on this computer are unreadable, so it cannot tell which gateways you use. Your brokers are not affected: nothing on them depends on Studio.`
+  String get fatalBody {
+    return Intl.message(
+      'The settings it saved on this computer are unreadable, so it cannot tell which gateways you use. Your brokers are not affected: nothing on them depends on Studio.',
+      name: 'fatalBody',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `File`
+  String get fatalFile {
+    return Intl.message('File', name: 'fatalFile', desc: '', args: []);
+  }
+
+  /// `Start with fresh settings`
+  String get fatalFresh {
+    return Intl.message(
+      'Start with fresh settings',
+      name: 'fatalFresh',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Quit`
+  String get fatalQuit {
+    return Intl.message('Quit', name: 'fatalQuit', desc: '', args: []);
+  }
+
+  /// `Fresh settings keep the unreadable file beside the new one as {name}. You add your gateways and log in again.`
+  String fatalNote(String name) {
+    return Intl.message(
+      'Fresh settings keep the unreadable file beside the new one as $name. You add your gateways and log in again.',
+      name: 'fatalNote',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The unreadable file could not be moved aside: {reason}`
+  String fatalMoveFailed(String reason) {
+    return Intl.message(
+      'The unreadable file could not be moved aside: $reason',
+      name: 'fatalMoveFailed',
+      desc: '',
+      args: [reason],
+    );
+  }
+
+  /// `Not JSON: {detail}`
+  String paramsNotJson(String detail) {
+    return Intl.message(
+      'Not JSON: $detail',
+      name: 'paramsNotJson',
+      desc: '',
+      args: [detail],
+    );
+  }
+
+  /// `The parameters must be one JSON object.`
+  String get paramsNotObject {
+    return Intl.message(
+      'The parameters must be one JSON object.',
+      name: 'paramsNotObject',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{version} ({os})`
+  String studioAbout(String version, String os) {
+    return Intl.message(
+      '$version ($os)',
+      name: 'studioAbout',
+      desc: '',
+      args: [version, os],
+    );
+  }
+
+  /// `{count, plural, =1{1 problem} other{{count} problems}}`
+  String problemsCount(int count) {
+    return Intl.plural(
+      count,
+      one: '1 problem',
+      other: '$count problems',
+      name: 'problemsCount',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{status}: {message}`
+  String errStatusLine(String status, String message) {
+    return Intl.message(
+      '$status: $message',
+      name: 'errStatusLine',
+      desc: '',
+      args: [status, message],
+    );
+  }
+
+  /// `studio · {type}`
+  String errChipStudio(String type) {
+    return Intl.message(
+      'studio · $type',
+      name: 'errChipStudio',
+      desc: '',
+      args: [type],
+    );
+  }
+
+  /// `Studio could not finish this`
+  String get errTitlePlain {
+    return Intl.message(
+      'Studio could not finish this',
+      name: 'errTitlePlain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{name}`
+  String screenOf(String name) {
+    return Intl.message('$name', name: 'screenOf', desc: '', args: [name]);
   }
 }
 

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:logging/logging.dart';
 import 'package:storage/storage.dart';
@@ -5,8 +8,9 @@ import 'package:storage/storage.dart';
 import '../dependencies.dart';
 import '../environment.dart';
 import '../persistor.dart';
+import '../wyrm/failures.dart';
 import 'app_state.dart';
-import 'models/localized_message.dart';
+import 'problems/actions/add_problem_action.dart';
 
 late Store<AppState>? _store;
 
@@ -15,17 +19,16 @@ Store<AppState> newStore({
   required AppState initialState,
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
-  UserErrorWrapperHandler? userErrorWrapper,
+  ErrorWording? wording,
 }) {
   WaitAction.reducer = _waitReducer;
 
   _store = Store<AppState>(
     initialState: initialState,
     environment: environment,
-    dependencies: (store) => AppDependencies(store, settings),
+    dependencies: (store) => AppDependencies(store, settings, wording: wording),
     persistor: persistor,
-    globalErrorObserver: (store) =>
-        _MyErrorObserver(customErrorWrapper: userErrorWrapper),
+    globalErrorObserver: (store) => _MyErrorObserver(wording ?? plainWording),
     actionObservers: [_ReduxActionLogger()],
     stateObservers: [_StateChangeObserver()],
     modelObserver: _DefaultModelObserver<dynamic>(),
@@ -34,32 +37,83 @@ Store<AppState> newStore({
   return _store!;
 }
 
+/// The file Studio keeps its own settings in, in the documents directory.
+const settingsFile = 'settings.db';
+
+/// Studio's own storage did not open (docs/design/specs/errors.md §6): the
+/// one condition the start screen is for.
+final class StorageFault implements Exception {
+  const StorageFault(this.error, this.stack, this.path);
+
+  /// What the storage threw.
+  final Object error;
+  final StackTrace stack;
+
+  /// The file that did not open, when the storage got as far as naming it.
+  final String? path;
+
+  @override
+  String toString() => 'StorageFault(${faultLine(error)})';
+}
+
+/// Opens the settings storage; a failure is a [StorageFault]. [directory]
+/// replaces the documents directory (tests).
+Future<KeyValueStorage> openSettings({String? directory}) async {
+  final settings = KeyValueStorage();
+  try {
+    await settings.setupStorage(dbFile: settingsFile, directory: directory);
+  } on Object catch (e, st) {
+    throw StorageFault(e, st, settings.path);
+  }
+  return settings;
+}
+
+/// *Start with fresh settings*: moves the unreadable file at [path] aside as
+/// `<name>.broken` (an older `.broken` is replaced) and returns the new
+/// path. The next [openSettings] then starts from nothing; the old file
+/// stays for whoever wants to look into it.
+Future<String> setAsideSettings(String path) async {
+  final kept = '$path.broken';
+  final old = File(kept);
+  if (old.existsSync()) {
+    await old.delete();
+  }
+  await File(path).rename(kept);
+  return kept;
+}
+
 /// Full boot for the app layer: opens storage, wires the [AppPersistor],
 /// restores the last persisted state, and builds the store. Keeps the storage
 /// backend inside `business` — the app never touches it.
 ///
-/// [onError] turns a thrown object into the title and body the user sees. It is
-/// the app's to supply, because translating is the app's job: `business` names
-/// [LocalizedMessage] and never names `S`, so the arrow between the two
-/// packages keeps pointing one way. Leaving it off means every failure reaches
-/// the user as the raw `toString()` of a Dart object — which is what happened
-/// while `newStore` took this parameter and `createStore` did not forward it.
+/// [wording] gives an error its title and, for a fault in Studio, its
+/// sentence. It is the app's to supply, because words are the app's job:
+/// `business` never names `S`, so the arrow between the two packages keeps
+/// pointing one way.
+///
+/// Throws a [StorageFault] when the settings do not open or do not read;
+/// `run_env.dart` then shows the start screen instead of the app.
 Future<Store<AppState>> createStore(
   Environment environment, {
-  UserErrorWrapperHandler? onError,
+  ErrorWording? wording,
+  String? directory,
 }) async {
-  final settings = KeyValueStorage();
-  await settings.setupStorage(dbFile: 'settings.db');
+  final settings = await openSettings(directory: directory);
 
   final persistor = AppPersistor(settings);
-  final initialState = await persistor.readState() ?? AppState.initial();
+  final AppState initialState;
+  try {
+    initialState = await persistor.readState() ?? AppState.initial();
+  } on Object catch (e, st) {
+    throw StorageFault(e, st, settings.path);
+  }
 
   return newStore(
     environment: environment,
     initialState: initialState,
     settings: settings,
     persistor: persistor,
-    userErrorWrapper: onError,
+    wording: wording,
   );
 }
 
@@ -77,42 +131,40 @@ void _waitReducer(
       wait: state.wait.process(operation, flag: flag, ref: ref),
     );
 
+/// Logs every failure and makes sure it leaves as a [StudioException].
+///
+/// An action of this app wraps its own failure in `Action.wrapError` (and
+/// adds it to Problems in `after`), so what arrives here is finished. An
+/// action that is not one of ours (async_redux's own) is wrapped here, and
+/// its problem added in a microtask: an observer must not dispatch while it
+/// observes.
 class _MyErrorObserver extends GlobalErrorObserver<AppState> {
-  _MyErrorObserver({this.customErrorWrapper});
+  _MyErrorObserver(this.wording);
 
   final _logger = Logger('Redux');
-  final UserErrorWrapperHandler? customErrorWrapper;
+  final ErrorWording wording;
 
   @override
   Object? observe() {
-    _logger.shout('Error thrown during $action: $error');
-
-    if (customErrorWrapper != null) {
-      final message = customErrorWrapper!(error);
-      if (message != null) {
-        // `titleAndContent()` returns (message, reason) when both are set, so
-        // the first argument is the dialog's *title*. These two were the other
-        // way round, which would have rendered a LocalizedMessage's title as
-        // the body and its message as the heading — invisible until now,
-        // because nothing supplied a wrapper for this branch to run.
-        return UserException(message.title, reason: message.message);
-      }
+    final e = error;
+    if (e is StudioException) {
+      _logger.shout('${action.runtimeType} failed: $e');
+      return e;
     }
-
-    if (error is UserException) {
-      return error;
-    }
-
-    // Reached only when no wrapper was supplied, or it declined this error.
-    // Both arguments are the same string on purpose: without a translator
-    // there is no title to show, and repeating the text is less confusing
-    // than a heading that says something the body contradicts. The place to
-    // fix this is `createStore(onError:)`, not here.
-    return UserException('$error', reason: error.toString());
+    final thrown = studioExceptionOf(
+      e,
+      stackTrace,
+      step: '${action.runtimeType}',
+    );
+    final filled = wording(
+      thrown.error.copyWith(id: nextErrorId(), at: DateTime.now()),
+    );
+    _logger.shout('${action.runtimeType} failed: ${thrown.withError(filled)}');
+    final s = store;
+    scheduleMicrotask(() => s.dispatchSync(AddProblemAction(filled)));
+    return thrown.withError(filled);
   }
 }
-
-typedef UserErrorWrapperHandler = LocalizedMessage? Function(Object? error);
 
 /// One in-flight dispatch, keyed by the action instance — stable across nested
 /// WaitActions that would otherwise bump the global dispatchCount mid-action.
@@ -207,6 +259,7 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.system != next.system) 'system',
       if (prev.panels != next.panels) 'panels',
       if (prev.window != next.window) 'window',
+      if (prev.problems != next.problems) 'problems',
     ];
   }
 }

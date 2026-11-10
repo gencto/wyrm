@@ -17,6 +17,7 @@ class StudioShell extends StatelessWidget {
     required this.child,
     this.offline,
     this.drawer,
+    this.side,
     this.onScrim,
     this.drawerTop = 0,
     this.more = 'More',
@@ -36,6 +37,12 @@ class StudioShell extends StatelessWidget {
   /// A drawer over everything on the right, on a scrim (Review and apply,
   /// docs/design/specs/explorer.md §7); a tap on the scrim is [onScrim].
   final Widget? drawer;
+
+  /// A panel on the right of the workspace, under the top bar, that takes
+  /// its own width from it and leaves the rest usable (the Problems
+  /// drawer, docs/design/specs/errors.md §4). Over the workspace below
+  /// [breakpoint].
+  final Widget? side;
   final VoidCallback? onScrim;
 
   /// Room above the [drawer] for the window buttons the app draws over
@@ -62,7 +69,18 @@ class StudioShell extends StatelessWidget {
                     if (offline case final m?) OfflineBanner(message: m),
                     Expanded(
                       child: compact
-                          ? child
+                          ? Stack(
+                              children: [
+                                Positioned.fill(child: child),
+                                if (side case final s?)
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    child: s,
+                                  ),
+                              ],
+                            )
                           : Row(
                               crossAxisAlignment: .stretch,
                               children: [
@@ -72,6 +90,7 @@ class StudioShell extends StatelessWidget {
                                   onSelect: onSelect,
                                 ),
                                 Expanded(child: child),
+                                ?side,
                               ],
                             ),
                     ),

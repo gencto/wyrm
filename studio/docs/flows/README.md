@@ -52,7 +52,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
 | `LogInPage` | `/login` | yes | 8 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
-| `StudioPage` | `/studio` | no | 10 | [studio](studio.md) |
+| `StudioPage` | `/studio` | no | 13 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 28 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |
@@ -60,6 +60,6 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
-| `SystemPage` | `/studio/system` | no | 17 | [system](system.md) |
+| `SystemPage` | `/studio/system` | no | 22 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |

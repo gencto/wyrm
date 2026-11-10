@@ -1,5 +1,7 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_kind.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -18,5 +20,10 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
       '(docs/studio.md §10 item 1). Approve with wyrm-agent for now.';
 
   @override
-  Future<AppState?> reduce() async => throw const UserException(reason);
+  Future<AppState?> reduce() async => throw StudioException.said(
+    ErrorKind.gone,
+    reason,
+    call: 'approve',
+    thing: id,
+  );
 }

@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 
 import '../../app_state.dart';
+import '../../problems/actions/resolve_stream_action.dart';
 import '../../site/actions/set_connected_action.dart';
 import 'wyrm_connection.dart';
 
@@ -21,6 +22,10 @@ class WyrmConnectionDispatcher implements WyrmConnectionServiceListener {
       return;
     }
     _store.dispatchSync(SetConnectedAction(connected));
+    if (connected) {
+      // The socket is back: every stream is opened again.
+      _store.dispatchSync(ResolveStreamAction());
+    }
     if (connected && SelectSession(_store.state).isAvailable) {
       onReconnect?.call(_store);
     }

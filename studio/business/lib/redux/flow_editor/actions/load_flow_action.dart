@@ -8,6 +8,7 @@ import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../flows/actions/retrieve_block_types_action.dart';
+import '../../flows/actions/retrieve_flows_action.dart';
 import '../models/flow_editor_state.dart';
 
 /// Opens [id] in the editor: the block catalogue (`dataflows` ▸
@@ -18,6 +19,12 @@ import '../models/flow_editor_state.dart';
 /// has a newer version.
 class LoadFlowAction extends Action {
   LoadFlowAction(this.id, {this.isNew = false});
+
+  @override
+  Action again() => LoadFlowAction(id, isNew: isNew);
+
+  @override
+  Action reload() => RetrieveFlowsAction();
 
   final String id;
   final bool isNew;
@@ -35,7 +42,7 @@ class LoadFlowAction extends Action {
     final types = cached.isNotEmpty ? cached : await readBlockTypes(api, root);
     var draft = FlowDraft(id: id);
     if (!isNew) {
-      final defs = await invokeOne(api, '$root/dataflows/$id', 'history');
+      final defs = await askOne(api, '$root/dataflows/$id', 'history');
       if (defs case VArray(:final v) when v.isNotEmpty) {
         draft = tidyIfOverlapping(
           flowDraftOf(id, v.last),

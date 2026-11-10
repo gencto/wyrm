@@ -34,6 +34,8 @@ import 'package:models/role_grant.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
+import 'package:models/studio_error.dart';
+import 'package:models/studio_notice.dart';
 import 'package:models/task_event.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/user_info.dart';
@@ -111,6 +113,7 @@ mixin Selectors {
   SelectSystem get system => SelectSystem(state);
   SelectPanels get panels => SelectPanels(state);
   SelectWindow get window => SelectWindow(state);
+  SelectProblems get problems => SelectProblems(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -499,6 +502,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns viewedPoint
   String? get viewedPoint => _state.nodes.viewedPoint;
+
+  /// Returns historyFailed
+  String? get historyFailed => _state.nodes.historyFailed;
 }
 
 extension type SelectLive(AppState _state) {
@@ -507,6 +513,9 @@ extension type SelectLive(AppState _state) {
 
   /// Returns watched
   IMap<String, int> get watched => _state.live.watched;
+
+  /// Returns failed
+  IMap<String, String> get failed => _state.live.failed;
 }
 
 extension type SelectLinks(AppState _state) {
@@ -976,4 +985,21 @@ extension type SelectWindow(AppState _state) {
 
   /// Returns height
   double? get height => _state.window.height;
+}
+
+extension type SelectProblems(AppState _state) {
+  /// Returns items
+  IList<StudioError> get items => _state.problems.items;
+
+  /// Returns unread
+  int get unread => _state.problems.unread;
+
+  /// Returns open
+  bool get open => _state.problems.open;
+
+  /// Returns toasts
+  IList<int> get toasts => _state.problems.toasts;
+
+  /// Returns notices
+  IList<StudioNotice> get notices => _state.problems.notices;
 }

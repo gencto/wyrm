@@ -6,6 +6,7 @@ import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_link_history_action.dart';
+import 'retrieve_node_detail_action.dart';
 
 /// Runs [action] on [key] with [args] now (not staged: an action that does
 /// something, not an edit) and keeps its answer rows, as indented JSON, in
@@ -15,6 +16,12 @@ import '../../links/actions/retrieve_link_history_action.dart';
 /// `{success: false, message}` is one too.
 class InvokeNodeAction extends Action with WaitingAction {
   InvokeNodeAction(this.key, this.action, [this.args = const {}]);
+
+  @override
+  Action again() => InvokeNodeAction(key, action, args);
+
+  @override
+  Action reload() => RetrieveNodeDetailAction(key);
 
   final String key;
   final String action;
@@ -32,7 +39,7 @@ class InvokeNodeAction extends Action with WaitingAction {
       args.isEmpty ? null : Value.from(_plain(args)),
     );
     for (final r in rows) {
-      requireSuccess(r, '$action failed');
+      requireSuccess(r, key, action);
     }
     return state.copyWith.nodes(
       results: state.nodes.results.add(

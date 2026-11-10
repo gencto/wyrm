@@ -29,7 +29,7 @@ class PlaceLibraryBlockAction extends Action {
       return null;
     }
     final answer = libraryBlockOf(
-      await invokeOne(
+      await askOne(
         deps.wyrm,
         '$root/dataflows',
         'get_block',
@@ -59,6 +59,7 @@ class PlaceLibraryBlockAction extends Action {
 
   @override
   void after() {
+    super.after();
     // The instance, in the same step of the history as the copy.
     if (blockDefsOf(flowEditor.draft).containsKey(name)) {
       dispatchSync(

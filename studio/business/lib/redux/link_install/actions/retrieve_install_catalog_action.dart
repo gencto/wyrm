@@ -14,6 +14,9 @@ import '../../common/action.dart';
 /// with the reason when the user has no config on its `sys/links`).
 class RetrieveInstallCatalogAction extends Action with WaitingAction {
   @override
+  Action again() => RetrieveInstallCatalogAction();
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     final viewed = site.viewed;
@@ -21,10 +24,7 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
       return null;
     }
     final api = deps.wyrm;
-    final meta = await call(
-      'Cannot read sys/links',
-      () => api.meta('$root/sys/links'),
-    );
+    final meta = await metaOf(api, '$root/sys/links');
     List<String> choices(String action, String param) =>
         meta.actions?[action]?.params[param]?.enumValues ?? const [];
     final counts = <String, int>{};
