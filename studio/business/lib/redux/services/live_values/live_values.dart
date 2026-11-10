@@ -81,6 +81,16 @@ class LiveValuesService extends DisposableServiceInterface {
     }
   }
 
+  /// Opens the subscription of [k] again now, when it is watched and not
+  /// open (*Try again* on a `read failed` mark): one that failed on a
+  /// refusal is not opened again by itself.
+  void retry(String k) {
+    _retries.remove(k)?.cancel();
+    if (_want.contains(k) && !_subs.containsKey(k)) {
+      _open(k);
+    }
+  }
+
   void _open(String k) {
     final api = _api;
     if (api == null) {

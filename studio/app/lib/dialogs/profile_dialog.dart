@@ -8,6 +8,8 @@ import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 
+import '../common/forms.dart';
+
 /// `Put profile…` (System › Maintenance): asks for a file (`.cbor` or
 /// `.json`) and a name, then calls `sys/profiles ▸ put`. The name of the
 /// profile it put, or null when the user left or the broker refused.
@@ -45,18 +47,20 @@ Future<String?> putProfile(BuildContext context) async {
           ),
         ],
         submit: S.current.sysPut,
-        onSubmit: (values) async {
+        onSubmit: (values) {
           final name = '${values['name'] ?? ''}'.trim();
           if (name.isEmpty) {
-            return;
+            return null;
           }
-          final status = await store.dispatchAndWait(
-            PutProfileAction(name, file.name, bytes),
+          return sendForm(
+            store.dispatchAndWait(PutProfileAction(name, file.name, bytes)),
+            onOk: () {
+              put = name;
+              if (dialog.mounted) {
+                Navigator.of(dialog).pop();
+              }
+            },
           );
-          if (status.isCompletedOk && dialog.mounted) {
-            put = name;
-            Navigator.of(dialog).pop();
-          }
         },
       ),
     ),

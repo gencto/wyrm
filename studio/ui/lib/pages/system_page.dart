@@ -245,6 +245,7 @@ class SystemPage extends StatelessWidget {
     required this.onLevel,
     required this.onFilter,
     required this.onLines,
+    required this.onAround,
     required this.onAuto,
     required this.onGetLog,
     required this.onCopyLog,
@@ -299,6 +300,9 @@ class SystemPage extends StatelessWidget {
   final ValueChanged<String> onLevel;
   final ValueChanged<String> onFilter;
   final ValueChanged<int> onLines;
+
+  /// The Log toolbar's time: `hh:mm:ss`, or empty when it was cleared.
+  final ValueChanged<String> onAround;
   final ValueChanged<bool> onAuto;
   final VoidCallback onGetLog;
   final VoidCallback onCopyLog;
@@ -531,6 +535,7 @@ class SystemPage extends StatelessWidget {
           onLevel: onLevel,
           onFilter: onFilter,
           onLines: onLines,
+          onAround: onAround,
           onAuto: onAuto,
           onGet: onGetLog,
         ),

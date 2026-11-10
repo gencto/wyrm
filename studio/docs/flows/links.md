@@ -184,12 +184,10 @@ sequenceDiagram
 
     User->>UI: onSubmit
     UI->>VM: onSubmit()
-    alt node != null
-        VM->>+A1: dispatchAndWait
-        Note over A1: NonReentrant · WaitingAction · async
-        A1->>ST: copyWith(quarantine.table, quarantine.view, quarantine.selectedEntry)
-        A1-->>-VM: ActionStatus
-    end
+    VM->>+A1: dispatchAndWait
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: copyWith(quarantine.table, quarantine.view, quarantine.selectedEntry)
+    A1-->>-VM: ActionStatus
 ```
 
 | Interaction | Dispatches | Writes |
@@ -201,7 +199,7 @@ sequenceDiagram
 | `onTab` | `SetTabAction` | `links.tab` |
 | `onRow` | `SetSelectedEntryAction`, `SetSelectedLinkAction` | `quarantine.selectedEntry`, `links.selectedLink` |
 | `onAction` | `StartLinkAction`, `StopLinkAction`, `GoAction.push`, `RemoveLinkAction` ?, `DeauthorizeLinkAction` ?, `RejectQuarantineAction` ? | `links.table, links.view, links.selectedLink`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
-| `onSubmit` | `ApproveQuarantineAction` ? | `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onSubmit` | `ApproveQuarantineAction` | `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 
 `?` marks a dispatch that only runs under a condition.
 

@@ -54,6 +54,17 @@ final _named = RegExp(r'^\s*([A-Za-z_][A-Za-z0-9_.\-]*)\s*:\s+\S');
 /// minimum of 100 ms.`), or null when the message does not begin with one.
 String? fieldOf(String message) => _named.firstMatch(message)?.group(1);
 
+/// The broker's [message] without the name of [field] it starts with: the
+/// line under the field (`0 is below the minimum of 100 ms.`). The whole
+/// message when nothing is left.
+String saidOf(String message, String field) {
+  final rest = message.replaceFirst(
+    RegExp('^\\s*${RegExp.escape(field)}\\s*:\\s*'),
+    '',
+  );
+  return rest.isEmpty ? message : rest;
+}
+
 /// The site of a full key (`wy/<site>/…`), or null.
 String? siteOf(String? key) {
   final parts = key?.split('/') ?? const <String>[];

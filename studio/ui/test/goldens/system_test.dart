@@ -100,6 +100,7 @@ void main() {
           onLevel: page.onLevel,
           onFilter: page.onFilter,
           onLines: page.onLines,
+          onAround: page.onAround,
           onAuto: page.onAuto,
           onGetLog: page.onGetLog,
           onCopyLog: page.onCopyLog,

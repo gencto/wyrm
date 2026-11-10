@@ -49,6 +49,7 @@ class SetChildrenAction extends Action {
       ]),
       expanded: state.nodes.expanded.removeWhere(stale),
       listed: state.nodes.listed.add(parent),
+      listFailed: state.nodes.listFailed.remove(parent),
     );
   }
 }

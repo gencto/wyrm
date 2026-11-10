@@ -7343,6 +7343,56 @@ class S {
     );
   }
 
+  /// `Around (UTC)`
+  String get sysAround {
+    return Intl.message('Around (UTC)', name: 'sysAround', desc: '', args: []);
+  }
+
+  /// `hh:mm:ss`
+  String get sysAroundHint {
+    return Intl.message('hh:mm:ss', name: 'sysAroundHint', desc: '', args: []);
+  }
+
+  /// `Show every time`
+  String get sysAroundClear {
+    return Intl.message(
+      'Show every time',
+      name: 'sysAroundClear',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Type a time as hh:mm or hh:mm:ss.`
+  String get sysAroundBad {
+    return Intl.message(
+      'Type a time as hh:mm or hh:mm:ss.',
+      name: 'sysAroundBad',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} of {m} lines within 2 min of {time} UTC · newest first · 'sys/~act/get_log'`
+  String sysLogSummaryAround(int n, int m, String time) {
+    return Intl.message(
+      '$n of $m lines within 2 min of $time UTC · newest first · `sys/~act/get_log`',
+      name: 'sysLogSummaryAround',
+      desc: '',
+      args: [n, m, time],
+    );
+  }
+
+  /// `None of the newest {m} lines is within 2 min of {time} UTC. Ask for more lines, or clear the time.`
+  String sysNoLinesAround(int m, String time) {
+    return Intl.message(
+      'None of the newest $m lines is within 2 min of $time UTC. Ask for more lines, or clear the time.',
+      name: 'sysNoLinesAround',
+      desc: '',
+      args: [m, time],
+    );
+  }
+
   /// `The log is read with config on sys.`
   String get sysLogNeedsConfig {
     return Intl.message(
@@ -9775,6 +9825,31 @@ class S {
       desc: '',
       args: [status],
     );
+  }
+
+  /// `Reading the list of children failed: {status}. Details in Problems.`
+  String listFailedTip(String status) {
+    return Intl.message(
+      'Reading the list of children failed: $status. Details in Problems.',
+      name: 'listFailedTip',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `Reading the description failed: {status}. Details in Problems.`
+  String metaFailedTip(String status) {
+    return Intl.message(
+      'Reading the description failed: $status. Details in Problems.',
+      name: 'metaFailedTip',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `Read again`
+  String get readAgain {
+    return Intl.message('Read again', name: 'readAgain', desc: '', args: []);
   }
 
   /// `history unavailable`

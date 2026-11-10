@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/page_header.dart';
+import '../forms/action_form.dart';
 import '../inputs/switch_row.dart';
 import '../models/value_changed.dart';
 import '../tables/row_table.dart';
@@ -82,7 +83,7 @@ class LinksPage extends StatelessWidget {
   final ValueChanged<String> onTab;
   final ValueChanged<String> onRow;
   final ValueChanged<String> onAction;
-  final ValueChanged<Map<String, Object?>>? onSubmit;
+  final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
 

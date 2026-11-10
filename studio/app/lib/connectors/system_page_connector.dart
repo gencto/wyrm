@@ -26,6 +26,7 @@ import 'package:business/redux/system/actions/retrieve_profiles_action.dart';
 import 'package:business/redux/system/actions/retrieve_sys_about_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
 import 'package:business/redux/system/actions/set_acl_seen_action.dart';
+import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/redux/system/actions/set_auto_action.dart';
 import 'package:business/redux/system/actions/set_filter_action.dart';
 import 'package:business/redux/system/actions/set_lines_action.dart';
@@ -45,6 +46,7 @@ import 'package:models/attention_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/log_line.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/staged_change.dart';
@@ -132,6 +134,7 @@ class SystemPageConnector extends StatelessWidget {
           onLevel: vm.onLevel,
           onFilter: vm.onFilter,
           onLines: vm.onLines,
+          onAround: vm.onAround,
           onAuto: vm.onAuto,
           onGetLog: vm.onGetLog,
           onCopyLog: () => vm.onCopyLog(context),
@@ -276,6 +279,8 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         dispatchSync(SetFilterAction(f.isEmpty ? null : f));
         _readLog();
       },
+      // No read: `get_log` takes no time, the filter is over the lines held.
+      onAround: (t) => dispatchSync(SetAroundAction(t.isEmpty ? null : t)),
       onLines: (n) {
         dispatchSync(SetLinesAction(n));
         _readLog();
@@ -699,9 +704,11 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   // ---- Log -----------------------------------------------------------------
 
   SystemLogVm _log(String? reason, String level) {
+    final shown = _shownLog;
+    final around = system.around;
     final rows = reason == null
         ? [
-            for (final l in system.log)
+            for (final l in shown)
               LogRowVm(
                 time: _logTime(l.time),
                 level: l.level.toUpperCase(),
@@ -735,10 +742,21 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         autoLabel: S.current.sysEvery5s,
         auto: system.auto,
         getLabel: S.current.sysGetLog,
+        aroundLabel: S.current.sysAround,
+        aroundHint: S.current.sysAroundHint,
+        around: around ?? '',
+        aroundClear: S.current.sysAroundClear,
+        aroundBad: S.current.sysAroundBad,
         disabledReason: reason,
       ),
       summary: reason == null
-          ? S.current.sysLogSummary(rows.length)
+          ? (around == null
+                ? S.current.sysLogSummary(rows.length)
+                : S.current.sysLogSummaryAround(
+                    rows.length,
+                    system.log.length,
+                    around,
+                  ))
           : S.current.sysLogSummaryNone,
       copyLabel: S.current.sysCopy,
       saveLabel: S.current.sysSaveLog,
@@ -746,7 +764,14 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       message:
           error ??
           (reason == null
-              ? (system.isWaiting ? '…' : S.current.sysNoLines)
+              ? (system.isWaiting
+                    ? '…'
+                    : (around != null && system.log.isNotEmpty
+                          ? S.current.sysNoLinesAround(
+                              system.log.length,
+                              around,
+                            )
+                          : S.current.sysNoLines))
               : S.current.sysLogNeedsConfig),
       bad: error != null,
       levelTitle: S.current.sysBrokerLogLevel,
@@ -788,8 +813,12 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     );
   }
 
+  /// The lines the box shows: all that were read, or the ones near the
+  /// toolbar's time. Copy and Save as .log write these.
+  List<LogLine> get _shownLog => linesAround(system.log, system.around);
+
   void _copyLog(BuildContext context) {
-    final lines = system.log;
+    final lines = _shownLog;
     if (lines.isEmpty) {
       return;
     }
@@ -798,7 +827,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   }
 
   Future<void> _saveLog(BuildContext context) async {
-    final lines = system.log;
+    final lines = _shownLog;
     if (lines.isEmpty) {
       return;
     }
@@ -1253,6 +1282,7 @@ class _Vm extends Vm {
     required this.onLevel,
     required this.onFilter,
     required this.onLines,
+    required this.onAround,
     required this.onAuto,
     required this.onGetLog,
     required this.onCopyLog,
@@ -1306,6 +1336,7 @@ class _Vm extends Vm {
   final ValueChanged<String> onLevel;
   final ValueChanged<String> onFilter;
   final ValueChanged<int> onLines;
+  final ValueChanged<String> onAround;
   final ValueChanged<bool> onAuto;
   final VoidCallback onGetLog;
   final void Function(BuildContext context) onCopyLog;

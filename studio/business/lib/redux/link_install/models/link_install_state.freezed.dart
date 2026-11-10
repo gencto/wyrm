@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LinkInstallState {
 
- int get step; InstallSource? get source; String? get item; String? get broker; LinkMode? get mode; String? get name; bool get acceptRights; IList<PackageCheck> get checks; String? get message; String get path; String get category; String? get query; String? get phase; String? get manifest; String? get rights; IList<CatalogItem> get catalog; IList<InstallTarget> get targets; String get method;
+ int get step; InstallSource? get source; String? get item; String? get broker; LinkMode? get mode; String? get name; bool get acceptRights; IList<PackageCheck> get checks; String? get message; String get path; String get category; String? get query; String? get phase; String? get manifest; String? get rights; IList<CatalogItem> get catalog; IList<InstallTarget> get targets; String get method; String? get refusedField; String? get refusedSaid;
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $LinkInstallStateCopyWith<LinkInstallState> get copyWith => _$LinkInstallStateCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method)&&(identical(other.refusedField, refusedField) || other.refusedField == refusedField)&&(identical(other.refusedSaid, refusedSaid) || other.refusedSaid == refusedSaid));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method);
+int get hashCode => Object.hashAll([runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method,refusedField,refusedSaid]);
 
 @override
 String toString() {
-  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method)';
+  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method, refusedField: $refusedField, refusedSaid: $refusedSaid)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $LinkInstallStateCopyWith<$Res>  {
   factory $LinkInstallStateCopyWith(LinkInstallState value, $Res Function(LinkInstallState) _then) = _$LinkInstallStateCopyWithImpl;
 @useResult
 $Res call({
- int step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, String path, String category, String? query, String? phase, String? manifest, String? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, String method
+ int step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, String path, String category, String? query, String? phase, String? manifest, String? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, String method, String? refusedField, String? refusedSaid
 });
 
 
@@ -62,7 +62,7 @@ class _$LinkInstallStateCopyWithImpl<$Res>
 
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? step = null,Object? source = freezed,Object? item = freezed,Object? broker = freezed,Object? mode = freezed,Object? name = freezed,Object? acceptRights = null,Object? checks = null,Object? message = freezed,Object? path = null,Object? category = null,Object? query = freezed,Object? phase = freezed,Object? manifest = freezed,Object? rights = freezed,Object? catalog = null,Object? targets = null,Object? method = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? step = null,Object? source = freezed,Object? item = freezed,Object? broker = freezed,Object? mode = freezed,Object? name = freezed,Object? acceptRights = null,Object? checks = null,Object? message = freezed,Object? path = null,Object? category = null,Object? query = freezed,Object? phase = freezed,Object? manifest = freezed,Object? rights = freezed,Object? catalog = null,Object? targets = null,Object? method = null,Object? refusedField = freezed,Object? refusedSaid = freezed,}) {
   return _then(_self.copyWith(
 step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as int,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
@@ -82,7 +82,9 @@ as String?,rights: freezed == rights ? _self.rights : rights // ignore: cast_nul
 as String?,catalog: null == catalog ? _self.catalog : catalog // ignore: cast_nullable_to_non_nullable
 as IList<CatalogItem>,targets: null == targets ? _self.targets : targets // ignore: cast_nullable_to_non_nullable
 as IList<InstallTarget>,method: null == method ? _self.method : method // ignore: cast_nullable_to_non_nullable
-as String,
+as String,refusedField: freezed == refusedField ? _self.refusedField : refusedField // ignore: cast_nullable_to_non_nullable
+as String?,refusedSaid: freezed == refusedSaid ? _self.refusedSaid : refusedSaid // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 /// Create a copy of LinkInstallState
@@ -106,7 +108,7 @@ $InstallSourceCopyWith<$Res>? get source {
 
 
 class _LinkInstallState implements LinkInstallState {
-  const _LinkInstallState({this.step = 1, this.source, this.item, this.broker, this.mode, this.name, this.acceptRights = false, this.checks = const IListConst([]), this.message, this.path = 'official', this.category = 'All', this.query, this.phase, this.manifest, this.rights, this.catalog = const IListConst([]), this.targets = const IListConst([]), this.method = 'zip'});
+  const _LinkInstallState({this.step = 1, this.source, this.item, this.broker, this.mode, this.name, this.acceptRights = false, this.checks = const IListConst([]), this.message, this.path = 'official', this.category = 'All', this.query, this.phase, this.manifest, this.rights, this.catalog = const IListConst([]), this.targets = const IListConst([]), this.method = 'zip', this.refusedField, this.refusedSaid});
   
 
 @override@JsonKey() final  int step;
@@ -127,6 +129,8 @@ class _LinkInstallState implements LinkInstallState {
 @override@JsonKey() final  IList<CatalogItem> catalog;
 @override@JsonKey() final  IList<InstallTarget> targets;
 @override@JsonKey() final  String method;
+@override final  String? refusedField;
+@override final  String? refusedSaid;
 
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
@@ -138,16 +142,16 @@ _$LinkInstallStateCopyWith<_LinkInstallState> get copyWith => __$LinkInstallStat
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method)&&(identical(other.refusedField, refusedField) || other.refusedField == refusedField)&&(identical(other.refusedSaid, refusedSaid) || other.refusedSaid == refusedSaid));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method);
+int get hashCode => Object.hashAll([runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method,refusedField,refusedSaid]);
 
 @override
 String toString() {
-  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method)';
+  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method, refusedField: $refusedField, refusedSaid: $refusedSaid)';
 }
 
 
@@ -158,7 +162,7 @@ abstract mixin class _$LinkInstallStateCopyWith<$Res> implements $LinkInstallSta
   factory _$LinkInstallStateCopyWith(_LinkInstallState value, $Res Function(_LinkInstallState) _then) = __$LinkInstallStateCopyWithImpl;
 @override @useResult
 $Res call({
- int step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, String path, String category, String? query, String? phase, String? manifest, String? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, String method
+ int step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, String path, String category, String? query, String? phase, String? manifest, String? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, String method, String? refusedField, String? refusedSaid
 });
 
 
@@ -175,7 +179,7 @@ class __$LinkInstallStateCopyWithImpl<$Res>
 
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? step = null,Object? source = freezed,Object? item = freezed,Object? broker = freezed,Object? mode = freezed,Object? name = freezed,Object? acceptRights = null,Object? checks = null,Object? message = freezed,Object? path = null,Object? category = null,Object? query = freezed,Object? phase = freezed,Object? manifest = freezed,Object? rights = freezed,Object? catalog = null,Object? targets = null,Object? method = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? step = null,Object? source = freezed,Object? item = freezed,Object? broker = freezed,Object? mode = freezed,Object? name = freezed,Object? acceptRights = null,Object? checks = null,Object? message = freezed,Object? path = null,Object? category = null,Object? query = freezed,Object? phase = freezed,Object? manifest = freezed,Object? rights = freezed,Object? catalog = null,Object? targets = null,Object? method = null,Object? refusedField = freezed,Object? refusedSaid = freezed,}) {
   return _then(_LinkInstallState(
 step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as int,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
@@ -195,7 +199,9 @@ as String?,rights: freezed == rights ? _self.rights : rights // ignore: cast_nul
 as String?,catalog: null == catalog ? _self.catalog : catalog // ignore: cast_nullable_to_non_nullable
 as IList<CatalogItem>,targets: null == targets ? _self.targets : targets // ignore: cast_nullable_to_non_nullable
 as IList<InstallTarget>,method: null == method ? _self.method : method // ignore: cast_nullable_to_non_nullable
-as String,
+as String,refusedField: freezed == refusedField ? _self.refusedField : refusedField // ignore: cast_nullable_to_non_nullable
+as String?,refusedSaid: freezed == refusedSaid ? _self.refusedSaid : refusedSaid // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

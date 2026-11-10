@@ -54,9 +54,16 @@ Copy details (plain text): title, key › call, status (code), message, site, us
 
 Primary actions:
 - `Try again`: dispatches the same action again (`retry` in the model); the dialog closes first.
-- `Back to the form`: closes, puts the message under `field` (when the broker named one) and focuses it.
+- `Back to the form`: closes, puts the message under `field` (when the broker named one) and focuses it. The form is still under the dialog with the values as typed. One mechanism for every form: the form's submit answers what the broker refused (`sendForm` / `formRefusal` in `app/lib/common/forms.dart`), and `ActionForm` marks the field. Rules:
+  - The mark is the broker's message without the leading `<field>: `. It stays until the user changes that field or submits again.
+  - A refusal of kind `input` that names no parameter, or one the form has no field for, is one line above the form's button, until any field changes.
+  - A form that keeps a parameter under another id says so (`fields:`; Access: `user` → `name`).
+  - While a submit waits for its answer, the form's button is off.
+  - Add a link (the wizard) shows a failed install on its last step, not in a dialog: `Change answers` goes back to the step that holds the refused field (`id`/`name` → the name, `url`, `ref`) with every answer kept and the broker's words under it, until that answer changes.
+  - A change that was staged (a `config` action, a value, Edit params) is sent by *Apply*, when its form is gone: a refusal stays in Review and apply, which opens with the broker's message and the refused change still listed.
+  - The flow editor has no form that sends by itself: Deploy sends the whole draft, and its refusal is the dialog over the canvas.
 - `Refresh`: dispatches the screen's own load action.
-- `Open the log`: navigates to System › Log with the time set to the error's time.
+- `Open the log`: navigates to System › Log with the time set to the error's time. The Log toolbar has a field `Around (UTC)` between `Filter` and `Lines` (`hh:mm` or `hh:mm:ss`, on the clock the rows show). With a time, the box shows only the lines within 2 minutes of it, and the summary reads `<n> of <m> lines within 2 min of <time> UTC`. `get_log` takes no time, so this is a filter over the lines Studio read: it changes no call, `Copy` and `Save as .log` write the lines shown, and with none in the window the box says to ask for more lines or clear the time. The `×` in the field clears it; text that is not a time is marked and filters nothing. The date is not compared.
 - `See my access`: navigates to Access with the current user selected.
 
 ## 4. Quiet errors (`ErrorQuiet`, `ErrorProblems`)
@@ -65,6 +72,7 @@ Primary actions:
 - Drawer: right side, 400 wide, fill `ground1`, shadow `-24 0 48 rgba(0,0,0,.4)`; heading `Problems · this session`, `Clear all`, close; a sentence on what lands here; one card per error (dot, title, time, key › call in mono, `status: message`, links `Details` (opens the dialog for it, read only, no retry for writes), `Try again` when it has `retry`).
 - Toasts: bottom right, 380 wide, at most 3 stacked (older ones fold into the counter), fill `ground3`, line `line2` (the tone's line for a stream that is down), shadow `0 12 32 rgba(0,0,0,.45)`: tone square 28, title, one line, `Details`, `Try again` if any, lifetime on the right (`hides in 8 s`; `stays until edge is back` for a dropped stream, removed when the stream reopens). Replaces `StyledSnackbar` for errors; successes keep a toast of the same shape in `good`.
 - Mark on the thing that failed: a row whose value read failed shows the chip `read failed` (`badTint` / `badText`) with the tooltip `Reading the value failed: <status>. Details in Problems.`; its value shows `—`. Same for history (`history unavailable`).
+- The same chip is on the tree row and in the inspector, for every read of a node: its value (`subscribe`), its list of children (`list`) and its `~meta` (`meta`, the read Studio makes when the node is selected; this read is quiet, it opens no dialog). The tooltip names the read: `Reading the list of children failed: <status>. …`, `Reading the description failed: <status>. …`; several failed reads are several lines. The inspector shows the chip, the same sentences as text and `Read again`, above the node's sections; a point's value there is `—`. `Read again` (and `Try again` of the problem's toast or card) makes every failed read of that node again; a mark goes when its read answers. A node the user may not list stays empty without a mark. The meta read for the points table's columns (one per point) stays silent: the cell shows `—`.
 - The existing `OfflineBanner` stays for the gateway socket itself; streams of one site going down are a toast, not a banner.
 
 ## 5. A part failed to draw (`ErrorPanel`)
@@ -94,16 +102,19 @@ Primary actions:
 ## 9. Checklist
 - [x] Every broker refusal shows its kind, title, key › call, the broker's message, the right buttons; Details shows status and code. (`call` / `listOf` / `metaOf` / `invokeAll` / `askAll` and `Action.wrapError`; a refusal thrown raw by the client is wrapped the same way, without a key.)
 - [x] Reach on a write shows the may-have-been-applied note; Busy counts down and retries once. (*Try again* needs `Action.again()`: the Retrieve actions and the link, node, flow, profile, quarantine and peer writes have it; an action without it gets OK.)
-- [~] Back to the form focuses the named field with the message under it. Done for the node action form (`runNodeAction`: `ActionForm.errors` / `focus`, `refusedField`). The other forms (link grant, add upstream, access) close the dialog and leave the form as it was; the field is named in the dialog.
+- [x] Back to the form focuses the named field with the message under it. (Every `ActionForm`: node actions in a dialog and in the Explorer inspector, link secrets and grant, quarantine Approve, Authorize a broker, Connect to an upstream, site tokens, Access users and grants, Put profile; the Add a link wizard by its own fields. Rules in §3.)
 - [x] Copy details never contains values, args, tokens or passwords (test with a `set` of a secret field). A `StudioError` holds no value and no argument; its message, the gateway URL and the stack are redacted.
-- [x] Quiet errors: toast, mark on the row, entry in Problems; counter and drawer as the board. (The mark is on the points table and on the History tab; the tree and the inspector do not show it yet.)
+- [x] Quiet errors: toast, mark on the row, entry in Problems; counter and drawer as the board. (The mark is on the points table, the History tab, the tree row and the inspector, the last with `Read again`.)
 - [x] A throwing panel shows `PanelFault`; `Draw it again` rebuilds only it. (Boundaries: Explorer tree, workspace, inspector; flow editor canvas; every workspace tab; the Problems drawer.)
 - [x] Unreadable `settings.db` shows the start screen; fresh settings keep the old file. (The file is `settings.db`, kept as `settings.db.broken`; the board and §6 say `database.db`. It is opened with sembast's `DatabaseMode.create`: the default mode deleted an unreadable file without a word.)
 - [x] Validation errors are inline, never dialogs. (`LogInAction` and `InstallLinkAction` no longer throw: their pages validated already. Edit params checks the JSON as it is typed.)
 - [x] Goldens: one per frame (`ErrorDialog`, `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`, `ErrorQuiet`, `ErrorProblems`, `ErrorPanel`, `ErrorFatal`), dark and light. (`ui/test/goldens/errors_test.dart`, plus `error_dialog_details`; the reference PNGs in `screens/` are renders of the board sources, not canvas exports.)
 
 Not done, or decided here **(proposed)**:
-- [~] *Open the log* goes to System › Log and reads it again; it does not fill a time, since `get_log` takes no time and the newest lines are the ones around the failure.
+- [x] *Open the log* goes to System › Log, fills `Around (UTC)` with the error's time and reads the log again. The time is a filter in Studio (§3): `get_log` takes no time. A broker-side time argument would let it reach lines older than the newest `Lines`; that is a change in `wyrm-admin`, not made here.
+- **(proposed)** The window around the log's time is 2 minutes each side; the time is on the rows' clock (UTC), the dialog's own time stays local.
+- **(proposed)** `Read again` in the inspector is the retry of a failed read; the tree row has the chip and its tooltip only.
+- [ ] *Apply* (Review and apply) still reports a refusal in its panel, not in the dialog of §2.
 - **(proposed)** A status Studio does not know (user-defined `0x40–0x4F`, an unknown code) is kind `broker`.
 - **(proposed)** An error the screen shows itself (`withDialog(false)`: the log-in page) is a line in Problems without a toast; a key the user may not read is a mark and a line, without a toast.
 - **(proposed)** The same failure again (kind, status, key, call, title) replaces its line in Problems instead of adding one.

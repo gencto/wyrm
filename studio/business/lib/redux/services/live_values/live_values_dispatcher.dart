@@ -7,6 +7,7 @@ import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../live/actions/set_live_values_action.dart';
 import '../../live/actions/set_read_failed_action.dart';
+import '../../nodes/actions/retry_read_action.dart';
 import '../../problems/actions/add_problem_action.dart';
 import '../../problems/actions/resolve_stream_action.dart';
 import 'live_values.dart';
@@ -61,7 +62,10 @@ class LiveValuesDispatcher implements LiveValuesServiceListener {
                 stream: e.site,
                 quiet: true,
               )
-            : e.copyWith(quiet: e.kind != ErrorKind.rights),
+            : e.copyWith(
+                quiet: e.kind != ErrorKind.rights,
+                retry: () => RetryReadAction(key),
+              ),
       ),
     );
   }

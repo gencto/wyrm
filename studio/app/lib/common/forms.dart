@@ -1,4 +1,8 @@
+import 'package:async_redux/async_redux.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:flutter/foundation.dart' show VoidCallback;
+import 'package:models/error_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
@@ -47,3 +51,47 @@ Map<String, Object?> plainArgs(Map<String, Object?> values) => {
       _ => value,
     },
 };
+
+/// What a failed dispatch says to the form that sent it
+/// (docs/design/specs/errors.md §3, *Back to the form*): the broker's words
+/// and the field they name, when it refused the input. Null when [status]
+/// is no refusal of the input (the error dialog alone says the rest).
+///
+/// [fields] maps a parameter of the call to the id of the form's field
+/// that holds it, where the two differ.
+FieldRefusal? formRefusal(
+  ActionStatus status, {
+  Map<String, String> fields = const {},
+}) {
+  final e = switch (status.originalError) {
+    final StudioException x => x.error,
+    _ => switch (status.wrappedError) {
+      final StudioException x => x.error,
+      _ => null,
+    },
+  };
+  if (e == null || e.kind != ErrorKind.input || e.message.isEmpty) {
+    return null;
+  }
+  return switch (e.field) {
+    final f? => FieldRefusal(saidOf(e.message, f), field: fields[f] ?? f),
+    null => FieldRefusal(e.message),
+  };
+}
+
+/// The submit of every form that sends something: waits for [sent], runs
+/// [onOk] when it went through (close the dialog), and answers the form
+/// what the broker refused, so it marks the field ([formRefusal]). One
+/// mechanism for all forms; a form only says what it dispatches.
+Future<FieldRefusal?> sendForm(
+  Future<ActionStatus> sent, {
+  VoidCallback? onOk,
+  Map<String, String> fields = const {},
+}) async {
+  final status = await sent;
+  if (status.isCompletedOk) {
+    onOk?.call();
+    return null;
+  }
+  return formRefusal(status, fields: fields);
+}

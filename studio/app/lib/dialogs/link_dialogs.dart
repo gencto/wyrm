@@ -18,6 +18,8 @@ import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/log_view.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 
+import '../common/forms.dart';
+
 /// View log: the last lines of the link's own log.
 Future<void> showLinkLog(BuildContext context, String id) {
   final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
@@ -209,23 +211,23 @@ Future<void> showLinkSecrets(BuildContext context, String key) {
           ),
         ],
         submit: S.current.setSecret,
-        onSubmit: (v) async {
+        onSubmit: (v) {
           final name = v['name'] as String?;
           final value = v['value'] as String?;
           if (name == null) {
-            return;
+            return null;
           }
-          final status = await store.dispatchAndWait(
-            value == null
-                ? InvokeNodeAction(key, 'delete_secret', {'name': name})
-                : InvokeNodeAction(key, 'set_secret', {
-                    'name': name,
-                    'value': value.codeUnits,
-                  }),
+          return sendForm(
+            store.dispatchAndWait(
+              value == null
+                  ? InvokeNodeAction(key, 'delete_secret', {'name': name})
+                  : InvokeNodeAction(key, 'set_secret', {
+                      'name': name,
+                      'value': value.codeUnits,
+                    }),
+            ),
+            onOk: () => _close(dialog),
           );
-          if (status.isCompletedOk && dialog.mounted) {
-            Navigator.of(dialog).pop();
-          }
         },
       ),
     ),
@@ -261,19 +263,23 @@ Future<void> showLinkGrant(BuildContext context, String id, String root) {
           ),
         ],
         submit: S.current.actGrant,
-        onSubmit: (v) async {
-          final status = await store.dispatchAndWait(
+        onSubmit: (v) => sendForm(
+          store.dispatchAndWait(
             GrantLinkAction(
               id,
               path: v['path']! as String,
               level: v['level']! as String,
             ),
-          );
-          if (status.isCompletedOk && dialog.mounted) {
-            Navigator.of(dialog).pop();
-          }
-        },
+          ),
+          onOk: () => _close(dialog),
+        ),
       ),
     ),
   );
+}
+
+void _close(BuildContext dialog) {
+  if (dialog.mounted) {
+    Navigator.of(dialog).pop();
+  }
 }

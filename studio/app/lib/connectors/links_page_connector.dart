@@ -29,6 +29,7 @@ import 'package:ui/buttons/action_row.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/forms/action_form.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
@@ -185,11 +186,11 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       onAction: _onAction,
       onSubmit: (args) {
         final node = quarantine.selectedEntry;
-        if (node != null) {
-          unawaited(
-            dispatchAndWait(ApproveQuarantineAction(node, plainArgs(args))),
-          );
-        }
+        return node == null
+            ? null
+            : sendForm(
+                dispatchAndWait(ApproveQuarantineAction(node, plainArgs(args))),
+              );
       },
     );
   }
@@ -763,5 +764,5 @@ class _Vm extends Vm {
   final ValueChanged<String> onTab;
   final ValueChanged<String> onRow;
   final Future<void> Function(BuildContext context, String action) onAction;
-  final ValueChanged<Map<String, Object?>> onSubmit;
+  final FutureOr<FieldRefusal?> Function(Map<String, Object?> values) onSubmit;
 }

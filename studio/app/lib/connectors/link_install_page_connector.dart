@@ -100,6 +100,11 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
       ? const ['choose', 'run', 'result']
       : const ['choose', 'check', 'run', 'result'];
 
+  /// The broker's words for the field [id] of the wizard, when the install
+  /// was refused on it.
+  String? _refused(String id) =>
+      linkInstall.refusedField == id ? linkInstall.refusedSaid : null;
+
   CatalogItem? get _item =>
       linkInstall.catalog.where((c) => c.id == linkInstall.item).firstOrNull;
 
@@ -113,13 +118,16 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
     final failedCheck = li.checks.any((c) => c.result == 'failed');
     final broker = li.broker ?? viewed;
     final name = li.name ?? '';
+    // What the broker said of the name it refused stays under the field
+    // until the name changes (docs/design/specs/errors.md §3, *Back to the
+    // form*): *Change answers* comes back here with every answer kept.
     final nameError = name.isEmpty
         ? null
         : (!_segment.hasMatch(name)
               ? S.current.nameRule
               : (broker == viewed && links.table.containsKey(name)
                     ? S.current.nameTaken
-                    : null));
+                    : _refused('name')));
     final needsRights = li.rights != null || (item != null && !item.builtIn);
     final configReason = site.needs('config', 'wy/$broker/sys/links');
     final installing = li.phase == 'installing';
@@ -301,7 +309,15 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
           case 'again':
             dispatchSync(ChooseInstallSourceAction('official'));
           case 'back':
-            dispatchSync(SetStepAction(_keys.indexOf('run') + 1));
+            // To the step that holds the field the broker refused.
+            dispatchSync(
+              SetStepAction(
+                switch (li.refusedField) {
+                  null || 'name' => _keys.indexOf('run') + 1,
+                  _ => 1,
+                },
+              ),
+            );
         }
       },
     );
@@ -384,6 +400,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
             label: S.current.packageUrl,
             kind: .text,
             value: url,
+            error: _refused('url'),
             hint: 'https://example.com/link.zip',
             onChanged: (v) => dispatch(
               SetSourceAction(
@@ -398,6 +415,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
             label: S.current.gitRepository,
             kind: .text,
             value: url,
+            error: _refused('git'),
             hint: 'https://git.example.com/link.git',
             onChanged: (v) => dispatch(
               SetSourceAction(
@@ -412,6 +430,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
             label: S.current.gitRef,
             kind: .text,
             value: ref,
+            error: _refused('ref'),
             hint: S.current.branchOrTag,
             onChanged: (v) {
               if (url != null) {

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$NodesState {
 
- IMap<String, NodeInfo> get table; IList<String> get view; ISet<String> get expanded; String? get selectedNode; IMap<String, IList<String>> get results; String get tab; String? get action; String get historyRange; IMap<String, NodeDetail> get detail; IList<HistPoint> get history; String? get historyKey; String? get point; ISet<String> get checked; String? get anchor; String get treeFilter; String get pointFilter; ISet<String> get marked; IList<AuditEntry> get audit; ISet<String> get listed; String? get viewedPoint; String? get historyFailed;
+ IMap<String, NodeInfo> get table; IList<String> get view; ISet<String> get expanded; String? get selectedNode; IMap<String, IList<String>> get results; String get tab; String? get action; String get historyRange; IMap<String, NodeDetail> get detail; IList<HistPoint> get history; String? get historyKey; String? get point; ISet<String> get checked; String? get anchor; String get treeFilter; String get pointFilter; ISet<String> get marked; IList<AuditEntry> get audit; ISet<String> get listed; String? get viewedPoint; String? get historyFailed; IMap<String, String> get listFailed; IMap<String, String> get metaFailed;
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $NodesStateCopyWith<NodesState> get copyWith => _$NodesStateCopyWithImpl<NodesSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed)&&(identical(other.listFailed, listFailed) || other.listFailed == listFailed)&&(identical(other.metaFailed, metaFailed) || other.metaFailed == metaFailed));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed]);
+int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed,listFailed,metaFailed]);
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed)';
+  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed, listFailed: $listFailed, metaFailed: $metaFailed)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $NodesStateCopyWith<$Res>  {
   factory $NodesStateCopyWith(NodesState value, $Res Function(NodesState) _then) = _$NodesStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results, String tab, String? action, String historyRange, IMap<String, NodeDetail> detail, IList<HistPoint> history, String? historyKey, String? point, ISet<String> checked, String? anchor, String treeFilter, String pointFilter, ISet<String> marked, IList<AuditEntry> audit, ISet<String> listed, String? viewedPoint, String? historyFailed
+ IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results, String tab, String? action, String historyRange, IMap<String, NodeDetail> detail, IList<HistPoint> history, String? historyKey, String? point, ISet<String> checked, String? anchor, String treeFilter, String pointFilter, ISet<String> marked, IList<AuditEntry> audit, ISet<String> listed, String? viewedPoint, String? historyFailed, IMap<String, String> listFailed, IMap<String, String> metaFailed
 });
 
 
@@ -62,7 +62,7 @@ class _$NodesStateCopyWithImpl<$Res>
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,Object? tab = null,Object? action = freezed,Object? historyRange = null,Object? detail = null,Object? history = null,Object? historyKey = freezed,Object? point = freezed,Object? checked = null,Object? anchor = freezed,Object? treeFilter = null,Object? pointFilter = null,Object? marked = null,Object? audit = null,Object? listed = null,Object? viewedPoint = freezed,Object? historyFailed = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,Object? tab = null,Object? action = freezed,Object? historyRange = null,Object? detail = null,Object? history = null,Object? historyKey = freezed,Object? point = freezed,Object? checked = null,Object? anchor = freezed,Object? treeFilter = null,Object? pointFilter = null,Object? marked = null,Object? audit = null,Object? listed = null,Object? viewedPoint = freezed,Object? historyFailed = freezed,Object? listFailed = null,Object? metaFailed = null,}) {
   return _then(_self.copyWith(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, NodeInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
@@ -85,7 +85,9 @@ as ISet<String>,audit: null == audit ? _self.audit : audit // ignore: cast_nulla
 as IList<AuditEntry>,listed: null == listed ? _self.listed : listed // ignore: cast_nullable_to_non_nullable
 as ISet<String>,viewedPoint: freezed == viewedPoint ? _self.viewedPoint : viewedPoint // ignore: cast_nullable_to_non_nullable
 as String?,historyFailed: freezed == historyFailed ? _self.historyFailed : historyFailed // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,listFailed: null == listFailed ? _self.listFailed : listFailed // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,metaFailed: null == metaFailed ? _self.metaFailed : metaFailed // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,
   ));
 }
 
@@ -97,7 +99,7 @@ as String?,
 
 
 class _NodesState implements NodesState {
-  const _NodesState({this.table = const IMapConst({}), this.view = const IListConst([]), this.expanded = const ISetConst({}), this.selectedNode, this.results = const IMapConst({}), this.tab = 'points', this.action, this.historyRange = '1h', this.detail = const IMapConst({}), this.history = const IListConst([]), this.historyKey, this.point, this.checked = const ISetConst({}), this.anchor, this.treeFilter = '', this.pointFilter = '', this.marked = const ISetConst({}), this.audit = const IListConst([]), this.listed = const ISetConst({}), this.viewedPoint, this.historyFailed});
+  const _NodesState({this.table = const IMapConst({}), this.view = const IListConst([]), this.expanded = const ISetConst({}), this.selectedNode, this.results = const IMapConst({}), this.tab = 'points', this.action, this.historyRange = '1h', this.detail = const IMapConst({}), this.history = const IListConst([]), this.historyKey, this.point, this.checked = const ISetConst({}), this.anchor, this.treeFilter = '', this.pointFilter = '', this.marked = const ISetConst({}), this.audit = const IListConst([]), this.listed = const ISetConst({}), this.viewedPoint, this.historyFailed, this.listFailed = const IMapConst({}), this.metaFailed = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, NodeInfo> table;
@@ -121,6 +123,8 @@ class _NodesState implements NodesState {
 @override@JsonKey() final  ISet<String> listed;
 @override final  String? viewedPoint;
 @override final  String? historyFailed;
+@override@JsonKey() final  IMap<String, String> listFailed;
+@override@JsonKey() final  IMap<String, String> metaFailed;
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
@@ -132,16 +136,16 @@ _$NodesStateCopyWith<_NodesState> get copyWith => __$NodesStateCopyWithImpl<_Nod
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed)&&(identical(other.listFailed, listFailed) || other.listFailed == listFailed)&&(identical(other.metaFailed, metaFailed) || other.metaFailed == metaFailed));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed]);
+int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed,listFailed,metaFailed]);
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed)';
+  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed, listFailed: $listFailed, metaFailed: $metaFailed)';
 }
 
 
@@ -152,7 +156,7 @@ abstract mixin class _$NodesStateCopyWith<$Res> implements $NodesStateCopyWith<$
   factory _$NodesStateCopyWith(_NodesState value, $Res Function(_NodesState) _then) = __$NodesStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results, String tab, String? action, String historyRange, IMap<String, NodeDetail> detail, IList<HistPoint> history, String? historyKey, String? point, ISet<String> checked, String? anchor, String treeFilter, String pointFilter, ISet<String> marked, IList<AuditEntry> audit, ISet<String> listed, String? viewedPoint, String? historyFailed
+ IMap<String, NodeInfo> table, IList<String> view, ISet<String> expanded, String? selectedNode, IMap<String, IList<String>> results, String tab, String? action, String historyRange, IMap<String, NodeDetail> detail, IList<HistPoint> history, String? historyKey, String? point, ISet<String> checked, String? anchor, String treeFilter, String pointFilter, ISet<String> marked, IList<AuditEntry> audit, ISet<String> listed, String? viewedPoint, String? historyFailed, IMap<String, String> listFailed, IMap<String, String> metaFailed
 });
 
 
@@ -169,7 +173,7 @@ class __$NodesStateCopyWithImpl<$Res>
 
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,Object? tab = null,Object? action = freezed,Object? historyRange = null,Object? detail = null,Object? history = null,Object? historyKey = freezed,Object? point = freezed,Object? checked = null,Object? anchor = freezed,Object? treeFilter = null,Object? pointFilter = null,Object? marked = null,Object? audit = null,Object? listed = null,Object? viewedPoint = freezed,Object? historyFailed = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,Object? tab = null,Object? action = freezed,Object? historyRange = null,Object? detail = null,Object? history = null,Object? historyKey = freezed,Object? point = freezed,Object? checked = null,Object? anchor = freezed,Object? treeFilter = null,Object? pointFilter = null,Object? marked = null,Object? audit = null,Object? listed = null,Object? viewedPoint = freezed,Object? historyFailed = freezed,Object? listFailed = null,Object? metaFailed = null,}) {
   return _then(_NodesState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, NodeInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
@@ -192,7 +196,9 @@ as ISet<String>,audit: null == audit ? _self.audit : audit // ignore: cast_nulla
 as IList<AuditEntry>,listed: null == listed ? _self.listed : listed // ignore: cast_nullable_to_non_nullable
 as ISet<String>,viewedPoint: freezed == viewedPoint ? _self.viewedPoint : viewedPoint // ignore: cast_nullable_to_non_nullable
 as String?,historyFailed: freezed == historyFailed ? _self.historyFailed : historyFailed // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,listFailed: null == listFailed ? _self.listFailed : listFailed // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,metaFailed: null == metaFailed ? _self.metaFailed : metaFailed // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,
   ));
 }
 

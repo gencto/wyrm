@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
@@ -29,6 +30,7 @@ final class TreeRowVm extends Equatable {
     this.value,
     this.ember = false,
     this.drag,
+    this.failed,
   });
 
   /// The node's key.
@@ -78,6 +80,11 @@ final class TreeRowVm extends Equatable {
   /// null: the row is not dragged.
   final String? drag;
 
+  /// A read of the node failed (its list, its meta, its value): the chip
+  /// `read failed` beside the name, the reason as its tooltip
+  /// (docs/design/specs/errors.md §4).
+  final FailChipVm? failed;
+
   @override
   List<Object?> get props => [
     id,
@@ -98,6 +105,7 @@ final class TreeRowVm extends Equatable {
     value,
     ember,
     drag,
+    failed,
   ];
 }
 
@@ -184,15 +192,23 @@ class TreeRow extends StatelessWidget {
             else
               AppIcon(vm.icon, size: 16, color: sel ? c.ember : c.text4),
             Expanded(
-              child: Text(
-                vm.name,
-                maxLines: 1,
-                overflow: .ellipsis,
-                style: mono(
-                  size: height < 40 ? 12 : 13,
-                  weight: sel ? .w600 : .w400,
-                  color: sel ? c.text1 : c.text2,
-                ),
+              child: Row(
+                spacing: 8,
+                children: [
+                  Flexible(
+                    child: Text(
+                      vm.name,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      style: mono(
+                        size: height < 40 ? 12 : 13,
+                        weight: sel ? .w600 : .w400,
+                        color: sel ? c.text1 : c.text2,
+                      ),
+                    ),
+                  ),
+                  if (vm.failed case final f?) FailChip(vm: f),
+                ],
               ),
             ),
             if (vm.staged)

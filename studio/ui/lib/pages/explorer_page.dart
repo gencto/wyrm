@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../alerts/read_fail.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../charts/trend_chart.dart';
@@ -114,6 +115,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
     this.editLabel = '',
     this.stageLabel = '',
     this.readOnlyReason,
+    this.fail,
   });
 
   /// `Point`.
@@ -132,6 +134,10 @@ final class PointInspectorVm extends ExplorerInspectorVm {
   final String stageLabel;
   final String? readOnlyReason;
 
+  /// A read of the point failed: the mark, what failed and `Read again`
+  /// (docs/design/specs/errors.md §4). The value is `—` then.
+  final ReadFailVm? fail;
+
   @override
   List<Object?> get props => [
     eyebrow,
@@ -144,6 +150,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
     editLabel,
     stageLabel,
     readOnlyReason,
+    fail,
   ];
 }
 
@@ -204,6 +211,7 @@ final class NodeInspectorVm extends ExplorerInspectorVm {
     required this.eyebrow,
     required this.title,
     required this.sections,
+    this.fail,
   });
 
   /// `Device`, `Connection`, `Link`.
@@ -211,8 +219,12 @@ final class NodeInspectorVm extends ExplorerInspectorVm {
   final String title;
   final List<InspectorSectionVm> sections;
 
+  /// A read of the node failed (its list, its meta): the mark, what failed
+  /// and `Read again` (docs/design/specs/errors.md §4).
+  final ReadFailVm? fail;
+
   @override
-  List<Object?> get props => [eyebrow, title, sections];
+  List<Object?> get props => [eyebrow, title, sections, fail];
 }
 
 /// The bar that replaces the points toolbar while 2 or more rows are
@@ -308,6 +320,7 @@ class ExplorerPage extends StatelessWidget {
     this.auditNote,
     this.inspector,
     this.onSubmit,
+    this.onReadAgain,
     this.onCloseInspector,
     this.busy = false,
     this.panels = const SidePanelWidths(),
@@ -427,7 +440,11 @@ class ExplorerPage extends StatelessWidget {
   final String? auditNote;
 
   final ExplorerInspectorVm? inspector;
-  final ValueChanged<Map<String, Object?>>? onSubmit;
+  final FormSubmit? onSubmit;
+
+  /// `Read again` in the inspector's `read failed` mark: the key of the
+  /// node whose reads failed.
+  final ValueChanged<String>? onReadAgain;
 
   /// Closes an action's form (the point and node inspectors have no close:
   /// they are part of the layout).
@@ -995,6 +1012,7 @@ class ExplorerPage extends StatelessWidget {
           crossAxisAlignment: .stretch,
           spacing: 18,
           children: [
+            if (ins.fail case final f?) ReadFail(vm: f, onRetry: onReadAgain),
             InspectorSections(sections: ins.sections),
             if (ins.edit case final e?) ...[
               SectionLabel(ins.editLabel),
@@ -1004,7 +1022,7 @@ class ExplorerPage extends StatelessWidget {
                 submit: ins.stageLabel,
                 busy: busy,
                 disabledReason: ins.readOnlyReason,
-                onSubmit: onSubmit ?? (_) {},
+                onSubmit: onSubmit ?? (_) => null,
               ),
             ],
           ],
@@ -1050,7 +1068,7 @@ class ExplorerPage extends StatelessWidget {
               submit: ins.submit,
               busy: busy,
               disabledReason: ins.disabledReason,
-              onSubmit: onSubmit ?? (_) {},
+              onSubmit: onSubmit ?? (_) => null,
             ),
             Text(
               ins.note,
@@ -1076,7 +1094,17 @@ class ExplorerPage extends StatelessWidget {
         eyebrow: ins.eyebrow,
         title: ins.title,
         width: 320,
-        child: InspectorSections(sections: ins.sections),
+        child: switch (ins.fail) {
+          final f? => Column(
+            crossAxisAlignment: .stretch,
+            spacing: 18,
+            children: [
+              ReadFail(vm: f, onRetry: onReadAgain),
+              InspectorSections(sections: ins.sections),
+            ],
+          ),
+          null => InspectorSections(sections: ins.sections),
+        },
       ),
     };
   }

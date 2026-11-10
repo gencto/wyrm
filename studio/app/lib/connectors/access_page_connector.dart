@@ -24,6 +24,7 @@ import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/access_page.dart';
 import 'package:ui/tables/row_table.dart';
 
+import '../common/forms.dart';
 import '../common/tab_visibility.dart';
 
 const _levels = ['none', 'list', 'read', 'write', 'config'];
@@ -367,12 +368,16 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
       child: ActionForm(
         fields: fields,
         submit: title,
-        onSubmit: (v) async {
-          final st = await dispatchAndWait(make(v));
-          if (st.isCompletedOk && dialog.mounted) {
-            Navigator.of(dialog).pop();
-          }
-        },
+        // The gateway calls the user's name `user`.
+        onSubmit: (v) => sendForm(
+          dispatchAndWait(make(v)),
+          fields: const {'user': 'name'},
+          onOk: () {
+            if (dialog.mounted) {
+              Navigator.of(dialog).pop();
+            }
+          },
+        ),
       ),
     ),
   );

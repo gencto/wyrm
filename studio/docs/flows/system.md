@@ -208,6 +208,23 @@ sequenceDiagram
     end
 ```
 
+## onAround
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as SetAroundAction
+    participant ST as AppState
+
+    User->>UI: onAround
+    UI->>VM: onAround()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(system.around)
+```
+
 ## onLines
 
 ```mermaid
@@ -505,6 +522,7 @@ sequenceDiagram
 | `onSource` | `SetSourceAction`, `RetrieveSystemLogAction` ? | `system.source` |
 | `onLevel` | `SetLogLevelAction`, `RetrieveSystemLogAction` ? | `system.logLevel` |
 | `onFilter` | `SetFilterAction`, `RetrieveSystemLogAction` ? | `system.filter` |
+| `onAround` | `SetAroundAction` | `system.around` |
 | `onLines` | `SetLinesAction`, `RetrieveSystemLogAction` ? | `system.lines` |
 | `onAuto` | `SetAutoAction`, `RetrieveSystemLogAction` ? | `system.auto` |
 | `onGetLog` | `RetrieveSystemLogAction` ? | — |

@@ -104,6 +104,7 @@ sequenceDiagram
     VM->>+A1: dispatchAndWait
     Note over A1: WaitingAction · async
     A1->>ST: copyWith(nodes.detail)
+    A1->>ST: dispatchSync(SetMetaFailedAction)
     A1-->>-VM: ActionStatus
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
@@ -158,6 +159,7 @@ sequenceDiagram
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
     A2->>ST: copyWith(nodes.detail)
+    A2->>ST: dispatchSync(SetMetaFailedAction)
     A2-->>-VM: ActionStatus
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
@@ -206,13 +208,11 @@ sequenceDiagram
 
     User->>UI: onSubmit
     UI->>VM: onSubmit()
-    alt id.startsWith('waiting:')
-        VM->>+A1: dispatchAndWait
-        Note over A1: NonReentrant · WaitingAction · async
-        A1->>ST: dispatchAndWait(ApproveQuarantineAction)
-        A1->>ST: dispatchAndWait(RetrievePeersAction)
-        A1-->>-VM: ActionStatus
-    end
+    VM->>+A1: dispatchAndWait
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: dispatchAndWait(ApproveQuarantineAction)
+    A1->>ST: dispatchAndWait(RetrievePeersAction)
+    A1-->>-VM: ActionStatus
 ```
 
 | Interaction | Dispatches | Writes |
@@ -224,7 +224,7 @@ sequenceDiagram
 | `onConnect` | `RetrieveNodeDetailAction`, `AddUpstreamAction` | `nodes.detail` |
 | `onToken.onSubmit` | `IssueSiteTokenAction` | `nodes.results` |
 | `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
-| `onSubmit` | `AuthorizeBrokerAction` ? | — |
+| `onSubmit` | `AuthorizeBrokerAction` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

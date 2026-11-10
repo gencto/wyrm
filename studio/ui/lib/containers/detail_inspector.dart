@@ -112,7 +112,7 @@ class DetailInspector extends StatelessWidget {
 
   final DetailInspectorVm vm;
   final ValueChanged<String> onAction;
-  final ValueChanged<Map<String, Object?>>? onSubmit;
+  final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
   final double width;
@@ -190,7 +190,7 @@ class DetailInspector extends StatelessWidget {
                     secondary: f.secondary,
                     busy: busy,
                     disabledReason: f.disabledReason,
-                    onSubmit: onSubmit ?? (_) {},
+                    onSubmit: onSubmit ?? (_) => null,
                     onSecondary: onSecondary,
                   ),
                   if (f.note case final n?)

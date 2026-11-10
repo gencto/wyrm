@@ -29,6 +29,11 @@ final class LogToolbarVm extends Equatable {
     required this.autoLabel,
     required this.auto,
     required this.getLabel,
+    this.aroundLabel = '',
+    this.aroundHint = '',
+    this.around = '',
+    this.aroundClear = '',
+    this.aroundBad = '',
     this.minLines = 1,
     this.maxLines = 2000,
     this.disabledReason,
@@ -53,6 +58,23 @@ final class LogToolbarVm extends Equatable {
   final bool auto;
   final String getLabel;
 
+  /// `Around (UTC)`: a time of day on the rows' clock. With one, the box
+  /// shows only the lines near it (docs/design/specs/errors.md §3, *Open
+  /// the log*).
+  final String aroundLabel;
+
+  /// `hh:mm:ss`.
+  final String aroundHint;
+
+  /// The time in force, `hh:mm:ss`; empty for none.
+  final String around;
+
+  /// The tooltip of the button that takes the time away.
+  final String aroundClear;
+
+  /// What the field says of text that is not a time.
+  final String aroundBad;
+
   /// Why the log cannot be read (`needs config on sys`); usable when null.
   final String? disabledReason;
 
@@ -74,6 +96,11 @@ final class LogToolbarVm extends Equatable {
     autoLabel,
     auto,
     getLabel,
+    aroundLabel,
+    aroundHint,
+    around,
+    aroundClear,
+    aroundBad,
     disabledReason,
   ];
 }
@@ -83,6 +110,9 @@ final class LogToolbarVm extends Equatable {
 ///
 /// The filter reports a change when typing stops (400 ms) or on Enter; the
 /// line count on Enter or when it loses the focus, kept inside its bounds.
+/// The time (`Around`) reports `hh:mm:ss` on Enter or when it loses the
+/// focus, and an empty text when it is cleared; text that is not a time is
+/// marked and reports nothing.
 class LogToolbar extends StatefulWidget {
   const LogToolbar({
     required this.vm,
@@ -92,6 +122,7 @@ class LogToolbar extends StatefulWidget {
     required this.onLines,
     required this.onAuto,
     required this.onGet,
+    this.onAround,
     super.key,
   });
 
@@ -103,6 +134,30 @@ class LogToolbar extends StatefulWidget {
   final ValueChanged<bool> onAuto;
   final VoidCallback onGet;
 
+  /// The time changed: `hh:mm:ss`, or empty when it was cleared. The field
+  /// is drawn only with this.
+  final ValueChanged<String>? onAround;
+
+  static final _clock = RegExp(r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$');
+
+  /// [text] (`h:mm`, `hh:mm`, `hh:mm:ss`) as `hh:mm:ss`; null when it is
+  /// not a time of day.
+  static String? clock(String text) {
+    final m = _clock.firstMatch(text.trim());
+    if (m == null) {
+      return null;
+    }
+    final parts = [
+      int.parse(m.group(1)!),
+      int.parse(m.group(2)!),
+      int.parse(m.group(3) ?? '0'),
+    ];
+    if (parts[0] > 23 || parts[1] > 59 || parts[2] > 59) {
+      return null;
+    }
+    return parts.map((n) => n.toString().padLeft(2, '0')).join(':');
+  }
+
   @override
   State<LogToolbar> createState() => _LogToolbarState();
 }
@@ -110,8 +165,16 @@ class LogToolbar extends StatefulWidget {
 class _LogToolbarState extends State<LogToolbar> {
   late final _filter = TextEditingController(text: widget.vm.filter);
   late final _lines = TextEditingController(text: '${widget.vm.lines}');
+  late final _around = TextEditingController(text: widget.vm.around);
   final _linesFocus = FocusNode();
+  final _aroundFocus = FocusNode();
   Timer? _typing;
+
+  /// The typed time is not one.
+  var _aroundBad = false;
+
+  /// The time last reported, until the view-model says its own.
+  String? _reported;
 
   @override
   void initState() {
@@ -119,6 +182,11 @@ class _LogToolbarState extends State<LogToolbar> {
     _linesFocus.addListener(() {
       if (!_linesFocus.hasFocus) {
         _commitLines();
+      }
+    });
+    _aroundFocus.addListener(() {
+      if (!_aroundFocus.hasFocus) {
+        _commitAround();
       }
     });
   }
@@ -135,6 +203,14 @@ class _LogToolbarState extends State<LogToolbar> {
         _typing == null) {
       _filter.text = widget.vm.filter;
     }
+    // Set from outside (*Open the log*) or cleared.
+    if (widget.vm.around != old.vm.around) {
+      _reported = null;
+      if (_around.text != widget.vm.around) {
+        _around.text = widget.vm.around;
+        _aroundBad = false;
+      }
+    }
   }
 
   @override
@@ -142,7 +218,9 @@ class _LogToolbarState extends State<LogToolbar> {
     _typing?.cancel();
     _filter.dispose();
     _lines.dispose();
+    _around.dispose();
     _linesFocus.dispose();
+    _aroundFocus.dispose();
     super.dispose();
   }
 
@@ -157,6 +235,31 @@ class _LogToolbarState extends State<LogToolbar> {
     if (_filter.text != widget.vm.filter) {
       widget.onFilter(_filter.text);
     }
+  }
+
+  void _commitAround() {
+    final text = _around.text.trim();
+    final time = text.isEmpty ? '' : LogToolbar.clock(text);
+    if (time == null) {
+      setState(() => _aroundBad = true);
+      return;
+    }
+    if (_aroundBad) {
+      setState(() => _aroundBad = false);
+    }
+    if (time != _around.text) {
+      _around.text = time;
+    }
+    // Enter, then the focus leaving: one report of one time.
+    if (time != (_reported ?? widget.vm.around)) {
+      _reported = time;
+      widget.onAround?.call(time);
+    }
+  }
+
+  void _clearAround() {
+    _around.clear();
+    _commitAround();
   }
 
   void _commitLines() {
@@ -217,6 +320,46 @@ class _LogToolbarState extends State<LogToolbar> {
               SizedBox(
                 width: box.maxWidth,
                 child: filter,
+              ),
+            if (widget.onAround != null)
+              _labelled(
+                c,
+                vm.aroundLabel,
+                SizedBox(
+                  width: 124,
+                  child: Tooltip(
+                    message: _aroundBad ? vm.aroundBad : '',
+                    child: _input(
+                      c,
+                      key: const ValueKey('log-around'),
+                      controller: _around,
+                      focus: _aroundFocus,
+                      hint: vm.aroundHint,
+                      enabled: enabled,
+                      bad: _aroundBad,
+                      mono: true,
+                      onSubmitted: (_) => _commitAround(),
+                      trailing: vm.around.isEmpty
+                          ? null
+                          : IconButton(
+                              key: const ValueKey('log-around-clear'),
+                              tooltip: vm.aroundClear,
+                              visualDensity: .compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 28,
+                                height: 28,
+                              ),
+                              onPressed: _clearAround,
+                              icon: AppIcon(
+                                'err_close',
+                                size: 12,
+                                color: c.text3,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
               ),
             _labelled(
               c,
@@ -281,9 +424,9 @@ class _LogToolbarState extends State<LogToolbar> {
     ],
   );
 
-  BoxDecoration _box(AppColors c) => BoxDecoration(
+  BoxDecoration _box(AppColors c, {bool bad = false}) => BoxDecoration(
     color: c.ground2,
-    border: .all(color: c.line2),
+    border: .all(color: bad ? c.bad : c.line2),
     borderRadius: Radii.input,
   );
 
@@ -356,13 +499,18 @@ class _LogToolbarState extends State<LogToolbar> {
     FocusNode? focus,
     String? hint,
     bool digits = false,
+    bool bad = false,
+    bool mono = false,
+    Key? key,
+    Widget? trailing,
     ValueChanged<String>? onChanged,
     ValueChanged<String>? onSubmitted,
   }) => Container(
     height: 36,
-    decoration: _box(c),
+    decoration: _box(c, bad: bad),
     alignment: Alignment.centerLeft,
     child: TextField(
+      key: key,
       controller: controller,
       focusNode: focus,
       enabled: enabled,
@@ -372,12 +520,17 @@ class _LogToolbarState extends State<LogToolbar> {
       inputFormatters: digits ? [FilteringTextInputFormatter.digitsOnly] : null,
       cursorColor: c.ember,
       style: TextStyle(
-        fontFamily: AppFonts.sans,
+        fontFamily: mono ? AppFonts.mono : AppFonts.sans,
         fontSize: 13,
         color: c.text1,
       ),
       decoration: InputDecoration(
         isCollapsed: true,
+        suffixIcon: trailing,
+        suffixIconConstraints: const BoxConstraints(
+          maxWidth: 32,
+          maxHeight: 32,
+        ),
         filled: false,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,

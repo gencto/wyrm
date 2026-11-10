@@ -26,5 +26,6 @@ abstract class SystemState with _$SystemState {
     int? aclSeen,
     @Default(IMapConst({})) IMap<String, String> about,
     @Default(IMapConst({})) IMap<String, String> units,
+    String? around,
   }) = _SystemState;
 }

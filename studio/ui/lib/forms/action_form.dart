@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../buttons/button.dart';
+import '../theme/extensions/colors.dart';
 import 'param_form.dart';
 
 /// A picked file: its name and bytes (an `editor: file` parameter).
@@ -14,12 +16,38 @@ final class PickedFile {
   final Uint8List bytes;
 }
 
+/// What the broker said when it refused a submit as wrong input
+/// (docs/design/specs/errors.md §3, *Back to the form*): its words, and
+/// the field of the form they are about when it named one.
+final class FieldRefusal {
+  const FieldRefusal(this.message, {this.field});
+
+  /// The id of the field the refusal names; null when it names none.
+  final String? field;
+
+  /// The broker's words, as they came.
+  final String message;
+}
+
+/// What a form's submit does with the values, by field id. It answers a
+/// [FieldRefusal] when the broker refused them as wrong input, so the form
+/// can mark the field; null in every other case.
+typedef FormSubmit =
+    FutureOr<FieldRefusal?> Function(Map<String, Object?> values);
+
 /// A [ParamForm] that keeps what is typed and hands it over on submit: the
 /// arguments of an action (Approve, Grant, an Explorer action, an install).
 ///
 /// The fields' own `onChanged` are not called; [onSubmit] gets the values by
 /// field id (a file field gives a [PickedFile]). Required fields left empty
 /// keep the button disabled.
+///
+/// It is the one place where *Back to the form* lands: when [onSubmit]
+/// answers a [FieldRefusal], the values stay as typed, the broker's words go
+/// under the field it names and that field takes the focus (it has it when
+/// the error dialog over the form is closed). A refusal that names no field
+/// of this form is one line above the button. Either is said until the user
+/// changes the field (any field, for the line) or submits again.
 class ActionForm extends StatefulWidget {
   const ActionForm({
     required this.fields,
@@ -30,8 +58,6 @@ class ActionForm extends StatefulWidget {
     this.busy = false,
     this.columns = 1,
     this.disabledReason,
-    this.errors = const {},
-    this.focus,
     super.key,
   });
 
@@ -39,7 +65,7 @@ class ActionForm extends StatefulWidget {
 
   /// The label of the primary button.
   final String submit;
-  final ValueChanged<Map<String, Object?>> onSubmit;
+  final FormSubmit onSubmit;
 
   /// A second, danger button (Reject) and what it does.
   final String? secondary;
@@ -49,15 +75,6 @@ class ActionForm extends StatefulWidget {
 
   /// Why the user cannot submit (rule 8).
   final String? disabledReason;
-
-  /// What the broker said of a field when it refused the last submit, by
-  /// field id: shown under the field until the user changes it
-  /// (docs/design/specs/errors.md §3, *Back to the form*).
-  final Map<String, String> errors;
-
-  /// The field to put the focus in when it changes to an id: the one the
-  /// refusal names.
-  final String? focus;
 
   @override
   State<ActionForm> createState() => _ActionFormState();
@@ -70,21 +87,42 @@ class _ActionFormState extends State<ActionForm> {
 
   final _nodes = <String, FocusNode>{};
 
-  /// The fields changed since their error came: it is said no longer.
-  final _edited = <String>{};
+  /// The refused field was changed since: its error is said no longer.
+  var _edited = false;
 
-  @override
-  void didUpdateWidget(ActionForm old) {
-    super.didUpdateWidget(old);
-    if (!identical(widget.errors, old.errors)) {
-      _edited.clear();
+  /// What the broker said of the last submit, until a field changes.
+  FieldRefusal? _refused;
+
+  /// Submits in flight: the button waits for the answer.
+  var _sending = 0;
+
+  bool _has(String? id) => id != null && widget.fields.any((f) => f.id == id);
+
+  Future<void> _submit() async {
+    setState(() {
+      _refused = null;
+      _sending++;
+    });
+    FieldRefusal? refused;
+    try {
+      refused = await widget.onSubmit(Map.of(_values));
+    } finally {
+      if (mounted) {
+        setState(() => _sending--);
+      }
     }
-    final id = widget.focus;
-    if (id != null &&
-        (id != old.focus || !identical(widget.errors, old.errors))) {
+    if (!mounted || refused == null) {
+      return;
+    }
+    final named = refused;
+    setState(() {
+      _refused = named;
+      _edited = false;
+    });
+    if (_has(named.field)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _nodes[id]?.requestFocus();
+          _nodes[named.field]?.requestFocus();
         }
       });
     }
@@ -126,25 +164,43 @@ class _ActionFormState extends State<ActionForm> {
           unit: f.unit,
           choices: f.choices,
           required: f.required,
-          error: _edited.contains(f.id)
-              ? f.error
-              : (widget.errors[f.id] ?? f.error),
+          error: _refused?.field == f.id && !_edited
+              ? _refused?.message
+              : f.error,
           focusNode: _nodes[f.id] ??= FocusNode(debugLabel: f.id),
           enabled: f.enabled && !widget.busy,
           description: f.description,
           onChanged: (v) => setState(() {
             _values[f.id] = v;
-            _edited.add(f.id);
+            if (_refused?.field == f.id) {
+              _edited = true;
+            } else if (!_has(_refused?.field)) {
+              _refused = null;
+            }
           }),
           onPickFile: () => _pick(f),
         ),
     ];
-    final ready = _complete && !widget.busy && widget.disabledReason == null;
+    final ready =
+        _complete &&
+        !widget.busy &&
+        _sending == 0 &&
+        widget.disabledReason == null;
+    final c = context.colors;
     return Column(
       crossAxisAlignment: .stretch,
       spacing: 16,
       children: [
         ParamForm(fields: fields, columns: widget.columns),
+        if (_refused case final r? when !_has(r.field))
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              r.message,
+              key: const ValueKey('form-refusal'),
+              style: TextStyle(fontSize: 12, height: 1.4, color: c.bad),
+            ),
+          ),
         Row(
           spacing: 10,
           children: [
@@ -153,9 +209,7 @@ class _ActionFormState extends State<ActionForm> {
                 label: widget.submit,
                 expand: true,
                 disabledReason: widget.disabledReason,
-                onPressed: ready
-                    ? () => widget.onSubmit(Map.of(_values))
-                    : null,
+                onPressed: ready ? () => unawaited(_submit()) : null,
               ),
             ),
             if (widget.secondary case final s?)
