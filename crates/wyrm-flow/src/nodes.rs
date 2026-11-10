@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
-use wyrm_client::{ValEvent, WyrmClient};
+use wyrm_client::WyrmClient;
 use wyrm_core::{Perm, Quality, Value};
 use wyrm_link_sdk::{now_us, LinkCtx};
 
@@ -28,11 +28,30 @@ pub struct Msg {
     pub q: Quality,
     pub t: u64,
     pub key: Option<Arc<str>>,
+    /// Born at the start (ADR 0040 §2): what a node sends because the flow started, not
+    /// because something happened. A variable's and a `const`'s start value, a parameter
+    /// echo's start value, a clock's tick at the start, the first sample of a read (the value
+    /// that was already there), and everything a node sends while it handles such a sample
+    /// (the runtime carries the mark on). `trigger`, `auto_run` and the event blocks never
+    /// act on one, so a deploy, a hot swap or a restart runs no command through them.
+    pub start: bool,
 }
 
 impl Msg {
     pub fn new(v: Value, q: Quality, t: u64) -> Self {
-        Self { v, q, t, key: None }
+        Self {
+            v,
+            q,
+            t,
+            key: None,
+            start: false,
+        }
+    }
+
+    /// The same sample, born at the start.
+    pub fn at_start(mut self) -> Self {
+        self.start = true;
+        self
     }
 }
 
@@ -125,7 +144,7 @@ impl Ports {
 
 // ---------- config helpers ----------
 
-fn f(cfg: &Map, k: &str) -> Result<Option<f64>, String> {
+pub(crate) fn f(cfg: &Map, k: &str) -> Result<Option<f64>, String> {
     match cfg.get(k) {
         None => Ok(None),
         Some(v) => v
@@ -136,7 +155,7 @@ fn f(cfg: &Map, k: &str) -> Result<Option<f64>, String> {
     }
 }
 
-fn s<'a>(cfg: &'a Map, k: &str) -> Result<Option<&'a str>, String> {
+pub(crate) fn s<'a>(cfg: &'a Map, k: &str) -> Result<Option<&'a str>, String> {
     match cfg.get(k) {
         None => Ok(None),
         Some(Value::Str(x)) => Ok(Some(x)),
@@ -144,11 +163,11 @@ fn s<'a>(cfg: &'a Map, k: &str) -> Result<Option<&'a str>, String> {
     }
 }
 
-fn req_s<'a>(cfg: &'a Map, k: &str) -> Result<&'a str, String> {
+pub(crate) fn req_s<'a>(cfg: &'a Map, k: &str) -> Result<&'a str, String> {
     s(cfg, k)?.ok_or_else(|| format!("{k}: required"))
 }
 
-fn b(cfg: &Map, k: &str, default: bool) -> Result<bool, String> {
+pub(crate) fn b(cfg: &Map, k: &str, default: bool) -> Result<bool, String> {
     match cfg.get(k) {
         None => Ok(default),
         Some(Value::Bool(x)) => Ok(*x),
@@ -156,14 +175,14 @@ fn b(cfg: &Map, k: &str, default: bool) -> Result<bool, String> {
     }
 }
 
-fn only(cfg: &Map, known: &[&str]) -> Result<(), String> {
+pub(crate) fn only(cfg: &Map, known: &[&str]) -> Result<(), String> {
     match cfg.keys().find(|k| !known.contains(&k.as_str())) {
         Some(k) => Err(format!("{k}: unknown field")),
         None => Ok(()),
     }
 }
 
-fn one_of<'a>(
+pub(crate) fn one_of<'a>(
     cfg: &'a Map,
     k: &str,
     allowed: &[&'a str],
@@ -220,6 +239,29 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
     }
 }
 
+/// The fields of a node type that name what it reads, each with the parameter that holds its
+/// scope: `(field, scope)`. The field is a config key and the port `in.<field>`; a value from
+/// the port is read only inside the scope (ADR 0040 §1, [`crate::scope`]).
+pub fn read_fields(ty: &str) -> &'static [(&'static str, &'static str)] {
+    match ty {
+        "subscribe" | "liveliness" | "load_value" => &[("key", "key_scope")],
+        "list_children" => &[("path", "path_scope")],
+        _ => &[],
+    }
+}
+
+/// Config check of a read field: the key is a text, the scope is a text, and one of them is
+/// given (a node with a scope alone reads nothing until its port brings a key).
+pub(crate) fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), String> {
+    let key = s(cfg, field)?;
+    if s(cfg, scope)?.is_none() && key.is_none() {
+        return Err(format!(
+            "{field}: required (or {scope}, with in.{field} wired)"
+        ));
+    }
+    Ok(())
+}
+
 /// `scale`'s range parameters: given (in the config or on their ports), `in` is mapped from
 /// `input_min`…`input_max` to `output_min`…`output_max` (defaults 0, 1, 0, 100) before
 /// `k × · + b`.
@@ -273,10 +315,11 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         return r;
     }
     Ok(match ty {
-        "subscribe" => {
-            only(cfg, &["key"])?;
-            req_s(cfg, "key")?;
-            Ports::new(&[], &[("out", Any)])
+        "subscribe" | "liveliness" => {
+            only(cfg, &["key", "key_scope"])?;
+            read_field(cfg, "key", "key_scope")?;
+            let out = if ty == "liveliness" { Bool } else { Any };
+            Ports::new(&[("in.key", Any)], &[("out", out), ("error", Any)])
         }
         "timer" => {
             only(cfg, &["period_ms"])?;
@@ -290,11 +333,6 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             only(cfg, &["value"])?;
             cfg.get("value").ok_or("value: required")?;
             Ports::new(&[], &[("out", Any)])
-        }
-        "liveliness" => {
-            only(cfg, &["key"])?;
-            req_s(cfg, "key")?;
-            Ports::new(&[], &[("out", Bool)])
         }
         "expression" => {
             only(cfg, &["inputs", "expr", "trigger", "quality"])?;
@@ -412,22 +450,8 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             }
             Ports::new(&[("in", Any)], &[])
         }
-        "invoke" => {
-            only(cfg, &["path", "action", "args", "on", "allow_bad"])?;
-            req_s(cfg, "path")?;
-            req_s(cfg, "action")?;
-            one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?;
-            b(cfg, "allow_bad", false)?;
-            Ports::new(&[("in", Any)], &[("out", Any)])
-        }
-        "set" => {
-            only(cfg, &["path", "on", "deadband", "allow_bad"])?;
-            req_s(cfg, "path")?;
-            one_of(cfg, "on", &["any", "change"], "change")?;
-            f(cfg, "deadband")?;
-            b(cfg, "allow_bad", false)?;
-            Ports::new(&[("in", Any)], &[])
-        }
+        "invoke" | "set" => crate::commands::ports(ty, cfg)?,
+        "load_value" | "list_children" => crate::readers::ports(ty, cfg)?,
         "wasm" => {
             let w = WasmCfg::parse(cfg)?;
             Ports {
@@ -442,6 +466,11 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
 
 /// Compiler step 6: rhai compiles with only the declared names.
 pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
+    // an engine only for the types that have a script: one per node of a 1000-node
+    // definition was most of its compile time (ADR 0040 §3)
+    if !matches!(ty, "expression" | "filter") {
+        return Ok(());
+    }
     let e = script::engine();
     match ty {
         "expression" => {
@@ -456,6 +485,11 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
             .map_err(|m| format!("expr: {m}")),
         _ => Ok(()),
     }
+}
+
+/// Whether a node of type `ty` runs on `dataflows/<id>/~act/trigger {node}` (ADR 0040 §2).
+pub fn triggerable(ty: &str) -> bool {
+    matches!(ty, "invoke" | "set")
 }
 
 /// Minimum flow permission a node needs (compiler step 7).
@@ -508,6 +542,11 @@ pub trait Node: Send {
         None
     }
     fn tick(&mut self, _now: u64, _out: &mut Out) {}
+    /// Whether the node's clock ticks once at the start (as a `timer` does) or first after
+    /// one full period (a command's `interval_ms`: a deploy never runs a command).
+    fn first_tick_now(&self) -> bool {
+        true
+    }
     fn state(&self) -> Option<Value> {
         None
     }
@@ -526,7 +565,7 @@ pub trait Node: Send {
     }
 }
 
-fn truthy(v: &Value) -> bool {
+pub(crate) fn truthy(v: &Value) -> bool {
     match v {
         Value::Bool(b) => *b,
         v => v.as_f64().is_some_and(|x| x != 0.0),
@@ -538,73 +577,12 @@ fn truthy(v: &Value) -> bool {
 /// The I/O tasks a source started: they end with the node (a stop, a hot swap, the end of a
 /// preview), not later.
 #[derive(Default)]
-struct Tasks(Vec<tokio::task::JoinHandle<()>>);
+pub(crate) struct Tasks(pub(crate) Vec<tokio::task::JoinHandle<()>>);
 
 impl Drop for Tasks {
     fn drop(&mut self) {
         for t in &self.0 {
             t.abort();
-        }
-    }
-}
-
-struct Subscribe {
-    key: String,
-    last: Option<Value>,
-    tasks: Tasks,
-}
-
-impl Node for Subscribe {
-    fn start(&mut self, io: &Io) {
-        let pattern = io.full_key(&self.key);
-        let (io2, client) = (io.clone(), io.client.clone());
-        self.tasks.0.push(tokio::spawn(async move {
-            let Ok(mut s) = client.subscribe(&pattern).await else {
-                return;
-            };
-            while let Some(ev) = s.next().await {
-                if let ValEvent::Sample { key, sample, .. } = ev {
-                    (io2.inject)(
-                        "__src",
-                        Msg {
-                            v: sample.v,
-                            q: sample.q,
-                            t: sample.t,
-                            key: Some(key.into()),
-                        },
-                    );
-                }
-            }
-        }));
-        // Owner gone → `bad/disconnected` with the previous value.
-        let full = io.full_key(&self.key);
-        if let Some(owner) = wyrm_client::owner_key(&full).filter(|o| !o.contains('*')) {
-            let (io3, session) = (io.clone(), io.client.session().clone());
-            self.tasks.0.push(tokio::spawn(async move {
-                let Ok(sub) = session.liveliness().declare_subscriber(&owner).await else {
-                    return;
-                };
-                while let Ok(s) = sub.recv_async().await {
-                    if s.kind() == zenoh::sample::SampleKind::Delete {
-                        (io3.inject)("__lost", Msg::new(Value::Null, Quality::Bad, now_us()));
-                    }
-                }
-            }));
-        }
-    }
-
-    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
-        match port {
-            "__src" => {
-                self.last = Some(m.v.clone());
-                out.emit("out", m);
-            }
-            "__lost" => {
-                if let Some(v) = self.last.clone() {
-                    out.emit("out", Msg::new(v, Quality::Bad, m.t));
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -640,38 +618,10 @@ struct Const(Value);
 
 impl Node for Const {
     fn start(&mut self, io: &Io) {
-        (io.inject)("__src", Msg::new(self.0.clone(), Quality::Good, now_us()));
-    }
-    fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
-        if port == "__src" {
-            out.emit("out", m);
-        }
-    }
-}
-
-struct Liveliness {
-    key: String,
-    tasks: Tasks,
-}
-
-impl Node for Liveliness {
-    fn start(&mut self, io: &Io) {
-        let key = io.full_key(&self.key);
-        let (io2, session) = (io.clone(), io.client.session().clone());
-        self.tasks.0.push(tokio::spawn(async move {
-            let Ok(sub) = session
-                .liveliness()
-                .declare_subscriber(&key)
-                .history(true)
-                .await
-            else {
-                return;
-            };
-            while let Ok(s) = sub.recv_async().await {
-                let up = s.kind() == zenoh::sample::SampleKind::Put;
-                (io2.inject)("__src", Msg::new(Value::Bool(up), Quality::Good, now_us()));
-            }
-        }));
+        (io.inject)(
+            "__src",
+            Msg::new(self.0.clone(), Quality::Good, now_us()).at_start(),
+        );
     }
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
         if port == "__src" {
@@ -1276,176 +1226,6 @@ impl Node for Publish {
     }
 }
 
-/// Edge detection shared by command sinks.
-fn should_fire(on: &str, last: &mut Option<Value>, v: &Value) -> bool {
-    let prev = last.replace(v.clone());
-    match on {
-        "rising" => truthy(v) && !prev.as_ref().is_some_and(truthy),
-        "falling" => !truthy(v) && prev.as_ref().is_some_and(truthy),
-        "change" => prev.as_ref() != Some(v),
-        _ => true,
-    }
-}
-
-/// When an `invoke` node calls, and with which arguments: one rule for a deployed flow and
-/// for a preview, so a preview reports what the flow would do.
-struct InvokeGate {
-    args: Map,
-    on: String,
-    allow_bad: bool,
-    last: Option<Value>,
-}
-
-impl InvokeGate {
-    fn from(cfg: &Map) -> Result<Self, String> {
-        Ok(Self {
-            args: match cfg.get("args") {
-                Some(Value::Map(m)) => m.clone(),
-                _ => Map::new(),
-            },
-            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
-        })
-    }
-
-    /// The arguments of the call `m` makes, or `None` when it makes none.
-    fn call(&mut self, m: &Msg) -> Option<Map> {
-        if m.q == Quality::Bad && !self.allow_bad {
-            return None; // never act on bad data
-        }
-        if !should_fire(&self.on, &mut self.last, &m.v) {
-            return None;
-        }
-        // `"$in"` in args is replaced by the input value.
-        Some(
-            self.args
-                .iter()
-                .map(|(k, v)| {
-                    let v = match v {
-                        Value::Str(s) if s == "$in" => m.v.clone(),
-                        v => v.clone(),
-                    };
-                    (k.clone(), v)
-                })
-                .collect(),
-        )
-    }
-}
-
-struct Invoke {
-    path: String,
-    action: String,
-    gate: InvokeGate,
-    tx: Option<tokio::sync::mpsc::Sender<Map>>,
-}
-
-impl Node for Invoke {
-    fn input(&mut self, port: &str, m: Msg, io: &Io, out: &mut Out) {
-        if port == "__result" {
-            out.emit("out", m);
-            return;
-        }
-        let Some(args) = self.gate.call(&m) else {
-            return;
-        };
-        // one caller task, in order: a task per call could run a later call first
-        let tx = self.tx.get_or_insert_with(|| {
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<Map>(COMMAND_QUEUE);
-            let (io2, node, action) = (io.clone(), io.full_key(&self.path), self.action.clone());
-            tokio::spawn(async move {
-                while let Some(args) = rx.recv().await {
-                    let r = io2
-                        .client
-                        .invoke_one(&node, &action, Value::Map(args))
-                        .await;
-                    let msg = match r {
-                        Ok(v) => Msg::new(v.unwrap_or(Value::Null), Quality::Good, now_us()),
-                        Err(e) => Msg::new(Value::Str(e.to_string()), Quality::Bad, now_us()),
-                    };
-                    (io2.inject)("__result", msg);
-                }
-            });
-            tx
-        });
-        if tx.try_send(args).is_err() {
-            debug!(path = %self.path, "invoke: calls queued to the limit, call dropped");
-        }
-    }
-}
-
-/// Calls an `invoke` node holds while its caller is busy; more are dropped.
-const COMMAND_QUEUE: usize = 256;
-
-/// When a `set` node writes: one rule for a deployed flow and for a preview.
-struct SetGate {
-    change: bool,
-    deadband: f64,
-    allow_bad: bool,
-    last: Option<Value>,
-}
-
-impl SetGate {
-    fn from(cfg: &Map) -> Result<Self, String> {
-        Ok(Self {
-            change: one_of(cfg, "on", &["any", "change"], "change")? == "change",
-            deadband: f(cfg, "deadband")?.unwrap_or(0.0),
-            allow_bad: b(cfg, "allow_bad", false)?,
-            last: None,
-        })
-    }
-
-    /// Whether `m` is written.
-    fn pass(&mut self, m: &Msg) -> bool {
-        if m.q == Quality::Bad && !self.allow_bad {
-            return false;
-        }
-        if self.change {
-            let within = match (self.last.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
-                (Some(a), Some(b)) => (a - b).abs() <= self.deadband,
-                _ => self.last.as_ref() == Some(&m.v),
-            };
-            if within {
-                return false;
-            }
-        }
-        self.last = Some(m.v.clone());
-        true
-    }
-}
-
-struct Set {
-    path: String,
-    gate: SetGate,
-    /// The value to write: one writer task writes the newest, in order (a task per sample
-    /// could write an older value last).
-    tx: Option<tokio::sync::watch::Sender<Option<Value>>>,
-}
-
-impl Node for Set {
-    fn input(&mut self, _p: &str, m: Msg, io: &Io, _out: &mut Out) {
-        if !self.gate.pass(&m) {
-            return;
-        }
-        let tx = self.tx.get_or_insert_with(|| {
-            let (tx, mut rx) = tokio::sync::watch::channel::<Option<Value>>(None);
-            let (client, node) = (io.client.clone(), io.full_key(&self.path));
-            tokio::spawn(async move {
-                while rx.changed().await.is_ok() {
-                    let Some(v) = rx.borrow_and_update().clone() else {
-                        continue;
-                    };
-                    if let Err(e) = client.set(&node, v).await {
-                        debug!("flow set {node}: {e}");
-                    }
-                }
-            });
-            tx
-        });
-        tx.send_replace(Some(m.v));
-    }
-}
-
 // ---------- preview ----------
 
 /// How nodes are built: for a deployed flow, or for a preview of a draft (ADR 0038 §5).
@@ -1468,7 +1248,7 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    fn full_key(&self, k: &str) -> String {
+    pub(crate) fn full_key(&self, k: &str) -> String {
         if k.starts_with("wy/") {
             k.to_owned()
         } else {
@@ -1495,19 +1275,12 @@ impl SinkOp {
     }
 }
 
-enum Gate {
-    Set(SetGate),
-    Invoke(InvokeGate),
-    Publish,
-}
-
-/// A sink in a preview: the deployed node's rule decides, and the result goes to the probe
-/// only. It has no client, no writer task and never reads `io`: it cannot write by
-/// construction. An `invoke` sends nothing on `out` (there is no answer).
+/// A `publish` in a preview: what it would publish goes to the probe only. It has no `ctx`
+/// and never reads `io`: it cannot write by construction. (`set` and `invoke` in a preview are
+/// [`crate::commands`] nodes without a client.)
 struct Capture {
     node: String,
     key: String,
-    gate: Gate,
     probe: Arc<crate::watch::Probe>,
 }
 
@@ -1516,49 +1289,23 @@ impl Node for Capture {
         if port.starts_with("__") {
             return;
         }
-        let (op, value) = match &mut self.gate {
-            Gate::Set(g) => {
-                if !g.pass(&m) {
-                    return;
-                }
-                (SinkOp::Set, m.v)
-            }
-            Gate::Invoke(g) => match g.call(&m) {
-                Some(args) => (SinkOp::Invoke, Value::Map(args)),
-                None => return,
-            },
-            Gate::Publish => (SinkOp::Publish, m.v),
-        };
-        self.probe.sink(&self.node, op, &self.key, value);
+        self.probe.sink(&self.node, SinkOp::Publish, &self.key, m.v);
     }
 }
 
-/// The capture node of a sink type in a preview; `None` for every other type.
+/// The capture node of a `publish` in a preview; `None` for every other type.
 fn capture(ty: &str, id: &str, cfg: &Map, sb: &Sandbox) -> Result<Option<Box<dyn Node>>, String> {
-    let (key, gate) = match ty {
-        "set" | "invoke" => {
-            let target = command_target(ty, cfg).ok_or("path: required")?;
-            let gate = match ty {
-                "set" => Gate::Set(SetGate::from(cfg)?),
-                _ => Gate::Invoke(InvokeGate::from(cfg)?),
-            };
-            (sb.full_key(&target), gate)
-        }
-        "publish" => (
-            format!(
-                "wy/{}/dataflows/{}/nodes/{}",
-                sb.site,
-                sb.flow,
-                req_s(cfg, "node")?
-            ),
-            Gate::Publish,
-        ),
-        _ => return Ok(None),
-    };
+    if ty != "publish" {
+        return Ok(None);
+    }
     Ok(Some(Box::new(Capture {
         node: id.to_owned(),
-        key,
-        gate,
+        key: format!(
+            "wy/{}/dataflows/{}/nodes/{}",
+            sb.site,
+            sb.flow,
+            req_s(cfg, "node")?
+        ),
         probe: sb.probe.clone(),
     })))
 }
@@ -1588,21 +1335,13 @@ pub fn build_with(
     }
     let num = |k: &str, d: f64| f(cfg, k).map(|x| x.unwrap_or(d));
     Ok(match ty {
-        "subscribe" => Box::new(Subscribe {
-            key: req_s(cfg, "key")?.to_owned(),
-            last: None,
-            tasks: Tasks::default(),
-        }),
+        "subscribe" | "liveliness" => Box::new(crate::sources::Source::new(ty, cfg)),
         "timer" => Box::new(Timer {
             period: Duration::from_secs_f64(num("period_ms", 1000.0)? / 1000.0),
             n: 0,
             live: Live::new("timer", cfg),
         }),
         "const" => Box::new(Const(cfg.get("value").cloned().unwrap_or(Value::Null))),
-        "liveliness" => Box::new(Liveliness {
-            key: req_s(cfg, "key")?.to_owned(),
-            tasks: Tasks::default(),
-        }),
         "expression" => {
             let inputs = names(cfg)?;
             let engine = script::engine();
@@ -1678,17 +1417,8 @@ pub fn build_with(
             path: format!("{flow}/nodes/{}", req_s(cfg, "node")?),
             tx: None,
         }),
-        "invoke" => Box::new(Invoke {
-            path: req_s(cfg, "path")?.to_owned(),
-            action: req_s(cfg, "action")?.to_owned(),
-            gate: InvokeGate::from(cfg)?,
-            tx: None,
-        }),
-        "set" => Box::new(Set {
-            path: req_s(cfg, "path")?.to_owned(),
-            gate: SetGate::from(cfg)?,
-            tx: None,
-        }),
+        "invoke" | "set" => crate::commands::build(ty, id, cfg, mode)?,
+        "load_value" | "list_children" => crate::readers::build(ty, cfg)?,
         "wasm" => {
             let store = artifacts.ok_or("wasm: no artifact store")?;
             Box::new(Wasm::new(WasmCfg::parse(cfg)?, store)?)

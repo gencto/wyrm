@@ -146,6 +146,65 @@ and set it back after.
 | `concat` | `in.strict`, `in.<inputs>` | `out` | The inputs as one text; a missing input is empty text, or with `strict` the result is `null`. A text longer than 4 KiB is `null` with quality `bad`. |
 | `length` | `in` | `out` | The characters of a text, the items of a list, the entries of a map or the bytes of binary; else `null`. |
 
+### The second set (spec 06 0.2.25, ADR 0040 §4)
+
+Every parameter below has the port `in.<parameter>`.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `substring` | `in` | `out` | `start` (default 0), `length` (default: to the end), counted in characters. |
+| `replace` | `in` | `out` | `from`, `to`: every `from` in the text becomes `to`. Plain text, no pattern. An empty `from` replaces nothing. |
+| `split` | `in` | `out` | `separator` (default `,`): a list of texts, at most 1000. An empty separator gives one item. |
+| `join` | `in` (a list) | `out` | `separator` (default `,`): the items as one text. |
+| `make_object` | `in.<inputs>` | `out` | A map: each input's name is a key. Use it for a map argument of an action. |
+| `make_array` | `in.<inputs>` | `out` | A list of the inputs, in their order. |
+| `get` | `in` | `out` | `path` (default empty): the value at `a.b.0` inside a map or a list; a number is an index. `null` when it is not there. |
+| `stats` | `in` (a list) | `min`, `max`, `avg`, `sum`, `count` | The numbers of the list. An empty list gives `count` 0 and `null` for the others. |
+| `changed` | `in` | `on_change` | An event when `in` differs from the sample before. The first sample only starts it. |
+| `rising_edge` | `in` | `on_edge` | An event when `in` becomes true. Nothing before counts as false. |
+| `falling_edge` | `in` | `on_edge` | An event when `in` becomes false after it was true. |
+| `counter` | `in`, `reset` | `out` | `step` (default 1), `initial` (default 0): each sample on `in` adds `step`; a true `reset` goes back to `initial`. |
+| `toggle` | `in`, `reset` | `out` | `initial` (default false): each sample on `in` flips the bool. |
+| `sample_and_hold` | `in`, `trigger` | `out` | The value `in` has when a sample comes on `trigger`. |
+| `select` | `in.<inputs>` | `out` | `index` (default 0): the input at that position, from 0; `null` when there is none. |
+| `debounce` | `in` | `out` | `ms` (default 500): the last value, once `ms` passed without another. |
+| `throttle` | `in` | `out` | `ms` (default 500): the first value at once, then the latest at the end of each period. |
+
+- A text result longer than 4 KiB, and a `split` of more than 1000 parts, is
+  `null` with quality `bad`.
+- `changed`, `rising_edge`, `falling_edge`, `counter`, `toggle` and
+  `sample_and_hold` do not act on a value that exists because the flow started
+  (a variable's start value, the first sample of a `subscribe`). Such a value
+  only gives the block where it starts from. So these blocks are safe in front
+  of a `trigger`.
+- `counter` and `toggle` keep their state across a hot swap.
+- A number that is not finite (NaN, infinity) is no number for a block. On a
+  parameter's port it is ignored, and the last good value stays.
+- `debounce` and `throttle` send their value at most a quarter of `ms` late
+  (5 to 50 ms).
+
+Readers:
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `load_value` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true) |
+| `list_children` | `trigger`, `in.path`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `ok`, `error`, `running`, `last_run` | `path`, `path_scope`, `interval_ms`, `auto_run`, `enabled` |
+
+- `load_value` reads the stored value of a point once. `out` carries it with
+  its quality and time. A point without a stored value gives `error` with
+  `not_found`.
+- `list_children` gives a list of rows, one per child:
+  `{name, path, type, display, is, unit, writable, has_children}` (`type`,
+  `display`, `is` and `unit` only where the child has them). At most 1000 rows.
+  The deployer, and whoever watches the flow, must read the children
+  (`<path>/*`) as well as the node: one child that is denied refuses the block.
+- `auto_run` reads at the start and when the key changes. A read is no command,
+  so it may run at deploy. `trigger` reads on an event or a changed value;
+  `interval_ms` reads every period.
+- `key` and `path` take another key on their port inside `key_scope` or
+  `path_scope`, as `subscribe` does (see "A key from a port"). A refused key is
+  an `error` event with `invalid_parameter`.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -170,6 +229,153 @@ value (or the default) at start, then the last good sample.
 - A new `period_ms`, `ms`, `size_s` or alarm delay takes effect at once. The
   node's clock starts again one period after the change. A sample that a
   `delay` already holds keeps its time.
+
+## A key from a port
+
+`subscribe` and `liveliness` read the key of their config. Their port `in.key`
+takes another key while the flow runs (spec 06 0.2.22, ADR 0040 §1): a text
+block builds a path, and the path drives the source.
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `subscribe` | `in.key` | `out`, `error` | `key` (the start key; may be absent with a scope), `key_scope` |
+| `liveliness` | `in.key` | `out`, `error` | `key`, `key_scope` |
+
+1. Give the node `key_scope`, a key expression of the keys the port may name:
+   `downstream/modbus/line1/**`. The compiler refuses an edge into `in.key`
+   without it.
+2. Deploy. The deployer must read all of the scope. `watch`, `ports` and
+   `preview` ask the same of their caller.
+3. Send a key to `in.key`: a text, one concrete key inside the scope
+   (`downstream/modbus/line1/t1`). A wildcard, a key of another site, a key
+   under `sys` and a value that is not a text are refused.
+
+- A new key ends the old read first. `out` is `null` with quality `uncertain`
+  until the new key's first sample.
+- A refused value reads nothing. `error` carries the reason as a text and goes
+  back to `null` with the next good key.
+- `null` on the port reads nothing and is no error.
+- Two changes are at least 100 ms apart. The latest value wins.
+- The output `key` (the parameter's echo) is the key in use.
+- `liveliness` sends nothing for a node that has no token, as before.
+
+УВАГА: the targets of `set` and `invoke` have no port. A flow changes what it
+writes and the arguments of an action, never where it writes (ADR 0040 §1a).
+
+## The action block and the command behaviours
+
+`invoke` is the action block: an action of a node, dropped from the tree. `set`
+writes a point. Both are commands, and both have the same behaviour fields
+(spec 06 0.2.23, ADR 0040 §2).
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `invoke` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `arg.<name>` | `out`, `result`, `sent`, `ok`, `error`, `running`, `last_run` | `path`, `action`, `args`, `on`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default false), `enabled` (default true), `run_on_start` (default false) |
+| `set` | `in`, `trigger`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `sent`, `ok`, `error`, `running`, `last_run` | `path`, `on`, `deadband`, `allow_bad`, `interval_ms` (default 0), `auto_run` (default true), `enabled` (default true), `run_on_start` (default false) |
+
+Arguments of `invoke`:
+
+1. Each key of `args` is one argument. Its value is the argument's constant:
+   `args: {setpoint: 21.5, mode: "auto"}`.
+2. Each argument has the port `arg.<name>`. A sample there replaces the
+   constant. Use `null` as the constant of an argument that only a wire gives.
+3. `"$in"` as a constant stands for the last value on `in`.
+
+What runs a command:
+
+| Cause | `invoke` | `set` |
+|---|---|---|
+| a sample on `in` | every sample that passes `on` | the value, when `auto_run` is true and it passes `on`/`deadband` |
+| `trigger` | an event, or a value that differs from the last one | the same: it writes the value that `in` holds |
+| `auto_run` | a sample on `arg.<name>` that changes the argument | see `in` |
+| `interval_ms` above 0 | every period | every period: the held value again |
+| the action `dataflows/<id>/~act/trigger {node}` | one run | one write of the held value |
+| `run_on_start: true` | one run, 250 ms after each start of the flow | one write of the value `in` got by then |
+
+- `enabled: false` stops every cause.
+- `interval_ms` is 0 (off) or 100 … 86 400 000. A period is skipped while the
+  run before it has not answered.
+- `sent` fires when the request leaves, `ok` when the target answered, `error`
+  when it refused: `{event: "error", id, code, message}` with the status code
+  of spec 04. `running` is true between the two. `last_run` is the time of the
+  last `sent` in microseconds.
+- `invoke.result` is the last result. `invoke.out` stays: the result, or the
+  error text with quality `bad`.
+
+УВАГА: a deploy, a hot swap, a reload and a restart never run a command through
+`trigger`, `auto_run` or `interval_ms`. A value that exists because the flow
+started (a variable's start value, a `const`, a parameter's echo, a timer's
+first tick, the first sample of a `subscribe`) only fills the field. The first
+run of `interval_ms` is one full period after the start. `in` does not have
+this rule: a variable wired to `in` of a `set` or an `invoke` still acts at
+deploy. Wire `trigger` where a deploy must do nothing.
+
+There is one action block. A block that runs on a trigger, a block that runs
+at deploy and a periodic block are the same `invoke` with other fields; there
+is no block type per behaviour. The older `on` of `invoke` still works for
+`in`: `change` is what `trigger` does, and `rising` or `falling` is a
+`rising_edge` or `falling_edge` block wired into `trigger`.
+
+ОБЕРЕЖНО: `run_on_start: true` is the one exception to the rule above. The
+block then runs once at every start of the flow: each deploy, each hot swap,
+each reload and each broker restart. Set it only on a command that is safe to
+repeat.
+
+The `trigger` action is the block's button in the editor. It needs level
+`write` on the flow, and the caller needs `write` on the block's own target
+(the flow's `maxperm` when that is higher).
+It works on a deployed flow that runs. In a preview a command block shows what
+it would send (`sinks`), fires `sent`, and never `ok` or `error`.
+
+## Custom blocks
+
+A custom block is a sub-flow that a flow uses as one block (spec 06 0.2.24,
+ADR 0040 §3). The definition carries it in `blocks`; a node of type
+`block:<name>` is an instance.
+
+```json
+{
+  "blocks": {
+    "mean": {
+      "inputs": [
+        {"name": "a", "to": "sum.in.0"},
+        {"name": "b", "to": "sum.in.1"},
+        {"name": "k", "to": "div.in.1", "default": 2}
+      ],
+      "outputs": [{"name": "out", "from": "div.out"}],
+      "nodes": {"sum": {"type": "add"}, "div": {"type": "divide"}},
+      "edges": [["sum.out", "div.in.0"]]
+    }
+  },
+  "nodes": {"m1": {"type": "block:mean", "values": {"k": 4}}},
+  "edges": [["x.out", "m1.a"], ["y.out", "m1.b"], ["m1.out", "r.in"]]
+}
+```
+
+- The fields of an instance are the block's inputs and outputs, in their
+  order. A parameter is an input with a `default`.
+- `values` gives an input its constant for this instance. A wire replaces it.
+- The compiler replaces the instance by the inner nodes `m1/sum` and `m1/div`.
+  `watch`, `ports` and `preview` show them under these ids; `nodes: ["m1"]`
+  asks for all of them.
+- A block may hold other blocks, at most 4 deep and at most 64 instances in
+  one block. A block may not contain itself. The 1000 nodes of a flow count
+  every inner node and every instance; a flow has at most 4000 edges with its
+  blocks expanded.
+- A constant goes only to an inner input that keeps one: a parameter's port,
+  an operand of a logic block, an argument of `invoke`, `in` of a variable.
+- A block with a `publish` inside can be used once in a flow.
+
+The library keeps blocks for every flow of the site:
+
+1. Store a block: `dataflows/~act/put_block {name, def}` (level `config`).
+2. Read it: `get_block {name}` gives `{name, version, def, requires}`.
+3. Copy `def` and every block of `requires` into `blocks` of the flow.
+4. Deploy the flow.
+
+`list_blocks` lists them; `remove_block {name}` removes one. A flow holds its
+own copy: a change in the library reaches a flow when the block is copied and
+the flow is deployed again.
 
 ## Fields as outputs
 
@@ -317,8 +523,8 @@ Rules:
 |---|---|---|---|---|---|
 | `number`, `string`, `bool` | Value ⇄ | Value = `in` → `value` → `out` | — | number box; text (`string`: multi-line in DGLux); toggle | none: DGLux has the one field `value` |
 | `const` | Value → | Value = `value` → `out` | — | JSON or text | no input (sent once at start) |
-| `subscribe` | `<point>` → | the point's value on `out` | Point (`key`) | — | — |
-| `liveliness` | `<node>` → | `out` | Point (`key`) | — | — |
+| `subscribe` | Point ⇄ · `<point>` → · Error → | `in.key` → `key`; the point's value on `out`; `error` | Scope (`key_scope`) | Point: a tree picker; bound: a wire | none (spec 06 0.2.22) |
+| `liveliness` | Node ⇄ · `<node>` → · Error → | `in.key` → `key`; `out`; `error` | Scope (`key_scope`) | as `subscribe` | none (spec 06 0.2.22) |
 | `timer` | Period (ms) ⇄ · Count → | `in.period_ms` → `period_ms`; `out` | — | — | none (spec 06 0.2.17) |
 | `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns | `expr`, `trigger`, `quality` have no input |
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — | `expr` has no input |
@@ -330,8 +536,8 @@ Rules:
 | `window` | Input ⇄ · Size (s) ⇄ · Kind → · Function → · Max samples → · Output → | `in`; `in.size_s` → `size_s`; the others config only | — | Kind, Function dropdowns | `kind`, `fn`, `max_samples` have no input |
 | `alarm` | Input ⇄ · High ⇄ · Low ⇄ · Hysteresis ⇄ · Delay (s) ⇄ · Return delay (s) ⇄ · On bad quality → · Active → · Event → | `in`; `in.high` → `high`, `in.low`, `in.hysteresis`, `in.delay_s`, `in.return_delay_s`; `on_bad` config only | — | On bad quality dropdown | `on_bad` has no input |
 | `publish` | Value name · Value ← | `in` | Meta | — | — |
-| `set` | `<point>` ⇄ | `in` → its echo `in` | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
-| `invoke` | Run when ← · Action · Run on · `<argument>` … · Result → | `in`; `out` | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
+| `set` | `<point>` ⇄ · Trigger ⇄ (unbound: a button, `~act/trigger`) · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Sent → · Ok → · Error → · Running → · Last run → | `in` → its echo `in`; `trigger`; `in.<p>` → `<p>` (spec 06 0.2.23) | Point (`path`), Write on, Deadband, Allow bad quality | Write on dropdown; toggle | — |
+| `invoke` | Trigger ⇄ (unbound: a button, `~act/trigger`) · Run when ← · Action · `<argument>` ⇄ … · Interval (ms) ⇄ · Auto run ⇄ · Enabled ⇄ · Result → · Sent → · Ok → · Error → · Running → · Last run → | `trigger`; `in`; `arg.<name>` ⇄ (constant in `args`); `in.<p>` → `<p>`; `result`, `out` (spec 06 0.2.23) | Node (`path`), Args, Allow bad quality | Run on dropdown; toggle | arguments are config only, not fields with inputs |
 | `wasm` | Artifact → · `<input>` ⇄ … · `<output>` → … | ports named by `inputs`/`outputs` | Config, Fuel, Memory (MB) | — | — |
 | `add`, `subtract`, `multiply`, `divide`, `max`, `min` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +, at least 2) | `in.0`, `in.1`, …; `out` | — | operands typed (`values`) | none (spec 06 0.2.19: an operand holds a typed value) |
 | `abs`, `not`, `length` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |

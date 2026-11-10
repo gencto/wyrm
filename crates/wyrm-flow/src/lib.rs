@@ -8,12 +8,16 @@
 pub mod artifacts;
 pub mod blocks;
 pub mod catalog;
+mod commands;
 pub mod def;
 pub mod engine;
 pub mod nodes;
 pub mod preview;
+mod readers;
 pub mod runtime;
+pub mod scope;
 pub mod script;
+mod sources;
 pub mod store;
 pub mod watch;
 

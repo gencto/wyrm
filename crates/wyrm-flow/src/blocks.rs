@@ -44,6 +44,24 @@ pub const TYPES: &[&str] = &[
     "concat",
     "length",
     "case",
+    // the second set (ADR 0040 §4)
+    "substring",
+    "replace",
+    "split",
+    "join",
+    "make_object",
+    "make_array",
+    "get",
+    "stats",
+    "changed",
+    "rising_edge",
+    "falling_edge",
+    "counter",
+    "toggle",
+    "sample_and_hold",
+    "select",
+    "debounce",
+    "throttle",
 ];
 
 /// Variable inputs of one block at most.
@@ -52,6 +70,12 @@ pub const MAX_ITEMS: usize = 64;
 /// engine's strings. A longer one is `null` with quality `bad` (a `concat` in a loop through
 /// a `delay` would grow without end; automated review of e89b1d4).
 pub const MAX_TEXT: usize = 4096;
+/// Most items a block puts in a list (`split`); more is `null` with quality `bad`.
+pub const MAX_LIST: usize = 1000;
+/// The longest `ms` of `debounce` and `throttle`: one hour.
+const MAX_HOLD_MS: f64 = 3_600_000.0;
+/// `ms` of `debounce` and `throttle` when the parameter is no finite number.
+const DEFAULT_HOLD_MS: f64 = 500.0;
 /// The stopwatch's clock, and the shortest interval it counts.
 const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
@@ -89,22 +113,32 @@ impl N {
     }
 }
 
-/// A value as a number: numbers, bools (1/0) and text that parses.
+/// A value as a number: numbers, bools (1/0) and text that parses. A float that is not
+/// finite (NaN, ±inf, also as the texts `NaN` and `inf`) is no number: a value from a port or
+/// from the config never becomes a duration, an index, a length or a count as one (security
+/// review 2026-11-10: `Duration::from_secs_f64(NaN)` panics).
 fn num(v: &Value) -> Option<N> {
     match v {
         Value::Int(i) => Some(N::I(*i)),
         Value::UInt(u) => Some(i64::try_from(*u).map_or(N::F(*u as f64), N::I)),
-        Value::Float(x) => Some(N::F(*x)),
+        Value::Float(x) => x.is_finite().then_some(N::F(*x)),
         Value::Bool(b) => Some(N::I(i64::from(*b))),
         Value::Str(s) => {
             let s = s.trim();
             s.parse::<i64>()
                 .map(N::I)
                 .ok()
-                .or_else(|| s.parse::<f64>().ok().map(N::F))
+                .or_else(|| s.parse::<f64>().ok().filter(|x| x.is_finite()).map(N::F))
         }
         _ => None,
     }
+}
+
+/// A parameter as a whole number of at most `max`: a count of characters, an index. What is
+/// not a finite number, or is below 0, is `None`.
+fn whole(v: &Value, max: usize) -> Option<usize> {
+    let x = num(v)?.f();
+    (x >= 0.0).then_some(if x >= max as f64 { max } else { x as usize })
 }
 
 /// A value as a bool: numbers other than 0; text `true`, or a number other than 0, or any
@@ -234,6 +268,23 @@ enum Kind {
     Concat,
     Length,
     Case,
+    Substring,
+    Replace,
+    Split,
+    Join,
+    MakeObject,
+    MakeArray,
+    Get,
+    Stats,
+    Changed,
+    RisingEdge,
+    FallingEdge,
+    Counter,
+    Toggle,
+    SampleAndHold,
+    Select,
+    Debounce,
+    Throttle,
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -282,6 +333,23 @@ fn kind(ty: &str) -> Option<Kind> {
         "concat" => Kind::Concat,
         "length" => Kind::Length,
         "case" => Kind::Case,
+        "substring" => Kind::Substring,
+        "replace" => Kind::Replace,
+        "split" => Kind::Split,
+        "join" => Kind::Join,
+        "make_object" => Kind::MakeObject,
+        "make_array" => Kind::MakeArray,
+        "get" => Kind::Get,
+        "stats" => Kind::Stats,
+        "changed" => Kind::Changed,
+        "rising_edge" => Kind::RisingEdge,
+        "falling_edge" => Kind::FallingEdge,
+        "counter" => Kind::Counter,
+        "toggle" => Kind::Toggle,
+        "sample_and_hold" => Kind::SampleAndHold,
+        "select" => Kind::Select,
+        "debounce" => Kind::Debounce,
+        "throttle" => Kind::Throttle,
         _ => return None,
     })
 }
@@ -401,6 +469,102 @@ fn shape(k: Kind) -> Shape {
             inputs: &["in"],
             params: vec![param("op", s("="), true), param("else", Value::Null, true)],
             items: true,
+            outputs: &[("out", Any)],
+        },
+        Kind::Substring => Shape {
+            inputs: &["in"],
+            params: vec![
+                param("start", Value::Int(0), true),
+                param("length", Value::Null, true),
+            ],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Replace => Shape {
+            inputs: &["in"],
+            params: vec![param("from", s(""), true), param("to", s(""), true)],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Split | Kind::Join => Shape {
+            inputs: &["in"],
+            params: vec![param("separator", s(","), true)],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::MakeObject => Shape {
+            inputs: &[],
+            params: vec![],
+            items: true,
+            outputs: &[("out", Map)],
+        },
+        Kind::MakeArray => Shape {
+            inputs: &[],
+            params: vec![],
+            items: true,
+            outputs: &[("out", Any)],
+        },
+        Kind::Get => Shape {
+            inputs: &["in"],
+            params: vec![param("path", s(""), true)],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Stats => Shape {
+            inputs: &["in"],
+            params: vec![],
+            items: false,
+            outputs: &[
+                ("min", Number),
+                ("max", Number),
+                ("avg", Number),
+                ("sum", Number),
+                ("count", Number),
+            ],
+        },
+        Kind::Changed => Shape {
+            inputs: &["in"],
+            params: vec![],
+            items: false,
+            outputs: &[("on_change", Map)],
+        },
+        Kind::RisingEdge | Kind::FallingEdge => Shape {
+            inputs: &["in"],
+            params: vec![],
+            items: false,
+            outputs: &[("on_edge", Map)],
+        },
+        Kind::Counter => Shape {
+            inputs: &["in", "reset"],
+            params: vec![
+                param("step", Value::Int(1), true),
+                param("initial", Value::Int(0), true),
+            ],
+            items: false,
+            outputs: &[("out", Number)],
+        },
+        Kind::Toggle => Shape {
+            inputs: &["in", "reset"],
+            params: vec![param("initial", Value::Bool(false), true)],
+            items: false,
+            outputs: &[("out", Bool)],
+        },
+        Kind::SampleAndHold => Shape {
+            inputs: &["in", "trigger"],
+            params: vec![],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Select => Shape {
+            inputs: &[],
+            params: vec![param("index", Value::Int(0), true)],
+            items: true,
+            outputs: &[("out", Any)],
+        },
+        Kind::Debounce | Kind::Throttle => Shape {
+            inputs: &["in"],
+            params: vec![param("ms", Value::Int(500), true)],
+            items: false,
             outputs: &[("out", Any)],
         },
     }
@@ -661,6 +825,11 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             events: 0,
             count: None,
             elapsed_us: 0,
+            born: false,
+            prev: None,
+            held: None,
+            due: None,
+            passed: None,
         }) as Box<dyn Node>)
     }))
 }
@@ -691,6 +860,16 @@ struct Block {
     count: Option<N>,
     /// Time the stopwatch has run since its last step.
     elapsed_us: u64,
+    /// The sample in hand was born at the start (ADR 0040 §2): the event blocks, `counter`,
+    /// `toggle` and `sample_and_hold` take its value and do not act on it.
+    born: bool,
+    /// `changed` and the edge blocks: the sample before.
+    prev: Option<Value>,
+    /// `debounce` and `throttle`: the value that waits, and when it goes out.
+    held: Option<Value>,
+    due: Option<tokio::time::Instant>,
+    /// `throttle`: when a value last went out.
+    passed: Option<tokio::time::Instant>,
 }
 
 impl Block {
@@ -961,6 +1140,233 @@ impl Block {
                 };
                 self.send("out", v, q, t, out);
             }
+            Kind::Substring => {
+                let v = match self.in_value() {
+                    Value::Null => Value::Null,
+                    v => {
+                        // a start below 0 or not a number is 0; a length never passes 4 KiB
+                        let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
+                        let len = whole(self.param("length"), MAX_TEXT).unwrap_or(MAX_TEXT);
+                        let part: String = text(v).chars().skip(start).take(len).collect();
+                        if part.len() > MAX_TEXT {
+                            Value::Null
+                        } else {
+                            Value::Str(part)
+                        }
+                    }
+                };
+                let q = if v == Value::Null && *self.in_value() != Value::Null {
+                    Quality::Bad
+                } else {
+                    q
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::Replace => {
+                let (v, q) = match self.in_value() {
+                    Value::Null => (Value::Null, q),
+                    v => {
+                        let (from, to) = (text(self.param("from")), text(self.param("to")));
+                        let src = text(v);
+                        // the result is bounded before it is built
+                        let grows = to.len().saturating_sub(from.len());
+                        let hits = if from.is_empty() {
+                            0
+                        } else {
+                            src.matches(&from).count()
+                        };
+                        if src.len().saturating_add(hits.saturating_mul(grows)) > MAX_TEXT {
+                            (Value::Null, Quality::Bad)
+                        } else if hits == 0 {
+                            (Value::Str(src), q)
+                        } else {
+                            (Value::Str(src.replace(&from, &to)), q)
+                        }
+                    }
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::Split => {
+                let (v, q) = match self.in_value() {
+                    Value::Null => (Value::Null, q),
+                    v => {
+                        let (src, sep) = (text(v), text(self.param("separator")));
+                        if sep.is_empty() {
+                            (Value::Array(vec![Value::Str(src)]), q)
+                        } else if src.matches(&sep).count() >= MAX_LIST {
+                            (Value::Null, Quality::Bad)
+                        } else {
+                            let parts = src.split(&sep).map(|p| Value::Str(p.to_owned()));
+                            (Value::Array(parts.collect()), q)
+                        }
+                    }
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::Join => {
+                let (v, q) = match self.in_value() {
+                    Value::Null => (Value::Null, q),
+                    Value::Array(a) => {
+                        let sep = text(self.param("separator"));
+                        let mut s = String::new();
+                        let ok = a.iter().enumerate().all(|(i, x)| {
+                            if i > 0 {
+                                s.push_str(&sep);
+                            }
+                            push_text(&mut s, x)
+                        });
+                        if ok {
+                            (Value::Str(s), q)
+                        } else {
+                            (Value::Null, Quality::Bad)
+                        }
+                    }
+                    v => (bounded_text(v).map_or(Value::Null, Value::Str), q),
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::MakeObject => {
+                let m = self
+                    .items
+                    .iter()
+                    .cloned()
+                    .zip(self.item_values())
+                    .collect::<BTreeMap<_, _>>();
+                self.send("out", Value::Map(m), q, t, out);
+            }
+            Kind::MakeArray => {
+                let v = Value::Array(self.item_values());
+                self.send("out", v, q, t, out);
+            }
+            Kind::Get => {
+                // a path longer than a text a block makes names nothing
+                let path = Some(text(self.param("path")))
+                    .filter(|p| p.len() <= MAX_TEXT)
+                    .unwrap_or_else(|| "\u{0}".to_owned());
+                let mut v = self.in_value();
+                for seg in path.split('.').filter(|s| !s.is_empty()) {
+                    v = match v {
+                        Value::Map(m) => m.get(seg).unwrap_or(&Value::Null),
+                        Value::Array(a) => seg
+                            .parse::<usize>()
+                            .ok()
+                            .and_then(|i| a.get(i))
+                            .unwrap_or(&Value::Null),
+                        _ => &Value::Null,
+                    };
+                }
+                let v = v.clone();
+                self.send("out", v, q, t, out);
+            }
+            Kind::Stats => {
+                let xs: Vec<f64> = match self.in_value() {
+                    Value::Array(a) => a.iter().filter_map(num).map(N::f).collect(),
+                    _ => Vec::new(),
+                };
+                let n = xs.len();
+                let sum: f64 = xs.iter().sum();
+                let of = |x: Option<f64>| x.map_or(Value::Null, |x| N::F(x).value());
+                let min = xs.iter().copied().reduce(f64::min);
+                let max = xs.iter().copied().reduce(f64::max);
+                self.send("min", of(min), q, t, out);
+                self.send("max", of(max), q, t, out);
+                self.send("avg", of((n > 0).then(|| sum / n as f64)), q, t, out);
+                self.send("sum", of((n > 0).then_some(sum)), q, t, out);
+                self.send("count", Value::UInt(n as u64), q, t, out);
+            }
+            Kind::Changed | Kind::RisingEdge | Kind::FallingEdge => {
+                if changed != "in" {
+                    return;
+                }
+                let v = self.in_value().clone();
+                let prev = self.prev.replace(v.clone());
+                // a value born at the start is where the block starts from, not an event
+                if self.born {
+                    return;
+                }
+                let was = prev.as_ref().is_some_and(|p| truth(p, false));
+                let is = truth(&v, false);
+                let (port, hit) = match self.kind {
+                    Kind::Changed => ("on_change", prev.is_some_and(|p| p != v)),
+                    // nothing before counts as false: the first true is an edge
+                    Kind::RisingEdge => ("on_edge", is && !was),
+                    _ => ("on_edge", !is && was),
+                };
+                if hit {
+                    self.fire(port, t, out);
+                }
+            }
+            Kind::Counter | Kind::Toggle => {
+                let initial = match self.kind {
+                    Kind::Counter => num(self.param("initial")).unwrap_or(N::I(0)),
+                    _ => N::I(i64::from(truth(self.param("initial"), false))),
+                };
+                let fresh = self.count.is_none();
+                let mut n = self.count.unwrap_or(initial);
+                let hit = changed == "in" && !self.born && *self.in_value() != Value::Null;
+                if changed == "reset"
+                    && !self.born
+                    && truth(self.values.get("reset").unwrap_or(&Value::Null), false)
+                {
+                    n = initial;
+                } else if hit && self.kind == Kind::Counter {
+                    let step = num(self.param("step")).unwrap_or(N::I(1));
+                    let next = n.op(step, i64::checked_add, |x, y| x + y);
+                    // a count that would leave the finite numbers stays where it is
+                    if next.f().is_finite() {
+                        n = next;
+                    }
+                } else if hit {
+                    n = N::I(i64::from(n.f() == 0.0));
+                } else if !fresh {
+                    return;
+                }
+                self.count = Some(n);
+                let v = match self.kind {
+                    Kind::Counter => n.value(),
+                    _ => Value::Bool(n.f() != 0.0),
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::SampleAndHold => {
+                let fired = self
+                    .values
+                    .get("trigger")
+                    .is_some_and(|v| *v != Value::Null);
+                if changed == "trigger" && !self.born && fired {
+                    let v = self.in_value().clone();
+                    self.send("out", v, q, t, out);
+                }
+            }
+            Kind::Select => {
+                let v = whole(self.param("index"), MAX_ITEMS)
+                    .and_then(|i| self.items.get(i))
+                    .and_then(|name| self.values.get(name))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                self.send("out", v, q, t, out);
+            }
+            Kind::Debounce | Kind::Throttle => {
+                if changed != "in" {
+                    return;
+                }
+                let v = self.in_value().clone();
+                let now = tokio::time::Instant::now();
+                let ms = self.hold();
+                if self.kind == Kind::Debounce {
+                    // the value goes out once `ms` passed without another
+                    self.held = Some(v);
+                    self.due = Some(now + ms);
+                } else if self.passed.is_none_or(|p| now >= p + ms) {
+                    self.passed = Some(now);
+                    self.held = None;
+                    self.send("out", v, q, t, out);
+                } else {
+                    // the latest value waits for the end of the period
+                    self.held = Some(v);
+                    self.due = self.passed.map(|p| p + ms);
+                }
+            }
             Kind::Length => {
                 let v = match self.in_value() {
                     Value::Str(s) => Value::UInt(s.chars().count() as u64),
@@ -972,6 +1378,13 @@ impl Block {
                 self.send("out", v, q, t, out);
             }
         }
+    }
+
+    /// `ms` of `debounce` and `throttle`.
+    fn hold(&self) -> Duration {
+        // not a finite number: the default; `num` gives no NaN, so the clamp is total
+        let ms = num(self.param("ms")).map_or(DEFAULT_HOLD_MS, N::f);
+        Duration::from_millis(ms.clamp(0.0, MAX_HOLD_MS) as u64)
     }
 
     /// A variable's value in its type.
@@ -1024,7 +1437,10 @@ impl Node for Block {
     fn start(&mut self, io: &Io) {
         // only a variable sends at start
         if matches!(self.kind, Kind::Number | Kind::Text | Kind::Bool) {
-            (io.inject)("__start", Msg::new(Value::Null, Quality::Good, now_us()));
+            (io.inject)(
+                "__start",
+                Msg::new(Value::Null, Quality::Good, now_us()).at_start(),
+            );
         }
     }
 
@@ -1034,7 +1450,7 @@ impl Node for Block {
                 self.calculate("", out);
                 return;
             }
-            "in" | "reset" => port,
+            "in" | "reset" | "trigger" => port,
             p => match p.strip_prefix("in.") {
                 Some(n) => n,
                 None => return,
@@ -1047,7 +1463,13 @@ impl Node for Block {
                 return;
             }
         }
+        // a number that is not finite never becomes a parameter: the last good value stays
+        let is_param = port.starts_with("in.") && self.param_ports.contains(&name.as_str());
+        if is_param && matches!(&m.v, Value::Float(x) if !x.is_finite()) {
+            return;
+        }
         self.seen.insert(name.clone(), (m.q, m.t));
+        self.born = m.start;
         if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
             self.params.insert(name.clone(), m.v);
             self.params_rev += 1;
@@ -1058,10 +1480,28 @@ impl Node for Block {
     }
 
     fn tick_every(&self) -> Option<Duration> {
-        (self.kind == Kind::Stopwatch).then_some(STOPWATCH_TICK)
+        match self.kind {
+            Kind::Stopwatch => Some(STOPWATCH_TICK),
+            // a clock only while a value waits: a quarter of `ms`, 5 to 50 ms
+            Kind::Debounce | Kind::Throttle if self.held.is_some() => {
+                Some((self.hold() / 4).clamp(Duration::from_millis(5), Duration::from_millis(50)))
+            }
+            _ => None,
+        }
     }
 
     fn tick(&mut self, now: u64, out: &mut Out) {
+        if matches!(self.kind, Kind::Debounce | Kind::Throttle) {
+            if self.due.is_some_and(|d| tokio::time::Instant::now() >= d) {
+                self.due = None;
+                if let Some(v) = self.held.take() {
+                    self.passed = Some(tokio::time::Instant::now());
+                    let (q, _) = self.quality();
+                    self.send("out", v, q, now, out);
+                }
+            }
+            return;
+        }
         let interval = num(self.param("interval")).map_or(0.0, N::f);
         if !truth(self.param("enabled"), false) || interval <= 0.0 {
             self.elapsed_us = 0;
@@ -1079,13 +1519,13 @@ impl Node for Block {
     }
 
     fn state(&self) -> Option<Value> {
-        (self.kind == Kind::Stopwatch)
+        matches!(self.kind, Kind::Stopwatch | Kind::Counter | Kind::Toggle)
             .then(|| self.count.map(N::value))
             .flatten()
     }
 
     fn restore(&mut self, st: &Value) {
-        if self.kind == Kind::Stopwatch {
+        if matches!(self.kind, Kind::Stopwatch | Kind::Counter | Kind::Toggle) {
             self.count = num(st);
         }
     }

@@ -314,6 +314,17 @@ impl State {
                     .level(Perm::Read),
             )
             .await?;
+        // a run of one command block, asked for by a person or a tool (ADR 0040 §2)
+        self.ctx
+            .declare_action(
+                id,
+                "trigger",
+                ActionMeta::new()
+                    .display("Trigger")
+                    .param("node", ParamMeta::of(TypeCode::String).required(true))
+                    .level(Perm::Write),
+            )
+            .await?;
         let nodes = format!("{id}/nodes");
         if self.ctx.meta(&nodes).is_none() {
             self.ctx.declare_node(&nodes, NodeMeta::folder()).await?;
@@ -638,26 +649,19 @@ pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, String> {
 /// `config` user on `dataflows/**` read the audit stream and `sys/**` through a flow). Checked
 /// at deploy, at validate and when a stored flow starts again.
 fn check_sources(def: &FlowDef, site: &str) -> def::Result<()> {
-    let sections = ["downstream", "dataflows", "storage"].map(|s| format!("wy/{site}/{s}"));
-    for (id, n) in &def.nodes {
-        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
+    for r in crate::scope::reads(def) {
+        let at = format!("nodes.{}.{}", r.node, r.param);
+        if r.scope {
+            // a scope is a key expression inside the same sections (ADR 0040 §1)
+            crate::scope::Scope::new(site, &r.key)
+                .map_err(|e| def::DefError(format!("{at}: {e}")))?;
             continue;
         }
-        let Some(Value::Str(k)) = n.cfg.get("key") else {
-            continue;
-        };
-        let full = if k.starts_with("wy/") {
-            k.clone()
-        } else {
-            format!("wy/{site}/{}", k.trim_start_matches('/'))
-        };
-        let inside = sections.iter().any(|s| {
-            full.strip_prefix(s.as_str())
-                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
-        });
-        if !inside {
+        let full = crate::scope::full_key(site, &r.key);
+        if !crate::scope::in_sections(site, &full) {
             return Err(def::DefError(format!(
-                "nodes.{id}.key: a source reads this site's downstream, dataflows or storage only                  (wy/{site}/downstream/…), not {full}"
+                "{at}: a source reads this site's downstream, dataflows or storage only \
+                 (wy/{site}/downstream/…), not {full}"
             )));
         }
     }
@@ -728,24 +732,11 @@ fn reads_sources(raw: &Value, who: &Caller, site: &str) -> Result<(), LinkError>
 fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Result<(), LinkError> {
     use zenoh::key_expr::keyexpr;
     let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
-    for n in def.nodes.values() {
-        if !matches!(n.ty.as_str(), "subscribe" | "liveliness") {
-            continue;
-        }
-        let Some(Value::Str(k)) = n.cfg.get("key") else {
-            continue;
-        };
-        let full = if k.starts_with("wy/") {
-            k.clone()
-        } else {
-            format!("wy/{site}/{}", k.trim_start_matches('/'))
-        };
+    for r in crate::scope::reads(def) {
+        // a scope is read as a whole: a key from the port may be any key inside it
+        let full = crate::scope::full_key(site, &r.key);
         // a key outside the site's sections is refused by the compiler, with its reason
-        let inside = ["downstream", "dataflows", "storage"].iter().any(|s| {
-            full.strip_prefix(&format!("wy/{site}/{s}"))
-                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
-        });
-        if !inside {
+        if !crate::scope::in_sections(site, &full) {
             continue;
         }
         let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
@@ -759,20 +750,53 @@ fn reads_sources_of(def: &FlowDef, who: &Caller, site: &str, role: &str) -> Resu
         if !reads_key(auth, &full) {
             return Err(denied(format!("{full}: {role} may not read it")));
         }
+        // `list_children` shows a row for every child (its name, type, unit, …): the children
+        // are read as a whole, so a child that is denied refuses it (security review
+        // 2026-11-10). A reader of the node alone learns nothing about what is below it.
+        if r.children {
+            let below = crate::scope::children_of(&full);
+            if !below.as_deref().is_some_and(|b| reads_key(auth, b)) {
+                return Err(denied(format!(
+                    "{full}/*: {role} may not read the children it lists"
+                )));
+            }
+        }
     }
     Ok(())
 }
 
-/// Whether `auth` gives read on all of `full`: the first grant that touches it decides, and it
-/// must cover it whole (a deny grant on a part is never skipped).
+/// Whether `auth` gives read on all of `full` (a key, or a scope's key expression). The
+/// grants are taken in order, as a responder takes them (the first that matches a key decides
+/// for that key): a grant below `read` that touches `full` refuses it, a read grant that
+/// covers all of it accepts it, and a read grant that covers a part leaves the rest to the
+/// grants after it. So a deny grant on a part is never skipped (security review FLOW-1), and
+/// every key inside `full` is one the caller reads. For one concrete key this is the first
+/// grant that matches it.
 fn reads_key(auth: &[Grant], full: &str) -> bool {
+    holds_key(auth, full, Perm::Read)
+}
+
+/// [`reads_key`] for any level: `auth` gives `need` on all of `full`.
+fn holds_key(auth: &[Grant], full: &str, need: Perm) -> bool {
     use zenoh::key_expr::keyexpr;
     let Ok(target) = keyexpr::new(full) else {
         return false;
     };
-    auth.iter()
-        .find(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(target)))
-        .is_some_and(|g| g.p >= Perm::Read && keyexpr::new(&g.k).is_ok_and(|g| g.includes(target)))
+    for g in auth {
+        let Ok(k) = keyexpr::new(&g.k) else {
+            continue;
+        };
+        if !k.intersects(target) {
+            continue;
+        }
+        if g.p < need {
+            return false;
+        }
+        if k.includes(target) {
+            return true;
+        }
+    }
+    false
 }
 
 /// `watch` and `ports` (ADR 0038 §3): the caller reads every source and every command target
@@ -802,6 +826,83 @@ fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> 
         }
     }
     Ok(())
+}
+
+/// `trigger` (ADR 0040 §2): the caller itself may do what the block does, on the block's
+/// target (`…/~act/<a>`, `…/~set`), by its `auth` (spec 04). The level is the one the deploy
+/// asked of the deployer's proof ([`proves_targets`]): the flow's token for the target carries
+/// up to `maxperm`, so the caller needs `max(maxperm, write)`. A caller with less could
+/// otherwise run through the flow what it may not run itself. The flow's own token only says
+/// that its deployer could.
+fn triggers(n: &def::NodeDef, maxperm: Perm, who: &Caller, site: &str) -> Result<(), LinkError> {
+    let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
+    let Some(target) = crate::nodes::command_target(&n.ty, &n.cfg) else {
+        return Ok(());
+    };
+    let full = crate::scope::full_key(site, &target);
+    let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+        return Err(denied(
+            "trigger needs the rights of the caller: a token with `auth` (spec 04)".into(),
+        ));
+    };
+    let needed = maxperm.max(Perm::Write);
+    if !holds_key(auth, &full, needed) {
+        return Err(denied(format!(
+            "{full}: the caller does not hold {} on it",
+            needed.name()
+        )));
+    }
+    Ok(())
+}
+
+/// A library block's definition is at most this large (CBOR).
+const MAX_BLOCK_BYTES: usize = 256 * 1024;
+
+fn name_arg(args: &Value) -> Result<String, LinkError> {
+    match args {
+        Value::Map(m) => match m.get("name") {
+            Some(Value::Str(n)) => Ok(n.clone()),
+            _ => Err(LinkError::invalid_parameter("name: required string")),
+        },
+        _ => Err(LinkError::invalid_parameter("name: required string")),
+    }
+}
+
+/// A block of the library: its version and its definition.
+fn library_block(host: &FlowHost, name: &str) -> Option<(u64, Value)> {
+    let store = host.store();
+    let rec = store.state().blocks.get(name)?;
+    let v = wyrm_core::codec::from_slice::<Value>(&rec.cbor).ok()?;
+    Some((rec.version, v))
+}
+
+/// The library blocks that `block` (named `name`) uses, and the ones those use: name →
+/// definition. A block it names that the library does not hold is `invalid_parameter`.
+fn library_with(
+    host: &FlowHost,
+    name: &str,
+    block: &Value,
+) -> Result<BTreeMap<String, Value>, LinkError> {
+    let bad = |e: def::DefError| LinkError::invalid_parameter(e.0);
+    let mut found: BTreeMap<String, Value> = BTreeMap::new();
+    let mut todo: Vec<String> = def::parse_block(name, block)
+        .map_err(bad)?
+        .uses()
+        .into_iter()
+        .collect();
+    while let Some(dep) = todo.pop() {
+        if dep == name || found.contains_key(&dep) {
+            continue;
+        }
+        let (_, v) = library_block(host, &dep).ok_or_else(|| {
+            LinkError::invalid_parameter(format!(
+                "blocks.{name}: it uses the block {dep}, which the library does not hold"
+            ))
+        })?;
+        todo.extend(def::parse_block(&dep, &v).map_err(bad)?.uses());
+        found.insert(dep, v);
+    }
+    Ok(found)
 }
 
 /// The deployer's subject: the token-bound `origin`, else the token subject.
@@ -836,7 +937,9 @@ fn proves_targets(
         format!("wy/{site}/downstream/"),
         format!("wy/{site}/storage/"),
     ];
-    for t in targets(&def, site) {
+    // one proof per target key: two blocks with one target share it (a token is taken once)
+    let unique: std::collections::BTreeSet<String> = targets(&def, site).into_iter().collect();
+    for t in unique {
         if !sections.iter().any(|s| t.starts_with(s)) || t.contains(['*', '$']) {
             return Err(LinkError::invalid_parameter(format!(
                 "{t}: command targets must be exact keys under {} or {}",
@@ -930,6 +1033,47 @@ impl Link for Engine {
                 .result(ActionResult::Stream)
                 .stream(true)
                 .timeout_ms(live::TIMEOUT_MS)
+                .level(Perm::Read),
+        )
+        .await?;
+        // the site's library of custom blocks (ADR 0040 §3): an editor copies a block from
+        // here into the definition it deploys
+        ctx.declare_action(
+            "",
+            "put_block",
+            ActionMeta::new()
+                .display("Put Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .param("def", def_param())
+                .result(ActionResult::Type(TypeCode::Map))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "remove_block",
+            ActionMeta::new()
+                .display("Remove Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .level(Perm::Config),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "get_block",
+            ActionMeta::new()
+                .display("Get Block")
+                .param("name", ParamMeta::of(TypeCode::String).required(true))
+                .result(ActionResult::Type(TypeCode::Map))
+                .level(Perm::Read),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "list_blocks",
+            ActionMeta::new()
+                .display("List Blocks")
+                .result(ActionResult::Type(TypeCode::Array))
                 .level(Perm::Read),
         )
         .await?;
@@ -1042,6 +1186,109 @@ impl Link for Engine {
             ("", "node_types") => {
                 drop(st);
                 return out.reply(crate::catalog::value()).await;
+            }
+            ("", "put_block") => {
+                let name = name_arg(&args)?;
+                let block = def_arg()?;
+                let cbor = wyrm_core::codec::to_vec(&block)
+                    .map_err(|e| LinkError::invalid_parameter(format!("def: {e}")))?;
+                if cbor.len() > MAX_BLOCK_BYTES {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "def: larger than {MAX_BLOCK_BYTES} bytes"
+                    )));
+                }
+                // it must work as a block: alone in a flow, with the library blocks it uses
+                let mut blocks = library_with(&st.host, &name, &block)?;
+                blocks.insert(name.clone(), block);
+                let probe = Value::Map(BTreeMap::from([
+                    ("id".to_owned(), Value::from("block")),
+                    ("blocks".to_owned(), Value::Map(blocks)),
+                    (
+                        "nodes".to_owned(),
+                        Value::Map(BTreeMap::from([(
+                            "b".to_owned(),
+                            Value::Map(BTreeMap::from([(
+                                "type".to_owned(),
+                                Value::Str(format!("{}{name}", def::BLOCK_PREFIX)),
+                            )])),
+                        )])),
+                    ),
+                ]));
+                compile(&probe, &st.host.artifacts, &st.host.site)
+                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                st.host.apply(Op::PutBlock {
+                    name: name.clone(),
+                    cbor,
+                })?;
+                let version = st
+                    .host
+                    .store()
+                    .state()
+                    .blocks
+                    .get(&name)
+                    .map_or(0, |b| b.version);
+                drop(st);
+                info!(block = %name, version, "custom block stored");
+                return out
+                    .reply(Value::Map(BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name)),
+                        ("version".to_owned(), Value::UInt(version)),
+                    ])))
+                    .await;
+            }
+            ("", "remove_block") => {
+                let name = name_arg(&args)?;
+                if !st.host.store().state().blocks.contains_key(&name) {
+                    return Err(LinkError::not_found(format!("block {name}")));
+                }
+                st.host.apply(Op::RemoveBlock(name))?;
+            }
+            ("", "get_block") => {
+                let name = name_arg(&args)?;
+                let (version, block) = library_block(&st.host, &name)
+                    .ok_or_else(|| LinkError::not_found(format!("block {name}")))?;
+                // with every library block it uses, so the editor copies all of them
+                let requires = library_with(&st.host, &name, &block)?;
+                drop(st);
+                return out
+                    .reply(Value::Map(BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name)),
+                        ("version".to_owned(), Value::UInt(version)),
+                        ("def".to_owned(), block),
+                        ("requires".to_owned(), Value::Map(requires)),
+                    ])))
+                    .await;
+            }
+            ("", "list_blocks") => {
+                let names: Vec<String> = st.host.store().state().blocks.keys().cloned().collect();
+                let mut rows = Vec::new();
+                for name in names {
+                    let Some((version, block)) = library_block(&st.host, &name) else {
+                        continue;
+                    };
+                    let mut row = BTreeMap::from([
+                        ("name".to_owned(), Value::Str(name.clone())),
+                        ("version".to_owned(), Value::UInt(version)),
+                    ]);
+                    if let Ok(b) = def::parse_block(&name, &block) {
+                        let names =
+                            |n: Vec<String>| Value::Array(n.into_iter().map(Value::Str).collect());
+                        row.insert(
+                            "inputs".into(),
+                            names(b.inputs.iter().map(|i| i.name.clone()).collect()),
+                        );
+                        row.insert(
+                            "outputs".into(),
+                            names(b.outputs.iter().map(|o| o.name.clone()).collect()),
+                        );
+                        if let Some(d) = b.description {
+                            row.insert("description".into(), Value::Str(d));
+                        }
+                    }
+                    rows.push(Value::Map(row));
+                }
+                drop(st);
+                return out.reply(Value::Array(rows)).await;
             }
             ("", "validate") => {
                 let mut m = BTreeMap::new();
@@ -1163,6 +1410,41 @@ impl Link for Engine {
                     drop(ticket);
                 }));
                 return Ok(());
+            }
+            (id, "trigger") => {
+                // ADR 0040 §2: one run of a command block of a deployed, running flow, with
+                // the rights the block's target asks of the caller itself
+                let f = st
+                    .flows
+                    .get(id)
+                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+                let node = match &args {
+                    Value::Map(m) => match m.get("node") {
+                        Some(Value::Str(n)) => n.clone(),
+                        _ => return Err(LinkError::invalid_parameter("node: required string")),
+                    },
+                    _ => return Err(LinkError::invalid_parameter("node: required string")),
+                };
+                let n = f
+                    .def
+                    .nodes
+                    .get(&node)
+                    .filter(|n| crate::nodes::triggerable(&n.ty))
+                    .ok_or_else(|| {
+                        LinkError::invalid_parameter(format!(
+                            "node: {node} is not a block that trigger runs (invoke, set)"
+                        ))
+                    })?;
+                triggers(n, f.def.maxperm, who, &self.site)?;
+                let inbox = f
+                    .run
+                    .as_ref()
+                    .and_then(|r| r.inboxes.get(&node))
+                    .ok_or_else(|| LinkError::not_supported("the flow is not running"))?;
+                inbox.push_now(
+                    "__trigger",
+                    crate::nodes::Msg::new(Value::Null, Quality::Good, now_us()),
+                );
             }
             (id, "remove") => {
                 if let Some(f) = st.flows.get(id) {
@@ -1338,5 +1620,252 @@ mod tests {
         reads_flow(&def, &all, "s").unwrap();
         // no `auth` at all
         assert!(reads_flow(&def, &caller(None), "s").is_err());
+    }
+
+    /// ADR 0040 §1: a scope is read whole. A deny grant on a part refuses it wherever it
+    /// stands before the grant that covers it; a read grant on a part leaves the rest to the
+    /// grants after it.
+    #[test]
+    fn a_scope_is_read_whole() {
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let scope = "wy/s/downstream/modbus/line1/**";
+        assert!(reads_key(&[g("wy/s/downstream/**", Perm::Read)], scope));
+        assert!(reads_key(&[g(scope, Perm::Read)], scope));
+        // a part only
+        assert!(!reads_key(
+            &[g("wy/s/downstream/modbus/line1/t1", Perm::Read)],
+            scope
+        ));
+        // a part, then the whole
+        assert!(reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/t1", Perm::Write),
+                g("wy/s/downstream/**", Perm::Read)
+            ],
+            scope
+        ));
+        // a deny on a part, before or after another part
+        assert!(!reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/secret/**", Perm::None),
+                g("wy/s/**", Perm::Read)
+            ],
+            scope
+        ));
+        assert!(!reads_key(
+            &[
+                g("wy/s/downstream/modbus/line1/t1", Perm::Read),
+                g("wy/s/downstream/modbus/line1/secret", Perm::None),
+                g("wy/s/**", Perm::Read)
+            ],
+            scope
+        ));
+        // a deny after the grant that covers it never applies
+        assert!(reads_key(
+            &[
+                g("wy/s/**", Perm::Read),
+                g("wy/s/downstream/modbus/line1/secret", Perm::None)
+            ],
+            scope
+        ));
+        assert!(!reads_key(&[], scope));
+        // the deploy check names the scope
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let def = def::parse(&m(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[
+                        ("type", Value::from("subscribe")),
+                        ("key", Value::from("downstream/modbus/line1/t1")),
+                        ("key_scope", Value::from("downstream/modbus/line1/**")),
+                    ]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        let one = caller(Some(vec![g("wy/s/downstream/modbus/line1/t1", Perm::Read)]));
+        let e = reads_sources_of(&def, &one, "s", "the deployer").unwrap_err();
+        assert!(
+            e.message
+                .contains("wy/s/downstream/modbus/line1/**: the deployer may not read it"),
+            "{e}"
+        );
+        assert!(reads_flow(&def, &one, "s").is_err());
+        let all = caller(Some(vec![g("wy/s/downstream/modbus/**", Perm::Read)]));
+        reads_sources_of(&def, &all, "s", "the deployer").unwrap();
+        reads_flow(&def, &all, "s").unwrap();
+        // the compiler's site check covers a scope
+        let bad = def::parse(&m(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[
+                        ("type", Value::from("subscribe")),
+                        ("key_scope", Value::from("wy/*/downstream/**")),
+                    ]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        let e = check_sources(&bad, "s").unwrap_err();
+        assert!(e.0.contains("nodes.a.key_scope"), "{e}");
+    }
+
+    /// ADR 0040 §2 (security review): `trigger` asks of the caller what the deploy asked of
+    /// the deployer's proof, `max(maxperm, write)` on the block's target. A flow whose token
+    /// carried `config` must not be run by a caller that holds only `write` there.
+    #[test]
+    fn trigger_needs_the_level_of_the_flows_token() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let mut def = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "cmd",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/l/dev")),
+                            ("action", s("edit")),
+                        ]),
+                    ),
+                    ("w", m(&[("type", s("set")), ("path", s("storage/out"))])),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ]))
+        .unwrap();
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let cmd = def.nodes["cmd"].clone();
+        let set = def.nodes["w"].clone();
+        let writer = caller(Some(vec![g("wy/s/**", Perm::Write)]));
+        let reader = caller(Some(vec![g("wy/s/**", Perm::Read)]));
+        let admin = caller(Some(vec![g("wy/s/**", Perm::Config)]));
+        // a flow at `write`: write on the target is enough, read is not, no `auth` neither
+        triggers(&cmd, def.maxperm, &writer, "s").unwrap();
+        triggers(&set, def.maxperm, &writer, "s").unwrap();
+        let e = triggers(&cmd, def.maxperm, &reader, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(triggers(&cmd, def.maxperm, &caller(None), "s").is_err());
+        // write elsewhere is not write on the target; a deny on the target comes first
+        let elsewhere = caller(Some(vec![g("wy/s/storage/**", Perm::Write)]));
+        assert!(triggers(&cmd, def.maxperm, &elsewhere, "s").is_err());
+        let holed = caller(Some(vec![
+            g("wy/s/downstream/l/dev/**", Perm::Read),
+            g("wy/s/**", Perm::Config),
+        ]));
+        assert!(triggers(&cmd, def.maxperm, &holed, "s").is_err());
+        // a flow whose token carries `config` (the compiler caps `maxperm` at write today;
+        // the gate must hold if that cap ever moves): a writer is refused, an admin is not
+        def.maxperm = Perm::Config;
+        let e = triggers(&cmd, def.maxperm, &writer, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/l/dev/~act/edit: the caller does not hold config"),
+            "{e}"
+        );
+        assert!(triggers(&set, def.maxperm, &writer, "s").is_err());
+        triggers(&cmd, def.maxperm, &admin, "s").unwrap();
+        // a flow at `read` still needs write: a trigger is a command
+        def.maxperm = Perm::Read;
+        assert!(triggers(&cmd, def.maxperm, &reader, "s").is_err());
+        triggers(&cmd, def.maxperm, &writer, "s").unwrap();
+    }
+
+    /// Security review 2026-11-10: `list_children` shows a row per child, so the deployer and
+    /// every watcher read the children as a whole, for the static path and for the scope.
+    #[test]
+    fn list_children_needs_the_children() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let flow = |cfg: &[(&str, Value)]| {
+            let mut n = vec![("type", s("list_children"))];
+            n.extend(cfg.iter().cloned());
+            def::parse(&m(&[("id", s("f")), ("nodes", m(&[("l", m(&n))]))])).unwrap()
+        };
+        let fixed = flow(&[("path", s("downstream/l/room"))]);
+        // the folder alone is not enough
+        let folder = caller(Some(vec![g("wy/s/downstream/l/room", Perm::Read)]));
+        let e = reads_sources_of(&fixed, &folder, "s", "the deployer").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(
+            e.message
+                .contains("wy/s/downstream/l/room/*: the deployer may not read the children"),
+            "{e}"
+        );
+        assert!(reads_flow(&fixed, &folder, "s").is_err(), "a watcher too");
+        // one child denied: its row would show, so it is refused whole
+        let holed = caller(Some(vec![
+            g("wy/s/downstream/l/room/secret", Perm::None),
+            g("wy/s/downstream/**", Perm::Read),
+        ]));
+        assert!(reads_sources_of(&fixed, &holed, "s", "the deployer").is_err());
+        assert!(reads_flow(&fixed, &holed, "s").is_err());
+        // a deny deeper than the children does not matter: rows are one level
+        let deep = caller(Some(vec![
+            g("wy/s/downstream/l/room/a/secret", Perm::None),
+            g("wy/s/downstream/**", Perm::Read),
+        ]));
+        reads_sources_of(&fixed, &deep, "s", "the deployer").unwrap();
+        let all = caller(Some(vec![g("wy/s/downstream/l/**", Perm::Read)]));
+        reads_sources_of(&fixed, &all, "s", "the deployer").unwrap();
+        reads_flow(&fixed, &all, "s").unwrap();
+        // a scope: the children of every node it admits
+        let scoped = flow(&[("path_scope", s("downstream/l/*"))]);
+        let level = caller(Some(vec![g("wy/s/downstream/l/*", Perm::Read)]));
+        assert!(reads_sources_of(&scoped, &level, "s", "the deployer").is_err());
+        let two = caller(Some(vec![
+            g("wy/s/downstream/l/*", Perm::Read),
+            g("wy/s/downstream/l/*/*", Perm::Read),
+        ]));
+        reads_sources_of(&scoped, &two, "s", "the deployer").unwrap();
+        // `**` as a scope has its children in canonical form
+        assert_eq!(
+            crate::scope::children_of("wy/s/downstream/l/**").as_deref(),
+            Some("wy/s/downstream/l/*/**")
+        );
+        let wide = flow(&[("path_scope", s("downstream/l/**"))]);
+        reads_sources_of(&wide, &all, "s", "the deployer").unwrap();
+        assert!(reads_sources_of(&wide, &holed, "s", "the deployer").is_err());
+        // a subscribe of the same key asks for no children
+        let sub = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[(
+                    "a",
+                    m(&[("type", s("subscribe")), ("key", s("downstream/l/room"))]),
+                )]),
+            ),
+        ]))
+        .unwrap();
+        reads_sources_of(&sub, &folder, "s", "the deployer").unwrap();
     }
 }
