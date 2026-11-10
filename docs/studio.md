@@ -35,7 +35,7 @@ Dependencies point one way: `app → ui, business, localization`; `business → 
 4. **Codegen**: keep `frx watch` running (build_runner for the whole workspace, ~2 s per change). Localization is separate: `dart run intl_utils:generate` in `localization/`.
 5. **Widgets get data, never state** (skill `data-driven-widgets`): `AppState → _Factory.fromStore() → _Vm → widget`. A widget never takes a `Store`, an `AppState`, a model from `models` or a `WyrmApi`. Text is formatted in the connector (`S.current…`).
 6. **Pulled or pushed**: what the app asks for is an action (`deps.wyrm.invoke(…)`); what the broker pushes (values, list updates, connection, task progress) comes from a service and its dispatcher (§5).
-7. **Errors**: an action that the broker refuses throws `UserException(title, reason: message)` with the broker's own message (`{success, message}`, `status` code). Never swallow a refusal.
+7. **Errors**: an action that the broker refuses throws a `UserException` carrying the broker's own message and its `status` (`{success, message}`, `status` code), never flattened into text. Never swallow a refusal: a quiet one goes to Problems. Which surface shows it (inline, dialog, toast + Problems, panel card, start screen), the kinds and the words: `studio/docs/design/specs/errors.md`.
 8. **Rights decide**: Studio never hides a broker rule. A control the user's role cannot use is shown disabled with the reason (`needs config on sys`), not removed.
 9. **Agents**: open Claude Code in `studio/`; its `CLAUDE.md`, 30 skills and the `guard-wired-files` hook load there. The repository's own skills (`wyrm-agent`, `wyrm-flow`, `wyrm-link`) are for the broker side.
 
