@@ -10,9 +10,11 @@ import 'package:business/redux/problems/actions/mark_problem_shown_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
+import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart'
     as system_slice;
 import 'package:business/wyrm/failures.dart';
+import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
@@ -111,6 +113,13 @@ Future<void> showProblemDetails(BuildContext context, int id) async {
   await _show(ctx, store, e, readOnly: true);
 }
 
+/// *Open the log* (errors.md §3): System › Log is the tab, and its time is
+/// the time of [e] on the rows' clock. `get_log` takes no time: the
+/// toolbar's time keeps the lines within two minutes of it, of those read.
+void aimLogAt(Store<AppState> store, StudioError e) => store
+  ..dispatchSync(SetAroundAction(e.at == null ? null : logClockOf(e.at!)))
+  ..dispatchSync(system_slice.SetTabAction(SystemPage.logTab));
+
 Future<void> _show(
   BuildContext context,
   Store<AppState> store,
@@ -166,15 +175,13 @@ Future<void> _show(
             store.dispatchAndWait(RetryProblemAction(e.id, refresh: true)),
           );
         case .log:
-          // System › Log, read again: the lines around the failure are the
-          // newest ones.
-          store
-            ..dispatchSync(system_slice.SetTabAction(SystemPage.logTab))
-            ..dispatch(GoAction.navigate(const SystemRoute()));
+          aimLogAt(store, e);
+          store.dispatch(GoAction.navigate(const SystemRoute()));
           unawaited(store.dispatchAndWait(RetrieveSystemLogAction()));
         case .ok || .form:
-          // Back to the form: the dialog that held the form is under this
-          // one and marks the field itself (`refusedField`).
+          // Back to the form: the form is under this dialog, with its
+          // values; it marked the field itself when the dispatch failed
+          // (`sendForm` in common/forms.dart, `ActionForm`).
           break;
       }
     case _Closed.secondary:
@@ -188,28 +195,4 @@ Future<void> _show(
     case _Closed.dismissed:
       break;
   }
-}
-
-/// The field a failed dispatch names, with the broker's message for the
-/// line under it: `(poll_rate, 0 is below the minimum of 100 ms.)`. Null
-/// when [status] did not fail on a named parameter. The form that
-/// dispatched puts it under the field and focuses it, so *Back to the
-/// form* lands there (errors.md §3).
-(String, String)? refusedField(ActionStatus status) {
-  final e = switch (status.originalError) {
-    final StudioException x => x.error,
-    _ => switch (status.wrappedError) {
-      final StudioException x => x.error,
-      _ => null,
-    },
-  };
-  final field = e?.field;
-  if (e == null || field == null) {
-    return null;
-  }
-  final rest = e.message.replaceFirst(
-    RegExp('^\\s*${RegExp.escape(field)}\\s*:\\s*'),
-    '',
-  );
-  return (field, rest.isEmpty ? e.message : rest);
 }

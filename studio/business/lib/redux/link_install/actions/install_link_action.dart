@@ -1,8 +1,10 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -57,6 +59,8 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     };
     dispatch(_Phase('installing'));
     String? message;
+    String? refusedField;
+    String? refusedSaid;
     var success = false;
     try {
       final rows = await deps.wyrm
@@ -68,6 +72,21 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     } on WyrmException catch (e) {
       success = false;
       message = '${e.status.name}: ${e.message}';
+      // The parameter the broker named, as the field of the wizard that
+      // holds it: *Change answers* goes back to it with the broker's words
+      // under it (docs/design/specs/errors.md §3, *Back to the form*).
+      final named = kindOf(e.status) == ErrorKind.input
+          ? fieldOf(e.message)
+          : null;
+      refusedField = switch (named) {
+        'id' || 'name' => 'name',
+        'url' => li.source is InstallSourceGit ? 'git' : 'url',
+        'ref' => 'ref',
+        _ => null,
+      };
+      if (refusedField != null) {
+        refusedSaid = saidOf(e.message, named!);
+      }
     }
     if (success) {
       dispatch(RetrieveLinksAction());
@@ -75,6 +94,8 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     return state.copyWith.linkInstall(
       phase: success ? 'done' : 'failed',
       message: message,
+      refusedField: refusedField,
+      refusedSaid: refusedSaid,
       step: li.path == 'official' ? 3 : 4,
     );
   }
@@ -113,5 +134,10 @@ class _Phase extends Action {
   final String phase;
 
   @override
-  AppState reduce() => state.copyWith.linkInstall(phase: phase, message: null);
+  AppState reduce() => state.copyWith.linkInstall(
+    phase: phase,
+    message: null,
+    refusedField: null,
+    refusedSaid: null,
+  );
 }

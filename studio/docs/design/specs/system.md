@@ -53,6 +53,7 @@ Labels word for word from the board: tiles `Links connected`, `In quarantine`, `
 - `Source`: `broker (all)` and one entry per embedded link (`sys/links/*` with `mode` embedded); a link sends `link: <id>` (param `link`).
 - `Level and more severe` → param `level`; `Filter` → `filter`; `Lines` 1–2000 → `lines` (default 200).
 - `Get log` → `sys/~act/get_log {lines, level, filter, link}`. `every 5 s` (on by default) repeats it while the tab is shown; any change of the toolbar fetches at once.
+- `Around (UTC)` (between `Filter` and `Lines`; not on the board): a time of day `hh:mm[:ss]`. With one, the box shows only the lines within 2 minutes of it, of those read; it changes no call. *Open the log* of an error dialog fills it (errors.md §3).
 - Rows newest first; `ERROR` rows on `#1A1110`, `WARN` on `#16140C`. Wide rows scroll in their box, never the page.
 - `Copy` puts the shown lines on the clipboard as text, one per line: `<time> <LEVEL> <target> <message>`. `Save as .log` saves the same text as `wyrm-<site>-<yyyymmdd-hhmm>.log`.
 - **Broker log level**: picking a level stages `sys/log_level` in Review and apply (as every write in Studio); it takes effect when applied, without a restart. A link's own level is in Links › the link › Log.

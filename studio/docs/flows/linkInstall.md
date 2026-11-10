@@ -59,7 +59,7 @@ sequenceDiagram
     User->>UI: target.onChanged
     UI->>VM: target()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.name)
+    A1->>ST: copyWith(linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid)
     VM->>A2: dispatch
     A2->>ST: copyWith(linkInstall.acceptRights)
 ```
@@ -257,7 +257,7 @@ sequenceDiagram
         A1->>ST: copyWith(linkInstall.step)
         VM->>+A2: dispatchAndWait
         Note over A2: NonReentrant · WaitingAction · async
-        A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.step)
+        A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.refusedField, linkInstall.refusedSaid, linkInstall.step)
         A2->>ST: dispatch(_Phase)
         A2->>ST: dispatch(RetrieveLinksAction)
         A2-->>-VM: ActionStatus
@@ -306,7 +306,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | --- | --- | --- |
 | `catalog.onChanged` | `SetQueryAction` | `linkInstall.query` |
 | `bring.onChanged` | `SetSourceAction`, `SetSourceAction`, `SetSourceAction` ? | `linkInstall.source` |
-| `target.onChanged` | `SetNameAction`, `SetAcceptRightsAction` | `linkInstall.name`, `linkInstall.acceptRights` |
+| `target.onChanged` | `SetNameAction`, `SetAcceptRightsAction` | `linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid`, `linkInstall.acceptRights` |
 | `onClose` | `GoAction.pop` | — |
 | `onSource` | `ChooseInstallSourceAction` | `linkInstall` |
 | `onCategory` | `SetCategoryAction` | `linkInstall.category` |
@@ -317,7 +317,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onMode` | `SetModeAction` | `linkInstall.mode` |
 | `onStep` | `SetStepAction` | `linkInstall.step` |
 | `onBack` | `GoAction.pop`, `SetStepAction` | `linkInstall.step` |
-| `onNext` | `SetStepAction` ?, `InstallLinkAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.phase, linkInstall.message, linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
+| `onNext` | `SetStepAction` ?, `InstallLinkAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.phase, linkInstall.message, linkInstall.refusedField, linkInstall.refusedSaid, linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
 | `onResultAction` | `SetSelectedNodeAction`, `GoAction.pop`, `GoAction.pop`, `ChooseInstallSourceAction`, `SetStepAction` | `nodes.selectedNode`, `linkInstall`, `linkInstall.step` |
 
 `?` marks a dispatch that only runs under a condition.

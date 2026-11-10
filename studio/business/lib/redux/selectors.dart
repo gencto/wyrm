@@ -505,6 +505,12 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns historyFailed
   String? get historyFailed => _state.nodes.historyFailed;
+
+  /// Returns listFailed
+  IMap<String, String> get listFailed => _state.nodes.listFailed;
+
+  /// Returns metaFailed
+  IMap<String, String> get metaFailed => _state.nodes.metaFailed;
 }
 
 extension type SelectLive(AppState _state) {
@@ -655,6 +661,12 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns method
   String get method => _state.linkInstall.method;
+
+  /// Returns refusedField
+  String? get refusedField => _state.linkInstall.refusedField;
+
+  /// Returns refusedSaid
+  String? get refusedSaid => _state.linkInstall.refusedSaid;
 }
 
 extension type SelectPeers(AppState _state) {
@@ -960,6 +972,9 @@ extension type SelectSystem(AppState _state) {
       _state.wait.isWaitingForType<ClearConnsAction>() ||
       _state.wait.isWaitingForType<PutProfileAction>() ||
       _state.wait.isWaitingForType<RemoveProfileAction>();
+
+  /// Returns around
+  String? get around => _state.system.around;
 }
 
 extension type SelectPanels(AppState _state) {

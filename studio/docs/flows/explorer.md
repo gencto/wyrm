@@ -424,6 +424,8 @@ sequenceDiagram
     alt act.level == 'config'
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(AddChangesAction)
+    end
+    alt act != null
         VM->>+A2: dispatchAndWait
         Note over A2: WaitingAction · async
         A2->>ST: copyWith(nodes.results)
@@ -433,6 +435,23 @@ sequenceDiagram
         VM->>A3: dispatchSync
         A3->>ST: dispatchSync(AddChangesAction)
     end
+```
+
+## onReadAgain
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as RetryReadAction
+    participant ST as AppState
+
+    User->>UI: onReadAgain
+    UI->>VM: onReadAgain()
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
 ```
 
 ## onTool
@@ -576,6 +595,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onHistoryRange` | `SetHistoryRangeAction`, `RetrieveHistoryAction` ? | `nodes.historyRange`, `nodes.historyKey, nodes.historyFailed, nodes.history` |
 | `onCloseInspector` | `SetActionAction` | `nodes.action` |
 | `onSubmit` | `StageInvokeAction` ?, `InvokeNodeAction` ?, `StageValueAction` ? | `nodes.results` |
+| `onReadAgain` | `RetryReadAction` | — |
 | `onTool` | `StageInvokeAction`, `ClearSelectionAction`, `InvokeNodeAction`, `SetActionAction` | `nodes.checked, nodes.marked, nodes.point, nodes.anchor`, `nodes.results`, `nodes.action` |
 | `onSetPoll` | `StagePointEditAction` ? | `changes.table, changes.view` |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |

@@ -211,13 +211,13 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
       onAction: _action,
       onSubmit: (values) {
         final id = peers.selectedPeer ?? '';
-        if (id.startsWith('waiting:')) {
-          unawaited(
-            dispatchAndWait(
-              AuthorizeBrokerAction(id.substring(8), plainArgs(values)),
-            ),
-          );
-        }
+        return id.startsWith('waiting:')
+            ? sendForm(
+                dispatchAndWait(
+                  AuthorizeBrokerAction(id.substring(8), plainArgs(values)),
+                ),
+              )
+            : null;
       },
     );
   }
@@ -588,12 +588,14 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
         child: ActionForm(
           fields: paramFields(add.params),
           submit: S.current.connect,
-          onSubmit: (v) async {
-            final st = await dispatchAndWait(AddUpstreamAction(plainArgs(v)));
-            if (st.isCompletedOk && dialog.mounted) {
-              Navigator.of(dialog).pop();
-            }
-          },
+          onSubmit: (v) => sendForm(
+            dispatchAndWait(AddUpstreamAction(plainArgs(v))),
+            onOk: () {
+              if (dialog.mounted) {
+                Navigator.of(dialog).pop();
+              }
+            },
+          ),
         ),
       ),
     );
@@ -633,17 +635,15 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
                 ),
               ],
               submit: S.current.issue,
-              onSubmit: (v) async {
-                final st = await dispatchAndWait(
+              onSubmit: (v) => sendForm(
+                dispatchAndWait(
                   IssueSiteTokenAction(
                     count: (v['count'] as num?)?.toInt() ?? 1,
                     hours: (v['hours'] as num?)?.toInt() ?? 24,
                   ),
-                );
-                if (st.isCompletedOk) {
-                  setState(() => issued = true);
-                }
-              },
+                ),
+                onOk: () => setState(() => issued = true),
+              ),
             );
           },
         ),
@@ -684,5 +684,5 @@ class _Vm extends Vm {
   final Future<void> Function(BuildContext context) onConnect;
   final Future<void> Function(BuildContext context) onToken;
   final Future<void> Function(BuildContext context, String action) onAction;
-  final ValueChanged<Map<String, Object?>> onSubmit;
+  final FutureOr<FieldRefusal?> Function(Map<String, Object?> values) onSubmit;
 }

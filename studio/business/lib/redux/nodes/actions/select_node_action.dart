@@ -40,7 +40,7 @@ class SelectNodeAction extends Action {
       deps.treeWatch.close(before);
     }
     deps.treeWatch.open(node);
-    unawaited(dispatchAndWait(RetrieveNodeDetailAction(node)));
+    unawaited(dispatchAndWait(RetrieveNodeDetailAction(node, quiet: true)));
     unawaited(
       dispatchAndWait(
         RetrieveDetailsAction([

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:app/common/forms.dart';
 import 'package:app/connectors/log_in_page_connector.dart' show studioVersion;
 import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
@@ -11,8 +13,10 @@ import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/store.dart';
+import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
+import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/material.dart' hide Action;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +26,10 @@ import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/alerts/panel_fault.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/forms/action_form.dart';
+import 'package:ui/forms/param_form.dart';
+import 'package:ui/overlays/panel_dialog.dart';
+import 'package:ui/pages/system_page.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -504,8 +512,8 @@ void main() {
   });
 
   group('Back to the form (errors.md §3)', () {
-    test("the field a refusal names, with the broker's words for the "
-        'line under it', () async {
+    test("what a refusal says to the form: the broker's words and the "
+        'field they name', () async {
       final store = _store();
       final named = await store.dispatchAndWait(
         _Refused(
@@ -514,19 +522,132 @@ void main() {
           name: 'edit',
         ),
       );
-      expect(refusedField(named), (
-        'poll_rate',
-        '0 is below the minimum of 100 ms.',
-      ));
+      final r = formRefusal(named)!;
+      expect(r.field, 'poll_rate');
+      expect(r.message, '0 is below the minimum of 100 ms.');
+      // A parameter the form holds under another id.
+      expect(
+        formRefusal(named, fields: const {'poll_rate': 'poll'})!.field,
+        'poll',
+      );
 
       final unnamed = await store.dispatchAndWait(
         _Refused(Status.invalidParameter, 'The arguments do not fit.'),
       );
-      expect(refusedField(unnamed), isNull);
+      expect(formRefusal(unnamed)!.field, isNull);
+      expect(formRefusal(unnamed)!.message, 'The arguments do not fit.');
       final other = await store.dispatchAndWait(
         _Refused(Status.permissionDenied, 'poll_rate: no'),
       );
-      expect(refusedField(other), isNull, reason: 'only an input refusal');
+      expect(formRefusal(other), isNull, reason: 'only an input refusal');
+    });
+
+    testWidgets('a form in a dialog: the error dialog closes onto the form '
+        'with its values, the field marked and in focus', (tester) async {
+      final store = _store();
+      await tester.pumpWidget(_app(store));
+      final context = tester.element(find.text('the screen'));
+      var closed = false;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (dialog) => PanelDialog(
+            title: 'Edit plc1',
+            child: ActionForm(
+              fields: [
+                ParamFieldVm(
+                  id: 'host',
+                  label: 'Host',
+                  kind: ParamKind.text,
+                  value: '10.0.0.7',
+                  onChanged: (_) {},
+                ),
+                ParamFieldVm(
+                  id: 'poll_rate',
+                  label: 'Poll rate',
+                  kind: ParamKind.number,
+                  value: 1000,
+                  onChanged: (_) {},
+                ),
+              ],
+              submit: 'Save',
+              onSubmit: (v) => sendForm(
+                store.dispatchAndWait(
+                  _Refused(
+                    Status.invalidParameter,
+                    'poll_rate: ${v['poll_rate']} is below the minimum of '
+                    '100 ms.',
+                    name: 'edit',
+                  ),
+                ),
+                onOk: () => closed = true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '10.0.0.7'),
+        '10.0.0.9',
+      );
+      await tester.enterText(find.widgetWithText(TextFormField, '1000'), '5');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      // The error dialog is over the form and offers the way back.
+      expect(find.byType(ErrorDialog), findsOneWidget);
+      expect(find.text('Back to the form'), findsOneWidget);
+      await tester.tap(find.text('Back to the form'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorDialog), findsNothing);
+      expect(closed, isFalse);
+      expect(find.text('Edit plc1'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '10.0.0.9'), findsOneWidget);
+      expect(find.text('5 is below the minimum of 100 ms.'), findsOneWidget);
+      final field = find.widgetWithText(TextFormField, '5');
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(of: field, matching: find.byType(EditableText)),
+            )
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+    });
+  });
+
+  group('Open the log (errors.md §3)', () {
+    testWidgets("System › Log gets the error's time, on the rows' clock", (
+      tester,
+    ) async {
+      final store = _store();
+      await tester.pumpWidget(_app(store));
+      // A time typed before: the error's replaces it.
+      store.dispatchSync(SetAroundAction('01:00:00'));
+      await store.dispatchAndWait(
+        _Refused(Status.internalError, 'unpack: wyrm_link 3 is newer'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Open the log'), findsOneWidget);
+      final e = store.state.problems.items.single;
+      final at = e.at!;
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      // What the button does before it navigates (this harness has no
+      // router).
+      aimLogAt(store, e);
+
+      expect(store.state.system.tab, SystemPage.logTab);
+      expect(store.state.system.around, logClockOf(at));
+      final utc = at.toUtc();
+      expect(
+        secondOfDay(store.state.system.around!),
+        utc.hour * 3600 + utc.minute * 60 + utc.second,
+      );
     });
   });
 

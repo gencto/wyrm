@@ -31,5 +31,7 @@ abstract class NodesState with _$NodesState {
     @Default(ISetConst({})) ISet<String> listed,
     String? viewedPoint,
     String? historyFailed,
+    @Default(IMapConst({})) IMap<String, String> listFailed,
+    @Default(IMapConst({})) IMap<String, String> metaFailed,
   }) = _NodesState;
 }

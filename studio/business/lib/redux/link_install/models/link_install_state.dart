@@ -29,5 +29,7 @@ abstract class LinkInstallState with _$LinkInstallState {
     @Default(IListConst([])) IList<CatalogItem> catalog,
     @Default(IListConst([])) IList<InstallTarget> targets,
     @Default('zip') String method,
+    String? refusedField,
+    String? refusedSaid,
   }) = _LinkInstallState;
 }

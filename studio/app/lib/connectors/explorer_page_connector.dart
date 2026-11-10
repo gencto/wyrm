@@ -14,6 +14,7 @@ import 'package:business/redux/nodes/actions/mark_nodes_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_audit_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
+import 'package:business/redux/nodes/actions/retry_read_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_action_action.dart';
@@ -46,12 +47,14 @@ import 'package:models/node_info.dart';
 import 'package:models/node_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
+import 'package:ui/alerts/read_fail.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/inspector_sections.dart';
 import 'package:ui/containers/side_panels.dart';
+import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/fail_chip.dart';
@@ -304,6 +307,7 @@ class ExplorerPageConnector extends StatelessWidget {
               inspector: vm.inspector,
               busy: vm.busy,
               onSubmit: vm.onSubmit,
+              onReadAgain: vm.onReadAgain,
               onCloseInspector: vm.onCloseInspector,
               panels: vm.panelWidths,
               onPanelWidth: vm.onPanelWidth,
@@ -473,6 +477,35 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     );
   }
 
+  /// The reads of [key] that failed, one sentence each: its value, its
+  /// list of children, its `~meta` (docs/design/specs/errors.md §4).
+  List<String> _failLines(String key) => [
+    if (live.failed[key] case final s?) S.current.readFailedTip(s),
+    if (nodes.listFailed[key] case final s?) S.current.listFailedTip(s),
+    if (nodes.metaFailed[key] case final s?) S.current.metaFailedTip(s),
+  ];
+
+  /// The `read failed` chip of a tree row, the sentences as its tooltip.
+  FailChipVm? _failChip(String key) {
+    final lines = _failLines(key);
+    return lines.isEmpty
+        ? null
+        : FailChipVm(label: S.current.readFailed, tip: lines.join('\n'));
+  }
+
+  /// The same mark in the inspector, with `Read again`.
+  ReadFailVm? _readFail(String key) {
+    final lines = _failLines(key);
+    return lines.isEmpty
+        ? null
+        : ReadFailVm(
+            id: key,
+            chip: FailChipVm(label: S.current.readFailed),
+            lines: lines,
+            retry: S.current.readAgain,
+          );
+  }
+
   String? _chip(String key) {
     if (_parent(key) != '$_root/downstream') {
       return null;
@@ -540,6 +573,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           meta: open && kids.isNotEmpty ? '${kids.length}' : null,
           hasHistory: info?.hasHistory ?? false,
           staged: changes.table.values.any((c) => c.key == key),
+          failed: _failChip(key),
         ),
       );
       if (open) {
@@ -911,6 +945,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       },
       onCloseInspector: () => dispatchSync(SetActionAction(null)),
       onSubmit: (values) => _submit(sel, values),
+      onReadAgain: (key) => dispatchSync(RetryReadAction(key)),
       onTool: (id) => _onTool(sel, id),
       onSetPoll: (s) {
         for (final k in checked) {
@@ -1711,7 +1746,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         eyebrow: S.current.insPoint,
         name: point.split('/').last,
         display: pd?.display ?? info?.display,
-        value: _value(v, pd?.unit ?? info?.unit, choices: choices),
+        // No value is shown beside the mark: the one held is from before
+        // the read failed.
+        value: live.failed[point] != null
+            ? '—'
+            : _value(v, pd?.unit ?? info?.unit, choices: choices),
+        fail: _readFail(point),
         quality: switch (_quality(v)) {
           _ when !site.connected => QualityMarkVm(
             label: S.current.stale,
@@ -1763,6 +1803,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         NodeKind.folder => S.current.insFolder,
       },
       title: sel.split('/').last,
+      fail: _readFail(sel),
       sections: [
         if (flow != null) _flowSection(flow, sel),
         ..._nodeSections(sel, d, kind, withDiagnostics: true),
@@ -1770,9 +1811,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     );
   }
 
-  Future<void> _submit(String? sel, Map<String, Object?> values) async {
+  Future<FieldRefusal?> _submit(
+    String? sel,
+    Map<String, Object?> values,
+  ) async {
     if (sel == null) {
-      return;
+      return null;
     }
     final a = nodes.action;
     final act = a == null ? null : _actionOf(sel, a);
@@ -1782,10 +1826,11 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         dispatchSync(
           StageInvokeAction(sel, act.name, args, display: act.display),
         );
-      } else {
-        await dispatchAndWait(InvokeNodeAction(sel, act.name, args));
+        return null;
       }
-      return;
+      // Refused as wrong input: the form keeps its values and marks the
+      // field (docs/design/specs/errors.md §3, *Back to the form*).
+      return sendForm(dispatchAndWait(InvokeNodeAction(sel, act.name, args)));
     }
     final point = nodes.point;
     if (point != null && values.containsKey('value')) {
@@ -1801,6 +1846,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         ),
       );
     }
+    return null;
   }
 }
 
@@ -1865,6 +1911,7 @@ class _Vm extends Vm {
     required this.onHistoryRange,
     required this.onCloseInspector,
     required this.onSubmit,
+    required this.onReadAgain,
     required this.onTool,
     required this.onSetPoll,
     required this.menuOf,
@@ -1988,7 +2035,8 @@ class _Vm extends Vm {
   final ValueChanged<String> onPickAction;
   final ValueChanged<String> onHistoryRange;
   final VoidCallback onCloseInspector;
-  final Future<void> Function(Map<String, Object?> values) onSubmit;
+  final FutureOr<FieldRefusal?> Function(Map<String, Object?> values) onSubmit;
+  final ValueChanged<String> onReadAgain;
   final ValueChanged<String> onTool;
   final ValueChanged<double> onSetPoll;
   final Future<NodeMenuVm?> Function(String key) menuOf;

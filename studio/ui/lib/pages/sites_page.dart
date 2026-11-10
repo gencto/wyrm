@@ -4,6 +4,7 @@ import '../buttons/button.dart';
 import '../charts/site_map.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/page_header.dart';
+import '../forms/action_form.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 
@@ -53,7 +54,7 @@ class SitesPage extends StatelessWidget {
   final VoidCallback? onReview;
   final DetailInspectorVm? inspector;
   final ValueChanged<String> onAction;
-  final ValueChanged<Map<String, Object?>>? onSubmit;
+  final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
 

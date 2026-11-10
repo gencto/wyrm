@@ -415,6 +415,10 @@ SystemPage _page({
         autoLabel: 'every 5 s',
         auto: true,
         getLabel: 'Get log',
+        aroundLabel: 'Around (UTC)',
+        aroundHint: 'hh:mm:ss',
+        aroundClear: 'Show every time',
+        aroundBad: 'Type a time as hh:mm or hh:mm:ss.',
         disabledReason: rights ? null : _reason,
       ),
       summary: rights
@@ -625,6 +629,7 @@ SystemPage _page({
     onLevel: _none,
     onFilter: _none,
     onLines: _none,
+    onAround: _none,
     onAuto: _none,
     onGetLog: () {},
     onCopyLog: () {},
