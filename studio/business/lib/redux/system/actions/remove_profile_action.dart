@@ -11,6 +11,12 @@ import 'retrieve_profiles_action.dart';
 class RemoveProfileAction extends Action with NonReentrant, WaitingAction {
   RemoveProfileAction(this.name);
 
+  @override
+  Action again() => RemoveProfileAction(name);
+
+  @override
+  Action reload() => RetrieveProfilesAction();
+
   final String name;
 
   @override

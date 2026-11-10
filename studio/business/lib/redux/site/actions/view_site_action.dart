@@ -41,6 +41,7 @@ class ViewSiteAction extends Action {
 
   @override
   void after() {
+    super.after();
     for (final reload in deps.reloads) {
       reload(store);
     }

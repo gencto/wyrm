@@ -24,6 +24,8 @@ class Button extends StatelessWidget {
     this.size = ButtonSize.toolbar,
     this.fontSize = 14,
     this.fontWeight,
+    this.autofocus = false,
+    this.inset = 16,
     super.key,
   }) : _variant = .primary;
 
@@ -37,6 +39,8 @@ class Button extends StatelessWidget {
     this.size = ButtonSize.toolbar,
     this.fontSize = 14,
     this.fontWeight,
+    this.autofocus = false,
+    this.inset = 16,
     super.key,
   }) : _variant = .secondary;
 
@@ -50,6 +54,8 @@ class Button extends StatelessWidget {
     this.size = ButtonSize.toolbar,
     this.fontSize = 14,
     this.fontWeight,
+    this.autofocus = false,
+    this.inset = 16,
     super.key,
   }) : _variant = .quiet;
 
@@ -63,6 +69,8 @@ class Button extends StatelessWidget {
     this.size = ButtonSize.toolbar,
     this.fontSize = 14,
     this.fontWeight,
+    this.autofocus = false,
+    this.inset = 16,
     super.key,
   }) : _variant = .danger;
 
@@ -89,6 +97,14 @@ class Button extends StatelessWidget {
   /// The label's weight; the variant's own when null (600 primary, 500
   /// the others).
   final FontWeight? fontWeight;
+
+  /// Takes the focus when it is first built: the main button of a dialog,
+  /// so Enter presses it.
+  final bool autofocus;
+
+  /// The room left and right of the label; 16 everywhere but where a
+  /// board draws another.
+  final double inset;
 
   final _Variant _variant;
 
@@ -133,6 +149,7 @@ class Button extends StatelessWidget {
       ),
       child: InkWell(
         onTap: onPressed,
+        autofocus: autofocus,
         borderRadius: Radii.button,
         hoverColor: c.text1.withValues(alpha: 0.05),
         child: ConstrainedBox(
@@ -141,7 +158,7 @@ class Button extends StatelessWidget {
             minWidth: iconOnly ? height : 0,
           ),
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : 16),
+            padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : inset),
             child: Center(widthFactor: expand ? null : 1, child: child),
           ),
         ),

@@ -15,6 +15,12 @@ import 'retrieve_profiles_action.dart';
 class PutProfileAction extends Action with NonReentrant, WaitingAction {
   PutProfileAction(this.name, this.fileName, this.bytes);
 
+  @override
+  Action again() => PutProfileAction(name, fileName, bytes);
+
+  @override
+  Action reload() => RetrieveProfilesAction();
+
   final String name;
   final String fileName;
   final Uint8List bytes;

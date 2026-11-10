@@ -12,7 +12,9 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -95,10 +97,12 @@ void main() {
 
     final st = await s.dispatchAndWait(RetrieveNodeDetailAction(key));
 
-    expect(
-      (st.originalError! as UserException).reason,
-      'disconnected: gone',
-    );
+    // The status stays data: it is not flattened into the text.
+    final e = (st.originalError! as StudioException).error;
+    expect(e.status, StatusCode.of(Status.disconnected));
+    expect(e.kind, ErrorKind.reach);
+    expect(e.message, 'gone');
+    expect(e.where, '$key › meta');
     expect(s.state.nodes.detail[key], isNull);
   });
 

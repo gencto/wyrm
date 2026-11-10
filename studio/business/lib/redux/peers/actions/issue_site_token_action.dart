@@ -12,6 +12,9 @@ import '../../nodes/actions/invoke_node_action.dart';
 class IssueSiteTokenAction extends Action with WaitingAction {
   IssueSiteTokenAction({this.count = 1, this.hours = 24});
 
+  @override
+  Action again() => IssueSiteTokenAction(count: count, hours: hours);
+
   final int count;
   final int hours;
 

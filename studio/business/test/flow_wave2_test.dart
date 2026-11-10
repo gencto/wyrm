@@ -1018,7 +1018,7 @@ void main() {
         ),
         'node level cannot be triggered',
       );
-      expect(await refused(Status.busy, 'queue full'), 'busy: queue full');
+      expect(await refused(Status.busy, 'queue full'), 'queue full');
     });
 
     test('create a custom block, open its inside, change it, come back: '

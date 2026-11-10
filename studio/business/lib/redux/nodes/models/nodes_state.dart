@@ -30,5 +30,6 @@ abstract class NodesState with _$NodesState {
     @Default(IListConst([])) IList<AuditEntry> audit,
     @Default(ISetConst({})) ISet<String> listed,
     String? viewedPoint,
+    String? historyFailed,
   }) = _NodesState;
 }

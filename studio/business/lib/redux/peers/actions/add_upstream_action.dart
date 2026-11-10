@@ -11,6 +11,12 @@ import 'retrieve_peers_action.dart';
 class AddUpstreamAction extends Action with WaitingAction {
   AddUpstreamAction(this.args);
 
+  @override
+  Action again() => AddUpstreamAction(args);
+
+  @override
+  Action reload() => RetrievePeersAction();
+
   final Map<String, Object?> args;
 
   @override
@@ -25,7 +31,15 @@ class AddUpstreamAction extends Action with WaitingAction {
       }),
     );
     for (final r in rows) {
-      requireSuccess(r, 'The upstream was not added');
+      requireSuccess(
+        r,
+        '${site.root}/sys/upstream',
+        'add',
+        thing: switch (args['name']) {
+          final String n => n,
+          _ => null,
+        },
+      );
     }
     return null;
   }

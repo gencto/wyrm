@@ -27,6 +27,7 @@ import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/wyrm/kinds.dart';
 import 'package:business/wyrm/mappers/flow_value_mapper.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
@@ -45,7 +46,6 @@ import 'package:models/node_info.dart';
 import 'package:models/node_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
-import 'package:ui/alerts/styled_snackbar.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/charts/trend_chart.dart';
 import 'package:ui/containers/action_card.dart';
@@ -54,6 +54,7 @@ import 'package:ui/containers/inspector_sections.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/indicators/fail_chip.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
@@ -290,6 +291,7 @@ class ExplorerPageConnector extends StatelessWidget {
               ],
               historyRows: vm.historyRows,
               historyNote: vm.historyNote,
+              historyFail: vm.historyFail,
               auditColumns: [
                 ColumnVm(S.current.colTime, flex: 2),
                 ColumnVm(S.current.colOp),
@@ -329,12 +331,13 @@ class ExplorerPageConnector extends StatelessWidget {
       return;
     }
     unawaited(Clipboard.setData(ClipboardData(text: keys.join('\n'))));
-    StyledSnackbar.instance.show(
-      context: context,
-      message: keys.length == 1
-          ? S.current.keyCopied
-          : S.current.keysCopied(keys.length),
-      duration: const Duration(seconds: 2),
+    StoreProvider.dispatchSync<AppState>(
+      context,
+      ShowNoticeAction(
+        keys.length == 1
+            ? S.current.keyCopied
+            : S.current.keysCopied(keys.length),
+      ),
     );
   }
 
@@ -344,10 +347,9 @@ class ExplorerPageConnector extends StatelessWidget {
       return;
     }
     unawaited(Clipboard.setData(ClipboardData(text: value)));
-    StyledSnackbar.instance.show(
-      context: context,
-      message: S.current.valueCopied,
-      duration: const Duration(seconds: 2),
+    StoreProvider.dispatchSync<AppState>(
+      context,
+      ShowNoticeAction(S.current.valueCopied),
     );
   }
 
@@ -810,6 +812,15 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
             ),
       ],
       historyNote: point == null ? S.current.pickAPoint : null,
+      historyFail:
+          point != null &&
+              nodes.historyKey == point &&
+              nodes.historyFailed != null
+          ? FailChipVm(
+              label: S.current.historyUnavailable,
+              tip: S.current.historyUnavailableTip(nodes.historyFailed!),
+            )
+          : null,
       auditKey: canAudit ? sel : null,
       auditRows: [
         if (sel != null)
@@ -1194,6 +1205,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     final stagedPoll = edit?.args[pollParam];
     final poll = d?.cfg[pollParam];
     final offline = !site.connected;
+    final failed = live.failed[p.key];
     return PointRowVm(
       id: p.key,
       name: p.name,
@@ -1206,7 +1218,15 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       },
       poll: stagedPoll != null ? pollText(stagedPoll) : pollText(poll),
       pollWas: stagedPoll != null && poll != null ? pollText(poll) : null,
-      value: v == null ? '—' : valueText(v.value, choices: _choices(p.key)),
+      value: v == null || failed != null
+          ? '—'
+          : valueText(v.value, choices: _choices(p.key)),
+      failed: failed == null
+          ? null
+          : FailChipVm(
+              label: S.current.readFailed,
+              tip: S.current.readFailedTip(failed),
+            ),
       quality: offline
           ? QualityMarkVm(label: S.current.stale, tone: .neutral, mark: .dashed)
           : _quality(v),
@@ -1817,6 +1837,7 @@ class _Vm extends Vm {
     required this.trendLabels,
     required this.historyRows,
     required this.historyNote,
+    required this.historyFail,
     required this.auditKey,
     required this.auditRows,
     required this.auditNote,
@@ -1885,6 +1906,7 @@ class _Vm extends Vm {
            trendLabels,
            historyRows,
            historyNote,
+           historyFail,
            auditKey,
            auditRows,
            auditNote,
@@ -1932,6 +1954,7 @@ class _Vm extends Vm {
   final (String, String) trendLabels;
   final List<RowVm> historyRows;
   final String? historyNote;
+  final FailChipVm? historyFail;
 
   /// The node whose audit the Audit tab reads; null without the rights.
   final String? auditKey;

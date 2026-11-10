@@ -1,9 +1,10 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/user_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -12,6 +13,9 @@ import '../../common/action.dart';
 /// (`sys` ▸ `get_permissions`) and the audit tail (`sys/audit` ▸ `tail`).
 /// What the user may not read stays empty.
 class RetrieveAccessAction extends Action with WaitingAction {
+  @override
+  Action again() => RetrieveAccessAction();
+
   @override
   Future<AppState?> reduce() async {
     final root = site.home;
@@ -28,7 +32,11 @@ class RetrieveAccessAction extends Action with WaitingAction {
     } on WyrmException {
       // Not an administrator of the gateway.
     } on Object catch (e) {
-      throw UserException('Cannot read the users.', reason: '$e');
+      throw StudioException.said(
+        ErrorKind.reach,
+        faultLine(e),
+        call: 'users',
+      );
     }
     final grants = <RoleGrant>[];
     try {

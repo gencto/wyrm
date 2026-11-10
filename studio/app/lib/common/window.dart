@@ -120,6 +120,25 @@ Future<void> setUpWindow(Store<AppState> store) async {
   );
 }
 
+/// Opens the desktop window for the start screen shown when the settings do
+/// not open (docs/design/specs/errors.md §6): centred, with the system's
+/// own title bar and buttons, since no store is there to keep a frame or to
+/// draw them.
+Future<void> setUpPlainWindow() async {
+  await windowManager.ensureInitialized();
+  const options = WindowOptions(
+    size: Size(960, 720),
+    center: true,
+    title: 'WYRM Studio',
+  );
+  unawaited(
+    windowManager.waitUntilReadyToShow(options, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    }),
+  );
+}
+
 /// The stored frame, when a screen still shows enough of it to find and
 /// move the window (a second monitor may be gone since).
 Future<Rect?> _savedBounds(AppState state) async {

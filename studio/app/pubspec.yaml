@@ -39,6 +39,12 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   pro_lints: ^6.1.0
+  # The error tests build a store over in-memory storage and throw the
+  # client's own refusals.
+  storage:
+    path: ../storage
+  wyrm_client:
+    path: ../../dart/wyrm_client
 
 flutter:
   uses-material-design: true

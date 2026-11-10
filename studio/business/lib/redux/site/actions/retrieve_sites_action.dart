@@ -13,6 +13,9 @@ import '../../common/action.dart';
 class RetrieveSitesAction extends Action with WaitingAction {
   RetrieveSitesAction({this.depth = 4, super.quiet});
 
+  @override
+  Action again() => RetrieveSitesAction(depth: depth, quiet: quiet);
+
   final int depth;
 
   @override

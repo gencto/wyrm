@@ -19,7 +19,6 @@ sequenceDiagram
     UI->>VM: params()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(changes.table, changes.view)
-    A1--xVM: UserException
 ```
 
 ## inspector
@@ -37,10 +36,8 @@ sequenceDiagram
     UI->>VM: inspector()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(changes.table, changes.view)
-    A1--xVM: UserException
     VM->>A1: dispatchSync
     A1->>ST: copyWith(changes.table, changes.view)
-    A1--xVM: UserException
 ```
 
 ## onShow
@@ -303,7 +300,8 @@ sequenceDiagram
     alt t == 'history' && point != null
         VM->>+A2: dispatchAndWait
         Note over A2: WaitingAction · async
-        A2->>ST: copyWith(nodes.historyKey, nodes.history)
+        A2->>ST: copyWith(nodes.historyKey, nodes.historyFailed, nodes.history)
+        A2->>ST: dispatchSync(AddProblemAction)
         A2-->>-VM: ActionStatus
     end
 ```
@@ -385,7 +383,8 @@ sequenceDiagram
     alt point != null
         VM->>+A2: dispatchAndWait
         Note over A2: WaitingAction · async
-        A2->>ST: copyWith(nodes.historyKey, nodes.history)
+        A2->>ST: copyWith(nodes.historyKey, nodes.historyFailed, nodes.history)
+        A2->>ST: dispatchSync(AddProblemAction)
         A2-->>-VM: ActionStatus
     end
 ```
@@ -480,7 +479,6 @@ sequenceDiagram
     alt _actionOf(k, 'edit') != null
         VM->>A1: dispatchSync
         A1->>ST: copyWith(changes.table, changes.view)
-        A1--xVM: UserException
     end
 ```
 
@@ -552,7 +550,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `ExplorerPageConnector` — 2 dispatches
+- `ExplorerPageConnector` — 4 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -571,11 +569,11 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onRange` | `CheckPointsAction.range` | `nodes.checked` |
 | `onCheckAll` | `CheckPointsAction.all` | `nodes.checked` |
 | `onClear` | `ClearSelectionAction` | `nodes.checked, nodes.marked, nodes.point, nodes.anchor` |
-| `onTab` | `SetTabAction`, `RetrieveHistoryAction` ? | `nodes.tab`, `nodes.historyKey, nodes.history` |
+| `onTab` | `SetTabAction`, `RetrieveHistoryAction` ? | `nodes.tab`, `nodes.historyKey, nodes.historyFailed, nodes.history` |
 | `onAudit` | `RetrieveAuditAction` ? | `nodes.audit` |
 | `onAction` | `SetActionAction` | `nodes.action` |
 | `onPickAction` | `SetTabAction`, `SetActionAction` | `nodes.tab`, `nodes.action` |
-| `onHistoryRange` | `SetHistoryRangeAction`, `RetrieveHistoryAction` ? | `nodes.historyRange`, `nodes.historyKey, nodes.history` |
+| `onHistoryRange` | `SetHistoryRangeAction`, `RetrieveHistoryAction` ? | `nodes.historyRange`, `nodes.historyKey, nodes.historyFailed, nodes.history` |
 | `onCloseInspector` | `SetActionAction` | `nodes.action` |
 | `onSubmit` | `StageInvokeAction` ?, `InvokeNodeAction` ?, `StageValueAction` ? | `nodes.results` |
 | `onTool` | `StageInvokeAction`, `ClearSelectionAction`, `InvokeNodeAction`, `SetActionAction` | `nodes.checked, nodes.marked, nodes.point, nodes.anchor`, `nodes.results`, `nodes.action` |

@@ -9,6 +9,9 @@ import 'package:business/redux/changes/actions/remove_change_action.dart';
 import 'package:business/redux/changes/actions/set_open_action.dart';
 import 'package:business/redux/language/actions/set_language_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/problems/actions/clear_problems_action.dart';
+import 'package:business/redux/problems/actions/open_problems_action.dart';
+import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
@@ -18,8 +21,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:models/workspace.dart';
+import 'package:ui/buttons/problems_pill.dart';
+import 'package:ui/containers/fault_boundary.dart';
 import 'package:ui/containers/refresh_frame.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/overlays/problems_drawer.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/shell/studio_shell.dart';
@@ -30,6 +36,8 @@ import 'package:ui/shell/workspace_rail.dart';
 
 import '../common/changes.dart';
 import '../common/window.dart';
+import '../dialogs/error_dialogs.dart';
+import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -121,9 +129,33 @@ class StudioPageConnector extends StatelessWidget {
                 onSearch: () => _search(context, vm, tabs),
                 onReview: vm.onReview,
                 onLogOut: vm.onLogOut,
+                onProblems: vm.onProblems,
                 onLanguage: vm.onLanguage,
                 onTheme: vm.onTheme,
               ),
+              side: !vm.problemsOpen
+                  ? null
+                  : FaultBoundary(
+                      panel: .drawer,
+                      child: ProblemsDrawer(
+                        problems: vm.problems,
+                        labels: ProblemsLabels(
+                          title: S.current.problemsTitle,
+                          clear: S.current.problemsClear,
+                          close: S.current.problemsClose,
+                          note: S.current.problemsNote,
+                          empty: S.current.problemsEmpty,
+                          details: S.current.errDetails,
+                          retry: S.current.errTryAgain,
+                          shown: S.current.problemsShown,
+                        ),
+                        onClose: vm.onProblems,
+                        onClear: vm.onClearProblems,
+                        onRetry: vm.onRetryProblem,
+                        onDetails: (id) =>
+                            unawaited(showProblemDetails(context, id)),
+                      ),
+                    ),
               onScrim: vm.onCloseReview,
               drawerTop: vm.window.trailing > 0 ? WindowControls.height : 0,
               drawer: !vm.reviewOpen
@@ -159,7 +191,13 @@ class StudioPageConnector extends StatelessWidget {
                   Workspace.values[tabs.activeIndex],
                 ),
                 label: S.current.updating,
-                child: child,
+                // A workspace that throws while it builds is replaced by
+                // a card; the shell and the other tabs keep working
+                // (docs/design/specs/errors.md §5).
+                child: FaultBoundary(
+                  panel: .workspace,
+                  child: child,
+                ),
               ),
             ),
           ),
@@ -252,7 +290,27 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         role: site.role ?? '',
         locale: language.locale,
         theme: theme.mode,
+        // Hidden at 0 (and shown while the drawer is open, to close it).
+        problems: problems.unread == 0 && !problems.open
+            ? null
+            : ProblemsPillVm(
+                label: S.current.problemsCount(
+                  problems.open ? problems.items.length : problems.unread,
+                ),
+                bad: problems.items
+                    .take(
+                      problems.open ? problems.items.length : problems.unread,
+                    )
+                    .any((e) => e.kind == .broker || e.kind == .studio),
+                open: problems.open,
+              ),
       ),
+      problemsOpen: problems.open,
+      problems: [for (final e in problems.items) problemVm(e)],
+      onProblems: () => dispatchSync(OpenProblemsAction(open: !problems.open)),
+      onClearProblems: () => dispatchSync(ClearProblemsAction()),
+      onRetryProblem: (id) =>
+          unawaited(dispatchAndWait(RetryProblemAction(id))),
       quarantineBadge: quarantined == 0 ? null : '$quarantined',
       reviewOpen: changes.open,
       reviewError: changes.message,
@@ -340,6 +398,11 @@ class _Vm extends Vm {
     required this.connected,
     required this.refreshing,
     required this.topBar,
+    required this.problemsOpen,
+    required this.problems,
+    required this.onProblems,
+    required this.onClearProblems,
+    required this.onRetryProblem,
     required this.quarantineBadge,
     required this.reviewOpen,
     required this.reviewError,
@@ -367,6 +430,8 @@ class _Vm extends Vm {
            connected,
            refreshing,
            topBar,
+           problemsOpen,
+           problems,
            quarantineBadge,
            reviewOpen,
            reviewError,
@@ -388,6 +453,14 @@ class _Vm extends Vm {
   /// `ISet`, so two equal sets compare equal and do not rebuild the shell.
   final ISet<Workspace> refreshing;
   final TopBarVm topBar;
+
+  /// The Problems drawer (docs/design/specs/errors.md §4): every failure
+  /// of this session, newest first.
+  final bool problemsOpen;
+  final List<ProblemVm> problems;
+  final VoidCallback onProblems;
+  final VoidCallback onClearProblems;
+  final ValueChanged<int> onRetryProblem;
   final String? quarantineBadge;
   final bool reviewOpen;
   final String? reviewError;

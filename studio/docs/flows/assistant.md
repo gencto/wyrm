@@ -104,7 +104,6 @@ sequenceDiagram
     UI->>VM: onAsk()
     VM->>+A1: dispatchAndWait
     Note over A1: NonReentrant · WaitingAction · async
-    A1--xVM: UserException
     A1->>ST: dispatchSync(AddTasksAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(_Select)
@@ -164,7 +163,6 @@ sequenceDiagram
     UI->>VM: onButton()
     VM->>+A1: dispatchAndWait
     Note over A1: NonReentrant · WaitingAction · async
-    A1--xVM: UserException
     A1-->>-VM: ActionStatus
     alt await ConfirmDialog.ask(context, title: S.current.reject, message: S.current.failedNote, confirm: S.current.reject, cancel: S.current.cancel)
         VM->>+A2: dispatchAndWait

@@ -5,8 +5,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:localization/localization.dart';
 import 'package:ui/theme/common.dart';
 
+import 'connectors/toast_stack_connector.dart';
 import 'connectors/top_level_page_connector.dart';
 import 'connectors/window_controls_connector.dart';
+import 'dialogs/error_dialogs.dart';
 import 'dialogs/exception_dialog.dart';
 
 /// Root of the app. Reads theme + language from the store and feeds them into
@@ -34,15 +36,28 @@ class AppConnector extends StatelessWidget {
       ],
       supportedLocales: S.delegate.supportedLocales,
       locale: Locale(vm.locale),
-      // All three live above the router's Navigator: WindowControlsConnector
-      // draws the window buttons where the window has no title bar,
-      // ExceptionDialog shows UserException dialogs (via
-      // NavigateAction.navigatorKey, wired in run_env), TopLevelPageConnector paints the barrier / no-internet
+      // All of these live above the router's Navigator:
+      // WindowControlsConnector draws the window buttons where the window
+      // has no title bar, ExceptionDialog shows the error dialog (via
+      // NavigateAction.navigatorKey, wired in run_env), ToastStackConnector
+      // the toasts, TopLevelPageConnector paints the barrier / no-internet
       // overlays over everything.
       builder: (context, child) => WindowControlsConnector(
         child: TopLevelPageConnector(
           child: ExceptionDialog<AppState>(
-            child: child ?? const SizedBox.shrink(),
+            onShowUserExceptionDialog: showUserException,
+            child: Stack(
+              children: [
+                Positioned.fill(child: child ?? const SizedBox.shrink()),
+                // Quiet failures and successes, bottom right, over every
+                // page (docs/design/specs/errors.md §4).
+                const Positioned(
+                  right: 20,
+                  bottom: 20,
+                  child: ToastStackConnector(),
+                ),
+              ],
+            ),
           ),
         ),
       ),

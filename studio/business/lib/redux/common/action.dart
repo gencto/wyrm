@@ -1,9 +1,13 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:flutter/foundation.dart' show mustCallSuper;
 
+import 'package:models/studio_error.dart';
+
 import '../../dependencies.dart';
 import '../../environment.dart';
+import '../../wyrm/failures.dart';
 import '../app_state.dart';
+import '../problems/actions/add_problem_action.dart';
 
 abstract class Action extends ReduxAction<AppState> with Selectors {
   Action({this.quiet = false});
@@ -15,9 +19,10 @@ abstract class Action extends ReduxAction<AppState> with Selectors {
   Environment get env => store.environment! as Environment;
 
   /// Set on one dispatch — `dispatch(RetrieveLinksAction(quiet: true))` —
-  /// when nobody asked for this run: a failure is still logged and still
-  /// fails the dispatch, but it opens no dialog. An action offers it by
-  /// passing `super.quiet` from its constructor.
+  /// when nobody asked for this run: a failure still fails the dispatch,
+  /// but it opens no dialog. It becomes a toast and a line in Problems
+  /// (docs/design/specs/errors.md §4). An action offers it by passing
+  /// `super.quiet` from its constructor.
   ///
   /// A read the app starts by itself (the log-in preload,
   /// docs/design/specs/login.md §5.1) may fail on rights the user does not
@@ -26,16 +31,65 @@ abstract class Action extends ReduxAction<AppState> with Selectors {
   /// from a screen keeps its dialog.
   final bool quiet;
 
+  /// A fresh copy of this action, for *Try again* in the dialog, the toast
+  /// and the Problems drawer; null (the default) when the call cannot be
+  /// repeated as it was.
+  Action? again() => null;
+
+  /// The load action of the screen this action belongs to, for *Refresh*
+  /// after a `not_found`; null when there is none.
+  Action? reload() => null;
+
+  /// The name of this action as a step, for a fault in Studio:
+  /// `RetrieveLinksAction` reads `retrieve links`.
+  String get stepName => '$runtimeType'
+      .replaceFirst(RegExp(r'Action$'), '')
+      .replaceFirst(RegExp('^_'), '')
+      .replaceAllMapped(
+        RegExp('(?<=[a-z0-9])[A-Z]'),
+        (m) => ' ${m.group(0)}',
+      )
+      .toLowerCase();
+
+  StudioError? _failed;
+
+  /// Every failure leaves as one [StudioException]: a refusal keeps its
+  /// status, anything else is a fault in Studio with its report. The error
+  /// is given its id, time, site, title, and what *Try again* and
+  /// *Refresh* dispatch; [after] then adds it to Problems.
   @override
   Object? wrapError(Object error, StackTrace stackTrace) {
     final wrapped = super.wrapError(error, stackTrace);
-    if (!quiet || wrapped == null) {
-      return wrapped;
+    if (wrapped == null) {
+      return null;
     }
-    return switch (wrapped) {
-      final UserException e => e.withDialog(false),
-      _ => UserException('$wrapped').withDialog(false),
-    };
+    final thrown = studioExceptionOf(wrapped, stackTrace, step: stepName);
+    final e = thrown.error;
+    final filled = deps.wording(
+      e.copyWith(
+        id: e.id == 0 ? nextErrorId() : e.id,
+        at: e.at ?? DateTime.now(),
+        site: e.site ?? site.viewed,
+        quiet: e.quiet || quiet,
+        retry: e.retry ?? (again() == null ? null : () => again()!),
+        reload: e.reload ?? (reload() == null ? null : () => reload()!),
+      ),
+    );
+    _failed = filled;
+    return thrown.withError(
+      filled,
+      ifOpenDialog: thrown.ifOpenDialog && !filled.quiet,
+    );
+  }
+
+  @mustCallSuper
+  @override
+  void after() {
+    super.after();
+    if (_failed case final e?) {
+      _failed = null;
+      dispatchSync(AddProblemAction(e));
+    }
   }
 }
 

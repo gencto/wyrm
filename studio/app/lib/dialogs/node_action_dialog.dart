@@ -9,6 +9,7 @@ import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 
 import '../common/forms.dart';
+import 'error_dialogs.dart';
 
 /// Runs [action] of the node [key] now, with a form made from its
 /// parameters (or a confirmation when it has none and [confirm] is set).
@@ -44,24 +45,43 @@ Future<bool> runNodeAction(
   var ran = false;
   await showDialog<void>(
     context: context,
-    builder: (dialog) => PanelDialog(
-      title: a.display ?? a.name,
-      width: 600,
-      note: confirm,
-      child: ActionForm(
-        fields: paramFields(a.params),
-        submit: a.display ?? a.name,
-        onSubmit: (v) async {
-          final st = await store.dispatchAndWait(
-            InvokeNodeAction(key, action, plainArgs(v)),
-          );
-          if (st.isCompletedOk && dialog.mounted) {
-            ran = true;
-            Navigator.of(dialog).pop();
-          }
-        },
-      ),
-    ),
+    builder: (dialog) {
+      // The field the broker named when it refused, with its words: under
+      // the field, which has the focus when the error dialog is closed
+      // (*Back to the form*, docs/design/specs/errors.md §3).
+      var refused = const <String, String>{};
+      String? focus;
+      return StatefulBuilder(
+        builder: (context, setState) => PanelDialog(
+          title: a.display ?? a.name,
+          width: 600,
+          note: confirm,
+          child: ActionForm(
+            fields: paramFields(a.params),
+            submit: a.display ?? a.name,
+            errors: refused,
+            focus: focus,
+            onSubmit: (v) async {
+              final st = await store.dispatchAndWait(
+                InvokeNodeAction(key, action, plainArgs(v)),
+              );
+              if (!dialog.mounted) {
+                return;
+              }
+              if (st.isCompletedOk) {
+                ran = true;
+                Navigator.of(dialog).pop();
+              } else if (refusedField(st) case (final field, final said)) {
+                setState(() {
+                  refused = {field: said};
+                  focus = field;
+                });
+              }
+            },
+          ),
+        ),
+      );
+    },
   );
   return ran;
 }

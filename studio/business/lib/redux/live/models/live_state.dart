@@ -9,5 +9,6 @@ abstract class LiveState with _$LiveState {
   const factory LiveState({
     @Default(IMapConst({})) IMap<String, LiveValue> values,
     @Default(IMapConst({})) IMap<String, int> watched,
+    @Default(IMapConst({})) IMap<String, String> failed,
   }) = _LiveState;
 }

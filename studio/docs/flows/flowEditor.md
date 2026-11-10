@@ -238,7 +238,6 @@ sequenceDiagram
         VM->>+A1: dispatchAndWait
         Note over A1: NonReentrant · async
         A1->>ST: copyWith(flowEditor.message)
-        A1--xVM: UserException
         A1-->>-VM: ActionStatus
     end
 ```

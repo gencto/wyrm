@@ -3,10 +3,17 @@ import 'package:async_redux/async_redux.dart';
 import '../../../wyrm/calls.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import 'retrieve_links_action.dart';
 
 /// `sys/links/<id>` ▸ `start` (config). The state follows as a live value.
 class StartLinkAction extends Action with NonReentrant, WaitingAction {
   StartLinkAction(this.id);
+
+  @override
+  Action again() => StartLinkAction(id);
+
+  @override
+  Action reload() => RetrieveLinksAction();
 
   final String id;
 

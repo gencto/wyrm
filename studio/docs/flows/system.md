@@ -273,6 +273,40 @@ sequenceDiagram
     end
 ```
 
+## onCopyLog
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as ShowNoticeAction
+    participant ST as AppState
+
+    User->>UI: onCopyLog
+    UI->>VM: onCopyLog()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.notices)
+```
+
+## onSaveLog
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as ShowNoticeAction
+    participant ST as AppState
+
+    User->>UI: onSaveLog
+    UI->>VM: onSaveLog()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.notices)
+```
+
 ## onLogLevel
 
 ```mermaid
@@ -304,11 +338,32 @@ sequenceDiagram
     participant UI as SystemPage
     participant VM as SystemPageConnector
     participant A1 as action
+    participant A2 as ShowNoticeAction
+    participant ST as AppState
 
     User->>UI: onClear
     UI->>VM: onClear()
     VM->>+A1: dispatchAndWait
     A1-->>-VM: ActionStatus
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(problems.notices)
+```
+
+## onPutProfile
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as ShowNoticeAction
+    participant ST as AppState
+
+    User->>UI: onPutProfile
+    UI->>VM: onPutProfile()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.notices)
 ```
 
 ## onRemoveProfile
@@ -320,6 +375,7 @@ sequenceDiagram
     participant UI as SystemPage
     participant VM as SystemPageConnector
     participant A1 as RemoveProfileAction
+    participant A2 as ShowNoticeAction
     participant ST as AppState
 
     User->>UI: onRemoveProfile
@@ -328,6 +384,25 @@ sequenceDiagram
     Note over A1: NonReentrant · WaitingAction · async
     A1->>ST: dispatchAndWait(RetrieveProfilesAction)
     A1-->>-VM: ActionStatus
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(problems.notices)
+```
+
+## onCopyCommand
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as ShowNoticeAction
+    participant ST as AppState
+
+    User->>UI: onCopyCommand
+    UI->>VM: onCopyCommand()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.notices)
 ```
 
 ## onTile
@@ -403,6 +478,23 @@ sequenceDiagram
     VM->>NAV: GoAction.push GalleryRoute
 ```
 
+## onGuide
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as ShowNoticeAction
+    participant ST as AppState
+
+    User->>UI: onGuide
+    UI->>VM: onGuide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.notices)
+```
+
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onShow` | `SetShownAction`, `WatchKeysAction`, `RetrieveSysAboutAction`, `RetrieveProfilesAction`, `RetrieveQuarantineAction`, `RetrieveSystemLogAction` ?, `RetrieveLinksAction`, `RetrievePeersAction` ? | `system.shown`, `live.watched`, `system.about, system.units`, `system.profiles, system.profilesNote`, `quarantine.table, quarantine.view, quarantine.forms`, `links.version, links.table, links.view`, `peers.table, peers.view` |
@@ -416,12 +508,17 @@ sequenceDiagram
 | `onLines` | `SetLinesAction`, `RetrieveSystemLogAction` ? | `system.lines` |
 | `onAuto` | `SetAutoAction`, `RetrieveSystemLogAction` ? | `system.auto` |
 | `onGetLog` | `RetrieveSystemLogAction` ? | — |
+| `onCopyLog` | `ShowNoticeAction` | `problems.notices` |
+| `onSaveLog` | `ShowNoticeAction` | `problems.notices` |
 | `onLogLevel` | `RemoveChangeAction` ?, `AddChangesAction` | `changes.table, changes.view, changes.open`, `changes.table, changes.view, changes.message` |
-| `onClear` | `action` | — |
-| `onRemoveProfile` | `RemoveProfileAction` | — |
+| `onClear` | `action`, `ShowNoticeAction` | `problems.notices` |
+| `onPutProfile` | `ShowNoticeAction` | `problems.notices` |
+| `onRemoveProfile` | `RemoveProfileAction`, `ShowNoticeAction` | `problems.notices` |
+| `onCopyCommand` | `ShowNoticeAction` | `problems.notices` |
 | `onTile` | `links_slice.SetTabAction`, `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | — |
 | `onAttention` | `SetTabAction`, `links_slice.SetTabAction`, `SetSelectedLinkAction`, `links_slice.SetTabAction`, `SetSelectedEntryAction`, `SetSelectedPeerAction`, `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | `system.tab`, `links.selectedLink`, `quarantine.selectedEntry`, `peers.selectedPeer` |
 | `onElsewhere` | `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | — |
+| `onGuide` | `ShowNoticeAction` | `problems.notices` |
 
 `?` marks a dispatch that only runs under a condition.
 

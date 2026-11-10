@@ -1,24 +1,59 @@
-import 'package:async_redux/async_redux.dart';
+import 'package:models/error_kind.dart';
+import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-/// Runs one broker call; a refusal becomes a [UserException] with the
-/// broker's own message (docs/studio.md §2 rule 7). [what] names the call for
-/// the title ("Cannot list the links").
-Future<T> call<T>(String what, Future<T> Function() f) async {
+import 'failures.dart';
+
+/// Runs one broker call; a refusal becomes a [StudioException] that keeps
+/// the status as data and the broker's own message (docs/studio.md §2
+/// rule 7, docs/design/specs/errors.md §1). [name] is the call (`list`,
+/// `meta`, `set`, an action), [key] the key it is made on, [thing] the name
+/// of its object for the title when the key's last segment is not it;
+/// [write] says it changes something on the broker.
+Future<T> call<T>(
+  String name,
+  String key,
+  Future<T> Function() f, {
+  String? thing,
+  bool write = false,
+}) async {
   try {
     return await f();
   } on WyrmException catch (e) {
-    throw UserException(what, reason: '${e.status.name}: ${e.message}');
+    throw StudioException.refused(
+      e,
+      key: key,
+      call: name,
+      thing: thing,
+      write: write,
+    );
   }
 }
 
-/// The rows of one `invoke`, collected; a refusal as in [call].
+/// The children of [key]; a refusal as in [call].
+Future<List<Child>> listOf(WyrmApi api, String key, {String? thing}) =>
+    call('list', key, () => api.children(key), thing: thing);
+
+/// The full meta of [key]; a refusal as in [call].
+Future<NodeMeta> metaOf(WyrmApi api, String key, {String? thing}) =>
+    call('meta', key, () => api.meta(key), thing: thing);
+
+/// The rows of one `invoke` that changes something, collected; a refusal
+/// as in [call]. A timeout of it may have been applied, and the dialog
+/// says so; an action that only reads goes through [askAll].
 Future<List<Value>> invokeAll(
   WyrmApi api,
   String key,
   String action, [
   Value? args,
-]) => call('$action failed', () => api.invoke(key, action, args).toList());
+  String? thing,
+]) => call(
+  action,
+  key,
+  () => api.invoke(key, action, args).toList(),
+  thing: thing,
+  write: true,
+);
 
 /// The first row of an action's answer, or `VNull`.
 Future<Value> invokeOne(
@@ -26,20 +61,63 @@ Future<Value> invokeOne(
   String key,
   String action, [
   Value? args,
+  String? thing,
 ]) async {
-  final rows = await invokeAll(api, key, action, args);
+  final rows = await invokeAll(api, key, action, args, thing);
   return rows.isEmpty ? const VNull() : rows.first;
 }
 
-/// `{success, message}` of an install-style answer: throws with the message
-/// when success is false.
-void requireSuccess(Value answer, String what) {
+/// The rows of an action that only reads (`get_log`, `history`,
+/// `node_types`, `tail`); a refusal as in [call].
+Future<List<Value>> askAll(
+  WyrmApi api,
+  String key,
+  String action, [
+  Value? args,
+  String? thing,
+]) => call(
+  action,
+  key,
+  () => api.invoke(key, action, args).toList(),
+  thing: thing,
+);
+
+/// The first row of a reading action's answer, or `VNull`.
+Future<Value> askOne(
+  WyrmApi api,
+  String key,
+  String action, [
+  Value? args,
+  String? thing,
+]) async {
+  final rows = await askAll(api, key, action, args, thing);
+  return rows.isEmpty ? const VNull() : rows.first;
+}
+
+/// `{success, message}` of an install-style answer: throws a `broker`
+/// error with the message when success is false. [action] on [key] is the
+/// call that answered.
+void requireSuccess(
+  Value answer,
+  String key,
+  String action, {
+  String? thing,
+}) {
   if (answer['success'] case VBool(v: false)) {
-    final message = switch (answer['message']) {
-      VStr(:final v) => v,
-      _ => 'the broker said no',
-    };
-    throw UserException(what, reason: message);
+    throw StudioException(
+      StudioError(
+        kind: ErrorKind.broker,
+        message: switch (answer['message']) {
+          VStr(:final v) => v,
+          _ => '',
+        },
+        key: key,
+        call: action,
+        thing: thing,
+        site: siteOf(key),
+        write: true,
+      ),
+    );
   }
 }
 

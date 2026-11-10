@@ -8,17 +8,24 @@ import '../../../wyrm/calls.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import 'retrieve_links_action.dart';
 
 /// `sys/links/<id>` ▸ `history` (config): the revisions of the link's
 /// parameters, newest first, into `links.revisions`.
 class RetrieveLinkHistoryAction extends Action with WaitingAction {
   RetrieveLinkHistoryAction(this.id);
 
+  @override
+  Action again() => RetrieveLinkHistoryAction(id);
+
+  @override
+  Action reload() => RetrieveLinksAction();
+
   final String id;
 
   @override
   Future<AppState> reduce() async {
-    final rows = await invokeAll(
+    final rows = await askAll(
       deps.wyrm,
       '${site.root}/sys/links/$id',
       'history',

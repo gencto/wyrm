@@ -92,12 +92,22 @@ Primary actions:
 - Validation thrown as dialogs: `install_link_action.dart` (name, package), `log_in_action.dart` (`Type the user and the password.`), `update_link_params_action.dart` (JSON). Move to inline (§2).
 
 ## 9. Checklist
-- [ ] Every broker refusal shows its kind, title, key › call, the broker's message, the right buttons; Details shows status and code.
-- [ ] Reach on a write shows the may-have-been-applied note; Busy counts down and retries once.
-- [ ] Back to the form focuses the named field with the message under it.
-- [ ] Copy details never contains values, args, tokens or passwords (test with a `set` of a secret field).
-- [ ] Quiet errors: toast, mark on the row, entry in Problems; counter and drawer as the board.
-- [ ] A throwing panel shows `PanelFault`; `Draw it again` rebuilds only it.
-- [ ] Unreadable `database.db` shows the start screen; fresh settings keep the old file.
-- [ ] Validation errors are inline, never dialogs.
-- [ ] Goldens: one per frame (`ErrorDialog`, `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`, `ErrorQuiet`, `ErrorProblems`, `ErrorPanel`, `ErrorFatal`), dark and light.
+- [x] Every broker refusal shows its kind, title, key › call, the broker's message, the right buttons; Details shows status and code. (`call` / `listOf` / `metaOf` / `invokeAll` / `askAll` and `Action.wrapError`; a refusal thrown raw by the client is wrapped the same way, without a key.)
+- [x] Reach on a write shows the may-have-been-applied note; Busy counts down and retries once. (*Try again* needs `Action.again()`: the Retrieve actions and the link, node, flow, profile, quarantine and peer writes have it; an action without it gets OK.)
+- [~] Back to the form focuses the named field with the message under it. Done for the node action form (`runNodeAction`: `ActionForm.errors` / `focus`, `refusedField`). The other forms (link grant, add upstream, access) close the dialog and leave the form as it was; the field is named in the dialog.
+- [x] Copy details never contains values, args, tokens or passwords (test with a `set` of a secret field). A `StudioError` holds no value and no argument; its message, the gateway URL and the stack are redacted.
+- [x] Quiet errors: toast, mark on the row, entry in Problems; counter and drawer as the board. (The mark is on the points table and on the History tab; the tree and the inspector do not show it yet.)
+- [x] A throwing panel shows `PanelFault`; `Draw it again` rebuilds only it. (Boundaries: Explorer tree, workspace, inspector; flow editor canvas; every workspace tab; the Problems drawer.)
+- [x] Unreadable `settings.db` shows the start screen; fresh settings keep the old file. (The file is `settings.db`, kept as `settings.db.broken`; the board and §6 say `database.db`. It is opened with sembast's `DatabaseMode.create`: the default mode deleted an unreadable file without a word.)
+- [x] Validation errors are inline, never dialogs. (`LogInAction` and `InstallLinkAction` no longer throw: their pages validated already. Edit params checks the JSON as it is typed.)
+- [x] Goldens: one per frame (`ErrorDialog`, `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`, `ErrorQuiet`, `ErrorProblems`, `ErrorPanel`, `ErrorFatal`), dark and light. (`ui/test/goldens/errors_test.dart`, plus `error_dialog_details`; the reference PNGs in `screens/` are renders of the board sources, not canvas exports.)
+
+Not done, or decided here **(proposed)**:
+- [~] *Open the log* goes to System › Log and reads it again; it does not fill a time, since `get_log` takes no time and the newest lines are the ones around the failure.
+- **(proposed)** A status Studio does not know (user-defined `0x40–0x4F`, an unknown code) is kind `broker`.
+- **(proposed)** An error the screen shows itself (`withDialog(false)`: the log-in page) is a line in Problems without a toast; a key the user may not read is a mark and a line, without a toast.
+- **(proposed)** The same failure again (kind, status, key, call, title) replaces its line in Problems instead of adding one.
+- **(proposed)** ⌘/Ctrl+C in the dialog copies the details; a tap on the scrim does nothing.
+- **(proposed)** The busy wait is 4 s: spec 04 carries no hint.
+- **(proposed)** `shown as a dialog` and the toast's lifetime use `muted` (the board's `#6B747A` is not a token).
+- Titles of a call Studio has no verb for read `run <call> on <thing>`.

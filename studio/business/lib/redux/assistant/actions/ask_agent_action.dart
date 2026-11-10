@@ -1,9 +1,11 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/task_event.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/agent_task_mapper.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
@@ -21,7 +23,12 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
     final agent = assistant.agent;
     final ask = (assistant.draft ?? '').trim();
     if (agent == null) {
-      throw const UserException('No assistant on this site.');
+      throw StudioException.said(
+        ErrorKind.gone,
+        'There is no assistant link on this site.',
+        call: 'ask',
+        thing: 'assistant',
+      );
     }
     if (ask.isEmpty) {
       return null;
@@ -91,16 +98,23 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
           ),
         );
       }
-      throw UserException(
-        'The assistant could not take it.',
-        reason: e.message,
+      throw StudioException.refused(
+        e,
+        key: agent,
+        call: 'ask',
+        thing: 'assistant',
+        write: true,
       );
     }
     if (id == null) {
       // The stream ended without naming a task: nothing was started, and
       // the ask stays in the box (an agent without its API key does this).
-      throw const UserException(
+      throw StudioException.said(
+        ErrorKind.broker,
         'The assistant started no task. Check that its API key is set.',
+        key: agent,
+        call: 'ask',
+        thing: 'assistant',
       );
     }
     return null;

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_kind.dart';
+import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -24,6 +26,7 @@ import 'redux/services/tree_watch/tree_watch.dart';
 import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
 import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
+import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
 
 /// Container for the app's injected services, one instance per [Store].
@@ -35,8 +38,17 @@ import 'wyrm/session.dart';
 ///
 /// Access it from actions via the `deps` getter on the base `Action`.
 class AppDependencies {
-  AppDependencies(this._store, this.settings, {WyrmLogin? login})
-    : login = login ?? const GatewayLogin();
+  AppDependencies(
+    this._store,
+    this.settings, {
+    WyrmLogin? login,
+    ErrorWording? wording,
+  }) : login = login ?? const GatewayLogin(),
+       wording = wording ?? plainWording;
+
+  /// The words of an error: its title and, for a fault in Studio, its
+  /// sentence. The app's, in the user's language; plain English in tests.
+  final ErrorWording wording;
 
   final Store<AppState> _store;
 
@@ -55,12 +67,17 @@ class AppDependencies {
   /// The logged-in gateway session, or null before a login.
   WyrmSession? get session => _session;
 
-  /// The broker API of the session (docs/studio.md §5.3). Throws a
-  /// [UserException] when nobody is logged in, so an action dispatched after a
-  /// log out fails visibly instead of with a null error.
+  /// The broker API of the session (docs/studio.md §5.3). Throws a `reach`
+  /// error when nobody is logged in, so an action dispatched after a log out
+  /// fails visibly instead of with a null error.
   WyrmApi get wyrm =>
       _session?.api ??
-      (throw const UserException('Not connected to a gateway.'));
+      (throw StudioException(
+        const StudioError(
+          kind: ErrorKind.reach,
+          message: 'Studio is not connected to a gateway.',
+        ),
+      ));
 
   /// Keeps [session] as the one in use and points every service at it;
   /// closes the one it replaces.

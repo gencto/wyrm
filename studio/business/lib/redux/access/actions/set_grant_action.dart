@@ -12,6 +12,12 @@ import 'retrieve_access_action.dart';
 class SetGrantAction extends Action with WaitingAction {
   SetGrantAction(this.role, this.path, this.level);
 
+  @override
+  Action again() => SetGrantAction(role, path, level);
+
+  @override
+  Action reload() => RetrieveAccessAction();
+
   final String role;
   final String path;
   final String level;

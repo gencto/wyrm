@@ -21,17 +21,25 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
   /// The revision it was edited from (`rev 3`).
   final String from;
 
+  /// Why [json] cannot be staged, for the line under the field: the
+  /// parser's own message when it is not JSON, an empty string when it is
+  /// JSON but not one object; null when it can be staged.
+  static String? problemOf(String json) {
+    try {
+      return jsonDecode(json) is Map<String, Object?> ? null : '';
+    } on FormatException catch (e) {
+      return e.message.isEmpty ? 'not JSON' : e.message;
+    }
+  }
+
   @override
   Future<AppState?> reduce() async {
-    final Object? params;
-    try {
-      params = jsonDecode(json);
-    } on FormatException catch (e) {
-      throw UserException('The parameters are not JSON.', reason: e.message);
+    // The dialog checks the text as it is typed and says what is wrong
+    // under the field ([problemOf]); text that does not pass is not staged.
+    if (problemOf(json) != null) {
+      return null;
     }
-    if (params is! Map<String, Object?>) {
-      throw const UserException('The parameters must be one JSON object.');
-    }
+    final params = jsonDecode(json) as Map<String, Object?>;
     dispatch(
       AddChangesAction(
         [

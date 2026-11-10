@@ -14,6 +14,9 @@ import '../../common/action.dart';
 /// and the relays).
 class RetrieveQuarantineAction extends Action with WaitingAction {
   @override
+  Action again() => RetrieveQuarantineAction();
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -21,17 +24,11 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/sys/quarantine';
-    final nodes = await call(
-      'Cannot list quarantine',
-      () => api.children(base),
-    );
+    final nodes = await listOf(api, base);
     final entries = <QuarantineEntry>[];
     final forms = <String, IList<ParamSpec>>{};
     for (final c in nodes) {
-      final m = await call(
-        'Cannot read ${c.name}',
-        () => api.meta('$base/${c.name}'),
-      );
+      final m = await metaOf(api, '$base/${c.name}');
       entries.add(quarantineEntryOf(c.name, m));
       if (m.actions?['approve'] case final a?) {
         forms[c.name] = paramSpecsOf(a).lock;

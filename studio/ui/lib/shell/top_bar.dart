@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../buttons/problems_pill.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
@@ -38,7 +39,12 @@ final class TopBarVm extends Equatable {
     this.reviewReason,
     this.locale = 'en',
     this.theme = ThemeMode.dark,
+    this.problems,
   });
+
+  /// The count of problems not yet looked at, before Review and apply;
+  /// null when there is nothing to show (docs/design/specs/errors.md §4).
+  final ProblemsPillVm? problems;
 
   /// The site on screen.
   final String site;
@@ -72,6 +78,7 @@ final class TopBarVm extends Equatable {
     reviewReason,
     user,
     role,
+    problems,
   ];
 }
 
@@ -84,6 +91,7 @@ class TopBar extends StatelessWidget {
     required this.onSearch,
     required this.onReview,
     required this.onLogOut,
+    this.onProblems,
     this.onLanguage,
     this.onTheme,
     this.compact = false,
@@ -97,6 +105,9 @@ class TopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onReview;
   final VoidCallback onLogOut;
+
+  /// The problems pill: opens or closes the Problems drawer.
+  final VoidCallback? onProblems;
 
   /// A language or a theme picked in the account menu.
   final ValueChanged<String>? onLanguage;
@@ -145,6 +156,8 @@ class TopBar extends StatelessWidget {
                 onPressed: onSearch,
                 icon: AppIcon('ui_search', color: c.text3),
               ),
+            if (vm.problems case final p?)
+              ProblemsPill(vm: p, onTap: onProblems ?? () {}),
             _ReviewButton(
               count: vm.changes,
               label: compact ? labels.reviewShort : labels.review,

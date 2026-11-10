@@ -27,7 +27,7 @@ class UpdateBlockFromLibraryAction extends Action {
       return null;
     }
     final answer = libraryBlockOf(
-      await invokeOne(
+      await askOne(
         deps.wyrm,
         '$root/dataflows',
         'get_block',

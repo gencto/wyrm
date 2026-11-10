@@ -15,6 +15,9 @@ class RetrieveLinksAction extends Action with WaitingAction {
   RetrieveLinksAction({super.quiet});
 
   @override
+  Action again() => RetrieveLinksAction(quiet: quiet);
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -22,16 +25,10 @@ class RetrieveLinksAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/sys/links';
-    final ids = await call(
-      'Cannot list the links',
-      () => api.children(base),
-    );
+    final ids = await listOf(api, base);
     final links = await Future.wait([
       for (final c in ids)
-        call(
-          'Cannot read link ${c.name}',
-          () => api.meta('$base/${c.name}'),
-        ).then((m) => linkInfoOf(c.name, m)),
+        metaOf(api, '$base/${c.name}').then((m) => linkInfoOf(c.name, m)),
     ]);
     final version = await readValue(api, '$root/sys/version');
     return state.copyWith.links(

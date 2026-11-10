@@ -9,6 +9,9 @@ import '../../common/action.dart';
 /// Reads `sys/packages` of the site, each by its full meta.
 class RetrievePackagesAction extends Action with WaitingAction {
   @override
+  Action again() => RetrievePackagesAction();
+
+  @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
@@ -16,13 +19,10 @@ class RetrievePackagesAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/sys/packages';
-    final names = await call('Cannot list packages', () => api.children(base));
+    final names = await listOf(api, base);
     final list = await Future.wait([
       for (final c in names)
-        call(
-          'Cannot read package ${c.name}',
-          () => api.meta('$base/${c.name}'),
-        ).then((m) => packageInfoOf(c.name, m)),
+        metaOf(api, '$base/${c.name}').then((m) => packageInfoOf(c.name, m)),
     ]);
     return state.copyWith.packages(
       table: IMap<String, PackageInfo>.fromValues(
