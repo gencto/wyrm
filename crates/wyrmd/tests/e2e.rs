@@ -3078,6 +3078,500 @@ async fn flow_watch_streams_live_values() {
     env.stop().await;
 }
 
+/// ADR 0040 §1: a text block builds a key, and the key drives a `subscribe` inside its scope.
+/// A timer walks two point names; a key outside the scope is refused and read by nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_subscribe_follows_a_key_built_by_a_text_block() {
+    let env = Env::start("flow-dyn-key", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let def = |scope: &str| {
+        m(&[
+            ("id", s("walk")),
+            ("version", Value::UInt(1)),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "t",
+                        m(&[("type", s("timer")), ("period_ms", Value::UInt(400))]),
+                    ),
+                    ("i", m(&[("type", s("modulo")), ("modulo", Value::UInt(2))])),
+                    // the mock's first folder holds the even points: p0 and p2
+                    (
+                        "twice",
+                        m(&[
+                            ("type", s("multiply")),
+                            ("values", m(&[("in.1", Value::UInt(2))])),
+                        ]),
+                    ),
+                    (
+                        "path",
+                        m(&[
+                            ("type", s("concat")),
+                            ("values", m(&[("in.0", s("downstream/mock/g0/p"))])),
+                        ]),
+                    ),
+                    (
+                        "sub",
+                        m(&[("type", s("subscribe")), ("key_scope", s(scope))]),
+                    ),
+                    ("val", m(&[("type", s("publish")), ("node", s("val"))])),
+                    ("key", m(&[("type", s("publish")), ("node", s("key"))])),
+                    ("err", m(&[("type", s("publish")), ("node", s("err"))])),
+                ]),
+            ),
+            (
+                "edges",
+                Value::Array(vec![
+                    edge("t.out", "i.in"),
+                    edge("i.remainder", "twice.in.0"),
+                    edge("twice.out", "path.in.1"),
+                    edge("path.out", "sub.in.key"),
+                    edge("sub.out", "val.in"),
+                    edge("sub.key", "key.in"),
+                    edge("sub.error", "err.in"),
+                ]),
+            ),
+        ])
+    };
+    let flows = format!("wy/{SITE}/dataflows");
+    // a wired key without a scope does not compile; a scope under `sys` neither
+    let mut bare = def("x");
+    if let Value::Map(d) = &mut bare {
+        if let Some(Value::Map(nodes)) = d.get_mut("nodes") {
+            nodes.insert(
+                "sub".into(),
+                m(&[
+                    ("type", s("subscribe")),
+                    ("key", s("downstream/mock/g0/p0")),
+                ]),
+            );
+        }
+    }
+    for refused in [bare, def("sys/**")] {
+        let e = c
+            .invoke_one(&flows, "deploy", m(&[("def", refused)]))
+            .await
+            .unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        assert!(e.message.contains("key_scope"), "{e}");
+    }
+    c.invoke_one(&flows, "deploy", m(&[("def", def("downstream/mock/g0/*"))]))
+        .await
+        .unwrap();
+    let node = |n: &str| format!("{flows}/walk/nodes/{n}");
+    let mut seen = std::collections::BTreeSet::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while seen.len() < 2 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "both keys: {seen:?}"
+        );
+        // the key and a value of it, twice in a row: a value of the key before is gone by then
+        let read = || async {
+            let k = last_val(&c, &node("key")).await;
+            let v = last_val(&c, &node("val")).await;
+            match (k, v.and_then(|v| v.as_f64())) {
+                (Some(Value::Str(k)), Some(_)) => Some(k),
+                _ => None,
+            }
+        };
+        let first = read().await;
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        if let (Some(a), Some(b)) = (first, read().await) {
+            if a == b {
+                seen.insert(a);
+            }
+        }
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        ["downstream/mock/g0/p0", "downstream/mock/g0/p2"]
+    );
+    // the same flow with a scope of one point: the other key is refused
+    let mut narrow = def("downstream/mock/g0/p0");
+    if let Value::Map(d) = &mut narrow {
+        d.insert("version".into(), Value::UInt(2));
+    }
+    c.invoke_one(&flows, "deploy", m(&[("def", narrow)]))
+        .await
+        .unwrap();
+    let why = eventually("a key outside the scope is refused", 10, || async {
+        match last_val(&c, &node("err")).await {
+            Some(Value::Str(e)) => Some(e),
+            _ => None,
+        }
+    })
+    .await;
+    assert!(why.contains("outside the scope"), "{why}");
+    env.stop().await;
+}
+
+/// ADR 0040 §2: the action block against the mock link. A deploy runs nothing; the `trigger`
+/// action runs the block, which reports `sent`, `ok` and its result; an argument the mock
+/// refuses gives the `error` event with the status code.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_action_block_runs_on_trigger_and_reports_events() {
+    let env = Env::start("flow-action", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, k: &str| match v {
+        Value::Map(mm) => mm.get(k).cloned(),
+        _ => None,
+    };
+    let publish = |n: &str| m(&[("type", s("publish")), ("node", s(n))]);
+    // `n` comes from a variable: an argument is a field with a port
+    let def = |version: u64, n: i64| {
+        m(&[
+            ("id", s("act")),
+            ("version", Value::UInt(version)),
+            (
+                "nodes",
+                m(&[
+                    ("n", m(&[("type", s("number")), ("value", Value::Int(n))])),
+                    (
+                        "call",
+                        m(&[
+                            ("type", s("invoke")),
+                            ("path", s("downstream/mock")),
+                            ("action", s("count")),
+                            ("args", m(&[("n", Value::Null)])),
+                            ("auto_run", Value::Bool(true)),
+                        ]),
+                    ),
+                    ("sent", publish("sent")),
+                    ("ok", publish("ok")),
+                    ("error", publish("error")),
+                    ("result", publish("result")),
+                ]),
+            ),
+            (
+                "edges",
+                Value::Array(vec![
+                    edge("n.out", "call.arg.n"),
+                    edge("call.sent", "sent.in"),
+                    edge("call.ok", "ok.in"),
+                    edge("call.error", "error.in"),
+                    edge("call.result", "result.in"),
+                ]),
+            ),
+            ("permissions", m(&[("maxperm", s("write"))])),
+        ])
+    };
+    let flows = format!("wy/{SITE}/dataflows");
+    let deploy = |d: Value| {
+        let proofs = wyrm_flow::command_targets(&d, SITE)
+            .unwrap()
+            .into_iter()
+            .map(|t| {
+                let p = c.proof(&t).unwrap();
+                (t, Value::Bytes(p))
+            })
+            .collect();
+        m(&[("def", d), ("proofs", Value::Map(proofs))])
+    };
+    c.invoke_one(&flows, "deploy", deploy(def(1, 3)))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/act");
+    let node = |n: &str| format!("{flow}/nodes/{n}");
+    // the variable's start value filled the argument and ran nothing (auto_run is on)
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(last_val(&c, &node("sent")).await, None, "ran at deploy");
+    c.invoke_one(&flow, "trigger", m(&[("node", s("call"))]))
+        .await
+        .unwrap();
+    let ok = eventually("the ok event", 10, || async {
+        last_val(&c, &node("ok")).await
+    })
+    .await;
+    assert_eq!(at(&ok, "event"), Some(s("ok")));
+    let sent = last_val(&c, &node("sent")).await.unwrap();
+    assert_eq!(at(&sent, "event"), Some(s("sent")));
+    let result = eventually("the result", 10, || async {
+        last_val(&c, &node("result")).await
+    })
+    .await;
+    assert_eq!(result.as_f64(), Some(0.0), "the first row of count");
+    assert_eq!(last_val(&c, &node("error")).await, None);
+    // the same block with an argument the mock refuses
+    c.invoke_one(&flows, "deploy", deploy(def(2, -1)))
+        .await
+        .unwrap();
+    c.invoke_one(&flow, "trigger", m(&[("node", s("call"))]))
+        .await
+        .unwrap();
+    let err = eventually("the error event", 10, || async {
+        last_val(&c, &node("error")).await
+    })
+    .await;
+    assert_eq!(at(&err, "event"), Some(s("error")));
+    assert_eq!(
+        at(&err, "code"),
+        Some(Value::UInt(u64::from(wyrm_core::Status::OutOfRange.code())))
+    );
+    // a block that is not a command block is refused
+    let e = c
+        .invoke_one(&flow, "trigger", m(&[("node", s("n"))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    env.stop().await;
+}
+
+/// ADR 0040 §3: a flow with a custom block through wyrmd. The block comes from the site's
+/// library (`put_block`, `get_block`) and is copied into the definition; its inner nodes run
+/// and show under `<instance>/<inner>`.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_with_a_custom_block_from_the_library() {
+    let env = Env::start("flow-block", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let at = |v: &Value, path: &[&str]| -> Option<Value> {
+        path.iter()
+            .try_fold(v, |v, k| match v {
+                Value::Map(mm) => mm.get(*k),
+                _ => None,
+            })
+            .cloned()
+    };
+    // a point scaled and rounded: `in`, the field `factor` (default 10), `out`
+    let block = m(&[
+        (
+            "inputs",
+            Value::Array(vec![
+                m(&[("name", s("in")), ("to", s("mul.in.0"))]),
+                m(&[
+                    ("name", s("factor")),
+                    ("to", s("mul.in.1")),
+                    ("default", Value::UInt(10)),
+                ]),
+            ]),
+        ),
+        (
+            "outputs",
+            Value::Array(vec![m(&[("name", s("out")), ("from", s("r.out"))])]),
+        ),
+        (
+            "nodes",
+            m(&[
+                ("mul", m(&[("type", s("multiply"))])),
+                ("r", m(&[("type", s("round"))])),
+            ]),
+        ),
+        ("edges", Value::Array(vec![edge("mul.out", "r.in")])),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    let put = c
+        .invoke_one(
+            &flows,
+            "put_block",
+            m(&[("name", s("scaled")), ("def", block.clone())]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&put, &["version"]), Some(Value::UInt(1)));
+    let got = c
+        .invoke_one(&flows, "get_block", m(&[("name", s("scaled"))]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at(&got, &["def"]), Some(block));
+    let def = m(&[
+        ("id", s("blocks")),
+        ("version", Value::UInt(1)),
+        ("blocks", m(&[("scaled", at(&got, &["def"]).unwrap())])),
+        (
+            "nodes",
+            m(&[
+                (
+                    "a",
+                    m(&[
+                        ("type", s("subscribe")),
+                        ("key", s("downstream/mock/g0/p0")),
+                    ]),
+                ),
+                ("x", m(&[("type", s("number")), ("value", Value::UInt(7))])),
+                ("live", m(&[("type", s("block:scaled"))])),
+                (
+                    "fixed",
+                    m(&[
+                        ("type", s("block:scaled")),
+                        ("values", m(&[("factor", Value::UInt(3))])),
+                    ]),
+                ),
+                ("l", m(&[("type", s("publish")), ("node", s("l"))])),
+                ("f", m(&[("type", s("publish")), ("node", s("f"))])),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("a.out", "live.in"),
+                edge("x.out", "fixed.in"),
+                edge("live.out", "l.in"),
+                edge("fixed.out", "f.in"),
+            ]),
+        ),
+    ]);
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let flow = format!("{flows}/blocks");
+    // 7 × 3, and the mock's point × 10, rounded
+    let f = eventually("the instance with its own factor", 10, || async {
+        last_val(&c, &format!("{flow}/nodes/f")).await
+    })
+    .await;
+    assert_eq!(f.as_f64(), Some(21.0));
+    let l = eventually("the instance fed by the mock", 10, || async {
+        last_val(&c, &format!("{flow}/nodes/l")).await
+    })
+    .await;
+    assert!(l.as_f64().is_some_and(|x| x.fract() == 0.0), "{l:?}");
+    // the inside of an instance
+    let snap = c
+        .invoke_one(
+            &flow,
+            "ports",
+            m(&[("nodes", Value::Array(vec![s("fixed")]))]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let Some(Value::Array(pair)) = at(&snap, &["nodes", "fixed/r", "out", "out"]) else {
+        panic!("[v, q]: {snap:?}")
+    };
+    assert_eq!(pair[0].as_f64(), Some(21.0), "{snap:?}");
+    assert!(at(&snap, &["nodes", "fixed/mul"]).is_some());
+    assert!(at(&snap, &["nodes", "live/mul"]).is_none());
+    env.stop().await;
+}
+
+/// ADR 0040 §4: the readers through wyrmd. `list_children` lists a folder of the mock; a
+/// `get` block takes the second row's path; that path drives a `load_value` inside its scope,
+/// which reads the point's value from the broker's storage.
+#[tokio::test(flavor = "multi_thread")]
+async fn flow_readers_list_a_node_and_load_a_value() {
+    let env = Env::start("flow-readers", MOCK).await;
+    let c = env.client().await;
+    let m = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    let s = |x: &str| Value::from(x);
+    let edge = |a: &str, b: &str| Value::Array(vec![s(a), s(b)]);
+    let publish = |n: &str| m(&[("type", s("publish")), ("node", s(n))]);
+    let def = m(&[
+        ("id", s("rd")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            m(&[
+                (
+                    "ls",
+                    m(&[
+                        ("type", s("list_children")),
+                        ("path", s("downstream/mock/g0")),
+                    ]),
+                ),
+                ("second", m(&[("type", s("get")), ("path", s("1.path"))])),
+                (
+                    "lv",
+                    m(&[
+                        ("type", s("load_value")),
+                        ("key_scope", s("downstream/mock/g0/*")),
+                    ]),
+                ),
+                ("rows", publish("rows")),
+                ("key", publish("key")),
+                ("val", publish("val")),
+                ("ok", publish("ok")),
+            ]),
+        ),
+        (
+            "edges",
+            Value::Array(vec![
+                edge("ls.out", "rows.in"),
+                edge("ls.out", "second.in"),
+                edge("second.out", "lv.in.key"),
+                edge("lv.key", "key.in"),
+                edge("lv.out", "val.in"),
+                edge("lv.ok", "ok.in"),
+            ]),
+        ),
+    ]);
+    let flows = format!("wy/{SITE}/dataflows");
+    c.invoke_one(&flows, "deploy", m(&[("def", def)]))
+        .await
+        .unwrap();
+    let node = |n: &str| format!("{flows}/rd/nodes/{n}");
+    let rows = eventually("the rows of g0", 10, || async {
+        match last_val(&c, &node("rows")).await {
+            Some(Value::Array(a)) if !a.is_empty() => Some(a),
+            _ => None,
+        }
+    })
+    .await;
+    // the mock's first folder holds the even points
+    let names: Vec<String> = rows
+        .iter()
+        .filter_map(|r| match r {
+            Value::Map(r) => match r.get("name") {
+                Some(Value::Str(n)) => Some(n.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["p0", "p2", "p4", "p6"]);
+    let key = eventually("the key from the second row", 10, || async {
+        last_val(&c, &node("key"))
+            .await
+            .filter(|k| matches!(k, Value::Str(_)))
+    })
+    .await;
+    assert_eq!(key, s("downstream/mock/g0/p2"));
+    let val = eventually("the value of that point", 10, || async {
+        last_val(&c, &node("val"))
+            .await
+            .filter(|v| v.as_f64().is_some())
+    })
+    .await;
+    assert!(val.as_f64().is_some());
+    assert!(last_val(&c, &node("ok")).await.is_some());
+    env.stop().await;
+}
+
 /// ADR 0038 §5: a preview of a draft with a `set` and an `invoke` into the mock link streams live values and
 /// reports the write, but nothing reaches the link (no audit record, the point never holds the
 /// value); the same draft deployed writes (the control).

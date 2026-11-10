@@ -47,6 +47,9 @@ pub struct Param {
     pub description: &'static str,
     /// UI hint (spec 02 `editor`): `textarea`, `duration`, …
     pub editor: Option<&'static str>,
+    /// The parameter that holds this field's scope (ADR 0040 §1): the field names what the
+    /// node reads, and a value from its port is read only inside that scope.
+    pub scope: Option<&'static str>,
 }
 
 /// Ports named by a parameter (`expression` inputs `in.<name>`, `wasm`
@@ -55,6 +58,9 @@ pub struct DynPorts {
     pub param: &'static str,
     pub prefix: &'static str,
     pub default: &'static [&'static str],
+    /// The parameter is a map and its keys name the ports (`invoke.args`: each argument is a
+    /// key, its value the argument's constant); else it is a list of names.
+    pub keys: bool,
 }
 
 pub struct NodeType {
@@ -77,7 +83,13 @@ const fn p(name: &'static str, ty: &'static str, description: &'static str) -> P
         default: Def::None,
         description,
         editor: None,
+        scope: None,
     }
+}
+
+const fn sc(mut x: Param, scope: &'static str) -> Param {
+    x.scope = Some(scope);
+    x
 }
 
 const fn req(mut x: Param) -> Param {
@@ -121,23 +133,32 @@ const fn dl(mut x: Param, d: &'static [&'static str]) -> Param {
     x
 }
 
-const KEY: Param = req(p(
-    "key",
+const KEY: Param = sc(
+    req(p(
+        "key",
+        "string",
+        "A point of this site: downstream/<link>/…, storage/… or wy/<site>/… (may be absent when in.key brings it).",
+    )),
+    "key_scope",
+);
+
+const KEY_SCOPE: Param = p(
+    "key_scope",
     "string",
-    "A point of this site: downstream/<link>/…, storage/… or wy/<site>/…",
-));
+    "The keys in.key may name, a key expression: downstream/<link>/** (required when in.key is wired; the deployer must read all of it).",
+);
 
 /// Every node type, in the palette's order.
 pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "subscribe",
         category: "Sources",
-        description: "Values of a point as they change.",
-        inputs: &[],
-        outputs: &["out"],
+        description: "Values of a point as they change; in.key names another point inside key_scope.",
+        inputs: &["in.key"],
+        outputs: &["out", "error"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[KEY],
+        params: &[KEY, KEY_SCOPE],
     },
     NodeType {
         ty: "timer",
@@ -162,12 +183,12 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "liveliness",
         category: "Sources",
-        description: "Whether a node is alive (its liveliness token).",
-        inputs: &[],
-        outputs: &["out"],
+        description: "Whether a node is alive (its liveliness token); in.key names another node inside key_scope.",
+        inputs: &["in.key"],
+        outputs: &["out", "error"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[KEY],
+        params: &[KEY, KEY_SCOPE],
     },
     NodeType {
         ty: "expression",
@@ -179,6 +200,7 @@ pub const TYPES: &[NodeType] = &[
             param: "inputs",
             prefix: "in.",
             default: &[],
+            keys: false,
         }),
         dyn_outputs: None,
         params: &[
@@ -300,32 +322,45 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "set",
         category: "Outputs",
-        description: "Writes in to a point (a command: the deployer proves the right, ADR 0008).",
-        inputs: &["in"],
-        outputs: &[],
+        description: "Writes in to a point: when in changes (auto_run), on trigger, every interval_ms (a command: the deployer proves the right, ADR 0008).",
+        inputs: &["in", "trigger", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["sent", "ok", "error", "running", "last_run"],
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
             req(p("path", "string", "The point: downstream/<link>/… or storage/…")),
-            pick(p("on", "string", "Every sample, or a changed value only."), &["change", "any"], "change"),
+            pick(p("on", "string", "With auto_run: every sample, or a changed value only."), &["change", "any"], "change"),
             di(p("deadband", "number", "With on change: a smaller change is not written."), 0),
             db(p("allow_bad", "bool", "Write values of bad quality too."), false),
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Write when in brings a value (default true); false: only on trigger and interval_ms."), true),
+            ENABLED,
+            RUN_ON_START,
         ],
     },
     NodeType {
         ty: "invoke",
         category: "Outputs",
-        description: "Runs an action when in arrives (a command: the deployer proves the right, ADR 0008).",
-        inputs: &["in"],
-        outputs: &["out"],
-        dyn_inputs: None,
+        description: "The action block: runs an action of a node with its arguments, on trigger, on a changed argument (auto_run), every interval_ms or when in arrives (a command: the deployer proves the right, ADR 0008).",
+        inputs: &["in", "trigger", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["out", "result", "sent", "ok", "error", "running", "last_run"],
+        dyn_inputs: Some(DynPorts {
+            param: "args",
+            prefix: "arg.",
+            default: &[],
+            keys: true,
+        }),
         dyn_outputs: None,
         params: &[
             req(p("path", "string", "The node: downstream/<link>/… or storage/…")),
             req(p("action", "string", "The action's name.")),
-            p("args", "map", "Its arguments."),
-            pick(p("on", "string", "Every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
+            p("args", "map", "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in)."),
+            pick(p("on", "string", "For in: every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
             db(p("allow_bad", "bool", "Run on samples of bad quality too."), false),
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Run when an argument changes on its port (default false)."), false),
+            ENABLED,
+            RUN_ON_START,
         ],
     },
     NodeType {
@@ -338,11 +373,13 @@ pub const TYPES: &[NodeType] = &[
             param: "inputs",
             prefix: "",
             default: &["in"],
+            keys: false,
         }),
         dyn_outputs: Some(DynPorts {
             param: "outputs",
             prefix: "",
             default: &["out"],
+            keys: false,
         }),
         params: &[
             req(p("artifact", "string", "SHA-256 of the component (dataflows ▸ put_artifact).")),
@@ -538,13 +575,243 @@ pub const TYPES: &[NodeType] = &[
             ),
         ],
     },
+    // ---------- the second set of blocks (ADR 0040 §4) ----------
+    NodeType {
+        ty: "substring",
+        category: "Text",
+        description: "A part of in as text: length characters from start.",
+        inputs: &["in", "in.start", "in.length"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[di(p("start", "number", "The first character, from 0 (default 0)."), 0), p("length", "number", "How many characters (default: to the end).")],
+    },
+    NodeType {
+        ty: "replace",
+        category: "Text",
+        description: "in as text with every from replaced by to (plain text, no pattern).",
+        inputs: &["in", "in.from", "in.to"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""), ds(p("to", "string", "What it becomes (default empty)."), "")],
+    },
+    NodeType {
+        ty: "split",
+        category: "Text",
+        description: "in as text cut at separator: a list of texts (at most 1000).",
+        inputs: &["in", "in.separator"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ds(p("separator", "string", "Where to cut (default a comma; empty: one item)."), ",")],
+    },
+    NodeType {
+        ty: "join",
+        category: "Text",
+        description: "The items of a list as one text with separator between them.",
+        inputs: &["in", "in.separator"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ds(p("separator", "string", "Between two items (default a comma)."), ",")],
+    },
+    NodeType {
+        ty: "make_object",
+        category: "Data",
+        description: "A map of the inputs: each input's name is a key (for a map argument of an action).",
+        inputs: &[],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[INPUTS],
+    },
+    NodeType {
+        ty: "make_array",
+        category: "Data",
+        description: "A list of the inputs, in their order.",
+        inputs: &[],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[INPUTS],
+    },
+    NodeType {
+        ty: "get",
+        category: "Data",
+        description: "The value at path inside a map or a list: a.b.0 (a number is an index); null when it is not there.",
+        inputs: &["in", "in.path"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ds(p("path", "string", "Keys and indexes joined by dots (default empty: in itself)."), "")],
+    },
+    NodeType {
+        ty: "stats",
+        category: "Math",
+        description: "The numbers of a list: the smallest, the largest, the mean, the sum and how many.",
+        inputs: &["in"],
+        outputs: &["min", "max", "avg", "sum", "count"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "changed",
+        category: "Logic",
+        description: "An event when in differs from the sample before (the first sample only starts it).",
+        inputs: &["in"],
+        outputs: &["on_change"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "rising_edge",
+        category: "Logic",
+        description: "An event when in becomes true.",
+        inputs: &["in"],
+        outputs: &["on_edge"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "falling_edge",
+        category: "Logic",
+        description: "An event when in becomes false after it was true.",
+        inputs: &["in"],
+        outputs: &["on_edge"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "counter",
+        category: "Logic",
+        description: "Counts the samples on in by step; reset goes back to initial. Keeps its count across a hot swap.",
+        inputs: &["in", "reset", "in.step", "in.initial"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[di(p("step", "number", "Added for each sample (default 1)."), 1), di(p("initial", "number", "The count at start and after reset (default 0)."), 0)],
+    },
+    NodeType {
+        ty: "toggle",
+        category: "Logic",
+        description: "A bool that every sample on in flips; reset goes back to initial.",
+        inputs: &["in", "reset", "in.initial"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[db(p("initial", "bool", "The value at start and after reset (default false)."), false)],
+    },
+    NodeType {
+        ty: "sample_and_hold",
+        category: "Logic",
+        description: "The value in has when a sample comes on trigger; it holds it until the next.",
+        inputs: &["in", "trigger"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[],
+    },
+    NodeType {
+        ty: "select",
+        category: "Logic",
+        description: "The input at position index (from 0); null when there is none.",
+        inputs: &["in.index"],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[di(p("index", "number", "Which input, from 0 (default 0)."), 0), INPUTS],
+    },
+    NodeType {
+        ty: "debounce",
+        category: "Logic",
+        description: "The last value of in, once ms passed without another.",
+        inputs: &["in", "in.ms"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[di(p("ms", "number", "The quiet time in milliseconds, at most 3 600 000 (default 500)."), 500)],
+    },
+    NodeType {
+        ty: "throttle",
+        category: "Logic",
+        description: "At most one value of in every ms: the first at once, then the latest at the end of each period.",
+        inputs: &["in", "in.ms"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[di(p("ms", "number", "The period in milliseconds, at most 3 600 000 (default 500)."), 500)],
+    },
+    NodeType {
+        ty: "load_value",
+        category: "Sources",
+        description: "One read of a point's value: at the start and when its key changes (auto_run), on trigger, every interval_ms; in.key names another point inside key_scope.",
+        inputs: &["trigger", "in.key", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["out", "ok", "error", "running", "last_run"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[
+            KEY,
+            KEY_SCOPE,
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Read at the start and when the key changes (default true)."), true),
+            ENABLED,
+        ],
+    },
+    NodeType {
+        ty: "list_children",
+        category: "Sources",
+        description: "The children of a node as a list of rows {name, path, type, …} (at most 1000): at the start and when its path changes (auto_run), on trigger, every interval_ms; in.path names another node inside path_scope.",
+        inputs: &["trigger", "in.path", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["out", "ok", "error", "running", "last_run"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[
+            sc(
+                req(p("path", "string", "A node of this site: downstream/<link>/…, storage/… (may be absent when in.path brings it).")),
+                "path_scope",
+            ),
+            p("path_scope", "string", "The nodes in.path may name, a key expression: downstream/<link>/** (required when in.path is wired; the deployer must read all of it)."),
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "List at the start and when the path changes (default true)."), true),
+            ENABLED,
+        ],
+    },
 ];
+
+const INTERVAL_MS: Param = di(
+    p(
+        "interval_ms",
+        "number",
+        "Runs every this many milliseconds, first one full period after the start; 0: off (default), else 100 … 86 400 000.",
+    ),
+    0,
+);
+
+const RUN_ON_START: Param = db(
+    p(
+        "run_on_start",
+        "bool",
+        "WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).",
+    ),
+    false,
+);
+
+const ENABLED: Param = db(
+    p("enabled", "bool", "false: nothing runs it (default true)."),
+    true,
+);
 
 /// Variable inputs `in.<name>` of a block (default `in.0`, `in.1`).
 const ITEMS: DynPorts = DynPorts {
     param: "inputs",
     prefix: "in.",
     default: &["0", "1"],
+    keys: false,
 };
 
 const INPUTS: Param = dl(
@@ -575,11 +842,15 @@ fn texts(a: &[&str]) -> Value {
 }
 
 fn dyn_ports(d: &DynPorts) -> Value {
-    Value::Map(BTreeMap::from([
+    let mut m = BTreeMap::from([
         ("param".to_owned(), Value::from(d.param)),
         ("prefix".to_owned(), Value::from(d.prefix)),
         ("default".to_owned(), texts(d.default)),
-    ]))
+    ]);
+    if d.keys {
+        m.insert("keys".into(), Value::Bool(true));
+    }
+    Value::Map(m)
 }
 
 /// The catalog as the action answers it: one map per type.
@@ -614,6 +885,9 @@ pub fn value() -> Value {
                         {
                             m.insert("port".into(), Value::from(*port));
                         }
+                        if let Some(scope) = x.scope {
+                            m.insert("scope".into(), Value::from(scope));
+                        }
                         m.insert("echo".into(), Value::Bool(param_echo(t, x)));
                         Value::Map(m)
                     })
@@ -640,6 +914,10 @@ pub fn value() -> Value {
                 // spec 06 0.2.19: the operand inputs take a constant in config `values`
                 if crate::blocks::takes_values(t.ty) {
                     m.insert("values".into(), Value::Bool(true));
+                }
+                // ADR 0040 §2: `dataflows/<id>/~act/trigger {node}` runs a node of this type
+                if crate::nodes::triggerable(t.ty) {
+                    m.insert("trigger".into(), Value::Bool(true));
                 }
                 Value::Map(m)
             })
@@ -670,6 +948,45 @@ fn param_of_port<'a>(t: &'a NodeType, port: &str) -> Option<&'a Param> {
         return None;
     }
     t.params.iter().find(|x| x.name == name)
+}
+
+/// Where an input of a node keeps a constant, for a custom block's input that carries one
+/// (ADR 0040 §3).
+pub(crate) enum ConstAt {
+    /// The input is this parameter's port: the parameter's config.
+    Param(&'static str),
+    /// An operand of a logic block: config `values` (spec 06 0.2.19).
+    Operand,
+    /// An argument of an `invoke`: config `args`.
+    Arg(String),
+}
+
+/// Where input `port` of a node of type `ty` keeps a constant; `None`: it has none.
+pub(crate) fn const_at(ty: &str, port: &str) -> Option<ConstAt> {
+    let t = find(ty)?;
+    if let Some(x) = param_of_port(t, port) {
+        return Some(ConstAt::Param(x.name));
+    }
+    if ty == "invoke" {
+        if let Some(a) = port.strip_prefix("arg.") {
+            return Some(ConstAt::Arg(a.to_owned()));
+        }
+    }
+    // a variable's constant is its `value`
+    if matches!(ty, "number" | "string" | "bool") && port == "in" {
+        return Some(ConstAt::Param("value"));
+    }
+    (crate::blocks::takes_values(ty) && (port == "in" || port.starts_with("in.")))
+        .then_some(ConstAt::Operand)
+}
+
+/// The echo output of input `port` of a node of type `ty`: a parameter's port `in.<p>`
+/// echoes as `<p>`, another input under its own name (ADR 0038 §1).
+pub(crate) fn echo_of(ty: &str, port: &str) -> String {
+    match find(ty).and_then(|t| param_of_port(t, port)) {
+        Some(x) => x.name.to_owned(),
+        None => port.to_owned(),
+    }
 }
 
 /// Whether parameter `x` of `t` has its echo output: not when a fixed output or an input's echo
@@ -844,6 +1161,7 @@ mod tests {
             let mut all = cfg.clone();
             for x in t.params {
                 all.entry(x.name.to_owned()).or_insert(match x.ty {
+                    "number" if x.name == "interval_ms" => Value::UInt(1000),
                     "number" => Value::UInt(1),
                     "bool" => Value::Bool(false),
                     "map" => Value::Map(BTreeMap::new()),
@@ -857,7 +1175,7 @@ mod tests {
             ports(t.ty, &all).unwrap_or_else(|e| panic!("{} with every param: {e}", t.ty));
         }
         assert!(ports("nope", &BTreeMap::new()).is_err());
-        assert_eq!(TYPES.len(), 36);
+        assert_eq!(TYPES.len(), 55);
         // every logic block is in the palette
         for b in crate::blocks::TYPES {
             assert!(TYPES.iter().any(|t| t.ty == *b), "{b} in the catalog");

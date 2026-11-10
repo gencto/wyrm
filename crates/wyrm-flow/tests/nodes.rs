@@ -510,3 +510,143 @@ async fn parameter_ports_of_the_older_types() {
     assert_eq!(t.tick_every(), Some(Duration::from_millis(50)));
     assert_eq!(param(t.as_ref(), "period_ms"), Some(Value::Float(50.0)));
 }
+
+/// ADR 0040 §1: a key from `in.key` is read only inside the node's scope; the old read ends
+/// first (`out` null and uncertain), a refused value gives `error`, and two changes are at
+/// least 100 ms apart with the latest winning.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_source_takes_its_key_from_a_port_inside_its_scope() {
+    use std::time::Duration;
+    let e = env().await;
+    let param = |n: &dyn Node, p: &str| n.live_params().and_then(|(_, m)| m.get(p).cloned());
+    let on = |sent: &[(String, Msg)], port: &str| {
+        sent.iter()
+            .find(|(p, _)| p == port)
+            .map(|(_, m)| (m.v.clone(), m.q))
+    };
+    for ty in ["subscribe", "liveliness"] {
+        let mut n = build(ty, &[("key_scope", "downstream/m/*".into())]);
+        n.start(&e.io);
+        assert_eq!(n.tick_every(), None);
+        // a key inside the scope: the read starts, the output is unknown until its sample
+        let sent = feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m("downstream/m/p0", Quality::Good, 1),
+        );
+        assert_eq!(
+            on(&sent, "out"),
+            Some((Value::Null, Quality::Uncertain)),
+            "{ty}"
+        );
+        assert_eq!(on(&sent, "error"), None, "{ty}: no error before, none now");
+        assert_eq!(param(n.as_ref(), "key"), Some("downstream/m/p0".into()));
+        // the same key again changes nothing
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m("downstream/m/p0", Quality::Good, 1)
+        )
+        .is_empty());
+        // outside the scope: refused, nothing read
+        let sent = feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m("downstream/x/p0", Quality::Good, 1),
+        );
+        let (why, _) = on(&sent, "error").unwrap();
+        assert!(
+            matches!(&why, Value::Str(w) if w.contains("outside the scope")),
+            "{why:?}"
+        );
+        assert_eq!(on(&sent, "out"), Some((Value::Null, Quality::Uncertain)));
+        assert_eq!(param(n.as_ref(), "key"), Some(Value::Null));
+        // within 100 ms a change waits; the latest one is taken at the tick
+        assert!(feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m("downstream/m/**", Quality::Good, 1)
+        )
+        .is_empty());
+        assert!(feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m("downstream/m/p0", Quality::Good, 1)
+        )
+        .is_empty());
+        assert_eq!(n.tick_every(), Some(Duration::from_millis(100)));
+        assert!(tick(n.as_mut(), 1).is_empty(), "too early");
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let sent = tick(n.as_mut(), 1);
+        assert_eq!(
+            on(&sent, "error"),
+            Some((Value::Null, Quality::Good)),
+            "{ty}"
+        );
+        assert_eq!(param(n.as_ref(), "key"), Some("downstream/m/p0".into()));
+        assert_eq!(n.tick_every(), None);
+        // a wildcard, another site, a value that is not a text: refused
+        for bad in [
+            Value::from("downstream/m/*"),
+            Value::from("wy/other/downstream/m/p0"),
+            Value::from("sys/audit"),
+            Value::UInt(7),
+        ] {
+            tokio::time::sleep(Duration::from_millis(110)).await;
+            let sent = feed(
+                n.as_mut(),
+                &e.io,
+                "in.key",
+                m(bad.clone(), Quality::Good, 1),
+            );
+            assert!(
+                matches!(on(&sent, "error"), Some((Value::Str(_), _)) | None),
+                "{bad:?}"
+            );
+            assert_eq!(param(n.as_ref(), "key"), Some(Value::Null), "{bad:?}");
+        }
+        // null: reads nothing, and that is no error
+        tokio::time::sleep(Duration::from_millis(110)).await;
+        let sent = feed(
+            n.as_mut(),
+            &e.io,
+            "in.key",
+            m(Value::Null, Quality::Good, 1),
+        );
+        assert_eq!(on(&sent, "error"), Some((Value::Null, Quality::Good)));
+    }
+    // a sample of a read that ended is dropped
+    let mut n = build(
+        "subscribe",
+        &[
+            ("key", "downstream/m/p0".into()),
+            ("key_scope", "downstream/m/*".into()),
+        ],
+    );
+    n.start(&e.io);
+    assert_eq!(feed(n.as_mut(), &e.io, "__src.0", g(1.0, 1)).len(), 1);
+    feed(
+        n.as_mut(),
+        &e.io,
+        "in.key",
+        m("downstream/m/p1", Quality::Good, 1),
+    );
+    assert!(feed(n.as_mut(), &e.io, "__src.0", g(2.0, 2)).is_empty());
+    assert_eq!(feed(n.as_mut(), &e.io, "__src.1", g(3.0, 3)).len(), 1);
+    // without a scope a key from the port is refused (the compiler refuses the edge before)
+    let mut n = build("subscribe", &[("key", "downstream/m/p0".into())]);
+    n.start(&e.io);
+    let sent = feed(
+        n.as_mut(),
+        &e.io,
+        "in.key",
+        m("downstream/m/p1", Quality::Good, 1),
+    );
+    assert!(matches!(on(&sent, "error"), Some((Value::Str(w), _)) if w.contains("no scope")));
+}

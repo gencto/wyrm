@@ -51,7 +51,28 @@ pub enum Op {
         #[n(1)]
         states: Vec<NodeStateRec>,
     },
+    /// A custom block of the site's library (ADR 0040 §3): each put is a new version.
+    #[n(4)]
+    PutBlock {
+        #[n(0)]
+        name: String,
+        #[n(1)]
+        #[cbor(with = "minicbor::bytes")]
+        cbor: Vec<u8>,
+    },
+    #[n(5)]
+    RemoveBlock(#[n(0)] String),
 }
+
+/// A custom block of the library: its definition (CBOR) and how often it was put.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BlockRec {
+    pub version: u64,
+    pub cbor: Vec<u8>,
+}
+
+/// Custom blocks of one site's library at most.
+pub const MAX_LIBRARY: usize = 256;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FlowStore {
@@ -65,13 +86,16 @@ pub struct FlowStore {
     /// deployer loses rights (owner decision, ADR 0008); this tells an
     /// operator whose flows to review.
     pub deployers: BTreeMap<String, String>,
+    /// The library of custom blocks (ADR 0040 §3). A flow never reads it: an editor copies a
+    /// block into the definition it deploys.
+    pub blocks: BTreeMap<String, BlockRec>,
 }
 
 /// Replaced definitions kept per flow (for `history` and `rollback`).
 pub const HISTORY: usize = 10;
 
 impl wyrm_state::State for FlowStore {
-    const SCHEMA: u32 = 3;
+    const SCHEMA: u32 = 4;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -108,6 +132,19 @@ impl wyrm_state::State for FlowStore {
                 if self.defs.contains_key(id) {
                     self.states.insert(id.clone(), states.clone());
                 }
+            }
+            Op::PutBlock { name, cbor } => {
+                if !self.blocks.contains_key(name) && self.blocks.len() >= MAX_LIBRARY {
+                    return Err(format!("the library holds {MAX_LIBRARY} blocks"));
+                }
+                let rec = self.blocks.entry(name.clone()).or_default();
+                rec.version += 1;
+                rec.cbor = cbor.clone();
+            }
+            Op::RemoveBlock(name) => {
+                self.blocks
+                    .remove(name)
+                    .ok_or_else(|| format!("no block {name}"))?;
             }
         }
         Ok(())
