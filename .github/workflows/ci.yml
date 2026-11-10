@@ -58,7 +58,8 @@ jobs:
           persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # Pinned in studio/pubspec.yaml (`environment.flutter`).
+          flutter-version-file: studio/pubspec.yaml
           cache: true
       - name: Install frx
         # The installer pinned to the commit of tag v0.3.7.
