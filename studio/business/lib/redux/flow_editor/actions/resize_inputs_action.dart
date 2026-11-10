@@ -26,7 +26,7 @@ class ResizeInputsAction extends Action {
     if (d == null || b == null) {
       return null;
     }
-    final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
+    final t = flowEditor.allTypes.where((t) => t.type == b.type).firstOrNull;
     final v = variadicOf(t, b);
     final removes = v?.removes ?? const <String>[];
     if (v == null || (!add && removes.isEmpty)) {

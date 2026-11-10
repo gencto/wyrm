@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/block_info.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/flow_frame.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 
@@ -32,5 +34,10 @@ abstract class FlowEditorState with _$FlowEditorState {
     @Default(IListConst([])) IList<FlowDraft> redo,
     String? undoTag,
     String? clipboard,
+    @Default('') String treeQuery,
+    String? scopePrompt,
+    @Default(IListConst([])) IList<FlowFrame> frames,
+    @Default(IListConst([])) IList<BlockInfo> library,
+    String? libraryOff,
   }) = _FlowEditorState;
 }

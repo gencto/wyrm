@@ -253,4 +253,83 @@ void main() {
     'the value viewer of a bound field: read only, with the reason',
     (t) => shoot(t, 'flow_viewer_locked', flowViewerEdit(locked: true)),
   );
+
+  // Wave 2 (flow-editor.md §17–§20, ADR 0040).
+  testWidgets(
+    'a subscribe with a bound key: the Scope row, the Error output',
+    (t) => shoot(t, 'flow_key_scope', flowKeyScope()),
+  );
+  testWidgets(
+    'the scope asked in place when a key gets a wire',
+    (t) => shoot(t, 'flow_scope_prompt', flowKeyScope(asking: true)),
+  );
+  testWidgets('the Tree tab: values, actions, and a drag in progress', (
+    t,
+  ) async {
+    late TestGesture g;
+    await shoot(
+      t,
+      'flow_tree_tab',
+      flowTreeTab(),
+      then: () async {
+        // An action dragged out of the tree, not let go yet.
+        final from = t.getCenter(find.text('stop_pump'));
+        final to = t.getCenter(find.byType(FlowCanvas)) + const Offset(80, 120);
+        g = await t.startGesture(from, kind: PointerDeviceKind.mouse);
+        for (var i = 1; i <= 8; i++) {
+          await g.moveTo(Offset.lerp(from, to, i / 8)!);
+          await t.pump(const Duration(milliseconds: 16));
+        }
+      },
+    );
+    await g.up();
+  });
+  testWidgets(
+    'an action block: Target, Arguments, Behaviour, Events, State',
+    (t) => shoot(t, 'flow_action_block', flowActionBlock()),
+  );
+  testWidgets(
+    'an action block with an unbound trigger: Run, and why it is off',
+    (t) => shoot(
+      t,
+      'flow_action_run',
+      flowActionBlock(
+        button: true,
+        runReason:
+            'Deploy first: Run acts on the deployed version, and the draft '
+            'differs from it',
+        preview: true,
+      ),
+    ),
+  );
+  testWidgets(
+    'a custom block instance, and the My blocks tab',
+    (t) => shoot(t, 'flow_custom_instance', flowCustomInstance()),
+  );
+  testWidgets(
+    'My blocks: the menu of a block of this flow',
+    (t) => shoot(
+      t,
+      'flow_my_blocks',
+      flowCustomInstance(),
+      then: () => rightClick(t, t.getCenter(find.text('mean2').first)),
+    ),
+  );
+  testWidgets(
+    'the inside of a custom block: the path, Back, inputs and outputs',
+    (t) => shoot(t, 'flow_custom_inside', flowCustomInside()),
+  );
+  testWidgets(
+    'Create custom block: the name and the ports of a selection',
+    (t) => shoot(
+      t,
+      'flow_custom_dialog',
+      flowCustomCreate(),
+      then: () async {
+        await rightClick(t, t.getCenter(onCanvas('a').first));
+        await t.tap(find.textContaining('Create custom block'));
+        await t.pump(const Duration(milliseconds: 300));
+      },
+    ),
+  );
 }

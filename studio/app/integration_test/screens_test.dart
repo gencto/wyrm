@@ -21,12 +21,14 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/tables/log_table.dart';
+import 'package:ui/trees/tree_row.dart';
 import 'package:window_manager/window_manager.dart';
 
 // ignore: do_not_use_environment, a test parameter.
@@ -144,6 +146,170 @@ void main() {
     await tester.tapAt(canvas.bottomRight - const Offset(30, 90));
     await settle(tester, 300);
     debugPrint('flow canvas tools: overflow ${tester.takeException()}');
+  }
+
+  /// Wave 2 of the flow editor (flow-editor.md §17–§20, ADR 0040) on the
+  /// flow that is open: what the broker can do (said in the log), the Tree
+  /// tab as the site's live tree with values and actions, a value and an
+  /// action dragged onto the canvas, the action block's inspector, the My
+  /// blocks tab and the custom-block items of the menu (on, or off with
+  /// the reason on a broker without ADR 0040). Only the draft in memory
+  /// changes; nothing is deployed, nothing is run.
+  Future<void> wave2(WidgetTester tester, Store<AppState> store) async {
+    final ed = SelectFlowEditor(store.state);
+    debugPrint(
+      'flow caps: ${ed.caps} library=${ed.library.length} '
+      'libraryOff=${ed.libraryOff}',
+    );
+    int blocks() => tester.widgetList(find.byType(FlowBlockView)).length;
+    final canvas = tester.getRect(find.byType(FlowCanvas));
+    final before = blocks();
+
+    Future<void> dragOut(Finder row, Offset to) async {
+      final from = tester.getCenter(row);
+      final g = await tester.startGesture(from, kind: PointerDeviceKind.mouse);
+      for (var i = 1; i <= 8; i++) {
+        await g.moveTo(Offset.lerp(from, to, i / 8)!);
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      await g.up();
+      await settle(tester, 800);
+    }
+
+    // The Tree tab: the tree of the site, opened down to a device.
+    await tester.tap(find.text('Tree').first);
+    await settle(tester);
+    final palette = find.byType(BlockPalette);
+    Finder inTree(String name) =>
+        find.descendant(of: palette, matching: find.text(name));
+    // The tree is the Explorer's: a node it opened is open here already.
+    for (final key in [
+      'wy/edge/downstream/modbus',
+      'wy/edge/downstream/modbus/line1',
+      'wy/edge/downstream/modbus/line1/ahu1',
+    ]) {
+      final row = find.descendant(
+        of: palette,
+        matching: find.byKey(ValueKey('tree-$key')),
+      );
+      if (row.evaluate().isEmpty) {
+        continue;
+      }
+      await tester.ensureVisible(row);
+      await settle(tester, 300);
+      if (!tester.widget<TreeRow>(row).vm.expanded) {
+        await tester.tap(row);
+        await settle(tester, 1800);
+      }
+    }
+    debugPrint('flow tree: ahu1 rows ${inTree('ahu1').evaluate().length}');
+    final rows = tester.widgetList<TreeRow>(
+      find.descendant(of: palette, matching: find.byType(TreeRow)),
+    );
+    final leaves = [
+      for (final r in rows)
+        if (r.vm.drag?.startsWith('key:') ?? false) r.vm,
+    ];
+    final actions = [
+      for (final r in rows)
+        if (r.vm.drag?.startsWith('act:') ?? false) r.vm,
+    ];
+    debugPrint(
+      'flow tree: ${rows.length} rows, ${leaves.length} values '
+      '(${leaves.where((l) => l.value != null).length} with a value), '
+      '${actions.length} actions',
+    );
+    await shot(tester, '03l_flow_tree');
+
+    // A value onto the canvas: a block that reads it (a writable one asks
+    // Read or Write first).
+    if (leaves.isNotEmpty) {
+      await dragOut(
+        find.byKey(ValueKey('tree-${leaves.first.drag}')),
+        canvas.center + const Offset(-120, 160),
+      );
+      if (find.text('Read').evaluate().isNotEmpty) {
+        await shot(tester, '03m_flow_tree_read_write');
+        await tester.tap(find.text('Read').last);
+        await settle(tester, 800);
+      }
+      debugPrint('flow tree value dropped: $before blocks, then ${blocks()}');
+    }
+    // An action onto the canvas: the action block, selected.
+    if (actions.isNotEmpty) {
+      await dragOut(
+        find.byKey(ValueKey('tree-${actions.first.drag}')),
+        canvas.center + const Offset(140, 200),
+      );
+      debugPrint('flow tree action dropped: ${blocks()} blocks');
+      await shot(tester, '03n_flow_action_block');
+    }
+    debugPrint('flow tree: overflow ${tester.takeException()}');
+
+    // My blocks: on with the site's library, or off with the reason.
+    await tester.tap(find.text('My blocks').first, warnIfMissed: false);
+    await settle(tester, 1200);
+    debugPrint(
+      'flow my blocks: tab ${SelectFlowEditor(store.state).palette}, '
+      'library ${SelectFlowEditor(store.state).library.length}',
+    );
+    await shot(tester, '03o_flow_my_blocks');
+
+    // The menu of the selection: Create custom block…, on or off.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await settle(tester, 400);
+    final block = find.byType(FlowBlockView).first;
+    await tester.tapAt(
+      tester.getTopLeft(block) + const Offset(60, 50),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await settle(tester, 600);
+    await shot(tester, '03p_flow_menu_custom');
+    final create = find.descendant(
+      of: find.byType(FlowMenu),
+      matching: find.textContaining('Create custom block'),
+    );
+    debugPrint('flow menu create: ${create.evaluate().length}');
+    if (SelectFlowEditor(store.state).caps.blocks &&
+        create.evaluate().isNotEmpty) {
+      await tester.tap(create.first);
+      await settle(tester, 800);
+      await shot(tester, '03q_flow_create_block');
+      if (find.byKey(const ValueKey('block-create')).evaluate().isNotEmpty) {
+        await tester.tap(find.byKey(const ValueKey('block-create')));
+        await settle(tester, 1000);
+        await shot(tester, '03r_flow_custom_instance');
+        final open = find.text('Open inside');
+        if (open.evaluate().isNotEmpty) {
+          await tester.tap(open.first);
+          await settle(tester, 1000);
+          await shot(tester, '03s_flow_custom_inside');
+          await tester.tap(find.byKey(const ValueKey('flow-back')));
+          await settle(tester, 800);
+        }
+      }
+    } else {
+      await tester.tapAt(canvas.bottomRight - const Offset(30, 90));
+      await settle(tester, 400);
+    }
+    // Back to the deployed draft: every edit of this walk is undone.
+    for (var i = 0; i < 8; i++) {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await settle(tester, 150);
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(tester, 300);
+    debugPrint(
+      'flow wave 2: ${blocks()} blocks at the end (was $before), '
+      'overflow ${tester.takeException()}',
+    );
+    await tester.tap(find.text('Blocks').first);
+    await settle(tester, 500);
   }
 
   testWidgets('log in and visit every workspace', (tester) async {
@@ -284,6 +450,7 @@ void main() {
           }
         }
         await canvasTools(tester);
+        await wave2(tester, store);
         // The editor's own close, in its top bar: the inspector's eye
         // buttons come after it.
         await tester.tap(

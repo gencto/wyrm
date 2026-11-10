@@ -3,6 +3,7 @@ import 'package:models/flow_draft.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -49,7 +50,9 @@ class LoadFlowAction extends Action {
         held.dirty &&
         held.draft != null &&
         held.version == draft.version;
-    final shown = keep ? held.draft! : draft;
+    // A draft kept while the canvas showed the inside of a block: the
+    // flow with that inside folded back.
+    final shown = keep ? rootDraft(held.frames, held.draft)! : draft;
     // The same flow read again (a redeploy) keeps its selection and, with
     // its draft, the draft's history.
     final selection = held.flowId == id
@@ -71,6 +74,11 @@ class LoadFlowAction extends Action {
         redo: keep ? held.redo : const IListConst([]),
         // Blocks copied in one flow paste into the next one opened.
         clipboard: held.clipboard,
+        treeQuery: held.treeQuery,
+        // The library is read after the flow (`RetrieveBlockLibraryAction`);
+        // until it answers, custom blocks are off.
+        library: held.library,
+        libraryOff: held.flowId == null ? libraryUnread : held.libraryOff,
       ),
     );
   }

@@ -14,6 +14,7 @@ import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
 import 'flow_legend.dart';
 import 'flow_menu.dart';
+import 'scope_prompt.dart';
 import 'shortcut_card.dart';
 
 /// One wire: output `<from>.<fromPort>` → input `<to>.<toPort>`.
@@ -106,8 +107,30 @@ class FlowCanvas extends StatefulWidget {
     this.controller,
     this.help = false,
     this.mac,
+    this.dropChoice,
+    this.prompt,
+    this.onPromptSave,
+    this.onPromptCancel,
+    this.validatePrompt,
     super.key,
   });
+
+  /// Asked when a palette entry is let go on the canvas, at `global`: the
+  /// entry to place instead (a writable point: `Read` or `Write`), or null
+  /// for none. Without it the entry is placed as it is.
+  final Future<String?> Function(
+    BuildContext context,
+    String entry,
+    Offset global,
+  )?
+  dropChoice;
+
+  /// The scope asked of a key that got a wire ([ScopePrompt]): drawn on
+  /// that field's row.
+  final ScopePromptVm? prompt;
+  final ValueChanged<String>? onPromptSave;
+  final VoidCallback? onPromptCancel;
+  final String? Function(String scope)? validatePrompt;
 
   final List<FlowBlockVm> blocks;
   final List<FlowWireVm> wires;
@@ -1067,10 +1090,17 @@ class _FlowCanvasState extends State<FlowCanvas> {
           children: [
             Positioned.fill(
               child: DragTarget<String>(
-                onAcceptWithDetails: (d) {
+                onAcceptWithDetails: (d) async {
                   final p = _local(d.offset) - FlowCanvas.dropGrab;
+                  final choose = widget.dropChoice;
+                  final entry = choose == null
+                      ? d.data
+                      : await choose(context, d.data, d.offset);
+                  if (entry == null || !mounted) {
+                    return;
+                  }
                   widget.onDrop(
-                    d.data,
+                    entry,
                     FlowCanvas.snap(p.dx.clamp(0, FlowCanvas.size.width)),
                     FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
                   );
@@ -1224,6 +1254,32 @@ class _FlowCanvasState extends State<FlowCanvas> {
                 ],
               ),
             ),
+            if (widget.prompt case final ask?)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, box) => ListenableBuilder(
+                    listenable: _ctl,
+                    builder: (context, _) {
+                      final at = _promptAt(ask, byId, box.biggest);
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: at.dx,
+                            top: at.dy,
+                            child: ScopePrompt(
+                              key: ValueKey('scope-prompt-${ask.block}'),
+                              vm: ask,
+                              onSave: widget.onPromptSave ?? (_) {},
+                              onCancel: widget.onPromptCancel ?? () {},
+                              validate: widget.validatePrompt,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
             if (_help) ...[
               Positioned.fill(
                 child: GestureDetector(
@@ -1248,6 +1304,33 @@ class _FlowCanvasState extends State<FlowCanvas> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Where the scope prompt stands in the view: under the row it asks
+  /// about, at the block's left edge, kept inside the view.
+  Offset _promptAt(
+    ScopePromptVm ask,
+    Map<String, FlowBlockVm> byId,
+    Size size,
+  ) {
+    final b = byId[ask.block];
+    if (b == null) {
+      return const Offset(24, 24);
+    }
+    final i = b.rows.indexWhere((r) => r.id == ask.row);
+    final under = Offset(
+      b.x,
+      b.y +
+          FlowBlockVm.headerHeight +
+          FlowBlockVm.bodyTop +
+          FlowBlockVm.rowHeight * ((i < 0 ? 0 : i) + 1) +
+          4,
+    );
+    final at = MatrixUtils.transformPoint(_ctl.value, under);
+    return Offset(
+      at.dx.clamp(8, math.max(8, size.width - ScopePrompt.width - 8)),
+      at.dy.clamp(8, math.max(8, size.height - 230)),
     );
   }
 

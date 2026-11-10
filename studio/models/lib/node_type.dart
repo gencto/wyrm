@@ -35,5 +35,14 @@ abstract class NodeType with _$NodeType {
     /// constant in the node's config `values` (catalog `values: true`, ADR
     /// 0038 §7).
     @Default(false) bool takesValues,
+
+    /// The parameter behind the variable inputs is a map and its keys name
+    /// the ports (catalog `dyn_inputs.keys`, ADR 0040 §2: `invoke.args` →
+    /// `arg.<name>`).
+    @Default(false) bool dynInKeys,
+
+    /// `dataflows/<id>` ▸ `trigger {node}` runs a node of this type once
+    /// (catalog `trigger: true`, ADR 0040 §2).
+    @Default(false) bool trigger,
   }) = _NodeType;
 }

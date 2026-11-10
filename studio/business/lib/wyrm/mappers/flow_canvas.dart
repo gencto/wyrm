@@ -8,6 +8,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'flow_blocks.dart';
 import 'flow_fields.dart';
 import 'flow_mapper.dart';
 import 'values.dart';
@@ -107,7 +108,9 @@ FlowDraft withoutBlocks(FlowDraft d, Set<String> ids) => d.copyWith(
 );
 
 /// The clipboard format: a JSON object with this `format`, and `nodes`,
-/// `edges`, `layout` as a definition writes them (spec 06).
+/// `edges`, `layout` as a definition writes them (spec 06), plus `blocks`:
+/// the custom blocks the copied instances are of, with all they use, so an
+/// instance pasted into another flow brings its definition (§20).
 const clipFormat = 'wyrm-flow-blocks/1';
 
 /// A clipboard text larger than this is not read.
@@ -116,12 +119,16 @@ const int _clipMax = 4 * 1024 * 1024;
 const _noLayout = <String, Object?>{};
 
 /// The blocks [ids] of [d] as clipboard text: their config, where they
-/// are, their pins, and the edges among them. An edge to or from a block
-/// outside [ids] is left out. Null when [ids] names no block.
+/// are, their pins, the edges among them, and the definitions of the
+/// custom blocks they are instances of. An edge to or from a block outside
+/// [ids] is left out, and so are the inputs and outputs blocks of a block's
+/// inside. Null when [ids] names no block.
 String? clipTextOf(FlowDraft d, Set<String> ids) {
   final part = FlowDraft(
     id: '',
-    blocks: d.blocks.removeWhere((id, _) => !ids.contains(id)),
+    blocks: d.blocks.removeWhere(
+      (id, _) => !ids.contains(id) || isBoundary(id),
+    ),
     edges: d.edges.removeWhere(
       (e) => !ids.contains(e.from) || !ids.contains(e.to),
     ),
@@ -130,11 +137,14 @@ String? clipTextOf(FlowDraft d, Set<String> ids) {
     return null;
   }
   final def = toDart(defOf(part, 0))! as Map<String, Object?>;
+  final defs = blockDefsOf(d);
+  final used = blocksUsedBy(part, defs);
   return jsonEncode({
     'format': clipFormat,
     'nodes': def['nodes'],
     'edges': def['edges'],
     'layout': def['layout'],
+    if (used.isNotEmpty) 'blocks': {for (final n in used) n: defs[n]},
   });
 }
 
@@ -165,6 +175,7 @@ FlowDraft? clipOf(String? text) {
       'nodes': nodes,
       'edges': json['edges'] is List ? json['edges'] : const <Object?>[],
       'layout': json['layout'] is Map ? json['layout'] : _noLayout,
+      if (json['blocks'] case final Map<String, Object?> b) 'blocks': b,
     });
   } on Object {
     return null;
@@ -195,7 +206,9 @@ String freeBlockId(String id, bool Function(String) taken) {
 /// [d] with the blocks of [clip] added so that the top-left corner of
 /// their bounding box is at ([x], [y]) (on the 20 px grid, inside the
 /// canvas), and the ids they got. Ids are made unique ([freeBlockId]); the
-/// edges among the pasted blocks follow the new ids.
+/// edges among the pasted blocks follow the new ids. The custom blocks the
+/// clip carries are copied into [d]'s `blocks`; one whose name [d] already
+/// has is not: the flow keeps its own definition.
 (FlowDraft, List<String>) pasteClip(
   FlowDraft d,
   FlowDraft clip,
@@ -218,15 +231,20 @@ String freeBlockId(String id, bool Function(String) taken) {
       b.copyWith(id: id, x: snap(x + b.x - left), y: snap(y + b.y - top)),
     );
   }
+  final defs = blockDefsOf(d);
+  final brought = blockDefsOf(clip);
+  final next = d.copyWith(
+    blocks: blocks,
+    edges: d.edges.addAll([
+      for (final e in clip.edges)
+        if (ids[e.from] != null && ids[e.to] != null)
+          e.copyWith(from: ids[e.from]!, to: ids[e.to]!),
+    ]),
+  );
   return (
-    d.copyWith(
-      blocks: blocks,
-      edges: d.edges.addAll([
-        for (final e in clip.edges)
-          if (ids[e.from] != null && ids[e.to] != null)
-            e.copyWith(from: ids[e.from]!, to: ids[e.to]!),
-      ]),
-    ),
+    brought.keys.every(defs.containsKey)
+        ? next
+        : withBlockDefs(next, {...brought, ...defs}),
     ids.values.toList(),
   );
 }
@@ -406,6 +424,22 @@ enum FieldEditError { number, json, toggle }
               'map' || 'array' => FieldEdit.json,
               'dynamic' => FieldEdit.any,
               _ => FieldEdit.text,
+            },
+      locked: null,
+    );
+  }
+  // An action's argument is typed as the action says (its choices, a
+  // bool, a number); with no word of the action, as any value.
+  if (f.argSpec case final p?) {
+    return (
+      edit: p.choices.isNotEmpty
+          ? FieldEdit.choice
+          : switch (p.type) {
+              'bool' => FieldEdit.toggle,
+              'number' || 'int' => FieldEdit.number,
+              'map' || 'array' => FieldEdit.json,
+              'string' || 'enum' => FieldEdit.text,
+              _ => FieldEdit.any,
             },
       locked: null,
     );
