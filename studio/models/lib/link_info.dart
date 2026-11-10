@@ -23,5 +23,9 @@ abstract class LinkInfo with _$LinkInfo {
     String? device,
     String? certificateCn,
     String? note,
+
+    /// `config` (from `wyrmd.json5`) or `runtime` (installed or admitted
+    /// while the broker runs).
+    @Default('config') String origin,
   }) = _LinkInfo;
 }

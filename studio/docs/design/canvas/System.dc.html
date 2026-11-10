@@ -86,55 +86,161 @@ System</a>
 <div style="margin-right: auto; display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
 <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">wyrmd on plant</h1>
-<span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Running</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: #15302A; color: #6CC4B0; font-size: 12px; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>Running · active</span>
 </div>
-<p style="margin: 0; color: #A3ABAF">Zenoh 1.10.1 · spec 0.2.14 · up 6 d 4 h · <code style="color: #C5CBCE">sys/**</code>, admin only</p>
+<p style="margin: 0; color: #A3ABAF">0.1.0 · Zenoh 1.10.1 · rust (prod) · started 2026-11-04 21:58 UTC · up 6 d 4 h</p>
 </div>
-<nav aria-label="System sections" style="display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
-<a href="#overview" aria-current="page" style="height: 34px; padding: 0 12px; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; display: flex; align-items: center">Overview</a>
-<a href="#config" style="height: 34px; padding: 0 12px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center">Config</a>
-<a href="#pki" style="height: 34px; padding: 0 12px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: flex; align-items: center">Certificates</a>
-</nav>
+<div role="tablist" aria-label="System sections" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
+<sc-for list="{{tabs}}" as="tb" hint-placeholder-count="4">
+<button type="button" role="tab" aria-selected="{{tb.on}}" onClick="{{tb.pick}}" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: {{tb.bg}}; color: {{tb.fg}}; font-size: 13px; cursor: pointer">{{tb.name}}<sc-if value="{{tb.dot}}" hint-placeholder-val="{{false}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{tb.dotc}}"></span></sc-if></button>
+</sc-for>
+</div>
 </div>
 
-<section aria-label="Broker metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 12px">
-<sc-for list="{{tiles}}" as="t" hint-placeholder-count="8">
-<div style="padding: 14px 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 6px">
-<span style="font-size: 12px; color: #A3ABAF">{{t.label}}</span>
-<code style="font-size: 22px; color: {{t.color}}">{{t.value}}</code>
-<span style="font-size: 12px; color: #8E979C">{{t.sub}}</span>
+<!-- ===== Overview ===== -->
+<sc-if value="{{isOverview}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 24px">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+<section aria-label="{{g.name}}" style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{g.name}}</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{g.tiles}}" as="t" hint-placeholder-count="6">
+<a href="{{t.href}}" title="{{t.about}}" style="padding: 14px 16px; border-radius: 10px; border: 1px solid {{t.border}}; background: #13171A; display: flex; flex-direction: column; gap: 6px; color: #ECE9E1">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A3ABAF">{{t.label}}<code style="margin-left: auto; font-size: 11px; color: #6B747A">{{t.key}}</code></span>
+<span style="display: flex; align-items: baseline; gap: 6px"><code style="font-size: 22px; color: {{t.color}}">{{t.value}}</code><span style="font-size: 12px; color: #8E979C">{{t.unit}}</span></span>
+<span style="font-size: 12px; color: {{t.subc}}">{{t.sub}}</span>
+</a>
+</sc-for>
+</div>
+</section>
+</sc-for>
+
+<section aria-label="Traffic" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px">
+<h2 style="margin: 0 auto 0 0; font-size: 14px; font-weight: 600">Router traffic</h2>
+<div role="radiogroup" aria-label="Measure" style="display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<sc-for list="{{measures}}" as="m" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{m.on}}" onClick="{{m.pick}}" style="height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: {{m.bg}}; color: {{m.fg}}; font-size: 12px; cursor: pointer">{{m.name}}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #6CC4B0"></span>in · <code style="font-size: 11px; color: #6B747A">{{meas.inKey}}</code></span><span style="display: flex; align-items: baseline; gap: 6px"><code style="font-size: 20px">{{meas.inNow}}</code><span style="font-size: 12px; color: #8E979C">{{meas.unit}}</span></span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #8E979C"></span>out · <code style="font-size: 11px; color: #6B747A">{{meas.outKey}}</code></span><span style="display: flex; align-items: baseline; gap: 6px"><code style="font-size: 20px">{{meas.outNow}}</code><span style="font-size: 12px; color: #8E979C">{{meas.unit}}</span></span></div>
+</div>
+<svg viewBox="0 0 800 120" width="100%" height="120" preserveAspectRatio="none" role="img" aria-label="{{meas.aria}}">
+<path d="M0 30H800M0 60H800M0 90H800" stroke="#1D2226" stroke-width="1"></path>
+<polyline fill="none" stroke="#8E979C" stroke-width="1.6" points="{{meas.out}}"></polyline>
+<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="{{meas.inp}}"></polyline>
+</svg>
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C"><span>01:02</span><span>01:12 reconnect to edge</span><span>02:02 · now</span></div>
+<p style="margin: 0; font-size: 12px; color: #8E979C; line-height: 1.5">Sampled from the <code>sys</code> rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.</p>
+</section>
+</div>
+</sc-if>
+
+<!-- ===== Availability ===== -->
+<sc-if value="{{isAvail}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<sc-if value="{{hasStandby}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<section aria-label="Standby pair" style="padding: 20px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 220px) minmax(0, 1fr); align-items: center; gap: 16px">
+<div style="padding: 16px; border-radius: 10px; border: 1px solid #2E5A50; background: #10201C; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; color: #6CC4B0; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">This broker · active</span>
+<code style="font-size: 16px">plant</code>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">Serves links, flows, the gateway and peers. Answers <code>sys/replication/**</code> for its standby.</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center">
+<svg width="100%" height="24" viewBox="0 0 200 24" preserveAspectRatio="none" aria-hidden="true"><path d="M4 12H190" stroke="{{ha.lineC}}" stroke-width="2" stroke-dasharray="{{ha.dash}}"></path><path d="M184 6l8 6-8 6" fill="none" stroke="{{ha.lineC}}" stroke-width="2"></path></svg>
+<span style="font-size: 12px; color: #A3ABAF">WAL, files, storage, history</span>
+<span style="font-size: 12px; color: #8E979C">pulled every 1 s</span>
+</div>
+<div style="padding: 16px; border-radius: 10px; border: 1px solid {{ha.sbBorder}}; background: {{ha.sbBg}}; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; color: {{ha.sbC}}; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">Standby · {{ha.sbState}}</span>
+<code style="font-size: 16px">standby:plant</code>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">Same keys, own <code>data_dir</code>. Takes over only if this broker stops answering and a witness still answers it.</span>
+</div>
+</section>
+
+<section aria-label="Standby values" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{ha.tiles}}" as="t" hint-placeholder-count="4">
+<div title="{{t.about}}" style="padding: 14px 16px; border-radius: 10px; border: 1px solid {{t.border}}; background: #13171A; display: flex; flex-direction: column; gap: 6px">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A3ABAF">{{t.label}}<code style="margin-left: auto; font-size: 11px; color: #6B747A">{{t.key}}</code></span>
+<span style="display: flex; align-items: baseline; gap: 6px"><code style="font-size: 22px; color: {{t.color}}">{{t.value}}</code><span style="font-size: 12px; color: #8E979C">{{t.unit}}</span></span>
+<span style="font-size: 12px; color: {{t.subc}}; line-height: 1.5">{{t.sub}}</span>
 </div>
 </sc-for>
 </section>
 
-<section aria-label="Traffic" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 10px">
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px">
-<h2 style="margin: 0 auto 0 0; font-size: 14px; font-weight: 600">Router messages per second · last hour</h2>
-<span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #6CC4B0"></span>in</span>
-<span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A3ABAF"><span style="width: 16px; height: 2px; background: #8E979C"></span>out</span>
+<sc-if value="{{ha.warn}}" hint-placeholder-val="{{false}}">
+<div role="status" style="display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 10px; border: 1px solid #4A4020; background: #2E2814">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E2C15A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5">
+<span style="color: #ECE9E1; font-weight: 600">The standby is behind and moved a fork aside</span>
+<span style="color: #C5CBCE">1,240 registry records are not on the standby yet: a takeover now would lose them. One set of records was moved aside after both brokers were active (a healed split): the audit record <code>standby_forked</code> says which.</span>
+<a href="Access.dc.html" style="color: #F3A766">Open the audit record ›</a>
 </div>
-<svg viewBox="0 0 800 120" width="100%" height="120" preserveAspectRatio="none" role="img" aria-label="Messages in and out per second over the last hour, steady around five thousand with one dip at the 01:12 reconnect">
-<path d="M0 30H800M0 60H800M0 90H800" stroke="#1D2226" stroke-width="1"></path>
-<polyline fill="none" stroke="#8E979C" stroke-width="1.6" points="0,52 40,50 80,51 120,49 160,50 200,52 240,51 280,50 320,49 360,51 400,50 440,96 460,62 480,51 520,50 560,49 600,51 640,50 680,48 720,50 760,49 800,50"></polyline>
-<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="0,58 40,57 80,59 120,56 160,57 200,58 240,57 280,56 320,57 360,58 400,57 440,104 460,70 480,58 520,57 560,56 600,58 640,57 680,55 720,57 760,56 800,57"></polyline>
-</svg>
-<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C"><span>01:02</span><span>01:12 reconnect to edge</span><span>02:02</span></div>
-</section>
+</div>
+</sc-if>
 
-<section aria-label="Broker log" style="display: flex; flex-direction: column; gap: 10px">
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
-<h2 style="margin: 0 auto 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Log · live</h2>
-<div role="group" aria-label="Show levels" style="display: flex; gap: 6px">
-<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #5A3328; background: #33201B; color: #F0A28D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">error</button>
-<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #4A4020; background: #2E2814; color: #E2C15A; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">warn</button>
-<button type="button" aria-pressed="true" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #3A4249; background: #22282D; color: #C5CBCE; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">info</button>
-<button type="button" aria-pressed="false" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid #252B30; background: transparent; color: #8E979C; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">debug</button>
+<section aria-label="What the standby holds" style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What the standby holds</h2>
+<div style="border: 1px solid #252B30; border-radius: 10px; overflow: hidden">
+<sc-for list="{{held}}" as="h" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 16px; padding: 12px 16px; border-top: 1px solid #1D2226; background: #13171A; font-size: 13px">
+<span style="font-weight: 600">{{h.what}}</span>
+<span style="color: #A3ABAF; line-height: 1.5">{{h.how}}</span>
 </div>
+</sc-for>
+</div>
+</section>
+</div>
+</sc-if>
+
+<sc-if value="{{noStandby}}" hint-placeholder-val="{{false}}">
+<section aria-label="No standby" style="padding: 28px; border-radius: 12px; border: 1px dashed #3A4249; background: #13171A; display: flex; flex-direction: column; gap: 16px; max-width: 820px">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="8" height="14" rx="2"></rect><rect x="14" y="5" width="8" height="14" rx="2" stroke-dasharray="3 3"></rect><path d="M10 12h4"></path></svg>
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">No standby is following this broker</h2>
+</div>
+<p style="margin: 0; font-size: 14px; color: #C5CBCE; line-height: 1.6; max-width: 680px"><code>sys/standby_connected</code> is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.</p>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #A3ABAF; line-height: 1.5">
+<span style="color: #ECE9E1; font-weight: 600">To add one (on the hosts, not in Studio)</span>
+<span>1. Copy the keys to the second host: <code style="color: #ECE9E1">wyrmd keys export</code> here, <code style="color: #ECE9E1">wyrmd keys import</code> there.</span>
+<span>2. In <code style="color: #ECE9E1">wyrmd.json5</code> on both hosts: <code style="color: #ECE9E1">standby: {peer, takeover_s, primary, witness}</code> and <code style="color: #ECE9E1">peers.listen</code>; a lease <code style="color: #ECE9E1">arbiter</code> on a third host is recommended.</span>
+<span>3. Start the second host; this tab shows it within a second.</span>
+</div>
+<a href="#docs-operations" style="color: #F3A766; font-size: 13px">Guide: docs/operations.md › Warm standby ›</a>
+</section>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ===== Log ===== -->
+<sc-if value="{{isLog}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div role="search" aria-label="Get log" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3ABAF">Source
+<select style="height: 36px; min-width: 170px; padding: 0 10px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font: inherit; font-size: 13px"><option>broker (all)</option><option>link: scheduler</option><option>link: alarm</option><option>link: dql</option><option>link: uplink</option><option>link: storage</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3ABAF">Level and more severe
+<select style="height: 36px; min-width: 120px; padding: 0 10px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font: inherit; font-size: 13px"><option>info</option><option>warn</option><option>error</option><option>debug</option><option>trace</option></select></label>
+<label style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3ABAF">Filter
+<input type="search" value="" placeholder="text in the target or message" style="height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font: inherit; font-size: 13px; box-sizing: border-box"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3ABAF">Lines
+<input type="number" value="200" min="1" max="2000" style="height: 36px; width: 90px; padding: 0 10px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font: inherit; font-size: 13px; box-sizing: border-box"></label>
+<label style="display: flex; align-items: center; gap: 8px; height: 36px; font-size: 13px; color: #C5CBCE"><input type="checkbox" checked style="accent-color: {{accent}}; width: 16px; height: 16px">every 5 s</label>
+<button type="button" style="height: 36px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0E1113; font-size: 13px; font-weight: 600; cursor: pointer">Get log</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<span style="margin-right: auto; font-size: 12px; color: #8E979C">200 lines from the broker's ring · newest first · <code>sys/~act/get_log</code></span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: transparent; color: #C5CBCE; font-size: 12px; cursor: pointer">Copy</button>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: transparent; color: #C5CBCE; font-size: 12px; cursor: pointer">Save as .log</button>
 </div>
 <div style="border: 1px solid #252B30; border-radius: 10px; background: #0B0D0F; overflow-x: auto">
-<div style="min-width: 700px; padding: 6px 0">
-<sc-for list="{{log}}" as="l" hint-placeholder-count="7">
-<div style="display: grid; grid-template-columns: 80px 56px 150px 1fr; gap: 12px; align-items: baseline; padding: 6px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5">
+<div style="min-width: 760px; padding: 6px 0">
+<sc-for list="{{log}}" as="l" hint-placeholder-count="10">
+<div style="display: grid; grid-template-columns: 80px 56px 170px 1fr; gap: 12px; align-items: baseline; padding: 6px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5; background: {{l.bg}}">
 <span style="color: #8E979C">{{l.t}}</span>
 <span style="color: {{l.c}}; font-weight: 600">{{l.lvl}}</span>
 <span style="color: #A3ABAF">{{l.src}}</span>
@@ -143,84 +249,265 @@ System</a>
 </sc-for>
 </div>
 </div>
+
+<section aria-label="Log level" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px">
+<div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 14px; font-weight: 600">Broker log level <code style="font-size: 12px; font-weight: 400; color: #8E979C">sys/log_level</code></span>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Staged in Review and apply; once applied it takes effect at once, no restart, and replaces <code>RUST_LOG</code>. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link's own level: Links › the link › Log.</span>
+</div>
+<div role="radiogroup" aria-label="Log level" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30; min-width: 320px">
+<sc-for list="{{levels}}" as="lv" hint-placeholder-count="5">
+<button type="button" role="radio" aria-checked="{{lv.on}}" onClick="{{lv.pick}}" style="height: 32px; border: 0; border-radius: 6px; background: {{lv.bg}}; color: {{lv.fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: {{lv.w}}; cursor: pointer">{{lv.name}}</button>
+</sc-for>
+</div>
 </section>
+</div>
+</sc-if>
+
+<!-- ===== Maintenance ===== -->
+<sc-if value="{{isMaint}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; align-items: start">
+
+<section aria-label="Disconnected links" style="padding: 18px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Disconnected links</h2>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.</span>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 8px; overflow: hidden">
+<sc-for list="{{stale}}" as="s" hint-placeholder-count="2">
+<div style="display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 10px 12px; border-top: 1px solid #1D2226; font-size: 13px">
+<span style="display: flex; flex-direction: column; gap: 2px"><code>{{s.id}}</code><span style="font-size: 12px; color: #8E979C">{{s.cn}}</span></span>
+<span style="font-size: 12px; color: #8E979C; align-self: center">{{s.seen}}</span>
+</div>
+</sc-for>
+</div>
+<button type="button" style="align-self: flex-start; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #5A3328; background: #2A1916; color: #F0A28D; font-size: 14px; cursor: pointer">Clear 2 disconnected links…</button>
+<span style="font-size: 12px; color: #8E979C"><code>sys/~act/clear_conns</code> · config · asks before it runs</span>
+</section>
+
+<section aria-label="Device profiles" style="padding: 18px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px">
+<div style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Device profiles</h2>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">Models served as <code>pub/&lt;vendor&gt;:&lt;model&gt;</code>: points, units and ranges that links and the assistant inherit.</span>
+</div>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px; cursor: pointer">Put profile…</button>
+</div>
+<div style="border: 1px solid #252B30; border-radius: 8px; overflow: hidden">
+<sc-for list="{{profiles}}" as="p" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 8px 12px; border-top: 1px solid #1D2226; font-size: 13px">
+<code>{{p.name}}</code>
+<span style="font-size: 12px; color: #8E979C">{{p.points}}</span>
+<button type="button" aria-label="{{p.removeLabel}}" style="height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #252B30; background: transparent; color: #A3ABAF; font-size: 12px; cursor: pointer">Remove</button>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #8E979C"><code>sys/profiles</code> › Put Profile, Remove Profile · config</span>
+</section>
+
+<section aria-label="Back up and restore" style="grid-column: 1 / -1; padding: 18px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Back up and restore</h2>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5; max-width: 860px">Everything the broker owns is in its <code>data_dir</code> (here 1.9 GiB). Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{backup}}" as="b" hint-placeholder-count="3">
+<div style="padding: 14px; border-radius: 10px; border: 1px solid #252B30; background: #0E1113; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 13px; font-weight: 600">{{b.title}}</span>
+<div style="display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 8px; background: #0B0D0F; border: 1px solid #1D2226">
+<code style="flex: 1; min-width: 0; font-size: 12px; color: #C5CBCE; line-height: 1.7; white-space: pre-wrap; word-break: break-all">{{b.code}}</code>
+<button type="button" aria-label="{{b.copyLabel}}" style="flex: none; width: 30px; height: 30px; border-radius: 6px; border: 1px solid #252B30; background: transparent; color: #A3ABAF; cursor: pointer; display: grid; place-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></button>
+</div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">{{b.note}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: #E2C15A; line-height: 1.5"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg><span>A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker's administrators can read it.</span></div>
+</section>
+
+<section aria-label="Elsewhere" style="grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: #8E979C">
+<span>Also broker settings, kept where they are used:</span>
+<a href="Links.dc.html" style="color: #C5CBCE">Admission of new links › Links › Quarantine</a>
+<a href="Sites.dc.html" style="color: #C5CBCE">Tokens for sites below › Sites</a>
+<a href="Access.dc.html" style="color: #C5CBCE">Roles and grants › Access</a>
+<a href="History.dc.html" style="color: #C5CBCE">Retention and purge › History</a>
+</section>
+</div>
+</sc-if>
 </main>
 
-<!-- Inspector -->
-<aside aria-label="Broker state" style="flex: 1 1 320px; max-width: 360px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
+<!-- Attention -->
+<aside aria-label="Attention" style="flex: 1 1 300px; max-width: 340px; min-width: 0; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column">
 <div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 6px">
-<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Control plane</span>
-<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5">The broker keeps only itself: registry, ACL, keys, profiles and flow definitions. The tree is re-declared by links on connect.</p>
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Needs a look · {{attnCount}}</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">From the broker's own values. Each opens the screen where it is fixed.</span>
 </div>
-<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 20px">
-<section style="display: flex; flex-direction: column; gap: 10px">
-<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">State on disk</h2>
-<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
-<span style="color: #8E979C">Write-ahead log</span><span>1,284 records since snapshot</span>
-<span style="color: #8E979C">Snapshot</span><span>today 01:30</span>
-<span style="color: #8E979C">HMAC chain</span><span style="display: flex; align-items: center; gap: 6px; color: #6CC4B0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>verified</span>
-<span style="color: #8E979C">Last start</span><span>restored in 38 ms</span>
+<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{attn}}" as="a" hint-placeholder-count="3">
+<a href="{{a.href}}" style="display: flex; gap: 10px; padding: 12px; border-radius: 8px; border: 1px solid #252B30; background: #161A1D; color: #ECE9E1">
+<span style="flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: {{a.c}}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<span style="font-size: 13px; font-weight: 600">{{a.title}}</span>
+<span style="font-size: 12px; color: #A3ABAF; line-height: 1.45">{{a.detail}}</span>
+<span style="font-size: 12px; color: #F3A766">{{a.go}}</span>
+</span>
+</a>
+</sc-for>
 </div>
-<button type="button" style="height: 40px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">Take a snapshot now</button>
-</section>
-
-<section style="display: flex; flex-direction: column; gap: 10px">
-<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Log level · sys/log_level</h2>
-<div role="radiogroup" aria-label="Log level" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 3px; gap: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
-<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">error</button>
-<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">warn</button>
-<button type="button" role="radio" aria-checked="true" style="height: 34px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; cursor: pointer">info</button>
-<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">debug</button>
-<button type="button" role="radio" aria-checked="false" style="height: 34px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">trace</button>
+<div style="margin-top: auto; padding: 16px 20px 20px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">This broker</span>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px">
+<span style="color: #8E979C">Site</span><code>plant</code>
+<span style="color: #8E979C">Liveliness</span><span style="display: flex; align-items: center; gap: 6px; color: #6CC4B0"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span><code style="color: #C5CBCE">wy/plant/sys/broker</code></span>
+<span style="color: #8E979C">Started</span><span>2026-11-04 21:58 UTC</span>
+<span style="color: #8E979C">Build</span><span>0.1.0 · rust (prod)</span>
 </div>
-<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Takes effect at once, no restart. Values and tokens are never logged below trace.</span>
-</section>
-
-<section style="display: flex; flex-direction: column; gap: 10px">
-<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Configuration</h2>
-<p style="margin: 0; font-size: 13px; color: #A3ABAF; line-height: 1.5"><code style="color: #ECE9E1">wyrmd.json5</code> states the intent at first start. Everything changed here since then lives in the log.</p>
-<button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; border-radius: 8px; border: 1px solid #252B30; background: transparent; color: #C5CBCE; font-size: 14px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path></svg>Export current state as JSON5</button>
-</section>
-
-<section style="display: flex; flex-direction: column; gap: 10px">
-<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Site CA</h2>
-<div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
-<span style="color: #8E979C">Fingerprint</span><code style="color: #ECE9E1">SHA-256 7F:2A…C1:09</code>
-<span style="color: #8E979C">Issued</span><span>12 links · 1 site below</span>
-<span style="color: #8E979C">Expires</span><span>2031-10-02</span>
-</div>
-</section>
 </div>
 </aside>
 </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"$preview":{"width":1440,"height":1000}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#E8893A","options":["#E8893A","#E2C15A","#E07A5F"]},"tab":{"editor":"enum","default":"overview","options":["overview","availability","log","maintenance"]},"ha":{"editor":"enum","default":"ok","options":["ok","lagging","none"]},"$preview":{"width":1440,"height":1000}}'>
 class Component extends DCLogic {
   renderVals() {
+    const st = this.state || {};
     const accent = this.props.accent ?? '#E8893A';
-    const T1 = '#ECE9E1', TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
-    const tiles = [
-      { label: 'Links connected', value: '4 / 5', sub: 'bacnet failed', color: T1 },
-      { label: 'In quarantine', value: '1', sub: 'field-gw · see Links', color: AMBER },
-      { label: 'Sessions', value: '14', sub: '3 gateway users', color: T1 },
-      { label: 'ACL denials · 1 h', value: '3', sub: 'see Access › Audit', color: T1 },
-      { label: 'CPU', value: '17 %', sub: '4 cores', color: T1 },
-      { label: 'Memory', value: '212 MB', sub: 'of 2 GB', color: T1 },
-      { label: 'Free disk', value: '38 GB', sub: 'data_dir 1.9 GB', color: T1 },
-      { label: 'Audit records', value: '18,402', sub: 'today 412', color: T1 }
+    const tab = st.tab ?? this.props.tab ?? 'overview';
+    const ha = this.props.ha ?? 'ok';
+    const T1 = '#ECE9E1', MUTED = '#8E979C', TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const LINE = '#252B30';
+
+    const haDot = ha === 'ok' ? null : ha === 'lagging' ? AMBER : MUTED;
+    const tabs = [
+      ['overview', 'Overview'], ['availability', 'Availability'], ['log', 'Log'], ['maintenance', 'Maintenance']
+    ].map(([id, name]) => ({
+      name, on: tab === id ? 'true' : 'false',
+      bg: tab === id ? '#2F373D' : 'transparent', fg: tab === id ? T1 : '#A3ABAF',
+      dot: id === 'availability' && !!haDot, dotc: haDot || MUTED,
+      pick: () => this.setState({ tab: id })
+    }));
+
+    // Overview: every value is a sys node (key shown on the tile, description as its tooltip).
+    const tile = (label, key, value, unit, sub, opt = {}) => ({
+      label, key, value, unit, sub,
+      color: opt.color || T1, subc: opt.subc || MUTED, border: opt.border || LINE,
+      href: opt.href || '#', about: opt.about || ''
+    });
+    const groups = [
+      { name: 'Links and sites', tiles: [
+        tile('Links connected', 'links_connected', '4', 'of 5', 'bacnet failed · open Links', { subc: CORAL, href: 'Links.dc.html', about: 'Links whose liveliness token is present (they serve their tree).' }),
+        tile('In quarantine', 'quarantined', '1', '', 'field-gw waits · open Quarantine', { color: AMBER, border: '#4A4020', subc: AMBER, href: 'LinksQuarantine.dc.html', about: 'Unknown certificates waiting in quarantine.' }),
+        tile('Packages', 'packages_total', '6', '', 'installed link packages', { href: 'Links.dc.html' }),
+        tile('Upstream', 'upstream_connected', '1', 'connected', 'edge · open Sites', { href: 'Sites.dc.html', about: 'Upstream brokers that are connected.' }),
+        tile('Downstream', 'downstream_connected', '1', 'connected', 'line2 · open Sites', { href: 'Sites.dc.html', about: 'Downstream brokers that are connected.' }),
+        tile('Sessions', 'sessions', '14', '', 'network sessions; gateway users not counted', { about: 'Network sessions of the router: links, peer brokers. Gateway users share one in-process session.' })
+      ] },
+      { name: 'Process and disk', tiles: [
+        tile('CPU', 'cpu', '17', '%', '100 = one core', { about: 'CPU time of the broker process over the metrics interval; 100 = one core.' }),
+        tile('Memory', 'memory', '212', 'MiB', 'resident', { about: 'Resident memory of the broker process.' }),
+        tile('Free disk', 'disk_free', '38.2', 'GiB', 'on the data_dir file system', { about: 'Free space on the file system of data_dir.' }),
+        tile('data_dir', 'data_size', '1.9', 'GiB', 'history 1.4 GiB · open History', { href: 'History.dc.html', about: 'Size of data_dir, measured every minute.' }),
+        tile('ACL denials', 'acl_denied', '3', '', 'since the router started · open Audit', { href: 'Access.dc.html', about: "Messages the router's access control dropped since the router started." }),
+        tile('Audit records', 'audit_records', '18,402', '', 'who did what · open Audit', { href: 'Access.dc.html', about: 'Records in the audit journal.' })
+      ] }
     ];
-    const C = { ERROR: CORAL, WARN: AMBER, INFO: '#A3ABAF' };
+
+    const m = st.measure ?? 'messages';
+    const curves = {
+      messages: { unit: 'msg/s', inNow: '5,120', outNow: '4,870',
+        inp: '0,58 40,57 80,59 120,56 160,57 200,58 240,57 280,56 320,57 360,58 400,57 440,104 460,70 480,58 520,57 560,56 600,58 640,57 680,55 720,57 760,56 800,57',
+        out: '0,52 40,50 80,51 120,49 160,50 200,52 240,51 280,50 320,49 360,51 400,50 440,96 460,62 480,51 520,50 560,49 600,51 640,50 680,48 720,50 760,49 800,50' },
+      frames: { unit: 'frame/s', inNow: '1,940', outNow: '1,710',
+        inp: '0,74 40,73 80,75 120,72 160,74 200,74 240,73 280,72 320,74 360,74 400,73 440,108 460,84 480,74 520,73 560,72 600,74 640,73 680,72 720,74 760,72 800,73',
+        out: '0,80 40,79 80,80 120,78 160,80 200,80 240,79 280,79 320,78 360,80 400,79 440,110 460,90 480,80 520,79 560,78 600,80 640,79 680,78 720,79 760,78 800,79' },
+      bytes: { unit: 'kB/s', inNow: '612', outNow: '1,384',
+        inp: '0,88 40,87 80,88 120,86 160,88 200,87 240,86 280,86 320,88 360,87 400,86 440,112 460,96 480,88 520,87 560,86 600,88 640,87 680,85 720,87 760,86 800,87',
+        out: '0,40 40,38 80,41 120,36 160,39 200,40 240,38 280,37 320,39 360,41 400,38 440,94 460,52 480,40 520,38 560,36 600,40 640,38 680,35 720,38 760,36 800,38' }
+    };
+    const keys = { messages: 'messages', frames: 'frames', bytes: 'data' };
+    const cv = curves[m];
+    const meas = { ...cv, inKey: keys[m] + '_in_per_second', outKey: keys[m] + '_out_per_second',
+      aria: `${m} in and out per second over the last hour, steady with one dip at the 01:12 reconnect to edge` };
+    const measures = [['messages', 'Messages'], ['frames', 'Frames'], ['bytes', 'Bytes']].map(([id, name]) => ({
+      name, on: m === id ? 'true' : 'false', bg: m === id ? '#2F373D' : 'transparent', fg: m === id ? T1 : '#A3ABAF',
+      pick: () => this.setState({ measure: id })
+    }));
+
+    // Availability: sys/standby_connected, standby_lag, standby_forks, arbiter_lease_s.
+    const lag = ha === 'lagging';
+    const haV = {
+      lineC: lag ? AMBER : TEAL, dash: lag ? '6 5' : '0',
+      sbState: lag ? 'behind' : 'following', sbC: lag ? AMBER : TEAL,
+      sbBorder: lag ? '#4A4020' : '#2E5A50', sbBg: lag ? '#211D10' : '#10201C',
+      warn: lag,
+      tiles: [
+        tile('Standby connected', 'standby_connected', '1', '', 'follows this broker over the peer link', { color: TEAL, about: '1 while a warm standby follows this broker over the peer link (ADR 0036).' }),
+        tile('Lag', 'standby_lag', lag ? '1,240' : '0', 'records', lag ? 'not on the standby yet: a takeover now loses them' : 'the standby has every registry record', { color: lag ? AMBER : T1, border: lag ? '#4A4020' : LINE, subc: lag ? AMBER : MUTED, about: 'Records of the registry WAL the standby has not received yet.' }),
+        tile('Arbiter lease', 'arbiter_lease_s', lag ? '2' : '8', 's left', lag ? 'renewing late: check the arbiter host' : 'renewed by the lease arbiter', { color: lag ? AMBER : T1, subc: lag ? AMBER : MUTED, about: 'Seconds left of the lease the arbiters granted this broker; 0 without arbiters. It steps down when the lease runs out and the standby is quiet.' }),
+        tile('Forks moved aside', 'standby_forks', lag ? '1' : '0', 'since start', lag ? 'after a healed split · audit standby_forked' : 'no split since this broker started', { color: lag ? CORAL : T1, subc: lag ? CORAL : MUTED, about: 'Sets of records the standby moved aside after a healed split (both brokers were active); each is an audit record standby_forked.' })
+      ]
+    };
+    const held = [
+      { what: 'Control plane', how: 'Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.' },
+      { what: 'Secrets and link data', how: 'secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.' },
+      { what: 'Broker storage', how: 'The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).' },
+      { what: 'History', how: 'Every series’ rows from the change journal, written into the standby’s own day files.' }
+    ];
+
+    // Log: sys/~act/get_log {lines, level, filter, link}; sys/log_level.
+    const C = { ERROR: CORAL, WARN: AMBER, INFO: '#A3ABAF', DEBUG: '#6B747A' };
+    const BG = { ERROR: '#1A1110', WARN: '#16140C' };
     const log = [
       { t: '02:01:44', lvl: 'INFO', src: 'gateway', msg: 'olena: set …/plc1/t2/~set ok (read back in 212 ms)' },
-      { t: '01:58:10', lvl: 'WARN', src: 'peers', msg: 'line2 requested broker:line2 with relay; waiting for Authorize' },
-      { t: '01:56:31', lvl: 'ERROR', src: 'link:bacnet', msg: 'wasm component stopped: fuel limit reached during start' },
-      { t: '01:41:02', lvl: 'INFO', src: 'admin', msg: 'ACL rebuilt from registry (23 rules); router runtime restarted' },
-      { t: '01:30:00', lvl: 'INFO', src: 'state', msg: 'snapshot written; WAL truncated' },
-      { t: '01:12:18', lvl: 'WARN', src: 'peers', msg: 'upstream edge unreachable, retry in 4 s' },
-      { t: '01:12:22', lvl: 'INFO', src: 'peers', msg: 'upstream edge connected; 6 streams reopened' }
-    ].map((l) => ({ ...l, c: C[l.lvl] }));
-    return { accent, tiles, log };
+      { t: '01:58:10', lvl: 'WARN', src: 'admin::peers', msg: 'line2 asks for broker:line2 relaying 1 site; waits for Authorize' },
+      { t: '01:56:31', lvl: 'ERROR', src: 'link{id=bacnet}', msg: 'wasm component stopped: fuel limit reached during start' },
+      { t: '01:56:30', lvl: 'INFO', src: 'admin::supervisor', msg: 'bacnet: restart 3 of 5, back-off 8 s' },
+      { t: '01:41:02', lvl: 'INFO', src: 'admin', msg: 'ACL rebuilt from registry (23 rules); router runtime restarted in 0.9 s' },
+      { t: '01:41:01', lvl: 'INFO', src: 'admin::standby', msg: 'standby held for the rebuild (hold_until +60 s)' },
+      { t: '01:30:00', lvl: 'INFO', src: 'history', msg: 'day file 2026-11-10 opened; 1,204 series' },
+      { t: '01:12:22', lvl: 'INFO', src: 'admin::peers', msg: 'upstream edge connected; 6 streams reopened' },
+      { t: '01:12:18', lvl: 'WARN', src: 'admin::peers', msg: 'upstream edge unreachable, retry in 4 s' },
+      { t: '01:02:07', lvl: 'INFO', src: 'gateway', msg: 'admin logged in from 10.0.1.24' }
+    ].map((l) => ({ ...l, c: C[l.lvl], bg: BG[l.lvl] || 'transparent' }));
+    const level = st.level ?? 'info';
+    const levels = ['error', 'warn', 'info', 'debug', 'trace'].map((name) => ({
+      name, on: level === name ? 'true' : 'false', bg: level === name ? '#2F373D' : 'transparent',
+      fg: level === name ? T1 : '#A3ABAF', w: level === name ? 600 : 400,
+      pick: () => this.setState({ level: name })
+    }));
+
+    // Maintenance.
+    const stale = [
+      { id: 'meter-07', cn: 'external · CN link:meter-07', seen: 'not connected' },
+      { id: 'field-gw-old', cn: 'external · CN link:field-gw-old', seen: 'not connected' }
+    ];
+    const profiles = [
+      { name: 'schneider:pm5560', points: '48 points' },
+      { name: 'abb:m4m-30', points: '36 points' },
+      { name: 'carel:pco5', points: '22 points' }
+    ].map((p) => ({ ...p, removeLabel: `Remove profile ${p.name}` }));
+    const backup = [
+      { title: 'Back up (broker stopped)', code: 'sudo systemctl stop wyrmd\nsudo tar --same-permissions -czf /backup/wyrm-plant.tgz -C /var/lib wyrm\nsudo systemctl start wyrmd', note: 'Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.' },
+      { title: 'Check a copy', code: 'wyrmd -c /etc/wyrm/wyrmd.json5 verify', note: 'Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.' },
+      { title: 'Before a restart with a changed file', code: 'wyrmd -c /etc/wyrm/wyrmd.json5 check', note: 'The configuration parses and validates; exit code 1 otherwise.' }
+    ].map((b) => ({ ...b, copyLabel: `Copy: ${b.title}` }));
+
+    // Attention: derived from the values above.
+    const attn = [
+      { title: 'bacnet failed', detail: 'wasm component stopped: fuel limit reached during start', go: 'Open in Links ›', href: 'Links.dc.html', c: CORAL },
+      { title: 'field-gw waits in quarantine', detail: 'Unknown certificate CN link:field-gw since 01:20', go: 'Open Quarantine ›', href: 'LinksQuarantine.dc.html', c: AMBER },
+      { title: 'line2 waits for Authorize', detail: 'A downstream broker that relays 1 site', go: 'Open in Sites ›', href: 'SitesChainQ.dc.html', c: AMBER }
+    ];
+    if (ha === 'lagging') attn.unshift({ title: 'Standby is 1,240 records behind', detail: 'And one fork was moved aside after a split', go: 'Open Availability ›', href: '#availability', c: AMBER });
+    if (ha === 'none') attn.push({ title: 'No standby follows this broker', detail: 'standby_connected is 0', go: 'Open Availability ›', href: '#availability', c: MUTED });
+
+    return {
+      accent, tabs, groups, measures, meas, held, log, levels, stale, profiles, backup, attn,
+      attnCount: String(attn.length),
+      ha: haV,
+      isOverview: tab === 'overview', isAvail: tab === 'availability', isLog: tab === 'log', isMaint: tab === 'maintenance',
+      hasStandby: ha !== 'none', noStandby: ha === 'none'
+    };
   }
 }
 </script>

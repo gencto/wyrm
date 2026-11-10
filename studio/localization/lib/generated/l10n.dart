@@ -6488,6 +6488,1666 @@ class S {
     );
   }
 
+  /// `Overview`
+  String get sysTabOverview {
+    return Intl.message('Overview', name: 'sysTabOverview', desc: '', args: []);
+  }
+
+  /// `Availability`
+  String get sysTabAvailability {
+    return Intl.message(
+      'Availability',
+      name: 'sysTabAvailability',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Log`
+  String get sysTabLog {
+    return Intl.message('Log', name: 'sysTabLog', desc: '', args: []);
+  }
+
+  /// `Maintenance`
+  String get sysTabMaintenance {
+    return Intl.message(
+      'Maintenance',
+      name: 'sysTabMaintenance',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System sections`
+  String get sysTabsLabel {
+    return Intl.message(
+      'System sections',
+      name: 'sysTabsLabel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Running · active`
+  String get sysRunningActive {
+    return Intl.message(
+      'Running · active',
+      name: 'sysRunningActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unreachable`
+  String get sysUnreachable {
+    return Intl.message(
+      'Unreachable',
+      name: 'sysUnreachable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `started {t}`
+  String sysMetaStarted(Object t) {
+    return Intl.message(
+      'started $t',
+      name: 'sysMetaStarted',
+      desc: '',
+      args: [t],
+    );
+  }
+
+  /// `Links and sites`
+  String get sysGroupLinks {
+    return Intl.message(
+      'Links and sites',
+      name: 'sysGroupLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Process and disk`
+  String get sysGroupProcess {
+    return Intl.message(
+      'Process and disk',
+      name: 'sysGroupProcess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Packages`
+  String get sysPackages {
+    return Intl.message('Packages', name: 'sysPackages', desc: '', args: []);
+  }
+
+  /// `Upstream`
+  String get sysUpstream {
+    return Intl.message('Upstream', name: 'sysUpstream', desc: '', args: []);
+  }
+
+  /// `Downstream`
+  String get sysDownstream {
+    return Intl.message(
+      'Downstream',
+      name: 'sysDownstream',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `of {n}`
+  String sysOfTotal(Object n) {
+    return Intl.message('of $n', name: 'sysOfTotal', desc: '', args: [n]);
+  }
+
+  /// `connected`
+  String get sysUnitConnected {
+    return Intl.message(
+      'connected',
+      name: 'sysUnitConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{id} failed · open Links`
+  String sysSubLinkFailed(Object id) {
+    return Intl.message(
+      '$id failed · open Links',
+      name: 'sysSubLinkFailed',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `open Links`
+  String get sysSubOpenLinks {
+    return Intl.message(
+      'open Links',
+      name: 'sysSubOpenLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{cn} waits · open Quarantine`
+  String sysSubWaits(Object cn) {
+    return Intl.message(
+      '$cn waits · open Quarantine',
+      name: 'sysSubWaits',
+      desc: '',
+      args: [cn],
+    );
+  }
+
+  /// `open Quarantine`
+  String get sysSubOpenQuarantine {
+    return Intl.message(
+      'open Quarantine',
+      name: 'sysSubOpenQuarantine',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `installed link packages`
+  String get sysSubPackages {
+    return Intl.message(
+      'installed link packages',
+      name: 'sysSubPackages',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} · open Sites`
+  String sysSubPeer(Object site) {
+    return Intl.message(
+      '$site · open Sites',
+      name: 'sysSubPeer',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `open Sites`
+  String get sysSubOpenSites {
+    return Intl.message(
+      'open Sites',
+      name: 'sysSubOpenSites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `network sessions; gateway users not counted`
+  String get sysSubSessions {
+    return Intl.message(
+      'network sessions; gateway users not counted',
+      name: 'sysSubSessions',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `100 = one core`
+  String get sysSubCpu {
+    return Intl.message(
+      '100 = one core',
+      name: 'sysSubCpu',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `resident`
+  String get sysSubMemory {
+    return Intl.message('resident', name: 'sysSubMemory', desc: '', args: []);
+  }
+
+  /// `on the data_dir file system`
+  String get sysSubDisk {
+    return Intl.message(
+      'on the data_dir file system',
+      name: 'sysSubDisk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `history {size} · open History`
+  String sysSubData(Object size) {
+    return Intl.message(
+      'history $size · open History',
+      name: 'sysSubData',
+      desc: '',
+      args: [size],
+    );
+  }
+
+  /// `open History`
+  String get sysSubOpenHistory {
+    return Intl.message(
+      'open History',
+      name: 'sysSubOpenHistory',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `since the router started · open Audit`
+  String get sysSubAcl {
+    return Intl.message(
+      'since the router started · open Audit',
+      name: 'sysSubAcl',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `who did what · open Audit`
+  String get sysSubAudit {
+    return Intl.message(
+      'who did what · open Audit',
+      name: 'sysSubAudit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Router traffic`
+  String get sysTraffic {
+    return Intl.message(
+      'Router traffic',
+      name: 'sysTraffic',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Messages`
+  String get sysMessages {
+    return Intl.message('Messages', name: 'sysMessages', desc: '', args: []);
+  }
+
+  /// `Frames`
+  String get sysFrames {
+    return Intl.message('Frames', name: 'sysFrames', desc: '', args: []);
+  }
+
+  /// `Bytes`
+  String get sysBytes {
+    return Intl.message('Bytes', name: 'sysBytes', desc: '', args: []);
+  }
+
+  /// `in`
+  String get sysIn {
+    return Intl.message('in', name: 'sysIn', desc: '', args: []);
+  }
+
+  /// `out`
+  String get sysOut {
+    return Intl.message('out', name: 'sysOut', desc: '', args: []);
+  }
+
+  /// `Sampled from the 'sys' rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.`
+  String get sysTrafficNote {
+    return Intl.message(
+      'Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.',
+      name: 'sysTrafficNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Collecting…`
+  String get sysCollecting {
+    return Intl.message(
+      'Collecting…',
+      name: 'sysCollecting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{t} · now`
+  String sysNow(Object t) {
+    return Intl.message('$t · now', name: 'sysNow', desc: '', args: [t]);
+  }
+
+  /// `{measure} in and out per second from {from} to {to}`
+  String sysTrafficDescribe(Object measure, Object from, Object to) {
+    return Intl.message(
+      '$measure in and out per second from $from to $to',
+      name: 'sysTrafficDescribe',
+      desc: '',
+      args: [measure, from, to],
+    );
+  }
+
+  /// `This broker · active`
+  String get sysThisActive {
+    return Intl.message(
+      'This broker · active',
+      name: 'sysThisActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Serves links, flows, the gateway and peers. Answers 'sys/replication/**' for its standby.`
+  String get sysActiveNote {
+    return Intl.message(
+      'Serves links, flows, the gateway and peers. Answers `sys/replication/**` for its standby.',
+      name: 'sysActiveNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `WAL, files, storage, history`
+  String get sysFlow {
+    return Intl.message(
+      'WAL, files, storage, history',
+      name: 'sysFlow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `pulled every 1 s`
+  String get sysPulled {
+    return Intl.message(
+      'pulled every 1 s',
+      name: 'sysPulled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby · following`
+  String get sysStandbyFollowing {
+    return Intl.message(
+      'Standby · following',
+      name: 'sysStandbyFollowing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby · behind`
+  String get sysStandbyBehind {
+    return Intl.message(
+      'Standby · behind',
+      name: 'sysStandbyBehind',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Same keys, own 'data_dir'. Takes over only if this broker stops answering and a witness still answers it.`
+  String get sysStandbyNote {
+    return Intl.message(
+      'Same keys, own `data_dir`. Takes over only if this broker stops answering and a witness still answers it.',
+      name: 'sysStandbyNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby connected`
+  String get sysStandbyConnected {
+    return Intl.message(
+      'Standby connected',
+      name: 'sysStandbyConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Lag`
+  String get sysLag {
+    return Intl.message('Lag', name: 'sysLag', desc: '', args: []);
+  }
+
+  /// `Arbiter lease`
+  String get sysArbiterLease {
+    return Intl.message(
+      'Arbiter lease',
+      name: 'sysArbiterLease',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Forks moved aside`
+  String get sysForks {
+    return Intl.message(
+      'Forks moved aside',
+      name: 'sysForks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `records`
+  String get sysRecords {
+    return Intl.message('records', name: 'sysRecords', desc: '', args: []);
+  }
+
+  /// `s left`
+  String get sysSecondsLeft {
+    return Intl.message('s left', name: 'sysSecondsLeft', desc: '', args: []);
+  }
+
+  /// `since start`
+  String get sysSinceStart {
+    return Intl.message(
+      'since start',
+      name: 'sysSinceStart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `follows this broker over the peer link`
+  String get sysSubFollows {
+    return Intl.message(
+      'follows this broker over the peer link',
+      name: 'sysSubFollows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the standby has every registry record`
+  String get sysSubLagNone {
+    return Intl.message(
+      'the standby has every registry record',
+      name: 'sysSubLagNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not on the standby yet: a takeover now loses them`
+  String get sysSubLag {
+    return Intl.message(
+      'not on the standby yet: a takeover now loses them',
+      name: 'sysSubLag',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `renewed by the lease arbiter`
+  String get sysSubLease {
+    return Intl.message(
+      'renewed by the lease arbiter',
+      name: 'sysSubLease',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `renewing late: check the arbiter host`
+  String get sysSubLeaseLate {
+    return Intl.message(
+      'renewing late: check the arbiter host',
+      name: 'sysSubLeaseLate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no arbiter configured`
+  String get sysSubNoArbiter {
+    return Intl.message(
+      'no arbiter configured',
+      name: 'sysSubNoArbiter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no split since this broker started`
+  String get sysSubForksNone {
+    return Intl.message(
+      'no split since this broker started',
+      name: 'sysSubForksNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `after a healed split · audit standby_forked`
+  String get sysSubForks {
+    return Intl.message(
+      'after a healed split · audit standby_forked',
+      name: 'sysSubForks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The standby is behind and moved a fork aside`
+  String get sysBannerBoth {
+    return Intl.message(
+      'The standby is behind and moved a fork aside',
+      name: 'sysBannerBoth',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The standby is behind`
+  String get sysBannerBehind {
+    return Intl.message(
+      'The standby is behind',
+      name: 'sysBannerBehind',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The standby moved a fork aside`
+  String get sysBannerFork {
+    return Intl.message(
+      'The standby moved a fork aside',
+      name: 'sysBannerFork',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} registry records are not on the standby yet: a takeover now would lose them.`
+  String sysBannerLag(Object n) {
+    return Intl.message(
+      '$n registry records are not on the standby yet: a takeover now would lose them.',
+      name: 'sysBannerLag',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Sets of records moved aside after both brokers were active (a healed split): {n}. The audit record 'standby_forked' says which.`
+  String sysBannerForks(Object n) {
+    return Intl.message(
+      'Sets of records moved aside after both brokers were active (a healed split): $n. The audit record `standby_forked` says which.',
+      name: 'sysBannerForks',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Open the audit record ›`
+  String get sysOpenAuditRecord {
+    return Intl.message(
+      'Open the audit record ›',
+      name: 'sysOpenAuditRecord',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What the standby holds`
+  String get sysHeld {
+    return Intl.message(
+      'What the standby holds',
+      name: 'sysHeld',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Control plane`
+  String get sysHeldControl {
+    return Intl.message(
+      'Control plane',
+      name: 'sysHeldControl',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.`
+  String get sysHeldControlNote {
+    return Intl.message(
+      'Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.',
+      name: 'sysHeldControlNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Secrets and link data`
+  String get sysHeldSecrets {
+    return Intl.message(
+      'Secrets and link data',
+      name: 'sysHeldSecrets',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.`
+  String get sysHeldSecretsNote {
+    return Intl.message(
+      'secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.',
+      name: 'sysHeldSecretsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Broker storage`
+  String get sysHeldStorage {
+    return Intl.message(
+      'Broker storage',
+      name: 'sysHeldStorage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).`
+  String get sysHeldStorageNote {
+    return Intl.message(
+      'The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).',
+      name: 'sysHeldStorageNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History`
+  String get sysHeldHistory {
+    return Intl.message('History', name: 'sysHeldHistory', desc: '', args: []);
+  }
+
+  /// `Every series’ rows from the change journal, written into the standby’s own day files.`
+  String get sysHeldHistoryNote {
+    return Intl.message(
+      'Every series’ rows from the change journal, written into the standby’s own day files.',
+      name: 'sysHeldHistoryNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No standby is following this broker`
+  String get sysNoStandbyTitle {
+    return Intl.message(
+      'No standby is following this broker',
+      name: 'sysNoStandbyTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `'sys/standby_connected' is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.`
+  String get sysNoStandbyBody {
+    return Intl.message(
+      '`sys/standby_connected` is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.',
+      name: 'sysNoStandbyBody',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `To add one (on the hosts, not in Studio)`
+  String get sysNoStandbySteps {
+    return Intl.message(
+      'To add one (on the hosts, not in Studio)',
+      name: 'sysNoStandbySteps',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `1. Copy the keys to the second host: 'wyrmd keys export' here, 'wyrmd keys import' there.`
+  String get sysNoStandbyStep1 {
+    return Intl.message(
+      '1. Copy the keys to the second host: `wyrmd keys export` here, `wyrmd keys import` there.',
+      name: 'sysNoStandbyStep1',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `2. In 'wyrmd.json5' on both hosts: '{standby}' and 'peers.listen'; a lease 'arbiter' on a third host is recommended.`
+  String sysNoStandbyStep2(Object standby) {
+    return Intl.message(
+      '2. In `wyrmd.json5` on both hosts: `$standby` and `peers.listen`; a lease `arbiter` on a third host is recommended.',
+      name: 'sysNoStandbyStep2',
+      desc: '',
+      args: [standby],
+    );
+  }
+
+  /// `3. Start the second host; this tab shows it within a second.`
+  String get sysNoStandbyStep3 {
+    return Intl.message(
+      '3. Start the second host; this tab shows it within a second.',
+      name: 'sysNoStandbyStep3',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Guide: docs/operations.md › Warm standby ›`
+  String get sysGuideLink {
+    return Intl.message(
+      'Guide: docs/operations.md › Warm standby ›',
+      name: 'sysGuideLink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Link to the guide copied: {url}`
+  String sysGuideCopied(Object url) {
+    return Intl.message(
+      'Link to the guide copied: $url',
+      name: 'sysGuideCopied',
+      desc: '',
+      args: [url],
+    );
+  }
+
+  /// `Source`
+  String get sysSource {
+    return Intl.message('Source', name: 'sysSource', desc: '', args: []);
+  }
+
+  /// `broker (all)`
+  String get sysBrokerAll {
+    return Intl.message(
+      'broker (all)',
+      name: 'sysBrokerAll',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `link: {id}`
+  String sysLinkSource(Object id) {
+    return Intl.message(
+      'link: $id',
+      name: 'sysLinkSource',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `Level and more severe`
+  String get sysLevelMore {
+    return Intl.message(
+      'Level and more severe',
+      name: 'sysLevelMore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Filter`
+  String get sysFilter {
+    return Intl.message('Filter', name: 'sysFilter', desc: '', args: []);
+  }
+
+  /// `text in the target or message`
+  String get sysFilterHint {
+    return Intl.message(
+      'text in the target or message',
+      name: 'sysFilterHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Lines`
+  String get sysLines {
+    return Intl.message('Lines', name: 'sysLines', desc: '', args: []);
+  }
+
+  /// `every 5 s`
+  String get sysEvery5s {
+    return Intl.message('every 5 s', name: 'sysEvery5s', desc: '', args: []);
+  }
+
+  /// `Get log`
+  String get sysGetLog {
+    return Intl.message('Get log', name: 'sysGetLog', desc: '', args: []);
+  }
+
+  /// `{n} lines from the broker's ring · newest first · 'sys/~act/get_log'`
+  String sysLogSummary(Object n) {
+    return Intl.message(
+      '$n lines from the broker\'s ring · newest first · `sys/~act/get_log`',
+      name: 'sysLogSummary',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `'sys/~act/get_log' · config`
+  String get sysLogSummaryNone {
+    return Intl.message(
+      '`sys/~act/get_log` · config',
+      name: 'sysLogSummaryNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy`
+  String get sysCopy {
+    return Intl.message('Copy', name: 'sysCopy', desc: '', args: []);
+  }
+
+  /// `Save as .log`
+  String get sysSaveLog {
+    return Intl.message('Save as .log', name: 'sysSaveLog', desc: '', args: []);
+  }
+
+  /// `No lines at this level.`
+  String get sysNoLines {
+    return Intl.message(
+      'No lines at this level.',
+      name: 'sysNoLines',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The log is read with config on sys.`
+  String get sysLogNeedsConfig {
+    return Intl.message(
+      'The log is read with config on sys.',
+      name: 'sysLogNeedsConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Lines copied: {n}`
+  String sysLogCopied(Object n) {
+    return Intl.message(
+      'Lines copied: $n',
+      name: 'sysLogCopied',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Saved {path}`
+  String sysLogSaved(Object path) {
+    return Intl.message(
+      'Saved $path',
+      name: 'sysLogSaved',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `Cannot save the log`
+  String get sysLogNotSaved {
+    return Intl.message(
+      'Cannot save the log',
+      name: 'sysLogNotSaved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Broker log level`
+  String get sysBrokerLogLevel {
+    return Intl.message(
+      'Broker log level',
+      name: 'sysBrokerLogLevel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Staged in Review and apply; once applied it takes effect at once, no restart, and replaces 'RUST_LOG'. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link's own level: Links › the link › Log.`
+  String get sysLogLevelNote {
+    return Intl.message(
+      'Staged in Review and apply; once applied it takes effect at once, no restart, and replaces `RUST_LOG`. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link\'s own level: Links › the link › Log.',
+      name: 'sysLogLevelNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Disconnected links`
+  String get sysStale {
+    return Intl.message(
+      'Disconnected links',
+      name: 'sysStale',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.`
+  String get sysStaleNote {
+    return Intl.message(
+      'Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.',
+      name: 'sysStaleNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `external · CN {cn}`
+  String sysStaleRow(Object cn) {
+    return Intl.message(
+      'external · CN $cn',
+      name: 'sysStaleRow',
+      desc: '',
+      args: [cn],
+    );
+  }
+
+  /// `not connected`
+  String get sysNotConnected {
+    return Intl.message(
+      'not connected',
+      name: 'sysNotConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No disconnected links.`
+  String get sysNoStale {
+    return Intl.message(
+      'No disconnected links.',
+      name: 'sysNoStale',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Clear disconnected links ({n})…`
+  String sysClear(Object n) {
+    return Intl.message(
+      'Clear disconnected links ($n)…',
+      name: 'sysClear',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Clear {n} disconnected links…`
+  String sysClearBoard(Object n) {
+    return Intl.message(
+      'Clear $n disconnected links…',
+      name: 'sysClearBoard',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Clear 1 disconnected link…`
+  String get sysClearOne {
+    return Intl.message(
+      'Clear 1 disconnected link…',
+      name: 'sysClearOne',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Clear disconnected links…`
+  String get sysClearNone {
+    return Intl.message(
+      'Clear disconnected links…',
+      name: 'sysClearNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No disconnected links to clear`
+  String get sysNothingToClear {
+    return Intl.message(
+      'No disconnected links to clear',
+      name: 'sysNothingToClear',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `'sys/~act/clear_conns' · config · asks before it runs`
+  String get sysClearFooter {
+    return Intl.message(
+      '`sys/~act/clear_conns` · config · asks before it runs',
+      name: 'sysClearFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Clear these disconnected links?`
+  String get sysClearAsk {
+    return Intl.message(
+      'Clear these disconnected links?',
+      name: 'sysClearAsk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{ids}\n\nTheir ids are retired and cannot be used again.`
+  String sysClearAskBody(Object ids) {
+    return Intl.message(
+      '$ids\n\nTheir ids are retired and cannot be used again.',
+      name: 'sysClearAskBody',
+      desc: '',
+      args: [ids],
+    );
+  }
+
+  /// `Clear`
+  String get sysClearConfirm {
+    return Intl.message('Clear', name: 'sysClearConfirm', desc: '', args: []);
+  }
+
+  /// `Removed: {ids}`
+  String sysCleared(Object ids) {
+    return Intl.message(
+      'Removed: $ids',
+      name: 'sysCleared',
+      desc: '',
+      args: [ids],
+    );
+  }
+
+  /// `The broker removed no link.`
+  String get sysClearedNone {
+    return Intl.message(
+      'The broker removed no link.',
+      name: 'sysClearedNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Device profiles`
+  String get sysProfiles {
+    return Intl.message(
+      'Device profiles',
+      name: 'sysProfiles',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Models served as 'pub/<vendor>:<model>': points, units and ranges that links and the assistant inherit.`
+  String get sysProfilesNote {
+    return Intl.message(
+      'Models served as `pub/<vendor>:<model>`: points, units and ranges that links and the assistant inherit.',
+      name: 'sysProfilesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Put profile…`
+  String get sysPutProfile {
+    return Intl.message(
+      'Put profile…',
+      name: 'sysPutProfile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove`
+  String get sysRemove {
+    return Intl.message('Remove', name: 'sysRemove', desc: '', args: []);
+  }
+
+  /// `Remove profile {name}`
+  String sysRemoveProfile(Object name) {
+    return Intl.message(
+      'Remove profile $name',
+      name: 'sysRemoveProfile',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The broker stops serving pub/{name} and records it in the audit journal (profile_remove).`
+  String sysRemoveProfileAsk(Object name) {
+    return Intl.message(
+      'The broker stops serving pub/$name and records it in the audit journal (profile_remove).',
+      name: 'sysRemoveProfileAsk',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `No profiles.`
+  String get sysNoProfiles {
+    return Intl.message(
+      'No profiles.',
+      name: 'sysNoProfiles',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker does not list its profiles through the gateway ({reason}). You can still put one; it is then served at pub/<name>.`
+  String sysProfilesUnlisted(Object reason) {
+    return Intl.message(
+      'This broker does not list its profiles through the gateway ($reason). You can still put one; it is then served at pub/<name>.',
+      name: 'sysProfilesUnlisted',
+      desc: '',
+      args: [reason],
+    );
+  }
+
+  /// `'sys/profiles' › Put Profile, Remove Profile · config`
+  String get sysProfilesFooter {
+    return Intl.message(
+      '`sys/profiles` › Put Profile, Remove Profile · config',
+      name: 'sysProfilesFooter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Name`
+  String get sysProfileName {
+    return Intl.message('Name', name: 'sysProfileName', desc: '', args: []);
+  }
+
+  /// `<vendor>:<model>`
+  String get sysProfileNameHint {
+    return Intl.message(
+      '<vendor>:<model>',
+      name: 'sysProfileNameHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `File {name}. A .cbor file is sent as it is; a JSON file is encoded first.`
+  String sysProfileFile(Object name) {
+    return Intl.message(
+      'File $name. A .cbor file is sent as it is; a JSON file is encoded first.',
+      name: 'sysProfileFile',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Put profile`
+  String get sysPut {
+    return Intl.message('Put profile', name: 'sysPut', desc: '', args: []);
+  }
+
+  /// `Profile {name} put`
+  String sysProfilePut(Object name) {
+    return Intl.message(
+      'Profile $name put',
+      name: 'sysProfilePut',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Profile {name} removed`
+  String sysProfileRemoved(Object name) {
+    return Intl.message(
+      'Profile $name removed',
+      name: 'sysProfileRemoved',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Back up and restore`
+  String get sysBackup {
+    return Intl.message(
+      'Back up and restore',
+      name: 'sysBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Everything the broker owns is in its 'data_dir' (here {size}). Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:`
+  String sysBackupNote(Object size) {
+    return Intl.message(
+      'Everything the broker owns is in its `data_dir` (here $size). Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:',
+      name: 'sysBackupNote',
+      desc: '',
+      args: [size],
+    );
+  }
+
+  /// `Everything the broker owns is in its 'data_dir'. Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:`
+  String get sysBackupNoteNoSize {
+    return Intl.message(
+      'Everything the broker owns is in its `data_dir`. Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:',
+      name: 'sysBackupNoteNoSize',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back up (broker stopped)`
+  String get sysCmdBackup {
+    return Intl.message(
+      'Back up (broker stopped)',
+      name: 'sysCmdBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.`
+  String get sysCmdBackupNote {
+    return Intl.message(
+      'Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.',
+      name: 'sysCmdBackupNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check a copy`
+  String get sysCmdVerify {
+    return Intl.message(
+      'Check a copy',
+      name: 'sysCmdVerify',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.`
+  String get sysCmdVerifyNote {
+    return Intl.message(
+      'Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.',
+      name: 'sysCmdVerifyNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Before a restart with a changed file`
+  String get sysCmdCheck {
+    return Intl.message(
+      'Before a restart with a changed file',
+      name: 'sysCmdCheck',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The configuration parses and validates; exit code 1 otherwise.`
+  String get sysCmdCheckNote {
+    return Intl.message(
+      'The configuration parses and validates; exit code 1 otherwise.',
+      name: 'sysCmdCheckNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy: {title}`
+  String sysCopyCommand(Object title) {
+    return Intl.message(
+      'Copy: $title',
+      name: 'sysCopyCommand',
+      desc: '',
+      args: [title],
+    );
+  }
+
+  /// `Commands copied`
+  String get sysCommandCopied {
+    return Intl.message(
+      'Commands copied',
+      name: 'sysCommandCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker's administrators can read it.`
+  String get sysBackupWarning {
+    return Intl.message(
+      'A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker\'s administrators can read it.',
+      name: 'sysBackupWarning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Also broker settings, kept where they are used:`
+  String get sysElsewhere {
+    return Intl.message(
+      'Also broker settings, kept where they are used:',
+      name: 'sysElsewhere',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Admission of new links › Links › Quarantine`
+  String get sysElsewhereLinks {
+    return Intl.message(
+      'Admission of new links › Links › Quarantine',
+      name: 'sysElsewhereLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tokens for sites below › Sites`
+  String get sysElsewhereSites {
+    return Intl.message(
+      'Tokens for sites below › Sites',
+      name: 'sysElsewhereSites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Roles and grants › Access`
+  String get sysElsewhereAccess {
+    return Intl.message(
+      'Roles and grants › Access',
+      name: 'sysElsewhereAccess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retention and purge › History`
+  String get sysElsewhereHistory {
+    return Intl.message(
+      'Retention and purge › History',
+      name: 'sysElsewhereHistory',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needs a look · {n}`
+  String sysNeedsLook(Object n) {
+    return Intl.message(
+      'Needs a look · $n',
+      name: 'sysNeedsLook',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `From the broker's own values. Each opens the screen where it is fixed.`
+  String get sysNeedsLookNote {
+    return Intl.message(
+      'From the broker\'s own values. Each opens the screen where it is fixed.',
+      name: 'sysNeedsLookNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing needs a look.`
+  String get sysNothing {
+    return Intl.message(
+      'Nothing needs a look.',
+      name: 'sysNothing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker`
+  String get sysThisBroker {
+    return Intl.message(
+      'This broker',
+      name: 'sysThisBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Site`
+  String get sysFactSite {
+    return Intl.message('Site', name: 'sysFactSite', desc: '', args: []);
+  }
+
+  /// `Liveliness`
+  String get sysFactLiveliness {
+    return Intl.message(
+      'Liveliness',
+      name: 'sysFactLiveliness',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standby is {n} records behind`
+  String sysAttnBehind(Object n) {
+    return Intl.message(
+      'Standby is $n records behind',
+      name: 'sysAttnBehind',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `The standby moved a fork aside`
+  String get sysAttnFork {
+    return Intl.message(
+      'The standby moved a fork aside',
+      name: 'sysAttnFork',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Forks moved aside after a split: {n}`
+  String sysAttnBehindDetail(Object n) {
+    return Intl.message(
+      'Forks moved aside after a split: $n',
+      name: 'sysAttnBehindDetail',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `standby_lag is above 0: a takeover now loses records`
+  String get sysAttnBehindPlain {
+    return Intl.message(
+      'standby_lag is above 0: a takeover now loses records',
+      name: 'sysAttnBehindPlain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open Availability ›`
+  String get sysAttnOpenAvail {
+    return Intl.message(
+      'Open Availability ›',
+      name: 'sysAttnOpenAvail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{id} failed`
+  String sysAttnLinkFailed(Object id) {
+    return Intl.message(
+      '$id failed',
+      name: 'sysAttnLinkFailed',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `sys/links/{id}/state is failed; its log says why`
+  String sysAttnLinkDetail(Object id) {
+    return Intl.message(
+      'sys/links/$id/state is failed; its log says why',
+      name: 'sysAttnLinkDetail',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `Open in Links ›`
+  String get sysAttnOpenLinks {
+    return Intl.message(
+      'Open in Links ›',
+      name: 'sysAttnOpenLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{cn} waits in quarantine`
+  String sysAttnQuarantine(Object cn) {
+    return Intl.message(
+      '$cn waits in quarantine',
+      name: 'sysAttnQuarantine',
+      desc: '',
+      args: [cn],
+    );
+  }
+
+  /// `Unknown certificate CN {cn} since {t}`
+  String sysAttnQuarantineSince(Object cn, Object t) {
+    return Intl.message(
+      'Unknown certificate CN $cn since $t',
+      name: 'sysAttnQuarantineSince',
+      desc: '',
+      args: [cn, t],
+    );
+  }
+
+  /// `Unknown certificate CN {cn}`
+  String sysAttnQuarantineDetail(Object cn) {
+    return Intl.message(
+      'Unknown certificate CN $cn',
+      name: 'sysAttnQuarantineDetail',
+      desc: '',
+      args: [cn],
+    );
+  }
+
+  /// `Open Quarantine ›`
+  String get sysAttnOpenQuarantine {
+    return Intl.message(
+      'Open Quarantine ›',
+      name: 'sysAttnOpenQuarantine',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} waits for Authorize`
+  String sysAttnBroker(Object site) {
+    return Intl.message(
+      '$site waits for Authorize',
+      name: 'sysAttnBroker',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `A downstream broker that relays sites: {n}`
+  String sysAttnBrokerRelays(Object n) {
+    return Intl.message(
+      'A downstream broker that relays sites: $n',
+      name: 'sysAttnBrokerRelays',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `A downstream broker`
+  String get sysAttnBrokerPlain {
+    return Intl.message(
+      'A downstream broker',
+      name: 'sysAttnBrokerPlain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open in Sites ›`
+  String get sysAttnOpenSites {
+    return Intl.message(
+      'Open in Sites ›',
+      name: 'sysAttnOpenSites',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `ACL denials grew by {n}`
+  String sysAttnAcl(Object n) {
+    return Intl.message(
+      'ACL denials grew by $n',
+      name: 'sysAttnAcl',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `acl_denied was {from} when this screen was last shown`
+  String sysAttnAclDetail(Object from) {
+    return Intl.message(
+      'acl_denied was $from when this screen was last shown',
+      name: 'sysAttnAclDetail',
+      desc: '',
+      args: [from],
+    );
+  }
+
+  /// `Open Audit ›`
+  String get sysAttnOpenAudit {
+    return Intl.message(
+      'Open Audit ›',
+      name: 'sysAttnOpenAudit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No standby follows this broker`
+  String get sysAttnNoStandby {
+    return Intl.message(
+      'No standby follows this broker',
+      name: 'sysAttnNoStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `standby_connected is 0`
+  String get sysAttnNoStandbyDetail {
+    return Intl.message(
+      'standby_connected is 0',
+      name: 'sysAttnNoStandbyDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Nothing to show here.`
   String get treeEmpty {
     return Intl.message(

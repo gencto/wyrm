@@ -32,7 +32,9 @@ flowchart LR
     links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
-    system -->|"onAction [a == 'gallery']"| gallery
+    system -->|"onTile"| gallery
+    system -->|"onAttention"| gallery
+    system -->|"onElsewhere"| gallery
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
     linkInstall -.->|"onResultAction"| frxBack
@@ -58,6 +60,6 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
-| `SystemPage` | `/studio/system` | no | 4 | [system](system.md) |
+| `SystemPage` | `/studio/system` | no | 17 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |

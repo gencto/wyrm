@@ -1,0 +1,262 @@
+{
+  "intents": [
+    {
+      "command": "add-model",
+      "args": [
+        "log_line"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "traffic_sample"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "profile_info"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "log:IList<LogLine>"
+      ],
+      "options": {
+        "default": "IListConst([])",
+        "force": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "tab:String"
+      ],
+      "options": {
+        "default": "'overview'",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "measure:String"
+      ],
+      "options": {
+        "default": "'messages'",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "source:String?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "lines:int"
+      ],
+      "options": {
+        "default": "200",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "auto:bool"
+      ],
+      "options": {
+        "default": "true",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "shown:bool"
+      ],
+      "options": {
+        "default": "false",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "logError:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "samples:IList<TrafficSample>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "trafficRoot:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "profiles:IList<ProfileInfo>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "profilesNote:String?"
+      ],
+      "options": {}
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "aclSeen:int?"
+      ],
+      "options": {
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "about:IMap<String, String>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "system",
+        "units:IMap<String, String>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "set_filter"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "sample_traffic"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "clear_conns"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ],
+        "selector": false
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "retrieve_profiles"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "waiting",
+        "selector": false
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "put_profile"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ],
+        "selector": false
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "remove_profile"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ],
+        "selector": false
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "retrieve_sys_about"
+      ],
+      "options": {
+        "state": "system",
+        "kind": "waiting",
+        "selector": false
+      }
+    },
+    {
+      "command": "add-service",
+      "args": [
+        "traffic"
+      ]
+    }
+  ]
+}

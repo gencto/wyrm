@@ -21,6 +21,7 @@ LinkInfo linkInfoOf(String id, NodeMeta m, {String? state}) => LinkInfo(
   device: str(attrOf(m, 'device')) ?? str(attrOf(m, 'address')),
   certificateCn: str(attrOf(m, 'cn')),
   note: m.displayName,
+  origin: str(attrOf(m, 'origin')) ?? 'config',
 );
 
 /// `attr.mode` of a link: `embedded`, `process`, `wasm`, `external`.

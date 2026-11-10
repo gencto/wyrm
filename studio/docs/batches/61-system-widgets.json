@@ -1,0 +1,144 @@
+{
+  "intents": [
+    {
+      "command": "add-widget",
+      "args": [
+        "pill_tabs"
+      ],
+      "options": {
+        "dir": "buttons",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "sys_tile"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "traffic_card"
+      ],
+      "options": {
+        "dir": "charts",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "attention_panel"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "standby_pair"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "log_table"
+      ],
+      "options": {
+        "dir": "tables",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "command_card"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "section_card"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "container"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "row_list"
+      ],
+      "options": {
+        "dir": "tables",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "term_table"
+      ],
+      "options": {
+        "dir": "tables",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "code_text"
+      ],
+      "options": {
+        "dir": "indicators",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "log_toolbar"
+      ],
+      "options": {
+        "dir": "forms",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "warn_banner"
+      ],
+      "options": {
+        "dir": "alerts",
+        "kind": "view"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "guide_card"
+      ],
+      "options": {
+        "dir": "containers",
+        "kind": "view"
+      }
+    }
+  ]
+}

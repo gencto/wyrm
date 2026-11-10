@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/attention_item.dart';
+import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/block_info.dart';
 import 'package:models/catalog_item.dart';
@@ -16,6 +18,7 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_value.dart';
+import 'package:models/log_line.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
@@ -25,17 +28,21 @@ import 'package:models/package_info.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
+import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/standby_state.dart';
 import 'package:models/task_event.dart';
+import 'package:models/traffic_sample.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
+import '../wyrm/mappers/link_info_mapper.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -66,6 +73,10 @@ import 'peers/actions/retrieve_peers_action.dart';
 import 'quarantine/actions/retrieve_quarantine_action.dart';
 import 'session/actions/log_out_action.dart';
 import 'site/actions/retrieve_sites_action.dart';
+import 'system/actions/clear_conns_action.dart';
+import 'system/actions/put_profile_action.dart';
+import 'system/actions/remove_profile_action.dart';
+import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 
@@ -183,9 +194,112 @@ extension SelectComposites on Selectors {
             (w.isWaitingForType<RetrieveAgentAction>() ||
                 w.isWaitingForType<RetrieveTasksAction>()),
       .system =>
-        state.system.log.isNotEmpty &&
-            w.isWaitingForType<RetrieveSystemLogAction>(),
+        (state.system.log.isNotEmpty &&
+                w.isWaitingForType<RetrieveSystemLogAction>()) ||
+            (state.system.profiles.isNotEmpty &&
+                w.isWaitingForType<RetrieveProfilesAction>()),
     };
+  }
+}
+
+/// What System says about the broker on screen, from the values it serves
+/// under `sys` (specs/system.md). They read `live`, `links`, `quarantine`
+/// and `system` at once, so they sit on the facade.
+extension SelectBrokerHealth on Selectors {
+  num? _sys(String key) =>
+      switch (live.values['${site.root}/sys/$key']?.value) {
+        final num n => n,
+        _ => null,
+      };
+
+  /// The state of [link]: its live `sys/links/<id>/state` when watched,
+  /// else what was read with the list.
+  String linkStateOf_(LinkInfo link) =>
+      switch (live.values['${site.root}/sys/links/${link.id}/state']) {
+        final v? => linkStateOf(v.value),
+        null => link.state,
+      };
+
+  /// The links `sys ▸ clear_conns` would remove, by the broker's own rule
+  /// (wyrm-admin `clear_conns`): mode external, admitted at runtime, not
+  /// connected now.
+  List<LinkInfo> get clearableLinks => [
+    for (final id in links.view)
+      if (links.table[id] case final l?)
+        if (l.mode == LinkMode.external &&
+            l.origin == 'runtime' &&
+            linkStateOf_(l) != 'connected')
+          l,
+  ];
+
+  /// The links whose state is failed, in list order.
+  List<LinkInfo> get failedLinks => [
+    for (final id in links.view)
+      if (links.table[id] case final l? when linkStateOf_(l) == 'failed') l,
+  ];
+
+  /// The warm standby, from `standby_connected`, `standby_lag` and
+  /// `standby_forks`.
+  StandbyState get standby {
+    final connected = _sys('standby_connected');
+    if (connected == null) {
+      return StandbyState.unknown;
+    }
+    if (connected <= 0) {
+      return StandbyState.none;
+    }
+    return (_sys('standby_lag') ?? 0) > 0 || (_sys('standby_forks') ?? 0) > 0
+        ? StandbyState.behind
+        : StandbyState.following;
+  }
+
+  /// The cards of the attention panel, in its order: the standby behind,
+  /// each failed link, each quarantine entry, each downstream broker that
+  /// waits for Authorize, the ACL counter grown since the screen was last
+  /// shown, and last that no standby follows.
+  List<AttentionItem> get attention {
+    final lag = _sys('standby_lag') ?? 0;
+    final forks = _sys('standby_forks') ?? 0;
+    final waiting = [
+      for (final id in quarantine.view)
+        if (quarantine.table[id] case final q? when !q.deauthorized) q,
+    ];
+    final acl = _sys('acl_denied');
+    final seen = system.aclSeen;
+    return [
+      if (lag > 0 || forks > 0)
+        AttentionItem(
+          kind: AttentionKind.standbyBehind,
+          count: lag.round(),
+          more: forks.round(),
+        ),
+      for (final l in failedLinks)
+        AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
+      for (final q in waiting)
+        if (q.kind != 'broker')
+          AttentionItem(
+            kind: AttentionKind.quarantine,
+            subject: q.node,
+            name: q.cn,
+            since: q.firstSeen,
+          ),
+      for (final q in waiting)
+        if (q.kind == 'broker')
+          AttentionItem(
+            kind: AttentionKind.brokerWaiting,
+            subject: q.node,
+            name: q.cn,
+            count: q.via.length,
+          ),
+      if (acl != null && seen != null && acl > seen)
+        AttentionItem(
+          kind: AttentionKind.aclGrown,
+          count: (acl - seen).round(),
+          more: seen,
+        ),
+      if (standby == StandbyState.none)
+        const AttentionItem(kind: AttentionKind.noStandby),
+    ];
   }
 }
 
@@ -779,7 +893,7 @@ extension type SelectAccess(AppState _state) {
 
 extension type SelectSystem(AppState _state) {
   /// Returns log
-  IList<String> get log => _state.system.log;
+  IList<LogLine> get log => _state.system.log;
 
   /// Returns logLevel
   String? get logLevel => _state.system.logLevel;
@@ -789,6 +903,54 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
+
+  /// Returns tab
+  String get tab => _state.system.tab;
+
+  /// Returns measure
+  String get measure => _state.system.measure;
+
+  /// Returns source
+  String? get source => _state.system.source;
+
+  /// Returns lines
+  int get lines => _state.system.lines;
+
+  /// Returns auto
+  bool get auto => _state.system.auto;
+
+  /// Returns shown
+  bool get shown => _state.system.shown;
+
+  /// Returns logError
+  String? get logError => _state.system.logError;
+
+  /// Returns samples
+  IList<TrafficSample> get samples => _state.system.samples;
+
+  /// Returns trafficRoot
+  String? get trafficRoot => _state.system.trafficRoot;
+
+  /// Returns profiles
+  IList<ProfileInfo> get profiles => _state.system.profiles;
+
+  /// Returns profilesNote
+  String? get profilesNote => _state.system.profilesNote;
+
+  /// Returns aclSeen
+  int? get aclSeen => _state.system.aclSeen;
+
+  /// Returns about
+  IMap<String, String> get about => _state.system.about;
+
+  /// Returns units
+  IMap<String, String> get units => _state.system.units;
+
+  /// Returns isActing
+  bool get isActing =>
+      _state.wait.isWaitingForType<ClearConnsAction>() ||
+      _state.wait.isWaitingForType<PutProfileAction>() ||
+      _state.wait.isWaitingForType<RemoveProfileAction>();
 }
 
 extension type SelectPanels(AppState _state) {
