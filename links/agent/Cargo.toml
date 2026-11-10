@@ -13,7 +13,7 @@ authors.workspace = true
 bin = ["wyrm-link-sdk/process", "tokio/rt-multi-thread", "dep:tracing-subscriber"]
 
 # `wyrm-agent`: the command line over a gateway (ADR 0033).
-cli = ["dep:wyrm-gateway-client", "dep:clap", "tokio/rt-multi-thread"]
+cli = ["dep:wyrm-gateway-client", "dep:clap", "tokio/rt-multi-thread", "wyrm-mcp/gateway"]
 
 [[bin]]
 name = "wyrm-link-agent"

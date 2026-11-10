@@ -6794,10 +6794,13 @@ name = "wyrm-gateway-client"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "rustls",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tracing",
+ "webpki-roots",
  "wyrm-core",
 ]
 
@@ -7356,6 +7359,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.3.4",
  "hex",
+ "rcgen",
  "rmcp",
  "schemars 1.2.3",
  "serde",
@@ -7367,6 +7371,8 @@ dependencies = [
  "wyrm-client",
  "wyrm-core",
  "wyrm-flow",
+ "wyrm-gateway",
+ "wyrm-gateway-client",
  "wyrm-link-mock",
  "wyrm-link-sdk",
  "zenoh",

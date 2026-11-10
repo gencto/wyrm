@@ -9,7 +9,9 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["http"]
+default = ["http", "gateway"]
+# Tools over a user gateway (ADR 0041): Claude Desktop's connector, `wyrm-agent`'s operations.
+gateway = ["dep:wyrm-gateway-client", "tokio/sync"]
 # Streamable HTTP transport (loopback only).
 http = ["rmcp/transport-streamable-http-server", "dep:axum"]
 
@@ -17,6 +19,7 @@ http = ["rmcp/transport-streamable-http-server", "dep:axum"]
 wyrm-core.workspace = true
 wyrm-client.workspace = true
 wyrm-flow.workspace = true
+wyrm-gateway-client = { workspace = true, optional = true }
 zenoh = { workspace = true, features = ["transport_tcp", "transport_tls", "transport_unixsock-stream"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal", "io-std"] }
 rmcp = { workspace = true, features = ["server", "macros", "transport-io"] }
@@ -35,6 +38,8 @@ zeroize.workspace = true
 axum = { workspace = true, optional = true, features = ["http1", "tokio"] }
 
 [dev-dependencies]
+wyrm-gateway.workspace = true
+rcgen.workspace = true
 rmcp = { workspace = true, features = ["client"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true

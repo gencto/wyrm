@@ -55,6 +55,15 @@ pub fn find(section: &str) -> Option<&'static SpecFile> {
     })
 }
 
+/// The MIME type of a spec file.
+pub fn mime(file: &str) -> &'static str {
+    if file.ends_with(".json") {
+        "application/json"
+    } else {
+        "text/markdown"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

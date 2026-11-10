@@ -1,0 +1,36 @@
+# Copy to .github/workflows/claude-desktop.yml (a session without the GitHub `workflow` scope cannot add it).
+# The Claude Desktop extension of wyrm-mcp (ADR 0041): one .mcpb per platform, as artifacts.
+name: claude-desktop
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "tools/wyrm-mcp/**"
+      - "crates/wyrm-gateway-client/**"
+      - "packaging/claude-desktop/**"
+      - ".github/workflows/claude-desktop.yml"
+jobs:
+  mcpb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, args: "--universal", python: python3 }
+          - { os: windows-latest, args: "", python: python }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: build
+        shell: bash
+        env: { PYTHON: "${{ matrix.python }}" }
+        run: packaging/claude-desktop/build.sh ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wyrm-mcpb-${{ matrix.os }}
+          path: dist/claude-desktop/*.mcpb

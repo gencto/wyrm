@@ -975,7 +975,7 @@ impl ServerHandler for WyrmMcp {
                 .map(|f| {
                     Resource::new(spec::uri(f), f.file)
                         .with_title(f.title)
-                        .with_mime_type(mime(f.file))
+                        .with_mime_type(spec::mime(f.file))
                         .with_size(f.text.len() as u64)
                 })
                 .collect(),
@@ -993,16 +993,8 @@ impl ServerHandler for WyrmMcp {
             .and_then(|file| spec::FILES.iter().find(|f| f.file == file))
             .ok_or_else(|| McpError::resource_not_found(request.uri.clone(), None))?;
         Ok(ReadResourceResult::new(vec![
-            ResourceContents::text(f.text, request.uri).with_mime_type(mime(f.file))
+            ResourceContents::text(f.text, request.uri).with_mime_type(spec::mime(f.file))
         ])
         .into())
-    }
-}
-
-fn mime(file: &str) -> &'static str {
-    if file.ends_with(".json") {
-        "application/json"
-    } else {
-        "text/markdown"
     }
 }

@@ -1,6 +1,11 @@
 //! `wyrm-mcp` — MCP server over the WYRM tree. stdio by default (Claude Code,
 //! Claude Desktop); `--http <loopback addr>` serves streamable HTTP on `/mcp`.
 //!
+//! Two ways to the tree: with `--gateway <url>` (the Claude Desktop connector,
+//! ADR 0041) it logs in to a user gateway as `--user` (password from
+//! `WYR_GATEWAY_PASSWORD`) and that user's role decides; without it, it talks
+//! Zenoh to a router as the service account `ai:<agent>` (ADR 0005).
+//!
 //! stdout is the JSON-RPC channel on stdio: logs go to stderr only.
 
 use clap::Parser;
@@ -49,6 +54,25 @@ struct Cli {
     /// process that reaches the port acts as the service account.
     #[arg(long)]
     http: Option<std::net::SocketAddr>,
+    /// Work through this user gateway (`https://host[:port]`, or
+    /// `http://127.0.0.1:<port>` on this host) as `--user`; the password comes
+    /// from WYR_GATEWAY_PASSWORD. Replaces --connect/--key.
+    #[arg(long, env = "WYR_GATEWAY")]
+    gateway: Option<String>,
+    /// Gateway user (with --gateway).
+    #[arg(long, env = "WYR_GATEWAY_USER", default_value = "admin")]
+    user: String,
+    /// PEM roots of the gateway's TLS certificate (a broker CA or a
+    /// self-signed one); without it the public web roots. Empty = none.
+    #[arg(long = "gateway-ca", env = "WYR_GATEWAY_CA")]
+    gateway_ca: Option<String>,
+    /// Refuse every change (with --gateway; also WYRM_MCP_READ_ONLY=true).
+    #[arg(long)]
+    read_only: bool,
+    /// Let config-level changes through (with --gateway; the role still
+    /// decides; also WYRM_MCP_ALLOW_CONFIG=true).
+    #[arg(long)]
+    allow_config: bool,
 }
 
 #[tokio::main]
@@ -78,6 +102,9 @@ async fn run(cli: Cli) -> Result<(), Error> {
     if let Some(addr) = cli.http {
         check_http_addr(addr)?;
     }
+    if let Some(url) = cli.gateway.as_deref().and_then(given).map(str::to_owned) {
+        return run_gateway(cli, url).await;
+    }
     let key = cli.key.as_deref().map(load_key).transpose()?;
     if key.is_none() {
         tracing::warn!("no --key: read-only (set/invoke/deploy are refused)");
@@ -99,7 +126,70 @@ async fn run(cli: Cli) -> Result<(), Error> {
     }
 }
 
-async fn serve_stdio(server: WyrmMcp) -> Result<(), Error> {
+#[cfg(feature = "gateway")]
+async fn run_gateway(cli: Cli, url: String) -> Result<(), Error> {
+    use wyrm_mcp::gateway::{GatewayMcp, GatewayOptions};
+    let password = Zeroizing::new(std::env::var("WYR_GATEWAY_PASSWORD").map_err(|_| {
+        "--gateway: set WYR_GATEWAY_PASSWORD to the gateway user's password".to_owned()
+    })?);
+    if password.is_empty() {
+        return Err("--gateway: WYR_GATEWAY_PASSWORD is empty".into());
+    }
+    let ca = cli.gateway_ca.as_deref().and_then(given).map(PathBuf::from);
+    let endpoint = wyrm_gateway_client::Endpoint::parse(&url, ca.as_deref())?;
+    let server = GatewayMcp::new(GatewayOptions {
+        endpoint,
+        url: url.clone(),
+        user: cli.user.clone(),
+        password,
+        read_only: cli.read_only || env_flag("WYRM_MCP_READ_ONLY"),
+        allow_config: cli.allow_config || env_flag("WYRM_MCP_ALLOW_CONFIG"),
+    });
+    // A wrong password or an unreachable gateway is only a warning: the
+    // client shows the error of the first tool call, and a gateway that comes
+    // up later is found then.
+    match server.check().await {
+        Ok(me) => tracing::warn!(
+            "gateway {url}: logged in as {} (site {}, max {})",
+            me.sub,
+            me.site,
+            me.max
+        ),
+        Err(e) => tracing::warn!("{e}"),
+    }
+    match cli.http {
+        None => serve_stdio(server).await,
+        Some(addr) => serve_http(server, addr).await,
+    }
+}
+
+/// A setting as given, `None` when empty or a placeholder a client left
+/// unfilled (`${user_config.x}` of a Claude Desktop extension).
+fn given(s: &str) -> Option<&str> {
+    let s = s.trim();
+    (!s.is_empty() && !s.starts_with("${")).then_some(s)
+}
+
+/// On only for `true`, `1`, `yes`, `on`: anything else (unset, a typo, an
+/// unfilled placeholder) leaves the switch off.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on"
+        )
+    })
+}
+
+#[cfg(not(feature = "gateway"))]
+async fn run_gateway(_cli: Cli, _url: String) -> Result<(), Error> {
+    Err("built without the `gateway` feature".into())
+}
+
+async fn serve_stdio<S>(server: S) -> Result<(), Error>
+where
+    S: rmcp::ServerHandler,
+{
     use rmcp::ServiceExt;
     let running = server.serve(rmcp::transport::stdio()).await?;
     running.waiting().await?;
@@ -120,7 +210,10 @@ fn check_http_addr(addr: std::net::SocketAddr) -> Result<(), Error> {
 }
 
 #[cfg(feature = "http")]
-async fn serve_http(server: WyrmMcp, addr: std::net::SocketAddr) -> Result<(), Error> {
+async fn serve_http<S>(server: S, addr: std::net::SocketAddr) -> Result<(), Error>
+where
+    S: rmcp::ServerHandler + Clone + Send + Sync + 'static,
+{
     use rmcp::transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
     };
@@ -175,6 +268,7 @@ async fn serve_http(server: WyrmMcp, addr: std::net::SocketAddr) -> Result<(), E
     Ok(())
 }
 
+#[cfg(feature = "http")]
 const HTTP_TOKEN_ENV: &str = "WYRM_MCP_HTTP_TOKEN";
 
 /// Host is a loopback name with our port, no `Origin` (browsers send one;
@@ -206,7 +300,7 @@ fn http_allowed(h: &axum::http::HeaderMap, port: u16, token: &str) -> bool {
 }
 
 #[cfg(not(feature = "http"))]
-async fn serve_http(_server: WyrmMcp, _addr: std::net::SocketAddr) -> Result<(), Error> {
+async fn serve_http<S>(_server: S, _addr: std::net::SocketAddr) -> Result<(), Error> {
     Err("built without the `http` feature".into())
 }
 
@@ -320,5 +414,29 @@ mod tests {
         assert_eq!(c.agent_name, "ops");
         assert!(c.http.is_none());
         assert!(tls_config("tls/h:1", &None, &None, &None).is_err());
+        assert!(c.gateway.is_none());
+    }
+
+    #[test]
+    fn gateway_cli_parses() {
+        let c = Cli::try_parse_from([
+            "wyrm-mcp",
+            "--gateway",
+            "https://broker.example",
+            "--user",
+            "claude",
+            "--read-only",
+        ])
+        .unwrap();
+        assert_eq!(c.gateway.as_deref(), Some("https://broker.example"));
+        assert_eq!(c.user, "claude");
+        assert!(c.read_only && !c.allow_config);
+    }
+
+    #[test]
+    fn unfilled_settings_are_absent() {
+        assert_eq!(given("  "), None);
+        assert_eq!(given("${user_config.gateway_ca}"), None);
+        assert_eq!(given(" /etc/ca.pem "), Some("/etc/ca.pem"));
     }
 }
