@@ -18,9 +18,9 @@ use crate::spec;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, Implementation, ListResourcesResult, PaginatedRequestParams,
-    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ServerCapabilities, ServerConfig,
+    CallToolResult, ContentBlock, Extensions, Implementation, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
+    Resource, ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler};
@@ -28,6 +28,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value as Json};
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use wyrm_core::{NodeMeta, Perm};
@@ -69,19 +70,81 @@ pub struct GatewayOptions {
     pub allow_config: bool,
 }
 
-struct Live {
-    conn: Arc<Conn>,
-    me: Me,
+/// One working session on a gateway: the socket, who it is, and the switches that narrow it.
+#[derive(Clone)]
+pub struct Session {
+    pub conn: Arc<Conn>,
+    pub me: Me,
+    /// Refuse every change.
+    pub read_only: bool,
+    /// Let config-level changes through (the role still decides).
+    pub allow_config: bool,
 }
 
-struct Inner {
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Where a request's session comes from: a password login of this process (the Claude
+/// Desktop extension), or the gateway itself for its own `/mcp` endpoint, which finds the
+/// user in the request (`ext` holds the HTTP request parts there).
+pub trait Backend: Send + Sync + 'static {
+    fn session<'a>(&'a self, ext: &'a Extensions) -> BoxFuture<'a, Result<Session, String>>;
+    /// The gateway, for `whoami`.
+    fn label(&self) -> String;
+}
+
+/// Logs in with a password, keeps the session, and logs in again when it dies.
+struct PasswordBackend {
     opts: GatewayOptions,
-    live: tokio::sync::Mutex<Option<Live>>,
+    live: tokio::sync::Mutex<Option<Session>>,
+}
+
+impl PasswordBackend {
+    async fn open(&self) -> Result<Session, String> {
+        let mut g = self.live.lock().await;
+        if let Some(l) = g.as_ref() {
+            if !l.conn.is_closed() && l.me.exp > now_s() + EXPIRY_MARGIN_S {
+                return Ok(l.clone());
+            }
+        }
+        *g = None;
+        let o = &self.opts;
+        let gw = Gateway::login_at(o.endpoint.clone(), &o.user, &o.password)
+            .await
+            .map_err(|e| format!("gateway {}: {e}", o.url))?;
+        let me = gw
+            .me()
+            .await
+            .map_err(|e| format!("gateway {}: {e}", o.url))?;
+        let conn = Arc::new(
+            gw.connect()
+                .await
+                .map_err(|e| format!("gateway {}: {e}", o.url))?,
+        );
+        tracing::info!(user = %me.sub, site = %me.site, "gateway session opened");
+        let s = Session {
+            conn,
+            me,
+            read_only: o.read_only,
+            allow_config: o.allow_config,
+        };
+        *g = Some(s.clone());
+        Ok(s)
+    }
+}
+
+impl Backend for PasswordBackend {
+    fn session<'a>(&'a self, _ext: &'a Extensions) -> BoxFuture<'a, Result<Session, String>> {
+        Box::pin(self.open())
+    }
+
+    fn label(&self) -> String {
+        self.opts.url.clone()
+    }
 }
 
 #[derive(Clone)]
 pub struct GatewayMcp {
-    inner: Arc<Inner>,
+    backend: Arc<dyn Backend>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -250,77 +313,54 @@ pub struct SpecParams {
 }
 
 impl GatewayMcp {
+    /// The Claude Desktop extension: log in with a password.
     pub fn new(opts: GatewayOptions) -> Self {
+        Self::with_backend(Arc::new(PasswordBackend {
+            opts,
+            live: tokio::sync::Mutex::new(None),
+        }))
+    }
+
+    pub fn with_backend(backend: Arc<dyn Backend>) -> Self {
         Self {
-            inner: Arc::new(Inner {
-                opts,
-                live: tokio::sync::Mutex::new(None),
-            }),
+            backend,
             tool_router: Self::tool_router(),
         }
     }
 
     /// Log in now: a wrong password or an unreachable gateway shows at start.
     pub async fn check(&self) -> Result<Me, String> {
-        let (_, me) = self.live().await?;
-        Ok(me)
+        Ok(self.live(&Extensions::default()).await?.me)
     }
 
-    /// The open socket and who it is, logging in (again) when there is none.
-    async fn live(&self) -> Result<(Arc<Conn>, Me), String> {
-        let mut g = self.inner.live.lock().await;
-        if let Some(l) = g.as_ref() {
-            if !l.conn.is_closed() && l.me.exp > now_s() + EXPIRY_MARGIN_S {
-                return Ok((l.conn.clone(), l.me.clone()));
-            }
-        }
-        *g = None;
-        let o = &self.inner.opts;
-        let gw = Gateway::login_at(o.endpoint.clone(), &o.user, &o.password)
-            .await
-            .map_err(|e| format!("gateway {}: {e}", o.url))?;
-        let me = gw
-            .me()
-            .await
-            .map_err(|e| format!("gateway {}: {e}", o.url))?;
-        let conn = Arc::new(
-            gw.connect()
-                .await
-                .map_err(|e| format!("gateway {}: {e}", o.url))?,
-        );
-        tracing::info!(user = %me.sub, site = %me.site, "gateway session opened");
-        *g = Some(Live {
-            conn: conn.clone(),
-            me: me.clone(),
-        });
-        Ok((conn, me))
+    async fn live(&self, ext: &Extensions) -> Result<Session, String> {
+        self.backend.session(ext).await
     }
 
     /// Run a read; once more on a new socket when the old one died under it.
-    async fn read<F, Fut>(&self, f: F) -> Out
+    async fn read<F, Fut>(&self, ext: &Extensions, f: F) -> Out
     where
         F: Fn(Arc<Conn>, Me) -> Fut,
         Fut: Future<Output = Out>,
     {
-        let (c, me) = self.live().await?;
-        let r = f(c.clone(), me).await;
-        if r.is_err() && c.is_closed() {
-            let (c, me) = self.live().await?;
-            return f(c, me).await;
+        let s = self.live(ext).await?;
+        let r = f(s.conn.clone(), s.me).await;
+        if r.is_err() && s.conn.is_closed() {
+            let s = self.live(ext).await?;
+            return f(s.conn, s.me).await;
         }
         r
     }
 
-    /// The local switches, before anything is sent. `level` is what the request needs.
-    fn gate(&self, key: &str, level: Perm) -> Result<(), String> {
-        let o = &self.inner.opts;
-        if o.read_only {
+    /// The session's switches, before anything is sent. `level` is what the request needs.
+    fn gate(&self, s: &Session, key: &str, level: Perm) -> Result<(), String> {
+        if s.read_only {
             return Err(format!(
                 "{key}: this connector is read-only (its `read_only` setting); \
                  nothing was sent"
             ));
         }
-        if (level >= Perm::Config || is_sys(key)) && !o.allow_config {
+        if (level >= Perm::Config || is_sys(key)) && !s.allow_config {
             return Err(format!(
                 "{key}: a config-level change; this connector lets them through only with its \
                  `allow_config` setting on. Nothing was sent: ask the person to make this change \
@@ -330,30 +370,26 @@ impl GatewayMcp {
         Ok(())
     }
 
-    fn mode(&self) -> Json {
-        let o = &self.inner.opts;
-        json!({ "read_only": o.read_only, "allow_config": o.allow_config })
-    }
-
     // ---------- tools ----------
 
-    async fn do_whoami(&self) -> Out {
-        let (_, me) = self.live().await?;
+    async fn do_whoami(&self, ext: &Extensions) -> Out {
+        let s = self.live(ext).await?;
+        let me = &s.me;
         Ok(json!({
-            "gateway": self.inner.opts.url,
+            "gateway": self.backend.label(),
             "user": me.sub,
             "roles": me.roles,
             "site": me.site,
             "max": me.max,
             "grants": me.grants.iter().map(|(k, p)| json!({ "key": k, "level": p })).collect::<Vec<_>>(),
             "session_expires_in_s": me.exp.saturating_sub(now_s()),
-            "connector": self.mode(),
+            "connector": { "read_only": s.read_only, "allow_config": s.allow_config },
         }))
     }
 
-    async fn do_tree(&self, p: TreeParams) -> Out {
+    async fn do_tree(&self, ext: &Extensions, p: TreeParams) -> Out {
         let depth = p.depth.unwrap_or(1).clamp(1, 4);
-        self.read(|c, me| {
+        self.read(ext, |c, me| {
             let path = p.path.clone();
             async move {
                 let key = full_key(&me.site, &path, false)?;
@@ -366,8 +402,8 @@ impl GatewayMcp {
         .await
     }
 
-    async fn do_meta(&self, p: PathParams) -> Out {
-        self.read(|c, me| {
+    async fn do_meta(&self, ext: &Extensions, p: PathParams) -> Out {
+        self.read(ext, |c, me| {
             let path = p.path.clone();
             async move {
                 let key = full_key(&me.site, &path, false)?;
@@ -383,12 +419,12 @@ impl GatewayMcp {
         .await
     }
 
-    async fn do_get(&self, p: GetParams) -> Out {
+    async fn do_get(&self, ext: &Extensions, p: GetParams) -> Out {
         if p.paths.len() > GET_MAX {
             return Err(format!("at most {GET_MAX} paths per call"));
         }
         let wait = Duration::from_secs_f64(p.wait_s.unwrap_or(3.0).clamp(0.2, 10.0));
-        self.read(|c, me| {
+        self.read(ext, |c, me| {
             let paths = p.paths.clone();
             async move {
                 let mut set = tokio::task::JoinSet::new();
@@ -432,10 +468,10 @@ impl GatewayMcp {
         .await
     }
 
-    async fn do_watch(&self, p: WatchParams) -> Out {
+    async fn do_watch(&self, ext: &Extensions, p: WatchParams) -> Out {
         let seconds = p.seconds.unwrap_or(5.0).clamp(0.1, WATCH_MAX_S);
         let max = p.max.unwrap_or(200).clamp(1, WATCH_SAMPLES_MAX);
-        self.read(|c, me| {
+        self.read(ext, |c, me| {
             let pattern = p.pattern.clone();
             async move {
                 let key = full_key(&me.site, &pattern, true)?;
@@ -448,9 +484,9 @@ impl GatewayMcp {
         .await
     }
 
-    async fn do_history(&self, p: HistoryParams) -> Out {
+    async fn do_history(&self, ext: &Extensions, p: HistoryParams) -> Out {
         let args = json_to_value(&Json::Object(p.args))?;
-        self.read(|c, me| {
+        self.read(ext, |c, me| {
             let path = p.path.clone();
             let args = args.clone();
             async move {
@@ -461,8 +497,9 @@ impl GatewayMcp {
         .await
     }
 
-    async fn do_set(&self, p: SetParams) -> Out {
-        let (c, me) = self.live().await?;
+    async fn do_set(&self, ext: &Extensions, p: SetParams) -> Out {
+        let sess = self.live(ext).await?;
+        let (c, me) = (sess.conn.clone(), sess.me.clone());
         let key = full_key(&me.site, &p.path, false)?;
         let m = c.meta(&key).await.map_err(|e| e.to_string())?;
         if m == NodeMeta::default() {
@@ -475,18 +512,19 @@ impl GatewayMcp {
             "level": level.name(), "as_user": me.sub,
         });
         if p.dry_run {
-            let gate = self.gate(&key, level).err();
+            let gate = self.gate(&sess, &key, level).err();
             return Ok(
                 json!({ "dry_run": true, "would_send": plan, "refused_by_connector": gate }),
             );
         }
-        self.gate(&key, level)?;
+        self.gate(&sess, &key, level)?;
         let r = gw::set(&c, &key, v).await?;
         Ok(json!({ "sent": plan, "result": r }))
     }
 
-    async fn do_invoke(&self, p: InvokeParams) -> Out {
-        let (c, me) = self.live().await?;
+    async fn do_invoke(&self, ext: &Extensions, p: InvokeParams) -> Out {
+        let sess = self.live(ext).await?;
+        let (c, me) = (sess.conn.clone(), sess.me.clone());
         let key = full_key(&me.site, &p.path, false)?;
         let m = c.meta(&key).await.map_err(|e| e.to_string())?;
         if m == NodeMeta::default() {
@@ -499,18 +537,19 @@ impl GatewayMcp {
             "level": level_name, "as_user": me.sub,
         });
         if p.dry_run {
-            let gate = self.gate(&key, level).err();
+            let gate = self.gate(&sess, &key, level).err();
             return Ok(
                 json!({ "dry_run": true, "would_send": plan, "refused_by_connector": gate }),
             );
         }
-        self.gate(&key, level)?;
+        self.gate(&sess, &key, level)?;
         let r = gw::invoke(&c, &key, &p.action, args).await?;
         Ok(json!({ "sent": plan, "result": r["result"] }))
     }
 
-    async fn do_flow(&self, p: FlowParams) -> Out {
-        let (c, me) = self.live().await?;
+    async fn do_flow(&self, ext: &Extensions, p: FlowParams) -> Out {
+        let sess = self.live(ext).await?;
+        let (c, me) = (sess.conn.clone(), sess.me.clone());
         let dataflows = full_key(
             &me.site,
             p.dataflows.as_deref().unwrap_or("dataflows"),
@@ -522,10 +561,10 @@ impl GatewayMcp {
         };
         let check = gw::check_step(&c, &step).await;
         if p.dry_run || check["check"] == json!("error") {
-            let gate = self.gate(&dataflows, Perm::Config).err();
+            let gate = self.gate(&sess, &dataflows, Perm::Config).err();
             return Ok(json!({ "dry_run": true, "check": check, "refused_by_connector": gate }));
         }
-        self.gate(&dataflows, Perm::Config)?;
+        self.gate(&sess, &dataflows, Perm::Config)?;
         gw::run_step(&c, &step).await
     }
 
@@ -551,9 +590,10 @@ impl GatewayMcp {
         })
     }
 
-    async fn do_plan(&self, p: PlanParams) -> Out {
+    async fn do_plan(&self, ext: &Extensions, p: PlanParams) -> Out {
         let steps = gw::parse_plan(&p.plan)?;
-        let (c, _) = self.live().await?;
+        let sess = self.live(ext).await?;
+        let c = sess.conn.clone();
         if !p.apply {
             let mut out = Vec::new();
             let mut ok = true;
@@ -561,7 +601,7 @@ impl GatewayMcp {
                 let mut j = gw::check_step(&c, s).await;
                 ok &= j["check"] != json!("error");
                 if let Some((k, level)) = Self::step_level(&c, s).await? {
-                    if let Err(e) = self.gate(&k, level) {
+                    if let Err(e) = self.gate(&sess, &k, level) {
                         j["refused_by_connector"] = json!(e);
                         ok = false;
                     }
@@ -574,7 +614,7 @@ impl GatewayMcp {
         for (i, s) in steps.iter().enumerate() {
             // checked again before each step: an earlier one may have made the node
             let r = match Self::step_level(&c, s).await? {
-                Some((k, level)) => match self.gate(&k, level) {
+                Some((k, level)) => match self.gate(&sess, &k, level) {
                     Ok(()) => gw::run_step(&c, s).await,
                     Err(e) => Err(e),
                 },
@@ -598,48 +638,72 @@ impl GatewayMcp {
         description = "Who this connector is on the gateway: user, roles, grants (key patterns and levels), the gateway's own site, the session's expiry, and the connector's read_only / allow_config settings. Call it first.",
         annotations(read_only_hint = true)
     )]
-    async fn whoami(&self, Parameters(_): Parameters<NoParams>) -> CallToolResult {
-        done(self.do_whoami().await)
+    async fn whoami(
+        &self,
+        Parameters(_): Parameters<NoParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_whoami(&ctx.extensions).await)
     }
 
     #[tool(
         description = "The nodes below a key, `depth` levels (1–4): key, type, unit, writable. `downstream` lists this site's links, `dataflows` its flows, `storage` the broker storage, `upstream`/`downstream` peer brokers; `wy/<site>/…` reaches other sites.",
         annotations(read_only_hint = true)
     )]
-    async fn tree_list(&self, Parameters(p): Parameters<TreeParams>) -> CallToolResult {
-        done(self.do_tree(p).await)
+    async fn tree_list(
+        &self,
+        Parameters(p): Parameters<TreeParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_tree(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Full ~meta of a node: type, unit, enum, writable level, cfg (min/max…), attributes, history mark, actions with parameter schemas and levels.",
         annotations(read_only_hint = true)
     )]
-    async fn node_meta(&self, Parameters(p): Parameters<PathParams>) -> CallToolResult {
-        done(self.do_meta(p).await)
+    async fn node_meta(
+        &self,
+        Parameters(p): Parameters<PathParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_meta(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Current values of up to 50 points: {path: {v, q, t}} with quality q (good|uncertain|bad) and t in microseconds since the Unix epoch, or {error}.",
         annotations(read_only_hint = true)
     )]
-    async fn value_get(&self, Parameters(p): Parameters<GetParams>) -> CallToolResult {
-        done(self.do_get(p).await)
+    async fn value_get(
+        &self,
+        Parameters(p): Parameters<GetParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_get(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Samples of a key or a pattern (`downstream/mock/**`) over a few seconds (≤ 60): how values move.",
         annotations(read_only_hint = true)
     )]
-    async fn value_watch(&self, Parameters(p): Parameters<WatchParams>) -> CallToolResult {
-        done(self.do_watch(p).await)
+    async fn value_watch(
+        &self,
+        Parameters(p): Parameters<WatchParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_watch(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Recorded values of a point from the broker's historian (spec 01 `~val?history=`): raw rows [t, v, q] or rollups [t_start, v] with `agg` and `window`.",
         annotations(read_only_hint = true)
     )]
-    async fn history(&self, Parameters(p): Parameters<HistoryParams>) -> CallToolResult {
-        done(self.do_history(p).await)
+    async fn history(
+        &self,
+        Parameters(p): Parameters<HistoryParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_history(&ctx.extensions, p).await)
     }
 
     #[tool(
@@ -650,32 +714,48 @@ impl GatewayMcp {
             idempotent_hint = true
         )
     )]
-    async fn node_set(&self, Parameters(p): Parameters<SetParams>) -> CallToolResult {
-        done(self.do_set(p).await)
+    async fn node_set(
+        &self,
+        Parameters(p): Parameters<SetParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_set(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Run an action (~act/<action>) of a node: add a connection or device, edit, remove, restart, set up history, … ALWAYS call with dry_run=true first (the default): it checks the arguments against the action's schema and level and shows what would be sent; show it to the person, then call again with dry_run=false.",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
-    async fn action_invoke(&self, Parameters(p): Parameters<InvokeParams>) -> CallToolResult {
-        done(self.do_invoke(p).await)
+    async fn action_invoke(
+        &self,
+        Parameters(p): Parameters<InvokeParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_invoke(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "Validate (dry_run=true, the default) or deploy a flow definition (spec 06) on a site's flow engine; a deploy sets the version one above the running one. A deploy is config-level: the flow then acts on its targets within this user's rights (ADR 0008).",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
-    async fn flow_deploy(&self, Parameters(p): Parameters<FlowParams>) -> CallToolResult {
-        done(self.do_flow(p).await)
+    async fn flow_deploy(
+        &self,
+        Parameters(p): Parameters<FlowParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_flow(&ctx.extensions, p).await)
     }
 
     #[tool(
         description = "A plan of steps that build on each other (invoke, set, deploy, wait for a node, expect a value, sleep). apply=false (the default) checks every step against the live tree; apply=true runs them in order and stops at the first that fails. Check first, show the person, then apply.",
         annotations(read_only_hint = false, destructive_hint = true)
     )]
-    async fn plan_run(&self, Parameters(p): Parameters<PlanParams>) -> CallToolResult {
-        done(self.do_plan(p).await)
+    async fn plan_run(
+        &self,
+        Parameters(p): Parameters<PlanParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        done(self.do_plan(&ctx.extensions, p).await)
     }
 
     #[tool(

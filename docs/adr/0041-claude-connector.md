@@ -1,6 +1,6 @@
 # ADR 0041 — Claude connector: MCP through the user gateway
 
-**Status:** accepted for stage A (Claude Desktop extension), stage B (a remote connector with OAuth on the gateway) proposed · 2026-11-10. Owner: "Claude should have a connector to WYRM. The chat we have needs a token; make it simpler for the user. Start with the desktop app, which we can test now; the HTTPS one we test later, when there is a domain."
+**Status:** accepted · 2026-11-10. Stage A (Claude Desktop extension) and stage B (a remote connector with OAuth on the gateway) are built and tested against a real gateway in-process. Stage B awaits a live test with claude.ai, once a public HTTPS name exists. Owner: "Claude should have a connector to WYRM. The chat we have needs a token; make it simpler for the user. Start with the desktop app, which we can test now; the HTTPS one we test later, when there is a domain."
 
 ## Context
 Today an AI reaches WYRM three ways, and none of them is simple for an operator:
@@ -35,15 +35,16 @@ The approval tokens of `wyrm-mcp`'s Zenoh mode are not used here. The gateway al
 - `packaging/claude-desktop/`: `manifest.json` (MCPB 0.3, binary server; settings `gateway_url`, `user`, `password` (sensitive: kept in the OS keychain by Claude Desktop), `gateway_ca`, `read_only`, `allow_config`), `pack.py` (the zip) and `build.sh` (this machine; `--universal` gives one macOS binary). CI workflow `packaging/claude-desktop/ci-workflow.yml` (to be copied to `.github/workflows/claude-desktop.yml`) builds the macOS and Windows bundles.
 - Settings arrive as environment variables. An optional setting left empty may arrive as an empty string or as the raw `${user_config.x}`. Both mean "not set". A switch is on only for `true`/`1`/`yes`/`on`, so an unfilled `allow_config` is off.
 
-### 5. Stage B — a remote connector (proposed; built when there is a public HTTPS host)
+### 5. Stage B — a remote connector (built; `gateway.mcp`, off by default)
 The gateway serves `/mcp` (streamable HTTP) itself and is its own OAuth 2.1 authorization server:
 - `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` (RFC 9728, RFC 8414);
-- dynamic client registration (RFC 7591), which Claude uses to register itself, with redirect URIs limited to an allowlist in `gateway.mcp.redirect_uris` (default the Claude callback);
-- `/authorize` with PKCE S256 only: the gateway's own login page (the same users, argon2id, failure limits), then a consent page that names the client and the user. The user can narrow it to read-only there;
-- `/token` gives a short access token (a gateway session with an `aud` of the MCP resource, ≤ 1 h) and a rotating refresh token (stored hashed in the users store, revoked with the user, a role change or a password change);
-- `/mcp` maps the bearer to a `Principal` and runs the same `GatewayMcp` tools in process over the gateway's WebSocket handler (no loopback socket).
+- dynamic client registration (RFC 7591) at `/oauth/register`, which Claude uses to register itself. Clients are stateless: the `client_id` is a sealed token of the redirect URIs and the name. Redirect URIs are limited to an allowlist in `gateway.mcp.redirect_uris`: by default Claude's two callbacks and `loopback` (any port on 127.0.0.1/localhost/::1, RFC 8252);
+- `/oauth/authorize` with PKCE S256 only: one page with the gateway's own login (the same users, argon2id, failure limits, audit) and the consent, which names the client, where it returns, and the site. **Allow changes** (on) and **Allow config-level changes** (off; it needs the first) become the session's `read_only`/`allow_config`. The page is `no-store`, `X-Frame-Options: DENY`, and `frame-ancestors 'none'`. A bad client or redirect shows an error page and never redirects. The redirect carries `code`, `state` and `iss` (RFC 9207). Each sign-in is audited (`McpGranted`, `mcp_sign_in`);
+- `/oauth/token`: codes live in memory (60 s, single use, ≤ 1024 waiting), bound to the client, the redirect URI and the challenge. Access tokens (≤ 1 h) and refresh tokens (30 days) are sealed (`Sealer`, own key `wyrm-gateway/oauth/v1`, a kind byte per sort) and carry the user's generation. A new password, a disabled user or a removed user ends them. A refresh token is bound to its client. Refresh tokens are not single use: they are stateless, like the sessions, and end by expiry or by the user's generation;
+- `/mcp` (rmcp streamable HTTP, `Host` limited to the public name) checks the bearer on every request and resolves the user as now. It runs the same `GatewayMcp` tools in process, over the WebSocket protocol handler through an in-memory pipe (`ws::serve_frames`, `Conn::from_raw`), one pipe per live access token. Grants, rate limits, the socket budget and the audit are those of any gateway socket. An access token is never a gateway session (`/api/*` refuses it).
+- OAuth and MCP are JSON by their own standards (`serde_json` at this edge only); the WYRM wire stays CBOR.
 
-Off by default (`gateway.mcp.enabled`). It needs TLS and a name that Claude's servers can reach. That is the cost: the gateway is reachable from the internet. Put it behind a reverse proxy with an allowlist of Anthropic's published egress ranges, or use the stage A extension, which needs no inbound access.
+Off by default (`gateway.mcp` in `wyrmd.json5`, `GatewayConfig::mcp`; feature `mcp` of `wyrm-gateway`, default on). It needs TLS and a name that Claude's servers can reach. That is the cost: the gateway is reachable from the internet. Put it behind a reverse proxy with an allowlist of Anthropic's published egress ranges, or use the stage A extension, which needs no inbound access.
 
 ## Consequences
 - An operator installs one file, enters a gateway URL, a user and a password, and Claude works within that user's role. There is no API key, and the use counts against the person's Claude plan.

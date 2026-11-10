@@ -70,5 +70,31 @@ The same binary runs anywhere MCP runs:
 
 Without `--gateway`, `wyrm-mcp` is the Zenoh-side server with approval tokens ([mcp.md](mcp.md)).
 
-## Later: a remote connector
-Claude on the web and on mobile adds a connector by URL and logs in with OAuth. The gateway will serve that itself at `https://<broker>/mcp`, with the same login page and the same tools (ADR 0041 stage B). It needs a public HTTPS name.
+## Claude on the web and mobile: the remote connector
+The gateway serves an MCP endpoint at `https://<broker>/mcp` itself, with its own OAuth 2.1 sign-in (ADR 0041 stage B). You add it once on claude.ai, and it works on the web, in Desktop and on mobile. It is off by default. It needs a public HTTPS name that Claude's servers can reach.
+
+1. In `wyrmd.json5`:
+   ```json5
+   gateway: {
+     listen: "0.0.0.0:8445",
+     tls_cert: "/etc/wyrm/gateway.pem",   // a certificate for broker.example from a public CA
+     tls_key: "/etc/wyrm/gateway.key",
+     mcp: {
+       public_url: "https://broker.example:8445",
+       // optional: redirect_uris (default: Claude's callbacks and "loopback"),
+       // access_ttl_s (60…3600, default 3600), refresh_days (1…365, default 30)
+     },
+   },
+   ```
+   Restart `wyrmd`. `https://broker.example:8445/.well-known/oauth-protected-resource` now answers with JSON.
+2. On claude.ai, open **Settings → Connectors → Add custom connector**, name it `WYRM`, and set the URL to `https://broker.example:8445/mcp`. No client ID or secret is needed: Claude registers itself.
+3. Claude opens the gateway's sign-in page. Enter the gateway user (step 1 above) and the password, choose **Allow changes** and/or **Allow config-level changes**, and sign in.
+
+What is checked:
+- Only redirect URIs on the allowlist register: Claude's callbacks, and loopback for MCP clients on your own computer.
+- The code is single use, lasts 60 s, and is bound to PKCE S256.
+- An access token lasts at most 1 h and is valid only on `/mcp`, never as a Studio session.
+- Refresh tokens are bound to the client. A new password, a disabled user or a removed user ends every token.
+- Each sign-in is in the audit as `mcp_sign_in`, with the client's name and what was allowed.
+
+Exposure: the gateway is reachable from the internet. Put it behind a reverse proxy that passes `/mcp`, `/oauth/*` and `/.well-known/oauth-*` and allows only Anthropic's published egress IP ranges for `/mcp` and `/oauth/token`. The sign-in page itself opens in your browser. If you cannot expose the gateway, use the Desktop extension above: it needs no inbound access.

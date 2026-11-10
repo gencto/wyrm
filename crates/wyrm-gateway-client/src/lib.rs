@@ -567,6 +567,19 @@ impl Stream {
 }
 
 impl Conn {
+    /// A connection over a byte stream that already carries the WebSocket
+    /// protocol, without an HTTP handshake: the in-process pipe of the
+    /// gateway's own MCP endpoint (ADR 0041).
+    pub async fn from_raw<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(io: S) -> Self {
+        let ws = WebSocketStream::from_raw_socket(
+            io,
+            tokio_tungstenite::tungstenite::protocol::Role::Client,
+            None,
+        )
+        .await;
+        Self::start(ws)
+    }
+
     fn start<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(ws: WebSocketStream<S>) -> Self {
         let (mut sink, mut source) = ws.split();
         let (out, mut rx) = mpsc::unbounded_channel::<Message>();

@@ -132,6 +132,49 @@ pub fn new_jti() -> [u8; 16] {
     j
 }
 
+/// Other signed tokens of the gateway (the OAuth tokens of the MCP endpoint, ADR 0041):
+/// `base64url(kind || cbor(value) || hmac_sha256)` under a key of its own label. `kind` keeps
+/// one sort of token from passing as another; session tokens (version 0x01, their own key)
+/// never verify here.
+pub struct Sealer(Zeroizing<Vec<u8>>);
+
+impl Sealer {
+    pub fn derive(state_key: &[u8], label: &str) -> Self {
+        let mut m = HmacSha256::new_from_slice(state_key).expect("hmac takes any key length");
+        m.update(label.as_bytes());
+        Self(Zeroizing::new(m.finalize().into_bytes().to_vec()))
+    }
+
+    fn mac(&self) -> HmacSha256 {
+        HmacSha256::new_from_slice(&self.0).expect("hmac takes any key length")
+    }
+
+    pub fn seal(&self, kind: u8, v: &Value) -> String {
+        let mut tok = vec![kind];
+        tok.extend(wyrm_core::codec::to_vec(v).expect("values always encode"));
+        let mut m = self.mac();
+        m.update(&tok);
+        tok.extend(m.finalize().into_bytes());
+        URL_SAFE_NO_PAD.encode(tok)
+    }
+
+    /// The value of a token of `kind` with a good MAC (constant time); `None` otherwise.
+    pub fn open(&self, kind: u8, token: &str) -> Option<Value> {
+        if token.len() > MAX_TOKEN {
+            return None;
+        }
+        let raw = URL_SAFE_NO_PAD.decode(token.trim()).ok()?;
+        if raw.len() < 1 + TAG_LEN + 1 || raw[0] != kind {
+            return None;
+        }
+        let (signed, tag) = raw.split_at(raw.len() - TAG_LEN);
+        let mut m = self.mac();
+        m.update(signed);
+        m.verify_slice(tag).ok()?;
+        wyrm_core::codec::from_slice(&signed[1..]).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +188,18 @@ mod tests {
             jti: [3; 16],
             gen: 1,
         }
+    }
+
+    #[test]
+    fn sealed_tokens_keep_their_kind() {
+        let s = Sealer::derive(b"state key", "a");
+        let v = Value::from("x");
+        let t = s.seal(0x21, &v);
+        assert_eq!(s.open(0x21, &t), Some(v.clone()));
+        assert_eq!(s.open(0x22, &t), None, "another kind");
+        assert_eq!(Sealer::derive(b"state key", "b").open(0x21, &t), None);
+        let k = SessionKey::derive(b"state key");
+        assert_eq!(k.verify(&t, 0), None);
     }
 
     #[test]
